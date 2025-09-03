@@ -1,9 +1,9 @@
 import uuid
 
-from constants import NEVER_RUN
+from user_system.constants import NEVER_RUN
 from django.contrib.auth.models import AbstractUser
 from django.db import models
-from django_cryptography.fields import encrypt
+
 
 # The non-admin user class
 class PositiveOnlySocialUser(AbstractUser):
@@ -64,6 +64,8 @@ class Post(models.Model):
     likes = models.IntegerField(default=0)
     creation_time = models.DateTimeField(auto_now=True, null=True, blank=True)
     updated_time = models.DateTimeField(auto_now=True, null=True, blank=True)
+    author = models.ForeignKey(PositiveOnlySocialUser, on_delete=models.CASCADE,
+                               default=PositiveOnlySocialUser.get_default_pk)
 
     @classmethod
     def get_default_pk(cls):
@@ -96,3 +98,35 @@ class Comment(models.Model):
                                default=PositiveOnlySocialUser.get_default_pk)
     creation_time = models.DateTimeField(auto_now=True, null=True, blank=True)
     updated_time = models.DateTimeField(auto_now=True, null=True, blank=True)
+    likes = models.IntegerField(default=0)
+
+
+# The response sent back to the client
+class Response(models.Model):
+    response_identifier = models.UUIDField(default=uuid.uuid4, primary_key=True, unique=True, editable=False)
+
+    # Info related to the current user's session
+    series_identifier = models.UUIDField(default=uuid.uuid4, primary_key=False, unique=True, editable=False)
+    token =  models.UUIDField(default=uuid.uuid4, primary_key=False, unique=True, editable=False)
+    management_token = models.IntegerField(default=0)
+
+    # Info related to a post
+    post_identifier = models.UUIDField(default=uuid.uuid4, primary_key=False, unique=True, editable=False)
+    image_url = models.TextField(null=True)
+    caption = models.TextField(null=True)
+    post_likes = models.IntegerField(default=0)
+    post_creation_time = models.DateTimeField(auto_now=True, null=True, blank=True)
+    post_updated_time = models.DateTimeField(auto_now=True, null=True, blank=True)
+
+    # Info related to a post comment thread
+    comment_thread_identifier = models.UUIDField(default=uuid.uuid4, primary_key=False, unique=True, editable=False)
+    comment_thread_creation_time = models.DateTimeField(auto_now=True, null=True, blank=True)
+    comment_thread_updated_time = models.DateTimeField(auto_now=True, null=True, blank=True)
+
+    # Info related to a post comment
+    comment_identifier = models.UUIDField(default=uuid.uuid4, primary_key=False, unique=True, editable=False)
+    author_username = models.TextField(null=True)
+    body = models.TextField(null=True)
+    comment_creation_time = models.DateTimeField(auto_now=True, null=True, blank=True)
+    comment_updated_time = models.DateTimeField(auto_now=True, null=True, blank=True)
+    comment_likes = models.IntegerField(default=0)
