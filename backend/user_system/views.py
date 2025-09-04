@@ -64,11 +64,21 @@ def get_user_with_id(user_id):
         return None
 
 
+def get_user_with_series_identifier(series_identifier):
+    try:
+        existing_login_cookie = LoginCookie.objects.get(series_identifier=series_identifier).first()
+        return existing_login_cookie.cookie_user
+    except LoginCookie.DoesNotExist:
+        return None
+
+
 def generate_series_identifier():
     return uuid.uuid4()
 
+
 def generate_token(len_string):
     return hash_string_sha256(generate_random_string(len_string))
+
 
 def generate_management_token():
     return generate_token(LEN_SESSION_MANAGEMENT_TOKEN)
@@ -234,6 +244,7 @@ def login_user_with_remember_me(request, session_management_token, series_identi
     # Send back a login cookie token only
     return JsonResponse({'response_list': serialized_response_list})
 
+
 def request_reset(request, username_or_email):
     invalid_fields = []
     if not is_valid_pattern(username_or_email, Patterns.alphanumeric) and not is_valid_pattern(username_or_email,
@@ -330,16 +341,27 @@ def reset_password(request, username, email, password):
     else:
         return HttpResponseBadRequest("No user with that username and email")
 
+
 @login_required
-def logout_user(request, user_id):
+def logout_user(request, session_management_token, series_identifier, login_cookie_token):
     invalid_fields = []
-    if not is_valid_pattern(user_id, Patterns.uuid4):
-        invalid_fields.append(Params.user_id)
+
+    if not is_valid_pattern(session_management_token, Patterns.alphanumeric):
+        invalid_fields.append(Params.session_management_token)
+
+    if not is_valid_pattern(series_identifier, Patterns.uuid4):
+        invalid_fields.append(Params.series_identifier)
+
+    if not is_valid_pattern(login_cookie_token, Patterns.alphanumeric):
+        invalid_fields.append(Params.login_cookie_token)
 
     if len(invalid_fields) > 0:
         return HttpResponseBadRequest(f"Invalid fields: {invalid_fields}")
 
-    existing = get_user_with_id(user_id)
+    if len(invalid_fields) > 0:
+        return HttpResponseBadRequest(f"Invalid fields: {invalid_fields}")
+
+    existing = get_user_with_series_identifier(series_identifier)
 
     if existing is not None:
         # We send no data back. Just a successful response.
@@ -351,25 +373,26 @@ def logout_user(request, user_id):
     else:
         return HttpResponseBadRequest("No user with id")
 
+
 @login_required
-def delete_user(request, user_id):
+def delete_user(request, session_management_token, series_identifier, login_cookie_token):
     invalid_fields = []
-    if not is_valid_pattern(user_id, Patterns.uuid4):
-        invalid_fields.append(Params.user_id)
+
+    if not is_valid_pattern(session_management_token, Patterns.alphanumeric):
+        invalid_fields.append(Params.session_management_token)
+
+    if not is_valid_pattern(series_identifier, Patterns.uuid4):
+        invalid_fields.append(Params.series_identifier)
+
+    if not is_valid_pattern(login_cookie_token, Patterns.alphanumeric):
+        invalid_fields.append(Params.login_cookie_token)
 
     if len(invalid_fields) > 0:
         return HttpResponseBadRequest(f"Invalid fields: {invalid_fields}")
 
-    existing = get_user_with_id(user_id)
+    existing = get_user_with_series_identifier(series_identifier)
 
     if existing is not None:
-
-        outstanding_asks_in_escrow = existing.denariiask_set.all().filter(in_escrow=True)
-        outstanding_asks_settled = existing.denariiask_set.all().filter(is_settled=True)
-        outstanding_buys = DenariiAsk.objects.filter(buyer=existing)
-
-        if len(outstanding_asks_in_escrow) != 0 or len(outstanding_asks_settled) != 0 or len(outstanding_buys) != 0:
-            return HttpResponseBadRequest("Outstanding asks or buys so cannot delete user")
 
         existing.delete()
 
@@ -380,4 +403,3 @@ def delete_user(request, user_id):
         return JsonResponse({'response_list': serialized_response_list})
     else:
         return HttpResponseBadRequest("No user with id")
-
