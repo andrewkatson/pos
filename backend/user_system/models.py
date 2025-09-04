@@ -33,10 +33,12 @@ class PositiveOnlySocialUser(AbstractUser):
 
 # The session information
 class Session(models.Model):
-    management_token = models.IntegerField(default=0)
+    # SHA256 hashed
+    management_token = models.TextField(null=True)
     management_user = models.ForeignKey(
         PositiveOnlySocialUser, on_delete=models.CASCADE, default=PositiveOnlySocialUser.get_default_pk
     )
+    ip = models.TextField(null=True)
 
 
 # The login cookie information
@@ -107,8 +109,8 @@ class Response(models.Model):
 
     # Info related to the current user's session
     series_identifier = models.UUIDField(default=uuid.uuid4, primary_key=False, unique=True, editable=False)
-    token =  models.UUIDField(default=uuid.uuid4, primary_key=False, unique=True, editable=False)
-    management_token = models.IntegerField(default=0)
+    login_cookie_token =  models.TextField(null=True)
+    session_management_token = models.TextField(null=True)
 
     # Info related to a post
     post_identifier = models.UUIDField(default=uuid.uuid4, primary_key=False, unique=True, editable=False)
