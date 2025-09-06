@@ -34,3 +34,11 @@ From folder `backend`
 ```shell
 python3 manage.py test
 ```
+
+Or from `PyCharm`
+
+* `Run` menu
+* `Edit Configurations` option 
+* `+` option 
+* `Python`
+* Set `manage.py` as script and `test` as parameter

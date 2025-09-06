@@ -38,6 +38,11 @@ class Params:
     login_cookie_token = "LOGIN_COOKIE_TOKEN"
     remember_me = "REMEMBER_ME"
 
+class Fields:
+    series_identifier = "series_identifier"
+    login_cookie_token = "login_cookie_token"
+    session_management_token = "session_management_token"
+
 # Lengths of things
 LEN_LOGIN_COOKIE_TOKEN = 32
 LEN_SESSION_MANAGEMENT_TOKEN = 32

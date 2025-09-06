@@ -7,17 +7,19 @@ from django.contrib.auth.hashers import check_password
 from django.core import serializers
 from django.core.mail import send_mail
 from django.http import JsonResponse, HttpResponseBadRequest
+
 from .constants import Patterns, Params, LEN_LOGIN_COOKIE_TOKEN, LEN_SESSION_MANAGEMENT_TOKEN
 from .input_validator import is_valid_pattern
 from .utils import generate_random_string, hash_string_sha256, convert_to_bool
-from .models import PositiveOnlySocialUser, LoginCookie, Response
+from .models import LoginCookie, Response
+from django.contrib.auth import get_user_model
 
 
 def get_user_with_username_and_email(username, email):
     try:
-        existing = PositiveOnlySocialUser.objects.get(username=username, email=email)
+        existing = get_user_model().objects.get(username=username, email=email)
         return existing
-    except PositiveOnlySocialUser.DoesNotExist:
+    except get_user_model().DoesNotExist:
         return None
 
 
@@ -32,17 +34,17 @@ def get_user_with_username_or_email(username_or_email):
 
 def get_user_with_username(username):
     try:
-        existing = PositiveOnlySocialUser.objects.get(username=username)
+        existing = get_user_model().objects.get(username=username)
         return existing
-    except PositiveOnlySocialUser.DoesNotExist:
+    except get_user_model().DoesNotExist:
         return None
 
 
 def get_user_with_email(email):
     try:
-        existing = PositiveOnlySocialUser.objects.get(email=email)
+        existing = get_user_model().objects.get(email=email)
         return existing
-    except PositiveOnlySocialUser.DoesNotExist:
+    except get_user_model().DoesNotExist:
         return None
 
 
@@ -50,15 +52,15 @@ def get_user(username, email, password):
     try:
         existing = authenticate(username=username, email=email, password=password)
         return existing
-    except PositiveOnlySocialUser.DoesNotExist:
+    except get_user_model().DoesNotExist:
         return None
 
 
 def get_user_with_id(user_id):
     try:
-        existing = PositiveOnlySocialUser.objects.get(id=user_id)
+        existing = get_user_model().objects.get(id=user_id)
         return existing
-    except PositiveOnlySocialUser.DoesNotExist:
+    except get_user_model().DoesNotExist:
         return None
 
 
@@ -116,7 +118,7 @@ def register(request, username, email, password, remember_me, ip):
         if get_user_with_username(username) is not None or get_user_with_email(email) is not None:
             return HttpResponseBadRequest("User already exists")
 
-        new_user = PositiveOnlySocialUser.objects.create_user(username=username, email=email)
+        new_user = get_user_model().objects.create_user(username=username, email=email)
         new_user.set_password(password)
         new_user.save()
 
@@ -260,7 +262,7 @@ def request_reset(request, username_or_email):
     user = get_user_with_username_or_email(username_or_email)
 
     if user is not None:
-        random_number = PositiveOnlySocialUser.objects.make_random_password(length=6, allowed_chars='123456789')
+        random_number = get_user_model().objects.make_random_password(length=6, allowed_chars='123456789')
 
         # Send the user an email.
         send_mail("Password reset id", f"Your password reset id is {random_number}",
