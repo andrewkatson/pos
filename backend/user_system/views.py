@@ -7,11 +7,11 @@ from django.core import serializers
 from django.core.mail import send_mail
 from django.http import JsonResponse, HttpResponseBadRequest
 
-from backend.settings import DEBUG, EMAIL_HOST_USER, EMAIL_HOST_PASSWORD
+from pos_backend.settings import DEBUG, EMAIL_HOST_USER, EMAIL_HOST_PASSWORD
 
 from user_system.constants import Patterns, Params, LEN_LOGIN_COOKIE_TOKEN, LEN_SESSION_MANAGEMENT_TOKEN
-from ..input_validator import is_valid_pattern
-from ..utils import generate_random_string, hash_string_sha256
+from input_validator import is_valid_pattern
+from utils import generate_random_string, hash_string_sha256
 from user_system.models import PositiveOnlySocialUser, Session, LoginCookie, Post, CommentThread, Comment, Response
 
 
