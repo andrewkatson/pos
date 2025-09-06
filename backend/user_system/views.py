@@ -9,7 +9,7 @@ from django.core.mail import send_mail
 from django.http import JsonResponse, HttpResponseBadRequest
 from .constants import Patterns, Params, LEN_LOGIN_COOKIE_TOKEN, LEN_SESSION_MANAGEMENT_TOKEN
 from .input_validator import is_valid_pattern
-from .utils import generate_random_string, hash_string_sha256
+from .utils import generate_random_string, hash_string_sha256, convert_to_bool
 from .models import PositiveOnlySocialUser, LoginCookie, Response
 
 
@@ -99,6 +99,11 @@ def register(request, username, email, password, remember_me, ip):
 
     if not is_valid_pattern(password, Patterns.password):
         invalid_fields.append(Params.password)
+
+    try:
+        remember_me = convert_to_bool(remember_me)
+    except TypeError:
+        invalid_fields.append(Params.remember_me)
 
     if len(invalid_fields) > 0:
         return HttpResponseBadRequest(f"Invalid fields: {invalid_fields}")

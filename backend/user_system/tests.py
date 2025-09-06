@@ -5,9 +5,13 @@ from .views import register, login_user, login_user_with_remember_me, request_re
 from .models import PositiveOnlySocialUser
 
 username = 'andrew'
+invalid_username = '?'
 email = 'andrew@email.com'
 password = 'some password'
+ip = '127.0.0.1'
 
+FAIL = 400
+SUCCESS = 200
 
 class RegisterTests(TestCase):
     def setUp(self):
@@ -26,5 +30,5 @@ class RegisterTests(TestCase):
         request.user = self.user
 
         # Test my_view() as if it were deployed at /customer/details
-        response = register(request)
-        self.assertEqual(response.status_code, 200)
+        response = register(request, invalid_username, email, password, 'False', ip)
+        self.assertEqual(response.status_code, FAIL)
