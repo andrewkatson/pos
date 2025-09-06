@@ -18,9 +18,9 @@ def hash_string_sha256(input_string):
 
 def convert_to_bool(str_value):
     """Converts a string to boolean."""
-    if str_value == 'True':
+    if str_value.lower() == 'true':
         return True
-    elif str_value == 'False':
+    elif str_value.lower() == 'false':
         return False
     else:
         raise TypeError('Invalid input')
