@@ -32,7 +32,7 @@ python3 manage.py migrate
 From folder `backend`
 
 ```shell
-python3 manage.py test
+python3 manage.py test user_system.tests
 ```
 
 Or from `PyCharm`
@@ -41,4 +41,4 @@ Or from `PyCharm`
 * `Edit Configurations` option 
 * `+` option 
 * `Python`
-* Set `manage.py` as script and `test` as parameter
+* Set `manage.py` as script and `test user_system.tests` as parameter
