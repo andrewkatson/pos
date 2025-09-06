@@ -9,17 +9,29 @@ https://docs.djangoproject.com/en/5.2/topics/settings/
 For the full list of settings and their values, see
 https://docs.djangoproject.com/en/5.2/ref/settings/
 """
-
+import os
 from pathlib import Path
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
+
+AUTH_USER_MODEL = 'user_system.PositiveOnlySocialUser'
 
 # Quick-start development settings - unsuitable for production
 # See https://docs.djangoproject.com/en/5.2/howto/deployment/checklist/
 
 # SECURITY WARNING: keep the secret key used in production secret!
 SECRET_KEY = 'django-insecure-4@%*s=%vf%pybqbov%_48k#a$$x0z5)37jza**sq_ewu3owgj%'
+# Quick-start development settings - unsuitable for production
+# See https://docs.djangoproject.com/en/4.1/howto/deployment/checklist/
+secret_key_path = f"{BASE_DIR}/backend/secret_key.txt"
+if os.path.exists(secret_key_path):
+    with open(Path(secret_key_path), "rb") as secret_key_file:
+        lines = secret_key_file.readlines()
+        for line in lines:
+            SECRET_KEY = line.decode('utf8')
+            break
+
 
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = True
@@ -35,7 +47,7 @@ INSTALLED_APPS = [
     'django.contrib.sessions',
     'django.contrib.messages',
     'django.contrib.staticfiles',
-    'user_system',
+    'user_system.apps.UserSystemConfig',
 ]
 
 MIDDLEWARE = [
@@ -118,23 +130,22 @@ DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 
 AUTH_USER_MODEL = 'user_system.PositiveOnlySocialUser'
 
-# SECURITY WARNING: don't run with debug turned on in production!
-DEBUG = False
-
 EMAIL_BACKEND = 'django.core.mail.backends.smtp.EmailBackend'
 EMAIL_HOST = 'smtp.gmail.com'
 EMAIL_PORT = 587
 EMAIL_USE_TLS = True
 EMAIL_HOST_USER = ''
 EMAIL_HOST_PASSWORD = ''
-with open(Path(f"{BASE_DIR}/email_data.txt"), "rb") as email_file:
-    lines = email_file.readlines()
-    for line in lines:
-        if EMAIL_HOST_USER == '':
-            EMAIL_HOST_USER = line.decode('utf8').strip()
-        else:
-            EMAIL_HOST_PASSWORD = line.decode('utf8').strip()
-            break
+email_data_path = Path(f"{BASE_DIR}/email_data.txt")
+if os.path.exists(email_data_path):
+    with open(email_data_path, "rb") as email_file:
+        lines = email_file.readlines()
+        for line in lines:
+            if EMAIL_HOST_USER == '':
+                EMAIL_HOST_USER = line.decode('utf8').strip()
+            else:
+                EMAIL_HOST_PASSWORD = line.decode('utf8').strip()
+                break
 
 
 DATETIME_FORMAT = f"iso-8601"

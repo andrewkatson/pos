@@ -14,3 +14,23 @@ You will need to run the following command
 ```shell
 pip install django
 ```
+
+## Migrations 
+
+From folder `backend`
+
+```shell
+python3 manage.py makemigrations
+```
+
+```shell
+python3 manage.py migrate
+```
+
+## Testing 
+
+From folder `backend`
+
+```shell
+python3 manage.py test
+```

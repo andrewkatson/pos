@@ -1,18 +1,16 @@
 import uuid
 
+from django.conf import settings
 from django.contrib.auth import authenticate, login, logout
 from django.contrib.auth.decorators import login_required
 from django.contrib.auth.hashers import check_password
 from django.core import serializers
 from django.core.mail import send_mail
 from django.http import JsonResponse, HttpResponseBadRequest
-
-from pos_backend.settings import DEBUG, EMAIL_HOST_USER, EMAIL_HOST_PASSWORD
-
-from user_system.constants import Patterns, Params, LEN_LOGIN_COOKIE_TOKEN, LEN_SESSION_MANAGEMENT_TOKEN
-from input_validator import is_valid_pattern
-from utils import generate_random_string, hash_string_sha256
-from user_system.models import PositiveOnlySocialUser, Session, LoginCookie, Post, CommentThread, Comment, Response
+from .constants import Patterns, Params, LEN_LOGIN_COOKIE_TOKEN, LEN_SESSION_MANAGEMENT_TOKEN
+from .input_validator import is_valid_pattern
+from .utils import generate_random_string, hash_string_sha256
+from .models import PositiveOnlySocialUser, LoginCookie, Response
 
 
 def get_user_with_username_and_email(username, email):
@@ -260,8 +258,9 @@ def request_reset(request, username_or_email):
         random_number = PositiveOnlySocialUser.objects.make_random_password(length=6, allowed_chars='123456789')
 
         # Send the user an email.
-        send_mail("Password reset id", f"Your password reset id is {random_number}", f"{EMAIL_HOST_USER}@gmail.com",
-                  [user.email], auth_user=EMAIL_HOST_USER, auth_password=EMAIL_HOST_PASSWORD)
+        send_mail("Password reset id", f"Your password reset id is {random_number}",
+                  settings.EMAIL_HOST_USER,
+                  [user.email])
 
         user.reset_id = random_number
         user.save()

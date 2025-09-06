@@ -1,7 +1,7 @@
 import re
 from uuid import UUID
 
-from user_system.constants import Patterns
+from .constants import Patterns
 
 
 def is_valid_uuid(uuid_to_test):

@@ -1,6 +1,6 @@
 import uuid
 
-from user_system.constants import NEVER_RUN
+from .constants import NEVER_RUN
 from django.contrib.auth.models import AbstractUser
 from django.db import models
 
