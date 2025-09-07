@@ -162,6 +162,11 @@ def login_user(request, username_or_email, password, remember_me, ip):
     if not is_valid_pattern(password, Patterns.password):
         invalid_fields.append(Params.password)
 
+    try:
+        remember_me = convert_to_bool(remember_me)
+    except TypeError:
+        invalid_fields.append(Params.remember_me)
+
     if len(invalid_fields) > 0:
         return HttpResponseBadRequest(f"Invalid fields: {invalid_fields}")
 
