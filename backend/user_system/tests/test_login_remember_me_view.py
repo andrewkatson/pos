@@ -27,9 +27,9 @@ class LoginUserRememberMETests(TestCase):
 
         # For this one we want to register a user with the info needed 
         # to login later. All tests start with remember_me turned on here on purpose.
-        request = self.factory.get("/user_system/register")
+        request = self.factory.post("/user_system/register")
         response = register(request, self.local_username, self.local_email, self.local_password, true, ip)
-        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.status_code, SUCCESS)
 
         fields = get_response_fields(response)
 
@@ -98,9 +98,9 @@ class LoginUserRememberMETests(TestCase):
 
         # For this one we want to register a user with the info needed
         # to login later. This test has no remember me so there should be no series identifier..
-        request = self.factory.get("/user_system/register")
+        request = self.factory.post("/user_system/register")
         response = register(request, other_username, other_email, other_password, false, ip)
-        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.status_code, SUCCESS)
 
         # Test view login_user_with_remember_me with the valid but non-existent series_identifier.
         non_existent_series_identifier = str(uuid.uuid4())

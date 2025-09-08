@@ -22,9 +22,9 @@ class LoginUserTests(TestCase):
 
         # For this one we want to register a user with the info needed 
         # to login later. All tests start with remember_me turned off on purpose.
-        request = self.factory.get("/user_system/register")
+        request = self.factory.post("/user_system/register")
         response = register(request, self.local_username, self.local_email, self.local_password, false, ip)
-        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.status_code, SUCCESS)
 
         # Create an instance of a POST request.
         self.request = self.factory.post("/user_system/login_user")
