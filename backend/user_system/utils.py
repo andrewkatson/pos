@@ -1,7 +1,9 @@
 import random
 import string
 import hashlib
+import uuid
 
+from .constants import LEN_LOGIN_COOKIE_TOKEN, LEN_SESSION_MANAGEMENT_TOKEN
 
 def generate_random_string(length):
     """Generates a random string of specified length."""
@@ -24,3 +26,18 @@ def convert_to_bool(str_value):
         return False
     else:
         raise TypeError('Invalid input')
+
+def generate_series_identifier():
+    return uuid.uuid4()
+
+
+def generate_token(len_string):
+    return hash_string_sha256(generate_random_string(len_string))
+
+
+def generate_management_token():
+    return generate_token(LEN_SESSION_MANAGEMENT_TOKEN)
+
+
+def generate_login_cookie_token():
+    return generate_token(LEN_LOGIN_COOKIE_TOKEN)

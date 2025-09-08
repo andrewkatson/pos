@@ -69,7 +69,7 @@ class LoginUserTests(TestCase):
         self.assertEqual(response.status_code, SUCCESS)
 
         # Check that there are login cookie, series identifier, and management token added
-        fields = get_response_fields(response, 0)
+        fields = get_response_fields(response)
 
         self.assertTrue(is_valid_pattern(fields[Fields.series_identifier], Patterns.uuid4))
         self.assertTrue(is_valid_pattern(fields[Fields.login_cookie_token], Patterns.alphanumeric))
@@ -81,7 +81,7 @@ class LoginUserTests(TestCase):
         self.assertEqual(response.status_code, SUCCESS)
 
         # Check that there are login cookie, series identifier, and management token added
-        fields = get_response_fields(response, 0)
+        fields = get_response_fields(response)
 
         self.assertTrue(is_valid_pattern(fields[Fields.session_management_token], Patterns.alphanumeric))
         self.assertNotIn(Fields.login_cookie_token, fields)
@@ -93,7 +93,7 @@ class LoginUserTests(TestCase):
         self.assertEqual(response.status_code, SUCCESS)
 
         # Check that there are login cookie, series identifier, and management token added
-        fields = get_response_fields(response, 0)
+        fields = get_response_fields(response)
 
         self.assertTrue(is_valid_pattern(fields[Fields.series_identifier], Patterns.uuid4))
         self.assertTrue(is_valid_pattern(fields[Fields.login_cookie_token], Patterns.alphanumeric))
@@ -105,7 +105,7 @@ class LoginUserTests(TestCase):
         self.assertEqual(response.status_code, SUCCESS)
 
         # Check that there are login cookie, series identifier, and management token added
-        fields = get_response_fields(response, 0)
+        fields = get_response_fields(response)
 
         self.assertTrue(is_valid_pattern(fields[Fields.session_management_token], Patterns.alphanumeric))
         self.assertNotIn(Fields.login_cookie_token, fields)

@@ -8,9 +8,9 @@ from django.core import serializers
 from django.core.mail import send_mail
 from django.http import JsonResponse, HttpResponseBadRequest
 
-from .constants import Patterns, Params, LEN_LOGIN_COOKIE_TOKEN, LEN_SESSION_MANAGEMENT_TOKEN
+from .constants import Patterns, Params
 from .input_validator import is_valid_pattern
-from .utils import generate_random_string, hash_string_sha256, convert_to_bool
+from .utils import convert_to_bool, generate_login_cookie_token, generate_management_token, generate_series_identifier
 from .models import LoginCookie, Response
 from django.contrib.auth import get_user_model
 
@@ -70,22 +70,6 @@ def get_user_with_series_identifier(series_identifier):
         return existing_login_cookie.cookie_user
     except LoginCookie.DoesNotExist:
         return None
-
-
-def generate_series_identifier():
-    return uuid.uuid4()
-
-
-def generate_token(len_string):
-    return hash_string_sha256(generate_random_string(len_string))
-
-
-def generate_management_token():
-    return generate_token(LEN_SESSION_MANAGEMENT_TOKEN)
-
-
-def generate_login_cookie_token():
-    return generate_token(LEN_LOGIN_COOKIE_TOKEN)
 
 
 def register(request, username, email, password, remember_me, ip):

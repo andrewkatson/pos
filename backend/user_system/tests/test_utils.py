@@ -1,6 +1,6 @@
 import json
 
-def get_response_fields(response, response_index):
+def get_response_fields(response, response_index=0):
     content_as_json = get_response_content(response)
     if len(content_as_json) == 1:
         return content_as_json[response_index]['fields']
