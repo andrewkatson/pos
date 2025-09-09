@@ -1,5 +1,3 @@
-import uuid
-
 from django.conf import settings
 from django.contrib.auth import authenticate, login, logout
 from django.contrib.auth.decorators import login_required
@@ -66,7 +64,7 @@ def get_user_with_id(user_id):
 
 def get_user_with_series_identifier(series_identifier):
     try:
-        existing_login_cookie = LoginCookie.objects.get(series_identifier=series_identifier).first()
+        existing_login_cookie = LoginCookie.objects.get(series_identifier=series_identifier)
         return existing_login_cookie.cookie_user
     except LoginCookie.DoesNotExist:
         return None
