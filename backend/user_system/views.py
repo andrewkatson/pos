@@ -9,7 +9,7 @@ from django.http import JsonResponse, HttpResponseBadRequest
 from .constants import Patterns, Params
 from .input_validator import is_valid_pattern
 from .utils import convert_to_bool, generate_login_cookie_token, generate_management_token, generate_series_identifier
-from .models import LoginCookie, Response
+from .models import LoginCookie, Response, Session
 from django.contrib.auth import get_user_model
 
 
@@ -69,6 +69,12 @@ def get_user_with_series_identifier(series_identifier):
     except LoginCookie.DoesNotExist:
         return None
 
+def get_user_with_session_management_token(token):
+    try:
+        existing_session = Session.objects.get(management_token=token)
+        return existing_session.management_user
+    except LoginCookie.DoesNotExist:
+        return None
 
 def register(request, username, email, password, remember_me, ip):
     invalid_fields = []
@@ -342,19 +348,10 @@ def logout_user(request, session_management_token, series_identifier, login_cook
     if not is_valid_pattern(session_management_token, Patterns.alphanumeric):
         invalid_fields.append(Params.session_management_token)
 
-    if not is_valid_pattern(series_identifier, Patterns.uuid4):
-        invalid_fields.append(Params.series_identifier)
-
-    if not is_valid_pattern(login_cookie_token, Patterns.alphanumeric):
-        invalid_fields.append(Params.login_cookie_token)
-
     if len(invalid_fields) > 0:
         return HttpResponseBadRequest(f"Invalid fields: {invalid_fields}")
 
-    if len(invalid_fields) > 0:
-        return HttpResponseBadRequest(f"Invalid fields: {invalid_fields}")
-
-    existing = get_user_with_series_identifier(series_identifier)
+    existing = get_user_with_session_management_token(session_management_token)
 
     if existing is not None:
         # We send no data back. Just a successful response.
@@ -374,16 +371,10 @@ def delete_user(request, session_management_token, series_identifier, login_cook
     if not is_valid_pattern(session_management_token, Patterns.alphanumeric):
         invalid_fields.append(Params.session_management_token)
 
-    if not is_valid_pattern(series_identifier, Patterns.uuid4):
-        invalid_fields.append(Params.series_identifier)
-
-    if not is_valid_pattern(login_cookie_token, Patterns.alphanumeric):
-        invalid_fields.append(Params.login_cookie_token)
-
     if len(invalid_fields) > 0:
         return HttpResponseBadRequest(f"Invalid fields: {invalid_fields}")
 
-    existing = get_user_with_series_identifier(series_identifier)
+    existing = get_user_with_session_management_token(session_management_token)
 
     if existing is not None:
 

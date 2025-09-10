@@ -1,9 +1,9 @@
 from django.test import RequestFactory, TestCase
 from django.contrib.auth.models import AnonymousUser
 from django.contrib.sessions.middleware import SessionMiddleware
-from ..views import register, login_user, logout_user, delete_user
+from ..views import register, login_user, delete_user, get_user_with_username
 from ..constants import Fields
-from .test_constants import username, email, password, ip, false, FAIL, SUCCESS, NOT_FOUND_REDIRECT
+from .test_constants import username, email, password, ip, false, FAIL, SUCCESS
 from .test_utils import get_response_fields
 
 invalid_session_management_token = '?'
@@ -24,7 +24,7 @@ class LogoutUserTests(TestCase):
         self.user = AnonymousUser()
 
         # For this one we want to register a user with the info needed
-        # to login later. All tests start with remember_me turned on on purpose.
+        # to login later. All tests start with remember_me turned off on purpose.
         request = self.factory.post("/user_system/register")
         response = register(request, self.local_username, self.local_email, self.local_password, false, ip)
         self.assertEqual(response.status_code, SUCCESS)
@@ -49,20 +49,18 @@ class LogoutUserTests(TestCase):
         # Need to log the user in
         response = login_user(self.request, self.local_username, self.local_password, false, ip)
         self.assertEqual(response.status_code, SUCCESS)
-
+        
     def test_invalid_session_management_token_returns_bad_response(self):
-        # Test view logout_user
-        response = logout_user(self.request, invalid_session_management_token, empty_series_identifier,
+        # Test view delete_user
+        response = delete_user(self.request, invalid_session_management_token, empty_series_identifier,
                                empty_login_cookie_token)
         self.assertEqual(response.status_code, FAIL)
 
-    def test_logged_in_user_logs_out(self):
-        # Test view logout_user
-        response = logout_user(self.request, self.session_management_token, empty_series_identifier,
+    def test_logged_in_user_is_deleted(self):
+        # Test view delete_user
+        response = delete_user(self.request, self.session_management_token, empty_series_identifier,
                                empty_login_cookie_token)
         self.assertEqual(response.status_code, SUCCESS)
 
-        # Test some endpoint that needs login to get a redirect
-        response = delete_user(self.request, self.session_management_token, empty_series_identifier,
-                               empty_login_cookie_token)
-        self.assertEqual(response.status_code, NOT_FOUND_REDIRECT)
+        # Test that the user is gone
+        self.assertIsNone(get_user_with_username(self.local_username))
