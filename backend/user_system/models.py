@@ -68,6 +68,9 @@ class Post(models.Model):
     updated_time = models.DateTimeField(auto_now=True, null=True, blank=True)
     author = models.ForeignKey(PositiveOnlySocialUser, on_delete=models.CASCADE,
                                default=PositiveOnlySocialUser.get_default_pk)
+    reported = models.BooleanField(default=False)
+    reported_time = models.DateTimeField(auto_now=True, null=True, blank=True)
+    reported_by_username = models.TextField(null=True)
 
     @classmethod
     def get_default_pk(cls):
@@ -102,6 +105,10 @@ class Comment(models.Model):
     updated_time = models.DateTimeField(auto_now=True, null=True, blank=True)
     likes = models.IntegerField(default=0)
 
+    reported = models.BooleanField(default=False)
+    reported_time = models.DateTimeField(auto_now=True, null=True, blank=True)
+    reported_by_username = models.TextField(null=True)
+
 
 # The response sent back to the client
 class Response(models.Model):
@@ -109,7 +116,7 @@ class Response(models.Model):
 
     # Info related to the current user's session
     series_identifier = models.UUIDField(default=uuid.uuid4, primary_key=False, unique=True, editable=False)
-    login_cookie_token =  models.TextField(null=True)
+    login_cookie_token = models.TextField(null=True)
     session_management_token = models.TextField(null=True)
 
     # Info related to a post

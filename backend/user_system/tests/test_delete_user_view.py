@@ -7,10 +7,6 @@ from .test_constants import username, email, password, ip, false, FAIL, SUCCESS
 from .test_utils import get_response_fields
 
 invalid_session_management_token = '?'
-invalid_series_identifier = '?'
-invalid_login_cookie_token = '?'
-empty_series_identifier = ''
-empty_login_cookie_token = ''
 
 class LogoutUserTests(TestCase):
 
@@ -52,14 +48,12 @@ class LogoutUserTests(TestCase):
         
     def test_invalid_session_management_token_returns_bad_response(self):
         # Test view delete_user
-        response = delete_user(self.request, invalid_session_management_token, empty_series_identifier,
-                               empty_login_cookie_token)
+        response = delete_user(self.request, invalid_session_management_token)
         self.assertEqual(response.status_code, FAIL)
 
     def test_logged_in_user_is_deleted(self):
         # Test view delete_user
-        response = delete_user(self.request, self.session_management_token, empty_series_identifier,
-                               empty_login_cookie_token)
+        response = delete_user(self.request, self.session_management_token)
         self.assertEqual(response.status_code, SUCCESS)
 
         # Test that the user is gone

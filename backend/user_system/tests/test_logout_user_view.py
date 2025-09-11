@@ -7,10 +7,6 @@ from .test_constants import username, email, password, ip, false, FAIL, SUCCESS,
 from .test_utils import get_response_fields
 
 invalid_session_management_token = '?'
-invalid_series_identifier = '?'
-invalid_login_cookie_token = '?'
-empty_series_identifier = ''
-empty_login_cookie_token = ''
 
 class LogoutUserTests(TestCase):
 
@@ -52,17 +48,14 @@ class LogoutUserTests(TestCase):
 
     def test_invalid_session_management_token_returns_bad_response(self):
         # Test view logout_user
-        response = logout_user(self.request, invalid_session_management_token, empty_series_identifier,
-                               empty_login_cookie_token)
+        response = logout_user(self.request, invalid_session_management_token)
         self.assertEqual(response.status_code, FAIL)
 
     def test_logged_in_user_logs_out(self):
         # Test view logout_user
-        response = logout_user(self.request, self.session_management_token, empty_series_identifier,
-                               empty_login_cookie_token)
+        response = logout_user(self.request, self.session_management_token)
         self.assertEqual(response.status_code, SUCCESS)
 
         # Test some endpoint that needs login to get a redirect
-        response = delete_user(self.request, self.session_management_token, empty_series_identifier,
-                               empty_login_cookie_token)
+        response = delete_user(self.request, self.session_management_token)
         self.assertEqual(response.status_code, NOT_FOUND_REDIRECT)

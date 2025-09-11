@@ -69,12 +69,14 @@ def get_user_with_series_identifier(series_identifier):
     except LoginCookie.DoesNotExist:
         return None
 
+
 def get_user_with_session_management_token(token):
     try:
         existing_session = Session.objects.get(management_token=token)
         return existing_session.management_user
     except LoginCookie.DoesNotExist:
         return None
+
 
 def register(request, username, email, password, remember_me, ip):
     invalid_fields = []
@@ -342,7 +344,7 @@ def reset_password(request, username, email, password):
 
 
 @login_required
-def logout_user(request, session_management_token, series_identifier, login_cookie_token):
+def logout_user(request, session_management_token):
     invalid_fields = []
 
     if not is_valid_pattern(session_management_token, Patterns.alphanumeric):
@@ -365,7 +367,7 @@ def logout_user(request, session_management_token, series_identifier, login_cook
 
 
 @login_required
-def delete_user(request, session_management_token, series_identifier, login_cookie_token):
+def delete_user(request, session_management_token):
     invalid_fields = []
 
     if not is_valid_pattern(session_management_token, Patterns.alphanumeric):
@@ -387,3 +389,58 @@ def delete_user(request, session_management_token, series_identifier, login_cook
         return JsonResponse({'response_list': serialized_response_list})
     else:
         return HttpResponseBadRequest("No user with id")
+
+
+@login_required
+def make_post(request, session_management_token, image_url, caption):
+    pass
+
+
+@login_required
+def delete_post(request, session_management_token, post_identifier):
+    pass
+
+
+@login_required
+def report_post(request, session_management_token, post_identifier):
+    pass
+
+
+@login_required
+def like_post(request, session_management_token, post_identifier):
+    pass
+
+
+@login_required
+def unlike_post(request, session_management_token, post_identifier):
+    pass
+
+
+@login_required
+def comment_on_post(request, session_management_token, post_identifier):
+    pass
+
+
+@login_required
+def like_comment(request, session_management_token, post_identifier, comment_identifier):
+    pass
+
+
+@login_required
+def unlike_comment(request, session_management_token, post_identifier, comment_identifier):
+    pass
+
+
+@login_required
+def delete_comment(request, session_management_token, post_identifier, comment_identifier):
+    pass
+
+
+@login_required
+def report_comment(request, session_management_token, post_identifier, comment_identifier):
+    pass
+
+
+@login_required
+def reply_to_comment_thread(request, session_management_token, post_identifier, comment_thread_identifier):
+    pass
