@@ -13,7 +13,7 @@ from .constants import Patterns, Params
 from .input_validator import is_valid_pattern
 from .utils import convert_to_bool, generate_login_cookie_token, generate_management_token, generate_series_identifier, \
     generate_reset_id
-from .models import LoginCookie, Response, Session
+from .models import LoginCookie, Response, Session, Post
 from classifiers import image_classifier, image_classifier_fake, text_classifier_fake, text_classifier
 
 image_classifier_class = image_classifier
@@ -86,6 +86,12 @@ def get_user_with_session_management_token(token):
     except LoginCookie.DoesNotExist:
         return None
 
+def get_post_with_identifier(identifier):
+    try:
+        existing_post = Post.objects.get(post_identifier=identifier)
+        return existing_post
+    except Post.DoesNotExist:
+        return None
 
 def register(request, username, email, password, remember_me, ip):
     invalid_fields = []
@@ -445,6 +451,9 @@ def make_post(request, session_management_token, image_url, caption):
 def delete_post(request, session_management_token, post_identifier):
     invalid_fields = []
 
+    if not is_valid_pattern(session_management_token, Patterns.alphanumeric):
+        invalid_fields.append(Params.session_management_token)
+
     if not is_valid_pattern(post_identifier, Patterns.uuid4):
         invalid_fields.append(Params.post_identifier)
 
@@ -471,8 +480,46 @@ def delete_post(request, session_management_token, post_identifier):
 
 
 @login_required
-def report_post(request, session_management_token, post_identifier):
-    pass
+def report_post(request, session_management_token, post_identifier, reason):
+    invalid_fields = []
+
+    if not is_valid_pattern(session_management_token, Patterns.alphanumeric):
+        invalid_fields.append(Params.session_management_token)
+
+    if not is_valid_pattern(post_identifier, Patterns.uuid4):
+        invalid_fields.append(Params.post_identifier)
+
+    if not is_valid_pattern(reason, Patterns.sql_injection):
+        invalid_fields.append(Params.reason)
+
+    if len(invalid_fields) > 0:
+        return HttpResponseBadRequest(f"Invalid fields: {invalid_fields}")
+
+    existing = get_user_with_session_management_token(session_management_token)
+    post = get_post_with_identifier(post_identifier)
+
+    if existing is not None:
+
+        if post is not None:
+
+            if post.author != existing:
+
+                new_post_report = post.postreport_set.create(reported_by_username=existing.username)
+                new_post_report.reason = reason
+                new_post_report.created_datetime = datetime.datetime.now()
+                new_post_report.save()
+
+                response = Response.objects.create()
+
+                serialized_response_list = serializers.serialize('json', [response], fields=())
+
+                return JsonResponse({'response_list': serialized_response_list})
+            else:
+                return HttpResponseBadRequest("Cannot report own post")
+        else:
+            return HttpResponseBadRequest("No post with that identifier by that user")
+    else:
+        return HttpResponseBadRequest("No user with session token")
 
 
 @login_required

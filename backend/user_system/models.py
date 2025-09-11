@@ -77,6 +77,13 @@ class Post(models.Model):
         post, created = cls.objects.get_or_create()
         return post.post_identifier
 
+# A report on a post
+class PostReport(models.Model):
+    reported_by_username = models.TextField(null=True)
+    post = models.ForeignKey(Post, on_delete=models.CASCADE, default=Post.get_default_pk)
+    creation_time = models.DateTimeField(auto_now=True, null=True, blank=True)
+    reason = models.TextField(null=True)
+
 # A like on a post
 class PostLike(models.Model):
     post_liker_username = models.TextField(null=True)
@@ -108,15 +115,19 @@ class Comment(models.Model):
     creation_time = models.DateTimeField(auto_now=True, null=True, blank=True)
     updated_time = models.DateTimeField(auto_now=True, null=True, blank=True)
 
-    reported = models.BooleanField(default=False)
-    reported_time = models.DateTimeField(auto_now=True, null=True, blank=True)
-    reported_by_username = models.TextField(null=True)
     hidden = models.BooleanField(default=False)
 
     @classmethod
     def get_default_pk(cls):
         comment, created = cls.objects.get_or_create()
         return comment.comment_identifier
+
+# A report on a comment
+class CommentReport(models.Model):
+    reported_by_username = models.TextField(null=True)
+    comment = models.ForeignKey(Comment, on_delete=models.CASCADE, default=Comment.get_default_pk)
+    creation_time = models.DateTimeField(auto_now=True, null=True, blank=True)
+    reason = models.TextField(null=True)
 
 # A like on a comment
 class CommentLike(models.Model):

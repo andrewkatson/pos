@@ -42,6 +42,7 @@ class Params:
     caption = "CAPTION"
     image = "IMAGE_URL"
     post_identifier = "POST_IDENTIFIER"
+    reason = "REASON"
 
 class Fields:
     series_identifier = "series_identifier"

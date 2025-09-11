@@ -33,7 +33,7 @@ urlpatterns = [
     path('delete_post/<str:session_management_token>/<str:post_identifier>',
          views.delete_post, name='delete_post'),
     # Report a post
-    path('report_post/<str:session_management_token>/<str:post_identifier>', views.report_post, name='report_post'),
+    path('report_post/<str:session_management_token>/<str:post_identifier>/<str:reason>', views.report_post, name='report_post'),
     # Like a post
     path('like_post/<str:session_management_token>/<str:post_identifier>', views.like_post, name='like_post'),
     # Unlike a post
