@@ -524,12 +524,88 @@ def report_post(request, session_management_token, post_identifier, reason):
 
 @login_required
 def like_post(request, session_management_token, post_identifier):
-    pass
+    invalid_fields = []
+
+    if not is_valid_pattern(session_management_token, Patterns.alphanumeric):
+        invalid_fields.append(Params.session_management_token)
+
+    if not is_valid_pattern(post_identifier, Patterns.uuid4):
+        invalid_fields.append(Params.post_identifier)
+
+    if len(invalid_fields) > 0:
+        return HttpResponseBadRequest(f"Invalid fields: {invalid_fields}")
+
+    existing = get_user_with_session_management_token(session_management_token)
+    post = get_post_with_identifier(post_identifier)
+
+    if existing is not None:
+
+        if post is not None:
+
+            if post.author != existing:
+
+                query_set = post.postlike_set.filter(liked_by_username=existing.username)
+                if query_set.count() == 0:
+
+                    new_post_like = post.postlike_set.create(liked_by_username=existing.username)
+                    new_post_like.save()
+
+                    response = Response.objects.create()
+
+                    serialized_response_list = serializers.serialize('json', [response], fields=())
+
+                    return JsonResponse({'response_list': serialized_response_list})
+                else:
+                    return HttpResponseBadRequest("Already liked post")
+            else:
+                return HttpResponseBadRequest("Cannot like own post")
+        else:
+            return HttpResponseBadRequest("No post with that identifier by that user")
+    else:
+        return HttpResponseBadRequest("No user with session token")
 
 
 @login_required
 def unlike_post(request, session_management_token, post_identifier):
-    pass
+    invalid_fields = []
+
+    if not is_valid_pattern(session_management_token, Patterns.alphanumeric):
+        invalid_fields.append(Params.session_management_token)
+
+    if not is_valid_pattern(post_identifier, Patterns.uuid4):
+        invalid_fields.append(Params.post_identifier)
+
+    if len(invalid_fields) > 0:
+        return HttpResponseBadRequest(f"Invalid fields: {invalid_fields}")
+
+    existing = get_user_with_session_management_token(session_management_token)
+    post = get_post_with_identifier(post_identifier)
+
+    if existing is not None:
+
+        if post is not None:
+
+            if post.author != existing:
+
+                query_set = post.postlike_set.filter(liked_by_username=existing.username)
+                if query_set.count() == 1:
+
+                    post_like = post.postlike_set.get(liked_by_username=existing.username)
+                    post_like.delete()
+
+                    response = Response.objects.create()
+
+                    serialized_response_list = serializers.serialize('json', [response], fields=())
+
+                    return JsonResponse({'response_list': serialized_response_list})
+                else:
+                    return HttpResponseBadRequest("Already unliked post")
+            else:
+                return HttpResponseBadRequest("Cannot unlike own post")
+        else:
+            return HttpResponseBadRequest("No post with that identifier by that user")
+    else:
+        return HttpResponseBadRequest("No user with session token")
 
 @login_required
 def get_posts_in_feed(request, session_management_token):
