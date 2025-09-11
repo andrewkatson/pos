@@ -38,6 +38,10 @@ urlpatterns = [
     path('like_post/<str:session_management_token>/<str:post_identifier>', views.like_post, name='like_post'),
     # Unlike a post
     path('unlike_post/<str:session_management_token>/<str:post_identifier>', views.unlike_post, name='unlike_post'),
+    # Get all posts for the user's feed
+    path('get_posts_in_feed/<str:session_management_token>', views.get_posts_in_feed, name='get_posts_in_feed'),
+    # Get posts for another user
+    path('get_posts_for_user/<str:session_management_token>/<str:username>', views.get_posts_for_user),
     # Comment directly on a post
     path('comment_on_post/<str:session_management_token>/<str:post_identifier>', views.comment_on_post, name='comment_on_post'),
     # Like a comment
@@ -48,6 +52,10 @@ urlpatterns = [
     path('delete_comment/<str:session_management_token>/<str:post_identifier>/<str:comment_identifier>', views.delete_comment, name='delete_comment'),
     # Report a comment
     path('report_comment/<str:session_management_token>/<str:post_identifier>/<str:comment_identifier>', views.report_comment, name='report_comment'),
+    # Get comments for a post
+    path('get_comments_for_post/<str:session_management_token>/<str:post_identifier>', views.get_comments_for_post, name='get_comments_for_post'),
     # Reply to a comment thread. This is basically like commenting a post but instead is underneath a comment
     path('reply_to_comment_thread/<str:session_management_token>/<str:post_identifier>/<str:comment_thread_identifier>', views.reply_to_comment_thread, name='reply_to_comment_thread'),
+    # Get the users with a username matching the fragment passed
+    path('get_users_matching_fragment/<str:session_management_token>/<str:username_fragment>', views.get_users_matching_fragment, name='get_users_matching_fragment'),
 ]

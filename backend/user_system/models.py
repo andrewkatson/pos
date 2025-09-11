@@ -63,7 +63,6 @@ class Post(models.Model):
                                        editable=False)
     image_url = models.TextField(null=True)
     caption = models.TextField(null=True)
-    likes = models.IntegerField(default=0)
     creation_time = models.DateTimeField(auto_now=True, null=True, blank=True)
     updated_time = models.DateTimeField(auto_now=True, null=True, blank=True)
     author = models.ForeignKey(PositiveOnlySocialUser, on_delete=models.CASCADE,
@@ -71,12 +70,17 @@ class Post(models.Model):
     reported = models.BooleanField(default=False)
     reported_time = models.DateTimeField(auto_now=True, null=True, blank=True)
     reported_by_username = models.TextField(null=True)
+    hidden = models.BooleanField(default=False)
 
     @classmethod
     def get_default_pk(cls):
         post, created = cls.objects.get_or_create()
         return post.post_identifier
 
+# A like on a post
+class PostLike(models.Model):
+    post_liker_username = models.TextField(null=True)
+    post = models.ForeignKey(Post, on_delete=models.CASCADE, default=PositiveOnlySocialUser.get_default_pk)
 
 # A thread of comments on a post
 class CommentThread(models.Model):
@@ -103,12 +107,21 @@ class Comment(models.Model):
                                default=PositiveOnlySocialUser.get_default_pk)
     creation_time = models.DateTimeField(auto_now=True, null=True, blank=True)
     updated_time = models.DateTimeField(auto_now=True, null=True, blank=True)
-    likes = models.IntegerField(default=0)
 
     reported = models.BooleanField(default=False)
     reported_time = models.DateTimeField(auto_now=True, null=True, blank=True)
     reported_by_username = models.TextField(null=True)
+    hidden = models.BooleanField(default=False)
 
+    @classmethod
+    def get_default_pk(cls):
+        comment, created = cls.objects.get_or_create()
+        return comment.comment_identifier
+
+# A like on a comment
+class CommentLike(models.Model):
+    comment_liker_username = models.TextField(null=True)
+    comment = models.ForeignKey(Comment, on_delete=models.CASCADE, default=Comment.get_default_pk)
 
 # The response sent back to the client
 class Response(models.Model):

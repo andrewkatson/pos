@@ -1,3 +1,5 @@
+import datetime
+
 from django.conf import settings
 from django.contrib.auth import authenticate, login, logout
 from django.contrib.auth.decorators import login_required
@@ -5,13 +7,20 @@ from django.contrib.auth.hashers import check_password
 from django.core import serializers
 from django.core.mail import send_mail
 from django.http import JsonResponse, HttpResponseBadRequest
+from django.contrib.auth import get_user_model
 
 from .constants import Patterns, Params
 from .input_validator import is_valid_pattern
-from .utils import convert_to_bool, generate_login_cookie_token, generate_management_token, generate_series_identifier
+from .utils import convert_to_bool, generate_login_cookie_token, generate_management_token, generate_series_identifier, \
+    generate_reset_id
 from .models import LoginCookie, Response, Session
-from django.contrib.auth import get_user_model
+from classifiers import image_classifier, image_classifier_fake, text_classifier_fake, text_classifier
 
+image_classifier_class = image_classifier
+text_classifier_class = text_classifier
+if settings.DEBUG:
+    image_classifier_class = image_classifier_fake
+    text_classifier_class = text_classifier_fake
 
 def get_user_with_username_and_email(username, email):
     try:
@@ -257,7 +266,7 @@ def request_reset(request, username_or_email):
     user = get_user_with_username_or_email(username_or_email)
 
     if user is not None:
-        random_number = get_user_model().objects.make_random_password(length=6, allowed_chars='123456789')
+        random_number = generate_reset_id(6)
 
         # Send the user an email.
         send_mail("Password reset id", f"Your password reset id is {random_number}",
@@ -363,7 +372,7 @@ def logout_user(request, session_management_token):
         logout(request)
         return JsonResponse({'response_list': serialized_response_list})
     else:
-        return HttpResponseBadRequest("No user with id")
+        return HttpResponseBadRequest("No user with session token")
 
 
 @login_required
@@ -388,17 +397,77 @@ def delete_user(request, session_management_token):
 
         return JsonResponse({'response_list': serialized_response_list})
     else:
-        return HttpResponseBadRequest("No user with id")
+        return HttpResponseBadRequest("No user with session token")
 
 
 @login_required
 def make_post(request, session_management_token, image_url, caption):
-    pass
+    invalid_fields = []
+
+    if not is_valid_pattern(session_management_token, Patterns.alphanumeric):
+        invalid_fields.append(Params.session_management_token)
+
+    if not is_valid_pattern(image_url, Patterns.image_url):
+        invalid_fields.append(Params.image)
+
+    if not is_valid_pattern(caption, Patterns.sql_injection):
+        invalid_fields.append(Params.caption)
+
+    if len(invalid_fields) > 0:
+        return HttpResponseBadRequest(f"Invalid fields: {invalid_fields}")
+
+    existing = get_user_with_session_management_token(session_management_token)
+
+    if existing is not None:
+
+        if image_classifier_class.is_image_positive(image_url):
+
+            new_post = existing.post_set.create()
+            new_post.image_url = image_url
+            new_post.caption = caption
+            new_post.created_datetime = datetime.datetime.now()
+            new_post.updated_datetime = datetime.datetime.now()
+            new_post.save()
+
+            response = Response.objects.create()
+
+            serialized_response_list = serializers.serialize('json', [response], fields=())
+
+            return JsonResponse({'response_list': serialized_response_list})
+        else:
+            return HttpResponseBadRequest("Image is not positive")
+    else:
+        return HttpResponseBadRequest("No user with session token")
+    
 
 
 @login_required
 def delete_post(request, session_management_token, post_identifier):
-    pass
+    invalid_fields = []
+
+    if not is_valid_pattern(post_identifier, Patterns.uuid4):
+        invalid_fields.append(Params.post_identifier)
+
+    if len(invalid_fields) > 0:
+        return HttpResponseBadRequest(f"Invalid fields: {invalid_fields}")
+
+    existing = get_user_with_session_management_token(session_management_token)
+    post = existing.post_set.get(post_identifier=post_identifier)
+
+    if existing is not None:
+
+        if post is not None:
+            post.delete()
+
+            response = Response.objects.create()
+
+            serialized_response_list = serializers.serialize('json', [response], fields=())
+
+            return JsonResponse({'response_list': serialized_response_list})
+        else:
+            return HttpResponseBadRequest("No post with that identifier by that user")
+    else:
+        return HttpResponseBadRequest("No user with session token")
 
 
 @login_required
@@ -415,6 +484,13 @@ def like_post(request, session_management_token, post_identifier):
 def unlike_post(request, session_management_token, post_identifier):
     pass
 
+@login_required
+def get_posts_in_feed(request, session_management_token):
+    pass
+
+@login_required
+def get_posts_for_user(request, session_management_token, username):
+    pass
 
 @login_required
 def comment_on_post(request, session_management_token, post_identifier):
@@ -440,7 +516,14 @@ def delete_comment(request, session_management_token, post_identifier, comment_i
 def report_comment(request, session_management_token, post_identifier, comment_identifier):
     pass
 
+@login_required
+def get_comments_for_post(request, session_management_token, post_identifier):
+    pass
 
 @login_required
 def reply_to_comment_thread(request, session_management_token, post_identifier, comment_thread_identifier):
+    pass
+
+@login_required
+def get_users_matching_fragment(request, session_management_token, username_fraction):
     pass

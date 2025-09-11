@@ -2,6 +2,7 @@ import random
 import string
 import hashlib
 import uuid
+import secrets
 
 from .constants import LEN_LOGIN_COOKIE_TOKEN, LEN_SESSION_MANAGEMENT_TOKEN
 
@@ -41,3 +42,16 @@ def generate_management_token():
 
 def generate_login_cookie_token():
     return generate_token(LEN_LOGIN_COOKIE_TOKEN)
+
+def generate_password(length):
+    alphabet = string.ascii_letters + string.digits
+    while True:
+        password = ''.join(secrets.choice(alphabet) for i in range(length))
+        if (any(c.islower() for c in password)
+                and any(c.isupper() for c in password)
+                and sum(c.isdigit() for c in password) >= 3):
+            return password
+
+def generate_reset_id(length):
+    alphabet = string.digits
+    return ''.join(secrets.choice(alphabet) for i in range(length))
