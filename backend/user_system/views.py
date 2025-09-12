@@ -686,7 +686,25 @@ def get_posts_for_user(request, session_management_token, username, batch):
 
 @login_required
 def get_post_details(request, post_identifier):
-    pass
+    invalid_fields = []
+
+    if not is_valid_pattern(post_identifier, Patterns.uuid4):
+        invalid_fields.append(Params.post_identifier)
+
+    if len(invalid_fields) > 0:
+        return HttpResponseBadRequest(f"Invalid fields: {invalid_fields}")
+
+    post = get_post_with_identifier(post_identifier)
+
+    if post is not None:
+        response = Response.objects.create(post_identifier=post.post_identifier, image_url=post.image_url, caption=post.caption)
+
+        serialized_response_list = serializers.serialize('json', [response], fields=('post_identifier', 'image_url', 'caption'))
+
+        return JsonResponse({'response_list': serialized_response_list})
+
+    else:
+        return HttpResponseBadRequest("No post with that identifier")
 
 @login_required
 def comment_on_post(request, session_management_token, post_identifier):
