@@ -697,9 +697,12 @@ def get_post_details(request, post_identifier):
     post = get_post_with_identifier(post_identifier)
 
     if post is not None:
-        response = Response.objects.create(post_identifier=post.post_identifier, image_url=post.image_url, caption=post.caption)
 
-        serialized_response_list = serializers.serialize('json', [response], fields=('post_identifier', 'image_url', 'caption'))
+        total_likes = post.postlike_set.count()
+
+        response = Response.objects.create(post_identifier=post.post_identifier, image_url=post.image_url, caption=post.caption, post_likes=total_likes)
+
+        serialized_response_list = serializers.serialize('json', [response], fields=('post_identifier', 'image_url', 'caption', 'post_likes'))
 
         return JsonResponse({'response_list': serialized_response_list})
 
