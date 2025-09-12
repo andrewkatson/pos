@@ -39,9 +39,11 @@ urlpatterns = [
     # Unlike a post
     path('unlike_post/<str:session_management_token>/<str:post_identifier>', views.unlike_post, name='unlike_post'),
     # Get all posts for the user's feed
-    path('get_posts_in_feed/<str:session_management_token>', views.get_posts_in_feed, name='get_posts_in_feed'),
+    path('get_posts_in_feed/<str:session_management_token>/<int:batch>', views.get_posts_in_feed, name='get_posts_in_feed'),
     # Get posts for another user
-    path('get_posts_for_user/<str:session_management_token>/<str:username>', views.get_posts_for_user),
+    path('get_posts_for_user/<str:session_management_token>/<str:username>/<int:batch>', views.get_posts_for_user),
+    # Get the details for a post
+    path('get_post_details/<str:post_identifier>', views.get_post_details, name='get_post_details'),
     # Comment directly on a post
     path('comment_on_post/<str:session_management_token>/<str:post_identifier>', views.comment_on_post, name='comment_on_post'),
     # Like a comment

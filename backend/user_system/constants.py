@@ -52,3 +52,9 @@ class Fields:
 # Lengths of things
 LEN_LOGIN_COOKIE_TOKEN = 32
 LEN_SESSION_MANAGEMENT_TOKEN = 32
+
+# Size of post batches
+POST_BATCH_SIZE = 10
+
+# Size of comment batches
+COMMENT_BATCH_SIZE = 30

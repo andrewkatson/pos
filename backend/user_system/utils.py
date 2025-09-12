@@ -6,6 +6,7 @@ import secrets
 
 from .constants import LEN_LOGIN_COOKIE_TOKEN, LEN_SESSION_MANAGEMENT_TOKEN
 
+
 def generate_random_string(length):
     """Generates a random string of specified length."""
     characters = string.ascii_letters + string.digits + string.punctuation
@@ -28,6 +29,7 @@ def convert_to_bool(str_value):
     else:
         raise TypeError('Invalid input')
 
+
 def generate_series_identifier():
     return uuid.uuid4()
 
@@ -43,6 +45,7 @@ def generate_management_token():
 def generate_login_cookie_token():
     return generate_token(LEN_LOGIN_COOKIE_TOKEN)
 
+
 def generate_password(length):
     alphabet = string.ascii_letters + string.digits
     while True:
@@ -52,6 +55,13 @@ def generate_password(length):
                 and sum(c.isdigit() for c in password) >= 3):
             return password
 
+
 def generate_reset_id(length):
     alphabet = string.digits
     return ''.join(secrets.choice(alphabet) for i in range(length))
+
+
+def get_batch(batch_num, batch_size, lst):
+    starting_index = batch_num
+    ending_index = min((batch_num + 1) * batch_size, len(lst))
+    return lst[starting_index:ending_index]

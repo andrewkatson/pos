@@ -9,18 +9,21 @@ from django.core.mail import send_mail
 from django.http import JsonResponse, HttpResponseBadRequest
 from django.contrib.auth import get_user_model
 
-from .constants import Patterns, Params
+from .constants import Patterns, Params, POST_BATCH_SIZE
 from .input_validator import is_valid_pattern
 from .utils import convert_to_bool, generate_login_cookie_token, generate_management_token, generate_series_identifier, \
-    generate_reset_id
+    generate_reset_id, get_batch
 from .models import LoginCookie, Response, Session, Post
 from classifiers import image_classifier, image_classifier_fake, text_classifier_fake, text_classifier
+from feed_algorithm import feed_algorithm, feed_algorithm_fake
 
 image_classifier_class = image_classifier
 text_classifier_class = text_classifier
+feed_algorithm_class = feed_algorithm
 if settings.DEBUG:
     image_classifier_class = image_classifier_fake
     text_classifier_class = text_classifier_fake
+    feed_algorithm_class = feed_algorithm_fake
 
 def get_user_with_username_and_email(username, email):
     try:
@@ -608,11 +611,47 @@ def unlike_post(request, session_management_token, post_identifier):
         return HttpResponseBadRequest("No user with session token")
 
 @login_required
-def get_posts_in_feed(request, session_management_token):
+def get_posts_in_feed(request, session_management_token, batch):
+    invalid_fields = []
+
+    if not is_valid_pattern(session_management_token, Patterns.alphanumeric):
+        invalid_fields.append(Params.session_management_token)
+
+    if len(invalid_fields) > 0:
+        return HttpResponseBadRequest(f"Invalid fields: {invalid_fields}")
+
+    existing = get_user_with_session_management_token(session_management_token)
+
+    if existing is not None:
+        relevant_posts = feed_algorithm_class.get_posts_weighted(existing.username, Post)
+
+        if len(relevant_posts) > 0:
+            batch = get_batch(batch, POST_BATCH_SIZE, relevant_posts)
+
+            responses = []
+
+            for post in batch:
+
+                response = Response.objects.create(post_identifier=post.post_identifier, image_url=post.image_url)
+
+                responses.append(response)
+
+            serialized_response_list = serializers.serialize('json', responses, fields=('post_identifier', 'image_url'))
+
+            return JsonResponse({'response_list': serialized_response_list})
+
+        else:
+            return HttpResponseBadRequest("No posts available")
+
+    else:
+        return HttpResponseBadRequest("No user with session token")
+
+@login_required
+def get_posts_for_user(request, session_management_token, username, batch):
     pass
 
 @login_required
-def get_posts_for_user(request, session_management_token, username):
+def get_post_details(request, post_identifier):
     pass
 
 @login_required
