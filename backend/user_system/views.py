@@ -648,7 +648,41 @@ def get_posts_in_feed(request, session_management_token, batch):
 
 @login_required
 def get_posts_for_user(request, session_management_token, username, batch):
-    pass
+    invalid_fields = []
+
+    if not is_valid_pattern(session_management_token, Patterns.alphanumeric):
+        invalid_fields.append(Params.session_management_token)
+
+    if not is_valid_pattern(username, Patterns.alphanumeric):
+        invalid_fields.append(Params.username)
+
+    if len(invalid_fields) > 0:
+        return HttpResponseBadRequest(f"Invalid fields: {invalid_fields}")
+
+    existing = get_user_with_session_management_token(session_management_token)
+
+    if existing is not None:
+        relevant_posts = feed_algorithm_class.get_posts_weighted_for_user(existing.username, Post)
+
+        if len(relevant_posts) > 0:
+            batch = get_batch(batch, POST_BATCH_SIZE, relevant_posts)
+
+            responses = []
+
+            for post in batch:
+                response = Response.objects.create(post_identifier=post.post_identifier, image_url=post.image_url)
+
+                responses.append(response)
+
+            serialized_response_list = serializers.serialize('json', responses, fields=('post_identifier', 'image_url'))
+
+            return JsonResponse({'response_list': serialized_response_list})
+
+        else:
+            return HttpResponseBadRequest("No posts available")
+
+    else:
+        return HttpResponseBadRequest("No user with session token")
 
 @login_required
 def get_post_details(request, post_identifier):
