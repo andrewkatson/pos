@@ -14,8 +14,8 @@ from .input_validator import is_valid_pattern
 from .utils import convert_to_bool, generate_login_cookie_token, generate_management_token, generate_series_identifier, \
     generate_reset_id, get_batch
 from .models import LoginCookie, Response, Session, Post
-from classifiers import image_classifier, image_classifier_fake, text_classifier_fake, text_classifier
-from feed_algorithm import feed_algorithm, feed_algorithm_fake
+from .classifiers import image_classifier, image_classifier_fake, text_classifier_fake, text_classifier
+from .feed_algorithm import feed_algorithm, feed_algorithm_fake
 
 image_classifier_class = image_classifier
 text_classifier_class = text_classifier
@@ -24,6 +24,7 @@ if settings.DEBUG:
     image_classifier_class = image_classifier_fake
     text_classifier_class = text_classifier_fake
     feed_algorithm_class = feed_algorithm_fake
+
 
 def get_user_with_username_and_email(username, email):
     try:
@@ -89,12 +90,14 @@ def get_user_with_session_management_token(token):
     except LoginCookie.DoesNotExist:
         return None
 
+
 def get_post_with_identifier(identifier):
     try:
         existing_post = Post.objects.get(post_identifier=identifier)
         return existing_post
     except Post.DoesNotExist:
         return None
+
 
 def register(request, username, email, password, remember_me, ip):
     invalid_fields = []
@@ -447,7 +450,6 @@ def make_post(request, session_management_token, image_url, caption):
             return HttpResponseBadRequest("Image is not positive")
     else:
         return HttpResponseBadRequest("No user with session token")
-    
 
 
 @login_required
@@ -610,6 +612,7 @@ def unlike_post(request, session_management_token, post_identifier):
     else:
         return HttpResponseBadRequest("No user with session token")
 
+
 @login_required
 def get_posts_in_feed(request, session_management_token, batch):
     invalid_fields = []
@@ -631,7 +634,6 @@ def get_posts_in_feed(request, session_management_token, batch):
             responses = []
 
             for post in batch:
-
                 response = Response.objects.create(post_identifier=post.post_identifier, image_url=post.image_url)
 
                 responses.append(response)
@@ -645,6 +647,7 @@ def get_posts_in_feed(request, session_management_token, batch):
 
     else:
         return HttpResponseBadRequest("No user with session token")
+
 
 @login_required
 def get_posts_for_user(request, session_management_token, username, batch):
@@ -684,6 +687,7 @@ def get_posts_for_user(request, session_management_token, username, batch):
     else:
         return HttpResponseBadRequest("No user with session token")
 
+
 @login_required
 def get_post_details(request, post_identifier):
     invalid_fields = []
@@ -700,18 +704,55 @@ def get_post_details(request, post_identifier):
 
         total_likes = post.postlike_set.count()
 
-        response = Response.objects.create(post_identifier=post.post_identifier, image_url=post.image_url, caption=post.caption, post_likes=total_likes)
+        response = Response.objects.create(post_identifier=post.post_identifier, image_url=post.image_url,
+                                           caption=post.caption, post_likes=total_likes)
 
-        serialized_response_list = serializers.serialize('json', [response], fields=('post_identifier', 'image_url', 'caption', 'post_likes'))
+        serialized_response_list = serializers.serialize('json', [response],
+                                                         fields=('post_identifier', 'image_url', 'caption',
+                                                                 'post_likes'))
 
         return JsonResponse({'response_list': serialized_response_list})
 
     else:
         return HttpResponseBadRequest("No post with that identifier")
 
+
 @login_required
-def comment_on_post(request, session_management_token, post_identifier):
-    pass
+def comment_on_post(request, session_management_token, post_identifier, comment_text):
+    invalid_fields = []
+
+    if not is_valid_pattern(session_management_token, Patterns.alphanumeric):
+        invalid_fields.append(Params.session_management_token)
+
+    if not is_valid_pattern(comment_text, Patterns.alphanumeric):
+        invalid_fields.append(Params.comment_text)
+
+    if len(invalid_fields) > 0:
+        return HttpResponseBadRequest(f"Invalid fields: {invalid_fields}")
+
+    existing = get_user_with_session_management_token(session_management_token)
+
+    post = get_post_with_identifier(post_identifier)
+
+    if post is not None:
+
+        new_comment_thread = post.commentthread_set.create(creation_time=datetime.datetime.now(),
+                                                           updated_time=datetime.datetime.now())
+        new_comment_thread.save()
+
+        new_comment = new_comment_thread.comment_set.create(author_username=existing.username, body=comment_text,
+                                                            updated_time=datetime.datetime.now(),
+                                                            creation_time=datetime.datetime.now())
+        new_comment.save()
+
+        response = Response.objects.create()
+
+        serialized_response_list = serializers.serialize('json', [response], fields=())
+
+        return JsonResponse({'response_list': serialized_response_list})
+
+    else:
+        return HttpResponseBadRequest("No post with that identifier")
 
 
 @login_required
@@ -733,13 +774,16 @@ def delete_comment(request, session_management_token, post_identifier, comment_i
 def report_comment(request, session_management_token, post_identifier, comment_identifier):
     pass
 
+
 @login_required
 def get_comments_for_post(request, session_management_token, post_identifier):
     pass
 
+
 @login_required
 def reply_to_comment_thread(request, session_management_token, post_identifier, comment_thread_identifier):
     pass
+
 
 @login_required
 def get_users_matching_fragment(request, session_management_token, username_fraction):

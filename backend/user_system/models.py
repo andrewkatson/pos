@@ -110,8 +110,7 @@ class Comment(models.Model):
     comment_identifier = models.UUIDField(default=uuid.uuid4, primary_key=True, unique=True, editable=False)
     comment_thread = models.ForeignKey(CommentThread, on_delete=models.CASCADE, default=CommentThread.get_default_pk)
     body = models.TextField(null=True)
-    author = models.ForeignKey(PositiveOnlySocialUser, on_delete=models.CASCADE,
-                               default=PositiveOnlySocialUser.get_default_pk)
+    author_username = models.TextField(null=True)
     creation_time = models.DateTimeField(auto_now=True, null=True, blank=True)
     updated_time = models.DateTimeField(auto_now=True, null=True, blank=True)
 

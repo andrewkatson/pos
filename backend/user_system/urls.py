@@ -45,7 +45,7 @@ urlpatterns = [
     # Get the details for a post
     path('get_post_details/<str:post_identifier>', views.get_post_details, name='get_post_details'),
     # Comment directly on a post
-    path('comment_on_post/<str:session_management_token>/<str:post_identifier>', views.comment_on_post, name='comment_on_post'),
+    path('comment_on_post/<str:session_management_token>/<str:post_identifier>/<str:comment_text>', views.comment_on_post, name='comment_on_post'),
     # Like a comment
     path('like_comment/<str:session_management_token>/<str:post_identifier>/<str:comment_identifier>', views.like_comment, name='like_comment'),
     # Unlike a comment

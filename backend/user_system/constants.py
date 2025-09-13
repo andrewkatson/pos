@@ -43,6 +43,7 @@ class Params:
     image = "IMAGE_URL"
     post_identifier = "POST_IDENTIFIER"
     reason = "REASON"
+    comment_text = "COMMENT_TEXT"
 
 class Fields:
     series_identifier = "series_identifier"
