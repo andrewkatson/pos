@@ -818,7 +818,63 @@ def like_comment(request, session_management_token, post_identifier, comment_thr
 
 @login_required
 def unlike_comment(request, session_management_token, post_identifier, comment_thread_identifier, comment_identifier):
-    pass
+    invalid_fields = []
+
+    if not is_valid_pattern(session_management_token, Patterns.alphanumeric):
+        invalid_fields.append(Params.session_management_token)
+
+    if not is_valid_pattern(post_identifier, Patterns.uuid4):
+        invalid_fields.append(Params.post_identifier)
+
+    if not is_valid_pattern(comment_thread_identifier, Patterns.uuid4):
+        invalid_fields.append(Params.comment_thread_identifier)
+
+    if not is_valid_pattern(comment_identifier, Patterns.uuid4):
+        invalid_fields.append(Params.comment_identifier)
+
+    if len(invalid_fields) > 0:
+        return HttpResponseBadRequest(f"Invalid fields: {invalid_fields}")
+
+    existing = get_user_with_session_management_token(session_management_token)
+    post = get_post_with_identifier(post_identifier)
+
+    if existing is not None:
+
+        if post is not None:
+
+            comment_thread = post.commentthread_set.get(comment_thread_identifier=comment_thread_identifier)
+
+            if comment_thread is not None:
+
+                comment = comment_thread.comment_set.get(comment_identifier=comment_identifier)
+
+                if comment is not None:
+
+                    if comment.author_username != existing.username:
+
+                        query_set = comment.commentlike_set.filter(comment_liker_username=existing.username)
+                        if query_set.count() == 1:
+
+                            comment_like = comment.commentlike_set.create(comment_liker_username=existing.username)
+                            comment_like.delete()
+
+                            response = Response.objects.create()
+
+                            serialized_response_list = serializers.serialize('json', [response], fields=())
+
+                            return JsonResponse({'response_list': serialized_response_list})
+                        else:
+                            return HttpResponseBadRequest("Already unliked comment")
+                    else:
+                        return HttpResponseBadRequest("Cannot unlike own comment")
+                else:
+                    return HttpResponseBadRequest("No comment with that identifier")
+            else:
+                return HttpResponseBadRequest("No comment_thread with that identifier")
+        else:
+            return HttpResponseBadRequest("No post with that identifier")
+    else:
+        return HttpResponseBadRequest("No user with session token")
 
 
 @login_required
