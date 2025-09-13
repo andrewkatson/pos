@@ -9,7 +9,7 @@ from django.core.mail import send_mail
 from django.http import JsonResponse, HttpResponseBadRequest
 from django.contrib.auth import get_user_model
 
-from .constants import Patterns, Params, POST_BATCH_SIZE
+from .constants import Patterns, Params, POST_BATCH_SIZE, MAX_BEFORE_HIDING_POST, MAX_BEFORE_HIDING_COMMENT
 from .input_validator import is_valid_pattern
 from .utils import convert_to_bool, generate_login_cookie_token, generate_management_token, generate_series_identifier, \
     generate_reset_id, get_batch
@@ -514,6 +514,10 @@ def report_post(request, session_management_token, post_identifier, reason):
                 new_post_report.created_datetime = datetime.datetime.now()
                 new_post_report.save()
 
+                if post.postreport_set.count() > MAX_BEFORE_HIDING_POST:
+                    post.hidden = True
+                    post.save()
+
                 response = Response.objects.create()
 
                 serialized_response_list = serializers.serialize('json', [response], fields=())
@@ -929,8 +933,68 @@ def delete_comment(request, session_management_token, post_identifier, comment_t
 
 
 @login_required
-def report_comment(request, session_management_token, post_identifier, comment_thread_identifier, comment_identifier):
-    pass
+def report_comment(request, session_management_token, post_identifier, comment_thread_identifier, comment_identifier, reason):
+    invalid_fields = []
+
+    if not is_valid_pattern(session_management_token, Patterns.alphanumeric):
+        invalid_fields.append(Params.session_management_token)
+
+    if not is_valid_pattern(post_identifier, Patterns.uuid4):
+        invalid_fields.append(Params.post_identifier)
+
+    if not is_valid_pattern(comment_thread_identifier, Patterns.uuid4):
+        invalid_fields.append(Params.comment_thread_identifier)
+
+    if not is_valid_pattern(comment_identifier, Patterns.uuid4):
+        invalid_fields.append(Params.comment_identifier)
+
+    if not is_valid_pattern(reason, Patterns.sql_injection):
+        invalid_fields.append(Params.reason)
+
+    if len(invalid_fields) > 0:
+        return HttpResponseBadRequest(f"Invalid fields: {invalid_fields}")
+
+    existing = get_user_with_session_management_token(session_management_token)
+    post = get_post_with_identifier(post_identifier)
+
+    if existing is not None:
+
+        if post is not None:
+
+            comment_thread = post.commentthread_set.get(comment_thread_identifier=comment_thread_identifier)
+
+            if comment_thread is not None:
+
+                comment = comment_thread.comment_set.get(comment_identifier=comment_identifier)
+
+                if comment is not None:
+
+                    if comment.author_username != existing.username:
+
+                        new_comment_report = comment.commentreport_set.create(reported_by_username=existing.username)
+                        new_comment_report.reason = reason
+                        new_comment_report.created_datetime = datetime.datetime.now()
+                        new_comment_report.save()
+
+                        if comment.commentreport_set.count() > MAX_BEFORE_HIDING_COMMENT:
+                            comment.hidden = True
+                            comment.save()
+
+                        response = Response.objects.create()
+
+                        serialized_response_list = serializers.serialize('json', [response], fields=())
+
+                        return JsonResponse({'response_list': serialized_response_list})
+                    else:
+                        return HttpResponseBadRequest("Cannot report own comment")
+                else:
+                    return HttpResponseBadRequest("No comment with that identifier")
+            else:
+                return HttpResponseBadRequest("No comment_thread with that identifier")
+        else:
+            return HttpResponseBadRequest("No post with that identifier")
+    else:
+        return HttpResponseBadRequest("No user with session token")
 
 
 @login_required

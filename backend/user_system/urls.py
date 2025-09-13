@@ -53,7 +53,7 @@ urlpatterns = [
     # Delete a comment
     path('delete_comment/<str:session_management_token>/<str:post_identifier>/<str:comment_thread_identifier>/<str:comment_identifier>', views.delete_comment, name='delete_comment'),
     # Report a comment
-    path('report_comment/<str:session_management_token>/<str:post_identifier>/<str:comment_thread_identifier>/<str:comment_identifier>', views.report_comment, name='report_comment'),
+    path('report_comment/<str:session_management_token>/<str:post_identifier>/<str:comment_thread_identifier>/<str:comment_identifier>/<str:reason>', views.report_comment, name='report_comment'),
     # Get comments for a post
     path('get_comments_for_post/<str:session_management_token>/<str:post_identifier>', views.get_comments_for_post, name='get_comments_for_post'),
     # Reply to a comment thread. This is basically like commenting a post but instead is underneath a comment
