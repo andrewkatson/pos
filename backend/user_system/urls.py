@@ -47,13 +47,13 @@ urlpatterns = [
     # Comment directly on a post
     path('comment_on_post/<str:session_management_token>/<str:post_identifier>/<str:comment_text>', views.comment_on_post, name='comment_on_post'),
     # Like a comment
-    path('like_comment/<str:session_management_token>/<str:post_identifier>/<str:comment_identifier>', views.like_comment, name='like_comment'),
+    path('like_comment/<str:session_management_token>/<str:post_identifier>/<str:comment_thread_identifier>/<str:comment_identifier>', views.like_comment, name='like_comment'),
     # Unlike a comment
-    path('unlike_comment/<str:session_management_token>/<str:post_identifier>/str:comment_identifier', views.unlike_comment, name='unlike_comment'),
+    path('unlike_comment/<str:session_management_token>/<str:post_identifier>/<str:comment_thread_identifier>/str:comment_identifier', views.unlike_comment, name='unlike_comment'),
     # Delete a comment
-    path('delete_comment/<str:session_management_token>/<str:post_identifier>/<str:comment_identifier>', views.delete_comment, name='delete_comment'),
+    path('delete_comment/<str:session_management_token>/<str:post_identifier>/<str:comment_thread_identifier>/<str:comment_identifier>', views.delete_comment, name='delete_comment'),
     # Report a comment
-    path('report_comment/<str:session_management_token>/<str:post_identifier>/<str:comment_identifier>', views.report_comment, name='report_comment'),
+    path('report_comment/<str:session_management_token>/<str:post_identifier>/<str:comment_thread_identifier>/<str:comment_identifier>', views.report_comment, name='report_comment'),
     # Get comments for a post
     path('get_comments_for_post/<str:session_management_token>/<str:post_identifier>', views.get_comments_for_post, name='get_comments_for_post'),
     # Reply to a comment thread. This is basically like commenting a post but instead is underneath a comment

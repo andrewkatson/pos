@@ -522,7 +522,7 @@ def report_post(request, session_management_token, post_identifier, reason):
             else:
                 return HttpResponseBadRequest("Cannot report own post")
         else:
-            return HttpResponseBadRequest("No post with that identifier by that user")
+            return HttpResponseBadRequest("No post with that identifier")
     else:
         return HttpResponseBadRequest("No user with session token")
 
@@ -549,10 +549,10 @@ def like_post(request, session_management_token, post_identifier):
 
             if post.author != existing:
 
-                query_set = post.postlike_set.filter(liked_by_username=existing.username)
+                query_set = post.postlike_set.filter(post_liker_username=existing.username)
                 if query_set.count() == 0:
 
-                    new_post_like = post.postlike_set.create(liked_by_username=existing.username)
+                    new_post_like = post.postlike_set.create(post_liker_username=existing.username)
                     new_post_like.save()
 
                     response = Response.objects.create()
@@ -565,7 +565,7 @@ def like_post(request, session_management_token, post_identifier):
             else:
                 return HttpResponseBadRequest("Cannot like own post")
         else:
-            return HttpResponseBadRequest("No post with that identifier by that user")
+            return HttpResponseBadRequest("No post with that identifier")
     else:
         return HttpResponseBadRequest("No user with session token")
 
@@ -592,10 +592,10 @@ def unlike_post(request, session_management_token, post_identifier):
 
             if post.author != existing:
 
-                query_set = post.postlike_set.filter(liked_by_username=existing.username)
+                query_set = post.postlike_set.filter(post_liker_username=existing.username)
                 if query_set.count() == 1:
 
-                    post_like = post.postlike_set.get(liked_by_username=existing.username)
+                    post_like = post.postlike_set.get(post_liker_username=existing.username)
                     post_like.delete()
 
                     response = Response.objects.create()
@@ -608,7 +608,7 @@ def unlike_post(request, session_management_token, post_identifier):
             else:
                 return HttpResponseBadRequest("Cannot unlike own post")
         else:
-            return HttpResponseBadRequest("No post with that identifier by that user")
+            return HttpResponseBadRequest("No post with that identifier")
     else:
         return HttpResponseBadRequest("No user with session token")
 
@@ -756,22 +756,78 @@ def comment_on_post(request, session_management_token, post_identifier, comment_
 
 
 @login_required
-def like_comment(request, session_management_token, post_identifier, comment_identifier):
+def like_comment(request, session_management_token, post_identifier, comment_thread_identifier, comment_identifier):
+    invalid_fields = []
+
+    if not is_valid_pattern(session_management_token, Patterns.alphanumeric):
+        invalid_fields.append(Params.session_management_token)
+
+    if not is_valid_pattern(post_identifier, Patterns.uuid4):
+        invalid_fields.append(Params.post_identifier)
+
+    if not is_valid_pattern(comment_thread_identifier, Patterns.uuid4):
+        invalid_fields.append(Params.comment_thread_identifier)
+
+    if not is_valid_pattern(comment_identifier, Patterns.uuid4):
+        invalid_fields.append(Params.comment_identifier)
+
+    if len(invalid_fields) > 0:
+        return HttpResponseBadRequest(f"Invalid fields: {invalid_fields}")
+
+    existing = get_user_with_session_management_token(session_management_token)
+    post = get_post_with_identifier(post_identifier)
+
+    if existing is not None:
+
+        if post is not None:
+            
+            comment_thread = post.commentthread_set.get(comment_thread_identifier=comment_thread_identifier)
+            
+            if comment_thread is not None:
+                
+                comment = comment_thread.comment_set.get(comment_identifier=comment_identifier)
+                
+                if comment is not None: 
+                
+                    if comment.author_username != existing.username:
+        
+                        query_set = comment.commentlike_set.filter(comment_liker_username=existing.username)
+                        if query_set.count() == 0:
+        
+                            new_comment_like = comment.commentlike_set.create(comment_liker_username=existing.username)
+                            new_comment_like.save()
+        
+                            response = Response.objects.create()
+        
+                            serialized_response_list = serializers.serialize('json', [response], fields=())
+        
+                            return JsonResponse({'response_list': serialized_response_list})
+                        else:
+                            return HttpResponseBadRequest("Already liked comment")
+                    else:
+                        return HttpResponseBadRequest("Cannot like own comment")
+                else: 
+                    return HttpResponseBadRequest("No comment with that identifier")
+            else: 
+                return HttpResponseBadRequest("No comment_thread with that identifier")
+        else:
+            return HttpResponseBadRequest("No post with that identifier")
+    else:
+        return HttpResponseBadRequest("No user with session token")
+
+
+@login_required
+def unlike_comment(request, session_management_token, post_identifier, comment_thread_identifier, comment_identifier):
     pass
 
 
 @login_required
-def unlike_comment(request, session_management_token, post_identifier, comment_identifier):
+def delete_comment(request, session_management_token, post_identifier, comment_thread_identifier, comment_identifier):
     pass
 
 
 @login_required
-def delete_comment(request, session_management_token, post_identifier, comment_identifier):
-    pass
-
-
-@login_required
-def report_comment(request, session_management_token, post_identifier, comment_identifier):
+def report_comment(request, session_management_token, post_identifier, comment_thread_identifier, comment_identifier):
     pass
 
 

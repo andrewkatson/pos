@@ -44,6 +44,8 @@ class Params:
     post_identifier = "POST_IDENTIFIER"
     reason = "REASON"
     comment_text = "COMMENT_TEXT"
+    comment_thread_identifier = "COMMENT_THREAD_IDENTIFIER"
+    comment_identifier = "COMMENT_IDENTIFIER"
 
 class Fields:
     series_identifier = "series_identifier"
