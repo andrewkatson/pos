@@ -62,6 +62,9 @@ POST_BATCH_SIZE = 10
 # Size of comment batches
 COMMENT_BATCH_SIZE = 30
 
+# Size of comment thread batches
+COMMENT_THREAD_BATCH_SIZE = 10
+
 # Number of reports before hiding
 MAX_BEFORE_HIDING_POST = 10
 MAX_BEFORE_HIDING_COMMENT = 5

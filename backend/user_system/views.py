@@ -9,7 +9,8 @@ from django.core.mail import send_mail
 from django.http import JsonResponse, HttpResponseBadRequest
 from django.contrib.auth import get_user_model
 
-from .constants import Patterns, Params, POST_BATCH_SIZE, MAX_BEFORE_HIDING_POST, MAX_BEFORE_HIDING_COMMENT
+from .constants import Patterns, Params, POST_BATCH_SIZE, MAX_BEFORE_HIDING_POST, MAX_BEFORE_HIDING_COMMENT, \
+    COMMENT_THREAD_BATCH_SIZE
 from .input_validator import is_valid_pattern
 from .utils import convert_to_bool, generate_login_cookie_token, generate_management_token, generate_series_identifier, \
     generate_reset_id, get_batch
@@ -784,35 +785,35 @@ def like_comment(request, session_management_token, post_identifier, comment_thr
     if existing is not None:
 
         if post is not None:
-            
+
             comment_thread = post.commentthread_set.get(comment_thread_identifier=comment_thread_identifier)
-            
+
             if comment_thread is not None:
-                
+
                 comment = comment_thread.comment_set.get(comment_identifier=comment_identifier)
-                
-                if comment is not None: 
-                
+
+                if comment is not None:
+
                     if comment.author_username != existing.username:
-        
+
                         query_set = comment.commentlike_set.filter(comment_liker_username=existing.username)
                         if query_set.count() == 0:
-        
+
                             new_comment_like = comment.commentlike_set.create(comment_liker_username=existing.username)
                             new_comment_like.save()
-        
+
                             response = Response.objects.create()
-        
+
                             serialized_response_list = serializers.serialize('json', [response], fields=())
-        
+
                             return JsonResponse({'response_list': serialized_response_list})
                         else:
                             return HttpResponseBadRequest("Already liked comment")
                     else:
                         return HttpResponseBadRequest("Cannot like own comment")
-                else: 
+                else:
                     return HttpResponseBadRequest("No comment with that identifier")
-            else: 
+            else:
                 return HttpResponseBadRequest("No comment_thread with that identifier")
         else:
             return HttpResponseBadRequest("No post with that identifier")
@@ -933,7 +934,8 @@ def delete_comment(request, session_management_token, post_identifier, comment_t
 
 
 @login_required
-def report_comment(request, session_management_token, post_identifier, comment_thread_identifier, comment_identifier, reason):
+def report_comment(request, session_management_token, post_identifier, comment_thread_identifier, comment_identifier,
+                   reason):
     invalid_fields = []
 
     if not is_valid_pattern(session_management_token, Patterns.alphanumeric):
@@ -998,7 +1000,57 @@ def report_comment(request, session_management_token, post_identifier, comment_t
 
 
 @login_required
-def get_comments_for_post(request, session_management_token, post_identifier):
+def get_comments_for_post(request, session_management_token, post_identifier, batch):
+    invalid_fields = []
+
+    if not is_valid_pattern(session_management_token, Patterns.alphanumeric):
+        invalid_fields.append(Params.session_management_token)
+
+    if not is_valid_pattern(post_identifier, Patterns.uuid4):
+        invalid_fields.append(Params.post_identifier)
+
+    if len(invalid_fields) > 0:
+        return HttpResponseBadRequest(f"Invalid fields: {invalid_fields}")
+
+    existing = get_user_with_session_management_token(session_management_token)
+    post = get_post_with_identifier(post_identifier)
+
+    if existing is not None:
+
+        if post is not None:
+
+            comment_threads = post.commentthread_set
+
+            if comment_threads.count() > 0:
+
+                relevant_comment_threads = feed_algorithm_class.get_comment_threads_weighted_for_post(comment_threads)
+
+                if len(relevant_comment_threads) > 0:
+                    batch = get_batch(batch, COMMENT_THREAD_BATCH_SIZE, relevant_comment_threads)
+
+                    responses = []
+
+                    for comment_thread in batch:
+                        response = Response.objects.create(comment_thread_identifier=comment_thread.comment_thread_identifier)
+
+                        responses.append(response)
+
+                    serialized_response_list = serializers.serialize('json', responses,
+                                                                     fields='comment_thread_identifier')
+
+                    return JsonResponse({'response_list': serialized_response_list})
+                else:
+                    return HttpResponseBadRequest("No relevant comment threads")
+            else:
+                return HttpResponseBadRequest("No comment_threads for that post")
+        else:
+            return HttpResponseBadRequest("No post with that identifier")
+    else:
+        return HttpResponseBadRequest("No user with session token")
+
+
+@login_required
+def get_comments_for_thread(request, session_management_token, comment_thread_identifier):
     pass
 
 
