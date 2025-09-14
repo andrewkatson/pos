@@ -55,9 +55,9 @@ urlpatterns = [
     # Report a comment
     path('report_comment/<str:session_management_token>/<str:post_identifier>/<str:comment_thread_identifier>/<str:comment_identifier>/<str:reason>', views.report_comment, name='report_comment'),
     # Get comments for a post
-    path('get_comments_for_post/<str:session_management_token>/<str:post_identifier>', views.get_comments_for_post, name='get_comments_for_post'),
+    path('get_comments_for_post/<str:post_identifier>/<int:batch>', views.get_comments_for_post, name='get_comments_for_post'),
     # Get the comments for a comment thread
-    path('get_comments_for_thread/<str:session_management_token>/<str:comment_thread_identifier>', views.get_comments_for_thread, name='get_comments_for_thread'),
+    path('get_comments_for_thread/<str:comment_thread_identifier>/<int:batch>', views.get_comments_for_thread, name='get_comments_for_thread'),
     # Reply to a comment thread. This is basically like commenting a post but instead is underneath a comment
     path('reply_to_comment_thread/<str:session_management_token>/<str:post_identifier>/<str:comment_thread_identifier>', views.reply_to_comment_thread, name='reply_to_comment_thread'),
     # Get the users with a username matching the fragment passed

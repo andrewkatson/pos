@@ -8,3 +8,7 @@ def get_posts_weighted_for_user(username, posts_model):
 
 def get_comment_threads_weighted_for_post(comment_threads):
     return comment_threads
+
+def get_comments_weighted_for_thread(comments):
+    # Return the comments ordered chronologically.
+    return sorted(comments, key=lambda x: x.created_datetime, reverse=True)
