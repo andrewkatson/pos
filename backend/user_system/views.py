@@ -99,6 +99,7 @@ def get_post_with_identifier(identifier):
     except Post.DoesNotExist:
         return None
 
+
 def get_comment_thread_with_identifier(identifier):
     try:
         existing_comment_thread = CommentThread.objects.get(comment_thread_identifier=identifier)
@@ -1032,7 +1033,8 @@ def get_comments_for_post(request, post_identifier, batch):
                 responses = []
 
                 for comment_thread in batch:
-                    response = Response.objects.create(comment_thread_identifier=comment_thread.comment_thread_identifier)
+                    response = Response.objects.create(
+                        comment_thread_identifier=comment_thread.comment_thread_identifier)
 
                     responses.append(response)
 
@@ -1046,7 +1048,6 @@ def get_comments_for_post(request, post_identifier, batch):
             return HttpResponseBadRequest("No comment_threads for that post")
     else:
         return HttpResponseBadRequest("No post with that identifier")
-
 
 
 @login_required
@@ -1075,16 +1076,19 @@ def get_comments_for_thread(request, comment_thread_identifier, batch):
                 responses = []
 
                 for comment in batch:
-
                     total_comment_likes = comment.commentlike_set.count()
 
                     response = Response.objects.create(
-                        comment_identifier=comment.comment_identifier, body=comment.body, author_username=comment.author_username, comment_creation_time=comment.creation_time, comment_updated_time=comment.updated_datetime, comment_lkes=total_comment_likes)
+                        comment_identifier=comment.comment_identifier, body=comment.body,
+                        author_username=comment.author_username, comment_creation_time=comment.creation_time,
+                        comment_updated_time=comment.updated_datetime, comment_lkes=total_comment_likes)
 
                     responses.append(response)
 
                 serialized_response_list = serializers.serialize('json', responses,
-                                                                 fields=('comment_identifier', 'body', 'author_username', 'comment_creation_time', 'comment_updated_time', 'comment_likes'))
+                                                                 fields=('comment_identifier', 'body',
+                                                                         'author_username', 'comment_creation_time',
+                                                                         'comment_updated_time', 'comment_likes'))
 
                 return JsonResponse({'response_list': serialized_response_list})
             else:
@@ -1095,10 +1099,47 @@ def get_comments_for_thread(request, comment_thread_identifier, batch):
         return HttpResponseBadRequest("No comment thread with that identifier")
 
 
-
 @login_required
-def reply_to_comment_thread(request, session_management_token, post_identifier, comment_thread_identifier):
-    pass
+def reply_to_comment_thread(request, session_management_token, post_identifier, comment_thread_identifier,
+                            comment_text):
+    invalid_fields = []
+
+    if not is_valid_pattern(session_management_token, Patterns.alphanumeric):
+        invalid_fields.append(Params.session_management_token)
+
+    if not is_valid_pattern(post_identifier, Patterns.uuid4):
+        invalid_fields.append(Params.post_identifier)
+
+    if not is_valid_pattern(comment_thread_identifier, Patterns.uuid4):
+        invalid_fields.append(Params.comment_thread_identifier)
+
+    if not is_valid_pattern(comment_text, Patterns.alphanumeric):
+        invalid_fields.append(Params.comment_text)
+
+    if len(invalid_fields) > 0:
+        return HttpResponseBadRequest(f"Invalid fields: {invalid_fields}")
+
+    existing = get_user_with_session_management_token(session_management_token)
+
+    post = get_post_with_identifier(post_identifier)
+
+    if post is not None:
+
+        comment_thread = post.commentthread_set.get(comment_thread_identifier=comment_thread_identifier)
+
+        new_comment = comment_thread.comment_set.create(author_username=existing.username, body=comment_text,
+                                                        updated_time=datetime.datetime.now(),
+                                                        creation_time=datetime.datetime.now())
+        new_comment.save()
+
+        response = Response.objects.create()
+
+        serialized_response_list = serializers.serialize('json', [response], fields=())
+
+        return JsonResponse({'response_list': serialized_response_list})
+
+    else:
+        return HttpResponseBadRequest("No post with that identifier")
 
 
 @login_required

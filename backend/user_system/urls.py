@@ -59,7 +59,7 @@ urlpatterns = [
     # Get the comments for a comment thread
     path('get_comments_for_thread/<str:comment_thread_identifier>/<int:batch>', views.get_comments_for_thread, name='get_comments_for_thread'),
     # Reply to a comment thread. This is basically like commenting a post but instead is underneath a comment
-    path('reply_to_comment_thread/<str:session_management_token>/<str:post_identifier>/<str:comment_thread_identifier>', views.reply_to_comment_thread, name='reply_to_comment_thread'),
+    path('reply_to_comment_thread/<str:session_management_token>/<str:post_identifier>/<str:comment_thread_identifier>/<str:comment_text>', views.reply_to_comment_thread, name='reply_to_comment_thread'),
     # Get the users with a username matching the fragment passed
     path('get_users_matching_fragment/<str:session_management_token>/<str:username_fragment>', views.get_users_matching_fragment, name='get_users_matching_fragment'),
 ]
