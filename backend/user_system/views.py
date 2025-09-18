@@ -14,7 +14,7 @@ from .constants import Patterns, Params, POST_BATCH_SIZE, MAX_BEFORE_HIDING_POST
 from .input_validator import is_valid_pattern
 from .utils import convert_to_bool, generate_login_cookie_token, generate_management_token, generate_series_identifier, \
     generate_reset_id, get_batch
-from .models import LoginCookie, Response, Session, Post, CommentThread
+from .models import LoginCookie, Response, Session, Post, CommentThread, PositiveOnlySocialUser
 from .classifiers import image_classifier, image_classifier_fake, text_classifier_fake, text_classifier
 from .feed_algorithm import feed_algorithm, feed_algorithm_fake
 
@@ -1143,5 +1143,36 @@ def reply_to_comment_thread(request, session_management_token, post_identifier, 
 
 
 @login_required
-def get_users_matching_fragment(request, session_management_token, username_fraction):
-    pass
+def get_users_matching_fragment(request, session_management_token, username_fragment):
+    invalid_fields = []
+
+    if not is_valid_pattern(session_management_token, Patterns.alphanumeric):
+        invalid_fields.append(Params.session_management_token)
+
+    if not is_valid_pattern(username_fragment, Patterns.alphanumeric):
+        invalid_fields.append(Params.username_fragment)
+
+    if len(invalid_fields) > 0:
+        return HttpResponseBadRequest(f"Invalid fields: {invalid_fields}")
+
+    existing = get_user_with_session_management_token(session_management_token)
+
+    if existing is None:
+        return HttpResponseBadRequest("No user with that session management token")
+
+    user_query = PositiveOnlySocialUser.objects.filter(username__startswith=username_fragment)
+
+    if user_query.count():
+
+        responses = []
+
+        for user in user_query:
+
+            response = Response.objects.create(username=user.username, identity_is_verified=user.identity_is_verified)
+            responses.append(response)
+
+        serialized_response_list = serializers.serialize('json', responses, fields=())
+
+        return JsonResponse({'response_list': serialized_response_list})
+    else:
+        return HttpResponseBadRequest("No users matching that fragment")

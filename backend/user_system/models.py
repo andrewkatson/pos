@@ -162,3 +162,7 @@ class Response(models.Model):
     comment_creation_time = models.DateTimeField(auto_now=True, null=True, blank=True)
     comment_updated_time = models.DateTimeField(auto_now=True, null=True, blank=True)
     comment_likes = models.IntegerField(default=0)
+
+    # Info related to a user
+    username = models.TextField(null=True)
+    identity_is_verified = models.BooleanField(default=False)
