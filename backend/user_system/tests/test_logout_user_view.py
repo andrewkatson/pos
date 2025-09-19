@@ -1,16 +1,19 @@
-from django.test import RequestFactory, TestCase
+from django.test import RequestFactory
 from django.contrib.auth.models import AnonymousUser
 from django.contrib.sessions.middleware import SessionMiddleware
+
 from ..views import register, login_user, logout_user, delete_user
 from ..constants import Fields
 from .test_constants import username, email, password, ip, false, FAIL, SUCCESS, NOT_FOUND_REDIRECT
 from .test_utils import get_response_fields
+from .test_parent_case import PositiveOnlySocialTestCase
 
 invalid_session_management_token = '?'
 
-class LogoutUserTests(TestCase):
+class LogoutUserTests(PositiveOnlySocialTestCase):
 
     def setUp(self):
+        super().setUp()
         # Every test needs access to the request factory.
         self.factory = RequestFactory()
         prefix = self._testMethodName

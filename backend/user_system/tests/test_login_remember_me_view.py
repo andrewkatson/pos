@@ -1,22 +1,24 @@
 import uuid
 
-from django.test import RequestFactory, TestCase
+from django.test import RequestFactory
 from django.contrib.auth.models import AnonymousUser
 from django.contrib.sessions.middleware import SessionMiddleware
+
 from ..views import register, login_user_with_remember_me
 from ..constants import Fields
 from .test_constants import username, email, password, ip, invalid_ip, true, false, FAIL, SUCCESS
 from .test_utils import get_response_fields
 from ..utils import generate_login_cookie_token
+from .test_parent_case import PositiveOnlySocialTestCase
 
 invalid_session_management_token = '?'
 invalid_series_identifier = '?'
 invalid_login_cookie_token = '?'
 
-
-class LoginUserRememberMETests(TestCase):
+class LoginUserRememberMETests(PositiveOnlySocialTestCase):
 
     def setUp(self):
+        super().setUp()
         # Every test needs access to the request factory.
         self.factory = RequestFactory()
         prefix = self._testMethodName

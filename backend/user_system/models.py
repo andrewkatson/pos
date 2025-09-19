@@ -25,18 +25,13 @@ class PositiveOnlySocialUser(AbstractUser):
                           unique=True,
                           editable=False)
 
-    @classmethod
-    def get_default_pk(cls):
-        user, created = cls.objects.get_or_create()
-        return user.id
-
 
 # The session information
 class Session(models.Model):
     # SHA256 hashed
     management_token = models.TextField(null=True)
     management_user = models.ForeignKey(
-        PositiveOnlySocialUser, on_delete=models.CASCADE, default=PositiveOnlySocialUser.get_default_pk
+        PositiveOnlySocialUser, on_delete=models.CASCADE
     )
     ip = models.TextField(null=True)
 
@@ -51,8 +46,7 @@ class LoginCookie(models.Model):
                                          editable=False)
     # SHA256 hashed
     token = models.TextField(null=True)
-    cookie_user = models.ForeignKey(PositiveOnlySocialUser, on_delete=models.CASCADE,
-                                    default=PositiveOnlySocialUser.get_default_pk)
+    cookie_user = models.ForeignKey(PositiveOnlySocialUser, on_delete=models.CASCADE)
 
 
 # A post on the website
@@ -65,29 +59,23 @@ class Post(models.Model):
     caption = models.TextField(null=True)
     creation_time = models.DateTimeField(auto_now=True, null=True, blank=True)
     updated_time = models.DateTimeField(auto_now=True, null=True, blank=True)
-    author = models.ForeignKey(PositiveOnlySocialUser, on_delete=models.CASCADE,
-                               default=PositiveOnlySocialUser.get_default_pk)
+    author = models.ForeignKey(PositiveOnlySocialUser, on_delete=models.CASCADE)
     reported = models.BooleanField(default=False)
     reported_time = models.DateTimeField(auto_now=True, null=True, blank=True)
     reported_by_username = models.TextField(null=True)
     hidden = models.BooleanField(default=False)
 
-    @classmethod
-    def get_default_pk(cls):
-        post, created = cls.objects.get_or_create()
-        return post.post_identifier
-
 # A report on a post
 class PostReport(models.Model):
     reported_by_username = models.TextField(null=True)
-    post = models.ForeignKey(Post, on_delete=models.CASCADE, default=Post.get_default_pk)
+    post = models.ForeignKey(Post, on_delete=models.CASCADE)
     creation_time = models.DateTimeField(auto_now=True, null=True, blank=True)
     reason = models.TextField(null=True)
 
 # A like on a post
 class PostLike(models.Model):
     post_liker_username = models.TextField(null=True)
-    post = models.ForeignKey(Post, on_delete=models.CASCADE, default=PositiveOnlySocialUser.get_default_pk)
+    post = models.ForeignKey(Post, on_delete=models.CASCADE)
 
 # A thread of comments on a post
 class CommentThread(models.Model):
@@ -95,20 +83,15 @@ class CommentThread(models.Model):
                                                  primary_key=True,
                                                  unique=True,
                                                  editable=False)
-    post = models.ForeignKey(Post, on_delete=models.CASCADE, default=Post.get_default_pk)
+    post = models.ForeignKey(Post, on_delete=models.CASCADE)
     creation_time = models.DateTimeField(auto_now=True, null=True, blank=True)
     updated_time = models.DateTimeField(auto_now=True, null=True, blank=True)
-
-    @classmethod
-    def get_default_pk(cls):
-        comment_thread, created = cls.objects.get_or_create()
-        return comment_thread.comment_thread_identifier
 
 
 # A comment on a post
 class Comment(models.Model):
     comment_identifier = models.UUIDField(default=uuid.uuid4, primary_key=True, unique=True, editable=False)
-    comment_thread = models.ForeignKey(CommentThread, on_delete=models.CASCADE, default=CommentThread.get_default_pk)
+    comment_thread = models.ForeignKey(CommentThread, on_delete=models.CASCADE)
     body = models.TextField(null=True)
     author_username = models.TextField(null=True)
     creation_time = models.DateTimeField(auto_now=True, null=True, blank=True)
@@ -116,22 +99,17 @@ class Comment(models.Model):
 
     hidden = models.BooleanField(default=False)
 
-    @classmethod
-    def get_default_pk(cls):
-        comment, created = cls.objects.get_or_create()
-        return comment.comment_identifier
-
 # A report on a comment
 class CommentReport(models.Model):
     reported_by_username = models.TextField(null=True)
-    comment = models.ForeignKey(Comment, on_delete=models.CASCADE, default=Comment.get_default_pk)
+    comment = models.ForeignKey(Comment, on_delete=models.CASCADE)
     creation_time = models.DateTimeField(auto_now=True, null=True, blank=True)
     reason = models.TextField(null=True)
 
 # A like on a comment
 class CommentLike(models.Model):
     comment_liker_username = models.TextField(null=True)
-    comment = models.ForeignKey(Comment, on_delete=models.CASCADE, default=Comment.get_default_pk)
+    comment = models.ForeignKey(Comment, on_delete=models.CASCADE)
 
 # The response sent back to the client
 class Response(models.Model):

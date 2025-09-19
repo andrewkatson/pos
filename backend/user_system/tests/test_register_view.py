@@ -1,5 +1,7 @@
-from django.test import RequestFactory, TestCase
+from django.test import RequestFactory
 from django.contrib.auth.models import AnonymousUser
+
+from .test_parent_case import PositiveOnlySocialTestCase
 from ..views import register
 from ..constants import Fields, Patterns
 from ..input_validator import is_valid_pattern
@@ -7,10 +9,10 @@ from .test_constants import username, email, password, ip, invalid_username, inv
     invalid_email, invalid_ip, invalid_bool, false, true, FAIL, SUCCESS
 from .test_utils import get_response_fields
 
-
-class RegisterTests(TestCase):
+class RegisterTests(PositiveOnlySocialTestCase):
 
     def setUp(self):
+        super().setUp()
         # Every test needs access to the request factory.
         self.factory = RequestFactory()
         prefix = self._testMethodName

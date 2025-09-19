@@ -1,20 +1,18 @@
 # This test is special because it exercises the request_reset, verify_reset, and reset_password views at once.
-from django.test import RequestFactory, TestCase
+from django.test import RequestFactory
 from django.contrib.auth.models import AnonymousUser
 from django.contrib.sessions.middleware import SessionMiddleware
+
+from .test_parent_case import PositiveOnlySocialTestCase
 from ..views import register, request_reset, verify_reset, reset_password, get_user_with_username
-from ..constants import Fields, Patterns
-from ..input_validator import is_valid_pattern
-from .test_constants import username, email, password, ip, invalid_username, invalid_password, \
-    invalid_email, invalid_ip, invalid_bool, false, true, FAIL, SUCCESS
-from .test_utils import get_response_fields
+from .test_constants import username, email, password, ip, false, FAIL, SUCCESS
 
 other_username = f'other_{username}'
 
-
-class ResetPasswordTests(TestCase):
+class ResetPasswordTests(PositiveOnlySocialTestCase):
 
     def setUp(self):
+        super().setUp()
         # Every test needs access to the request factory.
         self.factory = RequestFactory()
         prefix = self._testMethodName

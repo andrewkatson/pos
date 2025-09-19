@@ -2,15 +2,19 @@ from django.test import RequestFactory
 from django.contrib.auth.models import AnonymousUser
 from django.contrib.sessions.middleware import SessionMiddleware
 
-from ..views import register, login_user, delete_user, get_user_with_username
+from .test_parent_case import PositiveOnlySocialTestCase
+from ..classifiers.classifier_constants import POSITIVE_IMAGE_URL, POSITIVE_TEXT
+from ..views import register, login_user, make_post, get_user_with_username
 from ..constants import Fields
 from .test_constants import username, email, password, ip, false, FAIL, SUCCESS
 from .test_utils import get_response_fields
-from .test_parent_case import PositiveOnlySocialTestCase
+from ..classifiers import image_classifier_fake, text_classifier_fake
 
 invalid_session_management_token = '?'
+invalid_image_url = '?'
+invalid_caption = 'DROP TABLE x;'
 
-class LogoutUserTests(PositiveOnlySocialTestCase):
+class MakePostTests(PositiveOnlySocialTestCase):
 
     def setUp(self):
         super().setUp()
@@ -33,6 +37,10 @@ class LogoutUserTests(PositiveOnlySocialTestCase):
         # Store the info needed to call remember me later
         self.session_management_token = fields[Fields.session_management_token]
 
+        # Store some basic info used in these tests
+        self.image_url = f'{prefix}.png'
+        self.caption = f'This is my caption :P'
+
         # Create an instance of a POST request.
         self.request = self.factory.post("/user_system/login_user")
 
@@ -48,16 +56,27 @@ class LogoutUserTests(PositiveOnlySocialTestCase):
         # Need to log the user in
         response = login_user(self.request, self.local_username, self.local_password, false, ip)
         self.assertEqual(response.status_code, SUCCESS)
-        
+
     def test_invalid_session_management_token_returns_bad_response(self):
-        # Test view delete_user
-        response = delete_user(self.request, invalid_session_management_token)
+        # Test view make_post
+        response = make_post(self.request, invalid_session_management_token, self.image_url, self.caption)
         self.assertEqual(response.status_code, FAIL)
 
-    def test_logged_in_user_is_deleted(self):
-        # Test view delete_user
-        response = delete_user(self.request, self.session_management_token)
+    def test_invalid_image_url_returns_bad_response(self):
+        # Test view make_post
+        response = make_post(self.request, self.session_management_token, invalid_image_url, self.caption)
+        self.assertEqual(response.status_code, FAIL)
+
+    def test_invalid_caption_returns_bad_response(self):
+        # Test view make_post
+        response = make_post(self.request, self.session_management_token, self.image_url, invalid_caption)
+        self.assertEqual(response.status_code, FAIL)
+
+    def test_make_post_returns_good_response_and_adds_post_to_user(self):
+        # Test view make_post
+        response = make_post(self.request, self.session_management_token, POSITIVE_IMAGE_URL, POSITIVE_TEXT, image_classifier_fake, text_classifier_fake)
         self.assertEqual(response.status_code, SUCCESS)
 
-        # Test that the user is gone
-        self.assertIsNone(get_user_with_username(self.local_username))
+        user = get_user_with_username(self.local_username)
+        posts = user.post_set.all()
+        self.assertEqual(len(posts), 1)

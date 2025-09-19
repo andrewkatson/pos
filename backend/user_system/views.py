@@ -15,16 +15,8 @@ from .input_validator import is_valid_pattern
 from .utils import convert_to_bool, generate_login_cookie_token, generate_management_token, generate_series_identifier, \
     generate_reset_id, get_batch
 from .models import LoginCookie, Response, Session, Post, CommentThread, PositiveOnlySocialUser
-from .classifiers import image_classifier, image_classifier_fake, text_classifier_fake, text_classifier
-from .feed_algorithm import feed_algorithm, feed_algorithm_fake
-
-image_classifier_class = image_classifier
-text_classifier_class = text_classifier
-feed_algorithm_class = feed_algorithm
-if settings.DEBUG:
-    image_classifier_class = image_classifier_fake
-    text_classifier_class = text_classifier_fake
-    feed_algorithm_class = feed_algorithm_fake
+from .classifiers import image_classifier, text_classifier
+from .feed_algorithm import feed_algorithm
 
 
 def get_user_with_username_and_email(username, email):
@@ -420,9 +412,8 @@ def delete_user(request, session_management_token):
     else:
         return HttpResponseBadRequest("No user with session token")
 
-
 @login_required
-def make_post(request, session_management_token, image_url, caption):
+def make_post(request, session_management_token, image_url, caption, image_classifier_class=image_classifier, text_classifier_class=text_classifier):
     invalid_fields = []
 
     if not is_valid_pattern(session_management_token, Patterns.alphanumeric):
@@ -431,7 +422,7 @@ def make_post(request, session_management_token, image_url, caption):
     if not is_valid_pattern(image_url, Patterns.image_url):
         invalid_fields.append(Params.image)
 
-    if not is_valid_pattern(caption, Patterns.sql_injection):
+    if not is_valid_pattern(caption, Patterns.alphanumeric_with_special_chars):
         invalid_fields.append(Params.caption)
 
     if len(invalid_fields) > 0:
@@ -442,6 +433,9 @@ def make_post(request, session_management_token, image_url, caption):
     if existing is not None:
 
         if image_classifier_class.is_image_positive(image_url):
+
+            if not text_classifier_class.is_text_positive(caption):
+                return HttpResponseBadRequest("Text must be positive")
 
             new_post = existing.post_set.create()
             new_post.image_url = image_url
@@ -503,7 +497,7 @@ def report_post(request, session_management_token, post_identifier, reason):
     if not is_valid_pattern(post_identifier, Patterns.uuid4):
         invalid_fields.append(Params.post_identifier)
 
-    if not is_valid_pattern(reason, Patterns.sql_injection):
+    if not is_valid_pattern(reason, Patterns.alphanumeric_with_special_chars):
         invalid_fields.append(Params.reason)
 
     if len(invalid_fields) > 0:
@@ -627,7 +621,7 @@ def unlike_post(request, session_management_token, post_identifier):
 
 
 @login_required
-def get_posts_in_feed(request, session_management_token, batch):
+def get_posts_in_feed(request, session_management_token, batch, feed_algorithm_class=feed_algorithm):
     invalid_fields = []
 
     if not is_valid_pattern(session_management_token, Patterns.alphanumeric):
@@ -663,7 +657,7 @@ def get_posts_in_feed(request, session_management_token, batch):
 
 
 @login_required
-def get_posts_for_user(request, session_management_token, username, batch):
+def get_posts_for_user(request, session_management_token, username, batch, feed_algorithm_class=feed_algorithm):
     invalid_fields = []
 
     if not is_valid_pattern(session_management_token, Patterns.alphanumeric):
@@ -731,7 +725,7 @@ def get_post_details(request, post_identifier):
 
 
 @login_required
-def comment_on_post(request, session_management_token, post_identifier, comment_text):
+def comment_on_post(request, session_management_token, post_identifier, comment_text, text_classifier_class=text_classifier):
     invalid_fields = []
 
     if not is_valid_pattern(session_management_token, Patterns.alphanumeric):
@@ -742,6 +736,9 @@ def comment_on_post(request, session_management_token, post_identifier, comment_
 
     if len(invalid_fields) > 0:
         return HttpResponseBadRequest(f"Invalid fields: {invalid_fields}")
+
+    if not text_classifier_class.is_text_positive(comment_text):
+        return HttpResponseBadRequest(f"Text must be positive")
 
     existing = get_user_with_session_management_token(session_management_token)
 
@@ -958,7 +955,7 @@ def report_comment(request, session_management_token, post_identifier, comment_t
     if not is_valid_pattern(comment_identifier, Patterns.uuid4):
         invalid_fields.append(Params.comment_identifier)
 
-    if not is_valid_pattern(reason, Patterns.sql_injection):
+    if not is_valid_pattern(reason, Patterns.alphanumeric_with_special_chars):
         invalid_fields.append(Params.reason)
 
     if len(invalid_fields) > 0:
@@ -1008,7 +1005,7 @@ def report_comment(request, session_management_token, post_identifier, comment_t
 
 
 @login_required
-def get_comments_for_post(request, post_identifier, batch):
+def get_comments_for_post(request, post_identifier, batch, feed_algorithm_class=feed_algorithm):
     invalid_fields = []
 
     if not is_valid_pattern(post_identifier, Patterns.uuid4):
@@ -1051,7 +1048,7 @@ def get_comments_for_post(request, post_identifier, batch):
 
 
 @login_required
-def get_comments_for_thread(request, comment_thread_identifier, batch):
+def get_comments_for_thread(request, comment_thread_identifier, batch, feed_algorithm_class=feed_algorithm):
     invalid_fields = []
 
     if not is_valid_pattern(comment_thread_identifier, Patterns.uuid4):
@@ -1101,7 +1098,7 @@ def get_comments_for_thread(request, comment_thread_identifier, batch):
 
 @login_required
 def reply_to_comment_thread(request, session_management_token, post_identifier, comment_thread_identifier,
-                            comment_text):
+                            comment_text, text_classifier_class=text_classifier):
     invalid_fields = []
 
     if not is_valid_pattern(session_management_token, Patterns.alphanumeric):
@@ -1118,6 +1115,9 @@ def reply_to_comment_thread(request, session_management_token, post_identifier, 
 
     if len(invalid_fields) > 0:
         return HttpResponseBadRequest(f"Invalid fields: {invalid_fields}")
+
+    if not text_classifier_class.is_text_positive(comment_text):
+        return HttpResponseBadRequest("Text must be positive")
 
     existing = get_user_with_session_management_token(session_management_token)
 
