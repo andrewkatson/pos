@@ -469,9 +469,9 @@ def delete_post(request, session_management_token, post_identifier):
         return HttpResponseBadRequest(f"Invalid fields: {invalid_fields}")
 
     existing = get_user_with_session_management_token(session_management_token)
-    post = existing.post_set.get(post_identifier=post_identifier)
 
     if existing is not None:
+        post = existing.post_set.get(post_identifier=post_identifier)
 
         if post is not None:
             post.delete()
@@ -504,9 +504,10 @@ def report_post(request, session_management_token, post_identifier, reason):
         return HttpResponseBadRequest(f"Invalid fields: {invalid_fields}")
 
     existing = get_user_with_session_management_token(session_management_token)
-    post = get_post_with_identifier(post_identifier)
 
     if existing is not None:
+
+        post = get_post_with_identifier(post_identifier)
 
         if post is not None:
 
@@ -548,9 +549,10 @@ def like_post(request, session_management_token, post_identifier):
         return HttpResponseBadRequest(f"Invalid fields: {invalid_fields}")
 
     existing = get_user_with_session_management_token(session_management_token)
-    post = get_post_with_identifier(post_identifier)
 
     if existing is not None:
+
+        post = get_post_with_identifier(post_identifier)
 
         if post is not None:
 
@@ -591,9 +593,10 @@ def unlike_post(request, session_management_token, post_identifier):
         return HttpResponseBadRequest(f"Invalid fields: {invalid_fields}")
 
     existing = get_user_with_session_management_token(session_management_token)
-    post = get_post_with_identifier(post_identifier)
 
     if existing is not None:
+
+        post = get_post_with_identifier(post_identifier)
 
         if post is not None:
 
@@ -742,6 +745,9 @@ def comment_on_post(request, session_management_token, post_identifier, comment_
 
     existing = get_user_with_session_management_token(session_management_token)
 
+    if existing is None:
+        return HttpResponseBadRequest("No user with session token")
+
     post = get_post_with_identifier(post_identifier)
 
     if post is not None:
@@ -785,9 +791,10 @@ def like_comment(request, session_management_token, post_identifier, comment_thr
         return HttpResponseBadRequest(f"Invalid fields: {invalid_fields}")
 
     existing = get_user_with_session_management_token(session_management_token)
-    post = get_post_with_identifier(post_identifier)
 
     if existing is not None:
+
+        post = get_post_with_identifier(post_identifier)
 
         if post is not None:
 
@@ -846,9 +853,10 @@ def unlike_comment(request, session_management_token, post_identifier, comment_t
         return HttpResponseBadRequest(f"Invalid fields: {invalid_fields}")
 
     existing = get_user_with_session_management_token(session_management_token)
-    post = get_post_with_identifier(post_identifier)
 
     if existing is not None:
+
+        post = get_post_with_identifier(post_identifier)
 
         if post is not None:
 
@@ -907,9 +915,10 @@ def delete_comment(request, session_management_token, post_identifier, comment_t
         return HttpResponseBadRequest(f"Invalid fields: {invalid_fields}")
 
     existing = get_user_with_session_management_token(session_management_token)
-    post = get_post_with_identifier(post_identifier)
 
     if existing is not None:
+
+        post = get_post_with_identifier(post_identifier)
 
         if post is not None:
 
@@ -962,9 +971,10 @@ def report_comment(request, session_management_token, post_identifier, comment_t
         return HttpResponseBadRequest(f"Invalid fields: {invalid_fields}")
 
     existing = get_user_with_session_management_token(session_management_token)
-    post = get_post_with_identifier(post_identifier)
 
     if existing is not None:
+
+        post = get_post_with_identifier(post_identifier)
 
         if post is not None:
 
@@ -1120,6 +1130,9 @@ def reply_to_comment_thread(request, session_management_token, post_identifier, 
         return HttpResponseBadRequest("Text must be positive")
 
     existing = get_user_with_session_management_token(session_management_token)
+
+    if existing is None:
+        return HttpResponseBadRequest("No user with session management token")
 
     post = get_post_with_identifier(post_identifier)
 
