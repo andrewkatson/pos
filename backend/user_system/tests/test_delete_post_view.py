@@ -1,3 +1,5 @@
+from django.contrib.sessions.middleware import SessionMiddleware
+
 from .test_parent_case import PositiveOnlySocialTestCase
 from ..views import  delete_post, get_user_with_username
 from .test_constants import FAIL, SUCCESS
@@ -17,7 +19,12 @@ class DeletePostTests(PositiveOnlySocialTestCase):
 
         # Recall that middleware are not supported. You can simulate a
         # logged-in user by setting request.user manually.
-        self.delete_post_request.user = self.user
+        self.delete_post_request.user = get_user_with_username(self.local_username)
+
+        # Also add a session
+        middleware = SessionMiddleware(lambda req: None)
+        middleware.process_request(self.delete_post_request)
+        self.delete_post_request.session.save()
 
     def test_invalid_session_management_token_returns_bad_response(self):
         # Test view delete_post

@@ -12,7 +12,7 @@ true = 'TRUE'
 
 FAIL = 400
 SUCCESS = 200
-NOT_FOUND_REDIRECT = 302
+FORBIDDEN = 404
 
 LOGIN_USER = 'login_user'
 LOGIN_USER_WITH_REMEMBER_ME = 'login_user_with_remember_me'

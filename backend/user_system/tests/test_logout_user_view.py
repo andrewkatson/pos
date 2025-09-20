@@ -1,5 +1,8 @@
-from ..views import logout_user, delete_user
-from .test_constants import  false, FAIL, SUCCESS, NOT_FOUND_REDIRECT
+from django.contrib.sessions.middleware import SessionMiddleware
+from django.test import Client
+
+from ..views import logout_user, get_user_with_username
+from .test_constants import  false, FAIL, SUCCESS, FORBIDDEN
 from .test_parent_case import PositiveOnlySocialTestCase
 
 invalid_session_management_token = '?'
@@ -16,7 +19,12 @@ class LogoutUserTests(PositiveOnlySocialTestCase):
 
         # Recall that middleware are not supported. You can simulate a
         # logged-in user by setting request.user manually.
-        self.logout_user_request.user = self.user
+        self.logout_user_request.user = get_user_with_username(self.local_username)
+
+        # Also add a session
+        middleware = SessionMiddleware(lambda req: None)
+        middleware.process_request(self.logout_user_request)
+        self.logout_user_request.session.save()
 
     def test_invalid_session_management_token_returns_bad_response(self):
         # Test view logout_user
@@ -28,6 +36,6 @@ class LogoutUserTests(PositiveOnlySocialTestCase):
         response = logout_user(self.logout_user_request, self.session_management_token)
         self.assertEqual(response.status_code, SUCCESS)
 
-        # Test some endpoint that needs login to get a redirect
-        response = delete_user(self.login_user_request, self.session_management_token)
-        self.assertEqual(response.status_code, NOT_FOUND_REDIRECT)
+        client = Client()
+        response = client.post('/user_system/delete_user')
+        self.assertEqual(response.status_code, FORBIDDEN)

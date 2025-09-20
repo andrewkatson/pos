@@ -2,7 +2,7 @@ from .test_parent_case import PositiveOnlySocialTestCase
 from ..views import register
 from ..constants import Fields, Patterns
 from ..input_validator import is_valid_pattern
-from .test_constants import ip, invalid_username, invalid_password, \
+from .test_constants import username, email, password, ip, invalid_username, invalid_password, \
     invalid_email, invalid_ip, invalid_bool, false, true, FAIL, SUCCESS
 from .test_utils import get_response_fields
 
@@ -10,6 +10,10 @@ class RegisterTests(PositiveOnlySocialTestCase):
 
     def setUp(self):
         super().setUp()
+
+        self.local_username = f'{username}_{self.prefix}'
+        self.local_password = f'{password}_{self.prefix}'
+        self.local_email = (f'{email}_{self.prefix}@email.com')
 
     def test_invalid_username_returns_bad_response(self):
         # Test view register

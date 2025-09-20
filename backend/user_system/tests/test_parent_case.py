@@ -6,6 +6,7 @@ from django.contrib.sessions.middleware import SessionMiddleware
 from .test_utils import get_response_fields
 from ..classifiers.classifier_constants import POSITIVE_IMAGE_URL, POSITIVE_TEXT
 from ..constants import Fields
+from ..utils import convert_to_bool
 from ..views import register, login_user, make_post, get_user_with_username
 from .test_constants import username, email, password, SUCCESS, ip, LOGIN_USER, false, UserFields
 from ..classifiers import image_classifier_fake, text_classifier_fake
@@ -46,15 +47,14 @@ class PositiveOnlySocialTestCase(TestCase):
 
         # For this one we want to register a user with the info needed
         # to login later. All tests start with remember_me turned off on purpose.
-        request = self.factory.post("/user_system/register")
-        response = register(request, local_username, local_email, local_password, remember_me, ip)
+        response = register(self.register_request, local_username, local_email, local_password, remember_me, ip)
         self.assertEqual(response.status_code, SUCCESS)
 
         fields = get_response_fields(response)
 
         # Store the info needed to call remember me later
         session_management_token = fields[Fields.session_management_token]
-        if remember_me:
+        if convert_to_bool(remember_me):
             series_identifier = fields[Fields.series_identifier]
             login_cookie_token = fields[Fields.login_cookie_token]
 
@@ -76,6 +76,16 @@ class PositiveOnlySocialTestCase(TestCase):
         session_management_tokens = user_dict.get(UserFields.SESSION_MANAGEMENT_TOKEN, [])
         session_management_tokens.append(session_management_token)
 
+    def setup_local_values(self, remember_me):
+        self.local_username = self.users.get(UserFields.USERNAME, [])[0]
+        self.local_password = self.users.get(UserFields.PASSWORD, [])[0]
+        self.local_email = self.users.get(UserFields.EMAIL, [])[0]
+        self.session_management_token = self.users.get(UserFields.SESSION_MANAGEMENT_TOKEN, [])[0]
+
+        if convert_to_bool(remember_me):
+            self.series_identifier = self.users.get(UserFields.SERIES_IDENTIFIER, [])[0]
+            self.login_cookie_token = self.users.get(UserFields.LOGIN_COOKIE_TOKEN, [])[0]
+
     def login_user_setup(self, remember_me, type_of_login=LOGIN_USER):
         self.register_other_user(remember_me, 0, self.users)
 
@@ -87,17 +97,10 @@ class PositiveOnlySocialTestCase(TestCase):
         middleware.process_request(self.login_user_request)
         self.login_user_request.session.save()
 
+        self.setup_local_values(remember_me)
+
     def login_user(self, remember_me):
         self.login_user_setup(remember_me)
-
-        self.local_username = self.users.get(UserFields.USERNAME, [])[0]
-        self.local_password = self.users.get(UserFields.PASSWORD, [])[0]
-        self.local_email = self.users.get(UserFields.EMAIL, [])[0]
-        self.session_management_token = self.users.get(UserFields.SESSION_MANAGEMENT_TOKEN, [])[0]
-
-        if remember_me:
-            self.series_identifier = self.users.get(UserFields.SERIES_IDENTIFIER, [])[0]
-            self.login_cookie_token = self.users.get(UserFields.LOGIN_COOKIE_TOKEN, [])[0]
 
         # Need to log the user in
         response = login_user(self.login_user_request, self.local_username, self.local_password, false, ip)
@@ -108,6 +111,15 @@ class PositiveOnlySocialTestCase(TestCase):
 
         # Create an instance of a POST request.
         self.make_post_request = self.factory.post("/user_system/make_post")
+
+        # Recall that middleware are not supported. You can simulate a
+        # logged-in user by setting request.user manually.
+        self.make_post_request.user = get_user_with_username(self.local_username)
+
+        # Also add a session
+        middleware = SessionMiddleware(lambda req: None)
+        middleware.process_request(self.make_post_request)
+        self.make_post_request.session.save()
 
         # Need to make a post
         response = make_post(self.make_post_request, self.session_management_token, POSITIVE_IMAGE_URL, POSITIVE_TEXT,
@@ -122,6 +134,9 @@ class PositiveOnlySocialTestCase(TestCase):
         self.make_post()
 
         for i in range(num):
+            # We don't need to re-register the first user.
+            if i == 0:
+                continue
             self.register_other_user(false, i, self.users)
 
         # Store some basic info used in these tests

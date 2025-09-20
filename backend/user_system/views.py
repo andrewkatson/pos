@@ -14,7 +14,8 @@ from .constants import Patterns, Params, POST_BATCH_SIZE, MAX_BEFORE_HIDING_POST
 from .input_validator import is_valid_pattern
 from .utils import convert_to_bool, generate_login_cookie_token, generate_management_token, generate_series_identifier, \
     generate_reset_id, get_batch
-from .models import LoginCookie, Response, Session, Post, CommentThread, PositiveOnlySocialUser
+from .models import LoginCookie, Response, Session, Post, CommentThread, PositiveOnlySocialUser, PostReport, PostLike, \
+    Comment, CommentReport
 from .classifiers import image_classifier, text_classifier
 from .feed_algorithm import feed_algorithm
 
@@ -412,8 +413,10 @@ def delete_user(request, session_management_token):
     else:
         return HttpResponseBadRequest("No user with session token")
 
+
 @login_required
-def make_post(request, session_management_token, image_url, caption, image_classifier_class=image_classifier, text_classifier_class=text_classifier):
+def make_post(request, session_management_token, image_url, caption, image_classifier_class=image_classifier,
+              text_classifier_class=text_classifier):
     invalid_fields = []
 
     if not is_valid_pattern(session_management_token, Patterns.alphanumeric):
@@ -471,7 +474,10 @@ def delete_post(request, session_management_token, post_identifier):
     existing = get_user_with_session_management_token(session_management_token)
 
     if existing is not None:
-        post = existing.post_set.get(post_identifier=post_identifier)
+        try:
+            post = existing.post_set.get(post_identifier=post_identifier)
+        except Post.DoesNotExist:
+            post = None
 
         if post is not None:
             post.delete()
@@ -512,8 +518,10 @@ def report_post(request, session_management_token, post_identifier, reason):
         if post is not None:
 
             if post.author != existing:
-
-                previous_reported_by = post.postreport_set.get(reported_by_username=existing.username)
+                try:
+                    previous_reported_by = post.postreport_set.get(reported_by_username=existing.username)
+                except PostReport.DoesNotExist:
+                    previous_reported_by = None
 
                 if previous_reported_by is not None:
                     return HttpResponseBadRequest("Cannot report post twice")
@@ -609,9 +617,11 @@ def unlike_post(request, session_management_token, post_identifier):
 
                 query_set = post.postlike_set.filter(post_liker_username=existing.username)
                 if query_set.count() == 1:
-
-                    post_like = post.postlike_set.get(post_liker_username=existing.username)
-                    post_like.delete()
+                    try:
+                        post_like = post.postlike_set.get(post_liker_username=existing.username)
+                        post_like.delete()
+                    except PostLike.DoesNotExist:
+                        pass
 
                     response = Response.objects.create()
 
@@ -733,7 +743,8 @@ def get_post_details(request, post_identifier):
 
 
 @login_required
-def comment_on_post(request, session_management_token, post_identifier, comment_text, text_classifier_class=text_classifier):
+def comment_on_post(request, session_management_token, post_identifier, comment_text,
+                    text_classifier_class=text_classifier):
     invalid_fields = []
 
     if not is_valid_pattern(session_management_token, Patterns.alphanumeric):
@@ -802,12 +813,16 @@ def like_comment(request, session_management_token, post_identifier, comment_thr
         post = get_post_with_identifier(post_identifier)
 
         if post is not None:
-
-            comment_thread = post.commentthread_set.get(comment_thread_identifier=comment_thread_identifier)
+            try:
+                comment_thread = post.commentthread_set.get(comment_thread_identifier=comment_thread_identifier)
+            except CommentThread.DoesNotExist:
+                comment_thread = None
 
             if comment_thread is not None:
-
-                comment = comment_thread.comment_set.get(comment_identifier=comment_identifier)
+                try:
+                    comment = comment_thread.comment_set.get(comment_identifier=comment_identifier)
+                except Comment.DoesNotExist:
+                    comment = None
 
                 if comment is not None:
 
@@ -865,11 +880,17 @@ def unlike_comment(request, session_management_token, post_identifier, comment_t
 
         if post is not None:
 
-            comment_thread = post.commentthread_set.get(comment_thread_identifier=comment_thread_identifier)
+            try:
+                comment_thread = post.commentthread_set.get(comment_thread_identifier=comment_thread_identifier)
+            except CommentThread.DoesNotExist:
+                comment_thread = None
 
             if comment_thread is not None:
 
-                comment = comment_thread.comment_set.get(comment_identifier=comment_identifier)
+                try:
+                    comment = comment_thread.comment_set.get(comment_identifier=comment_identifier)
+                except Comment.DoesNotExist:
+                    comment = None
 
                 if comment is not None:
 
@@ -926,12 +947,17 @@ def delete_comment(request, session_management_token, post_identifier, comment_t
         post = get_post_with_identifier(post_identifier)
 
         if post is not None:
-
-            comment_thread = post.commentthread_set.get(comment_thread_identifier=comment_thread_identifier)
+            try:
+                comment_thread = post.commentthread_set.get(comment_thread_identifier=comment_thread_identifier)
+            except CommentThread.DoesNotExist:
+                comment_thread = None
 
             if comment_thread is not None:
 
-                comment = comment_thread.comment_set.get(comment_identifier=comment_identifier)
+                try:
+                    comment = comment_thread.comment_set.get(comment_identifier=comment_identifier)
+                except Comment.DoesNotExist:
+                    comment = None
 
                 if comment is not None:
 
@@ -983,17 +1009,26 @@ def report_comment(request, session_management_token, post_identifier, comment_t
 
         if post is not None:
 
-            comment_thread = post.commentthread_set.get(comment_thread_identifier=comment_thread_identifier)
+            try:
+                comment_thread = post.commentthread_set.get(comment_thread_identifier=comment_thread_identifier)
+            except CommentThread.DoesNotExist:
+                comment_thread = None
 
             if comment_thread is not None:
 
-                comment = comment_thread.comment_set.get(comment_identifier=comment_identifier)
+                try:
+                    comment = comment_thread.comment_set.get(comment_identifier=comment_identifier)
+                except Comment.DoesNotExist:
+                    comment = None
 
                 if comment is not None:
 
                     if comment.author_username != existing.username:
 
-                        previous_comment_report = comment.commentreport_set.get(reported_by_username=existing.username)
+                        try:
+                            previous_comment_report = comment.commentreport_set.get(reported_by_username=existing.username)
+                        except CommentReport.DoesNotExist:
+                            previous_comment_report = None
 
                         if previous_comment_report is not None:
                             return HttpResponseBadRequest("Cannot report comment twice")
@@ -1190,7 +1225,6 @@ def get_users_matching_fragment(request, session_management_token, username_frag
         responses = []
 
         for user in user_query:
-
             response = Response.objects.create(username=user.username, identity_is_verified=user.identity_is_verified)
             responses.append(response)
 

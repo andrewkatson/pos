@@ -1,3 +1,5 @@
+from django.contrib.sessions.middleware import SessionMiddleware
+
 from .test_parent_case import PositiveOnlySocialTestCase
 from ..classifiers.classifier_constants import POSITIVE_IMAGE_URL, POSITIVE_TEXT
 from ..views import make_post, get_user_with_username
@@ -20,7 +22,16 @@ class MakePostTests(PositiveOnlySocialTestCase):
 
         # Recall that middleware are not supported. You can simulate a
         # logged-in user by setting request.user manually.
-        self.make_post_request.user = self.user
+        self.make_post_request.user = get_user_with_username(self.local_username)
+
+        # Also add a session
+        middleware = SessionMiddleware(lambda req: None)
+        middleware.process_request(self.make_post_request)
+        self.make_post_request.session.save()
+
+        # Store some basic info used in these tests
+        self.image_url = f'{self.prefix}.png'
+        self.caption = f'This is my caption :P'
 
     def test_invalid_session_management_token_returns_bad_response(self):
         # Test view make_post
