@@ -57,6 +57,20 @@ class ReportPostTests(PositiveOnlySocialTestCase):
         response = report_post(self.report_post_request, self.session_management_token, str(self.post_identifier), reason)
         self.assertEqual(response.status_code, FAIL)
 
+    def test_report_post_twice_returns_bad_response(self):
+        # Test view report_post
+        response = report_post(self.report_post_request, self.other_session_management_token, str(self.post_identifier),
+                               reason)
+        self.assertEqual(response.status_code, SUCCESS)
+
+        user = get_user_with_username(self.local_username)
+        post = user.post_set.first()
+        self.assertEqual(post.postreport_set.count(), 1)
+
+        response = report_post(self.report_post_request, self.other_session_management_token, str(self.post_identifier),
+                               reason)
+        self.assertEqual(response.status_code, FAIL)
+
     def test_report_post_returns_good_response_and_reports_post_from_user(self):
         # Test view report_post
         response = report_post(self.report_post_request, self.other_session_management_token, str(self.post_identifier), reason)
