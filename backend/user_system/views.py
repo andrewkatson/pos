@@ -513,6 +513,11 @@ def report_post(request, session_management_token, post_identifier, reason):
 
             if post.author != existing:
 
+                previous_reported_by = post.postreport_set.get(reported_by_username=existing.username)
+
+                if previous_reported_by is not None:
+                    return HttpResponseBadRequest("Cannot report post twice")
+
                 new_post_report = post.postreport_set.create(reported_by_username=existing.username)
                 new_post_report.reason = reason
                 new_post_report.created_datetime = datetime.datetime.now()
@@ -987,6 +992,11 @@ def report_comment(request, session_management_token, post_identifier, comment_t
                 if comment is not None:
 
                     if comment.author_username != existing.username:
+
+                        previous_comment_report = comment.commentreport_set.get(reported_by_username=existing.username)
+
+                        if previous_comment_report is not None:
+                            return HttpResponseBadRequest("Cannot report comment twice")
 
                         new_comment_report = comment.commentreport_set.create(reported_by_username=existing.username)
                         new_comment_report.reason = reason
