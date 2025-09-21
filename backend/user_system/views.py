@@ -687,6 +687,9 @@ def get_posts_for_user(request, session_management_token, username, batch, feed_
     if not is_valid_pattern(username, Patterns.alphanumeric):
         invalid_fields.append(Params.username)
 
+    if batch < 0:
+        return HttpResponseBadRequest("Invalid batch parameter")
+
     if len(invalid_fields) > 0:
         return HttpResponseBadRequest(f"Invalid fields: {invalid_fields}")
 
