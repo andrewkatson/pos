@@ -12,7 +12,7 @@ class DeletePostTests(PositiveOnlySocialTestCase):
     def setUp(self):
         super().setUp()
 
-        super().make_post()
+        self.post, self.post_identifier = super().make_post_and_login_user()
 
         # Create an instance of a POST request.
         self.delete_post_request = self.factory.post("/user_system/delete_post")

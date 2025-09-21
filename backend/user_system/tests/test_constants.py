@@ -25,3 +25,4 @@ class UserFields:
     SESSION_MANAGEMENT_TOKEN = 'session_management_token'
     SERIES_IDENTIFIER = 'series_identifier'
     LOGIN_COOKIE_TOKEN = 'login_cookie_token'
+    POSTS = 'posts'

@@ -62,6 +62,6 @@ def generate_reset_id(length):
 
 
 def get_batch(batch_num, batch_size, lst):
-    starting_index = batch_num
+    starting_index = batch_num * batch_size
     ending_index = min((batch_num + 1) * batch_size, len(lst))
     return lst[starting_index:ending_index]

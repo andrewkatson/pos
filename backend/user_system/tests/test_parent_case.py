@@ -35,12 +35,13 @@ class PositiveOnlySocialTestCase(TestCase):
             UserFields.SESSION_MANAGEMENT_TOKEN: [],
             UserFields.SERIES_IDENTIFIER: [],
             UserFields.LOGIN_COOKIE_TOKEN: [],
+            UserFields.POSTS: [],
         }
 
     def tearDown(self):
         super().tearDown()
 
-    def register_other_user(self, remember_me, num_user, user_dict):
+    def register_user(self, remember_me, num_user, user_dict):
         local_username = f'{num_user}_{username}_{self.prefix}'
         local_password = f'{num_user}_{password}_{self.prefix}'
         local_email = (f'{num_user}_{email}_{self.prefix}@email.com')
@@ -87,7 +88,7 @@ class PositiveOnlySocialTestCase(TestCase):
             self.login_cookie_token = self.users.get(UserFields.LOGIN_COOKIE_TOKEN, [])[0]
 
     def login_user_setup(self, remember_me, type_of_login=LOGIN_USER):
-        self.register_other_user(remember_me, 0, self.users)
+        self.register_user(remember_me, 0, self.users)
 
         # Create an instance of a POST request.
         self.login_user_request = self.factory.post(f"/user_system/{type_of_login}")
@@ -106,15 +107,18 @@ class PositiveOnlySocialTestCase(TestCase):
         response = login_user(self.login_user_request, self.local_username, self.local_password, false, ip)
         self.assertEqual(response.status_code, SUCCESS)
 
-    def make_post(self):
+    def make_post_and_login_user(self):
         self.login_user(false)
 
+        return self.make_post(self.local_username, self.session_management_token)
+    
+    def make_post(self, username, session_management_token):
         # Create an instance of a POST request.
         self.make_post_request = self.factory.post("/user_system/make_post")
 
         # Recall that middleware are not supported. You can simulate a
         # logged-in user by setting request.user manually.
-        self.make_post_request.user = get_user_with_username(self.local_username)
+        self.make_post_request.user = get_user_with_username(username)
 
         # Also add a session
         middleware = SessionMiddleware(lambda req: None)
@@ -122,23 +126,33 @@ class PositiveOnlySocialTestCase(TestCase):
         self.make_post_request.session.save()
 
         # Need to make a post
-        response = make_post(self.make_post_request, self.session_management_token, POSITIVE_IMAGE_URL, POSITIVE_TEXT,
+        response = make_post(self.make_post_request, session_management_token, POSITIVE_IMAGE_URL, POSITIVE_TEXT,
                              image_classifier_fake, text_classifier_fake)
         self.assertEqual(response.status_code, SUCCESS)
 
-        user = get_user_with_username(self.local_username)
-        self.post = user.post_set.first()
-        self.post_identifier = self.post.post_identifier
+        user = get_user_with_username(username)
+
+        post = user.post_set.first()
+        return post, post.post_identifier
 
     def make_post_with_users(self, num=1):
-        self.make_post()
+        self.post, self.post_identifier = self.make_post_and_login_user()
 
         for i in range(num):
             # We don't need to re-register the first user.
             if i == 0:
                 continue
-            self.register_other_user(false, i, self.users)
+            self.register_user(false, i, self.users)
 
         # Store some basic info used in these tests
         self.image_url = f'{self.prefix}.png'
         self.caption = f'This is my caption :P'
+
+    def make_many_posts(self, num=1):
+        for i in range(num):
+            self.register_user(false, i, self.users)
+            
+            user_to_make_post = self.users.get(UserFields.USERNAME, [])[i]
+            session_management_token = self.users.get(UserFields.SESSION_MANAGEMENT_TOKEN, [])[i]
+            post, _ = self.make_post(user_to_make_post, session_management_token)
+            self.users[UserFields.POSTS].append(post)

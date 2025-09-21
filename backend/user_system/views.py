@@ -317,9 +317,9 @@ def verify_reset(request, username_or_email, reset_id):
     user = get_user_with_username_or_email(username_or_email)
 
     if user is not None:
-        if reset_id == user.reset_id and reset_id != 0:
+        if reset_id == user.reset_id and reset_id >= 0:
 
-            user.reset_id = 0
+            user.reset_id = -1
             user.save()
 
             response = Response.objects.create()
@@ -645,13 +645,16 @@ def get_posts_in_feed(request, session_management_token, batch, feed_algorithm_c
     if not is_valid_pattern(session_management_token, Patterns.alphanumeric):
         invalid_fields.append(Params.session_management_token)
 
+    if batch < 0:
+        return HttpResponseBadRequest("Invalid batch parameter")
+
     if len(invalid_fields) > 0:
         return HttpResponseBadRequest(f"Invalid fields: {invalid_fields}")
 
     existing = get_user_with_session_management_token(session_management_token)
 
     if existing is not None:
-        relevant_posts = feed_algorithm_class.get_posts_weighted(existing.username, Post)
+        relevant_posts = feed_algorithm_class.get_posts_weighted(existing, Post)
 
         if len(relevant_posts) > 0:
             batch = get_batch(batch, POST_BATCH_SIZE, relevant_posts)
@@ -690,7 +693,7 @@ def get_posts_for_user(request, session_management_token, username, batch, feed_
     existing = get_user_with_session_management_token(session_management_token)
 
     if existing is not None:
-        relevant_posts = feed_algorithm_class.get_posts_weighted_for_user(existing.username, Post)
+        relevant_posts = feed_algorithm_class.get_posts_weighted_for_user(existing, Post)
 
         if len(relevant_posts) > 0:
             batch = get_batch(batch, POST_BATCH_SIZE, relevant_posts)

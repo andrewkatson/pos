@@ -8,7 +8,7 @@ from django.db import models
 # The non-admin user class
 class PositiveOnlySocialUser(AbstractUser):
     # The identifier used for a reset attempt for a password or username
-    reset_id = models.IntegerField(default=0)
+    reset_id = models.IntegerField(default=-1)
     # The identifier used for a verification report
     report_id = models.TextField(null=True)
     # The status of a verification report
