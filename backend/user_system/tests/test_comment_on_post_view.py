@@ -1,7 +1,9 @@
 from django.contrib.sessions.middleware import SessionMiddleware
 
 from .test_parent_case import PositiveOnlySocialTestCase
+from .test_utils import get_response_fields
 from ..classifiers.classifier_constants import POSITIVE_TEXT, NEGATIVE_TEXT
+from ..constants import Fields
 from ..views import comment_on_post, get_user_with_username
 from .test_constants import FAIL, SUCCESS
 from ..classifiers import text_classifier_fake
@@ -64,3 +66,7 @@ class CommentOnPostTests(PositiveOnlySocialTestCase):
         post = user.post_set.first()
         comment_thread = post.commentthread_set.first()
         self.assertEqual(comment_thread.comment_set.count(), 1)
+
+        fields = get_response_fields(response)
+        self.assertTrue(fields[Fields.comment_thread_identifier])
+        self.assertTrue(fields[Fields.comment_identifier])

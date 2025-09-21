@@ -57,7 +57,8 @@ def generate_password(length):
 
 
 def generate_reset_id(length):
-    alphabet = string.digits
+    # No zero because a leading zero will cause a reset id to be not 6 chars.
+    alphabet = '12346789'
     return ''.join(secrets.choice(alphabet) for i in range(length))
 
 

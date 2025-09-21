@@ -148,7 +148,7 @@ def register(request, username, email, password, remember_me, ip):
         # and login cookie series identifier
         serialized_response_list = None
         if remember_me:
-            response = Response.objects.create(series_identifier=new_login_cookie.series_identifier,
+            response = Response(series_identifier=new_login_cookie.series_identifier,
                                                login_cookie_token=new_login_cookie.token,
                                                session_management_token=new_session.management_token)
 
@@ -156,7 +156,7 @@ def register(request, username, email, password, remember_me, ip):
                                                              fields=('series_identifier', 'login_cookie_token',
                                                                      'session_management_token'))
         else:
-            response = Response.objects.create(session_management_token=new_session.management_token)
+            response = Response(session_management_token=new_session.management_token)
 
             serialized_response_list = serializers.serialize('json', [response],
                                                              fields='session_management_token')
@@ -204,7 +204,7 @@ def login_user(request, username_or_email, password, remember_me, ip):
         # and login cookie series identifier
         serialized_response_list = None
         if remember_me:
-            response = Response.objects.create(series_identifier=new_login_cookie.series_identifier,
+            response = Response(series_identifier=new_login_cookie.series_identifier,
                                                login_cookie_token=new_login_cookie.token,
                                                session_management_token=new_session.management_token)
 
@@ -212,7 +212,7 @@ def login_user(request, username_or_email, password, remember_me, ip):
                                                              fields=('series_identifier', 'login_cookie_token',
                                                                      'session_management_token'))
         else:
-            response = Response.objects.create(session_management_token=new_session.management_token)
+            response = Response(session_management_token=new_session.management_token)
 
             serialized_response_list = serializers.serialize('json', [response],
                                                              fields='session_management_token')
@@ -260,7 +260,7 @@ def login_user_with_remember_me(request, session_management_token, series_identi
     matching_login_cookie.token = new_login_cookie_token
     matching_login_cookie.save()
 
-    response = Response.objects.create(login_cookie_token=new_login_cookie_token)
+    response = Response(login_cookie_token=new_login_cookie_token)
 
     serialized_response_list = serializers.serialize('json', [response],
                                                      fields='login_cookie_token')
@@ -280,7 +280,7 @@ def request_reset(request, username_or_email):
     user = get_user_with_username_or_email(username_or_email)
 
     if user is not None:
-        random_number = generate_reset_id(6)
+        random_number = int(generate_reset_id(6))
 
         # Send the user an email.
         send_mail("Password reset id", f"Your password reset id is {random_number}",
@@ -290,7 +290,7 @@ def request_reset(request, username_or_email):
         user.reset_id = random_number
         user.save()
 
-        response = Response.objects.create()
+        response = Response()
 
         # We send no data back. Just a successful response.
         serialized_response_list = serializers.serialize('json', [response],
@@ -322,7 +322,7 @@ def verify_reset(request, username_or_email, reset_id):
             user.reset_id = -1
             user.save()
 
-            response = Response.objects.create()
+            response = Response()
 
             # We send no data back. Just a successful response.
             serialized_response_list = serializers.serialize('json', [response],
@@ -355,7 +355,7 @@ def reset_password(request, username, email, password):
         user.password = password
         user.save()
 
-        response = Response.objects.create()
+        response = Response()
 
         # We send no data back. Just a successful response.
         serialized_response_list = serializers.serialize('json', [response],
@@ -380,7 +380,7 @@ def logout_user(request, session_management_token):
 
     if existing is not None:
         # We send no data back. Just a successful response.
-        response = Response.objects.create()
+        response = Response()
         serialized_response_list = serializers.serialize('json', [response],
                                                          fields='')
         logout(request)
@@ -405,7 +405,7 @@ def delete_user(request, session_management_token):
 
         existing.delete()
 
-        response = Response.objects.create()
+        response = Response()
 
         serialized_response_list = serializers.serialize('json', [response], fields=())
 
@@ -447,9 +447,9 @@ def make_post(request, session_management_token, image_url, caption, image_class
             new_post.updated_datetime = datetime.datetime.now()
             new_post.save()
 
-            response = Response.objects.create()
+            response = Response(post_identifier=new_post.post_identifier)
 
-            serialized_response_list = serializers.serialize('json', [response], fields=())
+            serialized_response_list = serializers.serialize('json', [response], fields=('post_identifier'))
 
             return JsonResponse({'response_list': serialized_response_list})
         else:
@@ -482,7 +482,7 @@ def delete_post(request, session_management_token, post_identifier):
         if post is not None:
             post.delete()
 
-            response = Response.objects.create()
+            response = Response()
 
             serialized_response_list = serializers.serialize('json', [response], fields=())
 
@@ -535,7 +535,7 @@ def report_post(request, session_management_token, post_identifier, reason):
                     post.hidden = True
                     post.save()
 
-                response = Response.objects.create()
+                response = Response()
 
                 serialized_response_list = serializers.serialize('json', [response], fields=())
 
@@ -577,7 +577,7 @@ def like_post(request, session_management_token, post_identifier):
                     new_post_like = post.postlike_set.create(post_liker_username=existing.username)
                     new_post_like.save()
 
-                    response = Response.objects.create()
+                    response = Response()
 
                     serialized_response_list = serializers.serialize('json', [response], fields=())
 
@@ -623,7 +623,7 @@ def unlike_post(request, session_management_token, post_identifier):
                     except PostLike.DoesNotExist:
                         pass
 
-                    response = Response.objects.create()
+                    response = Response()
 
                     serialized_response_list = serializers.serialize('json', [response], fields=())
 
@@ -662,7 +662,7 @@ def get_posts_in_feed(request, session_management_token, batch, feed_algorithm_c
             responses = []
 
             for post in batch:
-                response = Response.objects.create(post_identifier=post.post_identifier, image_url=post.image_url)
+                response = Response(post_identifier=post.post_identifier, image_url=post.image_url)
 
                 responses.append(response)
 
@@ -704,7 +704,7 @@ def get_posts_for_user(request, session_management_token, username, batch, feed_
             responses = []
 
             for post in batch:
-                response = Response.objects.create(post_identifier=post.post_identifier, image_url=post.image_url)
+                response = Response(post_identifier=post.post_identifier, image_url=post.image_url)
 
                 responses.append(response)
 
@@ -735,7 +735,7 @@ def get_post_details(request, post_identifier):
 
         total_likes = post.postlike_set.count()
 
-        response = Response.objects.create(post_identifier=post.post_identifier, image_url=post.image_url,
+        response = Response(post_identifier=post.post_identifier, image_url=post.image_url,
                                            caption=post.caption, post_likes=total_likes)
 
         serialized_response_list = serializers.serialize('json', [response],
@@ -786,9 +786,11 @@ def comment_on_post(request, session_management_token, post_identifier, comment_
                                                             creation_time=datetime.datetime.now())
         new_comment.save()
 
-        response = Response.objects.create()
+        response = Response(comment_thread_identifier=new_comment_thread.comment_thread_identifier,
+                                           comment_identifier=new_comment.comment_identifier)
 
-        serialized_response_list = serializers.serialize('json', [response], fields=())
+        serialized_response_list = serializers.serialize('json', [response],
+                                                         fields=('comment_thread_identifier', 'comment_identifier'))
 
         return JsonResponse({'response_list': serialized_response_list})
 
@@ -843,7 +845,7 @@ def like_comment(request, session_management_token, post_identifier, comment_thr
                             new_comment_like = comment.commentlike_set.create(comment_liker_username=existing.username)
                             new_comment_like.save()
 
-                            response = Response.objects.create()
+                            response = Response()
 
                             serialized_response_list = serializers.serialize('json', [response], fields=())
 
@@ -911,7 +913,7 @@ def unlike_comment(request, session_management_token, post_identifier, comment_t
                             comment_like = comment.commentlike_set.create(comment_liker_username=existing.username)
                             comment_like.delete()
 
-                            response = Response.objects.create()
+                            response = Response()
 
                             serialized_response_list = serializers.serialize('json', [response], fields=())
 
@@ -972,7 +974,7 @@ def delete_comment(request, session_management_token, post_identifier, comment_t
 
                     comment.delete()
 
-                    response = Response.objects.create()
+                    response = Response()
 
                     serialized_response_list = serializers.serialize('json', [response], fields=())
 
@@ -1035,7 +1037,8 @@ def report_comment(request, session_management_token, post_identifier, comment_t
                     if comment.author_username != existing.username:
 
                         try:
-                            previous_comment_report = comment.commentreport_set.get(reported_by_username=existing.username)
+                            previous_comment_report = comment.commentreport_set.get(
+                                reported_by_username=existing.username)
                         except CommentReport.DoesNotExist:
                             previous_comment_report = None
 
@@ -1051,7 +1054,7 @@ def report_comment(request, session_management_token, post_identifier, comment_t
                             comment.hidden = True
                             comment.save()
 
-                        response = Response.objects.create()
+                        response = Response()
 
                         serialized_response_list = serializers.serialize('json', [response], fields=())
 
@@ -1094,7 +1097,7 @@ def get_comments_for_post(request, post_identifier, batch, feed_algorithm_class=
                 responses = []
 
                 for comment_thread in batch:
-                    response = Response.objects.create(
+                    response = Response(
                         comment_thread_identifier=comment_thread.comment_thread_identifier)
 
                     responses.append(response)
@@ -1139,7 +1142,7 @@ def get_comments_for_thread(request, comment_thread_identifier, batch, feed_algo
                 for comment in batch:
                     total_comment_likes = comment.commentlike_set.count()
 
-                    response = Response.objects.create(
+                    response = Response(
                         comment_identifier=comment.comment_identifier, body=comment.body,
                         author_username=comment.author_username, comment_creation_time=comment.creation_time,
                         comment_updated_time=comment.updated_datetime, comment_lkes=total_comment_likes)
@@ -1199,9 +1202,9 @@ def reply_to_comment_thread(request, session_management_token, post_identifier, 
                                                         creation_time=datetime.datetime.now())
         new_comment.save()
 
-        response = Response.objects.create()
+        response = Response(comment_identifier=new_comment.comment_identifier)
 
-        serialized_response_list = serializers.serialize('json', [response], fields=())
+        serialized_response_list = serializers.serialize('json', [response], fields=('comment_identifier'))
 
         return JsonResponse({'response_list': serialized_response_list})
 
@@ -1234,7 +1237,7 @@ def get_users_matching_fragment(request, session_management_token, username_frag
         responses = []
 
         for user in user_query:
-            response = Response.objects.create(username=user.username, identity_is_verified=user.identity_is_verified)
+            response = Response(username=user.username, identity_is_verified=user.identity_is_verified)
             responses.append(response)
 
         serialized_response_list = serializers.serialize('json', responses, fields=())

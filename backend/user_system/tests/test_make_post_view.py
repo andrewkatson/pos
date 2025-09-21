@@ -1,7 +1,9 @@
 from django.contrib.sessions.middleware import SessionMiddleware
 
 from .test_parent_case import PositiveOnlySocialTestCase
+from .test_utils import get_response_fields
 from ..classifiers.classifier_constants import POSITIVE_IMAGE_URL, POSITIVE_TEXT, NEGATIVE_TEXT, NEGATIVE_IMAGE_URL
+from ..constants import Fields
 from ..views import make_post, get_user_with_username
 from .test_constants import false, FAIL, SUCCESS
 from ..classifiers import image_classifier_fake, text_classifier_fake
@@ -66,3 +68,6 @@ class MakePostTests(PositiveOnlySocialTestCase):
         user = get_user_with_username(self.local_username)
         posts = user.post_set.all()
         self.assertEqual(len(posts), 1)
+
+        fields = get_response_fields(response)
+        self.assertTrue(fields[Fields.post_identifier])

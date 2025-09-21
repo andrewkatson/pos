@@ -7,7 +7,7 @@ from .test_utils import get_response_fields
 from ..classifiers.classifier_constants import POSITIVE_IMAGE_URL, POSITIVE_TEXT
 from ..constants import Fields
 from ..utils import convert_to_bool
-from ..views import register, login_user, make_post, get_user_with_username
+from ..views import register, login_user, make_post, get_user_with_username, comment_on_post
 from .test_constants import username, email, password, SUCCESS, ip, LOGIN_USER, false, UserFields
 from ..classifiers import image_classifier_fake, text_classifier_fake
 
@@ -111,7 +111,7 @@ class PositiveOnlySocialTestCase(TestCase):
         self.login_user(false)
 
         return self.make_post(self.local_username, self.session_management_token)
-    
+
     def make_post(self, username, session_management_token):
         # Create an instance of a POST request.
         self.make_post_request = self.factory.post("/user_system/make_post")
@@ -151,8 +151,53 @@ class PositiveOnlySocialTestCase(TestCase):
     def make_many_posts(self, num=1):
         for i in range(num):
             self.register_user(false, i, self.users)
-            
+
             user_to_make_post = self.users.get(UserFields.USERNAME, [])[i]
             session_management_token = self.users.get(UserFields.SESSION_MANAGEMENT_TOKEN, [])[i]
             post, _ = self.make_post(user_to_make_post, session_management_token)
             self.users[UserFields.POSTS].append(post)
+
+    def comment_on_post_with_users(self, num=3):
+
+        # Need at least three users so that one makes the post.
+        # The other makes a comment.
+        # And a third likes, unlikes, or reports the comment.
+        self.make_post_with_users(num)
+
+        other_session_management_tokens = self.users.get(UserFields.SESSION_MANAGEMENT_TOKEN, [])
+        other_local_usernames = self.users.get(UserFields.USERNAME, [])
+        other_local_passwords = self.users.get(UserFields.PASSWORD, [])
+
+        self.commenter_session_management_token = other_session_management_tokens[1]
+        self.commenter_local_username = other_local_usernames[1]
+        self.commenter_local_password = other_local_passwords[1]
+
+        # Login one of the users to do the commenting
+        response = login_user(self.login_user_request, self.commenter_local_username, self.commenter_local_password,
+                              false, ip)
+        self.assertEqual(response.status_code, SUCCESS)
+
+        # Create an instance of a POST request.
+        self.comment_on_post_request = self.factory.post("/user_system/comment_on_post")
+
+        # Recall that middleware are not supported. You can simulate a
+        # logged-in user by setting request.user manually.
+        self.comment_on_post_request.user = get_user_with_username(self.local_username)
+
+        # Also add a session
+        middleware = SessionMiddleware(lambda req: None)
+        middleware.process_request(self.comment_on_post_request)
+        self.comment_on_post_request.session.save()
+
+        # Use comment_on_post
+        response = comment_on_post(self.comment_on_post_request, self.commenter_session_management_token,
+                                   str(self.post_identifier), POSITIVE_TEXT, text_classifier_fake)
+        self.assertEqual(response.status_code, SUCCESS)
+
+        user = get_user_with_username(self.local_username)
+        post = user.post_set.first()
+        self.comment_thread = post.commentthread_set.first()
+        self.comment_thread_identifier = self.comment_thread.comment_thread_identifier
+
+        self.comment = self.comment_thread.comment_set.first()
+        self.comment_identifier = self.comment.comment_identifier

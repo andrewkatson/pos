@@ -33,8 +33,12 @@ class ResetPasswordTests(PositiveOnlySocialTestCase):
         response = request_reset(request, self.local_username)
         self.assertEqual(response.status_code, SUCCESS)
 
+        # Get the reset id so we can send it over
+        user = get_user_with_username(self.local_username)
+        reset_id = user.reset_id
+
         request = self.factory.post("/user_system/verify_reset")
-        response = verify_reset(request, self.local_username, -1)
+        response = verify_reset(request, self.local_username, reset_id + 1)
         self.assertEqual(response.status_code, FAIL)
 
     def test_password_reset_changes_user_password(self):

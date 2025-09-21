@@ -56,6 +56,8 @@ class Fields:
     image_url = "image_url"
     caption = "caption"
     post_likes = "post_likes"
+    comment_thread_identifier = "comment_thread_identifier"
+    comment_identifier = "comment_identifier"
 
 # Lengths of things
 LEN_LOGIN_COOKIE_TOKEN = 32

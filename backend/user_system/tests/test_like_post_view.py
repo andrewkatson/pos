@@ -2,7 +2,6 @@ from django.contrib.sessions.middleware import SessionMiddleware
 
 from .test_parent_case import PositiveOnlySocialTestCase
 from ..views import  login_user, like_post, get_user_with_username
-from ..constants import MAX_BEFORE_HIDING_POST
 from .test_constants import  ip, false, FAIL, SUCCESS, UserFields
 
 invalid_session_management_token = '?'
@@ -13,9 +12,8 @@ class LikePostTests(PositiveOnlySocialTestCase):
     def setUp(self):
         super().setUp()
 
-        # Need two more than max since the first user will be the default user who makes the post
-        # and you need one more than max before a post is hidden
-        super().make_post_with_users(MAX_BEFORE_HIDING_POST + 2)
+        # Need two users so that one makes the post and the other likes it
+        super().make_post_with_users(2)
 
         other_session_management_tokens = self.users.get(UserFields.SESSION_MANAGEMENT_TOKEN, [])
         other_local_usernames = self.users.get(UserFields.USERNAME, [])
