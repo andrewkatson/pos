@@ -756,8 +756,11 @@ def comment_on_post(request, session_management_token, post_identifier, comment_
     if not is_valid_pattern(session_management_token, Patterns.alphanumeric):
         invalid_fields.append(Params.session_management_token)
 
-    if not is_valid_pattern(comment_text, Patterns.alphanumeric):
+    if not is_valid_pattern(comment_text, Patterns.alphanumeric_with_special_chars):
         invalid_fields.append(Params.comment_text)
+
+    if not is_valid_pattern(post_identifier, Patterns.uuid4):
+        invalid_fields.append(Params.post_identifier)
 
     if len(invalid_fields) > 0:
         return HttpResponseBadRequest(f"Invalid fields: {invalid_fields}")
