@@ -15,7 +15,7 @@ from .input_validator import is_valid_pattern
 from .utils import convert_to_bool, generate_login_cookie_token, generate_management_token, generate_series_identifier, \
     generate_reset_id, get_batch
 from .models import LoginCookie, Response, Session, Post, CommentThread, PositiveOnlySocialUser, PostReport, PostLike, \
-    Comment, CommentReport
+    Comment, CommentReport, CommentLike
 from .classifiers import image_classifier, text_classifier
 from .feed_algorithm import feed_algorithm
 
@@ -909,9 +909,11 @@ def unlike_comment(request, session_management_token, post_identifier, comment_t
 
                         query_set = comment.commentlike_set.filter(comment_liker_username=existing.username)
                         if query_set.count() == 1:
-
-                            comment_like = comment.commentlike_set.create(comment_liker_username=existing.username)
-                            comment_like.delete()
+                            try:
+                                comment_like = comment.commentlike_set.get(comment_liker_username=existing.username)
+                                comment_like.delete()
+                            except CommentLike.DoesNotExist:
+                                pass
 
                             response = Response()
 
