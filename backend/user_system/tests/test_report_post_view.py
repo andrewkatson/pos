@@ -7,7 +7,7 @@ from .test_constants import  ip, false, FAIL, SUCCESS, UserFields
 
 invalid_session_management_token = '?'
 invalid_post_identifier = '?'
-reason = "some reason"
+reason = "This is a negative post"
 
 class ReportPostTests(PositiveOnlySocialTestCase):
 
