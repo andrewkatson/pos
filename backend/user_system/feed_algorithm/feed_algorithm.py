@@ -5,7 +5,7 @@ def get_posts_weighted(user, posts_model):
     # For now we just get every post not by the user
     return posts_model.objects.filter(~Q(author=user))
 
-def get_posts_weighted_for_user(username, posts_model):
+def get_posts_weighted_for_user(user, posts_model):
     return posts_model.objects.filter(author=user)
 
 def get_comment_threads_weighted_for_post(comment_threads):

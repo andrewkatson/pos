@@ -157,6 +157,32 @@ class PositiveOnlySocialTestCase(TestCase):
             post, _ = self.make_post(user_to_make_post, session_management_token)
             self.users[UserFields.POSTS].append(post)
 
+    def make_many_comments(self, num=1):
+
+        self.post_identifier = None
+        for i in range(num):
+            self.register_user(false, i, self.users)
+            user_to_make_comment = self.users.get(UserFields.USERNAME, [])[i]
+            session_management_token = self.users.get(UserFields.SESSION_MANAGEMENT_TOKEN, [])[i]
+            if i == 0:
+                _, self.post_identifier = self.make_post(user_to_make_comment, session_management_token)
+
+            # Create an instance of a POST request.
+            self.comment_on_post_request = self.factory.post("/user_system/comment_on_post")
+
+            # Recall that middleware are not supported. You can simulate a
+            # logged-in user by setting request.user manually.
+            self.comment_on_post_request.user = get_user_with_username(user_to_make_comment)
+
+            # Also add a session
+            middleware = SessionMiddleware(lambda req: None)
+            middleware.process_request(self.comment_on_post_request)
+            self.comment_on_post_request.session.save()
+
+            response = comment_on_post(self.comment_on_post_request, session_management_token, str(self.post_identifier),
+                                       POSITIVE_TEXT, text_classifier_fake)
+            self.assertEqual(response.status_code, SUCCESS)
+
     def comment_on_post_with_users(self, num=3):
 
         # Need at least three users so that one makes the post.

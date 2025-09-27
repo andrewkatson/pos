@@ -1079,6 +1079,9 @@ def get_comments_for_post(request, post_identifier, batch, feed_algorithm_class=
 
     if not is_valid_pattern(post_identifier, Patterns.uuid4):
         invalid_fields.append(Params.post_identifier)
+        
+    if batch < 0:
+        return HttpResponseBadRequest("Invalid batch parameter")
 
     if len(invalid_fields) > 0:
         return HttpResponseBadRequest(f"Invalid fields: {invalid_fields}")
@@ -1087,13 +1090,13 @@ def get_comments_for_post(request, post_identifier, batch, feed_algorithm_class=
 
     if post is not None:
 
-        comment_threads = post.commentthread_set
+        comment_threads = post.commentthread_set.all()
 
         if comment_threads.count() > 0:
 
             relevant_comment_threads = feed_algorithm_class.get_comment_threads_weighted_for_post(comment_threads)
 
-            if len(relevant_comment_threads) > 0:
+            if relevant_comment_threads.count():
                 batch = get_batch(batch, COMMENT_THREAD_BATCH_SIZE, relevant_comment_threads)
 
                 responses = []
