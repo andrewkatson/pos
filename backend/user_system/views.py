@@ -1126,6 +1126,9 @@ def get_comments_for_thread(request, comment_thread_identifier, batch, feed_algo
     if not is_valid_pattern(comment_thread_identifier, Patterns.uuid4):
         invalid_fields.append(Params.comment_thread_identifier)
 
+    if batch < 0:
+        return HttpResponseBadRequest("Invalid batch parameter")
+
     if len(invalid_fields) > 0:
         return HttpResponseBadRequest(f"Invalid fields: {invalid_fields}")
 
@@ -1133,7 +1136,7 @@ def get_comments_for_thread(request, comment_thread_identifier, batch, feed_algo
 
     if comment_thread is not None:
 
-        comments = comment_thread.comment_set
+        comments = comment_thread.comment_set.all()
 
         if comments.count() > 0:
 
@@ -1150,7 +1153,7 @@ def get_comments_for_thread(request, comment_thread_identifier, batch, feed_algo
                     response = Response(
                         comment_identifier=comment.comment_identifier, body=comment.body,
                         author_username=comment.author_username, comment_creation_time=comment.creation_time,
-                        comment_updated_time=comment.updated_datetime, comment_lkes=total_comment_likes)
+                        comment_updated_time=comment.updated_time, comment_likes=total_comment_likes)
 
                     responses.append(response)
 
@@ -1182,7 +1185,7 @@ def reply_to_comment_thread(request, session_management_token, post_identifier, 
     if not is_valid_pattern(comment_thread_identifier, Patterns.uuid4):
         invalid_fields.append(Params.comment_thread_identifier)
 
-    if not is_valid_pattern(comment_text, Patterns.alphanumeric):
+    if not is_valid_pattern(comment_text, Patterns.alphanumeric_with_special_chars):
         invalid_fields.append(Params.comment_text)
 
     if len(invalid_fields) > 0:

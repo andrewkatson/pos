@@ -7,7 +7,7 @@ from .test_utils import get_response_fields
 from ..classifiers.classifier_constants import POSITIVE_IMAGE_URL, POSITIVE_TEXT
 from ..constants import Fields
 from ..utils import convert_to_bool
-from ..views import register, login_user, make_post, get_user_with_username, comment_on_post
+from ..views import register, login_user, make_post, get_user_with_username, comment_on_post, reply_to_comment_thread
 from .test_constants import username, email, password, SUCCESS, ip, LOGIN_USER, false, UserFields
 from ..classifiers import image_classifier_fake, text_classifier_fake
 
@@ -113,17 +113,7 @@ class PositiveOnlySocialTestCase(TestCase):
         return self.make_post(self.local_username, self.session_management_token)
 
     def make_post(self, username, session_management_token):
-        # Create an instance of a POST request.
-        self.make_post_request = self.factory.post("/user_system/make_post")
-
-        # Recall that middleware are not supported. You can simulate a
-        # logged-in user by setting request.user manually.
-        self.make_post_request.user = get_user_with_username(username)
-
-        # Also add a session
-        middleware = SessionMiddleware(lambda req: None)
-        middleware.process_request(self.make_post_request)
-        self.make_post_request.session.save()
+        self.make_post_request = self.make_post_request_obj('make_post', username)
 
         # Need to make a post
         response = make_post(self.make_post_request, session_management_token, POSITIVE_IMAGE_URL, POSITIVE_TEXT,
@@ -167,21 +157,43 @@ class PositiveOnlySocialTestCase(TestCase):
             if i == 0:
                 _, self.post_identifier = self.make_post(user_to_make_comment, session_management_token)
 
-            # Create an instance of a POST request.
-            self.comment_on_post_request = self.factory.post("/user_system/comment_on_post")
+            self.comment_on_post_request = self.make_post_request_obj('comment_on_post', user_to_make_comment)
 
-            # Recall that middleware are not supported. You can simulate a
-            # logged-in user by setting request.user manually.
-            self.comment_on_post_request.user = get_user_with_username(user_to_make_comment)
-
-            # Also add a session
-            middleware = SessionMiddleware(lambda req: None)
-            middleware.process_request(self.comment_on_post_request)
-            self.comment_on_post_request.session.save()
-
-            response = comment_on_post(self.comment_on_post_request, session_management_token, str(self.post_identifier),
+            response = comment_on_post(self.comment_on_post_request, session_management_token,
+                                       str(self.post_identifier),
                                        POSITIVE_TEXT, text_classifier_fake)
             self.assertEqual(response.status_code, SUCCESS)
+
+    def make_many_comments_on_thread(self, num=1):
+
+        self.comment_thread_identifier = None
+        self.post_identifier = None
+        for i in range(num):
+            self.register_user(false, i, self.users)
+            user_to_make_comment = self.users.get(UserFields.USERNAME, [])[i]
+            session_management_token = self.users.get(UserFields.SESSION_MANAGEMENT_TOKEN, [])[i]
+            # The first user should make a post and comment on their own post
+            if i == 0:
+                _, self.post_identifier = self.make_post(user_to_make_comment, session_management_token)
+
+                self.comment_on_post_request = self.make_post_request_obj('comment_on_post', user_to_make_comment)
+
+                response = comment_on_post(self.comment_on_post_request, session_management_token,
+                                           str(self.post_identifier),
+                                           POSITIVE_TEXT, text_classifier_fake)
+                self.assertEqual(response.status_code, SUCCESS)
+
+                fields = get_response_fields(response)
+
+                self.comment_thread_identifier = fields[Fields.comment_thread_identifier]
+            else:
+                self.reply_to_comment_thread_request = self.make_post_request_obj('reply_to_comment_thread',
+                                                                                  user_to_make_comment)
+
+                response = reply_to_comment_thread(self.reply_to_comment_thread_request, session_management_token,
+                                                   str(self.post_identifier),
+                                                   str(self.comment_thread_identifier), POSITIVE_TEXT, text_classifier_fake)
+                self.assertEqual(response.status_code, SUCCESS)
 
     def comment_on_post_with_users(self, num=3):
 
@@ -203,17 +215,7 @@ class PositiveOnlySocialTestCase(TestCase):
                               false, ip)
         self.assertEqual(response.status_code, SUCCESS)
 
-        # Create an instance of a POST request.
-        self.comment_on_post_request = self.factory.post("/user_system/comment_on_post")
-
-        # Recall that middleware are not supported. You can simulate a
-        # logged-in user by setting request.user manually.
-        self.comment_on_post_request.user = get_user_with_username(self.local_username)
-
-        # Also add a session
-        middleware = SessionMiddleware(lambda req: None)
-        middleware.process_request(self.comment_on_post_request)
-        self.comment_on_post_request.session.save()
+        self.comment_on_post_request = self.make_post_request_obj('comment_on_post', self.local_username)
 
         # Use comment_on_post
         response = comment_on_post(self.comment_on_post_request, self.commenter_session_management_token,
@@ -227,3 +229,18 @@ class PositiveOnlySocialTestCase(TestCase):
 
         self.comment = self.comment_thread.comment_set.first()
         self.comment_identifier = self.comment.comment_identifier
+
+    def make_post_request_obj(self, method, username):
+        # Create an instance of a POST request.
+        request = self.factory.post(f"/user_system/{method}")
+
+        # Recall that middleware are not supported. You can simulate a
+        # logged-in user by setting request.user manually.
+        request.user = get_user_with_username(username)
+
+        # Also add a session
+        middleware = SessionMiddleware(lambda req: None)
+        middleware.process_request(request)
+        request.session.save()
+
+        return request

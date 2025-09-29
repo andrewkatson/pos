@@ -10,7 +10,7 @@ invalid_post_identifier = '?'
 invalid_batch = -1
 
 
-class GetPostsInFeedTests(PositiveOnlySocialTestCase):
+class GetCommentsForPostTests(PositiveOnlySocialTestCase):
 
     def setUp(self):
         super().setUp()
