@@ -15,17 +15,8 @@ class GetPostDetailsTests(PositiveOnlySocialTestCase):
 
         self.post, self.post_identifier = super().make_post_and_login_user()
 
-        # Create an instance of a POST request.
-        self.get_post_details_request = self.factory.post("/user_system/get_post_details")
-
-        # Recall that middleware are not supported. You can simulate a
-        # logged-in user by setting request.user manually.
-        self.get_post_details_request.user = get_user_with_username(self.local_username)
-
-        # Also add a session
-        middleware = SessionMiddleware(lambda req: None)
-        middleware.process_request(self.get_post_details_request)
-        self.get_post_details_request.session.save()
+        # Create an instance of a GET request.
+        self.get_post_details_request = self.make_get_request_obj('get_post_details', self.local_username)
 
     def test_invalid_post_identifier_returns_bad_response(self):
         # Test view get_post_details

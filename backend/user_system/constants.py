@@ -8,6 +8,7 @@ class Patterns:
     double = r"^\d{1,100}[.,]{0,1}\d{0,100}$"
     paragraph_of_chars = r"^[\w \n]{5,3000}$"
     alphanumeric = r"^\w{10,500}$"
+    short_alphanumeric = r"^\w{3,500}$"
     single_letter = r"^[a-zA-Z]{1}$"
     name = r"^[a-zA-Z]{3,100}$"
     digits_only = r"^\d{1,100}$"

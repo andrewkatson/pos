@@ -13,17 +13,8 @@ class LogoutUserTests(PositiveOnlySocialTestCase):
 
         super().login_user(false)
 
-        # Create an instance of a POST request.
-        self.delete_user_request = self.factory.post("/user_system/delete_user")
-
-        # Recall that middleware are not supported. You can simulate a
-        # logged-in user by setting request.user manually.
-        self.delete_user_request.user = get_user_with_username(self.local_username)
-
-        # Also add a session
-        middleware = SessionMiddleware(lambda req: None)
-        middleware.process_request(self.delete_user_request)
-        self.delete_user_request.session.save()
+        # Create an instance of a DELETE request.
+        self.delete_user_request = self.make_delete_request_obj('delete_user', self.local_username)
         
     def test_invalid_session_management_token_returns_bad_response(self):
         # Test view delete_user

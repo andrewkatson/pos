@@ -19,17 +19,8 @@ class GetPostsInFeedTests(PositiveOnlySocialTestCase):
 
         super().setup_local_values(false)
 
-        # Create an instance of a POST request.
-        self.get_posts_in_feed_request = self.factory.post("/user_system/get_posts_in_feed_request")
-
-        # Recall that middleware are not supported. You can simulate a
-        # logged-in user by setting request.user manually.
-        self.get_posts_in_feed_request.user = get_user_with_username(self.local_username)
-
-        # Also add a session
-        middleware = SessionMiddleware(lambda req: None)
-        middleware.process_request(self.get_posts_in_feed_request)
-        self.get_posts_in_feed_request.session.save()
+        # Create an instance of a GET request.
+        self.get_posts_in_feed_request = self.make_get_request_obj('get_posts_in_feed', self.local_username)
 
     def test_invalid_session_management_token_returns_bad_response(self):
         # Test view make_post

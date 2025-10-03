@@ -20,16 +20,7 @@ class MakePostTests(PositiveOnlySocialTestCase):
         super().login_user(false)
 
         # Create an instance of a POST request.
-        self.make_post_request = self.factory.post("/user_system/make_post")
-
-        # Recall that middleware are not supported. You can simulate a
-        # logged-in user by setting request.user manually.
-        self.make_post_request.user = get_user_with_username(self.local_username)
-
-        # Also add a session
-        middleware = SessionMiddleware(lambda req: None)
-        middleware.process_request(self.make_post_request)
-        self.make_post_request.session.save()
+        self.make_post_request = self.make_post_request_obj('make_post', self.local_username)
 
         # Store some basic info used in these tests
         self.image_url = f'{self.prefix}.png'

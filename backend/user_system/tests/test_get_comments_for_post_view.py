@@ -19,17 +19,8 @@ class GetCommentsForPostTests(PositiveOnlySocialTestCase):
 
         super().setup_local_values(false)
 
-        # Create an instance of a POST request.
-        self.get_comments_for_post_request = self.factory.post("/user_system/get_comments_for_post_request")
-
-        # Recall that middleware are not supported. You can simulate a
-        # logged-in user by setting request.user manually.
-        self.get_comments_for_post_request.user = get_user_with_username(self.local_username)
-
-        # Also add a session
-        middleware = SessionMiddleware(lambda req: None)
-        middleware.process_request(self.get_comments_for_post_request)
-        self.get_comments_for_post_request.session.save()
+        # Create an instance of a GET request.
+        self.get_comments_for_post_request = self.make_get_request_obj('get_comments_for_post', self.local_username)
 
     def test_invalid_post_identifier_token_returns_bad_response(self):
         # Test view make_post

@@ -15,16 +15,7 @@ class LogoutUserTests(PositiveOnlySocialTestCase):
         super().login_user(false)
 
         # Create an instance of a POST request.
-        self.logout_user_request = self.factory.post("/user_system/logout_user")
-
-        # Recall that middleware are not supported. You can simulate a
-        # logged-in user by setting request.user manually.
-        self.logout_user_request.user = get_user_with_username(self.local_username)
-
-        # Also add a session
-        middleware = SessionMiddleware(lambda req: None)
-        middleware.process_request(self.logout_user_request)
-        self.logout_user_request.session.save()
+        self.logout_user_request = self.make_post_request_obj('logout_user', self.local_username)
 
     def test_invalid_session_management_token_returns_bad_response(self):
         # Test view logout_user

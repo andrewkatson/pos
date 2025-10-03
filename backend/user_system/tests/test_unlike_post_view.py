@@ -27,16 +27,7 @@ class UnlikePostTests(PositiveOnlySocialTestCase):
         self.other_local_password = other_local_passwords[1]
 
         # Create an instance of a POST request.
-        self.like_post_request = self.factory.post("/user_system/like_post")
-
-        # Recall that middleware are not supported. You can simulate a
-        # logged-in user by setting request.user manually.
-        self.like_post_request.user = get_user_with_username(self.local_username)
-
-        # Also add a session
-        middleware = SessionMiddleware(lambda req: None)
-        middleware.process_request(self.like_post_request)
-        self.like_post_request.session.save()
+        self.like_post_request = self.make_post_request_obj('like_post', self.local_username)
 
         # Login one of the users to do the liking and unliking
         response = login_user(self.login_user_request, self.other_local_username, self.other_local_password, false, ip)
@@ -47,16 +38,7 @@ class UnlikePostTests(PositiveOnlySocialTestCase):
         self.assertEqual(response.status_code, SUCCESS)
 
         # Create an instance of a POST request.
-        self.unlike_post_request = self.factory.post("/user_system/unlike_post")
-
-        # Recall that middleware are not supported. You can simulate a
-        # logged-in user by setting request.user manually.
-        self.unlike_post_request.user = get_user_with_username(self.local_username)
-
-        # Also add a session
-        middleware = SessionMiddleware(lambda req: None)
-        middleware.process_request(self.unlike_post_request)
-        self.unlike_post_request.session.save()
+        self.unlike_post_request = self.make_post_request_obj('unlike_post', self.local_username)
 
     def test_invalid_session_management_token_returns_bad_response(self):
         # Test view unlike_post

@@ -23,16 +23,7 @@ class DeleteCommentTests(PositiveOnlySocialTestCase):
         self.post, self.post_identifier = super().make_post_and_login_user()
 
         # Create an instance of a POST request.
-        self.comment_on_post_request = self.factory.post("/user_system/comment_on_post")
-
-        # Recall that middleware are not supported. You can simulate a
-        # logged-in user by setting request.user manually.
-        self.comment_on_post_request.user = get_user_with_username(self.local_username)
-
-        # Also add a session
-        middleware = SessionMiddleware(lambda req: None)
-        middleware.process_request(self.comment_on_post_request)
-        self.comment_on_post_request.session.save()
+        self.comment_on_post_request = self.make_post_request_obj('comment_on_post', self.local_username)
 
         # Make a comment
         response = comment_on_post(self.comment_on_post_request, self.session_management_token,
@@ -48,17 +39,8 @@ class DeleteCommentTests(PositiveOnlySocialTestCase):
         self.comment_thread_identifier = fields[Fields.comment_thread_identifier]
         self.comment_identifier = fields[Fields.comment_identifier]
 
-        # Create an instance of a POST request.
-        self.delete_comment_request = self.factory.post("/user_system/delete_comment")
-
-        # Recall that middleware are not supported. You can simulate a
-        # logged-in user by setting request.user manually.
-        self.delete_comment_request.user = get_user_with_username(self.local_username)
-
-        # Also add a session
-        middleware = SessionMiddleware(lambda req: None)
-        middleware.process_request(self.delete_comment_request)
-        self.delete_comment_request.session.save()
+        # Create an instance of a DELETE request.
+        self.delete_comment_request = self.make_delete_request_obj('delete_comment', self.local_username)
 
     def test_invalid_session_management_token_returns_bad_response(self):
         # Test view delete_comment

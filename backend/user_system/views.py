@@ -1,4 +1,5 @@
 import datetime
+from typing import Union
 
 from django.conf import settings
 from django.contrib.auth import authenticate, login, logout
@@ -116,7 +117,8 @@ def register(request, username, email, password, remember_me, ip):
         invalid_fields.append(Params.password)
 
     try:
-        remember_me = convert_to_bool(remember_me)
+        if type(remember_me) is str:
+            remember_me = convert_to_bool(remember_me)
     except TypeError:
         invalid_fields.append(Params.remember_me)
 
@@ -1227,7 +1229,7 @@ def get_users_matching_fragment(request, session_management_token, username_frag
     if not is_valid_pattern(session_management_token, Patterns.alphanumeric):
         invalid_fields.append(Params.session_management_token)
 
-    if not is_valid_pattern(username_fragment, Patterns.alphanumeric):
+    if not is_valid_pattern(username_fragment, Patterns.short_alphanumeric):
         invalid_fields.append(Params.username_fragment)
 
     if len(invalid_fields) > 0:
@@ -1252,4 +1254,7 @@ def get_users_matching_fragment(request, session_management_token, username_frag
 
         return JsonResponse({'response_list': serialized_response_list})
     else:
-        return HttpResponseBadRequest("No users matching that fragment")
+        # We don't send a failure because this isn't really a functional failure
+        serialized_response_list = serializers.serialize('json', [], fields=())
+
+        return JsonResponse({'response_list': serialized_response_list})

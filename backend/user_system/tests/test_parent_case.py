@@ -41,21 +41,15 @@ class PositiveOnlySocialTestCase(TestCase):
     def tearDown(self):
         super().tearDown()
 
-    def register_user(self, remember_me, num_user, user_dict):
-        local_username = f'{num_user}_{username}_{self.prefix}'
-        local_password = f'{num_user}_{password}_{self.prefix}'
-        local_email = (f'{num_user}_{email}_{self.prefix}@email.com')
-
-        # For this one we want to register a user with the info needed
-        # to login later. All tests start with remember_me turned off on purpose.
-        response = register(self.register_request, local_username, local_email, local_password, remember_me, ip)
-        self.assertEqual(response.status_code, SUCCESS)
-
+    def setup_user_in_dict(self, username, password, email, remember_me, response, user_dict):
         fields = get_response_fields(response)
 
         # Store the info needed to call remember me later
         session_management_token = fields[Fields.session_management_token]
-        if convert_to_bool(remember_me):
+
+        if type(remember_me) is str:
+            remember_me = convert_to_bool(remember_me)
+        if remember_me:
             series_identifier = fields[Fields.series_identifier]
             login_cookie_token = fields[Fields.login_cookie_token]
 
@@ -66,16 +60,41 @@ class PositiveOnlySocialTestCase(TestCase):
             login_cookies.append(login_cookie_token)
 
         usernames = user_dict.get(UserFields.USERNAME, [])
-        usernames.append(local_username)
+        usernames.append(username)
 
         emails = user_dict.get(UserFields.EMAIL, [])
-        emails.append(local_email)
+        emails.append(email)
 
         passwords = user_dict.get(UserFields.PASSWORD, [])
-        passwords.append(local_password)
+        passwords.append(password)
 
         session_management_tokens = user_dict.get(UserFields.SESSION_MANAGEMENT_TOKEN, [])
         session_management_tokens.append(session_management_token)
+
+    def register_user_with_name(self, name, user_dict, remember_me=False):
+        local_username = f'{name}_{username}_{self.prefix}'
+        local_password = f'{name}_{password}_{self.prefix}'
+        local_email = (f'{name}_{email}_{self.prefix}@email.com')
+
+        # For this one we want to register a user with the info needed
+        # to login later. All tests start with remember_me turned off on purpose.
+        response = register(self.register_request, local_username, local_email, local_password, remember_me, ip)
+        self.assertEqual(response.status_code, SUCCESS)
+
+        self.setup_user_in_dict(local_username, local_password, local_email, remember_me, response, user_dict)
+
+    def register_user(self, remember_me, num_user, user_dict):
+        local_username = f'{num_user}_{username}_{self.prefix}'
+        local_password = f'{num_user}_{password}_{self.prefix}'
+        local_email = (f'{num_user}_{email}_{self.prefix}@email.com')
+
+        # For this one we want to register a user with the info needed
+        # to login later. All tests start with remember_me turned off on purpose.
+        response = register(self.register_request, local_username, local_email, local_password, remember_me, ip)
+        self.assertEqual(response.status_code, SUCCESS)
+
+        self.setup_user_in_dict(local_username, local_password, local_email, remember_me, response, user_dict)
+
 
     def setup_local_values(self, remember_me):
         self.local_username = self.users.get(UserFields.USERNAME, [])[0]
@@ -230,10 +249,7 @@ class PositiveOnlySocialTestCase(TestCase):
         self.comment = self.comment_thread.comment_set.first()
         self.comment_identifier = self.comment.comment_identifier
 
-    def make_post_request_obj(self, method, username):
-        # Create an instance of a POST request.
-        request = self.factory.post(f"/user_system/{method}")
-
+    def add_session_and_user_to_request(self, request, username):
         # Recall that middleware are not supported. You can simulate a
         # logged-in user by setting request.user manually.
         request.user = get_user_with_username(username)
@@ -244,3 +260,21 @@ class PositiveOnlySocialTestCase(TestCase):
         request.session.save()
 
         return request
+
+    def make_post_request_obj(self, method, username):
+        # Create an instance of a POST request.
+        request = self.factory.post(f"/user_system/{method}")
+
+        return self.add_session_and_user_to_request(request, username)
+
+    def make_delete_request_obj(self, method, username):
+        # Create an instance of a POST request.
+        request = self.factory.delete(f"/user_system/{method}")
+
+        return self.add_session_and_user_to_request(request, username)
+
+    def make_get_request_obj(self, method, username):
+        # Create an instance of a POST request.
+        request = self.factory.get(f"/user_system/{method}")
+
+        return self.add_session_and_user_to_request(request, username)
