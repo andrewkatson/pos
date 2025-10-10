@@ -158,14 +158,36 @@ final class StatefulStubbedAPI: APIProtocol {
 
     func loginUserWithRememberMe(sessionManagementToken: String, seriesIdentifier: String, loginCookieToken: String, ip: String) async throws -> Data {
         await simulateNetwork()
-        guard let cookieIndex = loginCookies.firstIndex(where: { $0.seriesIdentifier == seriesIdentifier }) else { throw APIError.badServerResponse(statusCode: 400) }
-        if loginCookies[cookieIndex].token != loginCookieToken { throw APIError.badServerResponse(statusCode: 400) }
+
+        // Find the cookie and the associated user
+        guard let cookieIndex = loginCookies.firstIndex(where: { $0.seriesIdentifier == seriesIdentifier && $0.token == loginCookieToken }),
+              let user = users.first(where: { $0.id == loginCookies[cookieIndex].userId })
+        else {
+            // If tokens are invalid, throw an error
+            throw APIError.badServerResponse(statusCode: 401) // Unauthorized
+        }
         
+        // --- SIMULATED LOGIC ---
+        // On success, issue a new cookie token AND a new session token.
+        // NOTE: This assumes the backend's intent is to grant a full session.
+        
+        // 1. Update the login cookie with a new token
         let newCookieToken = generateToken()
         loginCookies[cookieIndex].token = newCookieToken
-        struct Fields: Codable { let login_cookie_token: String }
-        return try createSerializedResponse(fields: Fields(login_cookie_token: newCookieToken))
+        
+        // 2. Create a new session for the user
+        let newSession = MockSession(managementToken: generateToken(), userId: user.id, ip: ip)
+        sessions.append(newSession)
+
+        // 3. Return both the new cookie and the new session token
+        struct Fields: Codable {
+            let login_cookie_token: String
+            let session_management_token: String
+        }
+        let fields = Fields(login_cookie_token: newCookieToken, session_management_token: newSession.managementToken)
+        return try createSerializedResponse(fields: fields)
     }
+
 
     func requestPasswordReset(usernameOrEmail: String) async throws -> Data {
         await simulateNetwork()

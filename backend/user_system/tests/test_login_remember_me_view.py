@@ -51,6 +51,7 @@ class LoginUserRememberMETests(PositiveOnlySocialTestCase):
 
         fields = get_response_fields(response)
         self.assertNotEqual(fields[Fields.login_cookie_token], self.login_cookie_token)
+        self.assertNotEqual(fields[Fields.session_management_token], self.session_management_token)
 
     def test_not_matching_login_cookie_token_returns_bad_response(self):
         # Test view login_user_with_remember_me with the valid but non-existent series_identifier.

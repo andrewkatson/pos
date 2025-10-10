@@ -8,7 +8,8 @@ from ..classifiers.classifier_constants import POSITIVE_IMAGE_URL, POSITIVE_TEXT
 from ..constants import Fields
 from ..utils import convert_to_bool
 from ..views import register, login_user, make_post, get_user_with_username, comment_on_post, reply_to_comment_thread
-from .test_constants import username, email, password, SUCCESS, ip, LOGIN_USER, false, UserFields
+from .test_constants import username, email, password, SUCCESS, ip, LOGIN_USER, false, UserFields, \
+    LOGIN_USER_WITH_REMEMBER_ME
 from ..classifiers import image_classifier_fake, text_classifier_fake
 
 
@@ -169,12 +170,13 @@ class PositiveOnlySocialTestCase(TestCase):
     def make_many_comments(self, num=1):
 
         self.post_identifier = None
+        self.post = None
         for i in range(num):
             self.register_user(false, i, self.users)
             user_to_make_comment = self.users.get(UserFields.USERNAME, [])[i]
             session_management_token = self.users.get(UserFields.SESSION_MANAGEMENT_TOKEN, [])[i]
             if i == 0:
-                _, self.post_identifier = self.make_post(user_to_make_comment, session_management_token)
+                self.post, self.post_identifier = self.make_post(user_to_make_comment, session_management_token)
 
             self.comment_on_post_request = self.make_post_request_obj('comment_on_post', user_to_make_comment)
 
@@ -182,6 +184,8 @@ class PositiveOnlySocialTestCase(TestCase):
                                        str(self.post_identifier),
                                        POSITIVE_TEXT, text_classifier_fake)
             self.assertEqual(response.status_code, SUCCESS)
+
+        self.assertEqual(self.post.commentthread_set.count(), num)
 
     def make_many_comments_on_thread(self, num=1):
 
@@ -278,3 +282,55 @@ class PositiveOnlySocialTestCase(TestCase):
         request = self.factory.get(f"/user_system/{method}")
 
         return self.add_session_and_user_to_request(request, username)
+
+    def make_user(self, local_username, local_password='', remember_me=False):
+        local_email = f'{local_username}_email@email.com'
+
+        if not local_password:
+            local_password = f'{local_username}_password'
+
+        response = register(self.register_request, local_username, local_email, local_password, remember_me, ip)
+        self.assertEqual(response.status_code, SUCCESS)
+
+        return get_response_fields(response)
+
+    def make_user_and_login(self, local_username, remember_me=False):
+        local_password = f'{local_username}_password'
+
+        registration_fields = self.make_user(local_username, local_password, remember_me)
+
+        try:
+            remember_me = convert_to_bool(remember_me)
+        except TypeError or AttributeError:
+            pass
+
+        type_of_login = LOGIN_USER
+        if remember_me:
+            type_of_login = LOGIN_USER_WITH_REMEMBER_ME
+
+        # Create an instance of a POST request.
+        login_user_request = self.factory.post(f"/user_system/{type_of_login}")
+
+        # Also add a session
+        middleware = SessionMiddleware(lambda req: None)
+        middleware.process_request(login_user_request)
+        login_user_request.session.save()
+
+        # Need to log the user in
+        response = login_user(login_user_request, local_username, local_password, false, ip)
+        self.assertEqual(response.status_code, SUCCESS)
+
+        return get_response_fields(response), registration_fields
+
+    def make_user_with_posts(self, local_username, posts_num=2, remember_me=False):
+
+        login_fields, register_fields = self.make_user_and_login(local_username, remember_me)
+
+        session_management_token = login_fields[Fields.session_management_token]
+
+        posts = []
+        for i in range(posts_num):
+            post, _ = self.make_post(local_username, session_management_token)
+            posts.append(post)
+
+        return login_fields, register_fields, posts

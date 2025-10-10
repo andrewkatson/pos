@@ -22,6 +22,10 @@ def hash_string_sha256(input_string):
 
 def convert_to_bool(str_value):
     """Converts a string to boolean."""
+
+    if type(str_value) == bool:
+        return str_value
+
     if str_value.lower() == 'true':
         return True
     elif str_value.lower() == 'false':

@@ -1,90 +1,92 @@
 import uuid
-
-from .constants import NEVER_RUN
+from django.conf import settings
 from django.contrib.auth.models import AbstractUser
 from django.db import models
+from .constants import NEVER_RUN
 
 
-# The non-admin user class
+# The model to explicitly define the "follow" relationship
+class UserFollow(models.Model):
+    user_from = models.ForeignKey(settings.AUTH_USER_MODEL, related_name='following_set', on_delete=models.CASCADE)
+    user_to = models.ForeignKey(settings.AUTH_USER_MODEL, related_name='followers_set', on_delete=models.CASCADE)
+    created = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(fields=['user_from', 'user_to'], name='unique_followers')
+        ]
+
+
+# The non-admin user class (no changes needed here)
 class PositiveOnlySocialUser(AbstractUser):
-    # The identifier used for a reset attempt for a password or username
     reset_id = models.IntegerField(default=-1)
-    # The identifier used for a verification report
     report_id = models.TextField(null=True)
-    # The status of a verification report
     verification_report_status = models.TextField(default=NEVER_RUN)
-
     identity_is_verified = models.BooleanField(default=False)
-
     creation_time = models.DateTimeField(auto_now_add=True, null=True, blank=True)
-
     updated_time = models.DateTimeField(auto_now=True, null=True, blank=True)
+    id = models.UUIDField(default=uuid.uuid4, primary_key=True, unique=True, editable=False)
+    following = models.ManyToManyField('self', through=UserFollow, through_fields=('user_from', 'user_to'),
+                                       symmetrical=False)
 
-    id = models.UUIDField(default=uuid.uuid4,
-                          primary_key=True,
-                          unique=True,
-                          editable=False)
+    def __str__(self):
+        return self.username
 
 
-# The session information
+# The session information (no changes needed here)
 class Session(models.Model):
-    # SHA256 hashed
     management_token = models.TextField(null=True)
-    management_user = models.ForeignKey(
-        PositiveOnlySocialUser, on_delete=models.CASCADE
-    )
+    management_user = models.ForeignKey(PositiveOnlySocialUser, on_delete=models.CASCADE)
     ip = models.TextField(null=True)
 
 
-# The login cookie information
-# From:
-# https://stackoverflow.com/questions/244882/what-is-the-best-way-to-implement-remember-me-for-a-website
+# The login cookie information (no changes needed here)
 class LoginCookie(models.Model):
-    series_identifier = models.UUIDField(default=uuid.uuid4,
-                                         primary_key=True,
-                                         unique=True,
-                                         editable=False)
-    # SHA256 hashed
+    series_identifier = models.UUIDField(default=uuid.uuid4, primary_key=True, unique=True, editable=False)
     token = models.TextField(null=True)
     cookie_user = models.ForeignKey(PositiveOnlySocialUser, on_delete=models.CASCADE)
 
 
 # A post on the website
 class Post(models.Model):
-    post_identifier = models.UUIDField(default=uuid.uuid4,
-                                       primary_key=True,
-                                       unique=True,
-                                       editable=False)
+    post_identifier = models.UUIDField(default=uuid.uuid4, primary_key=True, unique=True, editable=False)
     image_url = models.TextField(null=True)
     caption = models.TextField(null=True)
-    creation_time = models.DateTimeField(auto_now=True, null=True, blank=True)
+    creation_time = models.DateTimeField(auto_now_add=True, null=True,
+                                         blank=True)
     updated_time = models.DateTimeField(auto_now=True, null=True, blank=True)
     author = models.ForeignKey(PositiveOnlySocialUser, on_delete=models.CASCADE)
-    reported = models.BooleanField(default=False)
-    reported_time = models.DateTimeField(auto_now=True, null=True, blank=True)
-    reported_by_username = models.TextField(null=True)
     hidden = models.BooleanField(default=False)
+
 
 # A report on a post
 class PostReport(models.Model):
-    reported_by_username = models.TextField(null=True)
+    user = models.ForeignKey(settings.AUTH_USER_MODEL,
+                             on_delete=models.CASCADE)
     post = models.ForeignKey(Post, on_delete=models.CASCADE)
-    creation_time = models.DateTimeField(auto_now=True, null=True, blank=True)
+    creation_time = models.DateTimeField(auto_now_add=True, null=True,
+                                         blank=True)
     reason = models.TextField(null=True)
+
 
 # A like on a post
 class PostLike(models.Model):
-    post_liker_username = models.TextField(null=True)
+    user = models.ForeignKey(settings.AUTH_USER_MODEL,
+                             on_delete=models.CASCADE)
     post = models.ForeignKey(Post, on_delete=models.CASCADE)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(fields=['user', 'post'], name='unique_post_like')
+        ]
+
 
 # A thread of comments on a post
 class CommentThread(models.Model):
-    comment_thread_identifier = models.UUIDField(default=uuid.uuid4,
-                                                 primary_key=True,
-                                                 unique=True,
-                                                 editable=False)
+    comment_thread_identifier = models.UUIDField(default=uuid.uuid4, primary_key=True, unique=True, editable=False)
     post = models.ForeignKey(Post, on_delete=models.CASCADE)
-    creation_time = models.DateTimeField(auto_now=True, null=True, blank=True)
+    creation_time = models.DateTimeField(auto_now_add=True, null=True,
+                                         blank=True)
     updated_time = models.DateTimeField(auto_now=True, null=True, blank=True)
 
 
@@ -93,54 +95,31 @@ class Comment(models.Model):
     comment_identifier = models.UUIDField(default=uuid.uuid4, primary_key=True, unique=True, editable=False)
     comment_thread = models.ForeignKey(CommentThread, on_delete=models.CASCADE)
     body = models.TextField(null=True)
-    author_username = models.TextField(null=True)
-    creation_time = models.DateTimeField(auto_now=True, null=True, blank=True)
+    author = models.ForeignKey(settings.AUTH_USER_MODEL,
+                               on_delete=models.CASCADE)
+    creation_time = models.DateTimeField(auto_now_add=True, null=True,
+                                         blank=True)
     updated_time = models.DateTimeField(auto_now=True, null=True, blank=True)
-
     hidden = models.BooleanField(default=False)
+
 
 # A report on a comment
 class CommentReport(models.Model):
-    reported_by_username = models.TextField(null=True)
+    user = models.ForeignKey(settings.AUTH_USER_MODEL,
+                             on_delete=models.CASCADE)
     comment = models.ForeignKey(Comment, on_delete=models.CASCADE)
-    creation_time = models.DateTimeField(auto_now=True, null=True, blank=True)
+    creation_time = models.DateTimeField(auto_now_add=True, null=True,
+                                         blank=True)
     reason = models.TextField(null=True)
+
 
 # A like on a comment
 class CommentLike(models.Model):
-    comment_liker_username = models.TextField(null=True)
+    user = models.ForeignKey(settings.AUTH_USER_MODEL,
+                             on_delete=models.CASCADE)
     comment = models.ForeignKey(Comment, on_delete=models.CASCADE)
 
-# The response sent back to the client
-class Response(models.Model):
-    response_identifier = models.UUIDField(default=uuid.uuid4, primary_key=True, unique=True, editable=False)
-
-    # Info related to the current user's session
-    series_identifier = models.UUIDField(default=uuid.uuid4, primary_key=False, unique=True, editable=False)
-    login_cookie_token = models.TextField(null=True)
-    session_management_token = models.TextField(null=True)
-
-    # Info related to a post
-    post_identifier = models.UUIDField(default=uuid.uuid4, primary_key=False, unique=True, editable=False)
-    image_url = models.TextField(null=True)
-    caption = models.TextField(null=True)
-    post_likes = models.IntegerField(default=0)
-    post_creation_time = models.DateTimeField(auto_now=True, null=True, blank=True)
-    post_updated_time = models.DateTimeField(auto_now=True, null=True, blank=True)
-
-    # Info related to a post comment thread
-    comment_thread_identifier = models.UUIDField(default=uuid.uuid4, primary_key=False, unique=True, editable=False)
-    comment_thread_creation_time = models.DateTimeField(auto_now=True, null=True, blank=True)
-    comment_thread_updated_time = models.DateTimeField(auto_now=True, null=True, blank=True)
-
-    # Info related to a post comment
-    comment_identifier = models.UUIDField(default=uuid.uuid4, primary_key=False, unique=True, editable=False)
-    author_username = models.TextField(null=True)
-    body = models.TextField(null=True)
-    comment_creation_time = models.DateTimeField(auto_now=True, null=True, blank=True)
-    comment_updated_time = models.DateTimeField(auto_now=True, null=True, blank=True)
-    comment_likes = models.IntegerField(default=0)
-
-    # Info related to a user
-    username = models.TextField(null=True)
-    identity_is_verified = models.BooleanField(default=False)
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(fields=['user', 'comment'], name='unique_comment_like')
+        ]

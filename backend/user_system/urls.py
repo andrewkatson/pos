@@ -33,33 +33,59 @@ urlpatterns = [
     path('delete_post/<str:session_management_token>/<str:post_identifier>',
          views.delete_post, name='delete_post'),
     # Report a post
-    path('report_post/<str:session_management_token>/<str:post_identifier>/<str:reason>', views.report_post, name='report_post'),
+    path('report_post/<str:session_management_token>/<str:post_identifier>/<str:reason>', views.report_post,
+         name='report_post'),
     # Like a post
     path('like_post/<str:session_management_token>/<str:post_identifier>', views.like_post, name='like_post'),
     # Unlike a post
     path('unlike_post/<str:session_management_token>/<str:post_identifier>', views.unlike_post, name='unlike_post'),
     # Get all posts for the user's feed
-    path('get_posts_in_feed/<str:session_management_token>/<int:batch>', views.get_posts_in_feed, name='get_posts_in_feed'),
+    path('get_posts_in_feed/<str:session_management_token>/<int:batch>', views.get_posts_in_feed,
+         name='get_posts_in_feed'),
     # Get posts for another user
     path('get_posts_for_user/<str:session_management_token>/<str:username>/<int:batch>', views.get_posts_for_user),
+    # Gets posts for the user's "Following" feed
+    path('get_followed_posts/<str:session_management_token>/<int:batch>',
+         views.get_posts_for_followed_users,
+         name='get_posts_for_followed_users'),
     # Get the details for a post
     path('get_post_details/<str:post_identifier>', views.get_post_details, name='get_post_details'),
     # Comment directly on a post
-    path('comment_on_post/<str:session_management_token>/<str:post_identifier>/<str:comment_text>', views.comment_on_post, name='comment_on_post'),
+    path('comment_on_post/<str:session_management_token>/<str:post_identifier>/<str:comment_text>',
+         views.comment_on_post, name='comment_on_post'),
     # Like a comment
-    path('like_comment/<str:session_management_token>/<str:post_identifier>/<str:comment_thread_identifier>/<str:comment_identifier>', views.like_comment, name='like_comment'),
+    path(
+        'like_comment/<str:session_management_token>/<str:post_identifier>/<str:comment_thread_identifier>/<str:comment_identifier>',
+        views.like_comment, name='like_comment'),
     # Unlike a comment
-    path('unlike_comment/<str:session_management_token>/<str:post_identifier>/<str:comment_thread_identifier>/str:comment_identifier', views.unlike_comment, name='unlike_comment'),
+    path(
+        'unlike_comment/<str:session_management_token>/<str:post_identifier>/<str:comment_thread_identifier>/str:comment_identifier',
+        views.unlike_comment, name='unlike_comment'),
     # Delete a comment
-    path('delete_comment/<str:session_management_token>/<str:post_identifier>/<str:comment_thread_identifier>/<str:comment_identifier>', views.delete_comment, name='delete_comment'),
+    path(
+        'delete_comment/<str:session_management_token>/<str:post_identifier>/<str:comment_thread_identifier>/<str:comment_identifier>',
+        views.delete_comment, name='delete_comment'),
     # Report a comment
-    path('report_comment/<str:session_management_token>/<str:post_identifier>/<str:comment_thread_identifier>/<str:comment_identifier>/<str:reason>', views.report_comment, name='report_comment'),
+    path(
+        'report_comment/<str:session_management_token>/<str:post_identifier>/<str:comment_thread_identifier>/<str:comment_identifier>/<str:reason>',
+        views.report_comment, name='report_comment'),
     # Get comments for a post
-    path('get_comments_for_post/<str:post_identifier>/<int:batch>', views.get_comments_for_post, name='get_comments_for_post'),
+    path('get_comments_for_post/<str:post_identifier>/<int:batch>', views.get_comments_for_post,
+         name='get_comments_for_post'),
     # Get the comments for a comment thread
-    path('get_comments_for_thread/<str:comment_thread_identifier>/<int:batch>', views.get_comments_for_thread, name='get_comments_for_thread'),
+    path('get_comments_for_thread/<str:comment_thread_identifier>/<int:batch>', views.get_comments_for_thread,
+         name='get_comments_for_thread'),
     # Reply to a comment thread. This is basically like commenting a post but instead is underneath a comment
-    path('reply_to_comment_thread/<str:session_management_token>/<str:post_identifier>/<str:comment_thread_identifier>/<str:comment_text>', views.reply_to_comment_thread, name='reply_to_comment_thread'),
+    path(
+        'reply_to_comment_thread/<str:session_management_token>/<str:post_identifier>/<str:comment_thread_identifier>/<str:comment_text>',
+        views.reply_to_comment_thread, name='reply_to_comment_thread'),
     # Get the users with a username matching the fragment passed
-    path('get_users_matching_fragment/<str:session_management_token>/<str:username_fragment>', views.get_users_matching_fragment, name='get_users_matching_fragment'),
+    path('get_users_matching_fragment/<str:session_management_token>/<str:username_fragment>',
+         views.get_users_matching_fragment, name='get_users_matching_fragment'),
+    # Follow and Unfollow users
+    path('follow/<str:session_management_token>/<str:username_to_follow>',
+         views.follow_user, name='follow_user'),
+
+    path('unfollow/<str:session_management_token>/<str:username_to_unfollow>',
+         views.unfollow_user, name='unfollow_user'),
 ]
