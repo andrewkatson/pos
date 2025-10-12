@@ -24,7 +24,6 @@ struct LoginView: View {
     // MARK: - View Body
     var body: some View {
         NavigationStack(path: $path) {
-            // The VStack with UI elements remains unchanged...
             VStack(spacing: 20) {
                 Image(systemName: "lock.shield.fill").font(.system(size: 80)).foregroundColor(.blue)
                 TextField("Username or Email", text: $usernameOrEmail).padding().background(Color(.systemGray6)).cornerRadius(10).textContentType(.username).autocapitalization(.none).keyboardType(.emailAddress)

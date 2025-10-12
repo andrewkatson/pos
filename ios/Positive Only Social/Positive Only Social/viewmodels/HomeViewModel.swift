@@ -87,7 +87,7 @@ final class HomeViewModel: ObservableObject {
         
         Task {
             do {
-                let sessionToken = try KeychainHelper.shared.load(String.self, from: "com.yourapp.bundleid", account: "userSessionToken") ?? ""
+                let sessionToken = try KeychainHelper.shared.load(String.self, from: "positive-only-social.Positive-Only-Social", account: "userSessionToken") ?? ""
                 self.searchedUsers = try await searchForUsers(fragment: query, token: sessionToken)
             } catch {
                 self.errorMessage = error.localizedDescription
