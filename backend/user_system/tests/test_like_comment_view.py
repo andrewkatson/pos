@@ -1,8 +1,6 @@
-from django.contrib.sessions.middleware import SessionMiddleware
-
+from .test_constants import ip, false, FAIL, SUCCESS, UserFields
 from .test_parent_case import PositiveOnlySocialTestCase
 from ..views import login_user, like_comment, get_user_with_username
-from .test_constants import ip, false, FAIL, SUCCESS, UserFields
 
 invalid_session_management_token = '?'
 invalid_post_identifier = '?'
@@ -60,7 +58,8 @@ class LikeCommentTests(PositiveOnlySocialTestCase):
 
     def test_like_own_comment_returns_bad_response(self):
         # Test view like_comment
-        response = like_comment(self.like_comment_request, self.commenter_session_management_token, str(self.post_identifier),
+        response = like_comment(self.like_comment_request, self.commenter_session_management_token,
+                                str(self.post_identifier),
                                 str(self.comment_thread_identifier), str(self.comment_identifier))
         self.assertEqual(response.status_code, FAIL)
 

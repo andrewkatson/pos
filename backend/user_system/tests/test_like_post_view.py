@@ -1,11 +1,10 @@
-from django.contrib.sessions.middleware import SessionMiddleware
-
+from .test_constants import ip, false, FAIL, SUCCESS, UserFields
 from .test_parent_case import PositiveOnlySocialTestCase
-from ..views import  login_user, like_post, get_user_with_username
-from .test_constants import  ip, false, FAIL, SUCCESS, UserFields
+from ..views import login_user, like_post, get_user_with_username
 
 invalid_session_management_token = '?'
 invalid_post_identifier = '?'
+
 
 class LikePostTests(PositiveOnlySocialTestCase):
 

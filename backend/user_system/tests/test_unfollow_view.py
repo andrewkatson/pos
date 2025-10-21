@@ -1,7 +1,7 @@
+from .test_constants import FAIL, SUCCESS
 from .test_parent_case import PositiveOnlySocialTestCase
 from ..constants import Fields
 from ..views import unfollow_user, follow_user, get_user_with_username
-from .test_constants import false, FAIL, SUCCESS
 
 invalid_session_management_token = '?'
 non_existent_username = 'iamnotauser'
@@ -18,7 +18,7 @@ class UnfollowUserTests(PositiveOnlySocialTestCase):
 
         # Create a second user to be the target of the follow action.
         self.other_user_username = "OtherUser23"
-        other_user_registration_fields =  self.make_user(self.other_user_username)
+        other_user_registration_fields = self.make_user(self.other_user_username)
 
         # Create a request object for the follow view.
         self.follow_request = self.make_get_request_obj('follow_user', self.main_username)

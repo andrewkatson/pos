@@ -1,11 +1,11 @@
-from django.contrib.sessions.middleware import SessionMiddleware
 from django.test import Client
 
-from ..views import logout_user, get_user_with_username
-from .test_constants import  false, FAIL, SUCCESS, FORBIDDEN
+from .test_constants import false, FAIL, SUCCESS, FORBIDDEN
 from .test_parent_case import PositiveOnlySocialTestCase
+from ..views import logout_user
 
 invalid_session_management_token = '?'
+
 
 class LogoutUserTests(PositiveOnlySocialTestCase):
 

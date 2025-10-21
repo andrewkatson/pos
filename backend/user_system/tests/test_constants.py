@@ -17,6 +17,7 @@ FORBIDDEN = 404
 LOGIN_USER = 'login_user'
 LOGIN_USER_WITH_REMEMBER_ME = 'login_user_with_remember_me'
 
+
 # Fields of a user
 class UserFields:
     USERNAME = 'username'

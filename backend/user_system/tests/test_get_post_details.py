@@ -1,12 +1,11 @@
-from django.contrib.sessions.middleware import SessionMiddleware
-
+from .test_constants import FAIL, SUCCESS
 from .test_parent_case import PositiveOnlySocialTestCase
 from .test_utils import get_response_fields
 from ..constants import Fields
-from ..views import  get_post_details, get_user_with_username
-from .test_constants import FAIL, SUCCESS
+from ..views import get_post_details
 
 invalid_post_identifier = '?'
+
 
 class GetPostDetailsTests(PositiveOnlySocialTestCase):
 

@@ -1164,10 +1164,10 @@ def get_profile_details(request, session_management_token, username):
     # 5. Build the response data (matching the Swift struct)
     data = {
         "username": profile_user.username,
-        "postCount": post_count,
-        "followerCount": follower_count,
-        "followingCount": following_count,
-        "isFollowing": is_following
+        "post_count": post_count,
+        "follower_count": follower_count,
+        "following_count": following_count,
+        "is_following": is_following
     }
 
     return JsonResponse(data)

@@ -1,16 +1,17 @@
 import uuid
 
-from ..views import register, login_user_with_remember_me
-from ..constants import Fields
 from .test_constants import username, email, password, ip, invalid_ip, true, false, FAIL, SUCCESS, \
     LOGIN_USER_WITH_REMEMBER_ME
-from .test_utils import get_response_fields
-from ..utils import generate_login_cookie_token
 from .test_parent_case import PositiveOnlySocialTestCase
+from .test_utils import get_response_fields
+from ..constants import Fields
+from ..utils import generate_login_cookie_token
+from ..views import register, login_user_with_remember_me
 
 invalid_session_management_token = '?'
 invalid_series_identifier = '?'
 invalid_login_cookie_token = '?'
+
 
 class LoginUserRememberMETests(PositiveOnlySocialTestCase):
 
@@ -21,31 +22,36 @@ class LoginUserRememberMETests(PositiveOnlySocialTestCase):
 
     def test_invalid_session_management_token_returns_bad_response(self):
         # Test view login_user_with_remember_me
-        response = login_user_with_remember_me(self.login_user_request, invalid_session_management_token, self.series_identifier,
+        response = login_user_with_remember_me(self.login_user_request, invalid_session_management_token,
+                                               self.series_identifier,
                                                self.login_cookie_token, ip)
         self.assertEqual(response.status_code, FAIL)
 
     def test_invalid_series_identifier_returns_bad_response(self):
         # Test view login_user_with_remember_me
-        response = login_user_with_remember_me(self.login_user_request, self.session_management_token, invalid_series_identifier,
+        response = login_user_with_remember_me(self.login_user_request, self.session_management_token,
+                                               invalid_series_identifier,
                                                self.login_cookie_token,
                                                ip)
         self.assertEqual(response.status_code, FAIL)
 
     def test_invalid_login_cookie_token_returns_bad_response(self):
         # Test view login_user_with_remember_me
-        response = login_user_with_remember_me(self.login_user_request, self.session_management_token, self.series_identifier,
+        response = login_user_with_remember_me(self.login_user_request, self.session_management_token,
+                                               self.series_identifier,
                                                invalid_login_cookie_token, ip)
         self.assertEqual(response.status_code, FAIL)
 
     def test_invalid_ip_returns_bad_response(self):
         # Test view login_user_with_remember_me
-        response = login_user_with_remember_me(self.login_user_request, self.session_management_token, self.series_identifier,
+        response = login_user_with_remember_me(self.login_user_request, self.session_management_token,
+                                               self.series_identifier,
                                                self.login_cookie_token, invalid_ip)
         self.assertEqual(response.status_code, FAIL)
 
     def test_matching_login_cookie_token_returns_good_response_with_new_login_cookie_token(self):
-        response = login_user_with_remember_me(self.login_user_request, self.session_management_token, self.series_identifier,
+        response = login_user_with_remember_me(self.login_user_request, self.session_management_token,
+                                               self.series_identifier,
                                                self.login_cookie_token, ip)
         self.assertEqual(response.status_code, SUCCESS)
 
@@ -56,7 +62,8 @@ class LoginUserRememberMETests(PositiveOnlySocialTestCase):
     def test_not_matching_login_cookie_token_returns_bad_response(self):
         # Test view login_user_with_remember_me with the valid but non-existent series_identifier.
         not_matching_login_cookie_token = generate_login_cookie_token()
-        response = login_user_with_remember_me(self.login_user_request, self.session_management_token, self.series_identifier,
+        response = login_user_with_remember_me(self.login_user_request, self.session_management_token,
+                                               self.series_identifier,
                                                not_matching_login_cookie_token, ip)
         self.assertEqual(response.status_code, FAIL)
 

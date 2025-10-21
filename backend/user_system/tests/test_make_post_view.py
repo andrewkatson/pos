@@ -1,16 +1,15 @@
-from django.contrib.sessions.middleware import SessionMiddleware
-
+from .test_constants import false, FAIL, SUCCESS
 from .test_parent_case import PositiveOnlySocialTestCase
 from .test_utils import get_response_fields
+from ..classifiers import image_classifier_fake, text_classifier_fake
 from ..classifiers.classifier_constants import POSITIVE_IMAGE_URL, POSITIVE_TEXT, NEGATIVE_TEXT, NEGATIVE_IMAGE_URL
 from ..constants import Fields
 from ..views import make_post, get_user_with_username
-from .test_constants import false, FAIL, SUCCESS
-from ..classifiers import image_classifier_fake, text_classifier_fake
 
 invalid_session_management_token = '?'
 invalid_image_url = '?'
 invalid_caption = 'DROP TABLE x;'
+
 
 class MakePostTests(PositiveOnlySocialTestCase):
 
@@ -53,7 +52,8 @@ class MakePostTests(PositiveOnlySocialTestCase):
 
     def test_make_post_returns_good_response_and_adds_post_to_user(self):
         # Test view make_post
-        response = make_post(self.make_post_request, self.session_management_token, POSITIVE_IMAGE_URL, POSITIVE_TEXT, image_classifier_fake, text_classifier_fake)
+        response = make_post(self.make_post_request, self.session_management_token, POSITIVE_IMAGE_URL, POSITIVE_TEXT,
+                             image_classifier_fake, text_classifier_fake)
         self.assertEqual(response.status_code, SUCCESS)
 
         user = get_user_with_username(self.local_username)

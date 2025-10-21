@@ -1,10 +1,11 @@
-from ..views import login_user
-from ..constants import Fields, Patterns
-from ..input_validator import is_valid_pattern
 from .test_constants import ip, invalid_username, invalid_password, \
     invalid_email, invalid_ip, invalid_bool, false, true, FAIL, SUCCESS
-from .test_utils import get_response_fields
 from .test_parent_case import PositiveOnlySocialTestCase
+from .test_utils import get_response_fields
+from ..constants import Fields, Patterns
+from ..input_validator import is_valid_pattern
+from ..views import login_user
+
 
 class LoginUserTests(PositiveOnlySocialTestCase):
 

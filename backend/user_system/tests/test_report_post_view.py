@@ -1,13 +1,12 @@
-from django.contrib.sessions.middleware import SessionMiddleware
-
+from .test_constants import ip, false, FAIL, SUCCESS, UserFields
 from .test_parent_case import PositiveOnlySocialTestCase
-from ..views import  login_user, report_post, get_user_with_username
 from ..constants import MAX_BEFORE_HIDING_POST
-from .test_constants import  ip, false, FAIL, SUCCESS, UserFields
+from ..views import login_user, report_post, get_user_with_username
 
 invalid_session_management_token = '?'
 invalid_post_identifier = '?'
 reason = "This is a negative post"
+
 
 class ReportPostTests(PositiveOnlySocialTestCase):
 
@@ -35,17 +34,20 @@ class ReportPostTests(PositiveOnlySocialTestCase):
 
     def test_invalid_session_management_token_returns_bad_response(self):
         # Test view report_post
-        response = report_post(self.report_post_request, invalid_session_management_token, str(self.post_identifier), reason)
+        response = report_post(self.report_post_request, invalid_session_management_token, str(self.post_identifier),
+                               reason)
         self.assertEqual(response.status_code, FAIL)
 
     def test_invalid_post_identifier_returns_bad_response(self):
         # Test view report_post
-        response = report_post(self.report_post_request, self.other_session_management_token, invalid_post_identifier, reason)
+        response = report_post(self.report_post_request, self.other_session_management_token, invalid_post_identifier,
+                               reason)
         self.assertEqual(response.status_code, FAIL)
 
     def test_report_own_post_returns_bad_response(self):
         # Test view report_post
-        response = report_post(self.report_post_request, self.session_management_token, str(self.post_identifier), reason)
+        response = report_post(self.report_post_request, self.session_management_token, str(self.post_identifier),
+                               reason)
         self.assertEqual(response.status_code, FAIL)
 
     def test_report_post_twice_returns_bad_response(self):
@@ -64,7 +66,8 @@ class ReportPostTests(PositiveOnlySocialTestCase):
 
     def test_report_post_returns_good_response_and_reports_post_from_user(self):
         # Test view report_post
-        response = report_post(self.report_post_request, self.other_session_management_token, str(self.post_identifier), reason)
+        response = report_post(self.report_post_request, self.other_session_management_token, str(self.post_identifier),
+                               reason)
         self.assertEqual(response.status_code, SUCCESS)
 
         user = get_user_with_username(self.local_username)
@@ -79,7 +82,8 @@ class ReportPostTests(PositiveOnlySocialTestCase):
                 continue
 
             # Test view report_post
-            response = report_post(self.report_post_request, session_management_token, str(self.post_identifier), reason)
+            response = report_post(self.report_post_request, session_management_token, str(self.post_identifier),
+                                   reason)
             self.assertEqual(response.status_code, SUCCESS)
 
         user = get_user_with_username(self.local_username)

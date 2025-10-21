@@ -1,9 +1,10 @@
 # This test is special because it exercises the request_reset, verify_reset, and reset_password views at once.
+from .test_constants import username, password, false, FAIL, SUCCESS
 from .test_parent_case import PositiveOnlySocialTestCase
 from ..views import request_reset, verify_reset, reset_password, get_user_with_username
-from .test_constants import username, password, false, FAIL, SUCCESS
 
 other_username = f'other_{username}'
+
 
 class ResetPasswordTests(PositiveOnlySocialTestCase):
 

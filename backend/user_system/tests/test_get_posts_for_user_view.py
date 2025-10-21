@@ -1,10 +1,8 @@
-from django.contrib.sessions.middleware import SessionMiddleware
-
+from .test_constants import false, FAIL, SUCCESS
 from .test_parent_case import PositiveOnlySocialTestCase
 from .test_utils import get_response_content
-from ..views import get_user_with_username, get_posts_for_user
-from .test_constants import false, FAIL, SUCCESS
 from ..feed_algorithm import feed_algorithm_fake
+from ..views import get_posts_for_user
 
 invalid_session_management_token = '?'
 invalid_batch = -1

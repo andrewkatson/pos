@@ -1,16 +1,16 @@
-from django.test import TestCase
-from django.test import RequestFactory
 from django.contrib.auth.models import AnonymousUser
 from django.contrib.sessions.middleware import SessionMiddleware
+from django.test import RequestFactory
+from django.test import TestCase
 
+from .test_constants import username, email, password, SUCCESS, ip, LOGIN_USER, false, UserFields, \
+    LOGIN_USER_WITH_REMEMBER_ME
 from .test_utils import get_response_fields
+from ..classifiers import image_classifier_fake, text_classifier_fake
 from ..classifiers.classifier_constants import POSITIVE_IMAGE_URL, POSITIVE_TEXT
 from ..constants import Fields
 from ..utils import convert_to_bool
 from ..views import register, login_user, make_post, get_user_with_username, comment_on_post, reply_to_comment_thread
-from .test_constants import username, email, password, SUCCESS, ip, LOGIN_USER, false, UserFields, \
-    LOGIN_USER_WITH_REMEMBER_ME
-from ..classifiers import image_classifier_fake, text_classifier_fake
 
 
 class PositiveOnlySocialTestCase(TestCase):
@@ -95,7 +95,6 @@ class PositiveOnlySocialTestCase(TestCase):
         self.assertEqual(response.status_code, SUCCESS)
 
         self.setup_user_in_dict(local_username, local_password, local_email, remember_me, response, user_dict)
-
 
     def setup_local_values(self, remember_me):
         self.local_username = self.users.get(UserFields.USERNAME, [])[0]
@@ -215,7 +214,8 @@ class PositiveOnlySocialTestCase(TestCase):
 
                 response = reply_to_comment_thread(self.reply_to_comment_thread_request, session_management_token,
                                                    str(self.post_identifier),
-                                                   str(self.comment_thread_identifier), POSITIVE_TEXT, text_classifier_fake)
+                                                   str(self.comment_thread_identifier), POSITIVE_TEXT,
+                                                   text_classifier_fake)
                 self.assertEqual(response.status_code, SUCCESS)
 
     def comment_on_post_with_users(self, num=3):
@@ -287,7 +287,7 @@ class PositiveOnlySocialTestCase(TestCase):
         local_email = f'{local_username}_email@email.com'
 
         if not local_password:
-            local_password = f'{local_username}_password'
+            local_password = f'{local_username}_Password$'
 
         response = register(self.register_request, local_username, local_email, local_password, remember_me, ip)
         self.assertEqual(response.status_code, SUCCESS)

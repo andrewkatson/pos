@@ -1,9 +1,7 @@
-from django.contrib.sessions.middleware import SessionMiddleware
-
-from .test_parent_case import PositiveOnlySocialTestCase
-from ..views import login_user, like_post, get_user_with_username, unlike_post
-from ..constants import MAX_BEFORE_HIDING_POST
 from .test_constants import ip, false, FAIL, SUCCESS, UserFields
+from .test_parent_case import PositiveOnlySocialTestCase
+from ..constants import MAX_BEFORE_HIDING_POST
+from ..views import login_user, like_post, get_user_with_username, unlike_post
 
 invalid_session_management_token = '?'
 invalid_post_identifier = '?'

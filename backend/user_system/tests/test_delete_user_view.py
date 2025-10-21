@@ -1,10 +1,9 @@
-from django.contrib.sessions.middleware import SessionMiddleware
-
-from ..views import delete_user, get_user_with_username
 from .test_constants import false, FAIL, SUCCESS
 from .test_parent_case import PositiveOnlySocialTestCase
+from ..views import delete_user, get_user_with_username
 
 invalid_session_management_token = '?'
+
 
 class LogoutUserTests(PositiveOnlySocialTestCase):
 
@@ -15,7 +14,7 @@ class LogoutUserTests(PositiveOnlySocialTestCase):
 
         # Create an instance of a DELETE request.
         self.delete_user_request = self.make_delete_request_obj('delete_user', self.local_username)
-        
+
     def test_invalid_session_management_token_returns_bad_response(self):
         # Test view delete_user
         response = delete_user(self.delete_user_request, invalid_session_management_token)

@@ -1,10 +1,8 @@
-from django.contrib.sessions.middleware import SessionMiddleware
-
+from .test_constants import false, FAIL, SUCCESS
 from .test_parent_case import PositiveOnlySocialTestCase
 from .test_utils import get_response_content
-from ..views import get_user_with_username, get_posts_in_feed
-from .test_constants import false, FAIL, SUCCESS
 from ..feed_algorithm import feed_algorithm_fake
+from ..views import get_posts_in_feed
 
 invalid_session_management_token = '?'
 invalid_batch = -1
@@ -37,7 +35,7 @@ class GetPostsInFeedTests(PositiveOnlySocialTestCase):
     def test_one_beyond_max_batch_returns_good_response(self):
         # Test view make_post
         response = get_posts_in_feed(self.get_posts_in_feed_request, self.session_management_token, 4,
-                                      feed_algorithm_fake)
+                                     feed_algorithm_fake)
 
         self.assertEqual(response.status_code, SUCCESS)
 
@@ -49,7 +47,7 @@ class GetPostsInFeedTests(PositiveOnlySocialTestCase):
     def test_first_batch_amount_batch_returns_good_response(self):
         # Test view make_post
         response = get_posts_in_feed(self.get_posts_in_feed_request, self.session_management_token, 0,
-                                      feed_algorithm_fake)
+                                     feed_algorithm_fake)
         self.assertEqual(response.status_code, SUCCESS)
 
         responses = get_response_content(response)
@@ -60,11 +58,10 @@ class GetPostsInFeedTests(PositiveOnlySocialTestCase):
     def test_last_batch_returns_good_response(self):
         # Test view make_post
         response = get_posts_in_feed(self.get_posts_in_feed_request, self.session_management_token, 2,
-                                      feed_algorithm_fake)
+                                     feed_algorithm_fake)
         self.assertEqual(response.status_code, SUCCESS)
 
         responses = get_response_content(response)
 
         # One fewer than total made because the posts won't include the user's own posts
         self.assertEqual(len(responses), 9)
-

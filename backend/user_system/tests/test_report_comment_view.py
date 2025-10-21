@@ -1,12 +1,12 @@
 from django.contrib.sessions.middleware import SessionMiddleware
 
+from .test_constants import FAIL, SUCCESS, UserFields, false, ip
 from .test_parent_case import PositiveOnlySocialTestCase
 from .test_utils import get_response_fields
+from ..classifiers import text_classifier_fake
 from ..classifiers.classifier_constants import POSITIVE_TEXT
 from ..constants import Fields, MAX_BEFORE_HIDING_COMMENT
 from ..views import report_comment, get_user_with_username, comment_on_post, login_user
-from .test_constants import FAIL, SUCCESS, UserFields, false, ip
-from ..classifiers import text_classifier_fake
 
 invalid_session_management_token = '?'
 invalid_post_identifier = '?'
@@ -64,7 +64,8 @@ class CommentOnPostTests(PositiveOnlySocialTestCase):
         self.reporter_local_password = self.other_local_passwords[2]
 
         # Login one of the users to do the reporting
-        response = login_user(self.login_user_request, self.reporter_local_username, self.reporter_local_password, false, ip)
+        response = login_user(self.login_user_request, self.reporter_local_username, self.reporter_local_password,
+                              false, ip)
         self.assertEqual(response.status_code, SUCCESS)
 
     def test_invalid_session_management_token_returns_bad_response(self):
@@ -76,25 +77,29 @@ class CommentOnPostTests(PositiveOnlySocialTestCase):
 
     def test_invalid_post_identifier_returns_bad_response(self):
         # Test view report_comment
-        response = report_comment(self.report_comment_request, self.reporter_session_management_token, invalid_post_identifier
+        response = report_comment(self.report_comment_request, self.reporter_session_management_token,
+                                  invalid_post_identifier
                                   , str(self.comment_thread_identifier), str(self.comment_identifier), self.reason)
         self.assertEqual(response.status_code, FAIL)
 
     def test_invalid_comment_thread_identifier_returns_bad_response(self):
         # Test view report_comment
-        response = report_comment(self.report_comment_request, self.reporter_session_management_token, invalid_post_identifier,
+        response = report_comment(self.report_comment_request, self.reporter_session_management_token,
+                                  invalid_post_identifier,
                                   str(self.comment_thread_identifier), str(self.comment_identifier), self.reason)
         self.assertEqual(response.status_code, FAIL)
 
     def test_invalid_comment_identifier_returns_bad_response(self):
         # Test view report_comment
-        response = report_comment(self.report_comment_request, self.reporter_session_management_token, invalid_post_identifier,
+        response = report_comment(self.report_comment_request, self.reporter_session_management_token,
+                                  invalid_post_identifier,
                                   str(self.comment_thread_identifier), str(self.comment_identifier), self.reason)
         self.assertEqual(response.status_code, FAIL)
 
     def test_invalid_reason_returns_bad_response(self):
         # Test view report_comment
-        response = report_comment(self.report_comment_request, self.reporter_session_management_token, invalid_post_identifier,
+        response = report_comment(self.report_comment_request, self.reporter_session_management_token,
+                                  invalid_post_identifier,
                                   str(self.comment_thread_identifier), str(self.comment_identifier), self.reason)
         self.assertEqual(response.status_code, FAIL)
 

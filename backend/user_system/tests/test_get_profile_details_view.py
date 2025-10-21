@@ -1,17 +1,18 @@
-from ..views import get_profile_details  # Import the view we are testing
-from ..constants import Fields
 from .test_constants import FAIL, SUCCESS, false
+from .test_parent_case import PositiveOnlySocialTestCase
 # Import the helper for parsing single JSON object responses
 from .test_utils import get_response_fields
-from .test_parent_case import PositiveOnlySocialTestCase
+from ..constants import Fields
+from ..views import get_profile_details  # Import the view we are testing
 
 # Constants from your example
 invalid_session_management_token = '?'
-invalid_username_fragment = '?' # Using as a proxy for an invalid username pattern
+invalid_username_fragment = '?'  # Using as a proxy for an invalid username pattern
 
 # New constants for this test case
-other_username = 'barbara'
-non_existent_username = 'charlie'
+other_username = 'Barbara123'
+non_existent_username = 'Charlie222'
+
 
 class GetProfileDetailsTests(PositiveOnlySocialTestCase):
 
@@ -24,7 +25,7 @@ class GetProfileDetailsTests(PositiveOnlySocialTestCase):
 
         # 2. Register a second user (the one whose profile we will view)
         self.profile_username = other_username
-        super().register_user_with_name(self.profile_username, self.users)
+        super().make_user(other_username)
 
         # 3. Create an instance of a GET request.
         self.get_profile_details_request = self.make_get_request_obj('get_profile_details', self.local_username)
@@ -53,7 +54,7 @@ class GetProfileDetailsTests(PositiveOnlySocialTestCase):
         # Tests that a user can successfully request their own profile
         response = get_profile_details(self.get_profile_details_request,
                                        self.session_management_token,
-                                       self.local_username) # Requesting user's own name
+                                       self.local_username)  # Requesting user's own name
         self.assertEqual(response.status_code, SUCCESS)
 
         # Assumes get_response_fields parses a single JSON object response
@@ -64,13 +65,13 @@ class GetProfileDetailsTests(PositiveOnlySocialTestCase):
         self.assertEqual(fields[Fields.post_count], 0)
         self.assertEqual(fields[Fields.follower_count], 0)
         self.assertEqual(fields[Fields.following_count], 0)
-        self.assertEqual(fields[Fields.is_following], False) # Can't follow self
+        self.assertEqual(fields[Fields.is_following], False)  # Can't follow self
 
     def test_valid_request_for_other_user_returns_correct_default_details(self):
         # This is the main "happy path" test for default values.
         response = get_profile_details(self.get_profile_details_request,
                                        self.session_management_token,
-                                       self.profile_username) # Other user's name
+                                       self.profile_username)  # Other user's name
         self.assertEqual(response.status_code, SUCCESS)
 
         fields = get_response_fields(response)
@@ -80,4 +81,4 @@ class GetProfileDetailsTests(PositiveOnlySocialTestCase):
         self.assertEqual(fields[Fields.post_count], 0)
         self.assertEqual(fields[Fields.follower_count], 0)
         self.assertEqual(fields[Fields.following_count], 0)
-        self.assertEqual(fields[Fields.is_following], False) # Not followed yet
+        self.assertEqual(fields[Fields.is_following], False)  # Not followed yet

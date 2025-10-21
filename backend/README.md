@@ -12,7 +12,7 @@ Python using the Django framework.
 You will need to run the following command
 
 ```shell
-pip install django
+pip install django pytest
 ```
 
 ## Migrations 
