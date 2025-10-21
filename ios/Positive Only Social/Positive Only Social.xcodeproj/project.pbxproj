@@ -47,6 +47,7 @@
 				HomeView.swift,
 				LoginView.swift,
 				NewPostView.swift,
+				ProfileView.swift,
 				RegisterView.swift,
 				SettingsView.swift,
 			);
@@ -59,6 +60,7 @@
 				HomeView.swift,
 				LoginView.swift,
 				NewPostView.swift,
+				ProfileView.swift,
 				RegisterView.swift,
 				SettingsView.swift,
 			);

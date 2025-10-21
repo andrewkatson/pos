@@ -59,6 +59,11 @@ class Fields:
     post_likes = "post_likes"
     comment_thread_identifier = "comment_thread_identifier"
     comment_identifier = "comment_identifier"
+    username = "username"
+    post_count = "post_count"
+    following_count = "following_count"
+    follower_count = "follower_count"
+    is_following = "is_following"
 
 # Lengths of things
 LEN_LOGIN_COOKIE_TOKEN = 32

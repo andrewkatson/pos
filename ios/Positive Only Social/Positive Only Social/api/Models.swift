@@ -68,3 +68,21 @@ struct User: Codable, Identifiable, Hashable {
         case identityIsVerified = "identity_is_verified"
     }
 }
+
+// Represents another user's profile
+struct ProfileDetailsResponse: Codable, Identifiable, Hashable {
+    var id: String { username }
+    let username: String
+    let postCount: Int
+    let followerCount: Int
+    let followingCount: Int
+    let isFollowing: Bool
+
+    enum CodingKeys: String, CodingKey {
+        case username
+        case postCount = "post_count"
+        case followerCount = "follower_count"
+        case followingCount = "following_count"
+        case isFollowing = "is_following"
+    }
+}

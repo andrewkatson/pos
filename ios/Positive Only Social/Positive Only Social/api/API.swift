@@ -40,6 +40,12 @@ protocol APIProtocol {
     /// Deletes the user account.
     func deleteUser(sessionManagementToken: String) async throws -> Data
     
+    /// Follow a user
+    func followUser(sessionManagementToken: String, username: String) async throws -> Data
+    
+    /// Unfollow a user
+    func unfollowUser(sessionManagementToken: String, username: String) async throws -> Data
+    
     // MARK: - Post Management
 
     /// Creates and stores a new post.
@@ -97,4 +103,7 @@ protocol APIProtocol {
 
     /// Gets users with a username matching the provided fragment.
     func getUsersMatchingFragment(sessionManagementToken: String, usernameFragment: String) async throws -> Data
+    
+    /// Gets the details of a profile
+    func getProfileDetails(sessionManagementToken: String, username: String) async throws -> Data
 }

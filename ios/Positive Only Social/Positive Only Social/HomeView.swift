@@ -7,8 +7,6 @@
 
 import SwiftUI
 
-import SwiftUI
-
 struct HomeView: View {
     
     let api: APIProtocol
@@ -26,7 +24,7 @@ struct HomeView: View {
     var body: some View {
             TabView {
                 // Tab 1: User's personal post grid
-                MyPostsGridView()
+                MyPostsGridView(api: api)
                     .tabItem {
                         Label("Home", systemImage: "house.fill")
                     }
@@ -55,6 +53,7 @@ struct HomeView: View {
 
 // This sub-view contains the user's post grid and search logic
 struct MyPostsGridView: View {
+    let api: APIProtocol
     @EnvironmentObject private var viewModel: HomeViewModel
     @Environment(\.isSearching) private var isSearching
 
@@ -102,6 +101,9 @@ struct MyPostsGridView: View {
                         viewModel.fetchMyPosts()
                     }
                 }
+                .navigationDestination(for: User.self) { user in
+                    ProfileView(user: user, api: api)
+                }
             }
         }
     }
@@ -113,17 +115,19 @@ struct UserSearchResultsView: View {
 
     var body: some View {
         List(viewModel.searchedUsers) { user in
-            HStack(spacing: 15) {
-                Image(systemName: "person.circle.fill")
-                    .font(.largeTitle)
-                    .foregroundColor(.gray)
-                
-                Text(user.username)
-                    .fontWeight(.bold)
-                
-                if user.identityIsVerified {
-                    Image(systemName: "checkmark.seal.fill")
-                        .foregroundColor(.blue)
+            NavigationLink(value: user) {
+                HStack(spacing: 15) {
+                    Image(systemName: "person.circle.fill")
+                        .font(.largeTitle)
+                        .foregroundColor(.gray)
+
+                    Text(user.username)
+                        .fontWeight(.bold)
+
+                    if user.identityIsVerified {
+                        Image(systemName: "checkmark.seal.fill")
+                            .foregroundColor(.blue)
+                    }
                 }
             }
         }

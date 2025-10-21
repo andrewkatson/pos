@@ -43,7 +43,7 @@ urlpatterns = [
     path('get_posts_in_feed/<str:session_management_token>/<int:batch>', views.get_posts_in_feed,
          name='get_posts_in_feed'),
     # Get posts for another user
-    path('get_posts_for_user/<str:session_management_token>/<str:username>/<int:batch>', views.get_posts_for_user),
+    path('get_posts_for_user/<str:session_management_token>/<str:username>/<int:batch>', views.get_posts_for_user, name='get_posts_for_user'),
     # Gets posts for the user's "Following" feed
     path('get_followed_posts/<str:session_management_token>/<int:batch>',
          views.get_posts_for_followed_users,
@@ -88,4 +88,7 @@ urlpatterns = [
 
     path('unfollow/<str:session_management_token>/<str:username_to_unfollow>',
          views.unfollow_user, name='unfollow_user'),
+    # Get the details of a user
+    path('get_profile_details/<str:session_management_token>/<str:username>',
+         views.get_profile_details, name='get_profile_details'),
 ]

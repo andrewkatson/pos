@@ -120,10 +120,20 @@ final class RealAPI: APIProtocol {
     func logoutUser(sessionManagementToken: String) async throws -> Data {
         return try await performRequest(pathSegments: ["logout_user", sessionManagementToken])
     }
-
+    
     /// Deletes the user account.
     func deleteUser(sessionManagementToken: String) async throws -> Data {
         return try await performRequest(pathSegments: ["delete_user", sessionManagementToken])
+    }
+    
+    /// Follow a user
+    func followUser(sessionManagementToken: String, username: String) async throws -> Data {
+        return try await performRequest(pathSegments: ["follow_user", sessionManagementToken, username])
+    }
+
+    /// Unfollow a user
+    func unfollowUser(sessionManagementToken: String, username: String) async throws -> Data {
+        return try await performRequest(pathSegments: ["unfollow_user", sessionManagementToken, username])
     }
 
     // MARK: - Post Management
@@ -215,5 +225,10 @@ final class RealAPI: APIProtocol {
     /// Gets users with a username matching the provided fragment.
     func getUsersMatchingFragment(sessionManagementToken: String, usernameFragment: String) async throws -> Data {
         return try await performRequest(pathSegments: ["get_users_matching_fragment", sessionManagementToken, usernameFragment])
+    }
+    
+    /// Gets the profile details for a user
+    func getProfileDetails(sessionManagementToken: String, username: String) async throws -> Data {
+        return try await performRequest(pathSegments: ["get_profile_details", sessionManagementToken, username])
     }
 }

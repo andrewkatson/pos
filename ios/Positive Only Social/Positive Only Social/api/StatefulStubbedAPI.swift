@@ -12,6 +12,11 @@ fileprivate struct MockUser {
     var identityIsVerified: Bool = false
 }
 
+fileprivate struct MockUserFollow {
+    let userFromId: UUID
+    let userToId: UUID
+}
+
 fileprivate struct MockSession {
     let managementToken: String
     let userId: UUID
@@ -70,6 +75,7 @@ final class StatefulStubbedAPI: APIProtocol {
     private var posts: [MockPost] = []
     private var commentThreads: [MockCommentThread] = []
     private var comments: [MockComment] = []
+    private var userFollows: [MockUserFollow] = []
 
     // MARK: - Configuration
     public var simulatedLatency: TimeInterval = 0.1
@@ -88,6 +94,9 @@ final class StatefulStubbedAPI: APIProtocol {
     private func findPost(byIdentifier id: String) -> MockPost? { posts.first { $0.postIdentifier == id } }
     private func findCommentThread(byIdentifier id: String) -> MockCommentThread? { commentThreads.first { $0.commentThreadIdentifier == id } }
     private func findComment(byIdentifier id: String) -> MockComment? { comments.first { $0.commentIdentifier == id } }
+    private func isUserFollowing(from: UUID, to: UUID) -> Bool {
+            userFollows.contains { $0.userFromId == from && $0.userToId == to }
+    }
 
     // MARK: - Private Helpers
     private func createSerializedResponse<T: Codable>(fields: T) throws -> Data {
@@ -430,6 +439,99 @@ final class StatefulStubbedAPI: APIProtocol {
         struct Fields: Codable { let username: String; let identity_is_verified: Bool }
         let fieldObjects = matchingUsers.map { Fields(username: $0.username, identity_is_verified: $0.identityIsVerified) }
         return try createSerializedListResponse(fieldsList: fieldObjects)
+    }
+    
+    // --- NEWLY ADDED ---
+    func followUser(sessionManagementToken: String, username: String) async throws -> Data {
+        await simulateNetwork()
+        guard let currentUser = findUser(bySessionToken: sessionManagementToken) else {
+            throw APIError.badServerResponse(statusCode: 400)
+        }
+        guard let userToFollow = findUser(byUsername: username) else {
+            throw APIError.badServerResponse(statusCode: 400)
+        }
+        
+        if currentUser.id == userToFollow.id {
+            throw APIError.badServerResponse(statusCode: 400) // Can't follow self
+        }
+        
+        if isUserFollowing(from: currentUser.id, to: userToFollow.id) {
+            throw APIError.badServerResponse(statusCode: 400) // Already following
+        }
+        
+        let newFollow = MockUserFollow(userFromId: currentUser.id, userToId: userToFollow.id)
+        userFollows.append(newFollow)
+        
+        return try createEmptySuccessResponse()
+    }
+        
+    // --- NEWLY ADDED ---
+    func unfollowUser(sessionManagementToken: String, username: String) async throws -> Data {
+        await simulateNetwork()
+        guard let currentUser = findUser(bySessionToken: sessionManagementToken) else {
+            throw APIError.badServerResponse(statusCode: 400)
+        }
+        guard let userToUnfollow = findUser(byUsername: username) else {
+            throw APIError.badServerResponse(statusCode: 400)
+        }
+        
+        guard let followIndex = userFollows.firstIndex(where: {
+            $0.userFromId == currentUser.id && $0.userToId == userToUnfollow.id
+        }) else {
+            throw APIError.badServerResponse(statusCode: 400) // Not following
+        }
+        
+        userFollows.remove(at: followIndex)
+        
+        return try createEmptySuccessResponse()
+    }
+
+    func getProfileDetails(sessionManagementToken: String, username: String) async throws -> Data {
+        await simulateNetwork()
+
+        // 1. Get the user making the request
+        guard let requestingUser = findUser(bySessionToken: sessionManagementToken) else {
+            throw APIError.badServerResponse(statusCode: 401) // Unauthorized
+        }
+        
+        // 2. Get the user whose profile is being viewed
+        guard let profileUser = findUser(byUsername: username) else {
+            throw APIError.badServerResponse(statusCode: 404) // Not Found
+        }
+
+        // 3. Calculate all statistics
+        
+        // Count posts where the authorId matches the profile user
+        let postCount = posts.filter { $0.authorId == profileUser.id }.count
+        
+        // Count follows where 'userToId' matches the profile user
+        let followerCount = userFollows.filter { $0.userToId == profileUser.id }.count
+        
+        // Count follows where 'userFromId' matches the profile user
+        let followingCount = userFollows.filter { $0.userFromId == profileUser.id }.count
+        
+        // 4. Check if the requesting user is following the profile user
+        let isFollowing = isUserFollowing(from: requestingUser.id, to: profileUser.id)
+
+        // 5. Build the response data (matching the Swift struct)
+        struct Fields: Codable {
+            let username: String
+            let postCount: Int
+            let followerCount: Int
+            let followingCount: Int
+            let isFollowing: Bool
+        }
+        
+        let fields = Fields(
+            username: profileUser.username,
+            postCount: postCount,
+            followerCount: followerCount,
+            followingCount: followingCount,
+            isFollowing: isFollowing
+        )
+
+        // 6. Return the data using your existing helper
+        return try createSerializedResponse(fields: fields)
     }
 }
 

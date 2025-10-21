@@ -1121,3 +1121,53 @@ def unfollow_user(request, session_management_token, username_to_unfollow):
 
     current_user.following.remove(user_to_unfollow)
     return JsonResponse({})
+
+@login_required
+def get_profile_details(request, session_management_token, username):
+    # --- Input Validation ---
+    invalid_fields = []
+    if not is_valid_pattern(session_management_token, Patterns.alphanumeric):
+        invalid_fields.append(Params.session_management_token)
+    if not is_valid_pattern(username, Patterns.alphanumeric_with_special_chars):
+        invalid_fields.append(Params.username)
+    if len(invalid_fields) > 0:
+        return HttpResponseBadRequest(f"Invalid fields: {invalid_fields}")
+
+    # --- Core Logic ---
+    # 1. Get the user making the request
+    requesting_user = get_user_with_session_management_token(session_management_token)
+    if not requesting_user:
+        return HttpResponseBadRequest("Invalid session token")
+
+    # 2. Get the user whose profile is being viewed
+    profile_user = get_user_with_username(username)
+    if not profile_user:
+        return HttpResponseBadRequest("User not found")
+
+    # 3. Calculate all statistics
+
+    # Use the related_name 'post_set' from the Post model's 'author' ForeignKey
+    post_count = profile_user.post_set.count()
+
+    # Use related_name 'followers_set' from UserFollow's 'user_to' field
+    follower_count = profile_user.followers_set.count()
+
+    # Use related_name 'following_set' from UserFollow's 'user_from' field
+    following_count = profile_user.following_set.count()
+
+    # 4. Check if the requesting_user is in the profile_user's set of followers
+    # We can do this by checking if a UserFollow relationship exists
+    is_following = profile_user.followers_set.filter(
+        user_from=requesting_user
+    ).exists()
+
+    # 5. Build the response data (matching the Swift struct)
+    data = {
+        "username": profile_user.username,
+        "postCount": post_count,
+        "followerCount": follower_count,
+        "followingCount": following_count,
+        "isFollowing": is_following
+    }
+
+    return JsonResponse(data)
