@@ -34,7 +34,7 @@ enum APIError: Error, LocalizedError {
 final class RealAPI: APIProtocol {
 
     /// The base URL for all API endpoints. Remember to replace this with your actual server address.
-    private let baseURL = "https://your.api.backend.com/"
+    private let baseURL = "https://smiling.social/"
 
     // MARK: - Private Helper
     

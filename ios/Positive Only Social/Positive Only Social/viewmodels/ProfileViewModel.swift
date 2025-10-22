@@ -75,7 +75,9 @@ class ProfileViewModel: ObservableObject {
         
         Task {
             do {
-                let responseData = try await api.getProfileDetails(username: user.username)
+                let token = try KeychainHelper.shared.load(String.self, from: "positive-only-social.Positive-Only-Social", account: "userSessionToken") ?? ""
+
+                let responseData = try await api.getProfileDetails(sessionManagementToken: token, username: user.username)
                 
                 let wrapper = try JSONDecoder().decode(APIWrapperResponse.self, from: responseData)
                 guard let innerData = wrapper.responseList.data(using: .utf8) else { return }
