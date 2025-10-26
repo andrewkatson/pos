@@ -49,7 +49,10 @@
 				NewPostView.swift,
 				ProfileView.swift,
 				RegisterView.swift,
+				RequestResetView.swift,
+				ResetPasswordView.swift,
 				SettingsView.swift,
+				VerifyResetView.swift,
 			);
 			target = 248836DF2E6282C5002D47F1 /* Positive Only SocialTests */;
 		};
@@ -62,7 +65,10 @@
 				NewPostView.swift,
 				ProfileView.swift,
 				RegisterView.swift,
+				RequestResetView.swift,
+				ResetPasswordView.swift,
 				SettingsView.swift,
+				VerifyResetView.swift,
 			);
 			target = 248836E92E6282C5002D47F1 /* Positive Only SocialUITests */;
 		};
