@@ -1,8 +1,8 @@
-from .test_constants import FAIL, SUCCESS
+from django.urls import reverse
 from .test_parent_case import PositiveOnlySocialTestCase
-from ..constants import Fields
-from ..views import unfollow_user, follow_user, get_user_with_username
+from ..models import PositiveOnlySocialUser
 
+# --- Constants ---
 invalid_session_management_token = '?'
 non_existent_username = 'iamnotauser'
 
@@ -11,60 +11,91 @@ class UnfollowUserTests(PositiveOnlySocialTestCase):
 
     def setUp(self):
         super().setUp()
-        # Set up the primary user who will do the following.
-        self.main_username = 'MainUser12'
-        main_user_login_fields, main_user_registration_fields = self.make_user_and_login(self.main_username)
-        self.main_session_management_token = main_user_login_fields[Fields.session_management_token]
 
-        # Create a second user to be the target of the follow action.
-        self.other_user_username = "OtherUser23"
-        other_user_registration_fields = self.make_user(self.other_user_username)
+        # 1. Set up User A (the follower)
+        # This helper creates a user and sets self.local_username/self.session_management_token
+        self.register_user_and_setup_local_fields()
+        self.user_a_username = self.local_username
+        self.user_a_token = self.session_management_token
+        self.user_a_header = {'HTTP_AUTHORIZATION': f'Bearer {self.user_a_token}'}
+        self.user_a = PositiveOnlySocialUser.objects.get(username=self.user_a_username)
 
-        # Create a request object for the follow view.
-        self.follow_request = self.make_get_request_obj('follow_user', self.main_username)
+        # 2. Set up User B (the one to be followed)
+        self.user_b_username = "OtherUser23"
+        self.make_user(self.user_b_username)  # This just creates them in the DB
+        self.user_b = PositiveOnlySocialUser.objects.get(username=self.user_b_username)
 
-        # Follow the user
-        response = follow_user(self.follow_request, self.main_session_management_token, self.other_user_username)
-        self.assertEqual(response.status_code, SUCCESS)
+        # 3. User A must follow User B. Call the 'follow_user' endpoint.
+        follow_url = reverse('follow_user', kwargs={'username_to_follow': self.user_b_username})
+        response = self.client.post(follow_url, **self.user_a_header)
 
-        user = get_user_with_username(self.main_username)
-        self.assertEqual(user.following.count(), 1)
-        self.assertEqual(user.following.first().username, self.other_user_username)
+        # Verify the follow was successful before testing unfollow
+        self.assertEqual(response.status_code, 200)
+        self.user_a.refresh_from_db()
+        self.assertEqual(self.user_a.following.count(), 1)
+        self.assertEqual(self.user_a.following.first(), self.user_b)
 
-        # Create a request object for the unfollow view.
-        self.unfollow_request = self.make_get_request_obj('unfollow_user', self.main_username)
+        # 4. Define the URL for the unfollow action
+        self.unfollow_url = reverse('unfollow_user', kwargs={'username_to_unfollow': self.user_b_username})
 
     def test_unfollow_user_success(self):
+        """
+        Tests that a valid, authenticated POST request successfully unfollows a user.
+        """
+        # Verify they are following before the test
+        self.assertEqual(self.user_a.following.count(), 1)
+
         # Now, unfollow them.
-        response = unfollow_user(self.unfollow_request, self.main_session_management_token, self.other_user_username)
-        self.assertEqual(response.status_code, SUCCESS)
+        response = self.client.post(self.unfollow_url, **self.user_a_header)
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json(), {'message': 'User unfollowed'})
 
         # The following count should be back to 0.
-        user = get_user_with_username(self.main_username)
-        self.assertEqual(user.following.count(), 0)
+        self.user_a.refresh_from_db()
+        self.assertEqual(self.user_a.following.count(), 0)
 
     def test_unfollow_user_invalid_token_fails(self):
-        response = unfollow_user(self.unfollow_request, invalid_session_management_token, self.other_user_username)
-        self.assertEqual(response.status_code, FAIL)
+        """
+        Tests that the @api_login_required decorator rejects an invalid token.
+        """
+        invalid_header = {'HTTP_AUTHORIZATION': f'Bearer {invalid_session_management_token}'}
+
+        response = self.client.post(self.unfollow_url, **invalid_header)
+
+        self.assertEqual(response.status_code, 401)  # 401 Unauthorized
 
     def test_unfollow_non_existent_user_fails(self):
-        response = unfollow_user(self.unfollow_request, self.main_session_management_token, non_existent_username)
-        self.assertEqual(response.status_code, FAIL)
+        """
+        Tests that attempting to unfollow a user that does not exist fails.
+        """
+        invalid_url = reverse('unfollow_user', kwargs={'username_to_unfollow': non_existent_username})
+
+        response = self.client.post(invalid_url, **self.user_a_header)
+
+        self.assertEqual(response.status_code, 404)
+        self.assertEqual(response.json(), {'error': 'User does not exist'})
 
     def test_unfollow_user_not_following_fails(self):
-        # Make sure they are really not following anyone.
-        response = unfollow_user(self.unfollow_request, self.main_session_management_token, self.other_user_username)
-        self.assertEqual(response.status_code, SUCCESS)
+        """
+        Tests that attempting to unfollow a user you are not
+        already following fails.
+        """
+        # 1. First, unfollow them (this should succeed)
+        response = self.client.post(self.unfollow_url, **self.user_a_header)
+        self.assertEqual(response.status_code, 200)
 
-        # The user is not following anyone.
-        user = get_user_with_username(self.main_username)
-        self.assertEqual(user.following.count(), 0)
+        # 2. Verify the user is not following anyone.
+        self.user_a.refresh_from_db()
+        self.assertEqual(self.user_a.following.count(), 0)
 
-        # Attempt to unfollow the other user.
-        response = unfollow_user(self.unfollow_request, self.main_session_management_token, self.other_user_username)
+        # 3. Attempt to unfollow the other user *again*.
+        response = self.client.post(self.unfollow_url, **self.user_a_header)
 
-        self.assertEqual(response.status_code, FAIL)
+        # 4. This should fail with a 400
+        self.assertEqual(response.status_code, 404)
+        self.assertEqual(response.json(), {'error': 'Not following user'})
 
-        # The following count should still be 0.
-        user = get_user_with_username(self.main_username)
-        self.assertEqual(user.following.count(), 0)
+        # 5. The following count should still be 0.
+        self.user_a.refresh_from_db()
+        self.assertEqual(self.user_a.following.count(), 0)

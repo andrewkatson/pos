@@ -52,7 +52,7 @@ class Params:
 class Fields:
     series_identifier = "series_identifier"
     login_cookie_token = "login_cookie_token"
-    session_management_token = "session_management_token"
+    session_management_token = "token"
     post_identifier = "post_identifier"
     image_url = "image_url"
     caption = "caption"
@@ -64,6 +64,19 @@ class Fields:
     following_count = "following_count"
     follower_count = "follower_count"
     is_following = "is_following"
+    author_username = "author_username"
+    email = "email"
+    password = "password"
+    remember_me = "remember_me"
+    ip = "ip"
+    username_or_email = "username_or_email"
+    reason = "reason"
+    comment_text = "comment_text"
+    body = "body"
+    creation_time = "creation_time"
+    updated_time = "updated_time"
+    comment_likes = "comment_likes"
+    identity_is_verified = "identity_is_verified"
 
 # Lengths of things
 LEN_LOGIN_COOKIE_TOKEN = 32

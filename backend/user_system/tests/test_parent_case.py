@@ -1,336 +1,364 @@
-from django.contrib.auth.models import AnonymousUser
-from django.contrib.sessions.middleware import SessionMiddleware
-from django.test import RequestFactory
-from django.test import TestCase
+from django.test import TestCase, Client
+from django.urls import reverse
 
-from .test_constants import username, email, password, SUCCESS, ip, LOGIN_USER, false, UserFields, \
-    LOGIN_USER_WITH_REMEMBER_ME
-from .test_utils import get_response_fields
-from ..classifiers import image_classifier_fake, text_classifier_fake
+# Note: test_constants are no longer used for FAIL/SUCCESS
+from .test_constants import ip, false, UserFields
+# Note: test_utils.get_response_fields is replaced by response.json()
 from ..classifiers.classifier_constants import POSITIVE_IMAGE_URL, POSITIVE_TEXT
 from ..constants import Fields
-from ..utils import convert_to_bool
-from ..views import register, login_user, make_post, get_user_with_username, comment_on_post, reply_to_comment_thread
-
+from ..models import Post, CommentThread, Comment
 
 class PositiveOnlySocialTestCase(TestCase):
+    """
+    A parent test case for the PositiveOnlySocial app that uses the
+    Django test client to make real API requests.
+    """
+
     def setUp(self):
         super().setUp()
 
-        # Every test needs access to the request factory.
-        self.factory = RequestFactory()
+        # Use the built-in Django test client
+        self.client = Client()
+
+        # A prefix for each test method to ensure unique usernames/emails
         self.prefix = self._testMethodName
-        self.user = AnonymousUser()
 
-        # Create an instance of a POST request.
-        self.register_request = self.factory.post("/user_system/register")
-
-        # Recall that middleware are not supported. You can simulate a
-        # logged-in user by setting request.user manually.
-        self.register_request.user = self.user
-
+        # A dictionary to store data for multi-user tests
         self.users = {
             UserFields.USERNAME: [],
             UserFields.EMAIL: [],
             UserFields.PASSWORD: [],
-            UserFields.SESSION_MANAGEMENT_TOKEN: [],
-            UserFields.SERIES_IDENTIFIER: [],
-            UserFields.LOGIN_COOKIE_TOKEN: [],
+            UserFields.TOKEN: [],  # Replaced session_management_token
             UserFields.POSTS: [],
         }
 
-    def tearDown(self):
-        super().tearDown()
-
-    def setup_user_in_dict(self, username, password, email, remember_me, response, user_dict):
-        fields = get_response_fields(response)
-
-        # Store the info needed to call remember me later
-        session_management_token = fields[Fields.session_management_token]
-
-        if type(remember_me) is str:
-            remember_me = convert_to_bool(remember_me)
-        if remember_me:
-            series_identifier = fields[Fields.series_identifier]
-            login_cookie_token = fields[Fields.login_cookie_token]
-
-            series_identifiers = user_dict.get(UserFields.SERIES_IDENTIFIER, [])
-            series_identifiers.append(series_identifier)
-
-            login_cookies = user_dict.get(UserFields.LOGIN_COOKIE_TOKEN, [])
-            login_cookies.append(login_cookie_token)
-
-        usernames = user_dict.get(UserFields.USERNAME, [])
-        usernames.append(username)
-
-        emails = user_dict.get(UserFields.EMAIL, [])
-        emails.append(email)
-
-        passwords = user_dict.get(UserFields.PASSWORD, [])
-        passwords.append(password)
-
-        session_management_tokens = user_dict.get(UserFields.SESSION_MANAGEMENT_TOKEN, [])
-        session_management_tokens.append(session_management_token)
-
-    def register_user_with_name(self, name, user_dict, remember_me=False):
-        local_username = f'{name}_{username}_{self.prefix}'
-        local_password = f'{name}_{password}_{self.prefix}'
-        local_email = (f'{name}_{email}_{self.prefix}@email.com')
-
-        # For this one we want to register a user with the info needed
-        # to login later. All tests start with remember_me turned off on purpose.
-        response = register(self.register_request, local_username, local_email, local_password, remember_me, ip)
-        self.assertEqual(response.status_code, SUCCESS)
-
-        self.setup_user_in_dict(local_username, local_password, local_email, remember_me, response, user_dict)
-
-    def register_user(self, remember_me, num_user, user_dict):
-        local_username = f'{num_user}_{username}_{self.prefix}'
-        local_password = f'{num_user}_{password}_{self.prefix}'
-        local_email = (f'{num_user}_{email}_{self.prefix}@email.com')
-
-        # For this one we want to register a user with the info needed
-        # to login later. All tests start with remember_me turned off on purpose.
-        response = register(self.register_request, local_username, local_email, local_password, remember_me, ip)
-        self.assertEqual(response.status_code, SUCCESS)
-
-        self.setup_user_in_dict(local_username, local_password, local_email, remember_me, response, user_dict)
-
-    def setup_local_values(self, remember_me):
-        self.local_username = self.users.get(UserFields.USERNAME, [])[0]
-        self.local_password = self.users.get(UserFields.PASSWORD, [])[0]
-        self.local_email = self.users.get(UserFields.EMAIL, [])[0]
-        self.session_management_token = self.users.get(UserFields.SESSION_MANAGEMENT_TOKEN, [])[0]
-
-        if convert_to_bool(remember_me):
-            self.series_identifier = self.users.get(UserFields.SERIES_IDENTIFIER, [])[0]
-            self.login_cookie_token = self.users.get(UserFields.LOGIN_COOKIE_TOKEN, [])[0]
-
-    def login_user_setup(self, remember_me, type_of_login=LOGIN_USER):
-        self.register_user(remember_me, 0, self.users)
-
-        # Create an instance of a POST request.
-        self.login_user_request = self.factory.post(f"/user_system/{type_of_login}")
-
-        # Also add a session
-        middleware = SessionMiddleware(lambda req: None)
-        middleware.process_request(self.login_user_request)
-        self.login_user_request.session.save()
-
-        self.setup_local_values(remember_me)
-
-    def login_user(self, remember_me):
-        self.login_user_setup(remember_me)
-
-        # Need to log the user in
-        response = login_user(self.login_user_request, self.local_username, self.local_password, false, ip)
-        self.assertEqual(response.status_code, SUCCESS)
-
-    def make_post_and_login_user(self):
-        self.login_user(false)
-
-        return self.make_post(self.local_username, self.session_management_token)
-
-    def make_post(self, username, session_management_token):
-        self.make_post_request = self.make_post_request_obj('make_post', username)
-
-        # Need to make a post
-        response = make_post(self.make_post_request, session_management_token, POSITIVE_IMAGE_URL, POSITIVE_TEXT,
-                             image_classifier_fake, text_classifier_fake)
-        self.assertEqual(response.status_code, SUCCESS)
-
-        user = get_user_with_username(username)
-
-        post = user.post_set.first()
-        return post, post.post_identifier
-
-    def make_post_with_users(self, num=1):
-        self.post, self.post_identifier = self.make_post_and_login_user()
-
-        for i in range(num):
-            # We don't need to re-register the first user.
-            if i == 0:
-                continue
-            self.register_user(false, i, self.users)
-
-        # Store some basic info used in these tests
-        self.image_url = f'{self.prefix}.png'
-        self.caption = f'This is my caption :P'
-
-    def make_many_posts(self, num=1):
-        for i in range(num):
-            self.register_user(false, i, self.users)
-
-            user_to_make_post = self.users.get(UserFields.USERNAME, [])[i]
-            session_management_token = self.users.get(UserFields.SESSION_MANAGEMENT_TOKEN, [])[i]
-            post, _ = self.make_post(user_to_make_post, session_management_token)
-            self.users[UserFields.POSTS].append(post)
-
-    def make_many_comments(self, num=1):
-
+        # --- Placeholders for common test values ---
+        self.local_username = None
+        self.local_password = None
+        self.local_email = None
+        self.session_management_token = None
         self.post_identifier = None
         self.post = None
+        self.comment_thread_identifier = None
+        self.comment_thread = None
+        self.comment_identifier = None
+        self.comment = None
+        self.commenter_session_management_token = None
+        self.commenter_local_username = None
+
+    # =========================================================================
+    # INTERNAL ("Private") CORE HELPERS
+    # =========================================================================
+
+    def _get_unique_username(self, name_base):
+        """Creates a unique username for a test."""
+        return f'{name_base}_{self.prefix}'
+
+    def _store_user_in_dict(self, username, password, email, response_data):
+        """Helper to populate self.users dict."""
+        token = response_data.get(Fields.session_management_token)
+
+        self.users[UserFields.USERNAME].append(username)
+        self.users[UserFields.EMAIL].append(email)
+        self.users[UserFields.PASSWORD].append(password)
+        self.users[UserFields.TOKEN].append(token)
+
+    def _register_user(self, username, email, password, remember_me=false):
+        """
+        Calls the 'register' endpoint and returns the parsed JSON response.
+        Asserts that the registration was successful (201 Created).
+        """
+        url = reverse('register')
+        data = {
+            'username': username,
+            'email': email,
+            'password': password,
+            'remember_me': remember_me,
+            'ip': ip
+        }
+        response = self.client.post(url, data=data, content_type='application/json')
+
+        # 201 Created is the standard for successful creation
+        self.assertEqual(response.status_code, 201)
+
+        response_data = response.json()
+        self._store_user_in_dict(username, password, email, response_data)
+        return response_data
+
+    def _login_user(self, username, password, remember_me=false):
+        """
+        Calls the 'login_user' endpoint and returns the parsed JSON response.
+        Asserts that the login was successful (200 OK).
+        """
+        url = reverse('login_user')
+        data = {
+            'username_or_email': username,
+            'password': password,
+            'remember_me': remember_me,
+            'ip': ip
+        }
+        response = self.client.post(url, data=data, content_type='application/json')
+        self.assertEqual(response.status_code, 200)
+        return response.json()
+
+    def _make_post(self, token, image_url=POSITIVE_IMAGE_URL, caption=POSITIVE_TEXT):
+        """
+        Calls the 'make_post' endpoint with a valid auth token.
+        Returns the parsed JSON response. Asserts 201 Created.
+        NOTE: The calling test MUST patch the image/text classifiers.
+        """
+        url = reverse('make_post')
+        header = {'HTTP_AUTHORIZATION': f'Bearer {token}'}
+        data = {'image_url': image_url, 'caption': caption}
+
+        response = self.client.post(url, data=data, content_type='application/json', **header)
+
+        self.assertEqual(response.status_code, 201)
+        return response.json()
+
+    def _comment_on_post(self, token, post_id, comment_text=POSITIVE_TEXT):
+        """
+        Calls the 'comment_on_post' endpoint with a valid auth token.
+        Returns the parsed JSON response. Asserts 201 Created.
+        NOTE: The calling test MUST patch the text classifier.
+        """
+        url = reverse('comment_on_post', kwargs={'post_identifier': str(post_id)})
+        header = {'HTTP_AUTHORIZATION': f'Bearer {token}'}
+        data = {'comment_text': comment_text}
+
+        response = self.client.post(url, data=data, content_type='application/json', **header)
+
+        self.assertEqual(response.status_code, 201)
+        return response.json()
+
+    def _reply_to_comment_thread(self, token, post_id, thread_id, comment_text=POSITIVE_TEXT):
+        """
+        Calls the 'reply_to_comment_thread' endpoint with a valid auth token.
+        Returns the parsed JSON response. Asserts 201 Created.
+        NOTE: The calling test MUST patch the text classifier.
+        """
+        url = reverse('reply_to_comment_thread', kwargs={
+            'post_identifier': str(post_id),
+            'comment_thread_identifier': str(thread_id)
+        })
+        header = {'HTTP_AUTHORIZATION': f'Bearer {token}'}
+        data = {'comment_text': comment_text}
+
+        response = self.client.post(url, data=data, content_type='application/json', **header)
+
+        self.assertEqual(response.status_code, 201)
+        return response.json()
+
+    def _setup_local_user(self, index=0):
+        """
+        Populates self.local_... attributes from the user at the given
+        index in self.users.
+        """
+        self.local_username = self.users[UserFields.USERNAME][index]
+        self.local_password = self.users[UserFields.PASSWORD][index]
+        self.local_email = self.users[UserFields.EMAIL][index]
+        self.session_management_token = self.users[UserFields.TOKEN][index]
+
+    # =========================================================================
+    # HIGH-LEVEL "PUBLIC" HELPERS FOR TESTS
+    # =========================================================================
+
+    def make_user(self, local_username, local_password=None, remember_me=false):
+        """
+        Registers a new user and returns the API response.
+        This is a simple, high-level wrapper around _register_user.
+        """
+        local_email = f'{local_username}_email@email.com'
+        if not local_password:
+            local_password = f'{local_username}_Password123!'
+
+        return self._register_user(local_username, local_email, local_password, remember_me)
+
+    def make_user_with_prefix(self, prefix=''):
+        """
+        Creates and "logs in" a new, unique user (User B).
+        Returns their username and token.
+        """
+        username = self._get_unique_username(f"{prefix}_other_user")
+        password = "OtherPassword123$"
+        email = f"{username}@email.com"
+
+        data = self._register_user(username, email, password)
+        return {
+            'username': username,
+            'password': password,
+            'email': email,
+            'token': data[Fields.session_management_token]
+        }
+
+    def register_user_and_setup_local_fields(self, index=0, remember_me=false):
+        """
+        The main setup helper for single-user tests.
+        Creates one user, registers them, and populates all
+        self.local_... attributes (username, token, etc.).
+        """
+        username = self._get_unique_username(f'testuser_{remember_me}')
+        password = f'Password_{self.prefix}123!'
+        email = f'{username}@email.com'
+
+        register_fields = self._register_user(username, email, password, remember_me)
+
+        if remember_me:
+            self.series_identifier = register_fields[Fields.series_identifier]
+            self.login_cookie_token = register_fields[Fields.login_cookie_token]
+
+        self._setup_local_user(index)
+
+    def register_and_login_user(self, prefix=''):
+        """
+        Registers a user and logs them in. Populates all self.local_... attributes.
+        Args:
+            prefix: The username prefix
+
+        Returns:
+            dictionary of values related to registering
+        """
+
+        register_fields = self.make_user_with_prefix(prefix=prefix)
+
+        self._login_user(register_fields[Fields.username], register_fields[Fields.password])
+
+        return register_fields
+
+    def make_post_and_login_user(self):
+        """
+        Logs in one user, has them create one post, and sets
+        self.post and self.post_identifier.
+        NOTE: The CALLING TEST must patch the classifiers.
+        """
+        self.register_user_and_setup_local_fields()
+
+        post_data = self._make_post(self.session_management_token)
+        post_id = post_data[Fields.post_identifier]
+
+        self.post_identifier = post_id
+        self.post = Post.objects.get(post_identifier=post_id)
+        return self.post, self.post_identifier
+
+    def make_post_with_users(self, num=1):
+        """
+        Creates user 0, has them make a post, then creates num-1
+        additional users.
+        NOTE: The CALLING TEST must patch the classifiers.
+        """
+        self.make_post_and_login_user()  # Creates user 0 and post
+
+        for i in range(1, num):
+            username = self._get_unique_username(f'user{i}')
+            self.make_user(username)
+
+    def make_many_posts(self, num=1):
+        """
+        Creates 'num' users and has each one create one post.
+        Populates self.users[UserFields.POSTS].
+        NOTE: The CALLING TEST must patch the classifiers.
+        """
         for i in range(num):
-            self.register_user(false, i, self.users)
-            user_to_make_comment = self.users.get(UserFields.USERNAME, [])[i]
-            session_management_token = self.users.get(UserFields.SESSION_MANAGEMENT_TOKEN, [])[i]
+            username = self._get_unique_username(f'user{i}')
+            password = f'Password_{i}_{self.prefix}!'
+            email = f'{username}@email.com'
+
+            data = self._register_user(username, email, password)
+            token = data[Fields.session_management_token]
+
+            post_data = self._make_post(token)
+            post = Post.objects.get(post_identifier=post_data[Fields.post_identifier])
+            self.users[UserFields.POSTS].append(post)
+
+        # Set up local values for the first user
+        self.register_user_and_setup_local_fields()
+
+    def make_many_comments(self, num=1):
+        """
+        Creates 'num' users. User 0 makes a post. Then all 'num' users
+        create one top-level comment thread on that post.
+        NOTE: The CALLING TEST must patch the classifiers.
+        """
+        for i in range(num):
+            username = self._get_unique_username(f'user{i}')
+            password = f'Password_{i}_{self.prefix}!'
+            email = f'{username}@email.com'
+
+            data = self._register_user(username, email, password)
+            token = data[Fields.session_management_token]
+
             if i == 0:
-                self.post, self.post_identifier = self.make_post(user_to_make_comment, session_management_token)
+                post_data = self._make_post(token)
+                self.post_identifier = post_data[Fields.post_identifier]
+                self.post = Post.objects.get(post_identifier=self.post_identifier)
 
-            self.comment_on_post_request = self.make_post_request_obj('comment_on_post', user_to_make_comment)
-
-            response = comment_on_post(self.comment_on_post_request, session_management_token,
-                                       str(self.post_identifier),
-                                       POSITIVE_TEXT, text_classifier_fake)
-            self.assertEqual(response.status_code, SUCCESS)
+            self._comment_on_post(token, self.post_identifier)
 
         self.assertEqual(self.post.commentthread_set.count(), num)
+        self.register_user_and_setup_local_fields()
 
     def make_many_comments_on_thread(self, num=1):
-
-        self.comment_thread_identifier = None
-        self.post_identifier = None
+        """
+        Creates 'num' users. User 0 makes a post and one comment.
+        All other 'num-1' users reply to that one comment thread.
+        NOTE: The CALLING TEST must patch the classifiers.
+        """
         for i in range(num):
-            self.register_user(false, i, self.users)
-            user_to_make_comment = self.users.get(UserFields.USERNAME, [])[i]
-            session_management_token = self.users.get(UserFields.SESSION_MANAGEMENT_TOKEN, [])[i]
-            # The first user should make a post and comment on their own post
+            username = self._get_unique_username(f'user{i}')
+            password = f'Password_{i}_{self.prefix}!'
+            email = f'{username}@email.com'
+
+            data = self._register_user(username, email, password)
+            token = data[Fields.session_management_token]
+
             if i == 0:
-                _, self.post_identifier = self.make_post(user_to_make_comment, session_management_token)
+                post_data = self._make_post(token)
+                self.post_identifier = post_data[Fields.post_identifier]
 
-                self.comment_on_post_request = self.make_post_request_obj('comment_on_post', user_to_make_comment)
-
-                response = comment_on_post(self.comment_on_post_request, session_management_token,
-                                           str(self.post_identifier),
-                                           POSITIVE_TEXT, text_classifier_fake)
-                self.assertEqual(response.status_code, SUCCESS)
-
-                fields = get_response_fields(response)
-
-                self.comment_thread_identifier = fields[Fields.comment_thread_identifier]
+                comment_data = self._comment_on_post(token, self.post_identifier)
+                self.comment_thread_identifier = comment_data[Fields.comment_thread_identifier]
             else:
-                self.reply_to_comment_thread_request = self.make_post_request_obj('reply_to_comment_thread',
-                                                                                  user_to_make_comment)
+                self._reply_to_comment_thread(token, self.post_identifier, self.comment_thread_identifier)
 
-                response = reply_to_comment_thread(self.reply_to_comment_thread_request, session_management_token,
-                                                   str(self.post_identifier),
-                                                   str(self.comment_thread_identifier), POSITIVE_TEXT,
-                                                   text_classifier_fake)
-                self.assertEqual(response.status_code, SUCCESS)
+        self.register_user_and_setup_local_fields()
 
     def comment_on_post_with_users(self, num=3):
+        """
+        Creates 'num' users. User 0 makes a post. User 1 comments.
+        Sets up self.commenter... and self.liker... attributes.
+        NOTE: The CALLING TEST must patch the classifiers.
+        """
+        self.make_post_with_users(num)  # Creates users, user 0 makes post
 
-        # Need at least three users so that one makes the post.
-        # The other makes a comment.
-        # And a third likes, unlikes, or reports the comment.
-        self.make_post_with_users(num)
+        # User 1 is the commenter
+        self.commenter_local_username = self.users[UserFields.USERNAME][1]
+        self.commenter_session_management_token = self.users[UserFields.TOKEN][1]
 
-        other_session_management_tokens = self.users.get(UserFields.SESSION_MANAGEMENT_TOKEN, [])
-        other_local_usernames = self.users.get(UserFields.USERNAME, [])
-        other_local_passwords = self.users.get(UserFields.PASSWORD, [])
+        # User 1 posts the comment
+        comment_data = self._comment_on_post(
+            self.commenter_session_management_token,
+            self.post_identifier
+        )
 
-        self.commenter_session_management_token = other_session_management_tokens[1]
-        self.commenter_local_username = other_local_usernames[1]
-        self.commenter_local_password = other_local_passwords[1]
+        # Set all relevant attributes for tests
+        self.comment_thread_identifier = comment_data[Fields.comment_thread_identifier]
+        self.comment_identifier = comment_data[Fields.comment_identifier]
 
-        # Login one of the users to do the commenting
-        response = login_user(self.login_user_request, self.commenter_local_username, self.commenter_local_password,
-                              false, ip)
-        self.assertEqual(response.status_code, SUCCESS)
+        self.comment_thread = CommentThread.objects.get(comment_thread_identifier=self.comment_thread_identifier)
+        self.comment = Comment.objects.get(comment_identifier=self.comment_identifier)
 
-        self.comment_on_post_request = self.make_post_request_obj('comment_on_post', self.local_username)
+    def make_user_with_posts(self, num_posts=1):
+        """
+        Creates 'num' users. User 0 makes num_posts number of posts.
+        Args:
+            num_posts: The number of posts to make for User 0.
 
-        # Use comment_on_post
-        response = comment_on_post(self.comment_on_post_request, self.commenter_session_management_token,
-                                   str(self.post_identifier), POSITIVE_TEXT, text_classifier_fake)
-        self.assertEqual(response.status_code, SUCCESS)
+        Returns:
+            A dict of user fields
+        """
 
-        user = get_user_with_username(self.local_username)
-        post = user.post_set.first()
-        self.comment_thread = post.commentthread_set.first()
-        self.comment_thread_identifier = self.comment_thread.comment_thread_identifier
+        fields = self.make_user_with_prefix(prefix='poster')
 
-        self.comment = self.comment_thread.comment_set.first()
-        self.comment_identifier = self.comment.comment_identifier
-
-    def add_session_and_user_to_request(self, request, username):
-        # Recall that middleware are not supported. You can simulate a
-        # logged-in user by setting request.user manually.
-        request.user = get_user_with_username(username)
-
-        # Also add a session
-        middleware = SessionMiddleware(lambda req: None)
-        middleware.process_request(request)
-        request.session.save()
-
-        return request
-
-    def make_post_request_obj(self, method, username):
-        # Create an instance of a POST request.
-        request = self.factory.post(f"/user_system/{method}")
-
-        return self.add_session_and_user_to_request(request, username)
-
-    def make_delete_request_obj(self, method, username):
-        # Create an instance of a POST request.
-        request = self.factory.delete(f"/user_system/{method}")
-
-        return self.add_session_and_user_to_request(request, username)
-
-    def make_get_request_obj(self, method, username):
-        # Create an instance of a POST request.
-        request = self.factory.get(f"/user_system/{method}")
-
-        return self.add_session_and_user_to_request(request, username)
-
-    def make_user(self, local_username, local_password='', remember_me=False):
-        local_email = f'{local_username}_email@email.com'
-
-        if not local_password:
-            local_password = f'{local_username}_Password$'
-
-        response = register(self.register_request, local_username, local_email, local_password, remember_me, ip)
-        self.assertEqual(response.status_code, SUCCESS)
-
-        return get_response_fields(response)
-
-    def make_user_and_login(self, local_username, remember_me=False):
-        local_password = f'{local_username}_password'
-
-        registration_fields = self.make_user(local_username, local_password, remember_me)
-
-        try:
-            remember_me = convert_to_bool(remember_me)
-        except TypeError or AttributeError:
-            pass
-
-        type_of_login = LOGIN_USER
-        if remember_me:
-            type_of_login = LOGIN_USER_WITH_REMEMBER_ME
-
-        # Create an instance of a POST request.
-        login_user_request = self.factory.post(f"/user_system/{type_of_login}")
-
-        # Also add a session
-        middleware = SessionMiddleware(lambda req: None)
-        middleware.process_request(login_user_request)
-        login_user_request.session.save()
-
-        # Need to log the user in
-        response = login_user(login_user_request, local_username, local_password, false, ip)
-        self.assertEqual(response.status_code, SUCCESS)
-
-        return get_response_fields(response), registration_fields
-
-    def make_user_with_posts(self, local_username, posts_num=2, remember_me=False):
-
-        login_fields, register_fields = self.make_user_and_login(local_username, remember_me)
-
-        session_management_token = login_fields[Fields.session_management_token]
-
-        posts = []
-        for i in range(posts_num):
-            post, _ = self.make_post(local_username, session_management_token)
-            posts.append(post)
-
-        return login_fields, register_fields, posts
+        for i in range(num_posts):
+            self._make_post(fields[Fields.session_management_token])
+        return fields

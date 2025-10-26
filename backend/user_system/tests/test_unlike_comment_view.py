@@ -1,112 +1,133 @@
-from .test_constants import ip, false, FAIL, SUCCESS, UserFields
-from .test_parent_case import PositiveOnlySocialTestCase
-from ..views import login_user, unlike_comment, get_user_with_username, like_comment
+from django.urls import reverse
 
+from .test_constants import UserFields
+from .test_parent_case import PositiveOnlySocialTestCase
+from ..models import Comment
+
+# --- Constants ---
 invalid_session_management_token = '?'
 invalid_post_identifier = '?'
 invalid_comment_identifier = '?'
 invalid_comment_thread_identifier = '?'
-
 
 class UnlikeCommentTests(PositiveOnlySocialTestCase):
 
     def setUp(self):
         super().setUp()
 
-        super().comment_on_post_with_users()
+        # 1. This helper creates User 0 (poster), User 1 (commenter),
+        #    and User 2 (liker). It also sets up self.post_identifier,
+        #    self.comment_..._identifier, and self.commenter_..._token.
+        self.comment_on_post_with_users()
 
-        other_session_management_tokens = self.users.get(UserFields.SESSION_MANAGEMENT_TOKEN, [])
-        other_local_usernames = self.users.get(UserFields.USERNAME, [])
-        other_local_passwords = self.users.get(UserFields.PASSWORD, [])
+        # 2. Get the "liker's" info (User 2)
+        self.liker_token = self.users[UserFields.TOKEN][2]
+        self.liker_header = {'HTTP_AUTHORIZATION': f'Bearer {self.liker_token}'}
+        self.commenter_header = {'HTTP_AUTHORIZATION': f'Bearer {self.commenter_session_management_token}'}
 
-        self.liker_session_management_token = other_session_management_tokens[2]
-        self.liker_local_username = other_local_usernames[2]
-        self.liker_local_password = other_local_passwords[2]
+        # 3. Call the 'like_comment' endpoint to set up the DB state
+        like_url = reverse('like_comment', kwargs={
+            'post_identifier': str(self.post_identifier),
+            'comment_thread_identifier': str(self.comment_thread_identifier),
+            'comment_identifier': str(self.comment_identifier)
+        })
+        response = self.client.post(like_url, **self.liker_header)
+        self.assertEqual(response.status_code, 200)  # Ensure setup worked
 
-        # Login one of the users to do the liking
-        response = login_user(self.login_user_request, self.liker_local_username, self.liker_local_password, false, ip)
-        self.assertEqual(response.status_code, SUCCESS)
+        # 4. Get the comment object and verify the like
+        self.comment = Comment.objects.get(comment_identifier=self.comment_identifier)
+        self.comment.refresh_from_db()
+        self.assertEqual(self.comment.commentlike_set.count(), 1)
 
-        # Create an instance of a POST request.
-        self.like_comment_request = self.make_post_request_obj('like_comment', self.local_username)
-
-        # Like the comment
-        response = like_comment(self.like_comment_request, self.liker_session_management_token,
-                                str(self.post_identifier), str(self.comment_thread_identifier),
-                                str(self.comment_identifier))
-        self.assertEqual(response.status_code, SUCCESS)
-
-        user = get_user_with_username(self.local_username)
-        post = user.post_set.first()
-        comment_thread = post.commentthread_set.first()
-        comment = comment_thread.comment_set.first()
-        self.assertEqual(comment.commentlike_set.count(), 1)
-
-        # Create an instance of a POST request.
-        self.unlike_comment_request = self.make_post_request_obj('unlike_comment', self.local_username)
+        # 5. Define the URL for all 'unlike' tests
+        self.url = reverse('unlike_comment', kwargs={
+            'post_identifier': str(self.post_identifier),
+            'comment_thread_identifier': str(self.comment_thread_identifier),
+            'comment_identifier': str(self.comment_identifier)
+        })
 
     def test_invalid_session_management_token_returns_bad_response(self):
-        # Test view unlike_comment
-        response = unlike_comment(self.unlike_comment_request, invalid_session_management_token,
-                                  str(self.post_identifier),
-                                  str(self.comment_thread_identifier), str(self.comment_identifier))
-        self.assertEqual(response.status_code, FAIL)
+        """
+        Tests that @api_login_required rejects an invalid token.
+        """
+        invalid_header = {'HTTP_AUTHORIZATION': f'Bearer {invalid_session_management_token}'}
+
+        response = self.client.post(self.url, **invalid_header)
+
+        self.assertEqual(response.status_code, 401)  # 401 Unauthorized
 
     def test_invalid_post_identifier_returns_bad_response(self):
-        # Test view unlike_comment
-        response = unlike_comment(self.unlike_comment_request, self.liker_session_management_token,
-                                  invalid_post_identifier,
-                                  str(self.comment_thread_identifier), str(self.comment_identifier))
-        self.assertEqual(response.status_code, FAIL)
+        """
+        Tests that a malformed post_identifier in the URL is rejected.
+        """
+        invalid_url = f'posts/{invalid_post_identifier}/threads/{self.comment_thread_identifier}/comments/{self.comment_identifier}/unlike/'
+
+        response = self.client.post(invalid_url, **self.liker_header)
+
+        self.assertEqual(response.status_code, 404)
 
     def test_invalid_comment_thread_identifier_returns_bad_response(self):
-        # Test view unlike_comment
-        response = unlike_comment(self.unlike_comment_request, self.liker_session_management_token,
-                                  str(self.post_identifier), invalid_comment_thread_identifier,
-                                  str(self.comment_identifier))
-        self.assertEqual(response.status_code, FAIL)
+        """
+        Tests that a malformed comment_thread_identifier in the URL is rejected.
+        """
+        invalid_url = f'posts/{self.post_identifier}/threads/{invalid_comment_thread_identifier}/comments/{self.comment_identifier}/unlike/'
+
+        response = self.client.post(invalid_url, **self.liker_header)
+
+        self.assertEqual(response.status_code, 404)
 
     def test_invalid_comment_identifier_returns_bad_response(self):
-        # Test view unlike_comment
-        response = unlike_comment(self.unlike_comment_request, self.liker_session_management_token,
-                                  str(self.post_identifier), str(self.comment_thread_identifier),
-                                  invalid_comment_identifier)
-        self.assertEqual(response.status_code, FAIL)
+        """
+        Tests that a malformed comment_identifier in the URL is rejected.
+        """
+        invalid_url = f'posts/{self.post_identifier}/threads/{self.comment_thread_identifier}/comments/{invalid_comment_identifier}/unlike/'
+
+        response = self.client.post(invalid_url, **self.liker_header)
+
+        self.assertEqual(response.status_code, 404)
 
     def test_unlike_own_comment_returns_bad_response(self):
-        # Test view unlike_comment
-        response = unlike_comment(self.unlike_comment_request, self.commenter_session_management_token,
-                                  str(self.post_identifier),
-                                  str(self.comment_thread_identifier), str(self.comment_identifier))
-        self.assertEqual(response.status_code, FAIL)
+        """
+        Tests that a user cannot unlike a comment they authored
+        (even if someone else liked it).
+        """
+        # Use the *commenter's* header (User 1)
+        response = self.client.post(self.url, **self.commenter_header)
+
+        self.assertEqual(response.status_code, 404)
+        self.assertEqual(response.json(), {'error': 'Cannot unlike own comment'})
 
     def test_unlike_comment_twice_returns_bad_response(self):
-        # Test view unlike_comment
-        response = unlike_comment(self.unlike_comment_request, self.liker_session_management_token,
-                                  str(self.post_identifier), str(self.comment_thread_identifier),
-                                  str(self.comment_identifier))
-        self.assertEqual(response.status_code, SUCCESS)
+        """
+        Tests that unliking the same comment twice fails on the second attempt.
+        """
+        # 1. First unlike (should succeed)
+        response1 = self.client.post(self.url, **self.liker_header)
+        self.assertEqual(response1.status_code, 200)
 
-        user = get_user_with_username(self.local_username)
-        post = user.post_set.first()
-        comment_thread = post.commentthread_set.first()
-        comment = comment_thread.comment_set.first()
-        self.assertEqual(comment.commentlike_set.count(), 0)
+        # 2. Check database
+        self.comment.refresh_from_db()
+        self.assertEqual(self.comment.commentlike_set.count(), 0)
 
-        response = unlike_comment(self.unlike_comment_request, self.liker_session_management_token,
-                                  str(self.post_identifier), str(self.comment_thread_identifier),
-                                  str(self.comment_identifier))
-        self.assertEqual(response.status_code, FAIL)
+        # 3. Second unlike (should fail)
+        response2 = self.client.post(self.url, **self.liker_header)
+        self.assertEqual(response2.status_code, 404)
+        self.assertEqual(response2.json(), {'error': 'Comment not liked yet'})
 
-    def test_unlike_comment_returns_good_response_and_unlikes_comment_from_user(self):
-        # Test view unlike_comment
-        response = unlike_comment(self.unlike_comment_request, self.liker_session_management_token,
-                                  str(self.post_identifier), str(self.comment_thread_identifier),
-                                  str(self.comment_identifier))
-        self.assertEqual(response.status_code, SUCCESS)
+    def test_unlike_comment_returns_good_response_and_unlikes_comment(self):
+        """
+        Tests the "happy path" for unliking a comment.
+        """
+        # 1. Check DB before (like exists from setUp)
+        self.assertEqual(self.comment.commentlike_set.count(), 1)
 
-        user = get_user_with_username(self.local_username)
-        post = user.post_set.first()
-        comment_thread = post.commentthread_set.first()
-        comment = comment_thread.comment_set.first()
-        self.assertEqual(comment.commentlike_set.count(), 0)
+        # 2. Make the request
+        response = self.client.post(self.url, **self.liker_header)
+
+        # 3. Check response
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json(), {'message': 'Comment unliked'})
+
+        # 4. Check DB after
+        self.comment.refresh_from_db()
+        self.assertEqual(self.comment.commentlike_set.count(), 0)

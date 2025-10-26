@@ -1,6 +1,8 @@
-from .test_constants import ip, false, FAIL, SUCCESS, UserFields
+from django.urls import reverse
+
+from backend.user_system.constants import Fields
 from .test_parent_case import PositiveOnlySocialTestCase
-from ..views import login_user, like_post, get_user_with_username
+from ..models import Post  # Import the Post model for assertions
 
 invalid_session_management_token = '?'
 invalid_post_identifier = '?'
@@ -11,56 +13,90 @@ class LikePostTests(PositiveOnlySocialTestCase):
     def setUp(self):
         super().setUp()
 
-        # Need two users so that one makes the post and the other likes it
+        # This helper is assumed to:
+        # 1. Create a user (the "poster"), log them in, and set self.session_management_token
+        # 2. Create a post for that user, setting self.post_identifier
+        # 3. Create a second user (the "liker") and store their data in self.users
         super().make_post_with_users(2)
 
-        other_session_management_tokens = self.users.get(UserFields.SESSION_MANAGEMENT_TOKEN, [])
-        other_local_usernames = self.users.get(UserFields.USERNAME, [])
-        other_local_passwords = self.users.get(UserFields.PASSWORD, [])
+        # 1. Set up the Post Author ("poster")
+        self.poster_token = self.session_management_token
+        self.poster_header = {'HTTP_AUTHORIZATION': f'Bearer {self.poster_token}'}
 
-        self.other_session_management_token = other_session_management_tokens[1]
-        self.other_local_username = other_local_usernames[1]
-        self.other_local_password = other_local_passwords[1]
+        # 2. Set up the user who will do the liking ("liker")
+        liker_tokens = self.users.get(Fields.session_management_token, [])
+        self.liker_token = liker_tokens[1]
+        self.liker_header = {'HTTP_AUTHORIZATION': f'Bearer {self.liker_token}'}
 
-        # Create an instance of a POST request.
-        self.like_post_request = self.make_post_request_obj('like_post', self.local_username)
+        # 3. Define the URL for all tests
+        self.url = reverse('like_post', kwargs={'post_identifier': str(self.post_identifier)})
 
-        # Login one of the users to do the liking
-        response = login_user(self.login_user_request, self.other_local_username, self.other_local_password, false, ip)
-        self.assertEqual(response.status_code, SUCCESS)
+        # 4. Get the post object for database assertions
+        self.post = Post.objects.get(post_identifier=self.post_identifier)
 
     def test_invalid_session_management_token_returns_bad_response(self):
-        # Test view like_post
-        response = like_post(self.like_post_request, invalid_session_management_token, str(self.post_identifier))
-        self.assertEqual(response.status_code, FAIL)
+        """
+        Tests that @api_login_required rejects an invalid token.
+        """
+        invalid_header = {'HTTP_AUTHORIZATION': f'Bearer {invalid_session_management_token}'}
+
+        response = self.client.post(self.url, **invalid_header)
+
+        self.assertEqual(response.status_code, 401)  # 401 Unauthorized
 
     def test_invalid_post_identifier_returns_bad_response(self):
-        # Test view like_post
-        response = like_post(self.like_post_request, self.other_session_management_token, invalid_post_identifier)
-        self.assertEqual(response.status_code, FAIL)
+        """
+        Tests that a malformed post_identifier in the URL is rejected.
+        """
+        invalid_url = f'posts/{invalid_post_identifier}/like/'
+
+        response = self.client.post(invalid_url, **self.liker_header)
+
+        self.assertEqual(response.status_code, 404)
 
     def test_like_own_post_returns_bad_response(self):
-        # Test view like_post
-        response = like_post(self.like_post_request, self.session_management_token, str(self.post_identifier))
-        self.assertEqual(response.status_code, FAIL)
+        """
+        Tests that a user cannot like their own post.
+        """
+        # Use the *poster's* header to make the request
+        response = self.client.post(self.url, **self.poster_header)
+
+        self.assertEqual(response.status_code, 400)
 
     def test_like_post_twice_returns_bad_response(self):
-        # Test view like_post
-        response = like_post(self.like_post_request, self.other_session_management_token, str(self.post_identifier))
-        self.assertEqual(response.status_code, SUCCESS)
+        """
+        Tests that liking the same post twice fails on the second attempt.
+        """
+        # 1. First like (should succeed)
+        response = self.client.post(self.url, **self.liker_header)
+        self.assertEqual(response.status_code, 200)
 
-        user = get_user_with_username(self.local_username)
-        post = user.post_set.first()
-        self.assertEqual(post.postlike_set.count(), 1)
+        # 2. Check database
+        self.post.refresh_from_db()
+        self.assertEqual(self.post.postlike_set.count(), 1)
 
-        response = like_post(self.like_post_request, self.other_session_management_token, str(self.post_identifier))
-        self.assertEqual(response.status_code, FAIL)
+        # 3. Second like (should fail)
+        response = self.client.post(self.url, **self.liker_header)
+        self.assertEqual(response.status_code, 400)
+
+        # 4. Verify database count hasn't changed
+        self.post.refresh_from_db()
+        self.assertEqual(self.post.postlike_set.count(), 1)
 
     def test_like_post_returns_good_response_and_likes_post_from_user(self):
-        # Test view like_post
-        response = like_post(self.like_post_request, self.other_session_management_token, str(self.post_identifier))
-        self.assertEqual(response.status_code, SUCCESS)
+        """
+        Tests the "happy path" for liking a post.
+        """
+        # 1. Check DB before
+        self.assertEqual(self.post.postlike_set.count(), 0)
 
-        user = get_user_with_username(self.local_username)
-        post = user.post_set.first()
-        self.assertEqual(post.postlike_set.count(), 1)
+        # 2. Make the request
+        response = self.client.post(self.url, **self.liker_header)
+
+        # 3. Check response
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json(), {'message': 'Post liked'})
+
+        # 4. Check DB after
+        self.post.refresh_from_db()
+        self.assertEqual(self.post.postlike_set.count(), 1)

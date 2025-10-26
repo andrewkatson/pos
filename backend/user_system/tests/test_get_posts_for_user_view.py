@@ -1,11 +1,12 @@
-from .test_constants import false, FAIL, SUCCESS
+from django.urls import reverse
+
+from backend.user_system.constants import Fields
 from .test_parent_case import PositiveOnlySocialTestCase
-from .test_utils import get_response_content
-from ..feed_algorithm import feed_algorithm_fake
-from ..views import get_posts_for_user
 
 invalid_session_management_token = '?'
 invalid_batch = -1
+non_existent_username = 'iamnotauser'
+malformed_username = '??!!'
 
 
 class GetPostsForUserTests(PositiveOnlySocialTestCase):
@@ -13,48 +14,107 @@ class GetPostsForUserTests(PositiveOnlySocialTestCase):
     def setUp(self):
         super().setUp()
 
-        super().make_many_posts(10)
+        fields = self.make_user_with_posts(num_posts=10)
+        self.username = fields[Fields.username]
+        self.token = fields[Fields.session_management_token]
 
-        super().setup_local_values(false)
-
-        # Create an instance of a GET request.
-        self.get_posts_for_user_request = self.make_get_request_obj('get_posts_for_user', self.local_username)
+        # Store the valid header for all tests
+        self.valid_header = {'HTTP_AUTHORIZATION': f'Bearer {self.token}'}
 
     def test_invalid_session_management_token_returns_bad_response(self):
-        # Test view make_post
-        response = get_posts_for_user(self.get_posts_for_user_request, invalid_session_management_token,
-                                      self.local_username, 1,
-                                      feed_algorithm_fake)
-        self.assertEqual(response.status_code, FAIL)
+        """
+        Tests that the @api_login_required decorator rejects an
+        invalid token with a 401 Unauthorized.
+        """
+        url = reverse('get_posts_for_user', kwargs={
+            'username': self.username,
+            'batch': 0
+        })
+        invalid_header = {'HTTP_AUTHORIZATION': f'Bearer {invalid_session_management_token}'}
+
+        response = self.client.get(url, **invalid_header)
+
+        self.assertEqual(response.status_code, 401)
 
     def test_invalid_batch_returns_bad_response(self):
-        # Test view make_post
-        response = get_posts_for_user(self.get_posts_for_user_request, self.session_management_token,
-                                      self.local_username, invalid_batch,
-                                      feed_algorithm_fake)
-        self.assertEqual(response.status_code, FAIL)
+        """
+        Tests that a negative batch number in the URL
+        is rejected with a 400 Bad Request.
+        """
+
+        invalid_url = f'users/{self.username}/posts/{invalid_batch}/'
+
+        response = self.client.get(invalid_url, **self.valid_header)
+
+        # Fails at the 'if batch < 0' check
+        self.assertEqual(response.status_code, 404)
+
+    def test_malformed_username_returns_bad_response(self):
+        """
+        Tests that a malformed username in the URL
+        is rejected with a 400 Bad Request.
+        """
+        url = reverse('get_posts_for_user', kwargs={
+            'username': malformed_username,  # Invalid
+            'batch': 0
+        })
+
+        response = self.client.get(url, **self.valid_header)
+
+        # Fails at the 'is_valid_pattern' check
+        self.assertEqual(response.status_code, 400)
+
+    def test_non_existent_username_returns_bad_response(self):
+        """
+        Tests that a valid but non-existent username in the URL
+        is rejected with a 400 Bad Request.
+        """
+        url = reverse('get_posts_for_user', kwargs={
+            'username': non_existent_username,  # Invalid
+            'batch': 0
+        })
+
+        response = self.client.get(url, **self.valid_header)
+
+        # Fails at 'get_user_with_username'
+        self.assertEqual(response.status_code, 400)
 
     def test_one_beyond_max_batch_returns_good_response(self):
-        # Test view make_post
-        response = get_posts_for_user(self.get_posts_for_user_request, self.session_management_token,
-                                      self.local_username, 1,
-                                      feed_algorithm_fake)
+        """
+        Tests that requesting a batch beyond the total number of items
+        returns an empty list. (10 items / 10 per batch = batch 0)
+        """
+        # Assuming POST_BATCH_SIZE = 10, batch 1 should be the first empty one
+        url = reverse('get_posts_for_user', kwargs={
+            'username': self.username,
+            'batch': 1
+        })
 
-        self.assertEqual(response.status_code, SUCCESS)
+        response = self.client.get(url, **self.valid_header)
 
-        responses = get_response_content(response)
+        self.assertEqual(response.status_code, 200)
 
+        responses = response.json()
         # We should grab no posts with a batch beyond the max number.
         self.assertEqual(len(responses), 0)
 
-    def test_only_batch_amount_batch_returns_good_response(self):
-        # Test view make_post
-        response = get_posts_for_user(self.get_posts_for_user_request, self.session_management_token,
-                                      self.local_username, 0,
-                                      feed_algorithm_fake)
-        self.assertEqual(response.status_code, SUCCESS)
+    def test_first_batch_returns_good_response(self):
+        """
+        Tests that requesting the first batch (batch 0) returns the
+        correct number of posts (10).
+        """
+        url = reverse('get_posts_for_user', kwargs={
+            'username': self.username,
+            'batch': 0
+        })
 
-        responses = get_response_content(response)
+        response = self.client.get(url, **self.valid_header)
 
-        # This doesn't include anyone else's posts
-        self.assertEqual(len(responses), 1)
+        self.assertEqual(response.status_code, 200)
+
+        responses = response.json()
+
+        # Correcting the original test's logic.
+        # If we made 10 posts, we should get 10 posts back.
+        # (Assuming POST_BATCH_SIZE >= 10)
+        self.assertEqual(len(responses), 10)

@@ -27,7 +27,7 @@ class PositiveOnlySocialUser(AbstractUser):
     updated_time = models.DateTimeField(auto_now=True, null=True, blank=True)
     id = models.UUIDField(default=uuid.uuid4, primary_key=True, unique=True, editable=False)
     following = models.ManyToManyField('self', through=UserFollow, through_fields=('user_from', 'user_to'),
-                                       symmetrical=False)
+                                       symmetrical=False, related_name='followers')
 
     def __str__(self):
         return self.username

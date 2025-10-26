@@ -1,132 +1,181 @@
-from django.contrib.sessions.middleware import SessionMiddleware
+from django.urls import reverse
 
-from .test_constants import FAIL, SUCCESS, UserFields, false, ip
 from .test_parent_case import PositiveOnlySocialTestCase
-from .test_utils import get_response_fields
-from ..classifiers import text_classifier_fake
-from ..classifiers.classifier_constants import POSITIVE_TEXT
 from ..constants import Fields, MAX_BEFORE_HIDING_COMMENT
-from ..views import report_comment, get_user_with_username, comment_on_post, login_user
+from ..models import Comment
 
+# --- Constants ---
 invalid_session_management_token = '?'
 invalid_post_identifier = '?'
-invalid_reason = 'DROP TABLE;'
+invalid_reason = ''
 invalid_comment_identifier = '?'
 invalid_comment_thread_identifier = '?'
 
 
-class CommentOnPostTests(PositiveOnlySocialTestCase):
+class ReportCommentTests(PositiveOnlySocialTestCase):
 
+    # use these classifiers.
     def setUp(self):
         super().setUp()
 
-        # Need 2 more than max because a commenter cannot report their own comment and you need
-        # one additional to get over the max before a comment is hidden.
-        super().make_post_with_users(MAX_BEFORE_HIDING_COMMENT + 2)
+        # 1. Create User 0 (poster/commenter) and Users 1..MAX+1 (reporters)
+        # Total users = MAX + 2
+        self.make_post_with_users(MAX_BEFORE_HIDING_COMMENT + 2)
 
-        # Create an instance of a POST request.
-        self.comment_on_post_request = self.factory.post("/user_system/comment_on_post")
+        # 2. User 0 (the poster) makes the comment
+        self.commenter_token = self.session_management_token  # User 0's token
+        self.commenter_header = {'HTTP_AUTHORIZATION': f'Bearer {self.commenter_token}'}
 
-        # Recall that middleware are not supported. You can simulate a
-        # logged-in user by setting request.user manually.
-        self.comment_on_post_request.user = get_user_with_username(self.local_username)
+        comment_data = self._comment_on_post(self.commenter_token, self.post_identifier)
+        self.comment_thread_identifier = comment_data[Fields.comment_thread_identifier]
+        self.comment_identifier = comment_data[Fields.comment_identifier]
 
-        # Also add a session
-        middleware = SessionMiddleware(lambda req: None)
-        middleware.process_request(self.comment_on_post_request)
-        self.comment_on_post_request.session.save()
-
-        # Comment on the post so we can report it
-        response = comment_on_post(self.comment_on_post_request, self.session_management_token,
-                                   str(self.post_identifier), POSITIVE_TEXT, text_classifier_fake)
-        self.assertEqual(response.status_code, SUCCESS)
-
-        user = get_user_with_username(self.local_username)
-        post = user.post_set.first()
-        comment_thread = post.commentthread_set.first()
-        self.assertEqual(comment_thread.comment_set.count(), 1)
-
-        fields = get_response_fields(response)
-        self.comment_thread_identifier = fields[Fields.comment_thread_identifier]
-        self.comment_identifier = fields[Fields.comment_identifier]
-
-        # Create an instance of a POST request.
-        self.report_comment_request = self.make_post_request_obj('report_comment', self.local_username)
-
+        # 3. Get the comment object for DB assertions
+        self.comment = Comment.objects.get(comment_identifier=self.comment_identifier)
         self.reason = "This is a negative comment"
+        self.valid_data = {'reason': self.reason}
 
-        self.other_session_management_tokens = self.users.get(UserFields.SESSION_MANAGEMENT_TOKEN, [])
-        self.other_local_usernames = self.users.get(UserFields.USERNAME, [])
-        self.other_local_passwords = self.users.get(UserFields.PASSWORD, [])
+        # 4. Get the first reporter's info (User 1)
+        self.reporter_token = self.users[Fields.session_management_token][1]
+        self.reporter_header = {'HTTP_AUTHORIZATION': f'Bearer {self.reporter_token}'}
 
-        self.reporter_session_management_token = self.other_session_management_tokens[2]
-        self.reporter_local_username = self.other_local_usernames[2]
-        self.reporter_local_password = self.other_local_passwords[2]
-
-        # Login one of the users to do the reporting
-        response = login_user(self.login_user_request, self.reporter_local_username, self.reporter_local_password,
-                              false, ip)
-        self.assertEqual(response.status_code, SUCCESS)
+        # 5. Define the URL for all tests
+        self.url = reverse('report_comment', kwargs={
+            'post_identifier': str(self.post_identifier),
+            'comment_thread_identifier': str(self.comment_thread_identifier),
+            'comment_identifier': str(self.comment_identifier)
+        })
 
     def test_invalid_session_management_token_returns_bad_response(self):
-        # Test view report_comment
-        response = report_comment(self.report_comment_request, invalid_session_management_token,
-                                  str(self.post_identifier), str(self.comment_thread_identifier),
-                                  str(self.comment_identifier), self.reason)
-        self.assertEqual(response.status_code, FAIL)
+        """
+        Tests that @api_login_required rejects an invalid token.
+        """
+        invalid_header = {'HTTP_AUTHORIZATION': f'Bearer {invalid_session_management_token}'}
+
+        response = self.client.post(
+            self.url, data=self.valid_data, content_type='application/json', **invalid_header
+        )
+
+        self.assertEqual(response.status_code, 401)  # 401 Unauthorized
 
     def test_invalid_post_identifier_returns_bad_response(self):
-        # Test view report_comment
-        response = report_comment(self.report_comment_request, self.reporter_session_management_token,
-                                  invalid_post_identifier
-                                  , str(self.comment_thread_identifier), str(self.comment_identifier), self.reason)
-        self.assertEqual(response.status_code, FAIL)
+        """
+        Tests that a malformed post_identifier in the URL is rejected.
+        """
+        invalid_url = f'posts/{invalid_post_identifier}/threads/{self.comment_thread_identifier}/comments/{self.comment_identifier}/report/'
+
+        response = self.client.post(
+            invalid_url, data=self.valid_data, content_type='application/json', **self.reporter_header
+        )
+
+        self.assertEqual(response.status_code, 404)
 
     def test_invalid_comment_thread_identifier_returns_bad_response(self):
-        # Test view report_comment
-        response = report_comment(self.report_comment_request, self.reporter_session_management_token,
-                                  invalid_post_identifier,
-                                  str(self.comment_thread_identifier), str(self.comment_identifier), self.reason)
-        self.assertEqual(response.status_code, FAIL)
+        """
+        Tests that a malformed comment_thread_identifier in the URL is rejected.
+        """
+        invalid_url = f'posts/{self.post_identifier}/threads/{invalid_comment_thread_identifier}/comments/{self.comment_identifier}/report/'
+
+        response = self.client.post(
+            invalid_url, data=self.valid_data, content_type='application/json', **self.reporter_header
+        )
+
+        self.assertEqual(response.status_code, 404)
 
     def test_invalid_comment_identifier_returns_bad_response(self):
-        # Test view report_comment
-        response = report_comment(self.report_comment_request, self.reporter_session_management_token,
-                                  invalid_post_identifier,
-                                  str(self.comment_thread_identifier), str(self.comment_identifier), self.reason)
-        self.assertEqual(response.status_code, FAIL)
+        """
+        Tests that a malformed comment_identifier in the URL is rejected.
+        """
+
+        invalid_url = f'posts/{self.post_identifier}/threads/{self.comment_thread_identifier}/comments/{invalid_comment_identifier}/report/'
+
+        response = self.client.post(
+            invalid_url, data=self.valid_data, content_type='application/json', **self.reporter_header
+        )
+
+        self.assertEqual(response.status_code, 404)
 
     def test_invalid_reason_returns_bad_response(self):
-        # Test view report_comment
-        response = report_comment(self.report_comment_request, self.reporter_session_management_token,
-                                  invalid_post_identifier,
-                                  str(self.comment_thread_identifier), str(self.comment_identifier), self.reason)
-        self.assertEqual(response.status_code, FAIL)
+        """
+        Tests that a malformed reason in the JSON body is rejected.
+        """
+        invalid_data = {'reason': invalid_reason}
+
+        response = self.client.post(
+            self.url, data=invalid_data, content_type='application/json', **self.reporter_header
+        )
+
+        self.assertEqual(response.status_code, 404)
+
+    def test_report_own_comment_fails(self):
+        """
+        Tests that a user cannot report their own comment.
+        """
+        # Use the *commenter's* header (User 0)
+        response = self.client.post(
+            self.url, data=self.valid_data, content_type='application/json', **self.commenter_header
+        )
+
+        self.assertEqual(response.status_code, 404)
+        self.assertIn("Cannot report own comment", response.json().get('error', ''))
+
+    def test_report_comment_twice_fails(self):
+        """
+        Tests that a user cannot report the same comment twice.
+        """
+        # 1. First report (should succeed)
+        response1 = self.client.post(
+            self.url, data=self.valid_data, content_type='application/json', **self.reporter_header
+        )
+        self.assertEqual(response1.status_code, 200)
+
+        # 2. Second report (should fail)
+        response2 = self.client.post(
+            self.url, data=self.valid_data, content_type='application/json', **self.reporter_header
+        )
+        self.assertEqual(response2.status_code, 404)
+        self.assertIn("Cannot report comment twice", response2.json().get('error', ''))
 
     def test_report_comment_returns_good_response_and_reports_comment(self):
-        # Test view report_comment
-        response = report_comment(self.report_comment_request, self.reporter_session_management_token,
-                                  str(self.post_identifier), str(self.comment_thread_identifier),
-                                  str(self.comment_identifier), self.reason)
-        self.assertEqual(response.status_code, SUCCESS)
+        """
+        Tests the "happy path" for a single report.
+        """
+        self.assertFalse(self.comment.hidden)
 
-        user = get_user_with_username(self.local_username)
-        post = user.post_set.first()
-        comment_thread = post.commentthread_set.first()
-        comment = comment_thread.comment_set.first()
-        self.assertFalse(comment.hidden)
+        response = self.client.post(
+            self.url, data=self.valid_data, content_type='application/json', **self.reporter_header
+        )
+
+        self.assertEqual(response.status_code, 200)
+
+        self.comment.refresh_from_db()
+        self.assertEqual(self.comment.commentreport_set.count(), 1)
+        self.assertFalse(self.comment.hidden)  # Should not be hidden after 1 report
 
     def test_report_comment_more_than_max_returns_good_response_and_hides_comment(self):
-        # Test view report_comment
-        for i in range(1, len(self.other_session_management_tokens)):
-            session_management_token = self.other_session_management_tokens[i]
-            response = report_comment(self.report_comment_request, session_management_token,
-                                      str(self.post_identifier), str(self.comment_thread_identifier),
-                                      str(self.comment_identifier), self.reason)
-            self.assertEqual(response.status_code, SUCCESS)
+        """
+        Tests that the comment becomes hidden after MAX_BEFORE_HIDING_COMMENT reports.
+        """
+        # Loop through all users *except* the commenter (User 0)
+        # This will be MAX + 1 reports
+        for i in range(1, MAX_BEFORE_HIDING_COMMENT + 2):
+            token = self.users[Fields.session_management_token][i]
+            header = {'HTTP_AUTHORIZATION': f'Bearer {token}'}
 
-        user = get_user_with_username(self.local_username)
-        post = user.post_set.first()
-        comment_thread = post.commentthread_set.first()
-        comment = comment_thread.comment_set.first()
-        self.assertTrue(comment.hidden)
+            response = self.client.post(
+                self.url, data=self.valid_data, content_type='application/json', **header
+            )
+
+            self.assertEqual(response.status_code, 200)
+
+            # Check its state after each report
+            self.comment.refresh_from_db()
+            if i > MAX_BEFORE_HIDING_COMMENT:
+                self.assertTrue(self.comment.hidden)
+            else:
+                self.assertFalse(self.comment.hidden)
+
+        # Final check after the loop
+        self.comment.refresh_from_db()
+        self.assertTrue(self.comment.hidden)
+        self.assertEqual(self.comment.commentreport_set.count(), MAX_BEFORE_HIDING_COMMENT + 1)

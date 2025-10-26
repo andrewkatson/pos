@@ -1,4 +1,5 @@
 import re
+import uuid
 from uuid import UUID
 
 from .constants import Patterns
@@ -9,6 +10,8 @@ def is_valid_uuid(uuid_to_test):
         uuid_obj = UUID(uuid_to_test, version=4)
     except ValueError:
         return False
+    except AttributeError:
+        return type(uuid_to_test) is uuid.UUID
     return str(uuid_obj) == uuid_to_test
 
 
