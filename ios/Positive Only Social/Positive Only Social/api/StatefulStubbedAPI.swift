@@ -304,6 +304,42 @@ final class StatefulStubbedAPI: APIProtocol {
         return try createSerializedListResponse(fieldsList: fieldObjects)
     }
 
+    func getPostsForFollowedUsers(sessionManagementToken: String, batch: Int) async throws -> Data {
+        await simulateNetwork()
+        
+        // 1. Authenticate the user
+        guard let currentUser = findUser(bySessionToken: sessionManagementToken) else {
+            throw APIError.badServerResponse(statusCode: 401) // Unauthorized
+        }
+        
+        // 2. Find all user IDs that the current user follows
+        let followedUserIDs = userFollows
+            .filter { $0.userFromId == currentUser.id }
+            .map { $0.userToId }
+        
+        // 3. Get all posts from those users, filtering out hidden posts
+        let relevantPosts = posts
+            .filter { post in
+                // Post author is in the followed list AND post is not hidden
+                followedUserIDs.contains(post.authorId) && !post.isHidden
+            }
+            .sorted { $0.createdDate > $1.createdDate } // Sort by newest first
+        
+        // 4. Handle empty case (following pattern from getPostsInFeed)
+        if relevantPosts.isEmpty {
+            // Note: Returning an empty list might be preferable, 
+            // but this follows the established pattern of throwing 400.
+            throw APIError.badServerResponse(statusCode: 400) 
+        }
+
+        // 5. Format the response (matching getPostsInFeed)
+        struct Fields: Codable { let post_identifier: String; let image_url: String }
+        let fieldObjects = relevantPosts.map { Fields(post_identifier: $0.postIdentifier, image_url: $0.imageURL) }
+        
+        // 6. Return the serialized list
+        return try createSerializedListResponse(fieldsList: fieldObjects)
+    }
+
     func getPostsForUser(sessionManagementToken: String, username: String, batch: Int) async throws -> Data {
         await simulateNetwork()
         guard findUser(bySessionToken: sessionManagementToken) != nil else { throw APIError.badServerResponse(statusCode: 400) }

@@ -66,6 +66,9 @@ protocol APIProtocol {
     /// Gets all posts for the user's feed in batches.
     func getPostsInFeed(sessionManagementToken: String, batch: Int) async throws -> Data
 
+    /// Get all posts for a user's feed in batches for anyone they follow.
+    func getPostsForFollowedUsers(sessionManagementToken: String, batch: Int) async throws -> Data
+
     /// Gets a batch of posts for another user.
     func getPostsForUser(sessionManagementToken: String, username: String, batch: Int) async throws -> Data
 
