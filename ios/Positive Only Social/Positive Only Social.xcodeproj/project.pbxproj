@@ -14,6 +14,10 @@
 		244C43762E9AA587003D2A61 /* AWSBedrockAgentCore in Frameworks */ = {isa = PBXBuildFile; productRef = 244C43752E9AA587003D2A61 /* AWSBedrockAgentCore */; };
 		244C43782E9AA587003D2A61 /* AWSBedrockAgentCoreControl in Frameworks */ = {isa = PBXBuildFile; productRef = 244C43772E9AA587003D2A61 /* AWSBedrockAgentCoreControl */; };
 		244C437A2E9AA587003D2A61 /* AWSClientRuntime in Frameworks */ = {isa = PBXBuildFile; productRef = 244C43792E9AA587003D2A61 /* AWSClientRuntime */; };
+		24F2F0182EB57CB200D00D46 /* AWSClientRuntime in Frameworks */ = {isa = PBXBuildFile; productRef = 24F2F0172EB57CB200D00D46 /* AWSClientRuntime */; };
+		24F2F01A2EB57CD600D00D46 /* AWSClientRuntime in Frameworks */ = {isa = PBXBuildFile; productRef = 24F2F0192EB57CD600D00D46 /* AWSClientRuntime */; };
+		24F2F01C2EB57D1000D00D46 /* AWSCognitoIdentityProvider in Frameworks */ = {isa = PBXBuildFile; productRef = 24F2F01B2EB57D1000D00D46 /* AWSCognitoIdentityProvider */; };
+		24F2F01E2EB57D5E00D00D46 /* AWSS3 in Frameworks */ = {isa = PBXBuildFile; productRef = 24F2F01D2EB57D5E00D00D46 /* AWSS3 */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -43,8 +47,14 @@
 		244C43342E93FB29003D2A61 /* Exceptions for "Positive Only Social" folder in "Positive Only SocialTests" target */ = {
 			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
 			membershipExceptions = (
+				api/API.swift,
+				api/Config.swift,
+				api/Models.swift,
+				api/RealAPI.swift,
+				api/StatefulStubbedAPI.swift,
 				FeedView.swift,
 				HomeView.swift,
+				keychain/KeychainHelper.swift,
 				LoginView.swift,
 				NewPostView.swift,
 				ProfileView.swift,
@@ -52,15 +62,28 @@
 				RequestResetView.swift,
 				ResetPasswordView.swift,
 				SettingsView.swift,
+				state/AuthenticationManager.swift,
+				uploader/AWSManager.swift,
 				VerifyResetView.swift,
+				viewmodels/FeedViewModel.swift,
+				viewmodels/FollowingFeedViewModel.swift,
+				viewmodels/HomeViewModel.swift,
+				viewmodels/ProfileViewModel.swift,
+				viewmodels/SettingsViewModel.swift,
 			);
 			target = 248836DF2E6282C5002D47F1 /* Positive Only SocialTests */;
 		};
 		244C43352E93FB29003D2A61 /* Exceptions for "Positive Only Social" folder in "Positive Only SocialUITests" target */ = {
 			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
 			membershipExceptions = (
+				api/API.swift,
+				api/Config.swift,
+				api/Models.swift,
+				api/RealAPI.swift,
+				api/StatefulStubbedAPI.swift,
 				FeedView.swift,
 				HomeView.swift,
+				keychain/KeychainHelper.swift,
 				LoginView.swift,
 				NewPostView.swift,
 				ProfileView.swift,
@@ -68,7 +91,14 @@
 				RequestResetView.swift,
 				ResetPasswordView.swift,
 				SettingsView.swift,
+				state/AuthenticationManager.swift,
+				uploader/AWSManager.swift,
 				VerifyResetView.swift,
+				viewmodels/FeedViewModel.swift,
+				viewmodels/FollowingFeedViewModel.swift,
+				viewmodels/HomeViewModel.swift,
+				viewmodels/ProfileViewModel.swift,
+				viewmodels/SettingsViewModel.swift,
 			);
 			target = 248836E92E6282C5002D47F1 /* Positive Only SocialUITests */;
 		};
@@ -115,6 +145,8 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				24F2F01A2EB57CD600D00D46 /* AWSClientRuntime in Frameworks */,
+				24F2F0182EB57CB200D00D46 /* AWSClientRuntime in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -122,6 +154,8 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				24F2F01E2EB57D5E00D00D46 /* AWSS3 in Frameworks */,
+				24F2F01C2EB57D1000D00D46 /* AWSCognitoIdentityProvider in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -198,6 +232,8 @@
 			);
 			name = "Positive Only SocialTests";
 			packageProductDependencies = (
+				24F2F0172EB57CB200D00D46 /* AWSClientRuntime */,
+				24F2F0192EB57CD600D00D46 /* AWSClientRuntime */,
 			);
 			productName = "Positive Only SocialTests";
 			productReference = 248836E02E6282C5002D47F1 /* Positive Only SocialTests.xctest */;
@@ -221,6 +257,8 @@
 			);
 			name = "Positive Only SocialUITests";
 			packageProductDependencies = (
+				24F2F01B2EB57D1000D00D46 /* AWSCognitoIdentityProvider */,
+				24F2F01D2EB57D5E00D00D46 /* AWSS3 */,
 			);
 			productName = "Positive Only SocialUITests";
 			productReference = 248836EA2E6282C5002D47F1 /* Positive Only SocialUITests.xctest */;
@@ -665,6 +703,22 @@
 			isa = XCSwiftPackageProductDependency;
 			package = 244C436C2E9AA12F003D2A61 /* XCRemoteSwiftPackageReference "aws-sdk-swift" */;
 			productName = AWSClientRuntime;
+		};
+		24F2F0172EB57CB200D00D46 /* AWSClientRuntime */ = {
+			isa = XCSwiftPackageProductDependency;
+			productName = AWSClientRuntime;
+		};
+		24F2F0192EB57CD600D00D46 /* AWSClientRuntime */ = {
+			isa = XCSwiftPackageProductDependency;
+			productName = AWSClientRuntime;
+		};
+		24F2F01B2EB57D1000D00D46 /* AWSCognitoIdentityProvider */ = {
+			isa = XCSwiftPackageProductDependency;
+			productName = AWSCognitoIdentityProvider;
+		};
+		24F2F01D2EB57D5E00D00D46 /* AWSS3 */ = {
+			isa = XCSwiftPackageProductDependency;
+			productName = AWSS3;
 		};
 /* End XCSwiftPackageProductDependency section */
 	};
