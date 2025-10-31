@@ -14,13 +14,15 @@ enum FeedType: String, CaseIterable {
 }
 
 struct FeedView: View {
-    @StateObject private var viewModel: FeedViewModel
+    @StateObject private var forYouViewModel: FeedViewModel
+    @StateObject private var followingViewModel: FollowingFeedViewModel
     
     // State to track the selected top tab
     @State private var selectedFeed: FeedType = .forYou
     
     init(api: APIProtocol) {
-        _viewModel = StateObject(wrappedValue: FeedViewModel(api: api))
+        _forYouViewModel = StateObject(wrappedValue: FeedViewModel(api: api))
+        _followingViewModel = StateObject(wrappedValue: FollowingFeedViewModel(api: api))
     }
     
     var body: some View {
@@ -38,17 +40,18 @@ struct FeedView: View {
                 // The content switches based on the selected tab
                 switch selectedFeed {
                 case .forYou:
-                    ForYouFeedView(viewModel: viewModel)
+                    // --- KEY CHANGE ---
+                    // Pass the forYouViewModel
+                    ForYouFeedView(viewModel: forYouViewModel)
+                    // --- END KEY CHANGE ---
                 case .following:
-                    FollowingFeedView()
+                    // --- KEY CHANGE ---
+                    // Pass the followingViewModel
+                    FollowingFeedView(viewModel: followingViewModel)
+                    // --- END KEY CHANGE ---
                 }
             }
             .navigationTitle("Feed")
-            .onAppear {
-                if viewModel.feedPosts.isEmpty {
-                    viewModel.fetchFeed()
-                }
-            }
         }
     }
 }
@@ -95,24 +98,63 @@ struct ForYouFeedView: View {
             }
             .padding(.top)
         }
+        .onAppear {
+            if viewModel.feedPosts.isEmpty {
+                viewModel.fetchFeed()
+            }
+        }
     }
 }
 
-/// A placeholder for the "Following" feed content.
+/// The view for the "Following" feed.
 struct FollowingFeedView: View {
+    // --- KEY CHANGES ---
+    // This view now observes the new FollowingFeedViewModel
+    @ObservedObject var viewModel: FollowingFeedViewModel
+    
     var body: some View {
-        VStack {
-            Spacer()
-            Image(systemName: "person.2.fill")
-                .font(.largeTitle)
-                .foregroundColor(.gray)
-            Text("Posts from people you follow will appear here.")
-                .foregroundColor(.secondary)
-                .multilineTextAlignment(.center)
-                .padding()
-            Spacer()
+        // We use the same UI structure as ForYouFeedView
+        ScrollView {
+            LazyVStack(spacing: 25) {
+                // Iterate over the followingPosts array
+                ForEach(viewModel.followingPosts) { post in
+                    VStack(alignment: .leading, spacing: 10) {
+                        Text(post.authorUsername)
+                            .font(.headline)
+                            .fontWeight(.bold)
+                            .padding(.horizontal)
+                        
+                        AsyncImage(url: URL(string: post.imageUrl)) { image in
+                            image.resizable().scaledToFit()
+                        } placeholder: {
+                            Rectangle()
+                                .foregroundColor(Color(.systemGray5))
+                                .aspectRatio(1, contentMode: .fit)
+                        }
+                        .onAppear {
+                            // Trigger for infinite scrolling
+                            // Use followingPosts and fetchFollowingFeed
+                            if post.id == viewModel.followingPosts.last?.id {
+                                viewModel.fetchFollowingFeed()
+                            }
+                        }
+                    }
+                }
+                
+                if viewModel.isLoadingNextPage {
+                    ProgressView().padding()
+                }
+            }
+            .padding(.top)
+        }
+        // Add .onAppear to trigger the *initial* fetch
+        .onAppear {
+            if viewModel.followingPosts.isEmpty {
+                viewModel.fetchFollowingFeed()
+            }
         }
     }
+    // --- END KEY CHANGES ---
 }
 
 // MARK: - Preview

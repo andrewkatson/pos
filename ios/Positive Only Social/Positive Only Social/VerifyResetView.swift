@@ -24,11 +24,6 @@ struct VerifyResetView: View {
     
     var body: some View {
         ZStack {
-            NavigationLink(
-                destination: ResetPasswordView(usernameOrEmail: usernameOrEmail),
-                isActive: $didVerifySuccessfully
-            ) { EmptyView() }
-            
             Form {
                 Section(header: Text("Verify Your Identity")) {
                     Text("Enter the 6-digit PIN sent to \(usernameOrEmail).")
@@ -63,6 +58,9 @@ struct VerifyResetView: View {
             Button("OK") { }
         } message: { message in
             Text(message)
+        }
+        .navigationDestination(isPresented: $didVerifySuccessfully) {
+            ResetPasswordView(usernameOrEmail: usernameOrEmail, api: api)
         }
     }
     

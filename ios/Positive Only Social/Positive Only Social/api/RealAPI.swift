@@ -446,24 +446,20 @@ final class RealAPI: APIProtocol {
     }
 
     /// Gets a batch of comments for a post.
-    /// - NOTE: Signature changed to include sessionManagementToken, as required by the backend.
-    func getCommentsForPost(sessionManagementToken: String, postIdentifier: String, batch: Int) async throws -> Data {
-        // This is a GET request, no body, with auth. ID/Batch are in path.
+    func getCommentsForPost(postIdentifier: String, batch: Int) async throws -> Data {
+        // This is a GET request, no body, with no auth. ID/Batch are in path.
         return try await performRequest(
             pathSegments: ["get_comments_for_post", postIdentifier, String(batch)],
             method: .get,
-            authToken: sessionManagementToken
         )
     }
 
     /// Gets a batch of comments for a specific comment thread.
-    /// - NOTE: Signature changed to include sessionManagementToken, as required by the backend.
-    func getCommentsForThread(sessionManagementToken: String, commentThreadIdentifier: String, batch: Int) async throws -> Data {
-        // This is a GET request, no body, with auth. ID/Batch are in path.
+    func getCommentsForThread(commentThreadIdentifier: String, batch: Int) async throws -> Data {
+        // This is a GET request, no body, with no auth. ID/Batch are in path.
         return try await performRequest(
             pathSegments: ["get_comments_for_thread", commentThreadIdentifier, String(batch)],
             method: .get,
-            authToken: sessionManagementToken
         )
     }
 

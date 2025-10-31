@@ -22,11 +22,6 @@ struct RequestResetView: View {
     
     var body: some View {
         ZStack {
-            NavigationLink(
-                destination: VerifyResetView(usernameOrEmail: usernameOrEmail),
-                isActive: $didRequestSuccessfully
-            ) { EmptyView() }
-            
             Form {
                 Section(header: Text("Find Your Account")) {
                     TextField("Username or Email", text: $usernameOrEmail)
@@ -48,6 +43,9 @@ struct RequestResetView: View {
                     .progressViewStyle(.circular)
                     .scaleEffect(2)
             }
+        }
+        .navigationDestination(isPresented: $didRequestSuccessfully) {
+            VerifyResetView(usernameOrEmail: usernameOrEmail, api: api)
         }
         .alert("Error", isPresented: $showingErrorAlert, presenting: errorMessage) { _ in
             Button("OK") { }
