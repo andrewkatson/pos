@@ -13,29 +13,56 @@ import AWSCognitoIdentity
 import AWSCognitoIdentityProvider
 import AwsCommonRuntimeKit
 
+public enum AWSManagerError: Error, LocalizedError {
+    /// The client failed to initialize during app launch.
+    /// The associated error contains the reason (e.g., network, bad credentials).
+    case initializationFailed(Error)
+    
+    /// An attempt was made to use the client, but it was not initialized.
+    case clientNotInitialized
+    
+    public var errorDescription: String? {
+        switch self {
+        case .initializationFailed(let error):
+            return "AWSManager failed to initialize: \(error.localizedDescription)"
+        case .clientNotInitialized:
+            return "AWS S3 Client is not initialized. Check logs for a detailed error."
+        }
+    }
+}
+
 // RECOMMENDED: This implementation uses the modern AWS SDK for Swift (v3)
 final class AWSManager {
     static let shared = AWSManager()
 
     /// Publicly expose the S3 client for use in other parts of the app (like S3Uploader)
-    let s3Client: S3Client
-
+    private(set) var s3Client: S3Client?
+    
+    private(set) var initializationError: Error?
+    
     /// Publicly expose the region for URL construction
     let awsRegion = "us-east-1" // <-- CHANGE to your bucket's region
     private let identityPoolId = "us-east-1:xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx" // <-- CHANGE to your Cognito Pool ID
 
     private init() {
         do {
-            // This is the recommended and secure approach
             let credentialsResolver = try CognitoAWSCredentialIdentityResolver(identityPoolId: identityPoolId)
-                
+            
             let configuration = try S3Client.Config(awsCredentialIdentityResolver: credentialsResolver, region: awsRegion)
             
-            // Initialize the S3 client with the configuration
+            // Initialize the S3 client
             self.s3Client = S3Client(config: configuration)
+            self.initializationError = nil
+            
+            // A log message is very helpful for debugging
+            print("✅ AWSManager: S3Client initialized successfully.")
+            
         } catch {
-            // In a real app, you might want to handle this error more gracefully
-            fatalError("Failed to initialize AWS S3 Client: \(error)")
+            // 3. This is the new graceful handling.
+            // Instead of crashing, we log the error and set our client to nil.
+            print("❌ AWSManager: Failed to initialize AWS S3 Client: \(error)")
+            self.s3Client = nil
+            self.initializationError = AWSManagerError.initializationFailed(error)
         }
     }
 }
@@ -52,6 +79,12 @@ final class S3Uploader {
             contentType: "image/jpeg",
             key: fileName
         )
+        
+        guard let s3Client = self.s3Client else {
+            // If the client is nil, throw our custom error.
+            // The call site (e.g., your ViewModel) can now catch this.
+            throw AWSManagerError.clientNotInitialized
+        }
 
         _ = try await s3Client.putObject(input: input)
 

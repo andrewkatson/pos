@@ -57,9 +57,7 @@ struct LoginView: View {
                 guard let loginDetails = loginResponseArray.first?.fields else { throw URLError(.cannotDecodeContentData) }
                 
                 // MARK: - Securely Store Token in Keychain
-                try KeychainHelper.shared.save(loginDetails.sessionManagementToken, for: keychainService, account: sessionAccount)
-                
-                    authManager.login()
+                authManager.login(with: loginDetails.sessionManagementToken)
                 
                 print("✅ Session token securely saved to Keychain.")
                 

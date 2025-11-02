@@ -33,9 +33,22 @@ final class AuthenticationManager: ObservableObject {
             isLoggedIn = false
         }
     }
-    
-    func login() {
-        isLoggedIn = true
+ 
+    func login(with token: String) {
+        Task {
+            do {
+                // 1. Save the token securely
+                try KeychainHelper.shared.save(token, for: keychainService, account: sessionAccount)
+                
+                // 2. Update the state to refresh the UI
+                isLoggedIn = true
+                
+            } catch {
+                // If saving fails, don't log the user in
+                print("Failed to save token to keychain: \(error)")
+                isLoggedIn = false
+            }
+        }
     }
     
     func logout() {

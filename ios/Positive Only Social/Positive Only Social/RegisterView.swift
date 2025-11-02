@@ -142,13 +142,7 @@ struct RegisterView: View {
                 }
 
                 // Securely save the new session token to the Keychain
-                try KeychainHelper.shared.save(
-                    loginDetails.sessionManagementToken,
-                    for: keychainService,
-                    account: sessionAccount
-                )
-                
-                authManager.login()
+                authManager.login(with: loginDetails.sessionManagementToken)
 
                 print("✅ Registration successful. Session token stored.")
 

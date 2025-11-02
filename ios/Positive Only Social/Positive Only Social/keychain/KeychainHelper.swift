@@ -13,6 +13,10 @@ final class KeychainHelper {
     
     // MARK: - Singleton
     static let shared = KeychainHelper()
+    
+    // A private lock to ensure thread-safe access to the keychain.
+    private let lock = NSLock()
+    
     private init() {}
 
     // MARK: - Public Methods
@@ -57,6 +61,11 @@ final class KeychainHelper {
 
     /// Deletes a value from the Keychain.
     func delete(service: String, account: String) throws {
+        // --- Acquire lock for thread-safety ---
+        lock.lock()
+        // --- Ensure lock is released on exit, even if an error is thrown ---
+        defer { lock.unlock() }
+        
         // Create a query to identify the item to delete.
         let query: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
@@ -76,39 +85,71 @@ final class KeychainHelper {
     // MARK: - Private Core Functions
 
     private func saveData(_ data: Data, for service: String, account: String) throws {
-        // Create a query to find an existing item.
-        let query: [String: Any] = [
+        // --- Acquire lock for thread-safety ---
+        lock.lock()
+        // --- Ensure lock is released on exit, even if an error is thrown ---
+        defer { lock.unlock() }
+        
+        // --- 1. Create the "add" query ---
+        // This query contains all attributes needed to create a new item,
+        // including the data and accessibility setting.
+        let addQuery: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
             kSecAttrService as String: service,
-            kSecAttrAccount as String: account
-        ]
-        
-        // Set the attributes for the new or updated item.
-        let attributes: [String: Any] = [
-            kSecValueData as String: data
-        ]
-
-        // Check if the item already exists to decide whether to update or add.
-        let status = SecItemUpdate(query as CFDictionary, attributes as CFDictionary)
-
-        // If the item doesn't exist (errSecItemNotFound), we need to add it.
-        if status == errSecItemNotFound {
-            var newQuery = query
-            newQuery[kSecValueData as String] = data
+            kSecAttrAccount as String: account,
+            kSecValueData as String: data,
             // kSecAttrAccessibleWhenUnlockedThisDeviceOnly is a good security default.
-            newQuery[kSecAttrAccessible as String] = kSecAttrAccessibleWhenUnlockedThisDeviceOnly
+            kSecAttrAccessible as String: kSecAttrAccessibleWhenUnlockedThisDeviceOnly
+        ]
+
+        // --- 2. Try to ADD the item first ---
+        // This is an atomic operation.
+        let addStatus = SecItemAdd(addQuery as CFDictionary, nil)
+
+        // --- 3. Handle the result ---
+        if addStatus == errSecSuccess {
+            // Success! The item was added, and we are done.
+            return
             
-            let addStatus = SecItemAdd(newQuery as CFDictionary, nil)
-            if addStatus != errSecSuccess {
-                throw KeychainError.operationError(addStatus)
+        } else if addStatus == errSecDuplicateItem {
+            // The item already exists. This is not an error in our case;
+            // it just means we need to UPDATE it instead.
+            
+            // --- 3a. Create the "update" query ---
+            // This query only needs the primary keys to find the item.
+            let updateQuery: [String: Any] = [
+                kSecClass as String: kSecClassGenericPassword,
+                kSecAttrService as String: service,
+                kSecAttrAccount as String: account
+            ]
+            
+            // --- 3b. Define the attributes to update ---
+            // We are only updating the data.
+            let attributes: [String: Any] = [
+                kSecValueData as String: data
+            ]
+            
+            // --- 3c. Execute the update ---
+            let updateStatus = SecItemUpdate(updateQuery as CFDictionary, attributes as CFDictionary)
+            
+            // If the update failed for any reason, throw that error.
+            if updateStatus != errSecSuccess {
+                throw KeychainError.operationError(updateStatus)
             }
-        } else if status != errSecSuccess {
-            // If the update failed for any other reason, throw an error.
-            throw KeychainError.operationError(status)
+            // If update succeeded, we're done.
+            
+        } else {
+            // If the "add" operation failed for any other reason, throw that error.
+            throw KeychainError.operationError(addStatus)
         }
     }
 
     private func loadData(from service: String, account: String) throws -> Data? {
+        // --- Acquire lock for thread-safety ---
+        lock.lock()
+        // --- Ensure lock is released on exit, even if an error is thrown ---
+        defer { lock.unlock() }
+        
         // Create a query to find the item.
         let query: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
@@ -139,6 +180,8 @@ final class KeychainHelper {
     enum KeychainError: Error, LocalizedError {
         case operationError(OSStatus)
         var errorDescription: String? {
+            // You can get a human-readable string for the OSStatus if you want:
+            // SecCopyErrorMessageString(self, nil) as String? ?? "Unknown keychain error"
             "Keychain operation failed with status: \(self)"
         }
     }

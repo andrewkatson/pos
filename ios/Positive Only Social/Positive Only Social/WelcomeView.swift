@@ -93,9 +93,7 @@ struct WelcomeView: View {
                 guard let loginDetails = loginResponseArray.first?.fields else { throw URLError(.cannotDecodeContentData) }
 
                 // 4. Securely save the new session token
-                try KeychainHelper.shared.save(loginDetails.sessionManagementToken, for: keychainService, account: sessionAccount)
-                
-                authManager.login()
+                authManager.login(with: loginDetails.sessionManagementToken)
                 
                 // 5. Update the "Remember Me" tokens in the Keychain with the refreshed cookie token
                 if let newCookieToken = loginDetails.loginCookieToken {
