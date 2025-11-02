@@ -80,6 +80,9 @@ final class StatefulStubbedAPI: APIProtocol {
     // MARK: - Configuration
     public var simulatedLatency: TimeInterval = 0.1
     private let maxReportsBeforeHiding = 5
+    public var pageSize = 2 // Make this small for easier testing
+    public private(set) var getPostsInFeedCallCount = 0
+    public private(set) var getPostsForFollowedUsersCallCount = 0
 
     // MARK: - Private Finders
     private func findUser(byUsernameOrEmail id: String) -> MockUser? { users.first { $0.username == id || $0.email == id } }
@@ -294,17 +297,44 @@ final class StatefulStubbedAPI: APIProtocol {
     }
 
     func getPostsInFeed(sessionManagementToken: String, batch: Int) async throws -> Data {
+        getPostsInFeedCallCount += 1 // Track call count
         await simulateNetwork()
-        guard let user = findUser(bySessionToken: sessionManagementToken) else { throw APIError.badServerResponse(statusCode: 400) }
-        let relevantPosts = posts.filter { $0.authorId != user.id && !$0.isHidden }.sorted { $0.createdDate > $1.createdDate }
-        if relevantPosts.isEmpty { throw APIError.badServerResponse(statusCode: 400) }
+        
+        guard let user = findUser(bySessionToken: sessionManagementToken) else {
+            throw APIError.badServerResponse(statusCode: 400)
+        }
+        
+        // Get *all* relevant posts, sorted
+        let relevantPosts = posts
+            .filter { $0.authorId != user.id && !$0.isHidden }
+            .sorted { $0.createdDate > $1.createdDate }
 
-        struct Fields: Codable { let post_identifier: String; let image_url: String }
-        let fieldObjects = relevantPosts.map { Fields(post_identifier: $0.postIdentifier, image_url: $0.imageURL) }
+        // --- PAGINATION LOGIC ---
+        let startIndex = batch * pageSize
+        
+        // Check if the requested page is beyond the available posts
+        guard startIndex < relevantPosts.count else {
+            // Return an empty list, NOT an error
+            return try createSerializedListResponse(fieldsList: [Fields]())
+        }
+        
+        let endIndex = min(startIndex + pageSize, relevantPosts.count)
+        let paginatedPosts = Array(relevantPosts[startIndex..<endIndex])
+        // --- END PAGINATION LOGIC ---
+
+        struct Fields: Codable { let post_identifier: String; let image_url: String; let caption: String; let authorUsername: String}
+        
+        let fieldObjects = paginatedPosts.map {
+            let post = $0
+            let authorUsername = users.first(where: { $0.id == post.authorId })?.username ?? "Unknown User"
+            return Fields(post_identifier: $0.postIdentifier, image_url: $0.imageURL, caption: $0.caption, authorUsername: authorUsername)
+        }
+        
         return try createSerializedListResponse(fieldsList: fieldObjects)
     }
 
     func getPostsForFollowedUsers(sessionManagementToken: String, batch: Int) async throws -> Data {
+        getPostsForFollowedUsersCallCount+=1
         await simulateNetwork()
         
         // 1. Authenticate the user
@@ -325,16 +355,27 @@ final class StatefulStubbedAPI: APIProtocol {
             }
             .sorted { $0.createdDate > $1.createdDate } // Sort by newest first
         
-        // 4. Handle empty case (following pattern from getPostsInFeed)
-        if relevantPosts.isEmpty {
-            // Note: Returning an empty list might be preferable, 
-            // but this follows the established pattern of throwing 400.
-            throw APIError.badServerResponse(statusCode: 400) 
+        // --- PAGINATION LOGIC ---
+        let startIndex = batch * pageSize
+        
+        // Check if the requested page is beyond the available posts
+        guard startIndex < relevantPosts.count else {
+            // Return an empty list, NOT an error
+            return try createSerializedListResponse(fieldsList: [Fields]())
         }
+        
+        let endIndex = min(startIndex + pageSize, relevantPosts.count)
+        let paginatedPosts = Array(relevantPosts[startIndex..<endIndex])
+        // --- END PAGINATION LOGIC ---
 
         // 5. Format the response (matching getPostsInFeed)
-        struct Fields: Codable { let post_identifier: String; let image_url: String }
-        let fieldObjects = relevantPosts.map { Fields(post_identifier: $0.postIdentifier, image_url: $0.imageURL) }
+        struct Fields: Codable { let post_identifier: String; let image_url: String; let caption: String; let authorUsername: String}
+        
+        let fieldObjects = paginatedPosts.map {
+            let post = $0
+            let authorUsername = users.first(where: { $0.id == post.authorId })?.username ?? "Unknown User"
+            return Fields(post_identifier: $0.postIdentifier, image_url: $0.imageURL, caption: $0.caption, authorUsername: authorUsername)
+        }
         
         // 6. Return the serialized list
         return try createSerializedListResponse(fieldsList: fieldObjects)
