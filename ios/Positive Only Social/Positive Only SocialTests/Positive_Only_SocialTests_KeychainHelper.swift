@@ -33,7 +33,7 @@ struct Positive_Only_SocialTests_KeyChainHelper {
         
     init() {
         // 1. Initialize the System Under Test (sut)
-        sut = KeychainHelper.shared
+        sut = KeychainHelper()
         
         // 2. Clean up the keychain before EACH test
         // This ensures tests are isolated and don't fail because of
@@ -54,10 +54,10 @@ struct Positive_Only_SocialTests_KeyChainHelper {
         let valueToSave = TestData(id: UUID(), message: "Test Save/Load")
         
         // When: We save the value
-        try sut.save(valueToSave, for: testService, account: testAccount)
+        try sut.save(valueToSave, for: testService, account: "saveAndLoadSuccess")
         
         // And: We load the value back
-        let loadedValue: TestData? = try sut.load(TestData.self, from: testService, account: testAccount)
+        let loadedValue: TestData? = try sut.load(TestData.self, from: testService, account: "saveAndLoadSuccess")
         
         // Then: The loaded value should not be nil and should match the saved value
         #expect(loadedValue != nil, "Loaded value should not be nil")
@@ -68,7 +68,7 @@ struct Positive_Only_SocialTests_KeyChainHelper {
         // Given: An empty keychain (guaranteed by setUp)
         
         // When: We try to load a value that was never saved
-        let loadedValue: TestData? = try sut.load(TestData.self, from: testService, account: testAccount)
+        let loadedValue: TestData? = try sut.load(TestData.self, from: testService, account: "loadNonExistent")
         
         // Then: The result should be nil
         #expect(loadedValue == nil, "Loading a non-existent item should return nil")
@@ -77,31 +77,31 @@ struct Positive_Only_SocialTests_KeyChainHelper {
     @Test func testUpdate_Success() throws {
         // Given: An initial value is saved
         let initialValue = TestData(id: UUID(), message: "Initial Value")
-        try sut.save(initialValue, for: testService, account: testAccount)
+        try sut.save(initialValue, for: testService, account: "update")
         
         // When: A new value is saved to the *same* service and account
         let updatedValue = TestData(id: UUID(), message: "Updated Value")
-        try sut.save(updatedValue, for: testService, account: testAccount)
+        try sut.save(updatedValue, for: testService, account: "update")
         
         // Then: Loading the value should return the new, updated value
-        let loadedValue: TestData? = try sut.load(TestData.self, from: testService, account: testAccount)
+        let loadedValue: TestData? = try sut.load(TestData.self, from: testService, account: "update")
         #expect(updatedValue == loadedValue, "Loading after a save should return the updated value")
         #expect(initialValue != loadedValue, "Loading should not return the old value")
     }
     
     @Test func testDelete_Success() throws {
         // Given: A value is saved in the keychain
-        try sut.save(testValue, for: testService, account: testAccount)
+        try sut.save(testValue, for: testService, account: "delete")
         
         // And: We confirm it's there
-        let loadedValue: TestData? = try sut.load(TestData.self, from: testService, account: testAccount)
+        let loadedValue: TestData? = try sut.load(TestData.self, from: testService, account: "delete")
         #expect(loadedValue != nil, "Value should exist before deleting")
         
         // When: We delete the value
-        try sut.delete(service: testService, account: testAccount)
+        try sut.delete(service: testService, account: "delete")
         
         // Then: Loading it again should return nil
-        let reloadedValue: TestData? = try sut.load(TestData.self, from: testService, account: testAccount)
+        let reloadedValue: TestData? = try sut.load(TestData.self, from: testService, account:"delete")
         #expect(reloadedValue == nil, "Value should be nil after deletion")
     }
     
@@ -112,7 +112,7 @@ struct Positive_Only_SocialTests_KeyChainHelper {
         // Then: The function should complete without throwing an error
         // (This tests the `status != errSecItemNotFound` check in your delete function)
         do {
-            try sut.delete(service: testService, account: testAccount)
+            try sut.delete(service: testService, account: "deleteNonExistent")
         } catch {
             Issue.record("Deleting a non-existent item should not throw an error: \(error)")
         }
@@ -120,12 +120,12 @@ struct Positive_Only_SocialTests_KeyChainHelper {
     
     @Test func testLoad_TypeMismatch_ThrowsDecodingError() throws {
         // Given: We save a value of one type (our TestData struct)
-        try sut.save(testValue, for: testService, account: testAccount)
+        try sut.save(testValue, for: testService, account: "typeMismatch")
         
         // When: We try to load that same data as an incompatible type (e.g., String)
         // Then: The load function should throw a DecodingError
         do {
-            _ = try sut.load(String.self, from: testService, account: testAccount)
+            _ = try sut.load(String.self, from: testService, account: "typeMismatch")
             Issue.record("Expected a DecodingError, but no error was thrown")
         } catch let error as DecodingError {
             // success
@@ -142,7 +142,7 @@ struct Positive_Only_SocialTests_KeyChainHelper {
         // When: We attempt to save it
         // Then: The save function should throw an EncodingError
         do {
-            try sut.save(invalidValue, for: testService, account: testAccount)
+            try sut.save(invalidValue, for: testService, account: "saveInvalidCodable")
             Issue.record("Expected an EncodingError, but no error was thrown")
         } catch let error as EncodingError {
             // success

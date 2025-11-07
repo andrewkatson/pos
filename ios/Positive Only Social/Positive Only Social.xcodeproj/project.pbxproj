@@ -41,6 +41,7 @@
 		248836D32E6282C3002D47F1 /* Positive Only Social.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = "Positive Only Social.app"; sourceTree = BUILT_PRODUCTS_DIR; };
 		248836E02E6282C5002D47F1 /* Positive Only SocialTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = "Positive Only SocialTests.xctest"; sourceTree = BUILT_PRODUCTS_DIR; };
 		248836EA2E6282C5002D47F1 /* Positive Only SocialUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = "Positive Only SocialUITests.xctest"; sourceTree = BUILT_PRODUCTS_DIR; };
+		2498321F2EB8091700583B17 /* Positive Only Social.xctestplan */ = {isa = PBXFileReference; lastKnownFileType = text; path = "Positive Only Social.xctestplan"; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
@@ -165,6 +166,7 @@
 		248836CA2E6282C3002D47F1 = {
 			isa = PBXGroup;
 			children = (
+				2498321F2EB8091700583B17 /* Positive Only Social.xctestplan */,
 				248836D52E6282C3002D47F1 /* Positive Only Social */,
 				248836E32E6282C5002D47F1 /* Positive Only SocialTests */,
 				248836ED2E6282C5002D47F1 /* Positive Only SocialUITests */,

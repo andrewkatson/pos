@@ -2,6 +2,7 @@ import SwiftUI
 
 struct LoginView: View {
     let api: APIProtocol
+    let keychainHelper: KeychainHelperProtocol
     
     // MARK: Envrionment Properties
     @EnvironmentObject var authManager: AuthenticationManager
@@ -37,7 +38,7 @@ struct LoginView: View {
             }
             .padding()
             .navigationTitle("Login")
-            .navigationDestination(for: String.self) { routeName in if routeName == "HomeView" { HomeView(api: api) } }
+            .navigationDestination(for: String.self) { routeName in if routeName == "HomeView" { HomeView(api: api, keychainHelper: keychainHelper) } }
             .alert("Login Failed", isPresented: $showingErrorAlert) { Button("OK") {} } message: { Text(errorMessage ?? "An unknown error occurred.") }
         }
     }
@@ -57,7 +58,7 @@ struct LoginView: View {
                 guard let loginDetails = loginResponseArray.first?.fields else { throw URLError(.cannotDecodeContentData) }
                 
                 // MARK: - Securely Store Token in Keychain
-                authManager.login(with: loginDetails.sessionManagementToken)
+                authManager.login(with: UserSession(sessionToken: loginDetails.sessionManagementToken, username: usernameOrEmail, isIdentityVerified: false))
                 
                 print("✅ Session token securely saved to Keychain.")
                 
@@ -66,11 +67,11 @@ struct LoginView: View {
                     // We can store a simple struct for these tokens
                     struct RememberMeTokens: Codable { let seriesId: String; let cookieToken: String }
                     let tokens = RememberMeTokens(seriesId: seriesId, cookieToken: cookieToken)
-                    try KeychainHelper.shared.save(tokens, for: keychainService, account: rememberMeAccount)
+                    try keychainHelper.save(tokens, for: keychainService, account: rememberMeAccount)
                     print("🔑 Remember Me tokens saved to Keychain.")
                 } else {
                     // If "Remember Me" is off, ensure any old tokens are deleted.
-                    try KeychainHelper.shared.delete(service: keychainService, account: rememberMeAccount)
+                    try keychainHelper.delete(service: keychainService, account: rememberMeAccount)
                 }
                 
                 // On success, navigate to the HomeView.
@@ -87,5 +88,5 @@ struct LoginView: View {
 }
 
 #Preview {
-    LoginView(api: StatefulStubbedAPI())
+    LoginView(api: StatefulStubbedAPI(), keychainHelper: KeychainHelper())
 }

@@ -19,6 +19,7 @@ struct RequestResetView: View {
     
     // The new API service
     let api: APIProtocol
+    let keychainHelper: KeychainHelperProtocol
     
     var body: some View {
         ZStack {
@@ -45,7 +46,7 @@ struct RequestResetView: View {
             }
         }
         .navigationDestination(isPresented: $didRequestSuccessfully) {
-            VerifyResetView(usernameOrEmail: usernameOrEmail, api: api)
+            VerifyResetView(usernameOrEmail: usernameOrEmail, api: api, keychainHelper: keychainHelper)
         }
         .alert("Error", isPresented: $showingErrorAlert, presenting: errorMessage) { _ in
             Button("OK") { }
@@ -85,5 +86,5 @@ struct RequestResetView: View {
 }
 
 #Preview {
-    RequestResetView(api: StatefulStubbedAPI())
+    RequestResetView(api: StatefulStubbedAPI(), keychainHelper: KeychainHelper())
 }

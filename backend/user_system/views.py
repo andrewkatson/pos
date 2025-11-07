@@ -597,7 +597,8 @@ def get_posts_in_feed(request, batch):
             {
                 Fields.post_identifier: post.post_identifier,
                 Fields.image_url: post.image_url,
-                Fields.username: post.author.username
+                Fields.username: post.author.username,
+                Fields.caption: post.caption
             }
             for post in batched_posts
         ]
@@ -625,7 +626,8 @@ def get_posts_for_followed_users(request, batch):
         {
             Fields.post_identifier: post.post_identifier,
             Fields.image_url: post.image_url,
-            Fields.author_username: post.author.username
+            Fields.author_username: post.author.username,
+            Fields.caption: post.caption
         }
         for post in posts_batch
     ]
@@ -653,7 +655,9 @@ def get_posts_for_user(request, username, batch):
         posts_data = [
             {
                 Fields.post_identifier: post.post_identifier,
-                Fields.image_url: post.image_url
+                Fields.image_url: post.image_url,
+                Fields.caption: post.caption,
+                Fields.author_username: target_user.username
             }
             for post in batched_posts
         ]
@@ -971,6 +975,8 @@ def get_users_matching_fragment(request, username_fragment):
     if not is_valid_pattern(username_fragment, Patterns.short_alphanumeric):
         return JsonResponse({'error': "Invalid username fragment"}, status=404)
 
+    # We only get the first 10 users because we don't support endlessly scrolling through
+    # user results in the search bar.
     users = PositiveOnlySocialUser.objects.filter(
         username__istartswith=username_fragment
     ).exclude(pk=request.user.pk)[:10]

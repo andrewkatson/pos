@@ -22,11 +22,20 @@ class ProfileViewModel: ObservableObject {
     // Private state for pagination and API
     private var batch = 0
     private let api: APIProtocol
+    private let keychainHelper: KeychainHelperProtocol
+    private let account: String
+    
     let user: User // The user this profile is for
 
-    init(user: User, api: APIProtocol) {
+    convenience init(user: User, api: APIProtocol, keychainHelper: KeychainHelperProtocol) {
+        self.init(user: user, api: api, keychainHelper: keychainHelper, account: "userSessionToken")
+    }
+    
+    init(user: User, api: APIProtocol, keychainHelper: KeychainHelperProtocol, account: String) {
         self.user = user
         self.api = api
+        self.keychainHelper = keychainHelper
+        self.account = account
     }
     
     /// Fetches the next batch of posts for the current user.
@@ -38,11 +47,11 @@ class ProfileViewModel: ObservableObject {
         
         Task {
             do {
-                let sessionToken = try KeychainHelper.shared.load(String.self, from: "positive-only-social.Positive-Only-Social", account: "userSessionToken") ?? ""
+                let userSession = try keychainHelper.load(UserSession.self, from: "positive-only-social.Positive-Only-Social", account: account) ?? UserSession(sessionToken: "123", username: "test", isIdentityVerified: false)
                 
                 // Call the API endpoint we defined in the Django views
                 let responseData = try await api.getPostsForUser(
-                    sessionManagementToken: sessionToken,
+                    sessionManagementToken: userSession.sessionToken,
                     username: user.username,
                     batch: batch
                 )
@@ -75,9 +84,9 @@ class ProfileViewModel: ObservableObject {
         
         Task {
             do {
-                let token = try KeychainHelper.shared.load(String.self, from: "positive-only-social.Positive-Only-Social", account: "userSessionToken") ?? ""
-
-                let responseData = try await api.getProfileDetails(sessionManagementToken: token, username: user.username)
+                let userSession = try keychainHelper.load(UserSession.self, from: "positive-only-social.Positive-Only-Social", account: account) ?? UserSession(sessionToken: "123", username: "test", isIdentityVerified: false)
+                
+                let responseData = try await api.getProfileDetails(sessionManagementToken: userSession.sessionToken, username: user.username)
                 
                 let wrapper = try JSONDecoder().decode(APIWrapperResponse.self, from: responseData)
                 guard let innerData = wrapper.responseList.data(using: .utf8) else { return }
@@ -99,7 +108,8 @@ class ProfileViewModel: ObservableObject {
             
             Task {
                 do {
-                    let token = try KeychainHelper.shared.load(String.self, from: "positive-only-social.Positive-Only-Social", account: "userSessionToken") ?? ""
+                    let userSession = try keychainHelper.load(UserSession.self, from: "positive-only-social.Positive-Only-Social", account: account) ?? UserSession(sessionToken: "123", username: "test", isIdentityVerified: false)
+                    let token = userSession.sessionToken
                     if isFollowing {
                         // If we are following, unfollow
                         let _ = try await api.unfollowUser(sessionManagementToken: token, username: user.username)

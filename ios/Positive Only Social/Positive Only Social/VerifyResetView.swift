@@ -21,6 +21,7 @@ struct VerifyResetView: View {
     
     // The new API service
     let api: APIProtocol
+    let keychainHelper: KeychainHelperProtocol
     
     var body: some View {
         ZStack {
@@ -60,7 +61,7 @@ struct VerifyResetView: View {
             Text(message)
         }
         .navigationDestination(isPresented: $didVerifySuccessfully) {
-            ResetPasswordView(usernameOrEmail: usernameOrEmail, api: api)
+            ResetPasswordView(usernameOrEmail: usernameOrEmail, api: api, keychainHelper: keychainHelper)
         }
     }
     
@@ -95,5 +96,5 @@ struct VerifyResetView: View {
 }
 
 #Preview {
-    VerifyResetView(usernameOrEmail: "test", api: StatefulStubbedAPI())
+    VerifyResetView(usernameOrEmail: "test", api: StatefulStubbedAPI(), keychainHelper: KeychainHelper())
 }

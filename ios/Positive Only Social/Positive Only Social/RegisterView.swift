@@ -12,6 +12,7 @@ import SwiftUI
 struct RegisterView: View {
     // Dependencies passed from the parent view
     let api: APIProtocol
+    let keychainHelper: KeychainHelperProtocol
     
     // MARK: Envrionment Properties
     @EnvironmentObject var authManager: AuthenticationManager
@@ -142,7 +143,7 @@ struct RegisterView: View {
                 }
 
                 // Securely save the new session token to the Keychain
-                authManager.login(with: loginDetails.sessionManagementToken)
+                authManager.login(with: UserSession(sessionToken: loginDetails.sessionManagementToken, username: username, isIdentityVerified: false))
 
                 print("✅ Registration successful. Session token stored.")
 
@@ -165,7 +166,7 @@ struct RegisterView: View {
     // Provide a constant binding for the preview to work
     @Previewable @State var path = NavigationPath()
     
-    return NavigationStack(path: $path) {
-        RegisterView(api: StatefulStubbedAPI(), path: $path)
+    NavigationStack(path: $path) {
+        RegisterView(api: StatefulStubbedAPI(), keychainHelper: KeychainHelper(), path: $path)
     }
 }

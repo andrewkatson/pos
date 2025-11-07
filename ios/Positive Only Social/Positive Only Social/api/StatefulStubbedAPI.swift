@@ -1,5 +1,10 @@
 import Foundation
 
+// Define a custom error to make debugging easier
+struct SerializationError: Error, LocalizedError {
+    var errorDescription: String? = "Failed to convert inner JSON data to a UTF-8 string."
+}
+
 // MARK: - In-Memory Data Models
 // These structs simulate the Django database models.
 
@@ -83,6 +88,8 @@ final class StatefulStubbedAPI: APIProtocol {
     public var pageSize = 2 // Make this small for easier testing
     public private(set) var getPostsInFeedCallCount = 0
     public private(set) var getPostsForFollowedUsersCallCount = 0
+    public private(set) var getPostsForUserCallCount = 0
+    public private(set) var getUsersMatchingFragmentCallCount = 0
 
     // MARK: - Private Finders
     private func findUser(byUsernameOrEmail id: String) -> MockUser? { users.first { $0.username == id || $0.email == id } }
@@ -102,18 +109,34 @@ final class StatefulStubbedAPI: APIProtocol {
     }
 
     // MARK: - Private Helpers
+    /// Creates a "single item" response, like for registration.
+    /// This is now just a helper that calls the list function.
     private func createSerializedResponse<T: Codable>(fields: T) throws -> Data {
-        let serializedObject = DjangoSerializedObject(fields: fields)
-        let serializedListData = try JSONEncoder().encode([serializedObject])
-        let listString = String(data: serializedListData, encoding: .utf8)!
-        return try JSONEncoder().encode(["response_list": listString])
+        return try createSerializedListResponse(fieldsList: [fields])
     }
-    
+
+    /// Creates a "list" response, which is the base for all your stubbed responses.
     private func createSerializedListResponse<T: Codable>(fieldsList: [T]) throws -> Data {
-        let serializedObjects = fieldsList.map { DjangoSerializedObject(fields: $0) }
-        let serializedListData = try JSONEncoder().encode(serializedObjects)
-        let listString = String(data: serializedListData, encoding: .utf8)!
-        return try JSONEncoder().encode(["response_list": listString])
+        
+        // 1. Create the array of "inner" objects, now including the model
+        let serializedObjects = fieldsList.map {
+            DjangoSerializedObject(fields: $0)
+        }
+        
+        let encoder = JSONEncoder()
+
+        // 2. Encode the inner array ([DjangoSerializedObject]) into Data
+        let innerData = try encoder.encode(serializedObjects)
+
+        // 3. Convert that inner Data into a String (SAFELY)
+        //    This is the fix for your `!` crash.
+        guard let innerString = String(data: innerData, encoding: .utf8) else {
+            throw SerializationError()
+        }
+
+        // 4. Encode the final outer wrapper: {"response_list": "..."}
+        let outerWrapper = ["response_list": innerString]
+        return try encoder.encode(outerWrapper)
     }
 
     private func createEmptySuccessResponse() throws -> Data {
@@ -382,14 +405,50 @@ final class StatefulStubbedAPI: APIProtocol {
     }
 
     func getPostsForUser(sessionManagementToken: String, username: String, batch: Int) async throws -> Data {
+        getPostsForUserCallCount += 1
         await simulateNetwork()
-        guard findUser(bySessionToken: sessionManagementToken) != nil else { throw APIError.badServerResponse(statusCode: 400) }
-        guard let targetUser = findUser(byUsername: username) else { throw APIError.badServerResponse(statusCode: 400) }
-        let relevantPosts = posts.filter { $0.authorId == targetUser.id && !$0.isHidden }
-        if relevantPosts.isEmpty { throw APIError.badServerResponse(statusCode: 400) }
         
-        struct Fields: Codable { let post_identifier: String; let image_url: String }
-        let fieldObjects = relevantPosts.map { Fields(post_identifier: $0.postIdentifier, image_url: $0.imageURL) }
+        guard findUser(bySessionToken: sessionManagementToken) != nil else {
+            throw APIError.badServerResponse(statusCode: 400)
+        }
+        guard let targetUser = findUser(byUsername: username) else {
+            throw APIError.badServerResponse(statusCode: 400)
+        }
+        
+        let relevantPosts = posts
+            .filter { $0.authorId == targetUser.id && !$0.isHidden }
+            .sorted { $0.createdDate > $1.createdDate } // Sort newest first
+
+        // --- PAGINATION LOGIC ---
+        let startIndex = batch * pageSize
+        guard startIndex < relevantPosts.count else {
+            // Return an empty list, NOT an error
+            return try createSerializedListResponse(fieldsList: [Fields]())
+        }
+        
+        let endIndex = min(startIndex + pageSize, relevantPosts.count)
+        let paginatedPosts = Array(relevantPosts[startIndex..<endIndex])
+        // --- END PAGINATION LOGIC ---
+
+        // (Note: Added `caption` to prevent decoding errors)
+        struct Fields: Codable {
+            let post_identifier: String
+            let image_url: String
+            let caption: String
+            let authorUsername: String
+        }
+        
+        let fieldObjects = paginatedPosts.map {
+            let post = $0
+            let authorUsername = users.first(where: { $0.id == post.authorId })?.username ?? "Unknown User"
+            return Fields(
+                post_identifier: $0.postIdentifier,
+                image_url: $0.imageURL,
+                caption: $0.caption,
+                authorUsername: authorUsername
+            )
+        }
+        
         return try createSerializedListResponse(fieldsList: fieldObjects)
     }
 
@@ -509,8 +568,11 @@ final class StatefulStubbedAPI: APIProtocol {
     }
 
     func getUsersMatchingFragment(sessionManagementToken: String, usernameFragment: String) async throws -> Data {
+        getUsersMatchingFragmentCallCount += 1
         await simulateNetwork()
-        guard findUser(bySessionToken: sessionManagementToken) != nil else { throw APIError.badServerResponse(statusCode: 400) }
+        guard findUser(bySessionToken: sessionManagementToken) != nil else {
+            throw APIError.badServerResponse(statusCode: 400)
+        }
         let matchingUsers = users.filter { $0.username.lowercased().starts(with: usernameFragment.lowercased()) }
         
         struct Fields: Codable { let username: String; let identity_is_verified: Bool }

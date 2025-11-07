@@ -12,6 +12,8 @@ import Combine
 final class HomeViewModel: ObservableObject {
     // MARK: - Properties
     private let api: APIProtocol
+    private let keychainHelper: KeychainHelperProtocol
+    private let account: String
     
     // Data for the view
     @Published var userPosts: [Post] = []
@@ -28,8 +30,14 @@ final class HomeViewModel: ObservableObject {
     private var searchCancellable: AnyCancellable?
 
     // MARK: - Initializer
-    init(api: APIProtocol) {
+    convenience init(api: APIProtocol, keychainHelper: KeychainHelperProtocol) {
+        self.init(api: api, keychainHelper: keychainHelper, account: "userSessionToken")
+    }
+    
+    init(api: APIProtocol, keychainHelper: KeychainHelperProtocol, account: String) {
         self.api = api
+        self.keychainHelper = keychainHelper
+        self.account = account
         
         // This subscriber automatically triggers a search when the user stops typing.
         searchCancellable = $searchText
@@ -51,13 +59,10 @@ final class HomeViewModel: ObservableObject {
         
         Task {
             do {
-                // In a real app, you'd get the username from a profile object.
-                // Here, we'll assume a logged-in user for the stubbed API.
-                let myUsername = "testuser" // Placeholder
-                let sessionToken = try KeychainHelper.shared.load(String.self, from: "positive-only-social.Positive-Only-Social", account: "userSessionToken") ?? ""
+                let user = try keychainHelper.load(UserSession.self, from: "positive-only-social.Positive-Only-Social", account: account) ?? UserSession(sessionToken: "123", username: "test", isIdentityVerified: false)
 
                 // Call the API
-                let newPosts = try await fetchPosts(for: myUsername, token: sessionToken, page: currentPage)
+                let newPosts = try await fetchPosts(for: user.username, token: user.sessionToken, page: currentPage)
 
                 if newPosts.isEmpty {
                     // No more posts to load
@@ -69,6 +74,7 @@ final class HomeViewModel: ObservableObject {
                 
             } catch {
                 self.errorMessage = error.localizedDescription
+                print(error)
             }
             
             self.isLoadingNextPage = false
@@ -87,10 +93,12 @@ final class HomeViewModel: ObservableObject {
         
         Task {
             do {
-                let sessionToken = try KeychainHelper.shared.load(String.self, from: "positive-only-social.Positive-Only-Social", account: "userSessionToken") ?? ""
-                self.searchedUsers = try await searchForUsers(fragment: query, token: sessionToken)
+                let userSession = try keychainHelper.load(UserSession.self, from: "positive-only-social.Positive-Only-Social", account: account) ?? UserSession(sessionToken: "123", username: "test", isIdentityVerified: false)
+                
+                self.searchedUsers = try await searchForUsers(fragment: query, token: userSession.sessionToken)
             } catch {
                 self.errorMessage = error.localizedDescription
+                print(error)
             }
         }
     }

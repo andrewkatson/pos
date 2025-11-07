@@ -12,52 +12,86 @@ import Combine
 final class AuthenticationManager: ObservableObject {
     @Published var isLoggedIn: Bool = false
     
+    // This is the new source of truth for the session data
+    @Published var session: UserSession?
+    
     // Unique identifiers for Keychain
     private let keychainService = "positive-only-social.Positive-Only-Social"
     private let sessionAccount = "userSessionToken"
     
-    init() {
+    private let keychainHelper: KeychainHelperProtocol
+    
+    // A private lock to ensure thread-safe access to the keychain.
+    private let lock = NSLock()
+    
+    // Keep a default init
+    convenience init() {
+        // By default, do not try to auto-login
+        // since UI and app runs will know they are not unit tests
+        // and pass true to shouldAutoLogin
+        self.init(shouldAutoLogin: false, keychainHelper: KeychainHelper())
+    }
+    
+    init(shouldAutoLogin: Bool, keychainHelper: KeychainHelperProtocol) {
+        self.keychainHelper = keychainHelper
+        
         // Check for a session token when the app starts
-        checkInitialState()
+        if shouldAutoLogin {
+            checkInitialState()
+        } else {
+            self.session = nil
+            self.isLoggedIn = false
+        }
     }
     
     private func checkInitialState() {
         do {
-            // If we can successfully load a token, the user is logged in.
-            if let token = try KeychainHelper.shared.load(String.self, from: keychainService, account: sessionAccount) {
-                isLoggedIn = !token.isEmpty
+            // Try to load the *entire* session object
+            if let loadedSession = try keychainHelper.load(UserSession.self, from: keychainService, account: sessionAccount) {
+                // We're logged in, and we have the user data
+                self.session = loadedSession
+                self.isLoggedIn = true
             } else {
-                isLoggedIn = false
+                // No session object found
+                self.session = nil
+                self.isLoggedIn = false
             }
         } catch {
-            isLoggedIn = false
+            self.session = nil
+            self.isLoggedIn = false
         }
     }
- 
-    func login(with token: String) {
-        Task {
-            do {
-                // 1. Save the token securely
-                try KeychainHelper.shared.save(token, for: keychainService, account: sessionAccount)
-                
-                // 2. Update the state to refresh the UI
-                isLoggedIn = true
-                
-            } catch {
-                // If saving fails, don't log the user in
-                print("Failed to save token to keychain: \(error)")
-                isLoggedIn = false
-            }
+    
+    /// Call this after your API login call succeeds
+    func login(with sessionData: UserSession) {
+        
+        // --- Acquire lock for thread-safety ---
+        lock.lock()
+        // --- Ensure lock is released on exit, even if an error is thrown ---
+        defer { lock.unlock() }
+        
+        do {
+            // Save the *entire* session object to the Keychain
+            try keychainHelper.save(sessionData, for: keychainService, account: sessionAccount)
+            
+            // Publish the new session and state
+            self.session = sessionData
+            self.isLoggedIn = true
+            
+        } catch {
+            print("Failed to save session: \(error)")
+            // Handle error (e.g., show an alert)
         }
     }
     
     func logout() {
         Task {
-            // Clear the token from the Keychain
-            try? KeychainHelper.shared.delete(service: keychainService, account: sessionAccount)
+            // Delete the *entire* session object
+            try? keychainHelper.delete(service: keychainService, account: sessionAccount)
             
-            // Update the published property to trigger a UI change
-            isLoggedIn = false
+            // Clear the published properties
+            self.session = nil
+            self.isLoggedIn = false
         }
     }
 }

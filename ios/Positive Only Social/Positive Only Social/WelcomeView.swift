@@ -14,6 +14,7 @@ fileprivate enum AuthState {
 
 struct WelcomeView: View {
     let api: APIProtocol
+    let keychainHelper: KeychainHelperProtocol
     
     // MARK: Envrionment Properties
     @EnvironmentObject var authManager: AuthenticationManager
@@ -50,11 +51,11 @@ struct WelcomeView: View {
             .navigationDestination(for: String.self) { routeName in
                 switch routeName {
                 case "LoginView":
-                    LoginView(api: api)
+                    LoginView(api: api, keychainHelper: keychainHelper)
                 case "RegisterView":
-                    RegisterView(api: api, path: $path)
+                    RegisterView(api: api, keychainHelper: keychainHelper, path: $path)
                 case "HomeView":
-                    HomeView(api: api)
+                    HomeView(api: api, keychainHelper: keychainHelper)
                 default:
                     Text("Unknown Route")
                 }
@@ -71,7 +72,7 @@ struct WelcomeView: View {
             
             do {
                 // 1. Try to load "Remember Me" tokens from Keychain
-                guard let tokens = try KeychainHelper.shared.load(RememberMeTokens.self, from: keychainService, account: rememberMeAccount) else {
+                guard let tokens = try keychainHelper.load(RememberMeTokens.self, from: keychainService, account: rememberMeAccount) else {
                     // No tokens found, user needs to log in manually.
                     authState = .needsAuth
                     return
@@ -93,12 +94,14 @@ struct WelcomeView: View {
                 guard let loginDetails = loginResponseArray.first?.fields else { throw URLError(.cannotDecodeContentData) }
 
                 // 4. Securely save the new session token
-                authManager.login(with: loginDetails.sessionManagementToken)
+                let oldSession = authManager.session
+                let userSession = UserSession(sessionToken: loginDetails.sessionManagementToken, username: oldSession?.username ?? "test", isIdentityVerified: oldSession?.isIdentityVerified ?? false)
+                authManager.login(with: userSession)
                 
                 // 5. Update the "Remember Me" tokens in the Keychain with the refreshed cookie token
                 if let newCookieToken = loginDetails.loginCookieToken {
                     let newTokens = RememberMeTokens(seriesId: tokens.seriesId, cookieToken: newCookieToken)
-                    try KeychainHelper.shared.save(newTokens, for: keychainService, account: rememberMeAccount)
+                    try keychainHelper.save(newTokens, for: keychainService, account: rememberMeAccount)
                 }
                 
                 print("✅ Remember Me login successful!")
@@ -110,8 +113,8 @@ struct WelcomeView: View {
                 // If anything fails (no tokens, invalid tokens, network error),
                 // clear old data and show the manual login screen.
                 print("🔴 Remember Me login failed: \(error.localizedDescription)")
-                try? KeychainHelper.shared.delete(service: keychainService, account: rememberMeAccount)
-                try? KeychainHelper.shared.delete(service: keychainService, account: sessionAccount)
+                try? keychainHelper.delete(service: keychainService, account: rememberMeAccount)
+                try? keychainHelper.delete(service: keychainService, account: sessionAccount)
                 authState = .needsAuth
             }
         }
@@ -148,5 +151,5 @@ struct NeedsAuthView: View {
 
 #Preview {
     // You can test different states by passing in a pre-configured stub
-    WelcomeView(api: StatefulStubbedAPI())
+    WelcomeView(api: StatefulStubbedAPI(), keychainHelper: KeychainHelper())
 }

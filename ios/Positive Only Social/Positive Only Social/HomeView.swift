@@ -10,39 +10,41 @@ import SwiftUI
 struct HomeView: View {
     
     let api: APIProtocol
+    let keychainHelper: KeychainHelperProtocol
     
     // The ViewModel is the single source of truth for this view's state.
     @StateObject private var viewModel: HomeViewModel
-
-    init(api: APIProtocol) {
+    
+    init(api: APIProtocol, keychainHelper: KeychainHelperProtocol) {
         // We use _viewModel because we are initializing a @StateObject property
-        _viewModel = StateObject(wrappedValue: HomeViewModel(api: api))
+        _viewModel = StateObject(wrappedValue: HomeViewModel(api: api, keychainHelper: keychainHelper))
         
         self.api = api
+        self.keychainHelper = keychainHelper
     }
 
     var body: some View {
             TabView {
                 // Tab 1: User's personal post grid
-                MyPostsGridView(api: api)
+                MyPostsGridView(api: api, keychainHelper: keychainHelper)
                     .tabItem {
                         Label("Home", systemImage: "house.fill")
                     }
                 
                 // Tab 2: Global feed view
-                FeedView(api: api)
+                FeedView(api: api, keychainHelper: keychainHelper)
                     .tabItem {
                         Label("Feed", systemImage: "list.bullet")
                     }
                 
                 // Tab 3: New post creation view
-                NewPostView(api: api)
+                NewPostView(api: api, keychainHelper: keychainHelper)
                     .tabItem {
                         Label("Post", systemImage: "plus.square")
                     }
                 
                 // Tab 4: Settings view with logout
-                SettingsView(api: api)
+                SettingsView(api: api, keychainHelper: keychainHelper)
                     .tabItem {
                         Label("Settings", systemImage: "gear")
                     }
@@ -54,6 +56,7 @@ struct HomeView: View {
 // This sub-view contains the user's post grid and search logic
 struct MyPostsGridView: View {
     let api: APIProtocol
+    let keychainHelper: KeychainHelperProtocol
     @EnvironmentObject private var viewModel: HomeViewModel
     @Environment(\.isSearching) private var isSearching
 
@@ -102,7 +105,7 @@ struct MyPostsGridView: View {
                     }
                 }
                 .navigationDestination(for: User.self) { user in
-                    ProfileView(user: user, api: api)
+                    ProfileView(user: user, api: api, keychainHelper: keychainHelper)
                 }
             }
         }
@@ -137,5 +140,5 @@ struct UserSearchResultsView: View {
 
 
 #Preview {
-    HomeView(api: StatefulStubbedAPI())
+    HomeView(api: StatefulStubbedAPI(), keychainHelper: KeychainHelper())
 }

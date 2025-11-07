@@ -1,0 +1,42 @@
+{
+  "configurations" : [
+    {
+      "id" : "2CD2E5C6-1C82-4D0F-A9D2-4A432D1647CB",
+      "name" : "Test Scheme Action",
+      "options" : {
+
+      }
+    }
+  ],
+  "defaultOptions" : {
+    "commandLineArgumentEntries" : [
+
+    ],
+    "performanceAntipatternCheckerEnabled" : true,
+    "targetForVariableExpansion" : {
+      "containerPath" : "container:Positive Only Social.xcodeproj",
+      "identifier" : "248836D22E6282C3002D47F1",
+      "name" : "Positive Only Social"
+    },
+    "testExecutionOrdering" : "random"
+  },
+  "testTargets" : [
+    {
+      "parallelizable" : true,
+      "target" : {
+        "containerPath" : "container:Positive Only Social.xcodeproj",
+        "identifier" : "248836DF2E6282C5002D47F1",
+        "name" : "Positive Only SocialTests"
+      }
+    },
+    {
+      "parallelizable" : true,
+      "target" : {
+        "containerPath" : "container:Positive Only Social.xcodeproj",
+        "identifier" : "248836E92E6282C5002D47F1",
+        "name" : "Positive Only SocialUITests"
+      }
+    }
+  ],
+  "version" : 1
+}

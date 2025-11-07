@@ -32,9 +32,9 @@ struct ProfileView: View {
     // Grid layout, same as in HomeView
     private let columns: [GridItem] = Array(repeating: .init(.flexible()), count: 3)
 
-    init(user: User, api: APIProtocol) {
+    init(user: User, api: APIProtocol, keychainHelper: KeychainHelperProtocol) {
         // Initialize the StateObject with the user and API
-        _viewModel = StateObject(wrappedValue: ProfileViewModel(user: user, api: api))
+        _viewModel = StateObject(wrappedValue: ProfileViewModel(user: user, api: api, keychainHelper: keychainHelper))
     }
 
     var body: some View {
@@ -127,5 +127,5 @@ struct ProfileView: View {
 }
 
 #Preview {
-    ProfileView(user: User(username: "test", identityIsVerified: true), api: StatefulStubbedAPI())
+    ProfileView(user: User(username: "test", identityIsVerified: true), api: StatefulStubbedAPI(), keychainHelper: KeychainHelper())
 }

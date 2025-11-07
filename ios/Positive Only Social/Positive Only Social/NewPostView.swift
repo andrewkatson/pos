@@ -10,6 +10,7 @@ import SwiftUI
 
 struct NewPostView: View {
     let api: APIProtocol
+    let keychainHelper: KeychainHelperProtocol
     // Create an instance of the S3Uploader
     private let s3Uploader = S3Uploader()
 
@@ -91,16 +92,12 @@ struct NewPostView: View {
                 )
 
                 // 2. SEND THE S3 URL TO YOUR BACKEND
-                let token =
-                    try KeychainHelper.shared.load(
-                        String.self,
-                        from: "positive-only-social.Positive-Only-Social",
-                        account: "userSessionToken"
-                    ) ?? ""
+                let userSession = try keychainHelper.load(UserSession.self, from: "positive-only-social.Positive-Only-Social", account: "userSessionToken") ?? UserSession(sessionToken: "123", username: "test", isIdentityVerified: false)
+                
 
                 // Call your original API, but now with the URL from S3
                 _ = try await api.makePost(
-                    sessionManagementToken: token,
+                    sessionManagementToken: userSession.sessionToken,
                     imageURL: imageURL.absoluteString,  // Use the URL from S3
                     caption: caption
                 )
@@ -122,5 +119,5 @@ struct NewPostView: View {
 }
 
 #Preview {
-    NewPostView(api: StatefulStubbedAPI())
+    NewPostView(api: StatefulStubbedAPI(), keychainHelper: KeychainHelper())
 }

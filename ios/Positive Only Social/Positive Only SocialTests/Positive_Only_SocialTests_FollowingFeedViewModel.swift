@@ -13,28 +13,25 @@ import Foundation
 struct Positive_Only_SocialTests_FollowingFeedViewModel {
 
     // --- SUT & Stub ---
-    var sut: FollowingFeedViewModel!
     var stubAPI: StatefulStubbedAPI!
+    var keychainHelper: KeychainHelperProtocol!
     
     // --- Keychain Test Fixtures ---
     let testService = "positive-only-social.Positive-Only-Social"
-    let testAccount = "userSessionToken"
     
     // --- Test Setup ---
     
     init() {
+        keychainHelper = KeychainHelper()
+        
         // This 'init' runs before *each* @Test
         stubAPI = StatefulStubbedAPI()
-        sut = FollowingFeedViewModel(api: stubAPI)
-        
-        // Clean up the keychain
-        try? KeychainHelper.shared.delete(service: testService, account: testAccount)
     }
 
     // --- Test Helpers ---
     
     private func yield() async {
-        try? await Task.sleep(nanoseconds: 2_000_000_000) // 2 seconds
+        try? await Task.sleep(nanoseconds: 1_000_000_000) // 1 seconds
     }
     
     /// Helper to register a user with the stub API and return their session token.
@@ -53,9 +50,12 @@ struct Positive_Only_SocialTests_FollowingFeedViewModel {
 
     // --- Test Cases ---
     @Test func testFetchFollowingFeed_UserNotFollowingAnyone_IsEmpty() async throws {
+        let sut = FollowingFeedViewModel(api: stubAPI, keychainHelper: keychainHelper, account: "fetchFollowingFeedUserNotFollowingAnyone")
+
         // Given: A user is logged in
         let userAToken = try await registerUserAndGetToken(username: "userA")
-        try KeychainHelper.shared.save(userAToken, for: testService, account: testAccount)
+        let userSession = UserSession(sessionToken: userAToken, username: "userA", isIdentityVerified: false)
+        try keychainHelper.save(userSession, for: testService, account: "fetchFollowingFeedUserNotFollowingAnyone")
         
         // And: Another user posts, but our user *does not* follow them
         let userBToken = try await registerUserAndGetToken(username: "userB")
@@ -73,9 +73,12 @@ struct Positive_Only_SocialTests_FollowingFeedViewModel {
     }
     
     @Test func testFetchFollowingFeed_WhileAlreadyLoading_DoesNotFetch() async throws {
+        let sut = FollowingFeedViewModel(api: stubAPI, keychainHelper: keychainHelper, account: "fetchFollowingFeedWhileAlreadyLoading")
+        
         // Given: A user is logged in
         let userAToken = try await registerUserAndGetToken(username: "userA")
-        try KeychainHelper.shared.save(userAToken, for: testService, account: testAccount)
+        let userSession = UserSession(sessionToken: userAToken, username: "userA", isIdentityVerified: false)
+        try keychainHelper.save(userSession, for: testService, account: "fetchFollowingFeedWhileAlreadyLoading")
         
         // And: The viewmodel is *already* loading
         sut.isLoadingNextPage = true
@@ -90,6 +93,8 @@ struct Positive_Only_SocialTests_FollowingFeedViewModel {
     }
     
     @Test func testFetchFollowingFeed_NoTokenInKeychain_Fails() async throws {
+        let sut = FollowingFeedViewModel(api: stubAPI, keychainHelper: keychainHelper, account: "fetchFollowingFeedKeychainEmpty")
+        
         // Given: The keychain is empty (guaranteed by init())
         
         // When: We fetch the feed
@@ -102,11 +107,14 @@ struct Positive_Only_SocialTests_FollowingFeedViewModel {
     }
     
     @Test func testFetchFollowingFeed_Pagination_FetchesPagesAndStops() async throws {
+        let sut = FollowingFeedViewModel(api: stubAPI, keychainHelper: keychainHelper, account: "fetchFollowingFeedPagination")
+        
         // Given: We have a user and set the API page size to 2
         stubAPI.pageSize = 2
         let userAToken = try await registerUserAndGetToken(username: "userA")
         let userBToken = try await registerUserAndGetToken(username: "userB")
-        try KeychainHelper.shared.save(userAToken, for: testService, account: testAccount)
+        let userSession = UserSession(sessionToken: userAToken, username: "userA", isIdentityVerified: false)
+        try keychainHelper.save(userSession, for: testService, account: "fetchFollowingFeedPagination")
 
         // And: User A follows User B
         _ = try await stubAPI.followUser(sessionManagementToken: userAToken, username: "userB")

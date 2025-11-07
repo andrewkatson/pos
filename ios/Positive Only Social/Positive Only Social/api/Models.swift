@@ -86,3 +86,10 @@ struct ProfileDetailsResponse: Codable, Identifiable, Hashable {
         case isFollowing = "is_following"
     }
 }
+
+// The user session we can save and load
+struct UserSession: Codable, Equatable {
+    let sessionToken: String
+    let username: String
+    let isIdentityVerified: Bool
+}

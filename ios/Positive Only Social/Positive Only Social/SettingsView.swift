@@ -14,8 +14,8 @@ struct SettingsView: View {
     // The ViewModel manages the state and logic for this view.
     @StateObject private var viewModel: SettingsViewModel
     
-    init(api: APIProtocol) {
-        _viewModel = StateObject(wrappedValue: SettingsViewModel(api: api))
+    init(api: APIProtocol, keychainHelper: KeychainHelperProtocol) {
+        _viewModel = StateObject(wrappedValue: SettingsViewModel(api: api, keychainHelper: keychainHelper))
     }
     
     var body: some View {
@@ -69,6 +69,6 @@ struct SettingsView: View {
 
 #Preview {
     // The preview needs the authManager in its environment to work correctly.
-    SettingsView(api: StatefulStubbedAPI())
+    SettingsView(api: StatefulStubbedAPI(), keychainHelper: KeychainHelper())
         .environmentObject(AuthenticationManager())
 }

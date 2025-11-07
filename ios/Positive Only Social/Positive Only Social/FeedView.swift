@@ -20,9 +20,9 @@ struct FeedView: View {
     // State to track the selected top tab
     @State private var selectedFeed: FeedType = .forYou
     
-    init(api: APIProtocol) {
-        _forYouViewModel = StateObject(wrappedValue: FeedViewModel(api: api))
-        _followingViewModel = StateObject(wrappedValue: FollowingFeedViewModel(api: api))
+    init(api: APIProtocol, keychainHelper: KeychainHelperProtocol) {
+        _forYouViewModel = StateObject(wrappedValue: FeedViewModel(api: api, keychainHelper: keychainHelper))
+        _followingViewModel = StateObject(wrappedValue: FollowingFeedViewModel(api: api, keychainHelper: keychainHelper))
     }
     
     var body: some View {
@@ -159,5 +159,5 @@ struct FollowingFeedView: View {
 
 // MARK: - Preview
 #Preview {
-    FeedView(api: StatefulStubbedAPI())
+    FeedView(api: StatefulStubbedAPI(), keychainHelper: KeychainHelper())
 }

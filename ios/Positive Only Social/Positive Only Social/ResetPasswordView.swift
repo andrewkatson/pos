@@ -24,6 +24,7 @@ struct ResetPasswordView: View {
     
     // The new API service
     let api: APIProtocol
+    let keychainHelper: KeychainHelperProtocol
     
     var body: some View {
         ZStack {
@@ -61,7 +62,7 @@ struct ResetPasswordView: View {
             }
         }
         .navigationDestination(isPresented: $didResetSuccessfully) {
-            HomeView(api: api)
+            HomeView(api: api, keychainHelper: keychainHelper)
         }
         .alert("Error", isPresented: $showingErrorAlert, presenting: errorMessage) { _ in
             Button("OK") { }
@@ -99,5 +100,5 @@ struct ResetPasswordView: View {
 }
 
 #Preview {
-    ResetPasswordView(usernameOrEmail: "test", api: StatefulStubbedAPI())
+    ResetPasswordView(usernameOrEmail: "test", api: StatefulStubbedAPI(), keychainHelper: KeychainHelper())
 }

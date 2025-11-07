@@ -8,16 +8,29 @@
 import Foundation
 import Security
 
-/// A class to provide simple, generic, and secure access to the iOS Keychain.
-final class KeychainHelper {
+protocol KeychainHelperProtocol {
+    func save<T: Codable>(_ value: T, for service: String, account: String) throws
     
-    // MARK: - Singleton
-    static let shared = KeychainHelper()
+    func load<T: Codable>(_ type: T.Type, from service: String, account: String) throws -> T?
+    
+    func delete(service: String, account: String) throws
+}
+
+/// A class to provide simple, generic, and secure access to the iOS Keychain.
+final class KeychainHelper : KeychainHelperProtocol {
     
     // A private lock to ensure thread-safe access to the keychain.
     private let lock = NSLock()
+
+    let testAccount : String
     
-    private init() {}
+    convenience init() {
+        self.init(testAccount: "testAccount")
+    }
+    
+    init(testAccount: String) {
+        self.testAccount = testAccount
+    }
 
     // MARK: - Public Methods
 

@@ -13,58 +13,32 @@ import Foundation
 struct Positive_Only_SocialTests_FeedViewModel {
 
     // --- SUT & Mocks ---
-    var sut: FeedViewModel!
     var stubAPI: StatefulStubbedAPI!
+    var keychainHelper: KeychainHelperProtocol!
     
     // --- Keychain Test Fixtures ---
     let testService = "positive-only-social.Positive-Only-Social"
-    let testAccount = "userSessionToken"
     let testToken = "dummy-test-token-123"
-
-    // --- Helper for creating realistic mock data ---
-    
-    /// Creates the nested JSON data exactly as the ViewModel expects.
-    private func createMockAPIResponse(posts: [Post]) throws -> Data {
-        // 1. Create the DjangoObjects (no need to enumerate; we only need the element)
-        let djangoPosts = posts.map { post in
-            DjangoObject(fields: post)
-        }
-        
-        // 2. Encode the *inner* list to a JSON string
-        let innerData = try JSONEncoder().encode(djangoPosts)
-        let innerString = String(data: innerData, encoding: .utf8)!
-        
-        // 3. Create the *outer* wrapper
-        let wrapper = APIWrapperResponse(responseList: innerString)
-        
-        // 4. Encode the final wrapper to Data
-        return try JSONEncoder().encode(wrapper)
-    }
 
     // --- Test Setup ---
     
     init() {
         // This 'init' runs before *each* @Test
+        keychainHelper = KeychainHelper()
         
         // 1. Set up the mocks
         stubAPI = StatefulStubbedAPI()
-        sut = FeedViewModel(api: stubAPI)
-        
-        // 2. Clean up the keychain
-        // This ensures each test starts in a "logged out" state.
-        try? KeychainHelper.shared.delete(service: testService, account: testAccount)
     }
     
     // A small helper to pause the test and let the ViewModel's 'Task' complete
     private func yield() async {
-        try? await Task.sleep(nanoseconds: 2_000_000_000) // 2 seconds
+        try? await Task.sleep(nanoseconds: 1_000_000_000) // 1 seconds
     }
     
     /// Helper to register a user with the stub API and return their session token.
     /// This is needed because we must decode the nested JSON response.
     private func registerUserAndGetToken(username: String) async throws -> String {
         let data = try await stubAPI.register(username: username, email: "\(username)@test.com", password: "123", rememberMe: "false", ip: "127.0.0.1")
-        
         struct RegFields: Codable { let session_management_token: String }
         struct DjangoRegObject: Codable { let fields: RegFields }
 
@@ -78,9 +52,12 @@ struct Positive_Only_SocialTests_FeedViewModel {
 
     // --- Test Cases ---
     @Test func testFetchFeed_WhenApiThrowsError_ResetsLoadingFlag() async throws {
+        let sut = FeedViewModel(api: stubAPI, keychainHelper: keychainHelper, account: "fetchFeedApiThrowsError")
+        
         // Given: A user is logged in
         let userAToken = try await registerUserAndGetToken(username: "userA")
-        try KeychainHelper.shared.save(userAToken, for: testService, account: testAccount)
+        let userSession = UserSession(sessionToken: userAToken, username: "userA", isIdentityVerified: false)
+        try keychainHelper.save(userSession, for: testService, account: "fetchFeedApiThrowsError")
         
         // And: *No one* has made any posts. The API stub will throw a 400 error.
         
@@ -98,9 +75,12 @@ struct Positive_Only_SocialTests_FeedViewModel {
     }
     
     @Test func testFetchFeed_WhileAlreadyLoading_DoesNotFetch() async throws {
+        let sut = FeedViewModel(api: stubAPI, keychainHelper: keychainHelper, account: "fetchFeedWhileAlreadyLoading")
+        
         // Given: A user is logged in
         let userAToken = try await registerUserAndGetToken(username: "userA")
-        try KeychainHelper.shared.save(userAToken, for: testService, account: testAccount)
+        let userSession = UserSession(sessionToken: userAToken, username: "userA", isIdentityVerified: false)
+        try keychainHelper.save(userSession, for: testService, account: "fetchFeedWhileAlreadyLoading")
         
         // And: The viewmodel is *already* loading
         sut.isLoadingNextPage = true
@@ -115,6 +95,8 @@ struct Positive_Only_SocialTests_FeedViewModel {
     }
     
     @Test func testFetchFeed_NoTokenInKeychain_SendsEmptyTokenAndFails() async throws {
+        let sut = FeedViewModel(api: stubAPI, keychainHelper: keychainHelper, account: "noTokenInKeychain")
+        
         // Given: The keychain is empty (guaranteed by init())
         
         // When: We fetch the feed
@@ -131,9 +113,12 @@ struct Positive_Only_SocialTests_FeedViewModel {
     @Test func testFetchFeed_Pagination_FetchesPagesAndStopsAtEnd() async throws {
         // Given: We have a user and set the API page size to 2
         stubAPI.pageSize = 2
+        let sut = FeedViewModel(api: stubAPI, keychainHelper: keychainHelper, account: "fetchFeedPagination")
+        
         let userAToken = try await registerUserAndGetToken(username: "userA")
         let userBToken = try await registerUserAndGetToken(username: "userB")
-        try KeychainHelper.shared.save(userAToken, for: testService, account: testAccount)
+        let userSession = UserSession(sessionToken: userAToken, username: "userA", isIdentityVerified: false)
+        try keychainHelper.save(userSession, for: testService, account: "fetchFeedPagination")
 
         // And: User B creates 3 posts (which will be on 2 pages)
         _ = try await stubAPI.makePost(sessionManagementToken: userBToken, imageURL: "image.url/1", caption: "Post 1")

@@ -11,12 +11,22 @@ import Foundation
 @MainActor
 final class FollowingFeedViewModel: ObservableObject {
     private let api: APIProtocol
+    private let keychainHelper: KeychainHelperProtocol
+    private let account: String
     @Published var followingPosts: [Post] = []
     @Published var isLoadingNextPage = false
     private var canLoadMore = true
     private var currentPage = 0
     
-    init(api: APIProtocol) { self.api = api }
+    convenience init(api: APIProtocol, keychainHelper: KeychainHelperProtocol) {
+        self.init(api: api, keychainHelper: keychainHelper, account: "userSessionToken")
+    }
+    
+    init(api: APIProtocol, keychainHelper: KeychainHelperProtocol, account: String) {
+        self.api = api
+        self.keychainHelper = keychainHelper
+        self.account = account
+    }
     
     func fetchFollowingFeed() {
         guard !isLoadingNextPage && canLoadMore else { return }
@@ -24,11 +34,12 @@ final class FollowingFeedViewModel: ObservableObject {
         
         Task {
             do {
-                let token = try KeychainHelper.shared.load(String.self, from: "positive-only-social.Positive-Only-Social", account: "userSessionToken") ?? ""
+                let userSession = try keychainHelper.load(UserSession.self, from: "positive-only-social.Positive-Only-Social", account: account) ?? UserSession(sessionToken: "123", username: "test", isIdentityVerified: false)
+                
                 
                 // --- KEY CHANGE ---
                 // Call the API endpoint for followed users
-                let responseData = try await api.getPostsForFollowedUsers(sessionManagementToken: token, batch: currentPage)
+                let responseData = try await api.getPostsForFollowedUsers(sessionManagementToken: userSession.sessionToken, batch: currentPage)
                 // --- END KEY CHANGE ---
                 
                 let wrapper = try JSONDecoder().decode(APIWrapperResponse.self, from: responseData)
