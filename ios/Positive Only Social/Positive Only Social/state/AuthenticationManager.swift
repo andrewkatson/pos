@@ -24,6 +24,8 @@ final class AuthenticationManager: ObservableObject {
     // A private lock to ensure thread-safe access to the keychain.
     private let lock = NSLock()
     
+    private(set) var logoutCallCount = 0
+    
     // Keep a default init
     convenience init() {
         // By default, do not try to auto-login
@@ -85,6 +87,8 @@ final class AuthenticationManager: ObservableObject {
     }
     
     func logout() {
+        logoutCallCount += 1
+        
         Task {
             // Delete the *entire* session object
             try? keychainHelper.delete(service: keychainService, account: sessionAccount)

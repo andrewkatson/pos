@@ -8,7 +8,8 @@ struct SerializationError: Error, LocalizedError {
 // MARK: - In-Memory Data Models
 // These structs simulate the Django database models.
 
-fileprivate struct MockUser {
+// Public so the Settings tests can use it
+struct MockUser {
     let id = UUID()
     var username: String
     var email: String
@@ -22,7 +23,8 @@ fileprivate struct MockUserFollow {
     let userToId: UUID
 }
 
-fileprivate struct MockSession {
+// We let this one be seen so the Settings tests can use it
+struct MockSession {
     let managementToken: String
     let userId: UUID
     let ip: String
@@ -91,12 +93,14 @@ final class StatefulStubbedAPI: APIProtocol {
     public private(set) var getPostsForUserCallCount = 0
     public private(set) var getUsersMatchingFragmentCallCount = 0
 
+    // MARK: - Public Finders
+    func findSession(byToken token: String) -> MockSession? { sessions.first { $0.managementToken == token } }
+    func findUser(byUsername name: String) -> MockUser? { users.first { $0.username == name } }
+    
     // MARK: - Private Finders
     private func findUser(byUsernameOrEmail id: String) -> MockUser? { users.first { $0.username == id || $0.email == id } }
-    private func findUser(byUsername name: String) -> MockUser? { users.first { $0.username == name } }
     private func findUser(byEmail email: String) -> MockUser? { users.first { $0.email == email } }
     private func findUser(byUsername name: String, andEmail email: String) -> MockUser? { users.first { $0.username == name && $0.email == email } }
-    private func findSession(byToken token: String) -> MockSession? { sessions.first { $0.managementToken == token } }
     private func findUser(bySessionToken token: String) -> MockUser? {
         guard let session = findSession(byToken: token) else { return nil }
         return users.first { $0.id == session.userId }
