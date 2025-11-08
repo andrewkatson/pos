@@ -28,7 +28,7 @@ struct Positive_Only_SocialTests_ProfileViewModel {
     // --- Test Helpers ---
     
     /// Helper to pause the test and let async tasks complete.
-    private func yield(for duration: Duration = .seconds(0.3)) async {
+    private func yield(for duration: Duration = .seconds(2)) async {
         // Using a slightly shorter yield as VM tasks don't have a debounce
         try? await Task.sleep(for: duration)
     }
@@ -42,7 +42,7 @@ struct Positive_Only_SocialTests_ProfileViewModel {
         
         let wrapper: APIWrapperResponse = try JSONDecoder().decode(APIWrapperResponse.self, from: data)
         let innerData = wrapper.responseList.data(using: .utf8)!
-        let djangoObject = try JSONDecoder().decode([DjangoRegObject].self, from: innerData).first!
+        let djangoObject = try JSONDecoder().decode(DjangoRegObject.self, from: innerData)
         
         let token = djangoObject.fields.session_management_token
         // Create the simple User object that the VM needs

@@ -103,32 +103,42 @@ class ProfileViewModel: ObservableObject {
     }
     
     func toggleFollow() {
-            guard !isLoadingProfile else { return } // Use same loader
-            isLoadingProfile = true
+        guard !isLoadingProfile else { return } // Use same loader
+        isLoadingProfile = true
             
-            Task {
-                do {
-                    let userSession = try keychainHelper.load(UserSession.self, from: "positive-only-social.Positive-Only-Social", account: account) ?? UserSession(sessionToken: "123", username: "test", isIdentityVerified: false)
-                    let token = userSession.sessionToken
-                    if isFollowing {
-                        // If we are following, unfollow
-                        let _ = try await api.unfollowUser(sessionManagementToken: token, username: user.username)
-                        self.isFollowing = false
-                        // Refresh profile details instead of mutating immutable followerCount
-                        fetchProfileDetails()
-                    } else {
-                        // If we are not following, follow
-                        let _ = try await api.followUser(sessionManagementToken: token, username: user.username)
-                        self.isFollowing = true
-                        // Refresh profile details instead of mutating immutable followerCount
-                        fetchProfileDetails()
+        Task {
+            do {
+                let userSession = try keychainHelper.load(UserSession.self, from: "positive-only-social.Positive-Only-Social", account: account) ?? UserSession(sessionToken: "123", username: "test", isIdentityVerified: false)
+                let token = userSession.sessionToken
+                
+                if isFollowing {
+                    // --- Unfollow Logic ---
+                    let _ = try await api.unfollowUser(sessionManagementToken: token, username: user.username)
+                    
+                    // Update local state directly
+                    self.isFollowing = false
+                    if self.profileDetails != nil {
+                        self.profileDetails?.followerCount -= 1
                     }
-                } catch {
-                    print("Error toggling follow: \(error)")
-                    // Handle error (e.g., show alert)
+                    
+                } else {
+                    // --- Follow Logic ---
+                    let _ = try await api.followUser(sessionManagementToken: token, username: user.username)
+                    
+                    // Update local state directly
+                    self.isFollowing = true
+                    if self.profileDetails != nil {
+                        self.profileDetails?.followerCount += 1
+                    }
                 }
-                isLoadingProfile = false
+            } catch {
+                print("Error toggling follow: \(error)")
+                // Handle error (e.g., show alert)
+                // Since we update the UI *after* the await, we don't need to
+                // manually roll back the change if the API call fails.
             }
+            isLoadingProfile = false
         }
+    }
 }
 

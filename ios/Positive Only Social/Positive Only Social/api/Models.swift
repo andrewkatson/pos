@@ -72,11 +72,11 @@ struct User: Codable, Identifiable, Hashable {
 // Represents another user's profile
 struct ProfileDetailsResponse: Codable, Identifiable, Hashable {
     var id: String { username }
-    let username: String
-    let postCount: Int
-    let followerCount: Int
-    let followingCount: Int
-    let isFollowing: Bool
+    var username: String
+    var postCount: Int
+    var followerCount: Int
+    var followingCount: Int
+    var isFollowing: Bool
 
     enum CodingKeys: String, CodingKey {
         case username

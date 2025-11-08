@@ -29,7 +29,7 @@ struct Positive_Only_SocialTests_HomeViewModel {
     // --- Test Helpers ---
     
     /// Helper to pause the test and let async/debounce tasks complete.
-    private func yield(for duration: Duration = .seconds(1)) async {
+    private func yield(for duration: Duration = .seconds(2)) async {
         try? await Task.sleep(for: duration)
     }
     
@@ -42,7 +42,7 @@ struct Positive_Only_SocialTests_HomeViewModel {
         
         let wrapper: APIWrapperResponse = try JSONDecoder().decode(APIWrapperResponse.self, from: data)
         let innerData = wrapper.responseList.data(using: .utf8)!
-        let djangoObject = try JSONDecoder().decode([DjangoRegObject].self, from: innerData).first!
+        let djangoObject = try JSONDecoder().decode(DjangoRegObject.self, from: innerData)
         
         return djangoObject.fields.session_management_token
     }

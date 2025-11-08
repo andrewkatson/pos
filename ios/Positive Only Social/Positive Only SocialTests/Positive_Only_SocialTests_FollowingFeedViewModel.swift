@@ -43,7 +43,7 @@ struct Positive_Only_SocialTests_FollowingFeedViewModel {
 
         let wrapper = try JSONDecoder().decode(APIWrapperResponse.self, from: data)
         let innerData = wrapper.responseList.data(using: .utf8)!
-        let djangoObject = try JSONDecoder().decode([DjangoRegObject].self, from: innerData).first!
+        let djangoObject = try JSONDecoder().decode(DjangoRegObject.self, from: innerData)
         
         return djangoObject.fields.session_management_token
     }

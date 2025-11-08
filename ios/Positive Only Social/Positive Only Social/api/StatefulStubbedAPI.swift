@@ -114,9 +114,23 @@ final class StatefulStubbedAPI: APIProtocol {
 
     // MARK: - Private Helpers
     /// Creates a "single item" response, like for registration.
-    /// This is now just a helper that calls the list function.
     private func createSerializedResponse<T: Codable>(fields: T) throws -> Data {
-        return try createSerializedListResponse(fieldsList: [fields])
+        // 1. Create the single "inner" object
+        let serializedObject = DjangoSerializedObject(fields: fields)
+        
+        let encoder = JSONEncoder()
+
+        // 2. Encode the single object (NOT an array) into Data
+        let innerData = try encoder.encode(serializedObject)
+
+        // 3. Convert that inner Data into a String
+        guard let innerString = String(data: innerData, encoding: .utf8) else {
+            throw SerializationError()
+        }
+
+        // 4. Encode the final outer wrapper: {"response_list": "..."}
+        let outerWrapper = ["response_list": innerString]
+        return try encoder.encode(outerWrapper)
     }
 
     /// Creates a "list" response, which is the base for all your stubbed responses.
@@ -659,18 +673,18 @@ final class StatefulStubbedAPI: APIProtocol {
         // 5. Build the response data (matching the Swift struct)
         struct Fields: Codable {
             let username: String
-            let postCount: Int
-            let followerCount: Int
-            let followingCount: Int
-            let isFollowing: Bool
+            let post_count: Int
+            let follower_count: Int
+            let following_count: Int
+            let is_following: Bool
         }
         
         let fields = Fields(
             username: profileUser.username,
-            postCount: postCount,
-            followerCount: followerCount,
-            followingCount: followingCount,
-            isFollowing: isFollowing
+            post_count: postCount,
+            follower_count: followerCount,
+            following_count: followingCount,
+            is_following: isFollowing
         )
 
         // 6. Return the data using your existing helper

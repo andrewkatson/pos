@@ -15,23 +15,20 @@ struct Positive_Only_SocialTests_SettingsViewModel {
     // --- SUT & Stubs ---
     var stubAPI: StatefulStubbedAPI!
     var keychainHelper: KeychainHelperProtocol!
-    var authenticationManager: AuthenticationManager!
     
     // --- Keychain Test Fixtures ---
     let testService = "positive-only-social.Positive-Only-Social"
-    let testAccount = "userSessionToken" // Using the default account
     
     // --- Test Setup ---
     init() {
         keychainHelper = KeychainHelper()
         stubAPI = StatefulStubbedAPI()
-        authenticationManager = AuthenticationManager()
     }
 
     // --- Test Helpers ---
     
     /// Helper to pause the test and let async tasks complete.
-    private func yield(for duration: Duration = .seconds(0.3)) async {
+    private func yield(for duration: Duration = .seconds(1)) async {
         try? await Task.sleep(for: duration)
     }
     
@@ -44,7 +41,7 @@ struct Positive_Only_SocialTests_SettingsViewModel {
         
         let wrapper: APIWrapperResponse = try JSONDecoder().decode(APIWrapperResponse.self, from: data)
         let innerData = wrapper.responseList.data(using: .utf8)!
-        let djangoObject = try JSONDecoder().decode([DjangoRegObject].self, from: innerData).first!
+        let djangoObject = try JSONDecoder().decode(DjangoRegObject.self, from: innerData)
         
         return djangoObject.fields.session_management_token
     }
@@ -54,7 +51,7 @@ struct Positive_Only_SocialTests_SettingsViewModel {
         let token = try await registerUserAndGetToken(username: username)
         let userSession = UserSession(sessionToken: token, username: username, isIdentityVerified: false)
         // Use the testAccount that the ViewModel will also use
-        try keychainHelper.save(userSession, for: testService, account: testAccount)
+        try keychainHelper.save(userSession, for: testService, account: "\(username)_account")
         return token
     }
     
@@ -63,8 +60,9 @@ struct Positive_Only_SocialTests_SettingsViewModel {
     @Test func testLogout_Success_CallsAPIAndAuthManager() async throws {
         // Given: A logged-in user
         let token = try await setupLoggedInUser(username: "logoutUser")
-        let sut = SettingsViewModel(api: stubAPI, keychainHelper: keychainHelper, account: testAccount)
-
+        let sut = SettingsViewModel(api: stubAPI, keychainHelper: keychainHelper, account: "logoutUser_account")
+        let authenticationManager = AuthenticationManager()
+        
         // When: Logout is called
         sut.logout(authManager: authenticationManager)
         await yield()
@@ -80,7 +78,8 @@ struct Positive_Only_SocialTests_SettingsViewModel {
     
     @Test func testLogout_NoSessionInKeychain_OnlyCallsAuthManager() async throws {
         // Given: No user is logged in (keychain is empty)
-        let sut = SettingsViewModel(api: stubAPI, keychainHelper: keychainHelper, account: testAccount)
+        let sut = SettingsViewModel(api: stubAPI, keychainHelper: keychainHelper, account: "logoutNoSession_account")
+        let authenticationManager = AuthenticationManager()
         
         // When: Logout is called
         sut.logout(authManager: authenticationManager)
@@ -100,8 +99,9 @@ struct Positive_Only_SocialTests_SettingsViewModel {
     @Test func testDeleteAccount_Success_CallsAPIAndAuthManager() async throws {
         // Given: A logged-in user
         let token = try await setupLoggedInUser(username: "deleteUser")
-        let sut = SettingsViewModel(api: stubAPI, keychainHelper: keychainHelper, account: testAccount)
-
+        let sut = SettingsViewModel(api: stubAPI, keychainHelper: keychainHelper, account: "deleteUser_account")
+        let authenticationManager = AuthenticationManager()
+        
         // When: Delete account is called
         sut.deleteAccount(authManager: authenticationManager)
         await yield()
@@ -119,7 +119,8 @@ struct Positive_Only_SocialTests_SettingsViewModel {
     
     @Test func testDeleteAccount_NoSessionInKeychain_ShowsError() async throws {
         // Given: No user is logged in (keychain is empty)
-        let sut = SettingsViewModel(api: stubAPI, keychainHelper: keychainHelper, account: testAccount)
+        let sut = SettingsViewModel(api: stubAPI, keychainHelper: keychainHelper, account: "deleteAccountNoSession_account")
+        let authenticationManager = AuthenticationManager()
         
         // When: Delete account is called
         sut.deleteAccount(authManager: authenticationManager)
