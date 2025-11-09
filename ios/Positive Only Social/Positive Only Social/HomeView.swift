@@ -29,25 +29,25 @@ struct HomeView: View {
                 MyPostsGridView(api: api, keychainHelper: keychainHelper)
                     .tabItem {
                         Label("Home", systemImage: "house.fill")
-                    }
+                    }.accessibilityIdentifier("HomeTab")
                 
                 // Tab 2: Global feed view
                 FeedView(api: api, keychainHelper: keychainHelper)
                     .tabItem {
                         Label("Feed", systemImage: "list.bullet")
-                    }
+                    }.accessibilityIdentifier("FeedTab")
                 
                 // Tab 3: New post creation view
                 NewPostView(api: api, keychainHelper: keychainHelper)
                     .tabItem {
                         Label("Post", systemImage: "plus.square")
-                    }
+                    }.accessibilityIdentifier("PostTab")
                 
                 // Tab 4: Settings view with logout
                 SettingsView(api: api, keychainHelper: keychainHelper)
                     .tabItem {
                         Label("Settings", systemImage: "gear")
-                    }
+                    }.accessibilityIdentifier("SettingsTab")
             }
             .environmentObject(viewModel)
         }

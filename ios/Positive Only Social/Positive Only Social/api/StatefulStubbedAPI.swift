@@ -245,7 +245,8 @@ final class StatefulStubbedAPI: APIProtocol {
     func requestPasswordReset(usernameOrEmail: String) async throws -> Data {
         await simulateNetwork()
         guard let userIndex = users.firstIndex(where: { $0.username == usernameOrEmail || $0.email == usernameOrEmail }) else { throw APIError.badServerResponse(statusCode: 400) }
-        let resetId = Int.random(in: 100000...999999)
+        // We hardcode the reset id for easier testing
+        let resetId = 100000
         users[userIndex].resetId = resetId
         print("Password reset ID for \(users[userIndex].username) is: \(resetId)") // Simulate sending email
         return try createEmptySuccessResponse()

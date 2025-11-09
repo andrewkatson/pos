@@ -60,6 +60,7 @@ struct RegisterView: View {
                 .cornerRadius(10)
                 .textContentType(.username)
                 .autocapitalization(.none)
+                .accessibilityIdentifier("UsernameTextField")
 
             TextField("Email", text: $email)
                 .padding()
@@ -68,18 +69,21 @@ struct RegisterView: View {
                 .textContentType(.emailAddress)
                 .autocapitalization(.none)
                 .keyboardType(.emailAddress)
+                .accessibilityIdentifier("EmailTextField")
 
             SecureField("Password", text: $password)
                 .padding()
                 .background(Color(.systemGray6))
                 .cornerRadius(10)
                 .textContentType(.newPassword)
+                .accessibilityIdentifier("PasswordSecureField")
 
             SecureField("Confirm Password", text: $confirmPassword)
                 .padding()
                 .background(Color(.systemGray6))
                 .cornerRadius(10)
                 .textContentType(.newPassword)
+                .accessibilityIdentifier("ConfirmPasswordSecureField")
             
             // Real-time password mismatch warning
             if !isPasswordMatching {
@@ -106,6 +110,7 @@ struct RegisterView: View {
                         .cornerRadius(12)
                 }
                 .disabled(!isFormValid)
+                .accessibilityIdentifier("RegisterButton")
             }
         }
         .padding()

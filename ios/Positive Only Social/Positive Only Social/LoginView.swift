@@ -28,18 +28,21 @@ struct LoginView: View {
             VStack(spacing: 20) {
                 Image(systemName: "lock.shield.fill").font(.system(size: 80)).foregroundColor(.blue)
                 TextField("Username or Email", text: $usernameOrEmail).padding().background(Color(.systemGray6)).cornerRadius(10).textContentType(.username).autocapitalization(.none).keyboardType(.emailAddress)
+                    .accessibilityIdentifier("UsernameOrEmailTextField")
                 SecureField("Password", text: $password).padding().background(Color(.systemGray6)).cornerRadius(10).textContentType(.password)
+                    .accessibilityIdentifier("PasswordSecureField")
                 Toggle("Remember Me", isOn: $rememberMe)
+                    .accessibilityIdentifier("RememberMeToggle")
                 if isLoading { ProgressView().padding() } else {
-                    Button(action: login) { Text("Login").font(.headline).fontWeight(.semibold).foregroundColor(.white).padding().frame(maxWidth: .infinity).background(usernameOrEmail.isEmpty || password.isEmpty ? Color.gray : Color.blue).cornerRadius(12) }.disabled(usernameOrEmail.isEmpty || password.isEmpty)
+                    Button(action: login) { Text("Login").font(.headline).fontWeight(.semibold).foregroundColor(.white).padding().frame(maxWidth: .infinity).background(usernameOrEmail.isEmpty || password.isEmpty ? Color.gray : Color.blue).cornerRadius(12) }.disabled(usernameOrEmail.isEmpty || password.isEmpty).accessibilityIdentifier("LoginButton")
                 }
-                Button("Forgot Password?") { print("Forgot Password tapped.") }.frame(maxWidth: .infinity, alignment: .trailing)
+                Button("Forgot Password?") { path.append("RequestResetView") }.frame(maxWidth: .infinity, alignment: .trailing).accessibilityIdentifier("ForgotPasswordButton")
                 Spacer()
             }
             .padding()
             .navigationTitle("Login")
-            .navigationDestination(for: String.self) { routeName in if routeName == "HomeView" { HomeView(api: api, keychainHelper: keychainHelper) } }
-            .alert("Login Failed", isPresented: $showingErrorAlert) { Button("OK") {} } message: { Text(errorMessage ?? "An unknown error occurred.") }
+            .navigationDestination(for: String.self) { routeName in if routeName == "HomeView" { HomeView(api: api, keychainHelper: keychainHelper) } else if routeName == "RequestResetView" { RequestResetView(api: api, keychainHelper: keychainHelper) } }
+            .alert("Login Failed", isPresented: $showingErrorAlert) { Button("OK") {}.accessibilityIdentifier("LoginFailedOkButton") } message: { Text(errorMessage ?? "An unknown error occurred.") }
         }
     }
     

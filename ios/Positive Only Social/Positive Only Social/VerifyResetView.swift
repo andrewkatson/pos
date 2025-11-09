@@ -31,6 +31,7 @@ struct VerifyResetView: View {
                         .font(.callout)
                     
                     TextField("6-Digit PIN", text: $pin)
+                        .accessibilityIdentifier("6DigitPinTextField")
                         .keyboardType(.numberPad)
                         .onReceive(Just(pin)) { newValue in
                             let filtered = newValue.filter { "0123456789".contains($0) }
@@ -48,6 +49,7 @@ struct VerifyResetView: View {
                     }
                 }
                 .disabled(pin.count != 6 || isLoading)
+                .accessibilityIdentifier("VerifyButton")
             }
             .navigationTitle("Enter PIN")
             

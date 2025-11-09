@@ -136,12 +136,14 @@ struct NeedsAuthView: View {
                 Text("Login")
                     .font(.headline).fontWeight(.semibold).foregroundColor(.white)
                     .padding().frame(maxWidth: .infinity).background(Color.blue).cornerRadius(12)
+                    .accessibilityIdentifier("LoginText")
             }
 
             NavigationLink(value: "RegisterView") {
                 Text("Register")
                     .font(.headline).fontWeight(.semibold).foregroundColor(.white)
                     .padding().frame(maxWidth: .infinity).background(Color.gray).cornerRadius(12)
+                    .accessibilityIdentifier("RegisterText")
             }
         }
         .padding()

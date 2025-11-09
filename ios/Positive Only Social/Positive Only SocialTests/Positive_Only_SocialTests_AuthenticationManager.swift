@@ -27,11 +27,7 @@ struct Positive_Only_SocialTests_AuthenticationManager {
     init() {
         keychain = KeychainHelper()
         
-        do {
-            try? keychain.delete(service: keychainService, account: userSessionAccount)
-        } catch {
-            // Do nothing if the token doesn't exist
-        }
+        try? keychain.delete(service: keychainService, account: userSessionAccount)
     }
     
     // --- Test Cases ---

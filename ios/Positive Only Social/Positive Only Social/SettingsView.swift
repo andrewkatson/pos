@@ -28,7 +28,7 @@ struct SettingsView: View {
                         viewModel.showingLogoutConfirm = true
                     } label: {
                         Text("Logout")
-                    }
+                    }.accessibilityIdentifier("LogoutButton")
                 }
                 
                 // MARK: - Delete Account Section
@@ -39,22 +39,22 @@ struct SettingsView: View {
                     } label: {
                         Text("Delete Account")
                             .foregroundColor(.red)
-                    }
+                    }.accessibilityIdentifier("DeleteAccountButton")
                 }
             }
             .navigationTitle("Settings")
             // MARK: - Confirmation Alerts
             .alert("Are you sure you want to log out?", isPresented: $viewModel.showingLogoutConfirm) {
-                Button("Cancel", role: .cancel) { }
+                Button("Cancel", role: .cancel) { }.accessibilityIdentifier("CancelLogoutButton")
                 Button("Logout", role: .destructive) {
                     viewModel.logout(authManager: authManager)
-                }
+                }.accessibilityIdentifier("ConfirmLogoutButton")
             }
             .alert("Delete Your Account?", isPresented: $viewModel.showingDeleteConfirm) {
-                Button("Cancel", role: .cancel) { }
+                Button("Cancel", role: .cancel) { }.accessibilityIdentifier("CancelDeleteAccountButton")
                 Button("Delete", role: .destructive) {
                     viewModel.deleteAccount(authManager: authManager)
-                }
+                }.accessibilityIdentifier("ConfirmDeleteAccountButton")
             } message: {
                 Text("This action is permanent and cannot be undone.")
             }

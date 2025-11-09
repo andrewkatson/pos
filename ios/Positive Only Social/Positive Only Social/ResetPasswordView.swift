@@ -32,13 +32,16 @@ struct ResetPasswordView: View {
                 Section(header: Text("Confirm Credentials")) {
                     TextField("Username", text: $username)
                         .autocapitalization(.none)
+                        .accessibilityIdentifier("UsernameTextField")
                     TextField("Email", text: $email)
                         .keyboardType(.emailAddress)
                         .autocapitalization(.none)
+                        .accessibilityIdentifier("EmailTextField")
                 }
                 
                 Section(header: Text("Set New Password")) {
                     SecureField("New Password", text: $newPassword)
+                        .accessibilityIdentifier("NewPasswordSecureField")
                 }
                 
                 Button("Reset Password and Login") {
@@ -47,6 +50,7 @@ struct ResetPasswordView: View {
                     }
                 }
                 .disabled(username.isEmpty || email.isEmpty || newPassword.isEmpty || isLoading)
+                .accessibilityIdentifier("ResetPasswordAndLoginButton")
             }
             .navigationTitle("Set New Password")
             .onAppear {

@@ -28,6 +28,7 @@ struct RequestResetView: View {
                     TextField("Username or Email", text: $usernameOrEmail)
                         .autocapitalization(.none)
                         .disableAutocorrection(true)
+                        .accessibilityIdentifier("UsernameOrEmailTextField")
                 }
                 
                 Button("Request Reset") {
@@ -36,6 +37,7 @@ struct RequestResetView: View {
                     }
                 }
                 .disabled(usernameOrEmail.isEmpty || isLoading)
+                .accessibilityIdentifier("RequestResetButton")
             }
             .navigationTitle("Reset Password")
             
