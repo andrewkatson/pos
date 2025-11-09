@@ -10,6 +10,7 @@ import XCTest
 final class Positive_Only_SocialUITests: XCTestCase {
     
     var testUsername: String = ""
+    var otherTestUsername: String = ""
     let strongPassword: String = "StrongPassword123!"
     let newStrongPassword: String = "NewStrongPassword456!"
 
@@ -21,6 +22,7 @@ final class Positive_Only_SocialUITests: XCTestCase {
 
         // In UI tests it’s important to set the initial state - such as interface orientation - required for your tests before they run. The setUp method is a good place to do this.
         testUsername = "\(self.name)_user"
+        otherTestUsername = "\(self.name)_other_user"
     }
 
     override func tearDownWithError() throws {
@@ -59,7 +61,11 @@ final class Positive_Only_SocialUITests: XCTestCase {
     }
     
     private func assertOnLoginView(app: XCUIApplication) {
-        
+        XCTAssertTrue(app.textFields["UsernameOrEmailTextField"].exists, "Username or email field not present")
+        XCTAssertTrue(app.secureTextFields["PasswordSecureField"].exists, "Password field not present")
+        XCTAssertTrue(app.buttons["LoginButton"].exists, "Login button not present")
+        XCTAssertTrue(app.switches["RememberMeToggle"].exists, "Remember me toggle not present")
+        XCTAssertTrue(app.buttons["ForgotPasswordButton"].exists, "Forgot password button not present")
     }
     
     private func assertOnHomeView(app: XCUIApplication) {
@@ -76,6 +82,13 @@ final class Positive_Only_SocialUITests: XCTestCase {
         XCTAssertTrue(app.buttons["ConfirmLogoutButton"].exists, "Confirm logout button not present")
         XCTAssertTrue(app.buttons["CancelDeleteAccountButton"].exists, "Cancel delete account button not present")
         XCTAssertTrue(app.buttons["ConfirmDeleteAccountButton"].exists, "Confirm delete account button not present")
+    }
+    
+    private func assertOnProfileView(app: XCUIApplication) {
+        XCTAssertTrue(app.buttons["FollowButton"].exists, "Follow button not present")
+        XCTAssertTrue(app.otherElements["Following"].exists, "Following stat item not present")
+        XCTAssertTrue(app.otherElements["Followers"].exists, "Followers stat item not present")
+        XCTAssertTrue(app.otherElements["Posts"].exists, "Posts stat item not present")
     }
     
     private func registerUser(app: XCUIApplication, username: String, password: String) throws {
@@ -282,8 +295,35 @@ final class Positive_Only_SocialUITests: XCTestCase {
         // UI tests must launch the application that they test.
         let app = XCUIApplication()
         app.launch()
-
-        // Use XCTAssert and related functions to verify your tests produce the correct results.
+        
+        try registerUser(app: app, username: otherTestUsername, password: strongPassword)
+        
+        try logoutUserFromHome(app: app)
+        
+        assertOnWelcomeView(app: app)
+        
+        try loginUser(app: app, username: testUsername, password: strongPassword, rememberMe: false)
+        
+        let userSearchField = app.searchFields["Search for Users"]
+        userSearchField.tap()
+        userSearchField.typeText(otherTestUsername)
+        
+        let userLink = app.links[otherTestUsername]
+        userLink.tap()
+        
+        assertOnProfileView(app: app)
+        
+        let followers = app.textViews["FollowersCount"]
+        XCTAssertEqual(followers.value as! Int, 0)
+        
+        let followButton = app.buttons["FollowButton"]
+        followButton.tap()
+        
+        XCTAssertEqual(followers.value as! Int, 1)
+        
+        followButton.tap()
+        
+        XCTAssertEqual(followers.value as! Int, 0)
     }
     
     @MainActor

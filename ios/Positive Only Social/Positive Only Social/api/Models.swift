@@ -93,3 +93,29 @@ struct UserSession: Codable, Equatable {
     let username: String
     let isIdentityVerified: Bool
 }
+
+// A simple, identifiable struct representing the post in the post detail view
+struct PostDisplayData: Identifiable, Equatable {
+    let id: String // postIdentifier
+    let imageURL: String
+    let caption: String
+    let likeCount: Int
+    let authorUsername: String // Added for context
+}
+
+// A struct representing a single comment, for use in the view
+struct CommentViewData: Identifiable, Equatable {
+    let id: String // commentIdentifier
+    let threadId: String // commentThreadIdentifier
+    let authorUsername: String
+    let body: String
+    let likeCount: Int
+    let createdDate: Date
+}
+
+// A struct representing a full thread, which is just a list of comments
+// We make the *first* comment the ID for the thread
+struct CommentThreadViewData: Identifiable, Equatable {
+    var id: String { comments.first?.threadId ?? UUID().uuidString }
+    var comments: [CommentViewData]
+}

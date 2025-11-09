@@ -474,8 +474,8 @@ final class StatefulStubbedAPI: APIProtocol {
     func getPostDetails(postIdentifier: String) async throws -> Data {
         await simulateNetwork()
         guard let post = findPost(byIdentifier: postIdentifier) else { throw APIError.badServerResponse(statusCode: 400) }
-        struct Fields: Codable { let post_identifier, image_url, caption: String; let post_likes: Int }
-        let fields = Fields(post_identifier: post.postIdentifier, image_url: post.imageURL, caption: post.caption, post_likes: post.likes.count)
+        struct Fields: Codable { let post_identifier, image_url, caption: String; let post_likes: Int; let author_username: String }
+        let fields = Fields(post_identifier: post.postIdentifier, image_url: post.imageURL, caption: post.caption, post_likes: post.likes.count, author_username: users.first(where: {$0.id == post.authorId})?.username ?? "Unknown User")
         return try createSerializedResponse(fields: fields)
     }
 

@@ -17,10 +17,11 @@ struct StatItem: View {
             Text("\(count)")
                 .font(.headline)
                 .fontWeight(.bold)
+                .accessibilityIdentifier("\(label)Count")
             Text(label)
                 .font(.caption)
                 .foregroundColor(.gray)
-        }
+        }.accessibilityIdentifier(label)
     }
 }
 
@@ -31,10 +32,16 @@ struct ProfileView: View {
     
     // Grid layout, same as in HomeView
     private let columns: [GridItem] = Array(repeating: .init(.flexible()), count: 3)
+    
+    private let api: APIProtocol
+    private let keychainHelper: KeychainHelperProtocol
 
     init(user: User, api: APIProtocol, keychainHelper: KeychainHelperProtocol) {
         // Initialize the StateObject with the user and API
         _viewModel = StateObject(wrappedValue: ProfileViewModel(user: user, api: api, keychainHelper: keychainHelper))
+        
+        self.api = api
+        self.keychainHelper = keychainHelper
     }
 
     var body: some View {
@@ -88,6 +95,7 @@ struct ProfileView: View {
             }
             .disabled(viewModel.isLoadingProfile) // Disable while loading
             .padding(.vertical)
+            .accessibilityIdentifier("FollowButton")
         }
     }
 
@@ -120,6 +128,8 @@ struct ProfileView: View {
                             viewModel.fetchUserPosts()
                         }
                     }
+                }.navigationDestination(for: Post.self) { post in
+                    PostDetailView(postIdentifier: post.id, api: api, keychainHelper: keychainHelper)
                 }
             }
         }

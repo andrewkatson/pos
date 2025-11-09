@@ -132,7 +132,7 @@ struct UserSearchResultsView: View {
                             .foregroundColor(.blue)
                     }
                 }
-            }
+            }.accessibilityIdentifier(user.username)
         }
         .listStyle(.plain)
     }

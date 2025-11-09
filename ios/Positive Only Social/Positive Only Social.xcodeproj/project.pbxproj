@@ -58,6 +58,7 @@
 				keychain/KeychainHelper.swift,
 				LoginView.swift,
 				NewPostView.swift,
+				PostDetailView.swift,
 				ProfileView.swift,
 				RegisterView.swift,
 				RequestResetView.swift,
@@ -69,6 +70,7 @@
 				viewmodels/FeedViewModel.swift,
 				viewmodels/FollowingFeedViewModel.swift,
 				viewmodels/HomeViewModel.swift,
+				viewmodels/PostDetailViewModel.swift,
 				viewmodels/ProfileViewModel.swift,
 				viewmodels/SettingsViewModel.swift,
 			);
@@ -87,6 +89,7 @@
 				keychain/KeychainHelper.swift,
 				LoginView.swift,
 				NewPostView.swift,
+				PostDetailView.swift,
 				ProfileView.swift,
 				RegisterView.swift,
 				RequestResetView.swift,
@@ -98,6 +101,7 @@
 				viewmodels/FeedViewModel.swift,
 				viewmodels/FollowingFeedViewModel.swift,
 				viewmodels/HomeViewModel.swift,
+				viewmodels/PostDetailViewModel.swift,
 				viewmodels/ProfileViewModel.swift,
 				viewmodels/SettingsViewModel.swift,
 			);
