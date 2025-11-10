@@ -18,9 +18,12 @@ struct NewPostView: View {
     @State private var selectedImageData: Data?
     @State private var caption = ""
     @State private var isLoading = false
-    @State private var showingAlert = false
-    @State private var alertMessage = ""
+    @State private var showSuccessAlert = false
+    @State private var showFailureAlert = false
+    @State private var failureAlertMessage = ""
 
+    @Environment(\.dismiss) var dismiss
+    
     var body: some View {
         NavigationStack {
             Form {
@@ -31,7 +34,7 @@ struct NewPostView: View {
                         photoLibrary: .shared()
                     ) {
                         Text("Select a photo")
-                    }
+                    }.accessibilityIdentifier("SelectAPhotoPicker")
 
                     if let selectedImageData,
                         let uiImage = UIImage(data: selectedImageData)
@@ -44,7 +47,7 @@ struct NewPostView: View {
                             .clipShape(RoundedRectangle(cornerRadius: 10))
                     }
 
-                    TextEditor(text: $caption).frame(height: 100)
+                    TextEditor(text: $caption).frame(height: 100).accessibilityIdentifier("CaptionTextEditor")
                 }
 
                 if isLoading {
@@ -56,13 +59,28 @@ struct NewPostView: View {
                 } else {
                     Button(action: makePost) { Text("Share Post") }
                         .disabled(selectedImageData == nil || caption.isEmpty)
+                        .accessibilityIdentifier("SharePostButton")
                 }
             }
             .navigationTitle("Create Post")
-            .alert("Post Status", isPresented: $showingAlert) {
-                Button("OK") {}
+            // Alert for SUCCESS
+            .alert("Success!", isPresented: $showSuccessAlert) {
+                Button("OK") {
+                    // This is the key: only dismiss when OK is tapped
+                    // on the *success* alert.
+                    dismiss()
+                }.accessibilityIdentifier("OkButtonSuccess")
             } message: {
-                Text(alertMessage)
+                Text("Your post was shared successfully!")
+            }
+            
+            // Alert for FAILURE
+            .alert("Post Failed", isPresented: $showFailureAlert) {
+                Button("OK") {
+                    // This button does nothing, keeping the user on the view.
+                }.accessibilityIdentifier("OkButtonFailure")
+            } message: {
+                Text(failureAlertMessage)
             }
             .onChange(of: selectedItem) {
                 Task {
@@ -75,8 +93,8 @@ struct NewPostView: View {
 
     private func makePost() {
         guard let imageData = selectedImageData else {
-            alertMessage = "Please select an image before posting."
-            showingAlert = true
+            failureAlertMessage = "Please select an image before posting."
+            showFailureAlert = true
             return
         }
 
@@ -84,36 +102,41 @@ struct NewPostView: View {
             isLoading = true
             do {
                 // 1. UPLOAD IMAGE TO S3
-                // Create a unique file name to avoid collisions
                 let uniqueFileName = "\(UUID().uuidString).jpg"
-                let imageURL = try await s3Uploader.upload(
-                    data: imageData,
-                    fileName: uniqueFileName
-                )
+                
+                var imageURL: URL! = URL(string: "https://example.com/image.jpg")!
+                if !isTesting() {
+                    imageURL = try await s3Uploader.upload(
+                        data: imageData,
+                        fileName: uniqueFileName
+                    )
+                }
 
                 // 2. SEND THE S3 URL TO YOUR BACKEND
                 let userSession = try keychainHelper.load(UserSession.self, from: "positive-only-social.Positive-Only-Social", account: "userSessionToken") ?? UserSession(sessionToken: "123", username: "test", isIdentityVerified: false)
                 
-
-                // Call your original API, but now with the URL from S3
                 _ = try await api.makePost(
                     sessionManagementToken: userSession.sessionToken,
-                    imageURL: imageURL.absoluteString,  // Use the URL from S3
+                    imageURL: imageURL.absoluteString,
                     caption: caption
                 )
 
-                alertMessage = "Your post was shared successfully!"
+                // --- SUCCESS ---
+                // Reset the form and show the success alert
+                isLoading = false
                 caption = ""
                 selectedItem = nil
                 selectedImageData = nil
+                showSuccessAlert = true // This will trigger the success alert
 
             } catch {
-                alertMessage =
+                // --- FAILURE ---
+                // Set the error message and show the failure alert
+                failureAlertMessage =
                     "Failed to share post. Error: \(error.localizedDescription)"
+                isLoading = false
+                showFailureAlert = true // This will trigger the failure alert
             }
-
-            isLoading = false
-            showingAlert = true
         }
     }
 }

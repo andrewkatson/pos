@@ -9,7 +9,7 @@ import Foundation
 
 struct Config {
     
-    static let _api : APIProtocol = UITesting() ? StatefulStubbedAPI() : RealAPI()
+    static let _api : APIProtocol = isUITesting() ? StatefulStubbedAPI() : RealAPI()
     
     static var api: APIProtocol {
         get {
@@ -18,6 +18,17 @@ struct Config {
     }
 }
 
-private func UITesting() -> Bool {
-    return ProcessInfo.processInfo.arguments.contains("UI-TESTING") || CommandLine.arguments.contains("UI-TESTING")
+func isUnitTesting() -> Bool {
+    // 3. It's a Unit Test if (1) is true and (2) is false
+    return isTesting() && !isUITesting()
+}
+
+func isTesting() -> Bool {
+    // 1. Check if ANY test is running
+    return ProcessInfo.processInfo.environment["XCTestConfigurationFilePath"] != nil
+}
+
+func isUITesting() -> Bool {
+    // 2. Check if a UI Test is running
+    return CommandLine.arguments.contains("-ui_testing")
 }

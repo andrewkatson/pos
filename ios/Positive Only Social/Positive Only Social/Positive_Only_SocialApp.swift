@@ -15,14 +15,7 @@ struct Positive_Only_SocialApp: App {
     private let keychainHelper: KeychainHelperProtocol = KeychainHelper()
 
     init() {
-        // 1. Check if ANY test is running
-        let isTesting = ProcessInfo.processInfo.environment["XCTestConfigurationFilePath"] != nil
-
-        // 2. Check if a UI Test is running
-        let isUITesting = CommandLine.arguments.contains("-ui_testing")
-
-        // 3. It's a Unit Test if (1) is true and (2) is false
-        let isUnitTesting = isTesting && !isUITesting
+        let isUnitTesting = isUnitTesting()
 
         // Avoid capturing `self` inside StateObject's autoclosure by preparing dependencies first
         let helper: KeychainHelperProtocol = KeychainHelper()

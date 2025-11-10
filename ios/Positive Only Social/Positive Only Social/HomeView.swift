@@ -41,7 +41,7 @@ struct HomeView: View {
                 NewPostView(api: api, keychainHelper: keychainHelper)
                     .tabItem {
                         Label("Post", systemImage: "plus.square")
-                    }.accessibilityIdentifier("PostTab")
+                    }.accessibilityIdentifier("NewPostTab")
                 
                 // Tab 4: Settings view with logout
                 SettingsView(api: api, keychainHelper: keychainHelper)

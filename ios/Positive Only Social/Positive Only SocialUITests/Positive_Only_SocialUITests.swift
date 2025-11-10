@@ -71,7 +71,7 @@ final class Positive_Only_SocialUITests: XCTestCase {
     private func assertOnHomeView(app: XCUIApplication) {
         XCTAssertTrue(app.tabs["HomeTab"].exists, "Home tab not present")
         XCTAssertTrue(app.tabs["FeedTab"].exists, "Feed tab not present")
-        XCTAssertTrue(app.tabs["PostTab"].exists, "Post tab not present")
+        XCTAssertTrue(app.tabs["NewPostTab"].exists, "New post tab not present")
         XCTAssertTrue(app.tabs["SettingsTab"].exists, "Settings tab not present")
     }
     
@@ -89,6 +89,14 @@ final class Positive_Only_SocialUITests: XCTestCase {
         XCTAssertTrue(app.otherElements["Following"].exists, "Following stat item not present")
         XCTAssertTrue(app.otherElements["Followers"].exists, "Followers stat item not present")
         XCTAssertTrue(app.otherElements["Posts"].exists, "Posts stat item not present")
+    }
+    
+    private func assertOnNewPostView(app: XCUIApplication) {
+        XCTAssertTrue(app.otherElements["SelectAPhotoPicker"].exists, "Select a photo picker not present")
+        XCTAssertTrue(app.otherElements["CaptionTextEditor"].exists, "Caption text editor not present")
+        XCTAssertTrue(app.buttons["SharePostButton"].exists, "Share post button is not empty")
+        XCTAssertTrue(app.buttons["OkButtonSuccess"].exists, "Ok button not present")
+        XCTAssertTrue(app.buttons["OkButtonFailure"].exists, "Ok button not present")
     }
     
     private func registerUser(app: XCUIApplication, username: String, password: String) throws {
@@ -153,6 +161,55 @@ final class Positive_Only_SocialUITests: XCTestCase {
         confirmLogoutButton.tap()
         
         assertOnWelcomeView(app: app)
+    }
+    
+    /// Assumes the user is logged in and we are on HomeView.
+    private func makePost(app: XCUIApplication, postText: String) throws {
+        assertOnHomeView(app: app)
+        
+        let newPostTab = app.tabs["NewPostTab"]
+        newPostTab.tap()
+        
+        assertOnNewPostView(app: app)
+        
+        let captionTextEditor = app.textViews["CaptionTextEditor"]
+        captionTextEditor.typeText(postText)
+        
+        // Find the photo picker's main view (identifier may vary)
+        let picker = app.otherElements["SelectAPhotoPicker"]
+        picker.tap()
+        
+        // Deal with the prompts from the photos picker
+        addUIInterruptionMonitor(withDescription: "System Alert") { (alert) -> Bool in
+            if alert.buttons["Allow Full Access"].exists {
+                alert.buttons["Allow Full Access"].tap()
+                return true
+            }
+            if alert.buttons["Select Photos..."].exists {
+                alert.buttons["Select Photos..."].tap()
+                return true
+            }
+            return false
+        }
+        XCUIApplication().tap() // Dismiss the alert by tapping outside of it (or other interaction)
+
+        // Find the desired photo within the picker using an accessibility label predicate
+        // Photos in the simulator usually have labels starting with "Photo" followed by date/time info
+        let targetPhoto = picker.images.element(matching: NSPredicate(format: "label CONTAINS[c] 'Photo'")).firstMatch
+
+        XCTAssertTrue(targetPhoto.waitForExistence(timeout: 5), "The test photo should be visible")
+        targetPhoto.tap()
+        
+        let sharePostButton = app.buttons["SharePostButton"]
+        sharePostButton.tap()
+        
+        assertOnHomeView(app: app)
+    }
+    
+    /// Makes a comment on the first post found in the For You Feed. Assumes the user is logged in and we are on HomeView.
+    private func makeCommentOnPost(app: XCUIApplication, commentText: String) {
+        assertOnHomeView(app: app)
+        
     }
     
     // MARK: Tests
@@ -265,7 +322,6 @@ final class Positive_Only_SocialUITests: XCTestCase {
         
         let resetPasswordAndLoginButton = app.buttons["ResetPasswordAndLoginButton"]
         resetPasswordAndLoginButton.tap()
-        
         
         assertOnHomeView(app: app)
         
