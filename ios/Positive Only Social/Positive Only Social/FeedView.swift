@@ -17,12 +17,23 @@ struct FeedView: View {
     @StateObject private var forYouViewModel: FeedViewModel
     @StateObject private var followingViewModel: FollowingFeedViewModel
     
+    // --- ADDED ---
+    // Store api and keychainHelper to pass to navigation destinations
+    let api: APIProtocol
+    let keychainHelper: KeychainHelperProtocol
+    // --- END ADDED ---
+    
     // State to track the selected top tab
     @State private var selectedFeed: FeedType = .forYou
     
     init(api: APIProtocol, keychainHelper: KeychainHelperProtocol) {
         _forYouViewModel = StateObject(wrappedValue: FeedViewModel(api: api, keychainHelper: keychainHelper))
         _followingViewModel = StateObject(wrappedValue: FollowingFeedViewModel(api: api, keychainHelper: keychainHelper))
+        
+        // --- ADDED ---
+        self.api = api
+        self.keychainHelper = keychainHelper
+        // --- END ADDED ---
     }
     
     var body: some View {
@@ -40,18 +51,24 @@ struct FeedView: View {
                 // The content switches based on the selected tab
                 switch selectedFeed {
                 case .forYou:
-                    // --- KEY CHANGE ---
-                    // Pass the forYouViewModel
                     ForYouFeedView(viewModel: forYouViewModel)
-                    // --- END KEY CHANGE ---
                 case .following:
-                    // --- KEY CHANGE ---
-                    // Pass the followingViewModel
                     FollowingFeedView(viewModel: followingViewModel)
-                    // --- END KEY CHANGE ---
                 }
             }
             .navigationTitle("Feed")
+            
+            // --- ADDED NAVIGATION DESTINATIONS ---
+            // Handles navigation when a User object is passed
+            .navigationDestination(for: User.self) { user in
+                ProfileView(user: user, api: api, keychainHelper: keychainHelper)
+            }
+            
+            // Handles navigation when a FeedPost object is passed
+            .navigationDestination(for: Post.self) { post in
+                PostDetailView(postIdentifier: post.id, api: api, keychainHelper: keychainHelper)
+            }
+            // --- END ADDED ---
         }
     }
 }
@@ -68,20 +85,29 @@ struct ForYouFeedView: View {
             LazyVStack(spacing: 25) {
                 ForEach(viewModel.feedPosts) { post in
                     VStack(alignment: .leading, spacing: 10) {
-                        // Correctly displays the author's username
-                        Text(post.authorUsername)
-                            .font(.headline)
-                            .fontWeight(.bold)
-                            .padding(.horizontal)
                         
-                        // Asynchronously loads the post image
-                        AsyncImage(url: URL(string: post.imageUrl)) { image in
-                            image.resizable().scaledToFit()
-                        } placeholder: {
-                            // A placeholder while the image loads
-                            Rectangle()
-                                .foregroundColor(Color(.systemGray5))
-                                .aspectRatio(1, contentMode: .fit)
+                        // --- UPDATED ---
+                        // Wrap text in a NavigationLink to go to the profile
+                        NavigationLink(value: User(username: post.authorUsername, identityIsVerified: false)) {
+                            Text(post.authorUsername)
+                                .font(.headline)
+                                .fontWeight(.bold)
+                                .padding(.horizontal)
+                        }
+                        .buttonStyle(.plain) // Keeps the text style
+                        // --- END UPDATED ---
+                        
+                        // --- UPDATED ---
+                        // Wrap image in a NavigationLink to go to post details
+                        NavigationLink(value: post) {
+                            AsyncImage(url: URL(string: post.imageUrl)) { image in
+                                image.resizable().scaledToFit()
+                            } placeholder: {
+                                // A placeholder while the image loads
+                                Rectangle()
+                                    .foregroundColor(Color(.systemGray5))
+                                    .aspectRatio(1, contentMode: .fit)
+                            }
                         }
                         .onAppear {
                             // Trigger for infinite scrolling
@@ -89,6 +115,7 @@ struct ForYouFeedView: View {
                                 viewModel.fetchFeed()
                             }
                         }
+                        // --- END UPDATED ---
                     }
                 }
                 // Loading indicator at the bottom of the list
@@ -108,8 +135,6 @@ struct ForYouFeedView: View {
 
 /// The view for the "Following" feed.
 struct FollowingFeedView: View {
-    // --- KEY CHANGES ---
-    // This view now observes the new FollowingFeedViewModel
     @ObservedObject var viewModel: FollowingFeedViewModel
     
     var body: some View {
@@ -119,17 +144,28 @@ struct FollowingFeedView: View {
                 // Iterate over the followingPosts array
                 ForEach(viewModel.followingPosts) { post in
                     VStack(alignment: .leading, spacing: 10) {
-                        Text(post.authorUsername)
-                            .font(.headline)
-                            .fontWeight(.bold)
-                            .padding(.horizontal)
                         
-                        AsyncImage(url: URL(string: post.imageUrl)) { image in
-                            image.resizable().scaledToFit()
-                        } placeholder: {
-                            Rectangle()
-                                .foregroundColor(Color(.systemGray5))
-                                .aspectRatio(1, contentMode: .fit)
+                        // --- UPDATED ---
+                        // Wrap text in a NavigationLink to go to the profile
+                        NavigationLink(value: User(username: post.authorUsername, identityIsVerified: false)) {
+                            Text(post.authorUsername)
+                                .font(.headline)
+                                .fontWeight(.bold)
+                                .padding(.horizontal)
+                        }
+                        .buttonStyle(.plain) // Keeps the text style
+                        // --- END UPDATED ---
+                        
+                        // --- UPDATED ---
+                        // Wrap image in a NavigationLink to go to post details
+                        NavigationLink(value: post) {
+                            AsyncImage(url: URL(string: post.imageUrl)) { image in
+                                image.resizable().scaledToFit()
+                            } placeholder: {
+                                Rectangle()
+                                    .foregroundColor(Color(.systemGray5))
+                                    .aspectRatio(1, contentMode: .fit)
+                            }
                         }
                         .onAppear {
                             // Trigger for infinite scrolling
@@ -138,6 +174,7 @@ struct FollowingFeedView: View {
                                 viewModel.fetchFollowingFeed()
                             }
                         }
+                        // --- END UPDATED ---
                     }
                 }
                 
@@ -154,10 +191,11 @@ struct FollowingFeedView: View {
             }
         }
     }
-    // --- END KEY CHANGES ---
 }
 
 // MARK: - Preview
 #Preview {
+    // Assuming KeychainHelper() is a valid initializer
+    // If not, you may need to use your mock
     FeedView(api: StatefulStubbedAPI(), keychainHelper: KeychainHelper())
 }

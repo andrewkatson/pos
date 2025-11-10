@@ -70,7 +70,7 @@ struct MyPostsGridView: View {
                 if isSearching {
                     UserSearchResultsView()
                 } else {
-                    postGrid
+                    postGrid // Your updated postGrid is now correctly placed in the stack
                 }
             }
             .navigationTitle("Your Posts")
@@ -82,6 +82,12 @@ struct MyPostsGridView: View {
                     viewModel.fetchMyPosts()
                 }
             }
+            // --- RECOMMENDED ---
+            // Move the navigationDestination *here*, to the ScrollView
+            // or one of its children, but *outside* the ForEach.
+            .navigationDestination(for: Post.self) { post in
+                PostDetailView(postIdentifier: post.id, api: api, keychainHelper: keychainHelper)
+            }
         }
     }
     
@@ -89,14 +95,21 @@ struct MyPostsGridView: View {
     private var postGrid: some View {
         LazyVGrid(columns: columns, spacing: 2) {
             ForEach(viewModel.userPosts) { post in
-                // Display the post image
-                AsyncImage(url: URL(string: post.imageUrl)) { image in
-                    image.resizable().scaledToFill()
-                } placeholder: {
-                    Color(.systemGray4) // Placeholder color
+                
+                // --- THIS IS THE FIX ---
+                // Wrap your image in a NavigationLink and pass the post as the value.
+                NavigationLink(value: post) {
+                    // Display the post image
+                    AsyncImage(url: URL(string: post.imageUrl)) { image in
+                        image.resizable().scaledToFill()
+                    } placeholder: {
+                        Color(.systemGray4) // Placeholder color
+                    }
+                    .aspectRatio(1, contentMode: .fill)
+                    .clipped()
                 }
-                .aspectRatio(1, contentMode: .fill)
-                .clipped()
+                // --- END FIX ---
+                
                 // This is the trigger for infinite scrolling
                 .onAppear {
                     // If this post is the last one in the list, fetch the next page
@@ -104,9 +117,9 @@ struct MyPostsGridView: View {
                         viewModel.fetchMyPosts()
                     }
                 }
-                .navigationDestination(for: User.self) { user in
-                    ProfileView(user: user, api: api, keychainHelper: keychainHelper)
-                }
+                // --- REMOVED ---
+                // The .navigationDestination modifier was here, but it's
+                // more efficient to place it on the parent container (see above).
             }
         }
     }
