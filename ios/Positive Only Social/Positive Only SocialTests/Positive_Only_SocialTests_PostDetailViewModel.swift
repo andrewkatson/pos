@@ -287,4 +287,99 @@ struct Positive_Only_SocialTests_PostDetailViewModel {
         let updatedComment = sut.commentThreads.first?.comments.first(where: { $0.id == commentID })
         #expect(updatedComment?.likeCount == 0, "Like count should not go below 0")
     }
+
+    @Test func testCommentOnPost_Success_ReloadsData() async throws {
+        // Given: A fully loaded SUT
+        let (sut, _, _, _) = try await setupTestEnvironment(account: "commentOnPost_account")
+        #expect(sut.commentThreads.count == 1, "Pre-condition: Should have 1 thread")
+        
+        let newCommentText = "This is a new comment thread"
+        sut.newCommentText = newCommentText // Set the text in the VM
+        
+        // When: We comment on the post
+        sut.commentOnPost(commentText: newCommentText)
+        
+        // And: We wait for the API call and the reload
+        await yield()
+        
+        // Then: The text field should be cleared
+        #expect(sut.newCommentText == "", "Text field should be cleared on success")
+        
+        // And: The number of threads should increase
+        #expect(sut.commentThreads.count == 2, "Should have 2 threads after commenting")
+        
+        // And: We should find the new comment, authored by the SUT's user ("postOwner")
+        let newThread = sut.commentThreads.first {
+            $0.comments.first?.body == newCommentText
+        }
+        #expect(newThread != nil, "New comment thread was not found")
+        #expect(newThread?.comments.count == 1)
+        #expect(newThread?.comments.first?.authorUsername == "postOwner")
+    }
+    
+    @Test func testReplyToCommentThread_Success_ReloadsData() async throws {
+        // Given: A fully loaded SUT
+        let (sut, _, _, _) = try await setupTestEnvironment(account: "replyToComment_account")
+        guard let threadToReplyTo = sut.commentThreads.first else {
+            #expect(Bool(false), "Test setup error: Could not find thread")
+            return
+        }
+        #expect(sut.commentThreads.count == 1, "Pre-condition: Should have 1 thread")
+        #expect(threadToReplyTo.comments.count == 2, "Pre-condition: Thread should have 2 comments")
+        
+        let newReplyText = "This is a new reply"
+        
+        // When: We reply to the thread
+        sut.replyToCommentThread(thread: threadToReplyTo, commentText: newReplyText)
+        
+        // And: We wait for the API call and the reload
+        await yield()
+        
+        // Then: The number of threads should stay the same
+        #expect(sut.commentThreads.count == 1, "Should still have 1 thread")
+        
+        // And: The number of comments in that thread should increase
+        #expect(sut.commentThreads.first?.comments.count == 3, "Thread should now have 3 comments")
+        
+        // And: The new comment should be the last one (most recent)
+        let newReply = sut.commentThreads.first?.comments.last
+        #expect(newReply?.body == newReplyText, "New reply text is incorrect")
+        #expect(newReply?.authorUsername == "postOwner", "New reply author is incorrect")
+    }
+    
+    @Test func testCommentOnPost_EmptyText_DoesNotReload() async throws {
+        // Given: A fully loaded SUT
+        let (sut, _, _, _) = try await setupTestEnvironment(account: "commentOnPostEmpty_account")
+        #expect(sut.commentThreads.count == 1, "Pre-condition: Should have 1 thread")
+        
+        // When: We try to comment with empty text
+        sut.commentOnPost(commentText: "")
+        
+        // And: We wait
+        await yield()
+        
+        // Then: The number of threads should NOT change (reload was not called)
+        #expect(sut.commentThreads.count == 1, "Should still have 1 thread")
+        #expect(sut.alertMessage == nil, "No alert should be shown for an empty guard")
+    }
+    
+    @Test func testReplyToCommentThread_EmptyText_DoesNotReload() async throws {
+        // Given: A fully loaded SUT
+        let (sut, _, _, _) = try await setupTestEnvironment(account: "replyToCommentEmpty_account")
+        guard let threadToReplyTo = sut.commentThreads.first else {
+            #expect(Bool(false), "Test setup error: Could not find thread")
+            return
+        }
+        #expect(threadToReplyTo.comments.count == 2, "Pre-condition: Thread should have 2 comments")
+        
+        // When: We try to reply with empty text
+        sut.replyToCommentThread(thread: threadToReplyTo, commentText: "")
+        
+        // And: We wait
+        await yield()
+        
+        // Then: The number of comments should NOT change (reload was not called)
+        #expect(sut.commentThreads.first?.comments.count == 2, "Thread should still have 2 comments")
+        #expect(sut.alertMessage == nil, "No alert should be shown for an empty guard")
+    }
 }

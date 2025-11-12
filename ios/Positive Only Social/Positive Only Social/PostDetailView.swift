@@ -17,6 +17,7 @@ struct PostDetailView: View {
     // This state tracks the *user's action* (like or unlike)
     // for the main post.
     @State private var isPostLiked = false
+    @State private var isPostReported = false
     
     // Public init
     init(postIdentifier: String, api: APIProtocol, keychainHelper: KeychainHelperProtocol) {
@@ -42,7 +43,7 @@ struct PostDetailView: View {
                             .fill(Color.secondary.opacity(0.3))
                             .aspectRatio(1, contentMode: .fit)
                             .overlay(ProgressView())
-                    }
+                    }.accessibilityIdentifier("PostImage")
                     // --- Image Interactions ---
                     // --- UPDATED ---
                     .onTapGesture(count: 2) {
@@ -68,7 +69,15 @@ struct PostDetailView: View {
                                 .foregroundColor(.red)
                             Text("\(post.likeCount) likes")
                                 .font(.headline)
+                                .accessibilityIdentifier("PostLikesText")
                             Spacer()
+                            if isPostReported {
+                                Image(systemName: "flag.fill")
+                                    .foregroundColor(.red)
+                                    .font(.caption) // Make it a bit smaller
+                                    .accessibilityIdentifier("ReportedPostIcon")
+                                Spacer()
+                            }
                         }
                         
                         Text(post.authorUsername)
@@ -79,6 +88,19 @@ struct PostDetailView: View {
                     .padding(.horizontal)
 
                     Divider()
+                    
+                    Section {
+                        HStack {
+                            TextField("Add a comment...", text: $viewModel.newCommentText).accessibilityIdentifier("AddACommentTextFieldToPost")
+                            
+                            Button("Post") {
+                                viewModel.commentOnPost(commentText: viewModel.newCommentText)
+                            }
+                            .disabled(viewModel.newCommentText.isEmpty)
+                            .accessibilityIdentifier("PostCommentButton")
+                        }
+                    }
+                    .padding()
                     
                     // --- COMMENTS SECTION ---
                     Text("Comments")
@@ -109,6 +131,12 @@ struct PostDetailView: View {
                 viewModel.reportComment(comment, reason: reason)
             }
         }
+        .sheet(item: $viewModel.threadToReplyTo) { thread in
+            ReplyView(thread: thread) { commentText in
+                // This is the action that gets called when "Send" is tapped
+                viewModel.replyToCommentThread(thread: thread, commentText: commentText)
+            }
+        }
         .alert(isPresented: .constant(viewModel.alertMessage != nil), content: {
             Alert(
                 title: Text("Error"),
@@ -131,7 +159,7 @@ struct PostDetailView: View {
             NavigationView {
                 Form {
                     Section(header: Text("Provide a Reason")) {
-                        TextField("Reason for reporting...", text: $reason)
+                        TextField("Reason for reporting...", text: $reason).accessibilityIdentifier("ProvideAReasonTextField")
                     }
                     
                     Button("Submit Report") {
@@ -141,6 +169,7 @@ struct PostDetailView: View {
                         }
                     }
                     .tint(.red)
+                    .accessibilityIdentifier("SubmitReportButton")
                 }
                 .navigationTitle("Report Item")
                 .navigationBarItems(leading: Button("Cancel") {
@@ -155,6 +184,7 @@ struct PostDetailView: View {
         
         // --- ADDED ---
         @State private var isLiked = false
+        @State private var isReported = false
         
         // Actions passed from the parent
         let onLike: () -> Void
@@ -173,9 +203,11 @@ struct PostDetailView: View {
                     Text(comment.authorUsername)
                         .fontWeight(.bold)
                         .font(.subheadline)
-                    + Text(" ") +
+                        .accessibilityIdentifier("CommentAuthor")
+                    Text(" ") 
                     Text(comment.body)
                         .font(.subheadline)
+                        .accessibilityIdentifier("CommentText")
                     
                     // Info row
                     HStack(spacing: 16) {
@@ -186,6 +218,14 @@ struct PostDetailView: View {
                         Text("\(comment.likeCount) likes")
                             .font(.caption)
                             .foregroundColor(.secondary)
+                            .accessibilityIdentifier("CommentLikesCount")
+                        
+                        if isReported {
+                            Image(systemName: "flag.fill")
+                                .foregroundColor(.red)
+                                .font(.caption) // Make it a bit smaller
+                                .accessibilityIdentifier("ReportedCommentIcon")
+                        }
                     }
                 }
                 
@@ -208,6 +248,7 @@ struct PostDetailView: View {
             .onLongPressGesture {
                 onReport()
             }
+            .accessibilityIdentifier("CommentStack")
         }
     }
     
@@ -230,6 +271,22 @@ struct PostDetailView: View {
                                    onReport: {
                                        viewModel.commentToReport = rootComment
                                    })
+                    Section {
+                        HStack {
+                            TextField("Add a comment...", text: $viewModel.newCommentText).accessibilityIdentifier("AddACommentTextFieldToThread")
+                            
+                            Button("Reply") {
+                                // This sets the @Published var, triggering the sheet
+                                viewModel.threadToReplyTo = thread
+                            }
+                            .font(.caption)
+                            .fontWeight(.bold)
+                            .padding(.leading, 50) // Aligns with comment text
+                            .padding(.bottom, 8)
+                            .accessibilityIdentifier("ReplyToCommentThreadButton")
+                        }
+                    }
+                    .padding()
                 }
                 
                 // Show replies, if any
@@ -251,6 +308,47 @@ struct PostDetailView: View {
                         }
                     }
                     .padding(.leading, 40) // Indentation for replies
+                }
+            }
+        }
+    }
+    
+    /// A view presented as a sheet for replying to a comment thread.
+    struct ReplyView: View {
+        @Environment(\.dismiss) var dismiss
+        
+        /// The thread being replied to (passed in).
+        let thread: CommentThreadViewData
+        
+        /// The action to perform when "Send" is tapped.
+        let onSubmit: (String) -> Void
+        
+        /// Local state to hold the text being typed.
+        @State private var replyText: String = ""
+        
+        var body: some View {
+            NavigationView {
+                Form {
+                    Section(header: Text("Replying to \(thread.comments.first?.authorUsername ?? "Comment")")) {
+                        TextEditor(text: $replyText)
+                            .frame(minHeight: 150)
+                    }
+                }
+                .navigationTitle("Post Reply")
+                .navigationBarTitleDisplayMode(.inline)
+                .toolbar {
+                    ToolbarItem(placement: .cancellationAction) {
+                        Button("Cancel") {
+                            dismiss()
+                        }
+                    }
+                    ToolbarItem(placement: .confirmationAction) {
+                        Button("Send") {
+                            onSubmit(replyText)
+                            dismiss()
+                        }
+                        .disabled(replyText.isEmpty)
+                    }
                 }
             }
         }

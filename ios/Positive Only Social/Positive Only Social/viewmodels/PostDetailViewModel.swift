@@ -24,6 +24,12 @@ final class PostDetailViewModel: ObservableObject {
     @Published var showReportSheetForPost = false
     @Published var commentToReport: CommentViewData? // Use item-based sheet
     
+    /// The text for creating a brand new comment thread
+    @Published var newCommentText: String = ""
+    
+    /// When a user taps "Reply", this is set, which triggers the reply sheet
+    @Published var threadToReplyTo: CommentThreadViewData?
+    
     // MARK: - Private Properties
     private let postIdentifier: String
     private let api: APIProtocol
@@ -257,6 +263,57 @@ final class PostDetailViewModel: ObservableObject {
             let userSession = try keychainHelper.load(UserSession.self, from: "positive-only-social.Positive-Only-Social", account: account) ?? UserSession(sessionToken: "123", username: "test", isIdentityVerified: false)
             let token = userSession.sessionToken
             _ = try await api.reportComment(sessionManagementToken: token, postIdentifier: postIdentifier, commentThreadIdentifier: comment.threadId, commentIdentifier: comment.id, reason: reason)
+        }
+    }
+    /// Creates a new comment (and thus a new thread) on the post.
+    func commentOnPost(commentText: String) {
+        guard !commentText.isEmpty else { return }
+        
+        print("ACTION: Commenting on post \(postIdentifier)")
+        Task {
+            do {
+                let userSession = try keychainHelper.load(UserSession.self, from: "positive-only-social.Positive-Only-Social", account: account) ?? UserSession(sessionToken: "123", username: "test", isIdentityVerified: false)
+                let token = userSession.sessionToken
+                
+                _ = try await api.commentOnPost(
+                    sessionManagementToken: token,
+                    postIdentifier: postIdentifier,
+                    commentText: commentText
+                )
+                
+                // Success! Clear the text field and reload all data to show the new comment.
+                self.newCommentText = ""
+                self.loadAllData() // Reload to get the new thread
+                
+            } catch {
+                self.alertMessage = "Failed to post comment: \(error.localizedDescription)"
+            }
+        }
+    }
+    
+    /// Replies to an existing comment thread.
+    func replyToCommentThread(thread: CommentThreadViewData, commentText: String) {
+        guard !commentText.isEmpty else { return }
+        
+        print("ACTION: Replying to thread \(thread.id)")
+        Task {
+            do {
+                let userSession = try keychainHelper.load(UserSession.self, from: "positive-only-social.Positive-Only-Social", account: account) ?? UserSession(sessionToken: "123", username: "test", isIdentityVerified: false)
+                let token = userSession.sessionToken
+                
+                _ = try await api.replyToCommentThread(
+                    sessionManagementToken: token,
+                    postIdentifier: postIdentifier,
+                    commentThreadIdentifier: thread.id,
+                    commentText: commentText
+                )
+                
+                // Success! Reload all data to show the new reply.
+                self.loadAllData() // Reload to get the new comment in the thread
+                
+            } catch {
+                self.alertMessage = "Failed to post reply: \(error.localizedDescription)"
+            }
         }
     }
     

@@ -11,6 +11,7 @@ final class Positive_Only_SocialUITests: XCTestCase {
     
     var testUsername: String = ""
     var otherTestUsername: String = ""
+    var newTestUsername: String = ""
     let strongPassword: String = "StrongPassword123!"
     let newStrongPassword: String = "NewStrongPassword456!"
 
@@ -23,6 +24,7 @@ final class Positive_Only_SocialUITests: XCTestCase {
         // In UI tests it’s important to set the initial state - such as interface orientation - required for your tests before they run. The setUp method is a good place to do this.
         testUsername = "\(self.name)_user"
         otherTestUsername = "\(self.name)_other_user"
+        newTestUsername = "\(self.name)_new_user"
     }
 
     override func tearDownWithError() throws {
@@ -97,6 +99,16 @@ final class Positive_Only_SocialUITests: XCTestCase {
         XCTAssertTrue(app.buttons["SharePostButton"].exists, "Share post button is not empty")
         XCTAssertTrue(app.buttons["OkButtonSuccess"].exists, "Ok button not present")
         XCTAssertTrue(app.buttons["OkButtonFailure"].exists, "Ok button not present")
+    }
+    
+    private func assertOnFeedView(app: XCUIApplication) {
+        XCTAssertTrue(app.otherElements["FeedTypePicker"].exists, "Feed type picker not present")
+    }
+    
+    private func assertOnPostDetailView(app: XCUIApplication) {
+        XCTAssertTrue(app.buttons["PostCommentButton"].exists, "Post comment button not present")
+        XCTAssertTrue(app.otherElements["PostImage"].exists, "Post image not present")
+        XCTAssertTrue(app.textFields["AddACommentTextFieldToPost"].exists, "Add a comment text field not present")
     }
     
     private func registerUser(app: XCUIApplication, username: String, password: String) throws {
@@ -206,10 +218,71 @@ final class Positive_Only_SocialUITests: XCTestCase {
         assertOnHomeView(app: app)
     }
     
-    /// Makes a comment on the first post found in the For You Feed. Assumes the user is logged in and we are on HomeView.
+    /// Makes a comment on the first post found in the For You Feed. Assumes the user is logged in and we are on HomeView and a post was made already.
+    /// Ends on the PostDetailView.
     private func makeCommentOnPost(app: XCUIApplication, commentText: String) {
         assertOnHomeView(app: app)
         
+        let feedTab = app.tabs["FeedTab"]
+        feedTab.tap()
+        
+        assertOnFeedView(app: app)
+        
+        // First, get the query for all elements matching our identifier.
+        // (NavigationLinks are 'buttons' in the accessibility tree)
+        let allPostsQuery = app.buttons.matching(identifier: "PostImage")
+
+        // Now, get the specific element at index 0 (the first one)
+        let firstPostElement = allPostsQuery.element(boundBy: 0)
+        
+        firstPostElement.tap()
+        
+        assertOnPostDetailView(app: app)
+        
+        let addACommentTextField = app.textFields["AddACommentTextFieldToPost"]
+        addACommentTextField.typeText(commentText)
+        
+        let postCommentButton = app.buttons["PostCommentButton"]
+        postCommentButton.tap()
+        
+        let allPostCommentsQuery = app.staticTexts.matching(identifier: "CommentText")
+        XCTAssertEqual(allPostsQuery.count, 1)
+        
+        assertOnPostDetailView(app: app)
+    }
+    
+    /// Makes a comment on the first comment thread found on the first post found in the For You Feed. Assumes the user is logged in and we are on
+    /// HomeView and a post was made already. Ends on the PostDetailView.
+    private func makeCommentOnThread(app: XCUIApplication, commentText: String) {
+        assertOnHomeView(app: app)
+        
+        let feedTab = app.tabs["FeedTab"]
+        feedTab.tap()
+        
+        assertOnFeedView(app: app)
+        
+        // First, get the query for all elements matching our identifier.
+        // (NavigationLinks are 'buttons' in the accessibility tree)
+        let allPostsQuery = app.buttons.matching(identifier: "PostImage")
+
+        // Now, get the specific element at index 0 (the first one)
+        let firstPostElement = allPostsQuery.element(boundBy: 0)
+        
+        firstPostElement.tap()
+        
+        assertOnPostDetailView(app: app)
+        
+        let addACommentTextField = app.textFields["AddACommentTextFieldToThread"]
+        addACommentTextField.typeText(commentText)
+        
+        let postCommentButton = app.buttons["ReplyToCommentThreadButton"]
+        postCommentButton.tap()
+        
+        // Should be two comments. The original thread comment and then the reply to that thread.
+        let allPostCommentsQuery = app.staticTexts.matching(identifier: "CommentText")
+        XCTAssertEqual(allPostsQuery.count, 2)
+        
+        assertOnPostDetailView(app: app)
     }
     
     // MARK: Tests
@@ -387,8 +460,76 @@ final class Positive_Only_SocialUITests: XCTestCase {
         // UI tests must launch the application that they test.
         let app = XCUIApplication()
         app.launch()
+        
+        try loginUser(app: app, username: testUsername, password: strongPassword, rememberMe: false)
+        
+        try makePost(app: app, postText: "Some Post Caption")
+        
+        try logoutUserFromHome(app: app)
+        
+        try loginUser(app: app, username: otherTestUsername, password: strongPassword, rememberMe: false)
+        
+        let feedTab = app.tabs["FeedTab"]
+        feedTab.tap()
+        
+        assertOnFeedView(app: app)
+        
+        // Make sure there is one post in For You and no posts in Following
+        let followingPickerTab = app.staticTexts["Following"]
+        followingPickerTab.tap()
+        
+        let allPostsQuery = app.buttons.matching(identifier: "PostImage")
+        XCTAssertEqual(allPostsQuery.count, 0)
+        
+        let forYouPickerTab = app.staticTexts["For You"]
+        forYouPickerTab.tap()
+        
+        let allPostsQuery2 = app.buttons.matching(identifier: "PostImage")
+        XCTAssertEqual(allPostsQuery2.count, 1)
+        
+        // First, get the query for all elements matching our identifier.
+        // (NavigationLinks are 'buttons' in the accessibility tree)
+        let allPostAuthorsQuery = app.buttons.matching(identifier: "PostAuthor")
 
-        // Use XCTAssert and related functions to verify your tests produce the correct results.
+        // Now, get the specific element at index 0 (the first one)
+        let firstPostAuthorElement = allPostAuthorsQuery.element(boundBy: 0)
+
+        firstPostAuthorElement.tap()
+
+        assertOnProfileView(app: app)
+        
+        let followers = app.textViews["FollowersCount"]
+        XCTAssertEqual(followers.value as! Int, 0)
+        
+        let followButton = app.buttons["FollowButton"]
+        followButton.tap()
+        
+        XCTAssertEqual(followers.value as! Int, 1)
+        
+        followButton.tap()
+        
+        XCTAssertEqual(followers.value as! Int, 0)
+        
+        /// We refollow so that we can check that the post now shows up in the "Following" Feed
+        followButton.tap()
+        
+        let homeTab = app.tabs["HomeTab"]
+        homeTab.tap()
+        
+        assertOnHomeView(app: app)
+        
+        // Make sure there is one post in For You and one post in Following
+        let followingPickerTab2 = app.staticTexts["Following"]
+        followingPickerTab2.tap()
+        
+        let allPostsQuery3 = app.buttons.matching(identifier: "PostImage")
+        XCTAssertEqual(allPostsQuery3.count, 1)
+        
+        let forYouPickerTab2 = app.staticTexts["For You"]
+        forYouPickerTab2.tap()
+        
+        let allPostsQuery4 = app.buttons.matching(identifier: "PostImage")
+        XCTAssertEqual(allPostsQuery4.count, 1)
     }
     
     @MainActor
@@ -397,16 +538,122 @@ final class Positive_Only_SocialUITests: XCTestCase {
         let app = XCUIApplication()
         app.launch()
 
-        // Use XCTAssert and related functions to verify your tests produce the correct results.
+        try loginUser(app: app, username: testUsername, password: strongPassword, rememberMe: false)
+        
+        try makePost(app: app, postText: "Some Post Caption")
+        
+        try logoutUserFromHome(app: app)
+        
+        try loginUser(app: app, username: otherTestUsername, password: strongPassword, rememberMe: false)
+        
+        let feedTab = app.tabs["FeedTab"]
+        feedTab.tap()
+        
+        assertOnFeedView(app: app)
+        
+        // First, get the query for all elements matching our identifier.
+        // (NavigationLinks are 'buttons' in the accessibility tree)
+        let allPostsQuery = app.buttons.matching(identifier: "PostImage")
+
+        // Now, get the specific element at index 0 (the first one)
+        let firstPostElement = allPostsQuery.element(boundBy: 0)
+
+        firstPostElement.tap()
+
+        assertOnPostDetailView(app: app)
+        
+        let postImage = app.otherElements["PostImage"]
+        postImage.doubleTap()
+        
+        let postLikesText = app.staticTexts["PostLikesText"]
+        XCTAssertEqual(postLikesText.value as? String, "1 likes")
+        
+        postImage.doubleTap()
+        
+        XCTAssertEqual(postLikesText.value as? String, "0 likes")
     }
     
     @MainActor
-    func testLikeAndUnlikeComment() throws {
+    func testLikeAndUnlikeCommentOnPostAndThread() throws {
         // UI tests must launch the application that they test.
         let app = XCUIApplication()
         app.launch()
 
-        // Use XCTAssert and related functions to verify your tests produce the correct results.
+        try loginUser(app: app, username: testUsername, password: strongPassword, rememberMe: false)
+        
+        try makePost(app: app, postText: "Some Post Caption")
+        
+        try logoutUserFromHome(app: app)
+        
+        try loginUser(app: app, username: otherTestUsername, password: strongPassword, rememberMe: false)
+        
+        makeCommentOnPost(app: app, commentText: "Comment On a Post")
+        
+        let firstBackButton = app.navigationBars.buttons.element(boundBy: 0)
+        firstBackButton.tap()
+        
+        assertOnFeedView(app: app)
+        
+        let secondBackButton = app.navigationBars.buttons.element(boundBy: 0)
+        secondBackButton.tap()
+        
+        assertOnHomeView(app: app)
+        
+        makeCommentOnThread(app: app, commentText: "Comment On a Thread")
+        
+        let thirdBackButton = app.navigationBars.buttons.element(boundBy: 0)
+        thirdBackButton.tap()
+        
+        assertOnFeedView(app: app)
+        
+        let fourthBackButton = app.navigationBars.buttons.element(boundBy: 0)
+        fourthBackButton.tap()
+        
+        assertOnHomeView(app: app)
+        
+        try logoutUserFromHome(app: app)
+        
+        try loginUser(app: app, username: newTestUsername, password: strongPassword, rememberMe: false)
+        
+        let feedTab = app.tabs["FeedTab"]
+        feedTab.tap()
+        
+        assertOnFeedView(app: app)
+        
+        // First, get the query for all elements matching our identifier.
+        // (NavigationLinks are 'buttons' in the accessibility tree)
+        let allPostsQuery = app.buttons.matching(identifier: "PostImage")
+
+        // Now, get the specific element at index 0 (the first one)
+        let firstPostElement = allPostsQuery.element(boundBy: 0)
+
+        firstPostElement.tap()
+
+        assertOnPostDetailView(app: app)
+        
+        // First we like and unlike the comment post comment
+        let postCommentStackQuery = app.otherElements.matching(identifier: "CommentStack")
+        let postCommentStack = postCommentStackQuery.element(boundBy: 0)
+        postCommentStack.doubleTap()
+        
+        let postCommentLikesText = app.staticTexts["CommentLikesText"]
+        XCTAssertEqual(postCommentLikesText.value as? String, "1 likes")
+        
+        postCommentStack.doubleTap()
+        
+        XCTAssertEqual(postCommentLikesText.value as? String, "0 likes")
+        
+        // Then we like and unlike the comment thread comment
+        let postCommentStackQuery2 = app.otherElements.matching(identifier: "CommentStack")
+        let postCommentStack2 = postCommentStackQuery2.element(boundBy: 1)
+        postCommentStack2.doubleTap()
+        
+        let postCommentLikesText2 = app.staticTexts["CommentLikesText"]
+        XCTAssertEqual(postCommentLikesText2.value as? String, "1 likes")
+        
+        postCommentStack2.doubleTap()
+        
+        XCTAssertEqual(postCommentLikesText2.value as? String, "0 likes")
     }
     
     @MainActor
@@ -414,8 +661,59 @@ final class Positive_Only_SocialUITests: XCTestCase {
         // UI tests must launch the application that they test.
         let app = XCUIApplication()
         app.launch()
+        
+        try loginUser(app: app, username: testUsername, password: strongPassword, rememberMe: false)
+        
+        try makePost(app: app, postText: "Some Post Caption")
+        
+        try logoutUserFromHome(app: app)
+        
+        try loginUser(app: app, username: otherTestUsername, password: strongPassword, rememberMe: false)
+        
+        makeCommentOnPost(app: app, commentText: "Comment On a Post")
+        
+        let firstBackButton = app.navigationBars.buttons.element(boundBy: 0)
+        firstBackButton.tap()
+        
+        assertOnFeedView(app: app)
+        
+        let secondBackButton = app.navigationBars.buttons.element(boundBy: 0)
+        secondBackButton.tap()
+        
+        assertOnHomeView(app: app)
+        
+        try logoutUserFromHome(app: app)
+        
+        try loginUser(app: app, username: newTestUsername, password: strongPassword, rememberMe: false)
+        
+        let feedTab = app.tabs["FeedTab"]
+        feedTab.tap()
+        
+        assertOnFeedView(app: app)
+        
+        // First, get the query for all elements matching our identifier.
+        // (NavigationLinks are 'buttons' in the accessibility tree)
+        let allPostsQuery = app.buttons.matching(identifier: "PostImage")
 
-        // Use XCTAssert and related functions to verify your tests produce the correct results.
+        // Now, get the specific element at index 0 (the first one)
+        let firstPostElement = allPostsQuery.element(boundBy: 0)
+
+        firstPostElement.tap()
+
+        assertOnPostDetailView(app: app)
+        
+        let postImage = app.images["PostImage"]
+        // 2 second press
+        postImage.press(forDuration: 2)
+        
+        let reasonTextField = app.textFields["ProvideAReasonTextField"]
+        reasonTextField.typeText("Report post")
+        
+        let reportButton = app.buttons["SubmitReportButton"]
+        reportButton.tap()
+        
+        let reportedCommentIcon = app.images["ReportedPostIcon"]
+        XCTAssertTrue(reportedCommentIcon.exists, "Reported post icon is missing")
     }
     
     @MainActor
@@ -423,8 +721,60 @@ final class Positive_Only_SocialUITests: XCTestCase {
         // UI tests must launch the application that they test.
         let app = XCUIApplication()
         app.launch()
+        
+        try loginUser(app: app, username: testUsername, password: strongPassword, rememberMe: false)
+        
+        try makePost(app: app, postText: "Some Post Caption")
+        
+        try logoutUserFromHome(app: app)
+        
+        try loginUser(app: app, username: otherTestUsername, password: strongPassword, rememberMe: false)
+        
+        makeCommentOnPost(app: app, commentText: "Comment On a Post")
+        
+        let firstBackButton = app.navigationBars.buttons.element(boundBy: 0)
+        firstBackButton.tap()
+        
+        assertOnFeedView(app: app)
+        
+        let secondBackButton = app.navigationBars.buttons.element(boundBy: 0)
+        secondBackButton.tap()
+        
+        assertOnHomeView(app: app)
+        
+        try logoutUserFromHome(app: app)
+        
+        try loginUser(app: app, username: newTestUsername, password: strongPassword, rememberMe: false)
+        
+        let feedTab = app.tabs["FeedTab"]
+        feedTab.tap()
+        
+        assertOnFeedView(app: app)
+        
+        // First, get the query for all elements matching our identifier.
+        // (NavigationLinks are 'buttons' in the accessibility tree)
+        let allPostsQuery = app.buttons.matching(identifier: "PostImage")
 
-        // Use XCTAssert and related functions to verify your tests produce the correct results.
+        // Now, get the specific element at index 0 (the first one)
+        let firstPostElement = allPostsQuery.element(boundBy: 0)
+
+        firstPostElement.tap()
+
+        assertOnPostDetailView(app: app)
+        
+        let commentStackQuery = app.otherElements.matching(identifier: "CommentStack")
+        let commentStack = commentStackQuery.element(boundBy: 0)
+        // 2 second press
+        commentStack.press(forDuration: 2)
+        
+        let reasonTextField = app.textFields["ProvideAReasonTextField"]
+        reasonTextField.typeText("Report comment")
+        
+        let reportButton = app.buttons["SubmitReportButton"]
+        reportButton.tap()
+        
+        let reportedCommentIcon = app.images["ReportedCommentIcon"]
+        XCTAssertTrue(reportedCommentIcon.exists, "Reported comment icon is missing")
     }
 
     @MainActor

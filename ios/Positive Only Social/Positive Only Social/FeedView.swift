@@ -42,11 +42,12 @@ struct FeedView: View {
                 // This Picker creates the segmented top tabs
                 Picker("Feed Type", selection: $selectedFeed) {
                     ForEach(FeedType.allCases, id: \.self) { type in
-                        Text(type.rawValue).tag(type)
+                        Text(type.rawValue).tag(type).accessibilityIdentifier(type.rawValue)
                     }
                 }
                 .pickerStyle(.segmented)
                 .padding(.horizontal)
+                .accessibilityIdentifier("FeedTypePicker")
 
                 // The content switches based on the selected tab
                 switch selectedFeed {
@@ -95,6 +96,7 @@ struct ForYouFeedView: View {
                                 .padding(.horizontal)
                         }
                         .buttonStyle(.plain) // Keeps the text style
+                        .accessibilityIdentifier("PostAuthor")
                         // --- END UPDATED ---
                         
                         // --- UPDATED ---
@@ -115,6 +117,7 @@ struct ForYouFeedView: View {
                                 viewModel.fetchFeed()
                             }
                         }
+                        .accessibilityIdentifier("PostImage")
                         // --- END UPDATED ---
                     }
                 }
