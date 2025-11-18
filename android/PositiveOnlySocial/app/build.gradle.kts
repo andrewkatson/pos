@@ -10,7 +10,7 @@ android {
 
     defaultConfig {
         applicationId = "com.example.positiveonlysocial"
-        minSdk = 24
+        minSdk = 26
         targetSdk = 36
         versionCode = 1
         versionName = "1.0"
@@ -52,6 +52,10 @@ dependencies {
     implementation(libs.gson)
     implementation(libs.retrofit)
     implementation(libs.converter.gson)
+    implementation(libs.androidx.security.crypto)
+    implementation(libs.s3)
+    implementation(libs.cognitoidentity)
+    implementation(libs.kotlinx.coroutines.core)
     testImplementation(libs.junit)
     androidTestImplementation(libs.androidx.junit)
     androidTestImplementation(libs.androidx.espresso.core)

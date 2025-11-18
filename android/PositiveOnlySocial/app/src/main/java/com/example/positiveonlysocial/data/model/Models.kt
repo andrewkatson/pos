@@ -120,3 +120,15 @@ data class GenericResponse(
     val message: String?,
     val error: String?
 )
+
+/**
+ * Represents the user's persisted session data.
+ * This is the object that gets serialized and saved securely.
+ *
+ * This data class is based on your API's AuthResponse.
+ */
+data class UserSession(
+    val sessionToken: String,
+    val seriesIdentifier: String? = null,
+    val loginCookieToken: String? = null
+)
