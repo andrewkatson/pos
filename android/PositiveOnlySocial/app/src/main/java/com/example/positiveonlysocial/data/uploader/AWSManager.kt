@@ -1,3 +1,5 @@
+package com.example.positiveonlysocial.data.uploader
+
 import android.util.Log
 import aws.sdk.kotlin.services.cognitoidentity.CognitoIdentityClient
 import aws.sdk.kotlin.services.cognitoidentity.getCredentialsForIdentity

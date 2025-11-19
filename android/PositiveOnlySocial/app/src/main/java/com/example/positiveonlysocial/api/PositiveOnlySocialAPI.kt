@@ -1,10 +1,10 @@
 package com.example.positiveonlysocial.api
 
-package com.example.positiveonlysocial.api
-
+import com.example.positiveonlysocial.api.StatefulStubbedAPI.PostMock
 import com.example.positiveonlysocial.data.model.*
 import retrofit2.Response
 import retrofit2.http.*
+import kotlin.random.Random
 
 interface PositiveOnlySocialAPI {
 
@@ -12,8 +12,36 @@ interface PositiveOnlySocialAPI {
     // AUTHENTICATION
     // =============================================================================
 
+    @POST("login")
+    suspend fun login(@Body request: LoginRequest): Response<AuthResponse>
+
+    @POST("login/remember")
+    suspend fun loginWithRememberMe(@Body request: TokenRefreshRequest): Response<TokenRefreshResponse>
+
     @POST("register")
     suspend fun register(@Body request: RegisterRequest): Response<AuthResponse>
+
+    @POST("logout")
+    suspend fun logout(@Header("Authorization") token: String): Response<GenericResponse>
+
+    @POST("user/delete/")
+    suspend fun deleteUser(@Header("Authorization") token: String): Response<GenericResponse>
+
+    // ============================================================================================
+    // PASSWORD RESET
+    // ============================================================================================
+
+    @POST("password/request-reset")
+    suspend fun requestReset(@Body request: ResetRequest): Response<GenericResponse>
+
+    @GET("password/verify-reset/{username_or_email}/{reset_id}")
+    suspend fun verifyReset(
+        @Path("username_or_email") usernameOrEmail: String,
+        @Path("reset_id") resetId: Int
+    ): Response<GenericResponse>
+
+    @POST("password/reset")
+    suspend fun resetPassword(@Body request: PasswordResetSubmitRequest): Response<GenericResponse>
 
     // ============================================================================================
     // FEED / RETRIEVAL
@@ -42,6 +70,41 @@ interface PositiveOnlySocialAPI {
     suspend fun getPostDetails(
         @Path("post_id") postId: String
     ): Response<Post>
+
+    // ============================================================================================
+    // POSTS
+    // ============================================================================================
+
+    @POST("posts/create")
+    suspend fun makePost(
+        @Header("Authorization") token: String,
+        @Body request: CreatePostRequest
+    ): Response<CreatePostResponse>
+
+    @POST("posts/{post_id}/delete/")
+    suspend fun deletePost(
+        @Header("Authorization") token: String,
+        @Path("post_id") postId: String
+    ): Response<GenericResponse>
+
+    @POST("posts/{post_id}/report/")
+    suspend fun reportPost(
+        @Header("Authorization") token: String,
+        @Path("post_id") postId: String,
+        @Body request: ReportRequest
+    ): Response<GenericResponse>
+
+    @POST("posts/{post_id}/like/")
+    suspend fun likePost(
+        @Header("Authorization") token: String,
+        @Path("post_id") postId: String
+    ): Response<GenericResponse>
+
+    @POST("posts/{post_id}/unlike/")
+    suspend fun unlikePost(
+        @Header("Authorization") token: String,
+        @Path("post_id") postId: String
+    ): Response<GenericResponse>
 
     // ============================================================================================
     // COMMENTS
