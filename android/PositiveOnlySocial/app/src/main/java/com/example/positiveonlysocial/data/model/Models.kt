@@ -1,9 +1,7 @@
 package com.example.positiveonlysocial.data.model
 
 import com.google.gson.annotations.SerializedName
-
-class Models {
-}
+import java.util.Date
 
 // --- Authentication DTOs ---
 
@@ -11,7 +9,7 @@ data class RegisterRequest(
     val username: String,
     val email: String,
     val password: String,
-    @SerializedName("remember_me") val rememberMe: String, // Backend expects string initially
+    @SerializedName("remember_me") val rememberMe: String,
     val ip: String
 )
 
@@ -67,13 +65,12 @@ data class ReportRequest(
     val reason: String
 )
 
-data class PostDto(
+// Renamed from PostDto to Post to match Swift
+data class Post(
     @SerializedName("post_identifier") val postIdentifier: String,
     @SerializedName("image_url") val imageUrl: String,
     val caption: String,
-    val username: String? = null, // Used in feed
-    @SerializedName("author_username") val authorUsername: String? = null, // Used in profile
-    @SerializedName("post_likes") val likeCount: Int? = null
+    @SerializedName("authorUsername") val authorUsername: String
 )
 
 // --- Comment DTOs ---
@@ -95,19 +92,21 @@ data class CommentDto(
     @SerializedName("comment_identifier") val commentIdentifier: String,
     val body: String,
     @SerializedName("author_username") val authorUsername: String,
-    @SerializedName("creation_time") val creationTime: String, // Consider using Date/Instant
+    @SerializedName("creation_time") val creationTime: String,
     @SerializedName("updated_time") val updatedTime: String,
     @SerializedName("comment_likes") val likeCount: Int
 )
 
 // --- User/Profile DTOs ---
 
-data class UserSearchDto(
+// Renamed from UserSearchDto to User to match Swift
+data class User(
     val username: String,
-    @SerializedName("identity_is_verified") val isVerified: Boolean
+    @SerializedName("identity_is_verified") val identityIsVerified: Boolean
 )
 
-data class ProfileDto(
+// Renamed from ProfileDto to ProfileDetailsResponse to match Swift
+data class ProfileDetailsResponse(
     val username: String,
     @SerializedName("post_count") val postCount: Int,
     @SerializedName("follower_count") val followerCount: Int,
@@ -123,12 +122,37 @@ data class GenericResponse(
 
 /**
  * Represents the user's persisted session data.
- * This is the object that gets serialized and saved securely.
- *
- * This data class is based on your API's AuthResponse.
+ * Updated to match Swift's UserSession struct.
  */
 data class UserSession(
     val sessionToken: String,
+    val username: String,
+    val isIdentityVerified: Boolean,
+    // Kept for internal Android logic if needed, but nullable
     val seriesIdentifier: String? = null,
     val loginCookieToken: String? = null
+)
+
+// --- View Data Models (Matching Swift) ---
+
+data class PostDisplayData(
+    val id: String, // postIdentifier
+    val imageURL: String,
+    val caption: String,
+    val likeCount: Int,
+    val authorUsername: String
+)
+
+data class CommentViewData(
+    val id: String, // commentIdentifier
+    val threadId: String, // commentThreadIdentifier
+    val authorUsername: String,
+    val body: String,
+    val likeCount: Int,
+    val createdDate: Date // Using Date for now, might need conversion from String
+)
+
+data class CommentThreadViewData(
+    val id: String,
+    val comments: List<CommentViewData>
 )

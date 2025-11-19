@@ -3,9 +3,8 @@ package com.example.positiveonlysocial.models.viewmodels
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.example.positiveonlysocial.api.PositiveOnlySocialAPI
-import com.example.positiveonlysocial.data.model.PostDto
-import com.example.positiveonlysocial.data.model.ProfileDto
-import com.example.positiveonlysocial.data.model.UserSearchDto
+import com.example.positiveonlysocial.data.model.Post
+import com.example.positiveonlysocial.data.model.ProfileDetailsResponse
 import com.example.positiveonlysocial.data.model.UserSession
 import com.example.positiveonlysocial.data.security.KeychainHelperProtocol
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -14,119 +13,93 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 
 class ProfileViewModel(
-    private val user: UserSearchDto, // Using UserSearchDto as the basic User model
     private val api: PositiveOnlySocialAPI,
     private val keychainHelper: KeychainHelperProtocol,
     private val account: String = "userSessionToken"
 ) : ViewModel() {
 
     // Published properties
-    private val _userPosts = MutableStateFlow<List<PostDto>>(emptyList())
-    val userPosts: StateFlow<List<PostDto>> = _userPosts.asStateFlow()
+    private val _profileDetails = MutableStateFlow<ProfileDetailsResponse?>(null)
+    val profileDetails: StateFlow<ProfileDetailsResponse?> = _profileDetails.asStateFlow()
+
+    private val _userPosts = MutableStateFlow<List<Post>>(emptyList())
+    val userPosts: StateFlow<List<Post>> = _userPosts.asStateFlow()
 
     private val _isLoading = MutableStateFlow(false)
     val isLoading: StateFlow<Boolean> = _isLoading.asStateFlow()
 
-    private val _canLoadMore = MutableStateFlow(true)
-    val canLoadMore: StateFlow<Boolean> = _canLoadMore.asStateFlow()
+    private val _errorMessage = MutableStateFlow<String?>(null)
+    val errorMessage: StateFlow<String?> = _errorMessage.asStateFlow()
 
-    private val _profileDetails = MutableStateFlow<ProfileDto?>(null)
-    val profileDetails: StateFlow<ProfileDto?> = _profileDetails.asStateFlow()
-
-    private val _isLoadingProfile = MutableStateFlow(false)
-    val isLoadingProfile: StateFlow<Boolean> = _isLoadingProfile.asStateFlow()
-
-    private val _isFollowing = MutableStateFlow(false)
-    val isFollowing: StateFlow<Boolean> = _isFollowing.asStateFlow()
-
-    private var batch = 0
     private val service = "positive-only-social.Positive-Only-Social"
 
-    fun fetchUserPosts() {
-        if (_isLoading.value || !_canLoadMore.value) return
-
+    fun fetchProfile(username: String) {
         _isLoading.value = true
+        _errorMessage.value = null
 
         viewModelScope.launch {
             try {
                 val userSession = keychainHelper.load(UserSession::class.java, service, account)
-                    ?: UserSession("123", null, null)
+                    ?: UserSession("123", "testuser", false, null, null)
 
-                val response = api.getPostsForUser(userSession.sessionToken, user.username, batch)
-                if (response.isSuccessful) {
-                    val newPosts = response.body() ?: emptyList()
-                    if (newPosts.isEmpty()) {
-                        _canLoadMore.value = false
-                    } else {
-                        _userPosts.value += newPosts
-                        batch += 1
-                    }
+                // Fetch Profile Details
+                val profileResponse = api.getProfileDetails(userSession.sessionToken, username)
+                if (profileResponse.isSuccessful) {
+                    _profileDetails.value = profileResponse.body()
                 } else {
-                    println("Error fetching user posts: ${response.errorBody()?.string()}")
+                    _errorMessage.value = "Failed to load profile: ${profileResponse.errorBody()?.string()}"
                 }
+
+                // Fetch User Posts
+                val postsResponse = api.getPostsForUser(userSession.sessionToken, username, 0)
+                if (postsResponse.isSuccessful) {
+                    _userPosts.value = postsResponse.body() ?: emptyList()
+                } else {
+                    // If profile loaded but posts failed, we might just show empty posts or an error
+                    if (_errorMessage.value == null) {
+                        _errorMessage.value = "Failed to load posts: ${postsResponse.errorBody()?.string()}"
+                    }
+                }
+
             } catch (e: Exception) {
-                println("Error fetching user posts: $e")
+                _errorMessage.value = "Error: ${e.localizedMessage}"
+                println(e)
             } finally {
                 _isLoading.value = false
             }
         }
     }
 
-    fun fetchProfileDetails() {
-        if (_isLoadingProfile.value) return
-        _isLoadingProfile.value = true
+    fun toggleFollow(username: String) {
+        val currentProfile = _profileDetails.value ?: return
+        val isFollowing = currentProfile.isFollowing
+
+        // Optimistic Update
+        _profileDetails.value = currentProfile.copy(
+            isFollowing = !isFollowing,
+            followerCount = if (isFollowing) currentProfile.followerCount - 1 else currentProfile.followerCount + 1
+        )
 
         viewModelScope.launch {
             try {
                 val userSession = keychainHelper.load(UserSession::class.java, service, account)
-                    ?: UserSession("123", null, null)
+                    ?: UserSession("123", "testuser", false, null, null)
 
-                val response = api.getProfileDetails(userSession.sessionToken, user.username)
-                if (response.isSuccessful) {
-                    val details = response.body()
-                    _profileDetails.value = details
-                    _isFollowing.value = details?.isFollowing == true
+                val response = if (isFollowing) {
+                    api.unfollowUser(userSession.sessionToken, username)
                 } else {
-                    println("Error fetching profile details: ${response.errorBody()?.string()}")
+                    api.followUser(userSession.sessionToken, username)
+                }
+
+                if (!response.isSuccessful) {
+                    // Revert on failure
+                    _profileDetails.value = currentProfile
+                    _errorMessage.value = "Failed to update follow status"
                 }
             } catch (e: Exception) {
-                println("Error fetching profile details: $e")
-            } finally {
-                _isLoadingProfile.value = false
-            }
-        }
-    }
-
-    fun toggleFollow() {
-        if (_isLoadingProfile.value) return
-        _isLoadingProfile.value = true
-
-        viewModelScope.launch {
-            try {
-                val userSession = keychainHelper.load(UserSession::class.java, service, account)
-                    ?: UserSession("123", null, null)
-
-                if (_isFollowing.value) {
-                    val response = api.unfollowUser(userSession.sessionToken, user.username)
-                    if (response.isSuccessful) {
-                        _isFollowing.value = false
-                        _profileDetails.value = _profileDetails.value?.let {
-                            it.copy(followerCount = it.followerCount - 1)
-                        }
-                    }
-                } else {
-                    val response = api.followUser(userSession.sessionToken, user.username)
-                    if (response.isSuccessful) {
-                        _isFollowing.value = true
-                        _profileDetails.value = _profileDetails.value?.let {
-                            it.copy(followerCount = it.followerCount + 1)
-                        }
-                    }
-                }
-            } catch (e: Exception) {
-                println("Error toggling follow: $e")
-            } finally {
-                _isLoadingProfile.value = false
+                // Revert on error
+                _profileDetails.value = currentProfile
+                _errorMessage.value = "Error: ${e.localizedMessage}"
             }
         }
     }

@@ -43,7 +43,8 @@ class StatefulStubbedAPI : PositiveOnlySocialAPI {
         var passwordHash: String, // Storing plain text for stub simplicity, or simple hash
         var resetId: Int = -1,
         val following: MutableList<String> = mutableListOf(), // List of User IDs
-        val followers: MutableList<String> = mutableListOf()
+        val followers: MutableList<String> = mutableListOf(),
+        val isVerified: Boolean = false
     )
 
     private data class SessionMock(
@@ -329,7 +330,7 @@ class StatefulStubbedAPI : PositiveOnlySocialAPI {
     // FEED / RETRIEVAL
     // ============================================================================================
 
-    override suspend fun getPostsInFeed(token: String, batch: Int): Response<List<PostDto>> {
+    override suspend fun getPostsInFeed(token: String, batch: Int): Response<List<Post>> {
         val user = getAuthorizedUser(token) ?: return errorGeneric(401, "Unauthorized")
 
         // Stub Feed Algorithm: Just return all posts not hidden, reverse chrono
@@ -338,12 +339,12 @@ class StatefulStubbedAPI : PositiveOnlySocialAPI {
 
         val dtos = batched.map { post ->
             val author = users.find { it.id == post.authorId }!!
-            PostDto(post.postIdentifier, post.imageUrl, post.caption, username = author.username)
+            Post(post.postIdentifier, post.imageUrl, post.caption, authorUsername = author.username)
         }
         return Response.success(dtos)
     }
 
-    override suspend fun getFollowedPosts(token: String, batch: Int): Response<List<PostDto>> {
+    override suspend fun getFollowedPosts(token: String, batch: Int): Response<List<Post>> {
         val user = getAuthorizedUser(token) ?: return errorGeneric(401, "Unauthorized")
 
         val followedPosts = posts.filter { !it.hidden && user.following.contains(it.authorId) }
@@ -352,12 +353,12 @@ class StatefulStubbedAPI : PositiveOnlySocialAPI {
         val batched = getBatch(followedPosts, batch, POST_BATCH_SIZE)
         val dtos = batched.map { post ->
             val author = users.find { it.id == post.authorId }!!
-            PostDto(post.postIdentifier, post.imageUrl, post.caption, authorUsername = author.username)
+            Post(post.postIdentifier, post.imageUrl, post.caption, authorUsername = author.username)
         }
         return Response.success(dtos)
     }
 
-    override suspend fun getPostsForUser(token: String, username: String, batch: Int): Response<List<PostDto>> {
+    override suspend fun getPostsForUser(token: String, username: String, batch: Int): Response<List<Post>> {
         val targetUser = users.find { it.username == username }
             ?: return errorGeneric(404, "User not found")
 
@@ -366,22 +367,21 @@ class StatefulStubbedAPI : PositiveOnlySocialAPI {
 
         val batched = getBatch(userPosts, batch, POST_BATCH_SIZE)
         val dtos = batched.map { post ->
-            PostDto(post.postIdentifier, post.imageUrl, post.caption, authorUsername = targetUser.username)
+            Post(post.postIdentifier, post.imageUrl, post.caption, authorUsername = targetUser.username)
         }
         return Response.success(dtos)
     }
 
-    override suspend fun getPostDetails(postId: String): Response<PostDto> {
+    override suspend fun getPostDetails(postId: String): Response<Post> {
         val post = posts.find { it.postIdentifier == postId }
             ?: return errorGeneric(404, "No post with that identifier")
         val author = users.find { it.id == post.authorId }!!
 
-        return Response.success(PostDto(
+        return Response.success(Post(
             post.postIdentifier,
             post.imageUrl,
             post.caption,
-            authorUsername = author.username,
-            likeCount = post.likes.size
+            authorUsername = author.username
         ))
     }
 
@@ -492,12 +492,12 @@ class StatefulStubbedAPI : PositiveOnlySocialAPI {
     // USER / PROFILE
     // ============================================================================================
 
-    override suspend fun searchUsers(token: String, fragment: String): Response<List<UserSearchDto>> {
+    override suspend fun searchUsers(token: String, fragment: String): Response<List<User>> {
         val currentUser = getAuthorizedUser(token)
         val matches = users
             .filter { it.username.contains(fragment, ignoreCase = true) && it.id != currentUser?.id }
             .take(10)
-            .map { UserSearchDto(it.username, false) }
+            .map { User(it.username, it.isVerified) }
         return Response.success(matches)
     }
 
@@ -524,14 +524,14 @@ class StatefulStubbedAPI : PositiveOnlySocialAPI {
         return Response.success(GenericResponse("User unfollowed", null))
     }
 
-    override suspend fun getProfileDetails(token: String, username: String): Response<ProfileDto> {
+    override suspend fun getProfileDetails(token: String, username: String): Response<ProfileDetailsResponse> {
         val user = getAuthorizedUser(token) // Can be null if public profile view? Python code required login.
         val target = users.find { it.username == username } ?: return errorGeneric(404, "User not found")
 
         val postCount = posts.count { it.authorId == target.id }
         val isFollowing = user?.following?.contains(target.id) ?: false
 
-        return Response.success(ProfileDto(
+        return Response.success(ProfileDetailsResponse(
             target.username,
             postCount,
             target.followers.size,

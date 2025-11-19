@@ -3,7 +3,7 @@ package com.example.positiveonlysocial.models.viewmodels
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.example.positiveonlysocial.api.PositiveOnlySocialAPI
-import com.example.positiveonlysocial.data.model.PostDto
+import com.example.positiveonlysocial.data.model.Post
 import com.example.positiveonlysocial.data.model.UserSession
 import com.example.positiveonlysocial.data.security.KeychainHelperProtocol
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -17,8 +17,8 @@ class FeedViewModel(
     private val account: String = "userSessionToken"
 ) : ViewModel() {
 
-    private val _feedPosts = MutableStateFlow<List<PostDto>>(emptyList())
-    val feedPosts: StateFlow<List<PostDto>> = _feedPosts.asStateFlow()
+    private val _feedPosts = MutableStateFlow<List<Post>>(emptyList())
+    val feedPosts: StateFlow<List<Post>> = _feedPosts.asStateFlow()
 
     private val _isLoadingNextPage = MutableStateFlow(false)
     val isLoadingNextPage: StateFlow<Boolean> = _isLoadingNextPage.asStateFlow()
@@ -35,7 +35,7 @@ class FeedViewModel(
         viewModelScope.launch {
             try {
                 val userSession = keychainHelper.load(UserSession::class.java, service, account)
-                    ?: UserSession("123", null, null)
+                    ?: UserSession("123", "testuser", false, null, null)
 
                 val response = api.getPostsInFeed(userSession.sessionToken, currentPage)
                 if (response.isSuccessful) {

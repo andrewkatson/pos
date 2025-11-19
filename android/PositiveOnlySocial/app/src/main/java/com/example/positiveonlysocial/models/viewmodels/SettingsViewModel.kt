@@ -13,80 +13,68 @@ import kotlinx.coroutines.launch
 
 class SettingsViewModel(
     private val api: PositiveOnlySocialAPI,
+    private val authenticationManager: AuthenticationManager,
     private val keychainHelper: KeychainHelperProtocol,
     private val account: String = "userSessionToken"
 ) : ViewModel() {
 
-    // Published properties
-    private val _showingLogoutConfirm = MutableStateFlow(false)
-    val showingLogoutConfirm: StateFlow<Boolean> = _showingLogoutConfirm.asStateFlow()
+    private val _showLogoutConfirmation = MutableStateFlow(false)
+    val showLogoutConfirmation: StateFlow<Boolean> = _showLogoutConfirmation.asStateFlow()
 
-    private val _showingDeleteConfirm = MutableStateFlow(false)
-    val showingDeleteConfirm: StateFlow<Boolean> = _showingDeleteConfirm.asStateFlow()
+    private val _showDeleteConfirmation = MutableStateFlow(false)
+    val showDeleteConfirmation: StateFlow<Boolean> = _showDeleteConfirmation.asStateFlow()
 
-    private val _showingErrorAlert = MutableStateFlow(false)
-    val showingErrorAlert: StateFlow<Boolean> = _showingErrorAlert.asStateFlow()
-
-    private val _errorMessage = MutableStateFlow("")
-    val errorMessage: StateFlow<String> = _errorMessage.asStateFlow()
+    private val _errorMessage = MutableStateFlow<String?>(null)
+    val errorMessage: StateFlow<String?> = _errorMessage.asStateFlow()
 
     private val service = "positive-only-social.Positive-Only-Social"
 
-    fun setShowingLogoutConfirm(show: Boolean) {
-        _showingLogoutConfirm.value = show
+    fun setShowLogoutConfirmation(show: Boolean) {
+        _showLogoutConfirmation.value = show
     }
 
-    fun setShowingDeleteConfirm(show: Boolean) {
-        _showingDeleteConfirm.value = show
+    fun setShowDeleteConfirmation(show: Boolean) {
+        _showDeleteConfirmation.value = show
     }
 
-    fun setShowingErrorAlert(show: Boolean) {
-        _showingErrorAlert.value = show
-    }
-
-    fun logout(authManager: AuthenticationManager) {
+    fun logout() {
         viewModelScope.launch {
             try {
                 val userSession = keychainHelper.load(UserSession::class.java, service, account)
                 
                 if (userSession != null) {
+                    // Call API to invalidate token on server
                     api.logout(userSession.sessionToken)
-                    println("✅ Backend logout successful.")
-                } else {
-                    authManager.logout()
-                    return@launch
                 }
+                
+                // Clear local session regardless of API success
+                authenticationManager.logout()
+                
             } catch (e: Exception) {
-                println("🔴 Backend logout failed: ${e.localizedMessage}. Proceeding with local logout.")
+                _errorMessage.value = "Logout failed: ${e.localizedMessage}"
+                // Force local logout anyway? Usually yes.
+                authenticationManager.logout()
             }
-
-            authManager.logout()
         }
     }
 
-    fun deleteAccount(authManager: AuthenticationManager) {
+    fun deleteAccount() {
         viewModelScope.launch {
             try {
                 val userSession = keychainHelper.load(UserSession::class.java, service, account)
                 
-                if (userSession == null) {
-                    _errorMessage.value = "Session not found. Cannot delete account."
-                    _showingErrorAlert.value = true
-                    return@launch
-                }
-
-                val response = api.deleteUser(userSession.sessionToken)
-                if (response.isSuccessful) {
-                    println("✅ Account deletion successful.")
-                    authManager.logout()
+                if (userSession != null) {
+                    val response = api.deleteUser(userSession.sessionToken)
+                    if (response.isSuccessful) {
+                        authenticationManager.logout()
+                    } else {
+                        _errorMessage.value = "Failed to delete account: ${response.errorBody()?.string()}"
+                    }
                 } else {
-                    throw Exception("Failed to delete account")
+                    authenticationManager.logout()
                 }
-
             } catch (e: Exception) {
-                _errorMessage.value = "Failed to delete account. Please try again."
-                _showingErrorAlert.value = true
-                println("🔴 Account deletion failed: ${e.localizedMessage}")
+                _errorMessage.value = "Error deleting account: ${e.localizedMessage}"
             }
         }
     }
