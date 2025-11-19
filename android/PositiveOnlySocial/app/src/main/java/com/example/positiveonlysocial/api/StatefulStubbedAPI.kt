@@ -99,9 +99,9 @@ class StatefulStubbedAPI : PositiveOnlySocialAPI {
         return Response.error(code, errorBody)
     }
 
-    private fun getAuthorizedUser(): UserMock? {
-        val token = simulatedAuthToken ?: return null
-        val session = sessions.find { it.managementToken == token } ?: return null
+    private fun getAuthorizedUser(token: String? = null): UserMock? {
+        val tokenToUse = token ?: simulatedAuthToken ?: return null
+        val session = sessions.find { it.managementToken == tokenToUse } ?: return null
         return users.find { it.id == session.userId }
     }
 
@@ -202,15 +202,15 @@ class StatefulStubbedAPI : PositiveOnlySocialAPI {
         return Response.success(TokenRefreshResponse(newCookieToken, newSessionToken))
     }
 
-    override suspend fun logout(): Response<GenericResponse> {
-        val user = getAuthorizedUser() ?: return error(401, "Invalid session")
+    override suspend fun logout(token: String): Response<GenericResponse> {
+        val user = getAuthorizedUser(token) ?: return error(401, "Invalid session")
         // Delete specific session
-        sessions.removeIf { it.managementToken == simulatedAuthToken }
+        sessions.removeIf { it.managementToken == token }
         return Response.success(GenericResponse("Logout successful", null))
     }
 
-    override suspend fun deleteUser(): Response<GenericResponse> {
-        val user = getAuthorizedUser() ?: return error(401, "Invalid session")
+    override suspend fun deleteUser(token: String): Response<GenericResponse> {
+        val user = getAuthorizedUser(token) ?: return error(401, "Invalid session")
 
         // Cascade delete
         posts.removeIf { it.authorId == user.id }
@@ -257,8 +257,8 @@ class StatefulStubbedAPI : PositiveOnlySocialAPI {
     // POSTS
     // ============================================================================================
 
-    override suspend fun makePost(request: CreatePostRequest): Response<CreatePostResponse> {
-        val user = getAuthorizedUser() ?: return errorGeneric(401, "Unauthorized")
+    override suspend fun makePost(token: String, request: CreatePostRequest): Response<CreatePostResponse> {
+        val user = getAuthorizedUser(token) ?: return errorGeneric(401, "Unauthorized")
 
         // Stub "Positivity" Check
         if (request.caption.contains("negative")) {
@@ -274,8 +274,8 @@ class StatefulStubbedAPI : PositiveOnlySocialAPI {
         return Response.success(CreatePostResponse(newPost.postIdentifier))
     }
 
-    override suspend fun deletePost(postId: String): Response<GenericResponse> {
-        val user = getAuthorizedUser() ?: return error(401, "Unauthorized")
+    override suspend fun deletePost(token: String, postId: String): Response<GenericResponse> {
+        val user = getAuthorizedUser(token) ?: return error(401, "Unauthorized")
         val post = posts.find { it.postIdentifier == postId }
             ?: return error(404, "No post with that identifier")
 
@@ -287,8 +287,8 @@ class StatefulStubbedAPI : PositiveOnlySocialAPI {
         return Response.success(GenericResponse("Post deleted", null))
     }
 
-    override suspend fun reportPost(postId: String, request: ReportRequest): Response<GenericResponse> {
-        val user = getAuthorizedUser() ?: return error(401, "Unauthorized")
+    override suspend fun reportPost(token: String, postId: String, request: ReportRequest): Response<GenericResponse> {
+        val user = getAuthorizedUser(token) ?: return error(401, "Unauthorized")
         val post = posts.find { it.postIdentifier == postId }
             ?: return error(404, "No post with that identifier")
 
@@ -302,8 +302,8 @@ class StatefulStubbedAPI : PositiveOnlySocialAPI {
         return Response.success(GenericResponse("Post reported", null))
     }
 
-    override suspend fun likePost(postId: String): Response<GenericResponse> {
-        val user = getAuthorizedUser() ?: return error(401, "Unauthorized")
+    override suspend fun likePost(token: String, postId: String): Response<GenericResponse> {
+        val user = getAuthorizedUser(token) ?: return error(401, "Unauthorized")
         val post = posts.find { it.postIdentifier == postId }
             ?: return error(404, "No post with that identifier")
 
@@ -314,8 +314,8 @@ class StatefulStubbedAPI : PositiveOnlySocialAPI {
         return Response.success(GenericResponse("Post liked", null))
     }
 
-    override suspend fun unlikePost(postId: String): Response<GenericResponse> {
-        val user = getAuthorizedUser() ?: return error(401, "Unauthorized")
+    override suspend fun unlikePost(token: String, postId: String): Response<GenericResponse> {
+        val user = getAuthorizedUser(token) ?: return error(401, "Unauthorized")
         val post = posts.find { it.postIdentifier == postId } ?: return error(404, "No post")
 
         if (post.likes.contains(user.id)) {
@@ -329,8 +329,8 @@ class StatefulStubbedAPI : PositiveOnlySocialAPI {
     // FEED / RETRIEVAL
     // ============================================================================================
 
-    override suspend fun getPostsInFeed(batch: Int): Response<List<PostDto>> {
-        val user = getAuthorizedUser() ?: return errorGeneric(401, "Unauthorized")
+    override suspend fun getPostsInFeed(token: String, batch: Int): Response<List<PostDto>> {
+        val user = getAuthorizedUser(token) ?: return errorGeneric(401, "Unauthorized")
 
         // Stub Feed Algorithm: Just return all posts not hidden, reverse chrono
         val allPosts = posts.filter { !it.hidden }.sortedByDescending { it.creationTime }
@@ -343,8 +343,8 @@ class StatefulStubbedAPI : PositiveOnlySocialAPI {
         return Response.success(dtos)
     }
 
-    override suspend fun getFollowedPosts(batch: Int): Response<List<PostDto>> {
-        val user = getAuthorizedUser() ?: return errorGeneric(401, "Unauthorized")
+    override suspend fun getFollowedPosts(token: String, batch: Int): Response<List<PostDto>> {
+        val user = getAuthorizedUser(token) ?: return errorGeneric(401, "Unauthorized")
 
         val followedPosts = posts.filter { !it.hidden && user.following.contains(it.authorId) }
             .sortedByDescending { it.creationTime }
@@ -357,7 +357,7 @@ class StatefulStubbedAPI : PositiveOnlySocialAPI {
         return Response.success(dtos)
     }
 
-    override suspend fun getPostsForUser(username: String, batch: Int): Response<List<PostDto>> {
+    override suspend fun getPostsForUser(token: String, username: String, batch: Int): Response<List<PostDto>> {
         val targetUser = users.find { it.username == username }
             ?: return errorGeneric(404, "User not found")
 
@@ -389,8 +389,8 @@ class StatefulStubbedAPI : PositiveOnlySocialAPI {
     // COMMENTS
     // ============================================================================================
 
-    override suspend fun commentOnPost(postId: String, request: CommentRequest): Response<CommentResponse> {
-        val user = getAuthorizedUser() ?: return errorGeneric(401, "Unauthorized")
+    override suspend fun commentOnPost(token: String, postId: String, request: CommentRequest): Response<CommentResponse> {
+        val user = getAuthorizedUser(token) ?: return errorGeneric(401, "Unauthorized")
         if (!posts.any { it.postIdentifier == postId }) return errorGeneric(404, "Post not found")
 
         // Create Thread
@@ -404,8 +404,8 @@ class StatefulStubbedAPI : PositiveOnlySocialAPI {
         return Response.success(CommentResponse(thread.threadIdentifier, comment.commentIdentifier))
     }
 
-    override suspend fun replyToThread(postId: String, threadId: String, request: CommentRequest): Response<CommentResponse> {
-        val user = getAuthorizedUser() ?: return errorGeneric(401, "Unauthorized")
+    override suspend fun replyToThread(token: String, postId: String, threadId: String, request: CommentRequest): Response<CommentResponse> {
+        val user = getAuthorizedUser(token) ?: return errorGeneric(401, "Unauthorized")
         val thread = commentThreads.find { it.threadIdentifier == threadId && it.postId == postId }
             ?: return errorGeneric(404, "Thread not found")
 
@@ -415,8 +415,8 @@ class StatefulStubbedAPI : PositiveOnlySocialAPI {
         return Response.success(CommentResponse(null, comment.commentIdentifier))
     }
 
-    override suspend fun likeComment(postId: String, threadId: String, commentId: String): Response<GenericResponse> {
-        val user = getAuthorizedUser() ?: return error(401, "Unauthorized")
+    override suspend fun likeComment(token: String, postId: String, threadId: String, commentId: String): Response<GenericResponse> {
+        val user = getAuthorizedUser(token) ?: return error(401, "Unauthorized")
         val comment = findComment(postId, threadId, commentId) ?: return error(404, "Comment not found")
 
         if (comment.authorId == user.id) return error(404, "Cannot like own comment")
@@ -426,8 +426,8 @@ class StatefulStubbedAPI : PositiveOnlySocialAPI {
         return Response.success(GenericResponse("Comment liked", null))
     }
 
-    override suspend fun unlikeComment(postId: String, threadId: String, commentId: String): Response<GenericResponse> {
-        val user = getAuthorizedUser() ?: return error(401, "Unauthorized")
+    override suspend fun unlikeComment(token: String, postId: String, threadId: String, commentId: String): Response<GenericResponse> {
+        val user = getAuthorizedUser(token) ?: return error(401, "Unauthorized")
         val comment = findComment(postId, threadId, commentId) ?: return error(404, "Comment not found")
 
         if (comment.likes.contains(user.id)) {
@@ -437,8 +437,8 @@ class StatefulStubbedAPI : PositiveOnlySocialAPI {
         return error(404, "Comment not liked yet")
     }
 
-    override suspend fun deleteComment(postId: String, threadId: String, commentId: String): Response<GenericResponse> {
-        val user = getAuthorizedUser() ?: return error(401, "Unauthorized")
+    override suspend fun deleteComment(token: String, postId: String, threadId: String, commentId: String): Response<GenericResponse> {
+        val user = getAuthorizedUser(token) ?: return error(401, "Unauthorized")
         val thread = commentThreads.find { it.threadIdentifier == threadId } ?: return error(404, "Thread not found")
         val comment = thread.comments.find { it.commentIdentifier == commentId } ?: return error(404, "Comment not found")
 
@@ -448,8 +448,8 @@ class StatefulStubbedAPI : PositiveOnlySocialAPI {
         return Response.success(GenericResponse("Comment deleted", null))
     }
 
-    override suspend fun reportComment(postId: String, threadId: String, commentId: String, request: ReportRequest): Response<GenericResponse> {
-        val user = getAuthorizedUser() ?: return error(401, "Unauthorized")
+    override suspend fun reportComment(token: String, postId: String, threadId: String, commentId: String, request: ReportRequest): Response<GenericResponse> {
+        val user = getAuthorizedUser(token) ?: return error(401, "Unauthorized")
         val comment = findComment(postId, threadId, commentId) ?: return error(404, "Comment not found")
 
         if (comment.authorId == user.id) return error(404, "Cannot report own comment")
@@ -492,8 +492,8 @@ class StatefulStubbedAPI : PositiveOnlySocialAPI {
     // USER / PROFILE
     // ============================================================================================
 
-    override suspend fun searchUsers(fragment: String): Response<List<UserSearchDto>> {
-        val currentUser = getAuthorizedUser()
+    override suspend fun searchUsers(token: String, fragment: String): Response<List<UserSearchDto>> {
+        val currentUser = getAuthorizedUser(token)
         val matches = users
             .filter { it.username.contains(fragment, ignoreCase = true) && it.id != currentUser?.id }
             .take(10)
@@ -501,8 +501,8 @@ class StatefulStubbedAPI : PositiveOnlySocialAPI {
         return Response.success(matches)
     }
 
-    override suspend fun followUser(username: String): Response<GenericResponse> {
-        val user = getAuthorizedUser() ?: return error(401, "Unauthorized")
+    override suspend fun followUser(token: String, username: String): Response<GenericResponse> {
+        val user = getAuthorizedUser(token) ?: return error(401, "Unauthorized")
         val target = users.find { it.username == username } ?: return error(404, "User not found")
 
         if (user.id == target.id) return error(404, "Cannot follow self")
@@ -513,8 +513,8 @@ class StatefulStubbedAPI : PositiveOnlySocialAPI {
         return Response.success(GenericResponse("User followed", null))
     }
 
-    override suspend fun unfollowUser(username: String): Response<GenericResponse> {
-        val user = getAuthorizedUser() ?: return error(401, "Unauthorized")
+    override suspend fun unfollowUser(token: String, username: String): Response<GenericResponse> {
+        val user = getAuthorizedUser(token) ?: return error(401, "Unauthorized")
         val target = users.find { it.username == username } ?: return error(404, "User not found")
 
         if (!user.following.contains(target.id)) return error(404, "Not following")
@@ -524,8 +524,8 @@ class StatefulStubbedAPI : PositiveOnlySocialAPI {
         return Response.success(GenericResponse("User unfollowed", null))
     }
 
-    override suspend fun getProfileDetails(username: String): Response<ProfileDto> {
-        val user = getAuthorizedUser() // Can be null if public profile view? Python code required login.
+    override suspend fun getProfileDetails(token: String, username: String): Response<ProfileDto> {
+        val user = getAuthorizedUser(token) // Can be null if public profile view? Python code required login.
         val target = users.find { it.username == username } ?: return errorGeneric(404, "User not found")
 
         val postCount = posts.count { it.authorId == target.id }
