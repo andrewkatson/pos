@@ -17,6 +17,7 @@ import androidx.compose.ui.unit.sp
 import androidx.navigation.NavController
 import com.example.positiveonlysocial.api.PositiveOnlySocialAPI
 import com.example.positiveonlysocial.data.auth.AuthenticationManager
+import com.example.positiveonlysocial.data.model.LoginRequest
 import com.example.positiveonlysocial.data.model.UserSession
 import com.example.positiveonlysocial.data.security.KeychainHelperProtocol
 import com.example.positiveonlysocial.ui.navigation.Screen
@@ -104,26 +105,18 @@ fun LoginScreen(
                     scope.launch {
                         isLoading = true
                         try {
-                            val response = api.loginUser(
+                            val loginRequest = LoginRequest(
                                 usernameOrEmail = usernameOrEmail,
                                 password = password,
                                 rememberMe = rememberMe.toString(),
                                 ip = "127.0.0.1"
                             )
-                            // Assuming response parsing logic similar to Swift or simplified if API returns object
-                            // For now, let's assume the API returns the raw bytes as per interface, 
-                            // but we might need to parse it. 
-                            // Wait, the API interface returns ResponseBody or similar?
-                            // Let's check API interface. 
-                            // Swift code parses manually. 
-                            // I should probably use a helper or if the API returns a DTO directly.
-                            // The previous summary said API returns DTOs now.
-                            // Let's assume for a moment we can get the token.
-                            // Actually, I need to check PositiveOnlySocialAPI return type for loginUser.
-                            
-                            // Placeholder logic until I verify API return type
+
+                            val response = api.loginUser(
+                                request = loginRequest
+                            )
                              val session = UserSession(
-                                sessionToken = "dummy_token", // Replace with actual parsing
+                                sessionToken = response.body()?.sessionToken ?: "dummy_token",
                                 username = usernameOrEmail,
                                 isIdentityVerified = false
                             )

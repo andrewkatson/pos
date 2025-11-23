@@ -10,6 +10,7 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.NavController
 import com.example.positiveonlysocial.api.PositiveOnlySocialAPI
 import com.example.positiveonlysocial.data.auth.AuthenticationManager
+import com.example.positiveonlysocial.data.security.KeychainHelper
 import com.example.positiveonlysocial.data.security.KeychainHelperProtocol
 import com.example.positiveonlysocial.models.viewmodels.SettingsViewModel
 import com.example.positiveonlysocial.models.viewmodels.SettingsViewModelFactory
@@ -20,10 +21,11 @@ import kotlinx.coroutines.launch
 fun SettingsScreen(
     navController: NavController,
     api: PositiveOnlySocialAPI,
-    keychainHelper: KeychainHelperProtocol
+    keychainHelper: KeychainHelperProtocol,
+    authenticationManager: AuthenticationManager
 ) {
     val viewModel: SettingsViewModel = viewModel(
-        factory = SettingsViewModelFactory(api, keychainHelper)
+        factory = SettingsViewModelFactory(api, authenticationManager, keychainHelper)
     )
     
     // We need AuthenticationManager to perform the actual logout/delete state update
@@ -67,8 +69,8 @@ fun SettingsScreen(
                         // I'll assume I can pass it or get it.
                         // Let's assume I'll update DependencyProvider to include it.
                         // val authManager = DependencyProvider.authManager
-                        // viewModel.logout(authManager)
-                        
+                        viewModel.logout()
+
                         // For now, just navigating to Login as a visual effect, 
                         // but logic needs AuthManager.
                         navController.navigate(Screen.Login.route) {
@@ -97,7 +99,7 @@ fun SettingsScreen(
                 Button(
                     onClick = {
                         showingDeleteConfirm = false
-                        // viewModel.deleteAccount(authManager)
+                        viewModel.deleteAccount()
                         navController.navigate(Screen.Login.route) {
                             popUpTo(Screen.Home.route) { inclusive = true }
                         }

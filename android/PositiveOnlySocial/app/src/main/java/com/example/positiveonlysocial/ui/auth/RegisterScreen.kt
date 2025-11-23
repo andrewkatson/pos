@@ -15,6 +15,7 @@ import androidx.compose.ui.unit.sp
 import androidx.navigation.NavController
 import com.example.positiveonlysocial.api.PositiveOnlySocialAPI
 import com.example.positiveonlysocial.data.auth.AuthenticationManager
+import com.example.positiveonlysocial.data.model.RegisterRequest
 import com.example.positiveonlysocial.data.model.UserSession
 import com.example.positiveonlysocial.data.security.KeychainHelperProtocol
 import com.example.positiveonlysocial.ui.navigation.Screen
@@ -123,17 +124,21 @@ fun RegisterScreen(
                     scope.launch {
                         isLoading = true
                         try {
-                            val response = api.register(
+
+                            val registerRequest = RegisterRequest(
                                 username = username,
                                 email = email,
                                 password = password,
                                 rememberMe = "false",
                                 ip = "127.0.0.1"
                             )
-                            
-                            // Placeholder logic until parsing is verified
+
+                            val response = api.register(
+                                request = registerRequest
+                            )
+
                             val session = UserSession(
-                                sessionToken = "dummy_token_register", 
+                                sessionToken = response.body()?.sessionToken ?: "dummy_token",
                                 username = username,
                                 isIdentityVerified = false
                             )

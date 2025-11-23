@@ -51,7 +51,7 @@ fun NavGraph(
 
         // Main App Flow
         composable(Screen.Home.route) {
-            MainScreen(navController, api, keychainHelper)
+            MainScreen(navController, api, keychainHelper, authManager)
         }
         
         // These are reachable from MainScreen or other screens, but MainScreen handles its own bottom nav.

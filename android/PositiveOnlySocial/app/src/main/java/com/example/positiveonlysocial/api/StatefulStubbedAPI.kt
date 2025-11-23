@@ -143,7 +143,7 @@ class StatefulStubbedAPI : PositiveOnlySocialAPI {
         return Response.success(AuthResponse(sessionToken, seriesId, cookieToken))
     }
 
-    override suspend fun login(request: LoginRequest): Response<AuthResponse> {
+    override suspend fun loginUser(request: LoginRequest): Response<AuthResponse> {
         val user = users.find { it.username == request.usernameOrEmail || it.email == request.usernameOrEmail }
 
         if (user == null || user.passwordHash != request.password) {
@@ -170,7 +170,7 @@ class StatefulStubbedAPI : PositiveOnlySocialAPI {
         return Response.success(AuthResponse(sessionToken, seriesId, cookieToken))
     }
 
-    override suspend fun loginWithRememberMe(request: TokenRefreshRequest): Response<TokenRefreshResponse> {
+    override suspend fun loginUserWithRememberMe(request: TokenRefreshRequest): Response<TokenRefreshResponse> {
         val cookie = loginCookies.find { it.seriesIdentifier == request.seriesIdentifier }
             ?: return errorGeneric(404, "Series identifier does not exist")
 
@@ -381,7 +381,8 @@ class StatefulStubbedAPI : PositiveOnlySocialAPI {
             post.postIdentifier,
             post.imageUrl,
             post.caption,
-            authorUsername = author.username
+            authorUsername = author.username,
+            post.likes.count()
         ))
     }
 

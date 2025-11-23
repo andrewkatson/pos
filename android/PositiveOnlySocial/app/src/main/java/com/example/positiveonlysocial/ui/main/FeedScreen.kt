@@ -156,7 +156,7 @@ fun PostItem(
                 .fillMaxWidth()
                 .aspectRatio(1f)
                 .clickable {
-                    navController.navigate(Screen.PostDetail.createRoute(post.id))
+                    navController.navigate(Screen.PostDetail.createRoute(post.postIdentifier))
                 },
             contentScale = ContentScale.Crop
         )

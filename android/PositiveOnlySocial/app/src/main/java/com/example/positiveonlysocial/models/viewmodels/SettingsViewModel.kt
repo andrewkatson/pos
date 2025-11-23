@@ -27,6 +27,9 @@ class SettingsViewModel(
     private val _errorMessage = MutableStateFlow<String?>(null)
     val errorMessage: StateFlow<String?> = _errorMessage.asStateFlow()
 
+    private val _showingErrorAlert = MutableStateFlow(false)
+    val showingErrorAlert: StateFlow<Boolean> = _showingErrorAlert.asStateFlow()
+
     private val service = "positive-only-social.Positive-Only-Social"
 
     fun setShowLogoutConfirmation(show: Boolean) {
@@ -35,6 +38,10 @@ class SettingsViewModel(
 
     fun setShowDeleteConfirmation(show: Boolean) {
         _showDeleteConfirmation.value = show
+    }
+
+    fun clearError() {
+        _errorMessage.value = null
     }
 
     fun logout() {

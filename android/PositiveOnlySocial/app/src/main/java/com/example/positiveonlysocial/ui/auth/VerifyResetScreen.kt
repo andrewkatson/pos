@@ -88,7 +88,7 @@ fun VerifyResetScreen(
                         }
 
                         try {
-                            api.verifyPasswordReset(usernameOrEmail = usernameOrEmail, resetID = resetId)
+                            api.verifyReset(usernameOrEmail = usernameOrEmail, resetId = resetId)
                             // On success, navigate to ResetPasswordScreen
                             navController.navigate(Screen.ResetPassword.createRoute(usernameOrEmail))
                         } catch (e: Exception) {

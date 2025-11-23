@@ -6,6 +6,7 @@ import com.example.positiveonlysocial.api.PositiveOnlySocialAPI
 import com.example.positiveonlysocial.data.model.*
 import com.example.positiveonlysocial.data.security.KeychainHelperProtocol
 import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -42,8 +43,8 @@ class PostDetailViewModel(
     private val _showReportSheetForPost = MutableStateFlow(false)
     val showReportSheetForPost: StateFlow<Boolean> = _showReportSheetForPost.asStateFlow()
 
-    private val _commentToReport = MutableStateFlow<CommentDto?>(null)
-    val commentToReport: StateFlow<CommentDto?> = _commentToReport.asStateFlow()
+    private val _commentToReport = MutableStateFlow<CommentViewData?>(null)
+    val commentToReport: StateFlow<CommentViewData?> = _commentToReport.asStateFlow()
 
     private val _newCommentText = MutableStateFlow("")
     val newCommentText: StateFlow<String> = _newCommentText.asStateFlow()
@@ -69,8 +70,12 @@ class PostDetailViewModel(
         _showReportSheetForPost.value = show
     }
 
-    fun setCommentToReport(comment: CommentDto?) {
+    fun setCommentToReport(comment: CommentViewData?) {
         _commentToReport.value = comment
+    }
+
+    fun dismissAlert() {
+        _alertMessage.value = null
     }
 
     fun loadAllData() {
@@ -114,7 +119,7 @@ class PostDetailViewModel(
                             
                             CommentThreadViewData(threadId, commentViewDataList)
                         }
-                    }.map { it.await() }
+                    }.awaitAll()
                 }
 
                 // Filter out empty threads if needed, or keep them
@@ -184,7 +189,7 @@ class PostDetailViewModel(
         }
     }
 
-    fun likeComment(comment: CommentDto, threadId: String) {
+    fun likeComment(comment: CommentViewData, threadId: String) {
         // Optimistic update - tricky with nested lists and ViewData conversion
         // Skipping optimistic update for now to ensure correctness first
         
@@ -192,7 +197,7 @@ class PostDetailViewModel(
             try {
                 val userSession = keychainHelper.load(UserSession::class.java, service, account)
                     ?: UserSession("123", "testuser", false, null, null)
-                api.likeComment(userSession.sessionToken, postIdentifier, threadId, comment.commentIdentifier)
+                api.likeComment(userSession.sessionToken, postIdentifier, threadId, comment.id)
                 loadAllData()
             } catch (e: Exception) {
                 println("Failed to like comment: $e")
@@ -200,12 +205,12 @@ class PostDetailViewModel(
         }
     }
 
-    fun unlikeComment(comment: CommentDto, threadId: String) {
+    fun unlikeComment(comment: CommentViewData, threadId: String) {
         viewModelScope.launch {
             try {
                 val userSession = keychainHelper.load(UserSession::class.java, service, account)
                     ?: UserSession("123", "testuser", false, null, null)
-                api.unlikeComment(userSession.sessionToken, postIdentifier, threadId, comment.commentIdentifier)
+                api.unlikeComment(userSession.sessionToken, postIdentifier, threadId, comment.id)
                 loadAllData()
             } catch (e: Exception) {
                 println("Failed to unlike comment: $e")
@@ -213,12 +218,12 @@ class PostDetailViewModel(
         }
     }
 
-    fun reportComment(comment: CommentDto, threadId: String, reason: String) {
+    fun reportComment(comment: CommentViewData, threadId: String, reason: String) {
         viewModelScope.launch {
             try {
                 val userSession = keychainHelper.load(UserSession::class.java, service, account)
                     ?: UserSession("123", "testuser", false, null, null)
-                api.reportComment(userSession.sessionToken, postIdentifier, threadId, comment.commentIdentifier, ReportRequest(reason))
+                api.reportComment(userSession.sessionToken, postIdentifier, threadId, comment.id, ReportRequest(reason))
             } catch (e: Exception) {
                 println("Failed to report comment: $e")
             }

@@ -29,16 +29,8 @@ fun ProfileScreen(
     keychainHelper: KeychainHelperProtocol,
     username: String
 ) {
-    // Create a dummy user object since ViewModel expects one, but we only have username from route
-    // Ideally ViewModel should accept username or we fetch user first.
-    // Based on Swift code, ProfileView takes a User object.
-    // But navigation route only passes username.
-    // Let's assume we construct a minimal User object or modify ViewModel to accept username.
-    // For now, constructing minimal User.
-    val user = User(username = username, identityIsVerified = false)
-    
     val viewModel: ProfileViewModel = viewModel(
-        factory = ProfileViewModelFactory(user, api, keychainHelper)
+        factory = ProfileViewModelFactory(api, keychainHelper)
     )
     
     val userPosts by viewModel.userPosts.collectAsState()
@@ -48,10 +40,10 @@ fun ProfileScreen(
 
     LaunchedEffect(Unit) {
         if (userPosts.isEmpty()) {
-            viewModel.fetchUserPosts()
+            viewModel.fetchUserPosts(username)
         }
         if (profileDetails == null) {
-            viewModel.fetchProfileDetails()
+            viewModel.fetchProfile(username)
         }
     }
 
@@ -83,7 +75,7 @@ fun ProfileScreen(
             Spacer(modifier = Modifier.height(16.dp))
             
             Button(
-                onClick = { viewModel.toggleFollow() },
+                onClick = { viewModel.toggleFollow(username) },
                 modifier = Modifier.fillMaxWidth(),
                 colors = ButtonDefaults.buttonColors(
                     containerColor = if (isFollowing) MaterialTheme.colorScheme.secondary else MaterialTheme.colorScheme.primary
@@ -117,14 +109,14 @@ fun ProfileScreen(
                         modifier = Modifier
                             .aspectRatio(1f)
                             .clickable {
-                                navController.navigate(Screen.PostDetail.createRoute(post.id))
+                                navController.navigate(Screen.PostDetail.createRoute(post.postIdentifier))
                             },
                         contentScale = ContentScale.Crop
                     )
                     
                     if (post == userPosts.lastOrNull()) {
                         LaunchedEffect(Unit) {
-                            viewModel.fetchUserPosts()
+                            viewModel.fetchUserPosts(username)
                         }
                     }
                 }

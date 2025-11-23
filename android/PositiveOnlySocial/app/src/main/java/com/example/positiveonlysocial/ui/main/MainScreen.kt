@@ -14,6 +14,7 @@ import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
 import com.example.positiveonlysocial.api.PositiveOnlySocialAPI
+import com.example.positiveonlysocial.data.auth.AuthenticationManager
 import com.example.positiveonlysocial.data.security.KeychainHelperProtocol
 import com.example.positiveonlysocial.ui.navigation.Screen
 
@@ -21,7 +22,8 @@ import com.example.positiveonlysocial.ui.navigation.Screen
 fun MainScreen(
     rootNavController: NavController, // For navigating out of the main flow (e.g. logout)
     api: PositiveOnlySocialAPI,
-    keychainHelper: KeychainHelperProtocol
+    keychainHelper: KeychainHelperProtocol,
+    authManager: AuthenticationManager
 ) {
     val bottomNavController = rememberNavController()
     
@@ -72,7 +74,7 @@ fun MainScreen(
                 NewPostScreen(rootNavController, api, keychainHelper)
             }
             composable(Screen.Settings.route) {
-                SettingsScreen(rootNavController, api, keychainHelper)
+                SettingsScreen(rootNavController, api, keychainHelper, authManager)
             }
         }
     }

@@ -14,6 +14,7 @@ import androidx.compose.ui.unit.dp
 import androidx.navigation.NavController
 import coil.compose.AsyncImage
 import com.example.positiveonlysocial.api.PositiveOnlySocialAPI
+import com.example.positiveonlysocial.data.model.CreatePostRequest
 import com.example.positiveonlysocial.data.security.KeychainHelperProtocol
 import kotlinx.coroutines.launch
 
@@ -141,10 +142,13 @@ fun NewPostScreen(
                             )
                             
                             if (session != null) {
-                                api.makePost(
-                                    sessionManagementToken = session.sessionToken,
-                                    imageURL = imageUrl,
+                                val request = CreatePostRequest(
+                                    imageUrl = imageUrl,
                                     caption = caption
+                                )
+                                api.makePost(
+                                    token = session.sessionToken,
+                                    request = request
                                 )
                                 showSuccessAlert = true
                             } else {

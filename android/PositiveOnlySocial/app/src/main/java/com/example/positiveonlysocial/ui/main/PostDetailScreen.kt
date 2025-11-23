@@ -27,6 +27,7 @@ import com.example.positiveonlysocial.data.model.CommentViewData
 import com.example.positiveonlysocial.data.security.KeychainHelperProtocol
 import com.example.positiveonlysocial.models.viewmodels.PostDetailViewModel
 import com.example.positiveonlysocial.models.viewmodels.PostDetailViewModelFactory
+import androidx.compose.runtime.collectAsState
 
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
@@ -56,11 +57,11 @@ fun PostDetailScreen(
 
     if (alertMessage != null) {
         AlertDialog(
-            onDismissRequest = { viewModel.alertMessage.value = null },
+            onDismissRequest = { viewModel.dismissAlert() },
             title = { Text("Error") },
             text = { Text(alertMessage ?: "Unknown error") },
             confirmButton = {
-                Button(onClick = { viewModel.alertMessage.value = null }) {
+                Button(onClick = { viewModel.dismissAlert() }) {
                     Text("OK")
                 }
             }
@@ -69,22 +70,22 @@ fun PostDetailScreen(
 
     if (showReportSheetForPost) {
         ReportDialog(
-            onDismiss = { viewModel.showReportSheetForPost.value = false },
+            onDismiss = { viewModel.setShowReportSheetForPost(false) },
             onSubmit = { reason -> viewModel.reportPost(reason) }
         )
     }
 
     commentToReport?.let { comment ->
         ReportDialog(
-            onDismiss = { viewModel.commentToReport.value = null },
-            onSubmit = { reason -> viewModel.reportComment(comment, reason) }
+            onDismiss = { viewModel.setCommentToReport(null) },
+            onSubmit = { reason -> viewModel.reportComment(comment, comment.threadId, reason) }
         )
     }
 
     threadToReplyTo?.let { thread ->
         ReplyDialog(
             thread = thread,
-            onDismiss = { viewModel.threadToReplyTo.value = null },
+            onDismiss = { viewModel.setThreadToReplyTo(null) },
             onSubmit = { text -> viewModel.replyToCommentThread(thread, text) }
         )
     }
@@ -104,7 +105,7 @@ fun PostDetailScreen(
             item {
                 Column(modifier = Modifier.fillMaxWidth()) {
                     AsyncImage(
-                        model = post.imageURL,
+                        model = post.imageUrl,
                         contentDescription = "Post Image",
                         modifier = Modifier
                             .fillMaxWidth()
@@ -115,7 +116,7 @@ fun PostDetailScreen(
                                     if (isPostLiked) viewModel.likePost() else viewModel.unlikePost()
                                 },
                                 onLongClick = {
-                                    viewModel.showReportSheetForPost.value = true
+                                    viewModel.setShowReportSheetForPost(true)
                                 },
                                 onClick = {}
                             ),
@@ -145,14 +146,14 @@ fun PostDetailScreen(
                         // Add Comment Section
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             TextField(
-                                value = viewModel.newCommentText.value,
-                                onValueChange = { viewModel.newCommentText.value = it },
+                                value = viewModel.newCommentText.collectAsState().value,
+                                onValueChange = { viewModel.updateNewCommentText(it) },
                                 placeholder = { Text("Add a comment...") },
                                 modifier = Modifier.weight(1f)
                             )
                             Button(
                                 onClick = { viewModel.commentOnPost(viewModel.newCommentText.value) },
-                                enabled = viewModel.newCommentText.value.isNotEmpty(),
+                                enabled = viewModel.newCommentText.collectAsState().value.isNotEmpty(),
                                 modifier = Modifier.padding(start = 8.dp)
                             ) {
                                 Text("Post")
@@ -182,14 +183,14 @@ fun CommentThreadView(thread: CommentThreadViewData, viewModel: PostDetailViewMo
         thread.comments.firstOrNull()?.let { rootComment ->
             CommentRow(
                 comment = rootComment,
-                onLike = { viewModel.likeComment(rootComment) },
-                onUnlike = { viewModel.unlikeComment(rootComment) },
-                onReport = { viewModel.commentToReport.value = rootComment }
+                onLike = { viewModel.likeComment(rootComment, rootComment.threadId) },
+                onUnlike = { viewModel.unlikeComment(rootComment, rootComment.threadId) },
+                onReport = { viewModel.setCommentToReport(rootComment) }
             )
             
             // Reply Input for Thread
             Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(start = 16.dp, top = 8.dp)) {
-                 TextButton(onClick = { viewModel.threadToReplyTo.value = thread }) {
+                 TextButton(onClick = { viewModel.setThreadToReplyTo(thread) }) {
                      Text("Reply", fontSize = 12.sp)
                  }
             }
@@ -200,9 +201,9 @@ fun CommentThreadView(thread: CommentThreadViewData, viewModel: PostDetailViewMo
                 thread.comments.drop(1).forEach { reply ->
                     CommentRow(
                         comment = reply,
-                        onLike = { viewModel.likeComment(reply) },
-                        onUnlike = { viewModel.unlikeComment(reply) },
-                        onReport = { viewModel.commentToReport.value = reply }
+                        onLike = { viewModel.likeComment(reply, reply.threadId) },
+                        onUnlike = { viewModel.unlikeComment(reply, reply.threadId) },
+                        onReport = { viewModel.setCommentToReport(reply) }
                     )
                 }
             }

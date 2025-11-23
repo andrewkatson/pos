@@ -11,6 +11,7 @@ import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.navigation.NavController
 import com.example.positiveonlysocial.api.PositiveOnlySocialAPI
+import com.example.positiveonlysocial.data.model.PasswordResetSubmitRequest
 import com.example.positiveonlysocial.data.security.KeychainHelperProtocol
 import com.example.positiveonlysocial.ui.navigation.Screen
 import kotlinx.coroutines.launch
@@ -111,10 +112,13 @@ fun ResetPasswordScreen(
                     scope.launch {
                         isLoading = true
                         try {
-                            api.resetPassword(
+                            val request = PasswordResetSubmitRequest(
                                 username = username,
                                 email = email,
-                                newPassword = newPassword
+                                password = newPassword
+                            )
+                            api.resetPassword(
+                                request = request
                             )
                             // On success, navigate to Home (or Login, but Swift goes to Home so let's assume auto-login or just Home)
                             // Swift code: didResetSuccessfully = true -> HomeView

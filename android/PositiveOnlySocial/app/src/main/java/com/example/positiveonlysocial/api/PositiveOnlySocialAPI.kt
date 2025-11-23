@@ -1,10 +1,8 @@
 package com.example.positiveonlysocial.api
 
-import com.example.positiveonlysocial.api.StatefulStubbedAPI.PostMock
 import com.example.positiveonlysocial.data.model.*
 import retrofit2.Response
 import retrofit2.http.*
-import kotlin.random.Random
 
 interface PositiveOnlySocialAPI {
 
@@ -13,10 +11,10 @@ interface PositiveOnlySocialAPI {
     // =============================================================================
 
     @POST("login")
-    suspend fun login(@Body request: LoginRequest): Response<AuthResponse>
+    suspend fun loginUser(@Body request: LoginRequest): Response<AuthResponse>
 
     @POST("login/remember")
-    suspend fun loginWithRememberMe(@Body request: TokenRefreshRequest): Response<TokenRefreshResponse>
+    suspend fun loginUserWithRememberMe(@Body request: TokenRefreshRequest): Response<TokenRefreshResponse>
 
     @POST("register")
     suspend fun register(@Body request: RegisterRequest): Response<AuthResponse>

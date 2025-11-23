@@ -10,6 +10,7 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.navigation.NavController
 import com.example.positiveonlysocial.api.PositiveOnlySocialAPI
+import com.example.positiveonlysocial.data.model.ResetRequest
 import com.example.positiveonlysocial.data.security.KeychainHelperProtocol
 import com.example.positiveonlysocial.ui.navigation.Screen
 import kotlinx.coroutines.launch
@@ -70,7 +71,8 @@ fun RequestResetScreen(
                     scope.launch {
                         isLoading = true
                         try {
-                            api.requestPasswordReset(usernameOrEmail = usernameOrEmail)
+                            val request = ResetRequest(usernameOrEmail = usernameOrEmail)
+                            api.requestReset(request = request)
                             // On success, navigate to VerifyResetScreen
                             navController.navigate(Screen.VerifyReset.createRoute(usernameOrEmail))
                         } catch (e: Exception) {

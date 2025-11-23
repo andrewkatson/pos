@@ -70,7 +70,8 @@ data class Post(
     @SerializedName("post_identifier") val postIdentifier: String,
     @SerializedName("image_url") val imageUrl: String,
     val caption: String,
-    @SerializedName("authorUsername") val authorUsername: String
+    @SerializedName("authorUsername") val authorUsername: String,
+    val likeCount: Int? = 0
 )
 
 // --- Comment DTOs ---
