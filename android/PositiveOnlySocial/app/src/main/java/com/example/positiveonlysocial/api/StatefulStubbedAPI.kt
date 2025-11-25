@@ -224,17 +224,6 @@ class StatefulStubbedAPI : PositiveOnlySocialAPI {
 
     // ============================================================================================
     // PASSWORD RESET
-    // ============================================================================================
-
-    override suspend fun requestReset(request: ResetRequest): Response<GenericResponse> {
-        val user = users.find { it.username == request.usernameOrEmail || it.email == request.usernameOrEmail }
-        if (user != null) {
-            user.resetId = Random.nextInt(100000, 999999)
-            println("STUB: Email sent to ${user.email} with code ${user.resetId}") // Debug print
-            return Response.success(GenericResponse("Reset email sent", null))
-        }
-        return error(404, "No user with that username or email")
-    }
 
     override suspend fun verifyReset(usernameOrEmail: String, resetId: Int): Response<GenericResponse> {
         val user = users.find { it.username == usernameOrEmail || it.email == usernameOrEmail }

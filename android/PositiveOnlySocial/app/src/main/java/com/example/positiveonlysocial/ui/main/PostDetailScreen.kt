@@ -220,6 +220,7 @@ fun CommentRow(
     onReport: () -> Unit
 ) {
     var isLiked by remember { mutableStateOf(false) }
+    var isReported by remember { mutableStateOf(false) }
     
     Row(
         modifier = Modifier
@@ -230,7 +231,10 @@ fun CommentRow(
                     isLiked = !isLiked
                     if (isLiked) onLike() else onUnlike()
                 },
-                onLongClick = { onReport() },
+                onLongClick = {
+                    isReported = true
+                    onReport()
+                },
                 onClick = {}
             ),
         verticalAlignment = Alignment.Top
@@ -251,10 +255,14 @@ fun CommentRow(
                 Text(comment.body, fontSize = 14.sp)
             }
             Row(verticalAlignment = Alignment.CenterVertically) {
-                // Date placeholder - needs formatting logic
+                // TODO Date placeholder - needs formatting logic
                 Text("Just now", fontSize = 12.sp, color = Color.Gray)
                 Spacer(modifier = Modifier.width(8.dp))
                 Text("${comment.likeCount} likes", fontSize = 12.sp, color = Color.Gray)
+                Spacer(modifier = Modifier.width(8.dp))
+                if (isReported) {
+                    Icon(Icons.Default.Flag, contentDescription = "Reported", tint = Color.Red)
+                }
             }
         }
     }
