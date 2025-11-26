@@ -5,7 +5,7 @@ from django.urls import reverse
 from .test_constants import ip, false, UserFields
 # Note: test_utils.get_response_fields is replaced by response.json()
 from ..classifiers.classifier_constants import POSITIVE_IMAGE_URL, POSITIVE_TEXT
-from ..constants import Fields
+from ..constants import Fields, testing
 from ..models import Post, CommentThread, Comment
 
 class PositiveOnlySocialTestCase(TestCase):
@@ -45,6 +45,9 @@ class PositiveOnlySocialTestCase(TestCase):
         self.comment = None
         self.commenter_session_management_token = None
         self.commenter_local_username = None
+
+        # --- Testing flags ---
+        testing = True 
 
     # =========================================================================
     # INTERNAL ("Private") CORE HELPERS

@@ -94,3 +94,5 @@ COMMENT_THREAD_BATCH_SIZE = 10
 # Number of reports before hiding
 MAX_BEFORE_HIDING_POST = 10
 MAX_BEFORE_HIDING_COMMENT = 5
+
+testing = False
