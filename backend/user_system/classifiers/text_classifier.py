@@ -1,17 +1,22 @@
 import os
 import google.generativeai as genai
 from .classifier_constants import POSITIVE_TEXT
+from ..constants import testing
 
 def is_text_positive(text):
     """
     Determines if the given text is positive using Gemini.
     """
+
+    if testing:
+        return text == POSITIVE_TEXT
+
     api_key = os.environ.get("GEMINI_API_KEY")
     if not api_key:
         print("GEMINI_API_KEY not found in environment variables.")
         # Fallback to simple check for testing purposes if API key is missing
         # In production, this should probably raise an error or handle gracefully
-        return text == POSITIVE_TEXT
+        return False
 
     try:
         genai.configure(api_key=api_key)

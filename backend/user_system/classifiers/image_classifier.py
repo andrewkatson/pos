@@ -5,6 +5,7 @@ from PIL import Image
 from io import BytesIO
 from urllib.parse import urlparse
 from .classifier_constants import POSITIVE_IMAGE_URL
+from ..constants import testing
 
 def is_image_positive(image_url):
     """
@@ -14,10 +15,13 @@ def is_image_positive(image_url):
     aws_access_key = os.environ.get("AWS_ACCESS_KEY_ID")
     aws_secret_key = os.environ.get("AWS_SECRET_ACCESS_KEY")
     
+    if testing:
+        return image_url == POSITIVE_IMAGE_URL
+
     # Fallback if keys are missing
     if not api_key or not aws_access_key or not aws_secret_key:
         print("Missing API keys (GEMINI or AWS). Using fallback.")
-        return image_url == POSITIVE_IMAGE_URL
+        return False
 
     try:
         # Initialize Gemini

@@ -6,8 +6,9 @@ from PIL import Image
 from user_system.classifiers.text_classifier import is_text_positive
 from user_system.classifiers.image_classifier import is_image_positive
 from user_system.classifiers.classifier_constants import POSITIVE_TEXT, POSITIVE_IMAGE_URL
+from .test_parent_case import PositiveOnlySocialTestCase
 
-class TestClassifiers(unittest.TestCase):
+class TestClassifiers(PositiveOnlySocialTestCase):
 
     @patch.dict(os.environ, {"GEMINI_API_KEY": "fake_key"})
     @patch("user_system.classifiers.text_classifier.genai")
