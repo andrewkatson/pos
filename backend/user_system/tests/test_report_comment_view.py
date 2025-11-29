@@ -105,7 +105,7 @@ class ReportCommentTests(PositiveOnlySocialTestCase):
             self.url, data=invalid_data, content_type='application/json', **self.reporter_header
         )
 
-        self.assertEqual(response.status_code, 404)
+        self.assertEqual(response.status_code, 400)
 
     def test_report_own_comment_fails(self):
         """
@@ -116,7 +116,7 @@ class ReportCommentTests(PositiveOnlySocialTestCase):
             self.url, data=self.valid_data, content_type='application/json', **self.commenter_header
         )
 
-        self.assertEqual(response.status_code, 404)
+        self.assertEqual(response.status_code, 400)
         self.assertIn("Cannot report own comment", response.json().get('error', ''))
 
     def test_report_comment_twice_fails(self):
@@ -133,7 +133,7 @@ class ReportCommentTests(PositiveOnlySocialTestCase):
         response2 = self.client.post(
             self.url, data=self.valid_data, content_type='application/json', **self.reporter_header
         )
-        self.assertEqual(response2.status_code, 404)
+        self.assertEqual(response2.status_code, 400)
         self.assertIn("Cannot report comment twice", response2.json().get('error', ''))
 
     def test_report_comment_returns_good_response_and_reports_comment(self):

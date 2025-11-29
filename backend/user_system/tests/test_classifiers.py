@@ -1,11 +1,10 @@
-import unittest
 from unittest.mock import patch, MagicMock
 import os
 from io import BytesIO
 from PIL import Image
-from user_system.classifiers.text_classifier import is_text_positive
-from user_system.classifiers.image_classifier import is_image_positive
-from user_system.classifiers.classifier_constants import POSITIVE_TEXT, POSITIVE_IMAGE_URL
+from ..classifiers.text_classifier import is_text_positive
+from ..classifiers.image_classifier import is_image_positive
+from ..classifiers.classifier_constants import POSITIVE_TEXT, POSITIVE_IMAGE_URL
 from .test_parent_case import PositiveOnlySocialTestCase
 
 class TestClassifiers(PositiveOnlySocialTestCase):
@@ -39,7 +38,7 @@ class TestClassifiers(PositiveOnlySocialTestCase):
         result = is_text_positive("I am sad")
         self.assertFalse(result)
 
-    @patch.dict(os.environ, {}, clear=True)
+    @patch.dict(os.environ, {"TESTING": "True"}, clear=True)
     def test_text_classifier_no_api_key(self):
         # Test fallback
         self.assertTrue(is_text_positive(POSITIVE_TEXT))
@@ -81,7 +80,7 @@ class TestClassifiers(PositiveOnlySocialTestCase):
         mock_s3.get_object.assert_called_with(Bucket="fake_bucket", Key="some_image.png")
         mock_model.generate_content.assert_called()
 
-    @patch.dict(os.environ, {}, clear=True)
+    @patch.dict(os.environ, {"TESTING": "True"}, clear=True)
     def test_image_classifier_no_api_key(self):
         # Test fallback
         self.assertTrue(is_image_positive(POSITIVE_IMAGE_URL))

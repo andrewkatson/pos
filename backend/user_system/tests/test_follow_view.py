@@ -1,6 +1,7 @@
+import ast
+
 from django.urls import reverse
 from .test_parent_case import PositiveOnlySocialTestCase
-from ..constants import Fields
 from ..models import PositiveOnlySocialUser  # Import model for assertions
 
 invalid_session_management_token = '?'
@@ -59,7 +60,7 @@ class FollowUserTests(PositiveOnlySocialTestCase):
         response = self.client.post(invalid_url, **self.user_a_header)
 
         self.assertEqual(response.status_code, 400)  # 400 Bad Request
-        self.assertIn('Target user does not exist', response.content.decode('utf8'))
+        self.assertIn('User does not exist', ast.literal_eval(response.content.decode('utf8'))['error'])
 
     def test_follow_self_fails(self):
         """
@@ -70,7 +71,7 @@ class FollowUserTests(PositiveOnlySocialTestCase):
         response = self.client.post(follow_self_url, **self.user_a_header)
 
         self.assertEqual(response.status_code, 400)  # 400 Bad Request
-        self.assertIn('You cannot follow yourself', response.content.decode())
+        self.assertIn('Cannot follow self', ast.literal_eval(response.content.decode())['error'])
 
         self.user_a.refresh_from_db()
         self.assertEqual(self.user_a.following.count(), 0)
@@ -93,7 +94,7 @@ class FollowUserTests(PositiveOnlySocialTestCase):
 
         # 3. This should fail.
         self.assertEqual(response.status_code, 400)  # 400 Bad Request
-        self.assertEqual('Already following this user', response.content.decode())
+        self.assertEqual('Already following user', ast.literal_eval(response.content.decode())['error'])
 
         # 4. The following count should remain 1.
         self.user_a.refresh_from_db()

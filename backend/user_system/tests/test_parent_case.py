@@ -1,3 +1,7 @@
+import os
+
+from unittest.mock import patch
+
 from django.test import TestCase, Client
 from django.urls import reverse
 
@@ -5,8 +9,9 @@ from django.urls import reverse
 from .test_constants import ip, false, UserFields
 # Note: test_utils.get_response_fields is replaced by response.json()
 from ..classifiers.classifier_constants import POSITIVE_IMAGE_URL, POSITIVE_TEXT
-from ..constants import Fields, testing
+from ..constants import Fields
 from ..models import Post, CommentThread, Comment
+
 
 class PositiveOnlySocialTestCase(TestCase):
     """
@@ -45,9 +50,6 @@ class PositiveOnlySocialTestCase(TestCase):
         self.comment = None
         self.commenter_session_management_token = None
         self.commenter_local_username = None
-
-        # --- Testing flags ---
-        testing = True 
 
     # =========================================================================
     # INTERNAL ("Private") CORE HELPERS
@@ -104,6 +106,7 @@ class PositiveOnlySocialTestCase(TestCase):
         self.assertEqual(response.status_code, 200)
         return response.json()
 
+    @patch.dict(os.environ, {"TESTING": "True"}, clear=True)
     def _make_post(self, token, image_url=POSITIVE_IMAGE_URL, caption=POSITIVE_TEXT):
         """
         Calls the 'make_post' endpoint with a valid auth token.
@@ -119,6 +122,7 @@ class PositiveOnlySocialTestCase(TestCase):
         self.assertEqual(response.status_code, 201)
         return response.json()
 
+    @patch.dict(os.environ, {"TESTING": "True"}, clear=True)
     def _comment_on_post(self, token, post_id, comment_text=POSITIVE_TEXT):
         """
         Calls the 'comment_on_post' endpoint with a valid auth token.
@@ -134,6 +138,7 @@ class PositiveOnlySocialTestCase(TestCase):
         self.assertEqual(response.status_code, 201)
         return response.json()
 
+    @patch.dict(os.environ, {"TESTING": "True"}, clear=True)
     def _reply_to_comment_thread(self, token, post_id, thread_id, comment_text=POSITIVE_TEXT):
         """
         Calls the 'reply_to_comment_thread' endpoint with a valid auth token.

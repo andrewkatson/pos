@@ -1,12 +1,16 @@
 import os
 import google.generativeai as genai
 from .classifier_constants import POSITIVE_TEXT
-from ..constants import testing
+from ..utils import convert_to_bool
+
 
 def is_text_positive(text):
     """
     Determines if the given text is positive using Gemini.
     """
+
+    testing = os.environ.get("TESTING", False)
+    testing = testing if isinstance(testing, bool) else convert_to_bool(testing)
 
     if testing:
         return text == POSITIVE_TEXT

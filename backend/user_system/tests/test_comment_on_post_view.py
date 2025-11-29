@@ -1,3 +1,7 @@
+import os
+
+from unittest.mock import patch
+
 from django.urls import reverse
 
 from .test_parent_case import PositiveOnlySocialTestCase
@@ -89,6 +93,7 @@ class CommentOnPostTests(PositiveOnlySocialTestCase):
         # View logic should return 400 Bad Request
         self.assertEqual(response.status_code, 400)
 
+    @patch.dict(os.environ, {"TESTING": "True"}, clear=True)
     def test_comment_on_post_returns_good_response_and_adds_thread_with_comment(self):
         """
         Tests that a valid request successfully creates a new comment

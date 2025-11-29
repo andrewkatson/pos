@@ -44,7 +44,7 @@ class RegisterTests(PositiveOnlySocialTestCase):
 
         response = self.client.post(self.url, data=data, content_type='application/json')
 
-        self.assertEqual(response.status_code, 404)
+        self.assertEqual(response.status_code, 400)
 
     def test_invalid_email_returns_bad_response(self):
         """
@@ -55,7 +55,7 @@ class RegisterTests(PositiveOnlySocialTestCase):
 
         response = self.client.post(self.url, data=data, content_type='application/json')
 
-        self.assertEqual(response.status_code, 404)
+        self.assertEqual(response.status_code, 400)
 
     def test_invalid_password_returns_bad_response(self):
         """
@@ -66,7 +66,7 @@ class RegisterTests(PositiveOnlySocialTestCase):
 
         response = self.client.post(self.url, data=data, content_type='application/json')
 
-        self.assertEqual(response.status_code, 404)
+        self.assertEqual(response.status_code, 400)
 
     def test_invalid_remember_me_returns_bad_response(self):
         """
@@ -77,7 +77,7 @@ class RegisterTests(PositiveOnlySocialTestCase):
 
         response = self.client.post(self.url, data=data, content_type='application/json')
 
-        self.assertEqual(response.status_code, 404)
+        self.assertEqual(response.status_code, 400)
 
     def test_invalid_ip_returns_bad_response(self):
         """
@@ -88,7 +88,7 @@ class RegisterTests(PositiveOnlySocialTestCase):
 
         response = self.client.post(self.url, data=data, content_type='application/json')
 
-        self.assertEqual(response.status_code, 404)
+        self.assertEqual(response.status_code, 400)
 
     def test_user_already_exists_returns_bad_response(self):
         """
@@ -100,7 +100,7 @@ class RegisterTests(PositiveOnlySocialTestCase):
 
         # Second call: This one should fail
         response2 = self.client.post(self.url, data=self.valid_data, content_type='application/json')
-        self.assertEqual(response2.status_code, 404)
+        self.assertEqual(response2.status_code, 400)
         self.assertIn("User already exists", response2.json().get('error', ''))
 
     def test_user_doesnt_exist_with_remember_me_returns_good_response(self):

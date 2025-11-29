@@ -29,7 +29,7 @@ class ResetPasswordTests(PositiveOnlySocialTestCase):
 
         response = self.client.post(url, data=data, content_type='application/json')
 
-        self.assertEqual(response.status_code, 404)
+        self.assertEqual(response.status_code, 400)
         self.assertIn("No user with that username or email", response.json().get('error', ''))
 
     def test_user_does_not_exist_verify_reset_returns_bad_response(self):
@@ -43,7 +43,7 @@ class ResetPasswordTests(PositiveOnlySocialTestCase):
 
         response = self.client.get(url)
 
-        self.assertEqual(response.status_code, 404)
+        self.assertEqual(response.status_code, 400)
         self.assertIn("No user with that username or email", response.json().get('error', ''))
 
     def test_user_does_not_exist_reset_password_returns_bad_response(self):
@@ -60,7 +60,7 @@ class ResetPasswordTests(PositiveOnlySocialTestCase):
 
         response = self.client.post(url, data=data, content_type='application/json')
 
-        self.assertEqual(response.status_code, 404)
+        self.assertEqual(response.status_code, 400)
         self.assertIn("No user with that username or email", response.json().get('error', ''))
 
     def test_reset_id_does_not_match_returns_bad_response(self):
@@ -85,7 +85,7 @@ class ResetPasswordTests(PositiveOnlySocialTestCase):
         })
         response = self.client.get(verify_url)
 
-        self.assertEqual(response.status_code, 404)
+        self.assertEqual(response.status_code, 400)
         self.assertIn("does not match", response.json().get('error', ''))
 
     def test_password_reset_flow_succeeds_and_changes_password(self):
@@ -141,7 +141,7 @@ class ResetPasswordTests(PositiveOnlySocialTestCase):
             'ip': ip
         }
         response = self.client.post(login_url, data=old_login_data, content_type='application/json')
-        self.assertEqual(response.status_code, 404)
+        self.assertEqual(response.status_code, 400)
         self.assertIn("Password was not correct", response.json().get('error', ''))
 
         # b) Try to log in with the NEW password (should succeed)

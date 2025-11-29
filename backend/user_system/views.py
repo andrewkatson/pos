@@ -151,7 +151,7 @@ def api_login_required(view_func):
 def register(request):
     data = _get_json_body(request)
     if data is None:
-        return JsonResponse({'error': "Invalid JSON data"}, status=404)
+        return JsonResponse({'error': "Invalid JSON data"}, status=400)
 
     username = data.get(Fields.username)
     email = data.get(Fields.email)
@@ -176,11 +176,11 @@ def register(request):
         invalid_fields.append(Params.remember_me)
 
     if len(invalid_fields) > 0:
-        return JsonResponse({'error': f"Invalid fields {invalid_fields}"}, status=404)
+        return JsonResponse({'error': f"Invalid fields {invalid_fields}"}, status=400)
 
     # Check no user has this email or username.
     if get_user_with_username(username) is not None or get_user_with_email(email) is not None:
-        return JsonResponse({'error': "User already exists"}, status=404)
+        return JsonResponse({'error': "User already exists"}, status=400)
 
     new_user = get_user_model().objects.create_user(username=username, email=email)
     new_user.set_password(password)
@@ -210,7 +210,7 @@ def register(request):
 def login_user(request):
     data = _get_json_body(request)
     if data is None:
-        return JsonResponse({'error': "Invalid JSON data"}, status=404)
+        return JsonResponse({'error': "Invalid JSON data"}, status=400)
 
     username_or_email = data.get(Fields.username_or_email)
     password = data.get(Fields.password)
@@ -234,12 +234,12 @@ def login_user(request):
         invalid_fields.append(Params.remember_me)
 
     if len(invalid_fields) > 0:
-        return JsonResponse({'error': f"Invalid fields {invalid_fields}"}, status=404)
+        return JsonResponse({'error': f"Invalid fields {invalid_fields}"}, status=400)
 
     existing = get_user_with_username_or_email(username_or_email)
     if existing is not None:
         if not check_password(password, existing.password):
-            return JsonResponse({'error': "Password was not correct"}, status=404)
+            return JsonResponse({'error': "Password was not correct"}, status=400)
 
         login(request, existing)  # Logs into Django's session auth
 
@@ -259,7 +259,7 @@ def login_user(request):
 
         return JsonResponse(response_data)
     else:
-        return JsonResponse({'error': "No user exists with that information"}, status=404)
+        return JsonResponse({'error': "No user exists with that information"}, status=400)
 
 
 @csrf_exempt
@@ -267,7 +267,7 @@ def login_user(request):
 def login_user_with_remember_me(request):
     data = _get_json_body(request)
     if data is None:
-        return JsonResponse({'error': "Invalid JSON data"}, status=404)
+        return JsonResponse({'error': "Invalid JSON data"}, status=400)
 
     session_management_token = data.get(Fields.session_management_token)
     series_identifier = data.get(Fields.series_identifier)
@@ -285,17 +285,17 @@ def login_user_with_remember_me(request):
         invalid_fields.append(Params.ip)
 
     if len(invalid_fields) > 0:
-        return JsonResponse({'error': f"Invalid fields {invalid_fields}"}, status=404)
+        return JsonResponse({'error': f"Invalid fields {invalid_fields}"}, status=400)
 
     try:
         matching_login_cookie = LoginCookie.objects.get(series_identifier=series_identifier)
     except LoginCookie.DoesNotExist:
-        return JsonResponse({'error': "Series identifier does not exist"}, status=404)
+        return JsonResponse({'error': "Series identifier does not exist"}, status=400)
     except LoginCookie.MultipleObjectsReturned:
-        return JsonResponse({'error': "Series identifier exists too many times"}, status=404)
+        return JsonResponse({'error': "Series identifier exists too many times"}, status=400)
 
     if matching_login_cookie.token != login_cookie_token:
-        return JsonResponse({'error': "Login cookie token does not match"}, status=404)
+        return JsonResponse({'error': "Login cookie token does not match"}, status=400)
 
     # Issue a new login cookie token (token rotation)
     new_login_cookie_token = generate_login_cookie_token()
@@ -305,7 +305,7 @@ def login_user_with_remember_me(request):
     # Get the user with the *old* session management token
     existing = get_user_with_session_management_token(session_management_token)
     if existing is None:
-        return JsonResponse({'error': "Original session token is invalid"}, status=404)
+        return JsonResponse({'error': "Original session token is invalid"}, status=400)
 
     # Issue a new session management token
     new_session_management_token = generate_management_token()
@@ -329,7 +329,7 @@ def logout_user(request):
         session.delete()
     except Session.DoesNotExist:
         # This could happen if the token is valid but the session was already deleted
-        return JsonResponse({'error': 'Session not found or already logged out'}, status=404)
+        return JsonResponse({'error': 'Session not found or already logged out'}, status=400)
 
     logout(request)  # Also log out of the standard Django session
     return JsonResponse({'message': 'Logout successful'})
@@ -346,7 +346,7 @@ def delete_user(request):
         user_to_delete.delete()  # This will cascade and delete sessions, posts, etc.
         return JsonResponse({'message': 'User deleted successfully'})
     except Exception as e:
-        return JsonResponse({'error': f"Error deleting user {e}"}, status=404)
+        return JsonResponse({'error': f"Error deleting user {e}"}, status=400)
 
 
 # =============================================================================
@@ -358,14 +358,14 @@ def delete_user(request):
 def request_reset(request):
     data = _get_json_body(request)
     if data is None:
-        return JsonResponse({'error': "Invalid JSON data"}, status=404)
+        return JsonResponse({'error': "Invalid JSON data"}, status=400)
 
     username_or_email = data.get(Fields.username_or_email)
 
     if not username_or_email or (
             not is_valid_pattern(username_or_email, Patterns.alphanumeric) and not is_valid_pattern(username_or_email,
                                                                                                     Patterns.email)):
-        return JsonResponse({'error': f"Invalid fields {Fields.username_or_email}"}, status=404)
+        return JsonResponse({'error': f"Invalid fields {Fields.username_or_email}"}, status=400)
 
     user = get_user_with_username_or_email(username_or_email)
     if user is not None:
@@ -379,7 +379,7 @@ def request_reset(request):
         user.save()
         return JsonResponse({'message': 'Reset email sent'})
     else:
-        return JsonResponse({'error': "No user with that username or email"}, status=404)
+        return JsonResponse({'error': "No user with that username or email"}, status=400)
 
 
 @require_GET
@@ -395,7 +395,7 @@ def verify_reset(request, username_or_email, reset_id):
         invalid_fields.append(Params.reset_id)
 
     if len(invalid_fields) > 0:
-        return JsonResponse({'error': f"Invalid fields {invalid_fields}"}, status=404)
+        return JsonResponse({'error': f"Invalid fields {invalid_fields}"}, status=400)
 
     user = get_user_with_username_or_email(username_or_email)
     if user is not None:
@@ -405,9 +405,9 @@ def verify_reset(request, username_or_email, reset_id):
             user.save()
             return JsonResponse({'message': 'Verification successful'})
         else:
-            return JsonResponse({'error': "That reset id does not match"}, status=404)
+            return JsonResponse({'error': "That reset id does not match"}, status=400)
     else:
-        return JsonResponse({'error': "No user with that username or email"}, status=404)
+        return JsonResponse({'error': "No user with that username or email"}, status=400)
 
 
 @csrf_exempt
@@ -415,7 +415,7 @@ def verify_reset(request, username_or_email, reset_id):
 def reset_password(request):
     data = _get_json_body(request)
     if data is None:
-        return JsonResponse({'error': "Invalid JSON data"}, status=404)
+        return JsonResponse({'error': "Invalid JSON data"}, status=400)
 
     username = data.get(Fields.username)
     email = data.get(Fields.email)
@@ -430,7 +430,7 @@ def reset_password(request):
         invalid_fields.append(Params.password)
 
     if len(invalid_fields) > 0:
-        return JsonResponse({'error': f"Invalid fields {invalid_fields}"}, status=404)
+        return JsonResponse({'error': f"Invalid fields {invalid_fields}"}, status=400)
 
     user = get_user_with_username_and_email(username, email)
     if user is not None:
@@ -438,7 +438,7 @@ def reset_password(request):
         user.save()
         return JsonResponse({'message': 'Password reset successfully'})
     else:
-        return JsonResponse({'error': "No user with that username or email"}, status=404)
+        return JsonResponse({'error': "No user with that username or email"}, status=400)
 
 
 # =============================================================================
@@ -452,7 +452,7 @@ def make_post(request):
     # user is on request.user
     data = _get_json_body(request)
     if data is None:
-        return JsonResponse({'error': "Invalid JSON data"}, status=404)
+        return JsonResponse({'error': "Invalid JSON data"}, status=400)
 
     image_url = data.get(Fields.image_url)
     caption = data.get(Fields.caption)
@@ -464,13 +464,13 @@ def make_post(request):
         invalid_fields.append(Params.caption)
 
     if len(invalid_fields) > 0:
-        return JsonResponse({'error': f"Invalid fields {invalid_fields}"}, status=404)
+        return JsonResponse({'error': f"Invalid fields {invalid_fields}"}, status=400)
 
     if not image_classifier_class.is_image_positive(image_url):
-        return JsonResponse({'error': "Image is not positive"}, status=404)
+        return JsonResponse({'error': "Image is not positive"}, status=400)
 
     if not text_classifier_class.is_text_positive(caption):
-        return JsonResponse({'error': "Text is not positive"}, status=404)
+        return JsonResponse({'error': "Text is not positive"}, status=400)
 
     new_post = request.user.post_set.create(image_url=image_url, caption=caption)
     return JsonResponse({Fields.post_identifier: new_post.post_identifier}, status=201)
@@ -482,14 +482,14 @@ def make_post(request):
 def delete_post(request, post_identifier):
     # user is on request.user
     if not is_valid_pattern(post_identifier, Patterns.uuid4):
-        return JsonResponse({'error': f"Invalid fields {Fields.post_identifier}"}, status=404)
+        return JsonResponse({'error': f"Invalid fields {Fields.post_identifier}"}, status=400)
 
     try:
         post = request.user.post_set.get(post_identifier=post_identifier)
         post.delete()
         return JsonResponse({'message': 'Post deleted'})
     except Post.DoesNotExist:
-        return JsonResponse({'error': "No post with that identifier by that user"}, status=404)
+        return JsonResponse({'error': "No post with that identifier by that user"}, status=400)
 
 
 @csrf_exempt
@@ -499,7 +499,7 @@ def report_post(request, post_identifier):
     # user is on request.user
     data = _get_json_body(request)
     if data is None:
-        return JsonResponse({'error': "Invalid JSON data"}, status=404)
+        return JsonResponse({'error': "Invalid JSON data"}, status=400)
 
     reason = data.get(Fields.reason)
 
@@ -510,15 +510,15 @@ def report_post(request, post_identifier):
         invalid_fields.append(Params.reason)
 
     if len(invalid_fields) > 0:
-        return JsonResponse({'error': f"Invalid fields {invalid_fields}"}, status=404)
+        return JsonResponse({'error': f"Invalid fields {invalid_fields}"}, status=400)
 
     post = get_post_with_identifier(post_identifier)
     if post is not None:
         if post.author == request.user:
-            return JsonResponse({'error': "Cannot report own post"}, status=404)
+            return JsonResponse({'error': "Cannot report own post"}, status=400)
 
         if post.postreport_set.filter(user=request.user).exists():
-            return JsonResponse({'error': "Cannot report post twice"}, status=404)
+            return JsonResponse({'error': "Cannot report post twice"}, status=400)
 
         post.postreport_set.create(user=request.user, reason=reason)
 
@@ -528,7 +528,7 @@ def report_post(request, post_identifier):
 
         return JsonResponse({'message': 'Post reported'})
     else:
-        return JsonResponse({'error': "No post with that identifier"}, status=404)
+        return JsonResponse({'error': "No post with that identifier"}, status=400)
 
 
 @csrf_exempt
@@ -537,22 +537,22 @@ def report_post(request, post_identifier):
 def like_post(request, post_identifier):
     # user is on request.user
     if not is_valid_pattern(post_identifier, Patterns.uuid4):
-        return JsonResponse({'error': f"Invalid fields {Fields.post_identifier}"}, status=404)
+        return JsonResponse({'error': f"Invalid fields {Fields.post_identifier}"}, status=400)
 
     post = get_post_with_identifier(post_identifier)
     if post is not None:
         if post.author == request.user:
-            return JsonResponse({'error': "Cannot like own post"}, status=404)
+            return JsonResponse({'error': "Cannot like own post"}, status=400)
 
         # get_or_create handles the check and creation in one step
         like, created = post.postlike_set.get_or_create(user=request.user)
 
         if not created:
-            return JsonResponse({'error': "Already liked post"}, status=404)
+            return JsonResponse({'error': "Already liked post"}, status=400)
 
         return JsonResponse({'message': 'Post liked'})
     else:
-        return JsonResponse({'error': "No post with that identifier"}, status=404)
+        return JsonResponse({'error': "No post with that identifier"}, status=400)
 
 
 @csrf_exempt
@@ -561,21 +561,21 @@ def like_post(request, post_identifier):
 def unlike_post(request, post_identifier):
     # user is on request.user
     if not is_valid_pattern(post_identifier, Patterns.uuid4):
-        return JsonResponse({'error': f"Invalid fields {Fields.post_identifier}"}, status=404)
+        return JsonResponse({'error': f"Invalid fields {Fields.post_identifier}"}, status=400)
 
     post = get_post_with_identifier(post_identifier)
     if post is not None:
         if post.author == request.user:
-            return JsonResponse({'error': "Cannot unlike own post"}, status=404)
+            return JsonResponse({'error': "Cannot unlike own post"}, status=400)
 
         deleted_count, _ = post.postlike_set.filter(user=request.user).delete()
 
         if deleted_count > 0:
             return JsonResponse({'message': 'Post unliked'})
         else:
-            return JsonResponse({'error': "Post not liked yet"}, status=404)
+            return JsonResponse({'error': "Post not liked yet"}, status=400)
     else:
-        return JsonResponse({'error': "No post with that identifier"}, status=404)
+        return JsonResponse({'error': "No post with that identifier"}, status=400)
 
 
 # =============================================================================
@@ -587,7 +587,7 @@ def unlike_post(request, post_identifier):
 def get_posts_in_feed(request, batch):
     # user is on request.user
     if batch < 0:
-        return JsonResponse({'error': "Invalid batch parameter"}, status=404)
+        return JsonResponse({'error': "Invalid batch parameter"}, status=400)
 
     relevant_posts = feed_algorithm_class.get_posts_weighted(request.user, Post)
 
@@ -612,7 +612,7 @@ def get_posts_in_feed(request, batch):
 def get_posts_for_followed_users(request, batch):
     # user is on request.user
     if batch < 0:
-        return JsonResponse({'error': "Invalid batch parameter"}, status=404)
+        return JsonResponse({'error': "Invalid batch parameter"}, status=400)
 
     followed_users = request.user.following.all()
 
@@ -640,13 +640,13 @@ def get_posts_for_user(request, username, batch):
 
     # user is on request.user (for auth), username is for target
     if not is_valid_pattern(username, Patterns.alphanumeric):
-        return JsonResponse({'error': "Invalid username"}, status=404)
+        return JsonResponse({'error': "Invalid username"}, status=400)
     if batch < 0:
-        return JsonResponse({'error': "Invalid batch parameter"}, status=404)
+        return JsonResponse({'error': "Invalid batch parameter"}, status=400)
 
     target_user = get_user_with_username(username)
     if not target_user:
-        return JsonResponse({'error': "User not found"}, status=404)
+        return JsonResponse({'error': "User not found"}, status=400)
 
     relevant_posts = feed_algorithm_class.get_posts_weighted_for_user(target_user, Post)
 
@@ -669,7 +669,7 @@ def get_posts_for_user(request, username, batch):
 @require_GET  # Publicly viewable, no @api_login_required
 def get_post_details(request, post_identifier):
     if not is_valid_pattern(post_identifier, Patterns.uuid4):
-        return JsonResponse({'error': "Invalid post identifier"}, status=404)
+        return JsonResponse({'error': "Invalid post identifier"}, status=400)
 
     post = get_post_with_identifier(post_identifier)
     if post is not None:
@@ -683,7 +683,7 @@ def get_post_details(request, post_identifier):
         }
         return JsonResponse(post_data)
     else:
-        return JsonResponse({'error': "No post with that identifier"}, status=404)
+        return JsonResponse({'error': "No post with that identifier"}, status=400)
 
 
 # =============================================================================
@@ -697,21 +697,21 @@ def comment_on_post(request, post_identifier):
     # user is on request.user
     data = _get_json_body(request)
     if data is None:
-        return JsonResponse({'error': "Invalid JSON data"}, status=404)
+        return JsonResponse({'error': "Invalid JSON data"}, status=400)
 
     comment_text = data.get(Fields.comment_text)
 
     if not is_valid_pattern(post_identifier, Patterns.uuid4):
-        return JsonResponse({'error': "Invalid post_identifier"}, status=404)
+        return JsonResponse({'error': "Invalid post_identifier"}, status=400)
     if not comment_text or not is_valid_pattern(comment_text, Patterns.alphanumeric_with_special_chars):
-        return JsonResponse({'error': "Invalid comment text"}, status=404)
+        return JsonResponse({'error': "Invalid comment text"}, status=400)
 
     if not text_classifier_class.is_text_positive(comment_text):
-        return JsonResponse({'error': "Text is not positive"}, status=404)
+        return JsonResponse({'error': "Text is not positive"}, status=400)
 
     post = get_post_with_identifier(post_identifier)
     if post is None:
-        return JsonResponse({'error': "No post with that identifier"}, status=404)
+        return JsonResponse({'error': "No post with that identifier"}, status=400)
 
     # Create a new thread for this top-level comment
     comment_thread = post.commentthread_set.create()
@@ -731,7 +731,7 @@ def reply_to_comment_thread(request, post_identifier, comment_thread_identifier)
     # user is on request.user
     data = _get_json_body(request)
     if data is None:
-        return JsonResponse({'error': "Invalid JSON data"}, status=404)
+        return JsonResponse({'error': "Invalid JSON data"}, status=400)
 
     comment_text = data.get(Fields.comment_text)
 
@@ -744,10 +744,10 @@ def reply_to_comment_thread(request, post_identifier, comment_thread_identifier)
         invalid_fields.append(Params.comment_text)
 
     if len(invalid_fields) > 0:
-        return JsonResponse({'error': f"Invalid fields {invalid_fields}"}, status=404)
+        return JsonResponse({'error': f"Invalid fields {invalid_fields}"}, status=400)
 
     if not text_classifier_class.is_text_positive(comment_text):
-        return JsonResponse({'error': "Text is not positive"}, status=404)
+        return JsonResponse({'error': "Text is not positive"}, status=400)
 
     try:
         comment_thread = CommentThread.objects.get(
@@ -755,7 +755,7 @@ def reply_to_comment_thread(request, post_identifier, comment_thread_identifier)
             post__post_identifier=post_identifier
         )
     except CommentThread.DoesNotExist:
-        return JsonResponse({'error': "Comment thread not found for the given post"}, status=404)
+        return JsonResponse({'error': "Comment thread not found for the given post"}, status=400)
 
     new_comment = comment_thread.comment_set.create(author=request.user, body=comment_text)
     return JsonResponse({Fields.comment_identifier: new_comment.comment_identifier}, status=201)
@@ -774,7 +774,7 @@ def like_comment(request, post_identifier, comment_thread_identifier, comment_id
     if not is_valid_pattern(comment_identifier, Patterns.uuid4):
         invalid_fields.append(Params.comment_identifier)
     if len(invalid_fields) > 0:
-        return JsonResponse({'error': f"Invalid fields {invalid_fields}"}, status=404)
+        return JsonResponse({'error': f"Invalid fields {invalid_fields}"}, status=400)
 
     try:
         comment = Comment.objects.get(
@@ -783,14 +783,14 @@ def like_comment(request, post_identifier, comment_thread_identifier, comment_id
             comment_thread__post__post_identifier=post_identifier
         )
     except Comment.DoesNotExist:
-        return JsonResponse({'error': "Comment not found"}, status=404)
+        return JsonResponse({'error': "Comment not found"}, status=400)
 
     if comment.author == request.user:
-        return JsonResponse({'error': "Cannot like own comment"}, status=404)
+        return JsonResponse({'error': "Cannot like own comment"}, status=400)
 
     like, created = comment.commentlike_set.get_or_create(user=request.user)
     if not created:
-        return JsonResponse({'error': "Already liked comment"}, status=404)
+        return JsonResponse({'error': "Already liked comment"}, status=400)
 
     return JsonResponse({'message': 'Comment liked'})
 
@@ -808,7 +808,7 @@ def unlike_comment(request, post_identifier, comment_thread_identifier, comment_
     if not is_valid_pattern(comment_identifier, Patterns.uuid4):
         invalid_fields.append(Params.comment_identifier)
     if len(invalid_fields) > 0:
-        return JsonResponse({'error': f"Invalid fields {invalid_fields}"}, status=404)
+        return JsonResponse({'error': f"Invalid fields {invalid_fields}"}, status=400)
 
     try:
         comment = Comment.objects.get(
@@ -817,14 +817,14 @@ def unlike_comment(request, post_identifier, comment_thread_identifier, comment_
             comment_thread__post__post_identifier=post_identifier
         )
     except Comment.DoesNotExist:
-        return JsonResponse({'error': "Comment not found"}, status=404)
+        return JsonResponse({'error': "Comment not found"}, status=400)
 
     if comment.author == request.user:
-        return JsonResponse({'error': "Cannot unlike own comment"}, status=404)
+        return JsonResponse({'error': "Cannot unlike own comment"}, status=400)
 
     deleted_count, _ = comment.commentlike_set.filter(user=request.user).delete()
     if deleted_count == 0:
-        return JsonResponse({'error': "Comment not liked yet"}, status=404)
+        return JsonResponse({'error': "Comment not liked yet"}, status=400)
 
     return JsonResponse({'message': 'Comment unliked'})
 
@@ -842,7 +842,7 @@ def delete_comment(request, post_identifier, comment_thread_identifier, comment_
     if not is_valid_pattern(comment_identifier, Patterns.uuid4):
         invalid_fields.append(Params.comment_identifier)
     if len(invalid_fields) > 0:
-        return JsonResponse({'error': f"Invalid fields {invalid_fields}"}, status=404)
+        return JsonResponse({'error': f"Invalid fields {invalid_fields}"}, status=400)
 
     try:
         comment = Comment.objects.get(
@@ -851,10 +851,10 @@ def delete_comment(request, post_identifier, comment_thread_identifier, comment_
             comment_thread__post__post_identifier=post_identifier
         )
     except Comment.DoesNotExist:
-        return JsonResponse({'error': "Comment not found"}, status=404)
+        return JsonResponse({'error': "Comment not found"}, status=400)
 
     if comment.author != request.user:
-        return JsonResponse({'error': "Not authorized to delete comment"}, status=404)
+        return JsonResponse({'error': "Not authorized to delete comment"}, status=400)
 
     comment.delete()
     return JsonResponse({'message': 'Comment deleted'})
@@ -867,7 +867,7 @@ def report_comment(request, post_identifier, comment_thread_identifier, comment_
     # user is on request.user
     data = _get_json_body(request)
     if data is None:
-        return JsonResponse({'error': "Invalid JSON data"}, status=404)
+        return JsonResponse({'error': "Invalid JSON data"}, status=400)
 
     reason = data.get(Fields.reason)
 
@@ -881,7 +881,7 @@ def report_comment(request, post_identifier, comment_thread_identifier, comment_
     if not reason or not is_valid_pattern(reason, Patterns.alphanumeric_with_special_chars):
         invalid_fields.append(Params.reason)
     if len(invalid_fields) > 0:
-        return JsonResponse({'error': f"Invalid fields {invalid_fields}"}, status=404)
+        return JsonResponse({'error': f"Invalid fields {invalid_fields}"}, status=400)
 
     try:
         comment = Comment.objects.get(
@@ -890,13 +890,13 @@ def report_comment(request, post_identifier, comment_thread_identifier, comment_
             comment_thread__post__post_identifier=post_identifier
         )
     except Comment.DoesNotExist:
-        return JsonResponse({'error': "Comment not found"}, status=404)
+        return JsonResponse({'error': "Comment not found"}, status=400)
 
     if comment.author == request.user:
-        return JsonResponse({'error': "Cannot report own comment"}, status=404)
+        return JsonResponse({'error': "Cannot report own comment"}, status=400)
 
     if comment.commentreport_set.filter(user=request.user).exists():
-        return JsonResponse({'error': "Cannot report comment twice"}, status=404)
+        return JsonResponse({'error': "Cannot report comment twice"}, status=400)
 
     comment.commentreport_set.create(user=request.user, reason=reason)
 
@@ -911,13 +911,13 @@ def report_comment(request, post_identifier, comment_thread_identifier, comment_
 @require_GET
 def get_comments_for_post(request, post_identifier, batch):
     if not is_valid_pattern(post_identifier, Patterns.uuid4):
-        return JsonResponse({'error': "Invalid post identifier"}, status=404)
+        return JsonResponse({'error': "Invalid post identifier"}, status=400)
     if batch < 0:
-        return JsonResponse({'error': "Invalid batch parameter"}, status=404)
+        return JsonResponse({'error': "Invalid batch parameter"}, status=400)
 
     post = get_post_with_identifier(post_identifier)
     if not post:
-        return JsonResponse({'error': "No post with that identifier"}, status=404)
+        return JsonResponse({'error': "No post with that identifier"}, status=400)
 
     comment_threads = post.commentthread_set.all()
 
@@ -935,13 +935,13 @@ def get_comments_for_post(request, post_identifier, batch):
 @require_GET
 def get_comments_for_thread(request, comment_thread_identifier, batch):
     if not is_valid_pattern(comment_thread_identifier, Patterns.uuid4):
-        return JsonResponse({'error': "Invalid comment thread identifier"}, status=404)
+        return JsonResponse({'error': "Invalid comment thread identifier"}, status=400)
     if batch < 0:
-        return JsonResponse({'error': "Invalid batch parameter"}, status=404)
+        return JsonResponse({'error': "Invalid batch parameter"}, status=400)
 
     comment_thread = get_comment_thread_with_identifier(comment_thread_identifier)
     if not comment_thread:
-        return JsonResponse({'error': "No comment thread with that identifier"}, status=404)
+        return JsonResponse({'error': "No comment thread with that identifier"}, status=400)
 
     comments = comment_thread.comment_set.all().order_by('creation_time')
     relevant_comments = feed_algorithm_class.get_comments_weighted_for_thread(comments)
@@ -973,7 +973,7 @@ def get_comments_for_thread(request, comment_thread_identifier, batch):
 def get_users_matching_fragment(request, username_fragment):
     # user is on request.user
     if not is_valid_pattern(username_fragment, Patterns.short_alphanumeric):
-        return JsonResponse({'error': "Invalid username fragment"}, status=404)
+        return JsonResponse({'error': "Invalid username fragment"}, status=400)
 
     # We only get the first 10 users because we don't support endlessly scrolling through
     # user results in the search bar.
@@ -997,17 +997,17 @@ def get_users_matching_fragment(request, username_fragment):
 def follow_user(request, username_to_follow):
     # user is on request.user
     if not is_valid_pattern(username_to_follow, Patterns.alphanumeric):
-        return JsonResponse({'error': "Invalid username fragment"}, status=404)
+        return JsonResponse({'error': "Invalid username fragment"}, status=400)
 
     user_to_follow_obj = get_user_with_username(username_to_follow)
     if not user_to_follow_obj:
-        return JsonResponse({'error': "User does not exist"}, status=404)
+        return JsonResponse({'error': "User does not exist"}, status=400)
 
     if request.user == user_to_follow_obj:
-        return JsonResponse({'error': "Cannot follow self"}, status=404)
+        return JsonResponse({'error': "Cannot follow self"}, status=400)
 
     if request.user.following.filter(pk=user_to_follow_obj.pk).exists():
-        return JsonResponse({'error': "Already following user"}, status=404)
+        return JsonResponse({'error': "Already following user"}, status=400)
 
     request.user.following.add(user_to_follow_obj)
     return JsonResponse({'message': 'User followed'})
@@ -1019,14 +1019,14 @@ def follow_user(request, username_to_follow):
 def unfollow_user(request, username_to_unfollow):
     # user is on request.user
     if not is_valid_pattern(username_to_unfollow, Patterns.alphanumeric):
-        return JsonResponse({'error': "Invalid username fragment"}, status=404)
+        return JsonResponse({'error': "Invalid username fragment"}, status=400)
 
     user_to_unfollow_obj = get_user_with_username(username_to_unfollow)
     if not user_to_unfollow_obj:
-        return JsonResponse({'error': "User does not exist"}, status=404)
+        return JsonResponse({'error': "User does not exist"}, status=400)
 
     if not request.user.following.filter(pk=user_to_unfollow_obj.pk).exists():
-        return JsonResponse({'error': "Not following user"}, status=404)
+        return JsonResponse({'error': "Not following user"}, status=400)
 
     request.user.following.remove(user_to_unfollow_obj)
     return JsonResponse({'message': 'User unfollowed'})
@@ -1037,11 +1037,11 @@ def unfollow_user(request, username_to_unfollow):
 def get_profile_details(request, username):
     # user is on request.user (requesting_user)
     if not is_valid_pattern(username, Patterns.alphanumeric_with_special_chars):
-        return JsonResponse({'error': "Invalid username"}, status=404)
+        return JsonResponse({'error': "Invalid username"}, status=400)
 
     profile_user = get_user_with_username(username)
     if not profile_user:
-        return JsonResponse({'error': "User not found"}, status=404)
+        return JsonResponse({'error': "User not found"}, status=400)
 
     post_count = profile_user.post_set.count()
 

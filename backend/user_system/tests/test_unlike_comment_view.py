@@ -94,7 +94,7 @@ class UnlikeCommentTests(PositiveOnlySocialTestCase):
         # Use the *commenter's* header (User 1)
         response = self.client.post(self.url, **self.commenter_header)
 
-        self.assertEqual(response.status_code, 404)
+        self.assertEqual(response.status_code, 400)
         self.assertEqual(response.json(), {'error': 'Cannot unlike own comment'})
 
     def test_unlike_comment_twice_returns_bad_response(self):
@@ -111,7 +111,7 @@ class UnlikeCommentTests(PositiveOnlySocialTestCase):
 
         # 3. Second unlike (should fail)
         response2 = self.client.post(self.url, **self.liker_header)
-        self.assertEqual(response2.status_code, 404)
+        self.assertEqual(response2.status_code, 400)
         self.assertEqual(response2.json(), {'error': 'Comment not liked yet'})
 
     def test_unlike_comment_returns_good_response_and_unlikes_comment(self):

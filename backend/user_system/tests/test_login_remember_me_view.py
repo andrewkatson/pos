@@ -44,7 +44,7 @@ class LoginUserRememberMETests(PositiveOnlySocialTestCase):
 
         response = self.client.post(self.url, data=data, content_type='application/json')
 
-        self.assertEqual(response.status_code, 404)  # 400 Bad Request
+        self.assertEqual(response.status_code, 400)  # 400 Bad Request
 
     def test_invalid_series_identifier_returns_bad_response(self):
         """
@@ -55,7 +55,7 @@ class LoginUserRememberMETests(PositiveOnlySocialTestCase):
 
         response = self.client.post(self.url, data=data, content_type='application/json')
 
-        self.assertEqual(response.status_code, 404)
+        self.assertEqual(response.status_code, 400)
 
     def test_invalid_login_cookie_token_returns_bad_response(self):
         """
@@ -66,7 +66,7 @@ class LoginUserRememberMETests(PositiveOnlySocialTestCase):
 
         response = self.client.post(self.url, data=data, content_type='application/json')
 
-        self.assertEqual(response.status_code, 404)
+        self.assertEqual(response.status_code, 400)
 
     def test_invalid_ip_returns_bad_response(self):
         """
@@ -77,7 +77,7 @@ class LoginUserRememberMETests(PositiveOnlySocialTestCase):
 
         response = self.client.post(self.url, data=data, content_type='application/json')
 
-        self.assertEqual(response.status_code, 404)
+        self.assertEqual(response.status_code, 400)
 
     def test_matching_login_cookie_token_returns_good_response_with_new_tokens(self):
         """
@@ -107,7 +107,7 @@ class LoginUserRememberMETests(PositiveOnlySocialTestCase):
 
         response = self.client.post(self.url, data=data, content_type='application/json')
 
-        self.assertEqual(response.status_code, 404)
+        self.assertEqual(response.status_code, 400)
 
     def test_non_existent_series_identifier_returns_bad_response(self):
         """
@@ -120,4 +120,4 @@ class LoginUserRememberMETests(PositiveOnlySocialTestCase):
 
         response = self.client.post(self.url, data=data, content_type='application/json')
 
-        self.assertEqual(response.status_code, 404)
+        self.assertEqual(response.status_code, 400)

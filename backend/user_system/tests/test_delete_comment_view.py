@@ -1,3 +1,5 @@
+from unittest.mock import patch
+import os
 from django.urls import reverse
 
 from .test_parent_case import PositiveOnlySocialTestCase
@@ -13,6 +15,7 @@ invalid_comment_thread_identifier = '?'
 
 class DeleteCommentTests(PositiveOnlySocialTestCase):
 
+    @patch.dict(os.environ, {"TESTING": "True"}, clear=True)
     def setUp(self):
         super().setUp()
 

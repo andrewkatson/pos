@@ -68,7 +68,7 @@ class UnlikePostTests(PositiveOnlySocialTestCase):
         # Use the *poster's* header (User 0)
         response = self.client.post(self.url, **self.poster_header)
 
-        self.assertEqual(response.status_code, 404)
+        self.assertEqual(response.status_code, 400)
         self.assertEqual(response.json(), {'error': 'Cannot unlike own post'})
 
     def test_unlike_post_twice_returns_bad_response(self):
@@ -85,7 +85,7 @@ class UnlikePostTests(PositiveOnlySocialTestCase):
 
         # 3. Second unlike (should fail)
         response2 = self.client.post(self.url, **self.liker_header)
-        self.assertEqual(response2.status_code, 404)
+        self.assertEqual(response2.status_code, 400)
         self.assertEqual(response2.json(), {'error': 'Post not liked yet'})
 
     def test_unlike_post_returns_good_response_and_removes_like(self):

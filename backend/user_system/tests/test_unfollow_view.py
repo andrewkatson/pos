@@ -73,7 +73,7 @@ class UnfollowUserTests(PositiveOnlySocialTestCase):
 
         response = self.client.post(invalid_url, **self.user_a_header)
 
-        self.assertEqual(response.status_code, 404)
+        self.assertEqual(response.status_code, 400)
         self.assertEqual(response.json(), {'error': 'User does not exist'})
 
     def test_unfollow_user_not_following_fails(self):
@@ -93,7 +93,7 @@ class UnfollowUserTests(PositiveOnlySocialTestCase):
         response = self.client.post(self.unfollow_url, **self.user_a_header)
 
         # 4. This should fail with a 400
-        self.assertEqual(response.status_code, 404)
+        self.assertEqual(response.status_code, 400)
         self.assertEqual(response.json(), {'error': 'Not following user'})
 
         # 5. The following count should still be 0.

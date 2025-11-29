@@ -5,7 +5,8 @@ from PIL import Image
 from io import BytesIO
 from urllib.parse import urlparse
 from .classifier_constants import POSITIVE_IMAGE_URL
-from ..constants import testing
+from ..utils import convert_to_bool
+
 
 def is_image_positive(image_url):
     """
@@ -14,7 +15,10 @@ def is_image_positive(image_url):
     api_key = os.environ.get("GEMINI_API_KEY")
     aws_access_key = os.environ.get("AWS_ACCESS_KEY_ID")
     aws_secret_key = os.environ.get("AWS_SECRET_ACCESS_KEY")
-    
+    testing = os.environ.get("TESTING", False)
+
+    testing = testing if isinstance(testing, bool) else convert_to_bool(testing)
+
     if testing:
         return image_url == POSITIVE_IMAGE_URL
 

@@ -38,7 +38,7 @@ class LoginUserTests(PositiveOnlySocialTestCase):
 
         response = self.client.post(self.url, data=data, content_type='application/json')
 
-        self.assertEqual(response.status_code, 404)
+        self.assertEqual(response.status_code, 400)
 
     def test_invalid_password_returns_bad_response(self):
         """
@@ -49,7 +49,7 @@ class LoginUserTests(PositiveOnlySocialTestCase):
 
         response = self.client.post(self.url, data=data, content_type='application/json')
 
-        self.assertEqual(response.status_code, 404)
+        self.assertEqual(response.status_code, 400)
 
     def test_incorrect_password_returns_bad_response(self):
         """
@@ -60,7 +60,7 @@ class LoginUserTests(PositiveOnlySocialTestCase):
 
         response = self.client.post(self.url, data=data, content_type='application/json')
 
-        self.assertEqual(response.status_code, 404)
+        self.assertEqual(response.status_code, 400)
 
     def test_invalid_remember_me_returns_bad_response(self):
         """
@@ -71,7 +71,7 @@ class LoginUserTests(PositiveOnlySocialTestCase):
 
         response = self.client.post(self.url, data=data, content_type='application/json')
 
-        self.assertEqual(response.status_code, 404)
+        self.assertEqual(response.status_code, 400)
 
     def test_invalid_ip_returns_bad_response(self):
         """
@@ -82,7 +82,7 @@ class LoginUserTests(PositiveOnlySocialTestCase):
 
         response = self.client.post(self.url, data=data, content_type='application/json')
 
-        self.assertEqual(response.status_code, 404)
+        self.assertEqual(response.status_code, 400)
 
     def test_user_with_remember_me_and_username_returns_good_response(self):
         """

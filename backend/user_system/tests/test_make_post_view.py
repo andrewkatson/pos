@@ -1,3 +1,5 @@
+from unittest.mock import patch
+import os
 from django.urls import reverse
 
 from .test_parent_case import PositiveOnlySocialTestCase
@@ -59,7 +61,7 @@ class MakePostTests(PositiveOnlySocialTestCase):
             **self.valid_header
         )
 
-        self.assertEqual(response.status_code, 404)
+        self.assertEqual(response.status_code, 400)
 
     def test_invalid_caption_returns_bad_response(self):
         """
@@ -75,8 +77,9 @@ class MakePostTests(PositiveOnlySocialTestCase):
             **self.valid_header
         )
 
-        self.assertEqual(response.status_code, 404)
+        self.assertEqual(response.status_code, 400)
 
+    @patch.dict(os.environ, {"TESTING": "True"}, clear=True)
     def test_negative_image_returns_bad_response(self):
         """
         Tests that a negative image (as per the fake classifier) is rejected.
@@ -90,9 +93,10 @@ class MakePostTests(PositiveOnlySocialTestCase):
             **self.valid_header
         )
 
-        self.assertEqual(response.status_code, 404)
+        self.assertEqual(response.status_code, 400)
         self.assertIn("Image is not positive", response.json().get('error', ''))
 
+    @patch.dict(os.environ, {"TESTING": "True"}, clear=True)
     def test_negative_caption_returns_bad_response(self):
         """
         Tests that a negative caption (as per the fake classifier) is rejected.
@@ -106,9 +110,10 @@ class MakePostTests(PositiveOnlySocialTestCase):
             **self.valid_header
         )
 
-        self.assertEqual(response.status_code, 404)
+        self.assertEqual(response.status_code, 400)
         self.assertIn("Text is not positive", response.json().get('error', ''))
 
+    @patch.dict(os.environ, {"TESTING": "True"}, clear=True)
     def test_make_post_returns_good_response_and_adds_post_to_user(self):
         """
         Tests the "happy path" for creating a post.
