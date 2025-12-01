@@ -14,7 +14,10 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.tooling.preview.Preview
 import androidx.navigation.NavController
+import androidx.navigation.compose.rememberNavController
+import com.example.positiveonlysocial.ui.preview.PreviewHelpers
 import com.example.positiveonlysocial.api.PositiveOnlySocialAPI
 import com.example.positiveonlysocial.data.auth.AuthenticationManager
 import com.example.positiveonlysocial.data.model.LoginRequest
@@ -115,17 +118,29 @@ fun LoginScreen(
                             val response = api.loginUser(
                                 request = loginRequest
                             )
-                             val session = UserSession(
-                                sessionToken = response.body()?.sessionToken ?: "dummy_token",
-                                username = usernameOrEmail,
-                                isIdentityVerified = false
-                            )
-                            authManager.login(session)
-                            navController.navigate(Screen.Home.route) {
-                                popUpTo(Screen.Login.route) { inclusive = true }
+
+                            if (response.isSuccessful) {
+                                val session = UserSession(
+                                    sessionToken = response.body()?.sessionToken ?: "dummy_token",
+                                    username = usernameOrEmail,
+                                    isIdentityVerified = false
+                                )
+                                authManager.login(session)
+                                navController.navigate(Screen.Home.route) {
+                                    popUpTo(Screen.Login.route) { inclusive = true }
+                                }
+                            } else {
+                                val errorBody = response.errorBody()?.string()
+                                val errorMsg = try {
+                                    org.json.JSONObject(errorBody).getString("error")
+                                } catch (e: Exception) {
+                                    "Login failed. Please check your credentials."
+                                }
+                                errorMessage = errorMsg
+                                showingErrorAlert = true
                             }
                         } catch (e: Exception) {
-                            errorMessage = "Login failed. Please check your credentials."
+                            errorMessage = "Login failed. Please check your network connection."
                             showingErrorAlert = true
                         } finally {
                             isLoading = false
@@ -148,4 +163,15 @@ fun LoginScreen(
         
         Spacer(modifier = Modifier.weight(1f))
     }
+}
+
+@Preview(showBackground = true)
+@Composable
+fun LoginScreenPreview() {
+    LoginScreen(
+        navController = rememberNavController(),
+        api = PreviewHelpers.mockApi,
+        keychainHelper = PreviewHelpers.mockKeychainHelper,
+        authManager = PreviewHelpers.mockAuthManager
+    )
 }

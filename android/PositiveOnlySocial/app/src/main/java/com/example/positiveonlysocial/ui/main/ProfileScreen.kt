@@ -10,17 +10,20 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.NavController
 import coil.compose.AsyncImage
 import com.example.positiveonlysocial.api.PositiveOnlySocialAPI
-import com.example.positiveonlysocial.data.model.User
 import com.example.positiveonlysocial.data.security.KeychainHelperProtocol
 import com.example.positiveonlysocial.models.viewmodels.ProfileViewModel
 import com.example.positiveonlysocial.models.viewmodels.ProfileViewModelFactory
 import com.example.positiveonlysocial.ui.navigation.Screen
+import androidx.compose.ui.tooling.preview.Preview
+import androidx.navigation.compose.rememberNavController
+import com.example.positiveonlysocial.ui.preview.PreviewHelpers
 
 @Composable
 fun ProfileScreen(
@@ -67,9 +70,12 @@ fun ProfileScreen(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceEvenly
             ) {
-                StatItem(count = userPosts.size, label = "Posts")
-                StatItem(count = profileDetails?.followerCount ?: 0, label = "Followers")
-                StatItem(count = profileDetails?.followingCount ?: 0, label = "Following")
+                StatItem(count = userPosts.size, label = "Posts", modifier = Modifier.testTag("tag_Posts"))
+                StatItem(
+                    count = profileDetails?.followerCount ?: 0, label = "Followers",
+                    modifier = Modifier.testTag("tag_Followers"),
+                )
+                StatItem(count = profileDetails?.followingCount ?: 0, label = "Following", modifier = Modifier.testTag("tag_Following"))
             }
             
             Spacer(modifier = Modifier.height(16.dp))
@@ -126,9 +132,20 @@ fun ProfileScreen(
 }
 
 @Composable
-fun StatItem(count: Int, label: String) {
-    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+fun StatItem(count: Int, label: String, modifier: Modifier) {
+    Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = modifier) {
         Text(text = count.toString(), fontWeight = FontWeight.Bold)
         Text(text = label, style = MaterialTheme.typography.bodySmall)
     }
+}
+
+@Preview(showBackground = true)
+@Composable
+fun ProfileScreenPreview() {
+    ProfileScreen(
+        navController = rememberNavController(),
+        api = PreviewHelpers.mockApi,
+        keychainHelper = PreviewHelpers.mockKeychainHelper,
+        username = "mockuser"
+    )
 }

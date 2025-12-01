@@ -22,9 +22,12 @@ fun NavGraph(
 ) {
     NavHost(
         navController = navController,
-        startDestination = Screen.Login.route
+        startDestination = Screen.Welcome.route
     ) {
         // Auth Flow
+        composable(Screen.Welcome.route) {
+            WelcomeScreen(navController, api, keychainHelper, authManager)
+        }
         composable(Screen.Login.route) {
             LoginScreen(navController, api, keychainHelper, authManager)
         }

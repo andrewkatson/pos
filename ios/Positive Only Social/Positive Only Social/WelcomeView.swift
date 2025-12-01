@@ -46,7 +46,7 @@ struct WelcomeView: View {
                     Color.clear
                 }
             }
-            .navigationTitle("Positive Only Social")
+            .navigationTitle("Good Vibes Only")
             // Define all possible navigation destinations
             .navigationDestination(for: String.self) { routeName in
                 switch routeName {

@@ -28,6 +28,9 @@ import com.example.positiveonlysocial.data.security.KeychainHelperProtocol
 import com.example.positiveonlysocial.models.viewmodels.PostDetailViewModel
 import com.example.positiveonlysocial.models.viewmodels.PostDetailViewModelFactory
 import androidx.compose.runtime.collectAsState
+import androidx.compose.ui.tooling.preview.Preview
+import androidx.navigation.compose.rememberNavController
+import com.example.positiveonlysocial.ui.preview.PreviewHelpers
 
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
@@ -71,7 +74,10 @@ fun PostDetailScreen(
     if (showReportSheetForPost) {
         ReportDialog(
             onDismiss = { viewModel.setShowReportSheetForPost(false) },
-            onSubmit = { reason -> viewModel.reportPost(reason) }
+            onSubmit = {
+                reason -> viewModel.reportPost(reason)
+                isPostReported = true
+            }
         )
     }
 
@@ -116,7 +122,7 @@ fun PostDetailScreen(
                                     if (isPostLiked) viewModel.likePost() else viewModel.unlikePost()
                                 },
                                 onLongClick = {
-                                    viewModel.setShowReportSheetForPost(true)
+                                   viewModel.setShowReportSheetForPost(true)
                                 },
                                 onClick = {}
                             ),
@@ -327,5 +333,16 @@ fun ReplyDialog(thread: CommentThreadViewData, onDismiss: () -> Unit, onSubmit: 
                 Text("Cancel")
             }
         }
+    )
+}
+
+@Preview(showBackground = true)
+@Composable
+fun PostDetailScreenPreview() {
+    PostDetailScreen(
+        navController = rememberNavController(),
+        api = PreviewHelpers.mockApi,
+        keychainHelper = PreviewHelpers.mockKeychainHelper,
+        postId = "1"
     )
 }

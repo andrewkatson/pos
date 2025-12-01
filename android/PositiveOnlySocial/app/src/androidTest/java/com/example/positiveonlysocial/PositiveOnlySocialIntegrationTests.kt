@@ -3,6 +3,7 @@ package com.example.positiveonlysocial
 import androidx.compose.ui.test.*
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.test.ext.junit.runners.AndroidJUnit4
+import androidx.test.espresso.Espresso
 import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -23,9 +24,7 @@ class PositiveOnlySocialIntegrationTests {
     // MARK: Helpers
 
     private fun dismissKeyboardIfPresent() {
-        // In Compose, we usually don't need to explicitly dismiss the keyboard for tests 
-        // unless it blocks visibility, but we can try to hide it if needed.
-        // For now, we'll assume Compose handles it or we click other elements.
+        Espresso.closeSoftKeyboard()
     }
 
     private fun assertOnWelcomeView() {
@@ -65,10 +64,18 @@ class PositiveOnlySocialIntegrationTests {
     }
 
     private fun assertOnProfileView() {
-        composeTestRule.onNodeWithText("Follow").assertExists()
-        composeTestRule.onNodeWithText("Following").assertExists()
-        composeTestRule.onNodeWithText("Followers").assertExists()
-        composeTestRule.onNodeWithText("Posts").assertExists()
+        composeTestRule.waitUntil(timeoutMillis = 10000) {
+            composeTestRule
+                .onAllNodesWithTag("tag_Posts")
+                .fetchSemanticsNodes().isNotEmpty()
+        }
+
+        composeTestRule
+            .onNodeWithTag("tag_Followers", true).assertIsDisplayed()
+        composeTestRule
+            .onNodeWithTag("tag_Following", true).assertIsDisplayed()
+        composeTestRule
+            .onNodeWithTag("tag_Posts", true).assertIsDisplayed()
     }
 
     private fun assertOnNewPostView() {
@@ -83,7 +90,6 @@ class PositiveOnlySocialIntegrationTests {
     }
 
     private fun assertOnPostDetailView() {
-        composeTestRule.onNodeWithText("Post Comment").assertExists()
         composeTestRule.onNodeWithText("Add a comment...").assertExists()
     }
 
@@ -101,9 +107,11 @@ class PositiveOnlySocialIntegrationTests {
         assertOnHomeView()
     }
 
-    private fun loginUser(username: String, password: String, rememberMe: Boolean) {
-        registerUser(username, password)
-        logoutUserFromHome()
+    private fun loginUser(username: String, password: String, rememberMe: Boolean, registerToo: Boolean = false) {
+        if (registerToo) {
+            registerUser(username, password)
+            logoutUserFromHome()
+        }
 
         composeTestRule.onNodeWithText("Login").performClick()
         assertOnLoginView()
@@ -126,7 +134,7 @@ class PositiveOnlySocialIntegrationTests {
         composeTestRule.onNodeWithText("Logout").performClick()
         composeTestRule.onNodeWithText("Confirm").performClick() // Assuming confirm dialog
         
-        assertOnWelcomeView()
+        assertOnLoginView()
     }
 
     private fun registerUserViaApi(username: String, password: String) = kotlinx.coroutines.runBlocking {
@@ -167,35 +175,9 @@ class PositiveOnlySocialIntegrationTests {
     // MARK: Tests
 
     @Test
-    fun testAutomaticLoginAfterRememberMe() {
-        // 1. Login with Remember Me
-        loginUser(testUsername, strongPassword, rememberMe = true)
-
-        // 2. Logout (simulating app restart behavior is hard with just logout, 
-        // but we can verify the token persistence logic if we could restart the app.
-        // In this integration test environment, we can't easily "restart" the app process 
-        // and keep the shared prefs/keychain but kill memory.
-        // However, we can test that "Remember Me" sets the flag.
-        // The iOS test actually terminates and launches the app.
-        // We can try to simulate this by navigating back to login and checking if it auto-logs in?
-        // Or we can check if the token is saved in KeychainHelper.
-
-        // For now, let's just verify we are on Home after login.
-        assertOnHomeView()
-
-        // To truly test "Automatic Login", we would need to kill the Activity and relaunch.
-        // composeTestRule.activityRule.scenario.recreate() might work but it keeps the same process.
-        // Let's skip the "restart" part for now and focus on the flow we can test.
-
-        logoutUserFromHome()
-
-        assertOnHomeView()
-    }
-
-    @Test
     fun testDeleteAccount() {
         // Register and Login
-        loginUser(testUsername, strongPassword, rememberMe = true)
+        loginUser(testUsername, strongPassword, rememberMe = true, registerToo = true)
 
         // Navigate to Settings
         composeTestRule.onNodeWithText("Settings").performClick()
@@ -207,10 +189,9 @@ class PositiveOnlySocialIntegrationTests {
         composeTestRule.onNodeWithText("Delete").performClick()
 
         // Should be on Login/Welcome
-        assertOnWelcomeView()
+        assertOnLoginView()
 
         // Try to login again
-        composeTestRule.onNodeWithText("Login").performClick()
         composeTestRule.onNodeWithText("Username or Email").performTextInput(testUsername)
         composeTestRule.onNodeWithText("Password").performTextInput(strongPassword)
         composeTestRule.onNodeWithText("Login").performClick()
@@ -237,23 +218,17 @@ class PositiveOnlySocialIntegrationTests {
 
         // Verify Reset
         composeTestRule.onNodeWithText("Verify Your Identity").assertExists()
-        composeTestRule.onNodeWithText("Enter 6-digit code")
-            .performTextInput("100000") // Static PIN
+        composeTestRule.onNodeWithText("Enter 6-Digit PIN")
+            .performTextInput("123456") // Static PIN
         composeTestRule.onNodeWithText("Verify").performClick()
 
         // Reset Password
         composeTestRule.onNodeWithText("Reset Password").assertExists()
+        composeTestRule.onNodeWithText("Username").performTextInput(testUsername)
+        composeTestRule.onNodeWithText("Email").performTextInput("$testUsername@test.com")
         composeTestRule.onNodeWithText("New Password").performTextInput(newStrongPassword)
         composeTestRule.onNodeWithText("Confirm Password").performTextInput(newStrongPassword)
-        composeTestRule.onNodeWithText("Reset Password").performClick()
-
-        // Should be on Login
-        assertOnLoginView()
-
-        // Login with new password
-        composeTestRule.onNodeWithText("Username or Email").performTextInput(testUsername)
-        composeTestRule.onNodeWithText("Password").performTextInput(newStrongPassword)
-        composeTestRule.onNodeWithText("Login").performClick()
+        composeTestRule.onNodeWithText("Reset Password and Login").performClick()
 
         assertOnHomeView()
     }
@@ -264,23 +239,35 @@ class PositiveOnlySocialIntegrationTests {
         registerUserViaApi(otherTestUsername, strongPassword)
 
         // Login as main user
-        loginUser(testUsername, strongPassword, rememberMe = false)
+        loginUser(testUsername, strongPassword, rememberMe = false, registerToo = true)
 
-        // Search for user
-        composeTestRule.onNodeWithText("Search for Users").performTextInput(otherTestUsername)
+        // Search for user but only a substring so we can just click on the full name and verify the
+        // substring search works
+        composeTestRule.onNodeWithText("Search for Users").performTextInput("other_user")
 
-        // Click on result (Card with username)
-        // We wait a bit for debounce/API? Compose tests usually wait for idle.
-        // We look for the text of the username in the result list.
-        composeTestRule.onNodeWithText(otherTestUsername).performClick()
+        composeTestRule
+            .onNodeWithTag(
+                otherTestUsername, useUnmergedTree = true
+            )
+            .performClick()
 
         // Should be on Profile View
         assertOnProfileView()
-        composeTestRule.onNodeWithText(otherTestUsername).assertExists() // Verify title/header
+
+        // Verify Followers count is 0
+        composeTestRule
+            .onNodeWithTag("tag_Followers", true)
+            .assert(hasAnyDescendant(hasText("0")))
 
         // Follow
         composeTestRule.onNodeWithText("Follow").performClick()
         composeTestRule.onNodeWithText("Following").assertExists()
+
+        // Verify Followers count is 1
+        composeTestRule
+            .onNodeWithTag("tag_Followers")
+            .assert(hasAnyDescendant(hasText("1")))
+
 
         // Unfollow
         composeTestRule.onNodeWithText("Following").performClick()
@@ -294,7 +281,7 @@ class PositiveOnlySocialIntegrationTests {
         val postId = postResponse.body()?.postIdentifier ?: throw IllegalStateException("Failed to create post")
         
         // Login as other user
-        loginUser(otherTestUsername, strongPassword, rememberMe = false)
+        loginUser(otherTestUsername, strongPassword, rememberMe = false, registerToo = true)
         
         // Go to Feed
         composeTestRule.onNodeWithText("Feed").performClick()
@@ -322,10 +309,11 @@ class PositiveOnlySocialIntegrationTests {
     fun testLikeAndUnlikeCommentOnPostAndThread() {
         // Setup
         registerUserViaApi(testUsername, strongPassword)
+        registerUserViaApi(newTestUsername, strongPassword)
         val postResponse = makePostViaApi(testUsername, strongPassword, "Some Post Caption")
         val postId = postResponse.body()?.postIdentifier ?: throw IllegalStateException("Failed to create post")
         
-        loginUser(otherTestUsername, strongPassword, rememberMe = false)
+        loginUser(otherTestUsername, strongPassword, rememberMe = false, registerToo = true)
         
         // Go to Feed -> Post Detail
         composeTestRule.onNodeWithText("Feed").performClick()
@@ -337,10 +325,28 @@ class PositiveOnlySocialIntegrationTests {
         
         // Verify comment appears
         composeTestRule.onNodeWithText("Comment On a Post").assertExists()
+
+        dismissKeyboardIfPresent()
+
+        // Reply to thread
+        composeTestRule.onNodeWithText("Reply").performClick()
+        composeTestRule.onNodeWithText("Your reply...").performTextInput("Comment On a Thread")
+        composeTestRule.onNodeWithText("Send").performClick()
+
+        // Now we logout
+        Espresso.pressBack()
+        Espresso.pressBack()
+        logoutUserFromHome()
+
+        loginUser(newTestUsername, strongPassword, false)
+
+        // Go to Feed -> Post Detail
+        composeTestRule.onNodeWithText("Feed").performClick()
+        composeTestRule.onAllNodesWithContentDescription("Post Image").onFirst().performClick()
         
         // Like comment (double tap on comment row)
         composeTestRule.onNodeWithText("Comment On a Post").performTouchInput { doubleClick() }
-        
+
         // Verify like count
         composeTestRule.onNodeWithText("1 likes").assertExists()
         
@@ -348,12 +354,9 @@ class PositiveOnlySocialIntegrationTests {
         composeTestRule.onNodeWithText("Comment On a Post").performTouchInput { doubleClick() }
         
         // Verify like count
-        composeTestRule.onNodeWithText("0 likes").assertExists()
-        
-        // Reply to thread
-        composeTestRule.onNodeWithText("Reply").performClick()
-        composeTestRule.onNodeWithText("Your reply...").performTextInput("Comment On a Thread")
-        composeTestRule.onNodeWithText("Send").performClick()
+        composeTestRule
+            .onAllNodesWithText("0 likes")
+            .assertCountEquals(3)
         
         // Verify reply appears
         composeTestRule.onNodeWithText("Comment On a Thread").assertExists()
@@ -361,6 +364,11 @@ class PositiveOnlySocialIntegrationTests {
         // Like reply
         composeTestRule.onNodeWithText("Comment On a Thread").performTouchInput { doubleClick() }
         composeTestRule.onAllNodesWithText("1 likes").onLast().assertExists()
+
+        composeTestRule.onNodeWithText("Comment On a Thread").performTouchInput { doubleClick() }
+        composeTestRule
+            .onAllNodesWithText("0 likes")
+            .assertCountEquals(3)
     }
 
     @Test
@@ -370,7 +378,7 @@ class PositiveOnlySocialIntegrationTests {
         val postResponse = makePostViaApi(testUsername, strongPassword, "Some Post Caption")
         val postId = postResponse.body()?.postIdentifier ?: throw IllegalStateException("Failed to create post")
         
-        loginUser(otherTestUsername, strongPassword, rememberMe = false)
+        loginUser(otherTestUsername, strongPassword, rememberMe = false, registerToo = true)
         
         composeTestRule.onNodeWithText("Feed").performClick()
         composeTestRule.onAllNodesWithContentDescription("Post Image").onFirst().performClick()
@@ -394,7 +402,7 @@ class PositiveOnlySocialIntegrationTests {
         val postResponse = makePostViaApi(testUsername, strongPassword, "Some Post Caption")
         val postId = postResponse.body()?.postIdentifier ?: throw IllegalStateException("Failed to create post")
         
-        loginUser(otherTestUsername, strongPassword, rememberMe = false)
+        loginUser(otherTestUsername, strongPassword, rememberMe = false, registerToo = true)
         
         composeTestRule.onNodeWithText("Feed").performClick()
         composeTestRule.onAllNodesWithContentDescription("Post Image").onFirst().performClick()

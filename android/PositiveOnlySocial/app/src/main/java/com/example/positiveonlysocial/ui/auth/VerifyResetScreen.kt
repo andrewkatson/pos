@@ -8,7 +8,10 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.tooling.preview.Preview
 import androidx.navigation.NavController
+import androidx.navigation.compose.rememberNavController
+import com.example.positiveonlysocial.ui.preview.PreviewHelpers
 import com.example.positiveonlysocial.api.PositiveOnlySocialAPI
 import com.example.positiveonlysocial.data.security.KeychainHelperProtocol
 import com.example.positiveonlysocial.ui.navigation.Screen
@@ -64,7 +67,7 @@ fun VerifyResetScreen(
                     pin = newValue
                 }
             },
-            label = { Text("6-Digit PIN") },
+            label = { Text("Enter 6-Digit PIN") },
             modifier = Modifier.fillMaxWidth(),
             singleLine = true,
             keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number)
@@ -106,4 +109,15 @@ fun VerifyResetScreen(
             }
         }
     }
+}
+
+@Preview(showBackground = true)
+@Composable
+fun VerifyResetScreenPreview() {
+    VerifyResetScreen(
+        navController = rememberNavController(),
+        api = PreviewHelpers.mockApi,
+        keychainHelper = PreviewHelpers.mockKeychainHelper,
+        usernameOrEmail = "test@example.com"
+    )
 }

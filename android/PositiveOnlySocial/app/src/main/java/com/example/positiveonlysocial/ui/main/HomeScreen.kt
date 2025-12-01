@@ -13,6 +13,7 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.NavController
@@ -21,6 +22,9 @@ import com.example.positiveonlysocial.api.PositiveOnlySocialAPI
 import com.example.positiveonlysocial.data.security.KeychainHelperProtocol
 import com.example.positiveonlysocial.models.viewmodels.HomeViewModel
 import com.example.positiveonlysocial.models.viewmodels.HomeViewModelFactory
+import androidx.compose.ui.tooling.preview.Preview
+import androidx.navigation.compose.rememberNavController
+import com.example.positiveonlysocial.ui.preview.PreviewHelpers
 import com.example.positiveonlysocial.ui.navigation.Screen
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -77,7 +81,8 @@ fun HomeScreen(
                         Row(
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .padding(16.dp),
+                                .padding(16.dp)
+                                .testTag(user.username),
                             verticalAlignment = androidx.compose.ui.Alignment.CenterVertically
                         ) {
                             Icon(
@@ -133,4 +138,14 @@ fun HomeScreen(
             }
         }
     }
+}
+
+@Preview(showBackground = true)
+@Composable
+fun HomeScreenPreview() {
+    HomeScreen(
+        navController = rememberNavController(),
+        api = PreviewHelpers.mockApi,
+        keychainHelper = PreviewHelpers.mockKeychainHelper
+    )
 }

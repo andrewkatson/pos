@@ -16,6 +16,9 @@ import com.example.positiveonlysocial.models.viewmodels.SettingsViewModel
 import com.example.positiveonlysocial.models.viewmodels.SettingsViewModelFactory
 import com.example.positiveonlysocial.ui.navigation.Screen
 import kotlinx.coroutines.launch
+import androidx.compose.ui.tooling.preview.Preview
+import androidx.navigation.compose.rememberNavController
+import com.example.positiveonlysocial.ui.preview.PreviewHelpers
 
 @Composable
 fun SettingsScreen(
@@ -79,7 +82,7 @@ fun SettingsScreen(
                     },
                     colors = ButtonDefaults.buttonColors(containerColor = Color.Red)
                 ) {
-                    Text("Logout")
+                    Text("Confirm")
                 }
             },
             dismissButton = {
@@ -167,4 +170,15 @@ fun ListListItem(text: String, textColor: Color = Color.Unspecified, onClick: ()
             modifier = Modifier.padding(16.dp)
         )
     }
+}
+
+@Preview(showBackground = true)
+@Composable
+fun SettingsScreenPreview() {
+    SettingsScreen(
+        navController = rememberNavController(),
+        api = PreviewHelpers.mockApi,
+        keychainHelper = PreviewHelpers.mockKeychainHelper,
+        authenticationManager = PreviewHelpers.mockAuthManager
+    )
 }

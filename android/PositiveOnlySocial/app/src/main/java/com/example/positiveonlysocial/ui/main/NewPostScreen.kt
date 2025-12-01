@@ -16,6 +16,9 @@ import coil.compose.AsyncImage
 import com.example.positiveonlysocial.api.PositiveOnlySocialAPI
 import com.example.positiveonlysocial.data.model.CreatePostRequest
 import com.example.positiveonlysocial.data.security.KeychainHelperProtocol
+import androidx.compose.ui.tooling.preview.Preview
+import androidx.navigation.compose.rememberNavController
+import com.example.positiveonlysocial.ui.preview.PreviewHelpers
 import kotlinx.coroutines.launch
 
 @Composable
@@ -171,4 +174,14 @@ fun NewPostScreen(
             }
         }
     }
+}
+
+@Preview(showBackground = true)
+@Composable
+fun NewPostScreenPreview() {
+    NewPostScreen(
+        navController = rememberNavController(),
+        api = PreviewHelpers.mockApi,
+        keychainHelper = PreviewHelpers.mockKeychainHelper
+    )
 }

@@ -6,9 +6,12 @@ import androidx.activity.compose.setContent
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
+import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.tooling.preview.Preview
 import com.example.positiveonlysocial.di.DependencyProvider
 import com.example.positiveonlysocial.ui.navigation.NavGraph
+import com.example.positiveonlysocial.ui.preview.PreviewHelpers
 import com.example.positiveonlysocial.ui.theme.PositiveOnlySocialTheme
 
 class MainActivity : ComponentActivity() {
@@ -29,5 +32,17 @@ class MainActivity : ComponentActivity() {
                 }
             }
         }
+    }
+}
+
+@Preview(showBackground = true)
+@Composable
+fun MainActivityPreview() {
+    PositiveOnlySocialTheme {
+        NavGraph(
+            api = PreviewHelpers.mockApi,
+            keychainHelper = PreviewHelpers.mockKeychainHelper,
+            authManager = PreviewHelpers.mockAuthManager
+        )
     }
 }

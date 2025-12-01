@@ -19,6 +19,9 @@ import com.example.positiveonlysocial.models.viewmodels.FeedViewModel
 import com.example.positiveonlysocial.models.viewmodels.FeedViewModelFactory
 import com.example.positiveonlysocial.models.viewmodels.FollowingFeedViewModel
 import com.example.positiveonlysocial.models.viewmodels.FollowingFeedViewModelFactory
+import androidx.compose.ui.tooling.preview.Preview
+import androidx.navigation.compose.rememberNavController
+import com.example.positiveonlysocial.ui.preview.PreviewHelpers
 import com.example.positiveonlysocial.ui.navigation.Screen
 
 @Composable
@@ -161,4 +164,14 @@ fun PostItem(
             contentScale = ContentScale.Crop
         )
     }
+}
+
+@Preview(showBackground = true)
+@Composable
+fun FeedScreenPreview() {
+    FeedScreen(
+        navController = rememberNavController(),
+        api = PreviewHelpers.mockApi,
+        keychainHelper = PreviewHelpers.mockKeychainHelper
+    )
 }

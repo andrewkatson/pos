@@ -2,6 +2,7 @@ package com.example.positiveonlysocial.ui.navigation
 
 sealed class Screen(val route: String) {
     object Login : Screen("login")
+    object Welcome : Screen("welcome")
     object Register : Screen("register")
     object RequestReset : Screen("request_reset")
     object VerifyReset : Screen("verify_reset/{usernameOrEmail}") {

@@ -136,6 +136,15 @@ struct RegisterView: View {
                     ip: "127.0.0.1"
                 )
 
+                // Try to decode a backend error first
+                struct BackendError: Codable { let error: String }
+                if let backendError = try? JSONDecoder().decode(BackendError.self, from: responseData) {
+                    errorMessage = backendError.error
+                    showingErrorAlert = true
+                    isLoading = false
+                    return
+                }
+
                 // Decode the response to get the session token
                 let decoder = JSONDecoder()
                 let wrapper = try decoder.decode(APIWrapperResponse.self, from: responseData)

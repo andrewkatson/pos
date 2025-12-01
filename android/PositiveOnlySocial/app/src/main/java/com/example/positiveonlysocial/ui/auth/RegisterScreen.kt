@@ -12,7 +12,10 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.tooling.preview.Preview
 import androidx.navigation.NavController
+import androidx.navigation.compose.rememberNavController
+import com.example.positiveonlysocial.ui.preview.PreviewHelpers
 import com.example.positiveonlysocial.api.PositiveOnlySocialAPI
 import com.example.positiveonlysocial.data.auth.AuthenticationManager
 import com.example.positiveonlysocial.data.model.RegisterRequest
@@ -137,19 +140,30 @@ fun RegisterScreen(
                                 request = registerRequest
                             )
 
-                            val session = UserSession(
-                                sessionToken = response.body()?.sessionToken ?: "dummy_token",
-                                username = username,
-                                isIdentityVerified = false
-                            )
-                            authManager.login(session)
-                            
-                            // Navigate to Home, clearing back stack
-                            navController.navigate(Screen.Home.route) {
-                                popUpTo(Screen.Login.route) { inclusive = true }
+                            if (response.isSuccessful) {
+                                val session = UserSession(
+                                    sessionToken = response.body()?.sessionToken ?: "dummy_token",
+                                    username = username,
+                                    isIdentityVerified = false
+                                )
+                                authManager.login(session)
+                                
+                                // Navigate to Home, clearing back stack
+                                navController.navigate(Screen.Home.route) {
+                                    popUpTo(Screen.Login.route) { inclusive = true }
+                                }
+                            } else {
+                                val errorBody = response.errorBody()?.string()
+                                val errorMsg = try {
+                                    org.json.JSONObject(errorBody).getString("error")
+                                } catch (e: Exception) {
+                                    "Registration failed. Username or email may be taken."
+                                }
+                                errorMessage = errorMsg
+                                showingErrorAlert = true
                             }
                         } catch (e: Exception) {
-                            errorMessage = "Registration failed. Username or email may be taken."
+                            errorMessage = "Registration failed. Please check your network connection."
                             showingErrorAlert = true
                         } finally {
                             isLoading = false
@@ -163,4 +177,15 @@ fun RegisterScreen(
             }
         }
     }
+}
+
+@Preview(showBackground = true)
+@Composable
+fun RegisterScreenPreview() {
+    RegisterScreen(
+        navController = rememberNavController(),
+        api = PreviewHelpers.mockApi,
+        keychainHelper = PreviewHelpers.mockKeychainHelper,
+        authManager = PreviewHelpers.mockAuthManager
+    )
 }

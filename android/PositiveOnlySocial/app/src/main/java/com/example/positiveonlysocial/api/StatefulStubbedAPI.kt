@@ -4,6 +4,8 @@ import com.example.positiveonlysocial.data.model.*
 import okhttp3.MediaType.Companion.toMediaTypeOrNull
 import okhttp3.ResponseBody.Companion.toResponseBody
 import retrofit2.Response
+import retrofit2.http.Body
+import retrofit2.http.POST
 import java.util.UUID
 import kotlin.random.Random
 
@@ -224,6 +226,20 @@ class StatefulStubbedAPI : PositiveOnlySocialAPI {
 
     // ============================================================================================
     // PASSWORD RESET
+
+    override suspend fun requestReset(request: ResetRequest): Response<GenericResponse> {
+        // 1. Check if the provided string matches EITHER the email OR the username
+        val user = users.find { it.email == request.usernameOrEmail || it.username == request.usernameOrEmail }
+
+        if (user != null) {
+            // 2. Assign a STATIC reset ID for testing purposes
+            user.resetId = 123456
+
+            return Response.success(GenericResponse("Password reset code generated", null))
+        }
+
+        return error(404, "No user found with that username or email")
+    }
 
     override suspend fun verifyReset(usernameOrEmail: String, resetId: Int): Response<GenericResponse> {
         val user = users.find { it.username == usernameOrEmail || it.email == usernameOrEmail }

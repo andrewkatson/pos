@@ -16,6 +16,8 @@ import androidx.navigation.compose.rememberNavController
 import com.example.positiveonlysocial.api.PositiveOnlySocialAPI
 import com.example.positiveonlysocial.data.auth.AuthenticationManager
 import com.example.positiveonlysocial.data.security.KeychainHelperProtocol
+import androidx.compose.ui.tooling.preview.Preview
+import com.example.positiveonlysocial.ui.preview.PreviewHelpers
 import com.example.positiveonlysocial.ui.navigation.Screen
 
 @Composable
@@ -94,4 +96,15 @@ fun androidx.navigation.NavController.currentBackStackEntryAsState(): State<andr
         }
     }
     return currentNavBackStackEntry
+}
+
+@Preview(showBackground = true)
+@Composable
+fun MainScreenPreview() {
+    MainScreen(
+        rootNavController = rememberNavController(),
+        api = PreviewHelpers.mockApi,
+        keychainHelper = PreviewHelpers.mockKeychainHelper,
+        authManager = PreviewHelpers.mockAuthManager
+    )
 }

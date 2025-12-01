@@ -9,7 +9,10 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.tooling.preview.Preview
 import androidx.navigation.NavController
+import androidx.navigation.compose.rememberNavController
+import com.example.positiveonlysocial.ui.preview.PreviewHelpers
 import com.example.positiveonlysocial.api.PositiveOnlySocialAPI
 import com.example.positiveonlysocial.data.model.PasswordResetSubmitRequest
 import com.example.positiveonlysocial.data.security.KeychainHelperProtocol
@@ -26,11 +29,15 @@ fun ResetPasswordScreen(
     var username by remember { mutableStateOf("") }
     var email by remember { mutableStateOf("") }
     var newPassword by remember { mutableStateOf("") }
+    var confirmPassword by remember { mutableStateOf("") }
     var isLoading by remember { mutableStateOf(false) }
     var errorMessage by remember { mutableStateOf<String?>(null) }
     var showingErrorAlert by remember { mutableStateOf(false) }
 
     val scope = rememberCoroutineScope()
+
+    val isPasswordMatching = confirmPassword.isEmpty() || newPassword == confirmPassword
+    val isFormValid = username.isNotEmpty() && email.isNotEmpty() && newPassword.isNotEmpty() && newPassword == confirmPassword
 
     // Pre-fill username or email based on input
     LaunchedEffect(usernameOrEmail) {
@@ -61,7 +68,7 @@ fun ResetPasswordScreen(
         verticalArrangement = Arrangement.spacedBy(20.dp)
     ) {
         Text(
-            text = "Set New Password",
+            text = "Reset Password",
             style = MaterialTheme.typography.headlineSmall
         )
 
@@ -102,6 +109,25 @@ fun ResetPasswordScreen(
             keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password)
         )
 
+        TextField(
+            value = confirmPassword,
+            onValueChange = { confirmPassword = it },
+            label = { Text("Confirm Password") },
+            modifier = Modifier.fillMaxWidth(),
+            singleLine = true,
+            visualTransformation = PasswordVisualTransformation(),
+            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password)
+        )
+
+        if (!isPasswordMatching) {
+            Text(
+                text = "Passwords do not match.",
+                color = MaterialTheme.colorScheme.error,
+                style = MaterialTheme.typography.bodySmall,
+                modifier = Modifier.fillMaxWidth()
+            )
+        }
+
         if (isLoading) {
             Box(modifier = Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
                 CircularProgressIndicator()
@@ -139,10 +165,21 @@ fun ResetPasswordScreen(
                     }
                 },
                 modifier = Modifier.fillMaxWidth(),
-                enabled = username.isNotEmpty() && email.isNotEmpty() && newPassword.isNotEmpty()
+                enabled = isFormValid
             ) {
                 Text("Reset Password and Login")
             }
         }
     }
+}
+
+@Preview(showBackground = true)
+@Composable
+fun ResetPasswordScreenPreview() {
+    ResetPasswordScreen(
+        navController = rememberNavController(),
+        api = PreviewHelpers.mockApi,
+        keychainHelper = PreviewHelpers.mockKeychainHelper,
+        usernameOrEmail = "test@example.com"
+    )
 }

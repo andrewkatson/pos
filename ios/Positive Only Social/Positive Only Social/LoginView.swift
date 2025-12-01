@@ -53,6 +53,15 @@ struct LoginView: View {
             do {
                 let responseData = try await api.loginUser(usernameOrEmail: usernameOrEmail, password: password, rememberMe: String(rememberMe), ip: "127.0.0.1")
                 
+                // Try to decode a backend error first
+                struct BackendError: Codable { let error: String }
+                if let backendError = try? JSONDecoder().decode(BackendError.self, from: responseData) {
+                    errorMessage = backendError.error
+                    showingErrorAlert = true
+                    isLoading = false
+                    return
+                }
+
                 // MARK: Decoding Logic (remains the same)
                 let decoder = JSONDecoder()
                 let wrapper = try decoder.decode(APIWrapperResponse.self, from: responseData)
