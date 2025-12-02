@@ -357,5 +357,5 @@ struct PostDetailView: View {
 
 
 #Preview {
-    PostDetailView(postIdentifier: "123", api: StatefulStubbedAPI(), keychainHelper: KeychainHelper())
+    PostDetailView(postIdentifier: "123", api: PreviewHelpers.api, keychainHelper: PreviewHelpers.keychainHelper)
 }

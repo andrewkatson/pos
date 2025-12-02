@@ -88,5 +88,5 @@ struct RequestResetView: View {
 }
 
 #Preview {
-    RequestResetView(api: StatefulStubbedAPI(), keychainHelper: KeychainHelper())
+    RequestResetView(api: PreviewHelpers.api, keychainHelper: PreviewHelpers.keychainHelper)
 }

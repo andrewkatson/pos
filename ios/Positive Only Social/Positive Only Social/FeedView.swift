@@ -200,5 +200,5 @@ struct FollowingFeedView: View {
 #Preview {
     // Assuming KeychainHelper() is a valid initializer
     // If not, you may need to use your mock
-    FeedView(api: StatefulStubbedAPI(), keychainHelper: KeychainHelper())
+    FeedView(api: PreviewHelpers.api, keychainHelper: PreviewHelpers.keychainHelper)
 }

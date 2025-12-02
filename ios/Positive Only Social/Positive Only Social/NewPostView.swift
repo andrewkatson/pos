@@ -142,5 +142,5 @@ struct NewPostView: View {
 }
 
 #Preview {
-    NewPostView(api: StatefulStubbedAPI(), keychainHelper: KeychainHelper())
+    NewPostView(api: PreviewHelpers.api, keychainHelper: PreviewHelpers.keychainHelper)
 }

@@ -104,5 +104,5 @@ struct ResetPasswordView: View {
 }
 
 #Preview {
-    ResetPasswordView(usernameOrEmail: "test", api: StatefulStubbedAPI(), keychainHelper: KeychainHelper())
+    ResetPasswordView(usernameOrEmail: "test", api: PreviewHelpers.api, keychainHelper: PreviewHelpers.keychainHelper)
 }

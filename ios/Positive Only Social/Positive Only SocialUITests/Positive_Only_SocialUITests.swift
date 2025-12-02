@@ -20,11 +20,17 @@ final class Positive_Only_SocialUITests: XCTestCase {
 
         // In UI tests it is usually best to stop immediately when a failure occurs.
         continueAfterFailure = false
+        
+        // get the name and remove the opening
+        var baseName = self.name.replacingOccurrences(of: "-[ ", with: "")
+
+        // And then you'll need to remove the closing square bracket at the end of the test name
+        baseName = baseName.replacingOccurrences(of: "]", with: "")
 
         // In UI tests it’s important to set the initial state - such as interface orientation - required for your tests before they run. The setUp method is a good place to do this.
-        testUsername = "\(self.name)_user"
-        otherTestUsername = "\(self.name)_other_user"
-        newTestUsername = "\(self.name)_new_user"
+        testUsername = "\(baseName)_user"
+        otherTestUsername = "\(baseName)_other_user"
+        newTestUsername = "\(baseName)_new_user"
     }
 
     override func tearDownWithError() throws {
@@ -112,21 +118,31 @@ final class Positive_Only_SocialUITests: XCTestCase {
     }
     
     private func registerUser(app: XCUIApplication, username: String, password: String) throws {
-        let registerButton = app.textViews["RegisterText"]
+        // We wait until the "Welcome! 👋" text (which is in NeedsAuthView) appears.
+        let welcomeText = app.staticTexts["Welcome! 👋"]
+        
+        // Use a robust existence check with a reasonable timeout.
+        XCTAssertTrue(welcomeText.waitForExistence(timeout: 10), "The Welcome! 👋 text (NeedsAuthView) did not appear in time.")
+        
+        let registerButton = app.buttons["RegisterText"]
         registerButton.tap()
         
         assertOnRegisterView(app: app)
         
         let usernameField = app.textFields["UsernameTextField"]
+        usernameField.tap()
         usernameField.typeText(username)
         
         let emailField = app.textFields["EmailTextField"]
+        emailField.tap()
         emailField.typeText("\(username)@test.com")
         
         let passwordField = app.secureTextFields["PasswordSecureField"]
+        passwordField.tap()
         passwordField.typeText(password)
         
         let confirmPasswordField = app.secureTextFields["ConfirmPasswordSecureField"]
+        confirmPasswordField.tap()
         confirmPasswordField.typeText(password)
         
         let otherRegisterButton = app.buttons["RegisterButton"]
@@ -140,15 +156,17 @@ final class Positive_Only_SocialUITests: XCTestCase {
         
         try logoutUserFromHome(app: app)
         
-        let loginButton = app.textViews["LoginText"]
+        let loginButton = app.buttons["LoginText"]
         loginButton.tap()
         
         assertOnLoginView(app: app)
         
         let usernameOrEmailTextField = app.textFields["UsernameOrEmailTextField"]
+        usernameOrEmailTextField.tap()
         usernameOrEmailTextField.typeText(username)
         
         let passwordSecureField = app.secureTextFields["PasswordSecureField"]
+        passwordSecureField.tap()
         passwordSecureField.typeText(password)
         
         let rememberMeSwitch = app.switches["RememberMeToggle"]
@@ -246,7 +264,7 @@ final class Positive_Only_SocialUITests: XCTestCase {
         postCommentButton.tap()
         
         let allPostCommentsQuery = app.staticTexts.matching(identifier: "CommentText")
-        XCTAssertEqual(allPostsQuery.count, 1)
+        XCTAssertEqual(allPostCommentsQuery.count, 1)
         
         assertOnPostDetailView(app: app)
     }
@@ -280,7 +298,7 @@ final class Positive_Only_SocialUITests: XCTestCase {
         
         // Should be two comments. The original thread comment and then the reply to that thread.
         let allPostCommentsQuery = app.staticTexts.matching(identifier: "CommentText")
-        XCTAssertEqual(allPostsQuery.count, 2)
+        XCTAssertEqual(allPostCommentsQuery.count, 2)
         
         assertOnPostDetailView(app: app)
     }

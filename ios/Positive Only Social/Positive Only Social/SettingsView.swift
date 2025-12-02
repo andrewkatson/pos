@@ -69,6 +69,6 @@ struct SettingsView: View {
 
 #Preview {
     // The preview needs the authManager in its environment to work correctly.
-    SettingsView(api: StatefulStubbedAPI(), keychainHelper: KeychainHelper())
+    SettingsView(api: PreviewHelpers.api, keychainHelper: PreviewHelpers.keychainHelper)
         .environmentObject(AuthenticationManager())
 }

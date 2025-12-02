@@ -153,5 +153,5 @@ struct NeedsAuthView: View {
 
 #Preview {
     // You can test different states by passing in a pre-configured stub
-    WelcomeView(api: StatefulStubbedAPI(), keychainHelper: KeychainHelper())
+    WelcomeView(api: PreviewHelpers.api, keychainHelper: PreviewHelpers.keychainHelper)
 }

@@ -153,5 +153,5 @@ struct UserSearchResultsView: View {
 
 
 #Preview {
-    HomeView(api: StatefulStubbedAPI(), keychainHelper: KeychainHelper())
+    HomeView(api: PreviewHelpers.api, keychainHelper: PreviewHelpers.keychainHelper)
 }

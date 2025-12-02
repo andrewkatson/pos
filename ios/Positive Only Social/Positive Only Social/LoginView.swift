@@ -100,5 +100,5 @@ struct LoginView: View {
 }
 
 #Preview {
-    LoginView(api: StatefulStubbedAPI(), keychainHelper: KeychainHelper())
+    LoginView(api: PreviewHelpers.api, keychainHelper: PreviewHelpers.keychainHelper)
 }

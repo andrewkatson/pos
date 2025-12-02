@@ -137,5 +137,5 @@ struct ProfileView: View {
 }
 
 #Preview {
-    ProfileView(user: User(username: "test", identityIsVerified: true), api: StatefulStubbedAPI(), keychainHelper: KeychainHelper())
+    ProfileView(user: User(username: "test", identityIsVerified: true), api: PreviewHelpers.api, keychainHelper: PreviewHelpers.keychainHelper)
 }

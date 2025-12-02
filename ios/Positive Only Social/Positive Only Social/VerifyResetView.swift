@@ -98,5 +98,5 @@ struct VerifyResetView: View {
 }
 
 #Preview {
-    VerifyResetView(usernameOrEmail: "test", api: StatefulStubbedAPI(), keychainHelper: KeychainHelper())
+    VerifyResetView(usernameOrEmail: "test", api: PreviewHelpers.api, keychainHelper: PreviewHelpers.keychainHelper)
 }
