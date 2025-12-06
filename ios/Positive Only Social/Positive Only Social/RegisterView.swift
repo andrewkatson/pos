@@ -151,10 +151,9 @@ struct RegisterView: View {
                 guard let innerData = wrapper.responseList.data(using: .utf8) else {
                     throw URLError(.cannotDecodeContentData)
                 }
-                let loginResponseArray = try decoder.decode([DjangoLoginResponseObject].self, from: innerData)
-                guard let loginDetails = loginResponseArray.first?.fields else {
-                    throw URLError(.cannotDecodeContentData)
-                }
+                
+                let loginResponse = try decoder.decode(DjangoLoginResponseObject.self, from: innerData)
+                let loginDetails = loginResponse.fields
 
                 // Securely save the new session token to the Keychain
                 authManager.login(with: UserSession(sessionToken: loginDetails.sessionManagementToken, username: username, isIdentityVerified: false))

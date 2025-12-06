@@ -29,6 +29,5 @@ func isTesting() -> Bool {
 }
 
 func isUITesting() -> Bool {
-    // 2. Check if a UI Test is running
-    return CommandLine.arguments.contains("-ui_testing")
+    return CommandLine.arguments.contains("--ui_testing")
 }

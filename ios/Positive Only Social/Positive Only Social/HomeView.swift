@@ -22,35 +22,35 @@ struct HomeView: View {
         self.api = api
         self.keychainHelper = keychainHelper
     }
-
+    
     var body: some View {
-            TabView {
-                // Tab 1: User's personal post grid
-                MyPostsGridView(api: api, keychainHelper: keychainHelper)
-                    .tabItem {
-                        Label("Home", systemImage: "house.fill")
-                    }.accessibilityIdentifier("HomeTab")
-                
-                // Tab 2: Global feed view
-                FeedView(api: api, keychainHelper: keychainHelper)
-                    .tabItem {
-                        Label("Feed", systemImage: "list.bullet")
-                    }.accessibilityIdentifier("FeedTab")
-                
-                // Tab 3: New post creation view
-                NewPostView(api: api, keychainHelper: keychainHelper)
-                    .tabItem {
-                        Label("Post", systemImage: "plus.square")
-                    }.accessibilityIdentifier("NewPostTab")
-                
-                // Tab 4: Settings view with logout
-                SettingsView(api: api, keychainHelper: keychainHelper)
-                    .tabItem {
-                        Label("Settings", systemImage: "gear")
-                    }.accessibilityIdentifier("SettingsTab")
-            }
-            .environmentObject(viewModel)
+        TabView {
+            // Tab 1: User's personal post grid
+            MyPostsGridView(api: api, keychainHelper: keychainHelper)
+                .tabItem {
+                    Label("Home", systemImage: "house.fill")
+                }
+            
+            // Tab 2: Global feed view
+            FeedView(api: api, keychainHelper: keychainHelper)
+                .tabItem {
+                    Label("Feed", systemImage: "list.bullet")
+                }
+            
+            // Tab 3: New post creation view
+            NewPostView(api: api, keychainHelper: keychainHelper)
+                .tabItem {
+                    Label("Post", systemImage: "plus.square")
+                }
+            
+            // Tab 4: Settings view with logout
+            SettingsView(api: api, keychainHelper: keychainHelper)
+                .tabItem {
+                    Label("Settings", systemImage: "gear")
+                }
         }
+        .environmentObject(viewModel)
+    }
 }
 
 // This sub-view contains the user's post grid and search logic
@@ -59,10 +59,10 @@ struct MyPostsGridView: View {
     let keychainHelper: KeychainHelperProtocol
     @EnvironmentObject private var viewModel: HomeViewModel
     @Environment(\.isSearching) private var isSearching
-
+    
     // Define the grid layout: 3 columns, flexible size
     private let columns: [GridItem] = Array(repeating: .init(.flexible()), count: 3)
-
+    
     var body: some View {
         NavigationStack {
             ScrollView {
@@ -128,7 +128,7 @@ struct MyPostsGridView: View {
 /// The view for displaying user search results
 struct UserSearchResultsView: View {
     @EnvironmentObject private var viewModel: HomeViewModel
-
+    
     var body: some View {
         List(viewModel.searchedUsers) { user in
             NavigationLink(value: user) {
@@ -136,10 +136,10 @@ struct UserSearchResultsView: View {
                     Image(systemName: "person.circle.fill")
                         .font(.largeTitle)
                         .foregroundColor(.gray)
-
+                    
                     Text(user.username)
                         .fontWeight(.bold)
-
+                    
                     if user.identityIsVerified {
                         Image(systemName: "checkmark.seal.fill")
                             .foregroundColor(.blue)

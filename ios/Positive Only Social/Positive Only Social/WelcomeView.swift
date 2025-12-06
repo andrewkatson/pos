@@ -51,11 +51,11 @@ struct WelcomeView: View {
             .navigationDestination(for: String.self) { routeName in
                 switch routeName {
                 case "LoginView":
-                    LoginView(api: api, keychainHelper: keychainHelper)
+                    LoginView(api: api, keychainHelper: keychainHelper).environmentObject(authManager)
                 case "RegisterView":
-                    RegisterView(api: api, keychainHelper: keychainHelper, path: $path)
+                    RegisterView(api: api, keychainHelper: keychainHelper, path: $path).environmentObject(authManager)
                 case "HomeView":
-                    HomeView(api: api, keychainHelper: keychainHelper)
+                    HomeView(api: api, keychainHelper: keychainHelper).environmentObject(authManager)
                 default:
                     Text("Unknown Route")
                 }

@@ -12,7 +12,13 @@
 
   },
   "testTargets" : [
-
+    {
+      "target" : {
+        "containerPath" : "container:Positive Only Social.xcodeproj",
+        "identifier" : "248836DF2E6282C5002D47F1",
+        "name" : "Positive Only SocialTests"
+      }
+    }
   ],
   "version" : 1
 }

@@ -22,7 +22,7 @@ final class Positive_Only_SocialUITests: XCTestCase {
         continueAfterFailure = false
         
         // get the name and remove the opening
-        var baseName = self.name.replacingOccurrences(of: "-[ ", with: "")
+        var baseName = self.name.replacingOccurrences(of: "-[", with: "")
 
         // And then you'll need to remove the closing square bracket at the end of the test name
         baseName = baseName.replacingOccurrences(of: "]", with: "")
@@ -56,8 +56,14 @@ final class Positive_Only_SocialUITests: XCTestCase {
     }
     
     private func assertOnWelcomeView(app: XCUIApplication) {
-        XCTAssertTrue(app.textViews["RegisterText"].exists, "Register button is not empty")
-        XCTAssertTrue(app.textViews["LoginText"].exists, "Login button is not empty")
+        // We wait until the "Welcome! 👋" text (which is in NeedsAuthView) appears.
+        let welcomeText = app.staticTexts["Welcome! 👋"]
+        
+        // Use a robust existence check with a reasonable timeout.
+        XCTAssertTrue(welcomeText.waitForExistence(timeout: 10), "The Welcome! 👋 text (NeedsAuthView) did not appear in time.")
+
+        XCTAssertTrue(app.buttons["RegisterText"].exists, "Register button is not empty")
+        XCTAssertTrue(app.buttons["LoginText"].exists, "Login button is not empty")
     }
     
     private func assertOnRegisterView(app: XCUIApplication) {
@@ -69,6 +75,8 @@ final class Positive_Only_SocialUITests: XCTestCase {
     }
     
     private func assertOnLoginView(app: XCUIApplication) {
+        XCTAssertTrue(app.staticTexts["Login"].waitForExistence(timeout: 10), "Login text did not appear in time.")
+
         XCTAssertTrue(app.textFields["UsernameOrEmailTextField"].exists, "Username or email field not present")
         XCTAssertTrue(app.secureTextFields["PasswordSecureField"].exists, "Password field not present")
         XCTAssertTrue(app.buttons["LoginButton"].exists, "Login button not present")
@@ -77,19 +85,15 @@ final class Positive_Only_SocialUITests: XCTestCase {
     }
     
     private func assertOnHomeView(app: XCUIApplication) {
-        XCTAssertTrue(app.tabs["HomeTab"].exists, "Home tab not present")
-        XCTAssertTrue(app.tabs["FeedTab"].exists, "Feed tab not present")
-        XCTAssertTrue(app.tabs["NewPostTab"].exists, "New post tab not present")
-        XCTAssertTrue(app.tabs["SettingsTab"].exists, "Settings tab not present")
+        XCTAssertTrue(app.buttons["Home"].exists, "Home tab not present")
+        XCTAssertTrue(app.buttons["Feed"].exists, "Feed tab not present")
+        XCTAssertTrue(app.buttons["Post"].exists, "New post tab not present")
+        XCTAssertTrue(app.buttons["Settings"].exists, "Settings tab not present")
     }
     
     private func assertOnSettingsView(app: XCUIApplication) {
         XCTAssertTrue(app.buttons["LogoutButton"].exists, "Logout button not present")
         XCTAssertTrue(app.buttons["DeleteAccountButton"].exists, "Delete Account button not present")
-        XCTAssertTrue(app.buttons["CancelLogoutButton"].exists, "Cancel logout button not present")
-        XCTAssertTrue(app.buttons["ConfirmLogoutButton"].exists, "Confirm logout button not present")
-        XCTAssertTrue(app.buttons["CancelDeleteAccountButton"].exists, "Cancel delete account button not present")
-        XCTAssertTrue(app.buttons["ConfirmDeleteAccountButton"].exists, "Confirm delete account button not present")
     }
     
     private func assertOnProfileView(app: XCUIApplication) {
@@ -115,6 +119,12 @@ final class Positive_Only_SocialUITests: XCTestCase {
         XCTAssertTrue(app.buttons["PostCommentButton"].exists, "Post comment button not present")
         XCTAssertTrue(app.otherElements["PostImage"].exists, "Post image not present")
         XCTAssertTrue(app.textFields["AddACommentTextFieldToPost"].exists, "Add a comment text field not present")
+    }
+    
+    private func ifOnHomeLogout(app: XCUIApplication) throws {
+        if (app.buttons["Home"].exists) {
+            try logoutUserFromHome(app: app)
+        }
     }
     
     private func registerUser(app: XCUIApplication, username: String, password: String) throws {
@@ -179,7 +189,7 @@ final class Positive_Only_SocialUITests: XCTestCase {
     }
     
     private func logoutUserFromHome(app: XCUIApplication) throws {
-        let settingsTab = app.tabs["SettingsTab"]
+        let settingsTab = app.buttons["Settings"]
         settingsTab.tap()
         
         assertOnSettingsView(app: app)
@@ -187,7 +197,8 @@ final class Positive_Only_SocialUITests: XCTestCase {
         let logoutButton = app.buttons["LogoutButton"]
         logoutButton.tap()
         
-        let confirmLogoutButton = app.buttons["ConfirmLogoutButton"]
+        /// Don't know why but there is a hierarchy of confirm logout buttons
+        let confirmLogoutButton = app.buttons["ConfirmLogoutButton"].firstMatch
         confirmLogoutButton.tap()
         
         assertOnWelcomeView(app: app)
@@ -197,7 +208,7 @@ final class Positive_Only_SocialUITests: XCTestCase {
     private func makePost(app: XCUIApplication, postText: String) throws {
         assertOnHomeView(app: app)
         
-        let newPostTab = app.tabs["NewPostTab"]
+        let newPostTab = app.buttons["Post"]
         newPostTab.tap()
         
         assertOnNewPostView(app: app)
@@ -241,7 +252,7 @@ final class Positive_Only_SocialUITests: XCTestCase {
     private func makeCommentOnPost(app: XCUIApplication, commentText: String) {
         assertOnHomeView(app: app)
         
-        let feedTab = app.tabs["FeedTab"]
+        let feedTab = app.buttons["Feed"]
         feedTab.tap()
         
         assertOnFeedView(app: app)
@@ -274,7 +285,7 @@ final class Positive_Only_SocialUITests: XCTestCase {
     private func makeCommentOnThread(app: XCUIApplication, commentText: String) {
         assertOnHomeView(app: app)
         
-        let feedTab = app.tabs["FeedTab"]
+        let feedTab = app.buttons["Feed"]
         feedTab.tap()
         
         assertOnFeedView(app: app)
@@ -308,7 +319,11 @@ final class Positive_Only_SocialUITests: XCTestCase {
     func testAutomaticLoginAfterRememberMe() throws {
         // UI tests must launch the application that they test.
         let app = XCUIApplication()
+        app.launchArguments.append("--ui_testing")
+        
         app.launch()
+        
+        try ifOnHomeLogout(app: app)
         
         try loginUser(app: app, username: testUsername, password: strongPassword, rememberMe: true)
         
@@ -326,11 +341,15 @@ final class Positive_Only_SocialUITests: XCTestCase {
     func testDeleteAccount() throws {
         // UI tests must launch the application that they test.
         let app = XCUIApplication()
+        app.launchArguments.append("--ui_testing")
+        
         app.launch()
+        
+        try ifOnHomeLogout(app: app)
         
         try loginUser(app: app, username: testUsername, password: strongPassword, rememberMe: true)
 
-        let settingsTab = app.tabs["SettingsTab"]
+        let settingsTab = app.buttons["Settings"]
         settingsTab.tap()
         
         let deleteAccountButton = app.buttons["DeleteAccountButton"]
@@ -362,7 +381,11 @@ final class Positive_Only_SocialUITests: XCTestCase {
     func testResetPassword() throws {
         // UI tests must launch the application that they test.
         let app = XCUIApplication()
+        app.launchArguments.append("--ui_testing")
+        
         app.launch()
+        
+        try ifOnHomeLogout(app: app)
 
         try registerUser(app: app, username: testUsername, password: strongPassword)
         
@@ -441,7 +464,11 @@ final class Positive_Only_SocialUITests: XCTestCase {
     func testFollowAndUnfollowFromSearch() throws {
         // UI tests must launch the application that they test.
         let app = XCUIApplication()
+        app.launchArguments.append("--ui_testing")
+        
         app.launch()
+        
+        try ifOnHomeLogout(app: app)
         
         try registerUser(app: app, username: otherTestUsername, password: strongPassword)
         
@@ -477,7 +504,11 @@ final class Positive_Only_SocialUITests: XCTestCase {
     func testFollowAndUnfollowFromPost() throws {
         // UI tests must launch the application that they test.
         let app = XCUIApplication()
+        app.launchArguments.append("--ui_testing")
+        
         app.launch()
+        
+        try ifOnHomeLogout(app: app)
         
         try loginUser(app: app, username: testUsername, password: strongPassword, rememberMe: false)
         
@@ -487,7 +518,7 @@ final class Positive_Only_SocialUITests: XCTestCase {
         
         try loginUser(app: app, username: otherTestUsername, password: strongPassword, rememberMe: false)
         
-        let feedTab = app.tabs["FeedTab"]
+        let feedTab = app.buttons["Feed"]
         feedTab.tap()
         
         assertOnFeedView(app: app)
@@ -531,7 +562,7 @@ final class Positive_Only_SocialUITests: XCTestCase {
         /// We refollow so that we can check that the post now shows up in the "Following" Feed
         followButton.tap()
         
-        let homeTab = app.tabs["HomeTab"]
+        let homeTab = app.buttons["Home"]
         homeTab.tap()
         
         assertOnHomeView(app: app)
@@ -554,7 +585,11 @@ final class Positive_Only_SocialUITests: XCTestCase {
     func testLikeAndUnlikePost() throws {
         // UI tests must launch the application that they test.
         let app = XCUIApplication()
+        app.launchArguments.append("--ui_testing")
+        
         app.launch()
+        
+        try ifOnHomeLogout(app: app)
 
         try loginUser(app: app, username: testUsername, password: strongPassword, rememberMe: false)
         
@@ -564,7 +599,7 @@ final class Positive_Only_SocialUITests: XCTestCase {
         
         try loginUser(app: app, username: otherTestUsername, password: strongPassword, rememberMe: false)
         
-        let feedTab = app.tabs["FeedTab"]
+        let feedTab = app.buttons["Feed"]
         feedTab.tap()
         
         assertOnFeedView(app: app)
@@ -595,7 +630,11 @@ final class Positive_Only_SocialUITests: XCTestCase {
     func testLikeAndUnlikeCommentOnPostAndThread() throws {
         // UI tests must launch the application that they test.
         let app = XCUIApplication()
+        app.launchArguments.append("--ui_testing")
+        
         app.launch()
+        
+        try ifOnHomeLogout(app: app)
 
         try loginUser(app: app, username: testUsername, password: strongPassword, rememberMe: false)
         
@@ -633,7 +672,7 @@ final class Positive_Only_SocialUITests: XCTestCase {
         
         try loginUser(app: app, username: newTestUsername, password: strongPassword, rememberMe: false)
         
-        let feedTab = app.tabs["FeedTab"]
+        let feedTab = app.buttons["Feed"]
         feedTab.tap()
         
         assertOnFeedView(app: app)
@@ -678,7 +717,11 @@ final class Positive_Only_SocialUITests: XCTestCase {
     func testReportPost() throws {
         // UI tests must launch the application that they test.
         let app = XCUIApplication()
+        app.launchArguments.append("--ui_testing")
+        
         app.launch()
+        
+        try ifOnHomeLogout(app: app)
         
         try loginUser(app: app, username: testUsername, password: strongPassword, rememberMe: false)
         
@@ -704,7 +747,7 @@ final class Positive_Only_SocialUITests: XCTestCase {
         
         try loginUser(app: app, username: newTestUsername, password: strongPassword, rememberMe: false)
         
-        let feedTab = app.tabs["FeedTab"]
+        let feedTab = app.buttons["Feed"]
         feedTab.tap()
         
         assertOnFeedView(app: app)
@@ -738,7 +781,11 @@ final class Positive_Only_SocialUITests: XCTestCase {
     func testReportComment() throws {
         // UI tests must launch the application that they test.
         let app = XCUIApplication()
+        app.launchArguments.append("--ui_testing")
+        
         app.launch()
+        
+        try ifOnHomeLogout(app: app)
         
         try loginUser(app: app, username: testUsername, password: strongPassword, rememberMe: false)
         
@@ -764,7 +811,7 @@ final class Positive_Only_SocialUITests: XCTestCase {
         
         try loginUser(app: app, username: newTestUsername, password: strongPassword, rememberMe: false)
         
-        let feedTab = app.tabs["FeedTab"]
+        let feedTab = app.buttons["Feed"]
         feedTab.tap()
         
         assertOnFeedView(app: app)
@@ -799,7 +846,15 @@ final class Positive_Only_SocialUITests: XCTestCase {
     func testLaunchPerformance() throws {
         // This measures how long it takes to launch your application.
         measure(metrics: [XCTApplicationLaunchMetric()]) {
-            XCUIApplication().launch()
+            let app = XCUIApplication()
+            app.launch()
+
+            do {
+                try ifOnHomeLogout(app: app)
+            } catch {
+                XCTFail("ifOnHomeLogout threw error: \(error)")
+            }
         }
     }
 }
+

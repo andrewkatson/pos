@@ -10,6 +10,11 @@
   ],
   "defaultOptions" : {
     "commandLineArgumentEntries" : [
+      {
+        "argument" : "-ui_testing"
+      }
+    ],
+    "environmentVariableEntries" : [
 
     ],
     "performanceAntipatternCheckerEnabled" : true,
@@ -21,14 +26,6 @@
     "testExecutionOrdering" : "random"
   },
   "testTargets" : [
-    {
-      "parallelizable" : true,
-      "target" : {
-        "containerPath" : "container:Positive Only Social.xcodeproj",
-        "identifier" : "248836DF2E6282C5002D47F1",
-        "name" : "Positive Only SocialTests"
-      }
-    },
     {
       "parallelizable" : true,
       "target" : {
