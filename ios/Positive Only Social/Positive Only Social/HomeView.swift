@@ -153,5 +153,5 @@ struct UserSearchResultsView: View {
 
 
 #Preview {
-    HomeView(api: PreviewHelpers.api, keychainHelper: PreviewHelpers.keychainHelper)
+    HomeView(api: PreviewHelpers.api, keychainHelper: PreviewHelpers.keychainHelper).environmentObject(PreviewHelpers.authManager)
 }

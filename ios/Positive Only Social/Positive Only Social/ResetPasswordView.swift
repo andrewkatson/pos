@@ -11,11 +11,12 @@ import SwiftUI
 struct ResetPasswordView: View {
     var usernameOrEmail: String
     
+    // MARK: Envrionment Properties
+    @EnvironmentObject var authManager: AuthenticationManager
+    
     @State private var username: String = ""
     @State private var email: String = ""
     @State private var newPassword: String = ""
-    
-    @State private var didResetSuccessfully: Bool = false
     
     // State matching your template
     @State private var isLoading: Bool = false
@@ -65,9 +66,6 @@ struct ResetPasswordView: View {
                 ProgressView().progressViewStyle(.circular).scaleEffect(2)
             }
         }
-        .navigationDestination(isPresented: $didResetSuccessfully) {
-            HomeView(api: api, keychainHelper: keychainHelper)
-        }
         .alert("Error", isPresented: $showingErrorAlert, presenting: errorMessage) { _ in
             Button("OK") { }
         } message: { message in
@@ -87,13 +85,41 @@ struct ResetPasswordView: View {
                 newPassword: newPassword
             )
             
+            // Just check that it didn't throw an error
             _ = try JSONDecoder().decode(APIWrapperResponse.self, from: responseData)
+            print("✅ Password reset successful. Attempting auto-login...")
             
-            print("✅ Password reset successful.")
-
-            isLoading = false
-            didResetSuccessfully = true // Navigate to Home
+            // 2. IMMEDIATELY Log in with the new password
+            // This retrieves the session token you need for the HomeView
+            let loginData = try await api.loginUser(
+                usernameOrEmail: username.isEmpty ? email : username,
+                password: newPassword,
+                rememberMe: "false",
+                ip: "127.0.0.1"
+            )
             
+            // 3. Decode the Login Response
+            let decoder = JSONDecoder()
+            let wrapper = try decoder.decode(APIWrapperResponse.self, from: loginData)
+            guard let innerData = wrapper.responseList.data(using: .utf8) else { throw URLError(.cannotDecodeContentData) }
+            let loginResponse = try decoder.decode(DjangoLoginResponseObject.self, from: innerData)
+            let loginDetails = loginResponse.fields
+            
+            // 4. Update AuthManager
+            // This is the magic trigger that swaps the view to HomeView
+            let userSession = UserSession(
+                sessionToken: loginDetails.sessionManagementToken,
+                username: username,
+                isIdentityVerified: false
+            )
+            
+            // Run on Main Actor to update UI
+            await MainActor.run {
+                authManager.login(with: userSession)
+                isLoading = false
+            }
+            
+            print("✅ Auto-login successful. View should swap now.")
         } catch {
             errorMessage = (error as? LocalizedError)?.errorDescription ?? "An unknown error occurred."
             showingErrorAlert = true
@@ -104,5 +130,5 @@ struct ResetPasswordView: View {
 }
 
 #Preview {
-    ResetPasswordView(usernameOrEmail: "test", api: PreviewHelpers.api, keychainHelper: PreviewHelpers.keychainHelper)
+    ResetPasswordView(usernameOrEmail: "test", api: PreviewHelpers.api, keychainHelper: PreviewHelpers.keychainHelper).environmentObject(PreviewHelpers.authManager)
 }

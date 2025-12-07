@@ -180,6 +180,6 @@ struct RegisterView: View {
     @Previewable @State var path = NavigationPath()
     
     NavigationStack(path: $path) {
-        RegisterView(api: PreviewHelpers.api, keychainHelper: PreviewHelpers.keychainHelper, path: $path)
+        RegisterView(api: PreviewHelpers.api, keychainHelper: PreviewHelpers.keychainHelper, path: $path).environmentObject(PreviewHelpers.authManager)
     }
 }

@@ -179,8 +179,18 @@ final class Positive_Only_SocialUITests: XCTestCase {
         passwordSecureField.tap()
         passwordSecureField.typeText(password)
         
-        let rememberMeSwitch = app.switches["RememberMeToggle"]
-        rememberMeSwitch.tap()
+        if (rememberMe) {
+            dismissKeyboardIfPresent(app)
+            
+            let rememberMeSwitch = app.switches["RememberMeToggle"]
+            if let value = rememberMeSwitch.value as? String, value == "0" {
+                // We don't always get the tap to work so we have to do this
+                let knob = rememberMeSwitch.coordinate(withNormalizedOffset: CGVector(dx: 0.9, dy: 0.5))
+                knob.tap()
+            }
+            
+            XCTAssertEqual(rememberMeSwitch.value as? String, "1", "Remember me toggle should now be on")
+        }
         
         let loginButton2 = app.buttons["LoginButton"]
         loginButton2.tap()
@@ -269,6 +279,7 @@ final class Positive_Only_SocialUITests: XCTestCase {
         assertOnPostDetailView(app: app)
         
         let addACommentTextField = app.textFields["AddACommentTextFieldToPost"]
+        addACommentTextField.tap()
         addACommentTextField.typeText(commentText)
         
         let postCommentButton = app.buttons["PostCommentButton"]
@@ -302,6 +313,7 @@ final class Positive_Only_SocialUITests: XCTestCase {
         assertOnPostDetailView(app: app)
         
         let addACommentTextField = app.textFields["AddACommentTextFieldToThread"]
+        addACommentTextField.tap()
         addACommentTextField.typeText(commentText)
         
         let postCommentButton = app.buttons["ReplyToCommentThreadButton"]
@@ -327,8 +339,6 @@ final class Positive_Only_SocialUITests: XCTestCase {
         
         try loginUser(app: app, username: testUsername, password: strongPassword, rememberMe: true)
         
-        try logoutUserFromHome(app: app)
-        
         app.terminate()
         
         app.launch()
@@ -347,6 +357,7 @@ final class Positive_Only_SocialUITests: XCTestCase {
         
         try ifOnHomeLogout(app: app)
         
+        // Remember me is true here so we can test that the deleting clears the token
         try loginUser(app: app, username: testUsername, password: strongPassword, rememberMe: true)
 
         let settingsTab = app.buttons["Settings"]
@@ -355,20 +366,22 @@ final class Positive_Only_SocialUITests: XCTestCase {
         let deleteAccountButton = app.buttons["DeleteAccountButton"]
         deleteAccountButton.tap()
         
-        let confirmDeleteAccountButton = app.buttons["ConfirmDeleteAccountButton"]
+        let confirmDeleteAccountButton = app.buttons["ConfirmDeleteAccountButton"].firstMatch
         confirmDeleteAccountButton.tap()
         
         assertOnWelcomeView(app: app)
         
-        let loginButton = app.textViews["LoginText"]
+        let loginButton = app.buttons["LoginText"]
         loginButton.tap()
         
         assertOnLoginView(app: app)
         
         let usernameOrEmailTextField = app.textFields["UsernameOrEmailTextField"]
+        usernameOrEmailTextField.tap()
         usernameOrEmailTextField.typeText(testUsername)
         
         let passwordSecureField = app.secureTextFields["PasswordSecureField"]
+        passwordSecureField.tap()
         passwordSecureField.typeText(strongPassword)
         
         let loginButton2 = app.buttons["LoginButton"]
@@ -393,7 +406,7 @@ final class Positive_Only_SocialUITests: XCTestCase {
         
         assertOnWelcomeView(app: app)
         
-        let loginButton = app.textViews["LoginText"]
+        let loginButton = app.buttons["LoginText"]
         loginButton.tap()
         
         assertOnLoginView(app: app)
@@ -406,6 +419,7 @@ final class Positive_Only_SocialUITests: XCTestCase {
         XCTAssertTrue(app.textFields["UsernameOrEmailTextField"].exists, "Username or email text field should exist")
         
         let usernameOrEmailTextField = app.textFields["UsernameOrEmailTextField"]
+        usernameOrEmailTextField.tap()
         usernameOrEmailTextField.typeText(testUsername)
         
         let requestResetButton = app.buttons["RequestResetButton"]
@@ -416,6 +430,7 @@ final class Positive_Only_SocialUITests: XCTestCase {
         XCTAssertTrue(app.textFields["6DigitPinTextField"].exists, "6 Digit pin field should exist")
         
         let sixDigitPinTextField = app.textFields["6DigitPinTextField"]
+        sixDigitPinTextField.tap()
         // We hardcode the test value in StatefulStubbedAPI
         sixDigitPinTextField.typeText("100000")
         
@@ -426,12 +441,14 @@ final class Positive_Only_SocialUITests: XCTestCase {
         XCTAssertTrue(app.buttons["ResetPasswordAndLoginButton"].exists, "Reset password and login button should exist")
         XCTAssertTrue(app.textFields["UsernameTextField"].exists, "Username text field should exist")
         XCTAssertTrue(app.textFields["EmailTextField"].exists, "Email text field should exist")
-        XCTAssertTrue(app.secureTextFields["PasswordTextField"].exists, "Password text field should be empty")
+        XCTAssertTrue(app.secureTextFields["NewPasswordSecureField"].exists, "New password text field should exist")
         
         let emailTextField = app.textFields["EmailTextField"]
+        emailTextField.tap()
         emailTextField.typeText("\(testUsername)@test.com")
         
-        let passwordTextField = app.secureTextFields["PasswordTextField"]
+        let passwordTextField = app.secureTextFields["NewPasswordSecureField"]
+        passwordTextField.tap()
         passwordTextField.typeText(newStrongPassword)
         
         let resetPasswordAndLoginButton = app.buttons["ResetPasswordAndLoginButton"]
@@ -443,15 +460,17 @@ final class Positive_Only_SocialUITests: XCTestCase {
         
         assertOnWelcomeView(app: app)
         
-        let loginButton2 = app.textViews["LoginText"]
+        let loginButton2 = app.buttons["LoginText"]
         loginButton2.tap()
         
         assertOnLoginView(app: app)
         
         let usernameOrEmailTextField2 = app.textFields["UsernameOrEmailTextField"]
+        usernameOrEmailTextField.tap()
         usernameOrEmailTextField2.typeText(testUsername)
         
         let passwordSecureField = app.secureTextFields["PasswordSecureField"]
+        passwordSecureField.tap()
         passwordSecureField.typeText(newStrongPassword)
         
         let loginButton3 = app.buttons["LoginButton"]
@@ -768,6 +787,7 @@ final class Positive_Only_SocialUITests: XCTestCase {
         postImage.press(forDuration: 2)
         
         let reasonTextField = app.textFields["ProvideAReasonTextField"]
+        reasonTextField.tap()
         reasonTextField.typeText("Report post")
         
         let reportButton = app.buttons["SubmitReportButton"]
@@ -833,6 +853,7 @@ final class Positive_Only_SocialUITests: XCTestCase {
         commentStack.press(forDuration: 2)
         
         let reasonTextField = app.textFields["ProvideAReasonTextField"]
+        reasonTextField.tap()
         reasonTextField.typeText("Report comment")
         
         let reportButton = app.buttons["SubmitReportButton"]

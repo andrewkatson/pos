@@ -9,6 +9,9 @@ import SwiftUI
 
 // Handles the 'request_reset' flow.
 struct RequestResetView: View {
+    // MARK: Envrionment Properties
+    @EnvironmentObject var authManager: AuthenticationManager
+    
     @State private var usernameOrEmail: String = ""
     @State private var didRequestSuccessfully: Bool = false
     
@@ -48,7 +51,7 @@ struct RequestResetView: View {
             }
         }
         .navigationDestination(isPresented: $didRequestSuccessfully) {
-            VerifyResetView(usernameOrEmail: usernameOrEmail, api: api, keychainHelper: keychainHelper)
+            VerifyResetView(usernameOrEmail: usernameOrEmail, api: api, keychainHelper: keychainHelper).environmentObject(authManager)
         }
         .alert("Error", isPresented: $showingErrorAlert, presenting: errorMessage) { _ in
             Button("OK") { }
@@ -88,5 +91,5 @@ struct RequestResetView: View {
 }
 
 #Preview {
-    RequestResetView(api: PreviewHelpers.api, keychainHelper: PreviewHelpers.keychainHelper)
+    RequestResetView(api: PreviewHelpers.api, keychainHelper: PreviewHelpers.keychainHelper).environmentObject(PreviewHelpers.authManager)
 }

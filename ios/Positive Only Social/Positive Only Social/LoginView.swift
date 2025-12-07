@@ -14,8 +14,7 @@ struct LoginView: View {
     @State private var isLoading = false
     @State private var errorMessage: String?
     @State private var showingErrorAlert = false
-    
-    @State private var path = NavigationPath()
+
     
     // Unique identifiers for Keychain items
     private let keychainService = "positive-only-social.Positive-Only-Social"
@@ -24,26 +23,28 @@ struct LoginView: View {
 
     // MARK: - View Body
     var body: some View {
-        NavigationStack(path: $path) {
-            VStack(spacing: 20) {
-                Image(systemName: "lock.shield.fill").font(.system(size: 80)).foregroundColor(.blue)
-                TextField("Username or Email", text: $usernameOrEmail).padding().background(Color(.systemGray6)).cornerRadius(10).textContentType(.username).autocapitalization(.none).keyboardType(.emailAddress)
-                    .accessibilityIdentifier("UsernameOrEmailTextField")
-                SecureField("Password", text: $password).padding().background(Color(.systemGray6)).cornerRadius(10).textContentType(.password)
-                    .accessibilityIdentifier("PasswordSecureField")
-                Toggle("Remember Me", isOn: $rememberMe)
-                    .accessibilityIdentifier("RememberMeToggle")
-                if isLoading { ProgressView().padding() } else {
-                    Button(action: login) { Text("Login").font(.headline).fontWeight(.semibold).foregroundColor(.white).padding().frame(maxWidth: .infinity).background(usernameOrEmail.isEmpty || password.isEmpty ? Color.gray : Color.blue).cornerRadius(12) }.disabled(usernameOrEmail.isEmpty || password.isEmpty).accessibilityIdentifier("LoginButton")
-                }
-                Button("Forgot Password?") { path.append("RequestResetView") }.frame(maxWidth: .infinity, alignment: .trailing).accessibilityIdentifier("ForgotPasswordButton")
-                Spacer()
+        VStack(spacing: 20) {
+            Image(systemName: "lock.shield.fill").font(.system(size: 80)).foregroundColor(.blue)
+            TextField("Username or Email", text: $usernameOrEmail).padding().background(Color(.systemGray6)).cornerRadius(10).textContentType(.username).autocapitalization(.none).keyboardType(.emailAddress)
+                .accessibilityIdentifier("UsernameOrEmailTextField")
+            SecureField("Password", text: $password).padding().background(Color(.systemGray6)).cornerRadius(10).textContentType(.password)
+                .accessibilityIdentifier("PasswordSecureField")
+            Toggle("Remember Me", isOn: $rememberMe)
+                .accessibilityIdentifier("RememberMeToggle")
+            if isLoading { ProgressView().padding() } else {
+                Button(action: login) { Text("Login").font(.headline).fontWeight(.semibold).foregroundColor(.white).padding().frame(maxWidth: .infinity).background(usernameOrEmail.isEmpty || password.isEmpty ? Color.gray : Color.blue).cornerRadius(12) }.disabled(usernameOrEmail.isEmpty || password.isEmpty).accessibilityIdentifier("LoginButton")
             }
-            .padding()
-            .navigationTitle("Login")
-            .navigationDestination(for: String.self) { routeName in if routeName == "HomeView" { HomeView(api: api, keychainHelper: keychainHelper) } else if routeName == "RequestResetView" { RequestResetView(api: api, keychainHelper: keychainHelper) } }
-            .alert("Login Failed", isPresented: $showingErrorAlert) { Button("OK") {}.accessibilityIdentifier("LoginFailedOkButton") } message: { Text(errorMessage ?? "An unknown error occurred.") }
+            NavigationLink(value: "RequestResetView") {
+                Text("Forgot Password?")
+            }
+            .frame(maxWidth: .infinity, alignment: .trailing)
+            .accessibilityIdentifier("ForgotPasswordButton")
+            Spacer()
         }
+        .padding()
+        .navigationTitle("Login")
+        .navigationDestination(for: String.self) { routeName in if routeName == "RequestResetView" { RequestResetView(api: api, keychainHelper: keychainHelper) } }
+        .alert("Login Failed", isPresented: $showingErrorAlert) { Button("OK") {}.accessibilityIdentifier("LoginFailedOkButton") } message: { Text(errorMessage ?? "An unknown error occurred.") }
     }
     
     // MARK: - Updated Login Action
@@ -86,9 +87,6 @@ struct LoginView: View {
                     try keychainHelper.delete(service: keychainService, account: rememberMeAccount)
                 }
                 
-                // On success, navigate to the HomeView.
-                path.append("HomeView")
-                
             } catch {
                 errorMessage = "Login failed. Please check your credentials and try again."
                 showingErrorAlert = true
@@ -100,5 +98,5 @@ struct LoginView: View {
 }
 
 #Preview {
-    LoginView(api: PreviewHelpers.api, keychainHelper: PreviewHelpers.keychainHelper)
+    LoginView(api: PreviewHelpers.api, keychainHelper: PreviewHelpers.keychainHelper).environmentObject(PreviewHelpers.authManager)
 }

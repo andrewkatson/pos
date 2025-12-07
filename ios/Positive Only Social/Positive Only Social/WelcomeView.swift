@@ -56,6 +56,8 @@ struct WelcomeView: View {
                     RegisterView(api: api, keychainHelper: keychainHelper, path: $path).environmentObject(authManager)
                 case "HomeView":
                     HomeView(api: api, keychainHelper: keychainHelper).environmentObject(authManager)
+                case "RequestResetView":
+                    RequestResetView(api: api, keychainHelper: keychainHelper).environmentObject(authManager)
                 default:
                     Text("Unknown Route")
                 }
@@ -90,8 +92,8 @@ struct WelcomeView: View {
                 let decoder = JSONDecoder()
                 let wrapper = try decoder.decode(APIWrapperResponse.self, from: responseData)
                 guard let innerData = wrapper.responseList.data(using: .utf8) else { throw URLError(.cannotDecodeContentData) }
-                let loginResponseArray = try decoder.decode([DjangoLoginResponseObject].self, from: innerData)
-                guard let loginDetails = loginResponseArray.first?.fields else { throw URLError(.cannotDecodeContentData) }
+                let loginResponse = try decoder.decode(DjangoLoginResponseObject.self, from: innerData)
+                let loginDetails = loginResponse.fields
 
                 // 4. Securely save the new session token
                 let oldSession = authManager.session

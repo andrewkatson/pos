@@ -10,6 +10,9 @@ import Combine
 
 // Handles the 'verify_reset' flow.
 struct VerifyResetView: View {
+    // MARK: Envrionment Properties
+    @EnvironmentObject var authManager: AuthenticationManager
+    
     var usernameOrEmail: String
     @State private var pin: String = ""
     @State private var didVerifySuccessfully: Bool = false
@@ -63,7 +66,7 @@ struct VerifyResetView: View {
             Text(message)
         }
         .navigationDestination(isPresented: $didVerifySuccessfully) {
-            ResetPasswordView(usernameOrEmail: usernameOrEmail, api: api, keychainHelper: keychainHelper)
+            ResetPasswordView(usernameOrEmail: usernameOrEmail, api: api, keychainHelper: keychainHelper).environmentObject(authManager)
         }
     }
     
@@ -98,5 +101,5 @@ struct VerifyResetView: View {
 }
 
 #Preview {
-    VerifyResetView(usernameOrEmail: "test", api: PreviewHelpers.api, keychainHelper: PreviewHelpers.keychainHelper)
+    VerifyResetView(usernameOrEmail: "test", api: PreviewHelpers.api, keychainHelper: PreviewHelpers.keychainHelper).environmentObject(PreviewHelpers.authManager)
 }
