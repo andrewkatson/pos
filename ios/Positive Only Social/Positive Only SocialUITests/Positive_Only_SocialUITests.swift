@@ -98,9 +98,9 @@ final class Positive_Only_SocialUITests: XCTestCase {
     
     private func assertOnProfileView(app: XCUIApplication) {
         XCTAssertTrue(app.buttons["FollowButton"].exists, "Follow button not present")
-        XCTAssertTrue(app.otherElements["Following"].exists, "Following stat item not present")
-        XCTAssertTrue(app.otherElements["Followers"].exists, "Followers stat item not present")
-        XCTAssertTrue(app.otherElements["Posts"].exists, "Posts stat item not present")
+        XCTAssertTrue(app.staticTexts["Following"].exists, "Following stat item not present")
+        XCTAssertTrue(app.staticTexts["Followers"].exists, "Followers stat item not present")
+        XCTAssertTrue(app.staticTexts["Posts"].exists, "Posts stat item not present")
     }
     
     private func assertOnNewPostView(app: XCUIApplication) {
@@ -501,22 +501,36 @@ final class Positive_Only_SocialUITests: XCTestCase {
         userSearchField.tap()
         userSearchField.typeText(otherTestUsername)
         
-        let userLink = app.links[otherTestUsername]
+        let userLink = app.buttons[otherTestUsername]
         userLink.tap()
         
         assertOnProfileView(app: app)
         
-        let followers = app.textViews["FollowersCount"]
-        XCTAssertEqual(followers.value as! Int, 0)
-        
+        let followersLabel = app.staticTexts["FollowersCount"]
         let followButton = app.buttons["FollowButton"]
+        
+        // 1. Initial Check (Safe conversion from String to Int)
+        // We use .label because that contains the actual text text displayed
+        XCTAssertEqual(followersLabel.label, "0")
+        
+        // 2. Tap Follow
         followButton.tap()
         
-        XCTAssertEqual(followers.value as! Int, 1)
+        // 3. WAIT for the change (Async logic)
+        // We create a predicate that checks if the label becomes "1"
+        let existsPredicate = NSPredicate(format: "label == '1'")
         
+        // Wait up to 5 seconds for the label to update
+        expectation(for: existsPredicate, evaluatedWith: followersLabel, handler: nil)
+        waitForExpectations(timeout: 5.0, handler: nil)
+        
+        // 4. Tap Unfollow
         followButton.tap()
         
-        XCTAssertEqual(followers.value as! Int, 0)
+        // 5. WAIT for it to go back to "0"
+        let zeroPredicate = NSPredicate(format: "label == '0'")
+        expectation(for: zeroPredicate, evaluatedWith: followersLabel, handler: nil)
+        waitForExpectations(timeout: 5.0, handler: nil)
     }
     
     @MainActor
@@ -566,17 +580,31 @@ final class Positive_Only_SocialUITests: XCTestCase {
 
         assertOnProfileView(app: app)
         
-        let followers = app.textViews["FollowersCount"]
-        XCTAssertEqual(followers.value as! Int, 0)
-        
+        let followersLabel = app.staticTexts["FollowersCount"]
         let followButton = app.buttons["FollowButton"]
+        
+        // 1. Initial Check (Safe conversion from String to Int)
+        // We use .label because that contains the actual text text displayed
+        XCTAssertEqual(followersLabel.label, "0")
+        
+        // 2. Tap Follow
         followButton.tap()
         
-        XCTAssertEqual(followers.value as! Int, 1)
+        // 3. WAIT for the change (Async logic)
+        // We create a predicate that checks if the label becomes "1"
+        let existsPredicate = NSPredicate(format: "label == '1'")
         
+        // Wait up to 5 seconds for the label to update
+        expectation(for: existsPredicate, evaluatedWith: followersLabel, handler: nil)
+        waitForExpectations(timeout: 5.0, handler: nil)
+        
+        // 4. Tap Unfollow
         followButton.tap()
         
-        XCTAssertEqual(followers.value as! Int, 0)
+        // 5. WAIT for it to go back to "0"
+        let zeroPredicate = NSPredicate(format: "label == '0'")
+        expectation(for: zeroPredicate, evaluatedWith: followersLabel, handler: nil)
+        waitForExpectations(timeout: 5.0, handler: nil)
         
         /// We refollow so that we can check that the post now shows up in the "Following" Feed
         followButton.tap()
@@ -713,11 +741,11 @@ final class Positive_Only_SocialUITests: XCTestCase {
         postCommentStack.doubleTap()
         
         let postCommentLikesText = app.staticTexts["CommentLikesText"]
-        XCTAssertEqual(postCommentLikesText.value as? String, "1 likes")
+        XCTAssertEqual(postCommentLikesText.label, "1 likes")
         
         postCommentStack.doubleTap()
         
-        XCTAssertEqual(postCommentLikesText.value as? String, "0 likes")
+        XCTAssertEqual(postCommentLikesText.label, "0 likes")
         
         // Then we like and unlike the comment thread comment
         let postCommentStackQuery2 = app.otherElements.matching(identifier: "CommentStack")
@@ -725,11 +753,11 @@ final class Positive_Only_SocialUITests: XCTestCase {
         postCommentStack2.doubleTap()
         
         let postCommentLikesText2 = app.staticTexts["CommentLikesText"]
-        XCTAssertEqual(postCommentLikesText2.value as? String, "1 likes")
+        XCTAssertEqual(postCommentLikesText2.label, "1 likes")
         
         postCommentStack2.doubleTap()
         
-        XCTAssertEqual(postCommentLikesText2.value as? String, "0 likes")
+        XCTAssertEqual(postCommentLikesText2.label, "0 likes")
     }
     
     @MainActor

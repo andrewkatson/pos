@@ -58,7 +58,6 @@ struct MyPostsGridView: View {
     let api: APIProtocol
     let keychainHelper: KeychainHelperProtocol
     @EnvironmentObject private var viewModel: HomeViewModel
-    @Environment(\.isSearching) private var isSearching
     
     // Define the grid layout: 3 columns, flexible size
     private let columns: [GridItem] = Array(repeating: .init(.flexible()), count: 3)
@@ -67,7 +66,7 @@ struct MyPostsGridView: View {
         NavigationStack {
             ScrollView {
                 // If the user is searching, show the user list. Otherwise, show the post grid.
-                if isSearching {
+                if !viewModel.searchText.isEmpty {
                     UserSearchResultsView()
                 } else {
                     postGrid // Your updated postGrid is now correctly placed in the stack
@@ -82,11 +81,11 @@ struct MyPostsGridView: View {
                     viewModel.fetchMyPosts()
                 }
             }
-            // --- RECOMMENDED ---
-            // Move the navigationDestination *here*, to the ScrollView
-            // or one of its children, but *outside* the ForEach.
             .navigationDestination(for: Post.self) { post in
                 PostDetailView(postIdentifier: post.id, api: api, keychainHelper: keychainHelper)
+            }
+            .navigationDestination(for: User.self) { user in
+                ProfileView(user: user, api: api, keychainHelper: keychainHelper)
             }
         }
     }
@@ -130,24 +129,26 @@ struct UserSearchResultsView: View {
     @EnvironmentObject private var viewModel: HomeViewModel
     
     var body: some View {
-        List(viewModel.searchedUsers) { user in
-            NavigationLink(value: user) {
-                HStack(spacing: 15) {
-                    Image(systemName: "person.circle.fill")
-                        .font(.largeTitle)
-                        .foregroundColor(.gray)
-                    
-                    Text(user.username)
-                        .fontWeight(.bold)
-                    
-                    if user.identityIsVerified {
-                        Image(systemName: "checkmark.seal.fill")
-                            .foregroundColor(.blue)
+        LazyVStack(alignment: .leading) {
+            ForEach(viewModel.searchedUsers) { user in
+                NavigationLink(value: user) {
+                    HStack(spacing: 15) {
+                        Image(systemName: "person.circle.fill")
+                            .font(.largeTitle)
+                            .foregroundColor(.gray)
+                        
+                        Text(user.username)
+                            .fontWeight(.bold)
+                        
+                        if user.identityIsVerified {
+                            Image(systemName: "checkmark.seal.fill")
+                                .foregroundColor(.blue)
+                        }
                     }
-                }
-            }.accessibilityIdentifier(user.username)
+                }.accessibilityIdentifier(user.username)
+                Divider()
+            }
         }
-        .listStyle(.plain)
     }
 }
 

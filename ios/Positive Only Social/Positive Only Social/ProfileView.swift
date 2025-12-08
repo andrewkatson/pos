@@ -21,7 +21,8 @@ struct StatItem: View {
             Text(label)
                 .font(.caption)
                 .foregroundColor(.gray)
-        }.accessibilityIdentifier(label)
+                .accessibilityIdentifier(label)
+        }
     }
 }
 
@@ -35,7 +36,7 @@ struct ProfileView: View {
     
     private let api: APIProtocol
     private let keychainHelper: KeychainHelperProtocol
-
+    
     init(user: User, api: APIProtocol, keychainHelper: KeychainHelperProtocol) {
         // Initialize the StateObject with the user and API
         _viewModel = StateObject(wrappedValue: ProfileViewModel(user: user, api: api, keychainHelper: keychainHelper))
@@ -43,7 +44,7 @@ struct ProfileView: View {
         self.api = api
         self.keychainHelper = keychainHelper
     }
-
+    
     var body: some View {
         ScrollView {
             profileHeader.padding(.horizontal)
@@ -78,7 +79,7 @@ struct ProfileView: View {
                 Spacer()
             }
             .padding(.top)
-
+            
             // --- THE NEW FOLLOW BUTTON ---
             Button(action: viewModel.toggleFollow) {
                 Text(viewModel.isFollowing ? "Following" : "Follow")
@@ -98,7 +99,7 @@ struct ProfileView: View {
             .accessibilityIdentifier("FollowButton")
         }
     }
-
+    
     /// The view for displaying the user's posts
     @ViewBuilder
     private var postGrid: some View {
@@ -106,12 +107,12 @@ struct ProfileView: View {
         if viewModel.userPosts.isEmpty && viewModel.isLoading {
             ProgressView()
                 .padding(.top, 50)
-        // Show a message if the user has no posts
+            // Show a message if the user has no posts
         } else if viewModel.userPosts.isEmpty && !viewModel.isLoading {
             Text("\(viewModel.user.username) hasn't posted anything yet.")
                 .foregroundColor(.gray)
                 .padding(.top, 50)
-        // Display the post grid
+            // Display the post grid
         } else {
             LazyVGrid(columns: columns, spacing: 2) {
                 ForEach(viewModel.userPosts) { post in
