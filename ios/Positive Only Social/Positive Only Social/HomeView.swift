@@ -15,6 +15,8 @@ struct HomeView: View {
     // The ViewModel is the single source of truth for this view's state.
     @StateObject private var viewModel: HomeViewModel
     
+    @State private var currentTab = 0
+    
     init(api: APIProtocol, keychainHelper: KeychainHelperProtocol) {
         // We use _viewModel because we are initializing a @StateObject property
         _viewModel = StateObject(wrappedValue: HomeViewModel(api: api, keychainHelper: keychainHelper))
@@ -24,30 +26,30 @@ struct HomeView: View {
     }
     
     var body: some View {
-        TabView {
+        TabView(selection: $currentTab){
             // Tab 1: User's personal post grid
             MyPostsGridView(api: api, keychainHelper: keychainHelper)
                 .tabItem {
                     Label("Home", systemImage: "house.fill")
-                }
+                }.tag(0)
             
             // Tab 2: Global feed view
             FeedView(api: api, keychainHelper: keychainHelper)
                 .tabItem {
                     Label("Feed", systemImage: "list.bullet")
-                }
+                }.tag(1)
             
             // Tab 3: New post creation view
-            NewPostView(api: api, keychainHelper: keychainHelper)
+            NewPostView(api: api, keychainHelper: keychainHelper, tabSelection: $currentTab)
                 .tabItem {
                     Label("Post", systemImage: "plus.square")
-                }
+                }.tag(2)
             
             // Tab 4: Settings view with logout
             SettingsView(api: api, keychainHelper: keychainHelper)
                 .tabItem {
                     Label("Settings", systemImage: "gear")
-                }
+                }.tag(3)
         }
         .environmentObject(viewModel)
     }

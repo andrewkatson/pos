@@ -70,6 +70,15 @@ struct FeedView: View {
                 PostDetailView(postIdentifier: post.id, api: api, keychainHelper: keychainHelper)
             }
             // --- END ADDED ---
+            .onChange(of: selectedFeed) { oldValue, newValue in
+                 // Fetch fresh data whenever the tab changes
+                 switch newValue {
+                 case .forYou:
+                     forYouViewModel.refreshFeed()
+                 case .following:
+                     followingViewModel.refreshFeed()
+                 }
+             }
         }
     }
 }
@@ -117,7 +126,7 @@ struct ForYouFeedView: View {
                                 viewModel.fetchFeed()
                             }
                         }
-                        .accessibilityIdentifier("PostImage")
+                        .accessibilityIdentifier("ForYouPostImage")
                         // --- END UPDATED ---
                     }
                 }
@@ -177,6 +186,7 @@ struct FollowingFeedView: View {
                                 viewModel.fetchFollowingFeed()
                             }
                         }
+                        .accessibilityIdentifier("FollowingPostImage")
                         // --- END UPDATED ---
                     }
                 }

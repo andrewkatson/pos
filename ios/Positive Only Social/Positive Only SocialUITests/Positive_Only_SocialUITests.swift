@@ -104,20 +104,18 @@ final class Positive_Only_SocialUITests: XCTestCase {
     }
     
     private func assertOnNewPostView(app: XCUIApplication) {
-        XCTAssertTrue(app.otherElements["SelectAPhotoPicker"].exists, "Select a photo picker not present")
-        XCTAssertTrue(app.otherElements["CaptionTextEditor"].exists, "Caption text editor not present")
+        XCTAssertTrue(app.buttons["SelectAPhotoPicker"].exists, "Select a photo picker not present")
+        XCTAssertTrue(app.textViews["CaptionTextEditor"].exists, "Caption text editor not present")
         XCTAssertTrue(app.buttons["SharePostButton"].exists, "Share post button is not empty")
-        XCTAssertTrue(app.buttons["OkButtonSuccess"].exists, "Ok button not present")
-        XCTAssertTrue(app.buttons["OkButtonFailure"].exists, "Ok button not present")
     }
     
     private func assertOnFeedView(app: XCUIApplication) {
-        XCTAssertTrue(app.otherElements["FeedTypePicker"].exists, "Feed type picker not present")
+        XCTAssertTrue(app.segmentedControls["FeedTypePicker"].exists, "Feed type picker not present")
     }
     
     private func assertOnPostDetailView(app: XCUIApplication) {
         XCTAssertTrue(app.buttons["PostCommentButton"].exists, "Post comment button not present")
-        XCTAssertTrue(app.otherElements["PostImage"].exists, "Post image not present")
+        XCTAssertTrue(app.buttons["PostImage"].exists, "Post image not present")
         XCTAssertTrue(app.textFields["AddACommentTextFieldToPost"].exists, "Add a comment text field not present")
     }
     
@@ -224,33 +222,13 @@ final class Positive_Only_SocialUITests: XCTestCase {
         assertOnNewPostView(app: app)
         
         let captionTextEditor = app.textViews["CaptionTextEditor"]
+        captionTextEditor.tap()
         captionTextEditor.typeText(postText)
         
         // Find the photo picker's main view (identifier may vary)
-        let picker = app.otherElements["SelectAPhotoPicker"]
+        let picker = app.buttons["SelectAPhotoPicker"]
         picker.tap()
-        
-        // Deal with the prompts from the photos picker
-        addUIInterruptionMonitor(withDescription: "System Alert") { (alert) -> Bool in
-            if alert.buttons["Allow Full Access"].exists {
-                alert.buttons["Allow Full Access"].tap()
-                return true
-            }
-            if alert.buttons["Select Photos..."].exists {
-                alert.buttons["Select Photos..."].tap()
-                return true
-            }
-            return false
-        }
-        XCUIApplication().tap() // Dismiss the alert by tapping outside of it (or other interaction)
 
-        // Find the desired photo within the picker using an accessibility label predicate
-        // Photos in the simulator usually have labels starting with "Photo" followed by date/time info
-        let targetPhoto = picker.images.element(matching: NSPredicate(format: "label CONTAINS[c] 'Photo'")).firstMatch
-
-        XCTAssertTrue(targetPhoto.waitForExistence(timeout: 5), "The test photo should be visible")
-        targetPhoto.tap()
-        
         let sharePostButton = app.buttons["SharePostButton"]
         sharePostButton.tap()
         
@@ -557,16 +535,21 @@ final class Positive_Only_SocialUITests: XCTestCase {
         assertOnFeedView(app: app)
         
         // Make sure there is one post in For You and no posts in Following
-        let followingPickerTab = app.staticTexts["Following"]
-        followingPickerTab.tap()
+        // 1. Find the Picker container
+        let feedPicker = app.segmentedControls["FeedTypePicker"]
+        XCTAssertTrue(feedPicker.exists)
+
+        // 2. Find the button INSIDE the picker
+        let followingSegment = feedPicker.buttons["Following"]
+        followingSegment.tap()
         
-        let allPostsQuery = app.buttons.matching(identifier: "PostImage")
+        let allPostsQuery = app.buttons.matching(identifier: "FollowingPostImage")
         XCTAssertEqual(allPostsQuery.count, 0)
         
-        let forYouPickerTab = app.staticTexts["For You"]
+        let forYouPickerTab = feedPicker.buttons["For You"]
         forYouPickerTab.tap()
         
-        let allPostsQuery2 = app.buttons.matching(identifier: "PostImage")
+        let allPostsQuery2 = app.buttons.matching(identifier: "ForYouPostImage")
         XCTAssertEqual(allPostsQuery2.count, 1)
         
         // First, get the query for all elements matching our identifier.
@@ -609,22 +592,28 @@ final class Positive_Only_SocialUITests: XCTestCase {
         /// We refollow so that we can check that the post now shows up in the "Following" Feed
         followButton.tap()
         
-        let homeTab = app.buttons["Home"]
-        homeTab.tap()
+        // Go back to FeedView
+        let backButton = app.navigationBars.firstMatch.buttons.element(boundBy: 0)
+        backButton.tap()
         
-        assertOnHomeView(app: app)
+        assertOnFeedView(app: app)
         
         // Make sure there is one post in For You and one post in Following
-        let followingPickerTab2 = app.staticTexts["Following"]
-        followingPickerTab2.tap()
+        // 1. Find the Picker container
+        let feedPicker2 = app.segmentedControls["FeedTypePicker"]
+        XCTAssertTrue(feedPicker2.exists)
+
+        // 2. Find the button INSIDE the picker
+        let followingSegment2 = feedPicker2.buttons["Following"]
+        followingSegment2.tap()
         
-        let allPostsQuery3 = app.buttons.matching(identifier: "PostImage")
+        let allPostsQuery3 = app.buttons.matching(identifier: "FollowingPostImage")
         XCTAssertEqual(allPostsQuery3.count, 1)
         
-        let forYouPickerTab2 = app.staticTexts["For You"]
+        let forYouPickerTab2 = feedPicker2.buttons["For You"]
         forYouPickerTab2.tap()
         
-        let allPostsQuery4 = app.buttons.matching(identifier: "PostImage")
+        let allPostsQuery4 = app.buttons.matching(identifier: "ForYouPostImage")
         XCTAssertEqual(allPostsQuery4.count, 1)
     }
     
@@ -653,7 +642,7 @@ final class Positive_Only_SocialUITests: XCTestCase {
         
         // First, get the query for all elements matching our identifier.
         // (NavigationLinks are 'buttons' in the accessibility tree)
-        let allPostsQuery = app.buttons.matching(identifier: "PostImage")
+        let allPostsQuery = app.buttons.matching(identifier: "ForYouPostImage")
 
         // Now, get the specific element at index 0 (the first one)
         let firstPostElement = allPostsQuery.element(boundBy: 0)
@@ -662,15 +651,15 @@ final class Positive_Only_SocialUITests: XCTestCase {
 
         assertOnPostDetailView(app: app)
         
-        let postImage = app.otherElements["PostImage"]
+        let postImage = app.buttons["PostImage"]
         postImage.doubleTap()
         
         let postLikesText = app.staticTexts["PostLikesText"]
-        XCTAssertEqual(postLikesText.value as? String, "1 likes")
+        XCTAssertEqual(postLikesText.label, "1 likes")
         
         postImage.doubleTap()
         
-        XCTAssertEqual(postLikesText.value as? String, "0 likes")
+        XCTAssertEqual(postLikesText.label, "0 likes")
     }
     
     @MainActor
@@ -726,7 +715,7 @@ final class Positive_Only_SocialUITests: XCTestCase {
         
         // First, get the query for all elements matching our identifier.
         // (NavigationLinks are 'buttons' in the accessibility tree)
-        let allPostsQuery = app.buttons.matching(identifier: "PostImage")
+        let allPostsQuery = app.buttons.matching(identifier: "ForYouPostImage")
 
         // Now, get the specific element at index 0 (the first one)
         let firstPostElement = allPostsQuery.element(boundBy: 0)
@@ -801,7 +790,7 @@ final class Positive_Only_SocialUITests: XCTestCase {
         
         // First, get the query for all elements matching our identifier.
         // (NavigationLinks are 'buttons' in the accessibility tree)
-        let allPostsQuery = app.buttons.matching(identifier: "PostImage")
+        let allPostsQuery = app.buttons.matching(identifier: "ForYouPostImage")
 
         // Now, get the specific element at index 0 (the first one)
         let firstPostElement = allPostsQuery.element(boundBy: 0)
@@ -866,7 +855,7 @@ final class Positive_Only_SocialUITests: XCTestCase {
         
         // First, get the query for all elements matching our identifier.
         // (NavigationLinks are 'buttons' in the accessibility tree)
-        let allPostsQuery = app.buttons.matching(identifier: "PostImage")
+        let allPostsQuery = app.buttons.matching(identifier: "ForYouPostImage")
 
         // Now, get the specific element at index 0 (the first one)
         let firstPostElement = allPostsQuery.element(boundBy: 0)

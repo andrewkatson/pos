@@ -25,7 +25,7 @@ func isUnitTesting() -> Bool {
 
 func isTesting() -> Bool {
     // 1. Check if ANY test is running
-    return ProcessInfo.processInfo.environment["XCTestConfigurationFilePath"] != nil
+    return ProcessInfo.processInfo.environment["XCTestConfigurationFilePath"] != nil ||  ProcessInfo.processInfo.environment["TESTMANAGERD_SIM_SOCK"] != nil || ProcessInfo.processInfo.environment["XCODE_TEST_PLAN_NAME"] != nil
 }
 
 func isUITesting() -> Bool {

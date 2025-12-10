@@ -53,4 +53,16 @@ final class FeedViewModel: ObservableObject {
             isLoadingNextPage = false
         }
     }
+    
+    func refreshFeed() {
+        // 1. Reset pagination state
+        currentPage = 0
+        canLoadMore = true
+        
+        // 2. Clear existing posts (optional: remove this if you want to keep data while loading)
+        feedPosts.removeAll()
+        
+        // 3. Fetch fresh data
+        fetchFeed()
+    }
 }

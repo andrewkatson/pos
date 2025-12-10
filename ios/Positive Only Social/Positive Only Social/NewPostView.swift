@@ -13,7 +13,7 @@ struct NewPostView: View {
     let keychainHelper: KeychainHelperProtocol
     // Create an instance of the S3Uploader
     private let s3Uploader = S3Uploader()
-
+    
     @State private var selectedItem: PhotosPickerItem?
     @State private var selectedImageData: Data?
     @State private var caption = ""
@@ -21,23 +21,35 @@ struct NewPostView: View {
     @State private var showSuccessAlert = false
     @State private var showFailureAlert = false
     @State private var failureAlertMessage = ""
-
-    @Environment(\.dismiss) var dismiss
+    
+    @Binding var tabSelection: Int
     
     var body: some View {
         NavigationStack {
             Form {
                 Section(header: Text("New Post Details")) {
-                    PhotosPicker(
-                        selection: $selectedItem,
-                        matching: .images,
-                        photoLibrary: .shared()
-                    ) {
-                        Text("Select a photo")
-                    }.accessibilityIdentifier("SelectAPhotoPicker")
-
+                    if isUITesting() {
+                        // Testing mode: Use a regular button
+                        Button("Select a photo") {
+                            // Load a test image
+                            if let testImage = UIImage(systemName: "photo.fill"),
+                               let imageData = testImage.jpegData(compressionQuality: 0.8) {
+                                selectedImageData = imageData
+                            }
+                        }.accessibilityIdentifier("SelectAPhotoPicker")
+                    } else {
+                        // Production mode: Use real PhotosPicker
+                        PhotosPicker(
+                            selection: $selectedItem,
+                            matching: .images,
+                            photoLibrary: .shared()
+                        ) {
+                            Text("Select a photo")
+                        }.accessibilityIdentifier("SelectAPhotoPicker")
+                    }
+                    
                     if let selectedImageData,
-                        let uiImage = UIImage(data: selectedImageData)
+                       let uiImage = UIImage(data: selectedImageData)
                     {
                         Image(uiImage: uiImage)
                             .resizable().scaledToFit().frame(
@@ -46,10 +58,10 @@ struct NewPostView: View {
                             )
                             .clipShape(RoundedRectangle(cornerRadius: 10))
                     }
-
+                    
                     TextEditor(text: $caption).frame(height: 100).accessibilityIdentifier("CaptionTextEditor")
                 }
-
+                
                 if isLoading {
                     HStack {
                         Spacer()
@@ -66,9 +78,8 @@ struct NewPostView: View {
             // Alert for SUCCESS
             .alert("Success!", isPresented: $showSuccessAlert) {
                 Button("OK") {
-                    // This is the key: only dismiss when OK is tapped
-                    // on the *success* alert.
-                    dismiss()
+                    // Go back to HomeView
+                    tabSelection = 0
                 }.accessibilityIdentifier("OkButtonSuccess")
             } message: {
                 Text("Your post was shared successfully!")
@@ -90,14 +101,14 @@ struct NewPostView: View {
             }
         }
     }
-
+    
     private func makePost() {
         guard let imageData = selectedImageData else {
             failureAlertMessage = "Please select an image before posting."
             showFailureAlert = true
             return
         }
-
+        
         Task {
             isLoading = true
             do {
@@ -111,7 +122,7 @@ struct NewPostView: View {
                         fileName: uniqueFileName
                     )
                 }
-
+                
                 // 2. SEND THE S3 URL TO YOUR BACKEND
                 let userSession = try keychainHelper.load(UserSession.self, from: "positive-only-social.Positive-Only-Social", account: "userSessionToken") ?? UserSession(sessionToken: "123", username: "test", isIdentityVerified: false)
                 
@@ -120,7 +131,7 @@ struct NewPostView: View {
                     imageURL: imageURL.absoluteString,
                     caption: caption
                 )
-
+                
                 // --- SUCCESS ---
                 // Reset the form and show the success alert
                 isLoading = false
@@ -128,12 +139,12 @@ struct NewPostView: View {
                 selectedItem = nil
                 selectedImageData = nil
                 showSuccessAlert = true // This will trigger the success alert
-
+                
             } catch {
                 // --- FAILURE ---
                 // Set the error message and show the failure alert
                 failureAlertMessage =
-                    "Failed to share post. Error: \(error.localizedDescription)"
+                "Failed to share post. Error: \(error.localizedDescription)"
                 isLoading = false
                 showFailureAlert = true // This will trigger the failure alert
             }
@@ -142,5 +153,5 @@ struct NewPostView: View {
 }
 
 #Preview {
-    NewPostView(api: PreviewHelpers.api, keychainHelper: PreviewHelpers.keychainHelper)
+    NewPostView(api: PreviewHelpers.api, keychainHelper: PreviewHelpers.keychainHelper, tabSelection: .constant(2))
 }
