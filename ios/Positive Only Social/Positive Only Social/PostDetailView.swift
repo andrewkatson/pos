@@ -12,12 +12,10 @@ import SwiftUI
 struct PostDetailView: View {
     // Use @StateObject to create and own the ViewModel
     @StateObject private var viewModel: PostDetailViewModel
-    
-    // --- ADDED ---
+
     // This state tracks the *user's action* (like or unlike)
     // for the main post.
     @State private var isPostLiked = false
-    @State private var isPostReported = false
     
     // Public init
     init(postIdentifier: String, api: APIProtocol, keychainHelper: KeychainHelperProtocol) {
@@ -43,7 +41,12 @@ struct PostDetailView: View {
                             .fill(Color.secondary.opacity(0.3))
                             .aspectRatio(1, contentMode: .fit)
                             .overlay(ProgressView())
-                    }.accessibilityIdentifier("PostImage")
+                    }
+                    .accessibilityElement(children: .ignore)  // Treat as single element
+                    .accessibilityIdentifier("PostImage")
+                    .accessibilityLabel("Post image")
+                    .accessibilityAddTraits(.isImage)
+                    .accessibilityAddTraits(.isButton)  // Makes it clear it's tappable
                     // --- Image Interactions ---
                     // --- UPDATED ---
                     .onTapGesture(count: 2) {
@@ -70,8 +73,7 @@ struct PostDetailView: View {
                             Text("\(post.likeCount) likes")
                                 .font(.headline)
                                 .accessibilityIdentifier("PostLikesText")
-                            Spacer()
-                            if isPostReported {
+                            if viewModel.isPostReported {
                                 Image(systemName: "flag.fill")
                                     .foregroundColor(.red)
                                     .font(.caption) // Make it a bit smaller
@@ -181,14 +183,14 @@ struct PostDetailView: View {
     
     struct CommentRowView: View {
         let comment: CommentViewData
-        
-        // --- ADDED ---
+
         @State private var isLiked = false
-        @State private var isReported = false
+        
+        let isReported: Bool
         
         // Actions passed from the parent
         let onLike: () -> Void
-        let onUnlike: () -> Void // --- ADDED ---
+        let onUnlike: () -> Void
         let onReport: () -> Void
         
         var body: some View {
@@ -208,6 +210,7 @@ struct PostDetailView: View {
                     Text(comment.body)
                         .font(.subheadline)
                         .accessibilityIdentifier("CommentText")
+                        .accessibilityLabel(comment.body)
                     
                     // Info row
                     HStack(spacing: 16) {
@@ -248,7 +251,9 @@ struct PostDetailView: View {
             .onLongPressGesture {
                 onReport()
             }
+            .accessibilityElement(children: .contain)
             .accessibilityIdentifier("CommentStack")
+            .accessibilityAddTraits(.isButton) 
         }
     }
     
@@ -260,8 +265,8 @@ struct PostDetailView: View {
             VStack(alignment: .leading, spacing: 0) {
                 if let rootComment = thread.comments.first {
                     // Show the root comment
-                    // --- UPDATED ---
                     CommentRowView(comment: rootComment,
+                                   isReported: viewModel.reportedCommentIds.contains(rootComment.id),
                                    onLike: {
                                        viewModel.likeComment(rootComment)
                                    },
@@ -296,6 +301,7 @@ struct PostDetailView: View {
                         ForEach(thread.comments.dropFirst()) { reply in
                             // --- UPDATED ---
                             CommentRowView(comment: reply,
+                                           isReported: viewModel.reportedCommentIds.contains(reply.id),
                                            onLike: {
                                                viewModel.likeComment(reply)
                                            },

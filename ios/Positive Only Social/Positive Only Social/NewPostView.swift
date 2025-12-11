@@ -115,7 +115,7 @@ struct NewPostView: View {
                 // 1. UPLOAD IMAGE TO S3
                 let uniqueFileName = "\(UUID().uuidString).jpg"
                 
-                var imageURL: URL! = URL(string: "https://example.com/image.jpg")!
+                var imageURL: URL! = URL(string: "https://picsum.photos/400/400")!
                 if !isTesting() {
                     imageURL = try await s3Uploader.upload(
                         data: imageData,

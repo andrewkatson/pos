@@ -115,7 +115,7 @@ final class Positive_Only_SocialUITests: XCTestCase {
     
     private func assertOnPostDetailView(app: XCUIApplication) {
         XCTAssertTrue(app.buttons["PostCommentButton"].exists, "Post comment button not present")
-        XCTAssertTrue(app.buttons["PostImage"].exists, "Post image not present")
+        XCTAssertTrue(app.buttons["PostImage"].waitForExistence(timeout: 10), "Post image not present in time")
         XCTAssertTrue(app.textFields["AddACommentTextFieldToPost"].exists, "Add a comment text field not present")
     }
     
@@ -247,7 +247,7 @@ final class Positive_Only_SocialUITests: XCTestCase {
         
         // First, get the query for all elements matching our identifier.
         // (NavigationLinks are 'buttons' in the accessibility tree)
-        let allPostsQuery = app.buttons.matching(identifier: "PostImage")
+        let allPostsQuery = app.buttons.matching(identifier: "ForYouPostImage")
 
         // Now, get the specific element at index 0 (the first one)
         let firstPostElement = allPostsQuery.element(boundBy: 0)
@@ -263,8 +263,11 @@ final class Positive_Only_SocialUITests: XCTestCase {
         let postCommentButton = app.buttons["PostCommentButton"]
         postCommentButton.tap()
         
-        let allPostCommentsQuery = app.staticTexts.matching(identifier: "CommentText")
-        XCTAssertEqual(allPostCommentsQuery.count, 1)
+        dismissKeyboardIfPresent(app)
+        
+        // Should be one comment total
+        let commentElements = app.staticTexts.matching(identifier: "CommentText")
+        XCTAssert(commentElements.count == 1, "Expected to find 1 comment, but found \(commentElements.count)")
         
         assertOnPostDetailView(app: app)
     }
@@ -281,7 +284,7 @@ final class Positive_Only_SocialUITests: XCTestCase {
         
         // First, get the query for all elements matching our identifier.
         // (NavigationLinks are 'buttons' in the accessibility tree)
-        let allPostsQuery = app.buttons.matching(identifier: "PostImage")
+        let allPostsQuery = app.buttons.matching(identifier: "ForYouPostImage")
 
         // Now, get the specific element at index 0 (the first one)
         let firstPostElement = allPostsQuery.element(boundBy: 0)
@@ -290,16 +293,35 @@ final class Positive_Only_SocialUITests: XCTestCase {
         
         assertOnPostDetailView(app: app)
         
-        let addACommentTextField = app.textFields["AddACommentTextFieldToThread"]
-        addACommentTextField.tap()
-        addACommentTextField.typeText(commentText)
+        // Wait for comments to load
+        let replyButton = app.buttons["ReplyToCommentThreadButton"]
+        XCTAssertTrue(replyButton.waitForExistence(timeout: 5))
         
-        let postCommentButton = app.buttons["ReplyToCommentThreadButton"]
-        postCommentButton.tap()
+        // Tap the Reply button to open the sheet
+        replyButton.tap()
         
-        // Should be two comments. The original thread comment and then the reply to that thread.
-        let allPostCommentsQuery = app.staticTexts.matching(identifier: "CommentText")
-        XCTAssertEqual(allPostCommentsQuery.count, 2)
+        // Wait for the reply sheet to appear
+        let replySheet = app.navigationBars["Post Reply"]
+        XCTAssertTrue(replySheet.waitForExistence(timeout: 2))
+        
+        // Find the TextEditor in the sheet
+        // TextEditor appears as a textView in the accessibility hierarchy
+        let replyTextEditor = app.textViews.firstMatch
+        XCTAssertTrue(replyTextEditor.exists)
+        
+        // Tap and type the reply
+        replyTextEditor.tap()
+        replyTextEditor.typeText(commentText)
+        
+        // Tap the Send button
+        let sendButton = app.buttons["Send"]
+        XCTAssertTrue(sendButton.exists)
+        XCTAssertTrue(sendButton.isEnabled)
+        sendButton.tap()
+        
+        // Should be two comments total
+        let commentElements = app.staticTexts.matching(identifier: "CommentText")
+        XCTAssert(commentElements.count == 2, "Expected to find 2 comments, but found \(commentElements.count)")
         
         assertOnPostDetailView(app: app)
     }
@@ -687,20 +709,20 @@ final class Positive_Only_SocialUITests: XCTestCase {
         
         assertOnFeedView(app: app)
         
-        let secondBackButton = app.navigationBars.buttons.element(boundBy: 0)
-        secondBackButton.tap()
+        let homeButton = app.buttons["Home"]
+        homeButton.tap()
         
         assertOnHomeView(app: app)
         
         makeCommentOnThread(app: app, commentText: "Comment On a Thread")
         
-        let thirdBackButton = app.navigationBars.buttons.element(boundBy: 0)
-        thirdBackButton.tap()
+        let backButton2 = app.navigationBars.buttons.element(boundBy: 0)
+        backButton2.tap()
         
         assertOnFeedView(app: app)
         
-        let fourthBackButton = app.navigationBars.buttons.element(boundBy: 0)
-        fourthBackButton.tap()
+        let homeButton2 = app.buttons["Home"]
+        homeButton2.tap()
         
         assertOnHomeView(app: app)
         
@@ -725,11 +747,12 @@ final class Positive_Only_SocialUITests: XCTestCase {
         assertOnPostDetailView(app: app)
         
         // First we like and unlike the comment post comment
-        let postCommentStackQuery = app.otherElements.matching(identifier: "CommentStack")
+        let postCommentStackQuery = app.buttons.matching(identifier: "CommentStack")
         let postCommentStack = postCommentStackQuery.element(boundBy: 0)
         postCommentStack.doubleTap()
         
-        let postCommentLikesText = app.staticTexts["CommentLikesText"]
+        let postCommentLikesTextQuery = app.staticTexts.matching(identifier: "CommentLikesCount")
+        let postCommentLikesText = postCommentLikesTextQuery.element(boundBy: 0)
         XCTAssertEqual(postCommentLikesText.label, "1 likes")
         
         postCommentStack.doubleTap()
@@ -737,11 +760,12 @@ final class Positive_Only_SocialUITests: XCTestCase {
         XCTAssertEqual(postCommentLikesText.label, "0 likes")
         
         // Then we like and unlike the comment thread comment
-        let postCommentStackQuery2 = app.otherElements.matching(identifier: "CommentStack")
+        let postCommentStackQuery2 = app.buttons.matching(identifier: "CommentStack")
         let postCommentStack2 = postCommentStackQuery2.element(boundBy: 1)
         postCommentStack2.doubleTap()
         
-        let postCommentLikesText2 = app.staticTexts["CommentLikesText"]
+        let postCommentLikesTextQuery2 = app.staticTexts.matching(identifier: "CommentLikesCount")
+        let postCommentLikesText2 = postCommentLikesTextQuery2.element(boundBy: 1)
         XCTAssertEqual(postCommentLikesText2.label, "1 likes")
         
         postCommentStack2.doubleTap()
@@ -769,13 +793,13 @@ final class Positive_Only_SocialUITests: XCTestCase {
         
         makeCommentOnPost(app: app, commentText: "Comment On a Post")
         
-        let firstBackButton = app.navigationBars.buttons.element(boundBy: 0)
-        firstBackButton.tap()
+        let backButton = app.navigationBars.buttons.element(boundBy: 0)
+        backButton.tap()
         
         assertOnFeedView(app: app)
         
-        let secondBackButton = app.navigationBars.buttons.element(boundBy: 0)
-        secondBackButton.tap()
+        let homeButton = app.buttons["Home"]
+        homeButton.tap()
         
         assertOnHomeView(app: app)
         
@@ -799,7 +823,7 @@ final class Positive_Only_SocialUITests: XCTestCase {
 
         assertOnPostDetailView(app: app)
         
-        let postImage = app.images["PostImage"]
+        let postImage = app.buttons["PostImage"]
         // 2 second press
         postImage.press(forDuration: 2)
         
@@ -834,13 +858,20 @@ final class Positive_Only_SocialUITests: XCTestCase {
         
         makeCommentOnPost(app: app, commentText: "Comment On a Post")
         
-        let firstBackButton = app.navigationBars.buttons.element(boundBy: 0)
-        firstBackButton.tap()
+        let backButton = app.navigationBars.buttons.element(boundBy: 0)
+        backButton.tap()
         
         assertOnFeedView(app: app)
         
-        let secondBackButton = app.navigationBars.buttons.element(boundBy: 0)
-        secondBackButton.tap()
+        let homeButton = app.buttons["Home"]
+        homeButton.tap()
+        
+        assertOnHomeView(app: app)
+        
+        makeCommentOnThread(app: app, commentText: "Comment On a Thread")
+        
+        let backButton2 = app.navigationBars.buttons.element(boundBy: 0)
+        backButton2.tap()
         
         assertOnHomeView(app: app)
         
@@ -864,20 +895,36 @@ final class Positive_Only_SocialUITests: XCTestCase {
 
         assertOnPostDetailView(app: app)
         
-        let commentStackQuery = app.otherElements.matching(identifier: "CommentStack")
+        let commentStackQuery = app.buttons.matching(identifier: "CommentStack")
         let commentStack = commentStackQuery.element(boundBy: 0)
         // 2 second press
         commentStack.press(forDuration: 2)
         
         let reasonTextField = app.textFields["ProvideAReasonTextField"]
         reasonTextField.tap()
-        reasonTextField.typeText("Report comment")
+        reasonTextField.typeText("Report comment thread")
         
         let reportButton = app.buttons["SubmitReportButton"]
         reportButton.tap()
         
         let reportedCommentIcon = app.images["ReportedCommentIcon"]
         XCTAssertTrue(reportedCommentIcon.exists, "Reported comment icon is missing")
+        
+        
+        let commentStackQuery2 = app.buttons.matching(identifier: "CommentStack")
+        let commentStack2 = commentStackQuery2.element(boundBy: 1)
+        // 2 second press
+        commentStack2.press(forDuration: 2)
+        
+        let reasonTextField2 = app.textFields["ProvideAReasonTextField"]
+        reasonTextField2.tap()
+        reasonTextField2.typeText("Report comment reply")
+        
+        let reportButton2 = app.buttons["SubmitReportButton"]
+        reportButton2.tap()
+        
+        let reportedCommentIcon2 = app.images.matching(identifier: "ReportedCommentIcon")
+        XCTAssertEqual(reportedCommentIcon2.count, 2, "Expected 2 reported comment icons but only found \(reportedCommentIcon2.count)")
     }
 
     @MainActor

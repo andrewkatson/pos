@@ -30,6 +30,9 @@ final class PostDetailViewModel: ObservableObject {
     /// When a user taps "Reply", this is set, which triggers the reply sheet
     @Published var threadToReplyTo: CommentThreadViewData?
     
+    @Published var isPostReported = false
+    @Published var reportedCommentIds: Set<String> = []
+    
     // MARK: - Private Properties
     private let postIdentifier: String
     private let api: APIProtocol
@@ -177,6 +180,9 @@ final class PostDetailViewModel: ObservableObject {
             let userSession = try keychainHelper.load(UserSession.self, from: "positive-only-social.Positive-Only-Social", account: account) ?? UserSession(sessionToken: "123", username: "test", isIdentityVerified: false)
             let token = userSession.sessionToken
             _ = try await api.reportPost(sessionManagementToken: token, postIdentifier: postIdentifier, reason: reason)
+            await MainActor.run {
+                isPostReported = true
+            }
         }
     }
     
@@ -263,6 +269,10 @@ final class PostDetailViewModel: ObservableObject {
             let userSession = try keychainHelper.load(UserSession.self, from: "positive-only-social.Positive-Only-Social", account: account) ?? UserSession(sessionToken: "123", username: "test", isIdentityVerified: false)
             let token = userSession.sessionToken
             _ = try await api.reportComment(sessionManagementToken: token, postIdentifier: postIdentifier, commentThreadIdentifier: comment.threadId, commentIdentifier: comment.id, reason: reason)
+            
+            await MainActor.run {
+                reportedCommentIds.insert(comment.id)
+            }
         }
     }
     /// Creates a new comment (and thus a new thread) on the post.

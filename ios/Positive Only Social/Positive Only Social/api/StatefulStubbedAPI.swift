@@ -558,7 +558,11 @@ final class StatefulStubbedAPI: APIProtocol {
     func getCommentsForPost(postIdentifier: String, batch: Int) async throws -> Data {
         await simulateNetwork()
         let relevantThreads = commentThreads.filter { $0.postId == postIdentifier }
-        if relevantThreads.isEmpty { throw APIError.badServerResponse(statusCode: 400) }
+        
+        // If there are no threads return gracefully
+        if relevantThreads.isEmpty {
+            return try createSerializedListResponse(fieldsList: [Fields]())
+        }
 
         struct Fields: Codable { let comment_thread_identifier: String }
         let fieldObjects = relevantThreads.map { Fields(comment_thread_identifier: $0.commentThreadIdentifier) }
@@ -568,7 +572,11 @@ final class StatefulStubbedAPI: APIProtocol {
     func getCommentsForThread(commentThreadIdentifier: String, batch: Int) async throws -> Data {
         await simulateNetwork()
         let relevantComments = comments.filter { $0.threadId == commentThreadIdentifier && !$0.isHidden }.sorted { $0.createdDate < $1.createdDate }
-        if relevantComments.isEmpty { throw APIError.badServerResponse(statusCode: 400) }
+        
+        if relevantComments.isEmpty {
+            // If there are no comments return gracefully
+            return try createSerializedListResponse(fieldsList: [Fields]())
+        }
 
         struct Fields: Codable {
             let comment_identifier, body, author_username: String
