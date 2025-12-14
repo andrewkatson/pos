@@ -10,7 +10,6 @@ data class RegisterRequest(
     val email: String,
     val password: String,
     @SerializedName("remember_me") val rememberMe: String,
-    @SerializedName("remember_me") val rememberMe: String,
     val ip: String,
     @SerializedName("date_of_birth") val dateOfBirth: String
 )
@@ -117,7 +116,6 @@ data class ProfileDetailsResponse(
     val username: String,
     @SerializedName("post_count") val postCount: Int,
     @SerializedName("follower_count") val followerCount: Int,
-    @SerializedName("following_count") val followingCount: Int,
     @SerializedName("following_count") val followingCount: Int,
     @SerializedName("is_following") val isFollowing: Boolean,
     @SerializedName("identity_is_verified") val identityIsVerified: Boolean = false,

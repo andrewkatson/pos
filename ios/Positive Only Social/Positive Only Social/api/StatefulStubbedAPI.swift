@@ -289,13 +289,40 @@ final class StatefulStubbedAPI: APIProtocol {
     
     func verifyIdentity(sessionManagementToken: String, dateOfBirth: String) async throws -> Data {
         await simulateNetwork()
+        
+        // 1. Retrieve User and Index
         guard let user = findUser(bySessionToken: sessionManagementToken) else { throw APIError.badServerResponse(statusCode: 400) }
         guard let userIndex = users.firstIndex(where: { $0.id == user.id }) else { throw APIError.badServerResponse(statusCode: 400) }
         
+        // 2. Parse the Date of Birth String
+        // Note: Ensure your input string matches this format (e.g., "1990-01-01")
+        let formatter = DateFormatter()
+        formatter.dateFormat = "yyyy-MM-dd"
+        formatter.timeZone = TimeZone(secondsFromGMT: 0) // Ensure consistency
+        
+        guard let birthDate = formatter.date(from: dateOfBirth) else {
+            // Throw an error if the date format is invalid
+            throw APIError.badServerResponse(statusCode: 400) 
+        }
+        
+        // 3. Calculate Age Logic
+        // We calculate the date exactly 18 years ago from "now"
+        let calendar = Calendar.current
+        if let eighteenYearsAgo = calendar.date(byAdding: .year, value: -18, to: Date()) {
+            
+            // If the birth date is earlier than or equal to 18 years ago, they are an adult
+            if birthDate <= eighteenYearsAgo {
+                users[userIndex].isAdult = true
+            } else {
+                users[userIndex].isAdult = false
+            }
+        }
+        
+        // 4. Complete Verification
         users[userIndex].identityIsVerified = true
         return try createEmptySuccessResponse()
     }
-    
+        
     func makePost(sessionManagementToken: String, imageURL: String, caption: String) async throws -> Data {
         await simulateNetwork()
         guard let user = findUser(bySessionToken: sessionManagementToken) else { throw APIError.badServerResponse(statusCode: 400) }

@@ -86,12 +86,6 @@ fun RegisterScreen(
             label = { Text("Email") },
             modifier = Modifier.fillMaxWidth(),
             singleLine = true,
-        TextField(
-            value = email,
-            onValueChange = { email = it },
-            label = { Text("Email") },
-            modifier = Modifier.fillMaxWidth(),
-            singleLine = true,
             keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Email)
         )
 
@@ -145,9 +139,6 @@ fun RegisterScreen(
 
                             val registerRequest = RegisterRequest(
                                 username = username,
-                                email = email,
-                                password = password,
-                                rememberMe = "false",
                                 email = email,
                                 password = password,
                                 rememberMe = "false",

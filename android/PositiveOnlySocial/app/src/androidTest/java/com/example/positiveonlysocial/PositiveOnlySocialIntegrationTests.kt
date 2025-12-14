@@ -143,7 +143,8 @@ class PositiveOnlySocialIntegrationTests {
             email = "$username@test.com",
             password = password,
             rememberMe = "false",
-            ip = "127.0.0.1"
+            ip = "127.0.0.1",
+            dateOfBirth = "1970-01-01"
         )
         com.example.positiveonlysocial.di.DependencyProvider.api.register(request)
     }

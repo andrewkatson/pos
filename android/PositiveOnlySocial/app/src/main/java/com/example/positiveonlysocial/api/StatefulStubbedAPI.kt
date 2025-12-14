@@ -6,6 +6,10 @@ import okhttp3.ResponseBody.Companion.toResponseBody
 import retrofit2.Response
 import retrofit2.http.Body
 import retrofit2.http.POST
+import java.time.LocalDate
+import java.time.Period
+import java.time.format.DateTimeFormatter
+import java.time.format.DateTimeParseException
 import java.util.UUID
 import kotlin.random.Random
 
@@ -46,7 +50,8 @@ class StatefulStubbedAPI : PositiveOnlySocialAPI {
         var resetId: Int = -1,
         val following: MutableList<String> = mutableListOf(), // List of User IDs
         val followers: MutableList<String> = mutableListOf(),
-        val isVerified: Boolean = false
+        var isVerified: Boolean = false,
+        var isAdult: Boolean = false,
     )
 
     private data class SessionMock(
@@ -222,6 +227,33 @@ class StatefulStubbedAPI : PositiveOnlySocialAPI {
         users.remove(user)
 
         return Response.success(GenericResponse("User deleted successfully", null))
+    }
+
+    override suspend fun verifyIdentity(token: String, request: IdentityVerificationRequest): Response<GenericResponse> {
+        // 1. Authenticate User
+        // We reuse your existing helper to find the user via the session token
+        val user = getAuthorizedUser(token) ?: return error(401, "Unauthorized")
+
+        // 2. Parse Date
+        // Using java.time (Standard for Android API 26+)
+        val formatter = DateTimeFormatter.ofPattern("yyyy-MM-dd")
+        val birthDate: LocalDate = try {
+            LocalDate.parse(request.dateOfBirth, formatter)
+        } catch (e: DateTimeParseException) {
+            return error(400, "Invalid Date Format. Please use yyyy-MM-dd")
+        }
+
+        // 3. Calculate Age
+        // Period.between handles leap years and calendar math automatically
+        val today = LocalDate.now()
+        val age = Period.between(birthDate, today).years
+
+        // 4. Update State
+        // We modify the user object currently held in the 'users' mutable list
+        user.isAdult = age >= 18
+        user.isVerified = true
+
+        return Response.success(GenericResponse("Identity verified successfully", null))
     }
 
     // ============================================================================================
