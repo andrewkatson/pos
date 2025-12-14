@@ -13,6 +13,8 @@ struct SettingsView: View {
     
     // The ViewModel manages the state and logic for this view.
     @StateObject private var viewModel: SettingsViewModel
+    @State private var dateOfBirth = Date()
+    @State private var showingDatePicker = false
     
     init(api: APIProtocol, keychainHelper: KeychainHelperProtocol) {
         _viewModel = StateObject(wrappedValue: SettingsViewModel(api: api, keychainHelper: keychainHelper))
@@ -29,6 +31,18 @@ struct SettingsView: View {
                     } label: {
                         Text("Logout")
                     }.accessibilityIdentifier("LogoutButton")
+                }
+                
+                // MARK: - Verification Section
+                if !authManager.isIdentityVerified {
+                     Section {
+                         Button {
+                             showingDatePicker = true
+                         } label: {
+                             Text("Verify Identity")
+                                 .foregroundColor(.blue)
+                         }.accessibilityIdentifier("VerifyIdentityButton")
+                     }
                 }
                 
                 // MARK: - Delete Account Section
@@ -62,6 +76,43 @@ struct SettingsView: View {
                 Button("OK", role: .cancel) {}
             } message: {
                 Text(viewModel.errorMessage)
+            }
+            .alert("Identity Verified", isPresented: $viewModel.showingVerificationAlert) {
+                Button("OK", role: .cancel) { }
+            } message: {
+                Text(viewModel.verificationMessage)
+            }
+            .sheet(isPresented: $showingDatePicker) {
+                VStack(spacing: 20) {
+                    Text("Verify Identity")
+                        .font(.headline)
+                        .padding(.top)
+                    
+                    Text("Please enter your date of birth.")
+                        .font(.subheadline)
+                    
+                    DatePicker("Date of Birth", selection: $dateOfBirth, displayedComponents: .date)
+                        .datePickerStyle(.wheel)
+                        .labelsHidden()
+                        .padding()
+                    
+                    Button("Verify") {
+                        showingDatePicker = false
+                        viewModel.verifyIdentity(authManager: authManager, dateOfBirth: dateOfBirth)
+                    }
+                    .padding()
+                    .background(Color.blue)
+                    .foregroundColor(.white)
+                    .cornerRadius(8)
+                    .accessibilityIdentifier("SubmitVerificationButton")
+                    
+                    Button("Cancel") {
+                        showingDatePicker = false
+                    }
+                    .foregroundColor(.red)
+                }
+                .padding()
+                .presentationDetents([.medium])
             }
         }
     }

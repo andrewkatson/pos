@@ -8,6 +8,10 @@ urlpatterns = [
     # POST /register/
     path('register/', views.register, name='register'),
 
+    # POST /verify-identity/ (Token in header)
+    path('verify-identity/', views.verify_identity, name='verify_identity'),
+
+
     # POST /login/
     path('login/', views.login_user, name='login_user'),
 

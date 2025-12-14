@@ -16,7 +16,7 @@ protocol APIProtocol {
     // MARK: - User & Session Management
 
     /// Creates a user if they do not exist.
-    func register(username: String, email: String, password: String, rememberMe: String, ip: String) async throws -> Data
+    func register(username: String, email: String, password: String, rememberMe: String, ip: String, dateOfBirth: String) async throws -> Data
 
     /// Logs the user in if they exist.
     func loginUser(usernameOrEmail: String, password: String, rememberMe: String, ip: String) async throws -> Data
@@ -39,6 +39,9 @@ protocol APIProtocol {
 
     /// Deletes the user account.
     func deleteUser(sessionManagementToken: String) async throws -> Data
+    
+    /// Verifies the identity of the user
+    func verifyIdentity(sessionManagementToken: String, dateOfBirth: String) async throws -> Data
     
     /// Follow a user
     func followUser(sessionManagementToken: String, username: String) async throws -> Data

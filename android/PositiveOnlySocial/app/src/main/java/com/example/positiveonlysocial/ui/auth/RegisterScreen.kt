@@ -35,6 +35,7 @@ fun RegisterScreen(
     var email by remember { mutableStateOf("") }
     var password by remember { mutableStateOf("") }
     var confirmPassword by remember { mutableStateOf("") }
+    var dateOfBirth by remember { mutableStateOf("") }
     var isLoading by remember { mutableStateOf(false) }
     var errorMessage by remember { mutableStateOf<String?>(null) }
     var showingErrorAlert by remember { mutableStateOf(false) }
@@ -42,7 +43,7 @@ fun RegisterScreen(
     val scope = rememberCoroutineScope()
 
     val isPasswordMatching = confirmPassword.isEmpty() || password == confirmPassword
-    val isFormValid = username.isNotEmpty() && email.isNotEmpty() && password.isNotEmpty() && password == confirmPassword
+    val isFormValid = username.isNotEmpty() && email.isNotEmpty() && password.isNotEmpty() && password == confirmPassword && dateOfBirth.isNotEmpty()
 
     if (showingErrorAlert) {
         AlertDialog(
@@ -85,7 +86,21 @@ fun RegisterScreen(
             label = { Text("Email") },
             modifier = Modifier.fillMaxWidth(),
             singleLine = true,
+        TextField(
+            value = email,
+            onValueChange = { email = it },
+            label = { Text("Email") },
+            modifier = Modifier.fillMaxWidth(),
+            singleLine = true,
             keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Email)
+        )
+
+        TextField(
+            value = dateOfBirth,
+            onValueChange = { dateOfBirth = it },
+            label = { Text("Date of Birth (YYYY-MM-DD)") },
+            modifier = Modifier.fillMaxWidth(),
+            singleLine = true
         )
 
         TextField(
@@ -133,7 +148,11 @@ fun RegisterScreen(
                                 email = email,
                                 password = password,
                                 rememberMe = "false",
-                                ip = "127.0.0.1"
+                                email = email,
+                                password = password,
+                                rememberMe = "false",
+                                ip = "127.0.0.1",
+                                dateOfBirth = dateOfBirth
                             )
 
                             val response = api.register(

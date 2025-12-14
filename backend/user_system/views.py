@@ -1,4 +1,6 @@
 import json
+from datetime import datetime, date
+
 from functools import wraps
 
 from django.conf import settings
@@ -158,6 +160,7 @@ def register(request):
     password = data.get(Fields.password)
     remember_me_str = data.get(Fields.remember_me)
     ip = data.get(Fields.ip)
+    date_of_birth_str = data.get('date_of_birth')
 
     invalid_fields = []
     if not username or not is_valid_pattern(username, Patterns.alphanumeric):
@@ -168,6 +171,21 @@ def register(request):
         invalid_fields.append(Params.ip)
     if not password or not is_valid_pattern(password, Patterns.password):
         invalid_fields.append(Params.password)
+
+    is_adult = False
+    if date_of_birth_str:
+        try:
+            dob = datetime.strptime(date_of_birth_str, '%Y-%m-%d').date()
+            today = date.today()
+            age = today.year - dob.year - ((today.month, today.day) < (dob.month, dob.day))
+            if age >= 18:
+                is_adult = True
+        except ValueError:
+            invalid_fields.append('date_of_birth')
+    else:
+        # If date_of_birth is mandatory, uncomment the next line
+        # invalid_fields.append('date_of_birth')
+        pass
 
     try:
         remember_me = convert_to_bool(remember_me_str)
@@ -184,6 +202,8 @@ def register(request):
 
     new_user = get_user_model().objects.create_user(username=username, email=email)
     new_user.set_password(password)
+    new_user.identity_is_verified = True
+    new_user.is_adult = is_adult
     new_user.save()
 
     new_login_cookie = None
@@ -203,6 +223,37 @@ def register(request):
         response_data[Fields.login_cookie_token] = new_login_cookie.token
 
     return JsonResponse(response_data, status=201)
+
+
+@csrf_exempt
+@api_login_required
+@require_POST
+def verify_identity(request):
+    data = _get_json_body(request)
+    if data is None:
+        return JsonResponse({'error': "Invalid JSON data"}, status=400)
+
+    date_of_birth_str = data.get('date_of_birth')
+    
+    if not date_of_birth_str:
+         return JsonResponse({'error': "Missing date_of_birth"}, status=400)
+
+    try:
+        dob = datetime.strptime(date_of_birth_str, '%Y-%m-%d').date()
+        today = date.today()
+        age = today.year - dob.year - ((today.month, today.day) < (dob.month, dob.day))
+        
+        request.user.identity_is_verified = True
+        if age >= 18:
+            request.user.is_adult = True
+        else:
+            request.user.is_adult = False
+            
+        request.user.save()
+        
+        return JsonResponse({'message': 'Identity verified'})
+    except ValueError:
+        return JsonResponse({'error': "Invalid date format, expected YYYY-MM-DD"}, status=400)
 
 
 @csrf_exempt
@@ -1059,7 +1110,9 @@ def get_profile_details(request, username):
         Fields.post_count: post_count,
         Fields.follower_count: follower_count,
         Fields.following_count: following_count,
-        Fields.is_following: is_following
+        Fields.is_following: is_following,
+        Fields.identity_is_verified: profile_user.identity_is_verified,
+        Fields.is_adult: profile_user.is_adult
     }
 
     return JsonResponse(data)

@@ -685,6 +685,57 @@ final class Positive_Only_SocialUITests: XCTestCase {
     }
     
     @MainActor
+    func testVerifyIdentity() throws {
+        // UI tests must launch the application that they test.
+        let app = XCUIApplication()
+        app.launchArguments.append("--ui_testing")
+        
+        app.launch()
+        
+        try ifOnHomeLogout(app: app)
+        
+        try registerUser(app: app, username: testUsername, password: strongPassword)
+        
+        let settingsTab = app.buttons["Settings"]
+        settingsTab.tap()
+        
+        assertOnSettingsView(app: app)
+        
+        let verifyIdentityButton = app.buttons["VerifyIdentityButton"]
+        XCTAssertTrue(verifyIdentityButton.exists, "Verify Identity button should be present for new user")
+        verifyIdentityButton.tap()
+        
+        let submitVerificationButton = app.buttons["SubmitVerificationButton"]
+        XCTAssertTrue(submitVerificationButton.waitForExistence(timeout: 2))
+        
+        // Select date (defaults to today, which makes user 0 years old, but backend logic allows verification, just is_adult will be false? 
+        // Actually views.py verify_identity sets identity_is_verified=True regardless of age. checks age for is_adult.
+        // So this should work to verify identity.)
+        
+        // We just tap verify to send the default date (today)
+        submitVerificationButton.tap()
+        
+        // Wait for success alert
+        let successAlert = app.alerts["Identity Verified"]
+        XCTAssertTrue(successAlert.waitForExistence(timeout: 5))
+        successAlert.buttons["OK"].tap()
+        
+        // Verify Identity button should be gone
+        XCTAssertFalse(verifyIdentityButton.exists, "Verify Identity button should disappear after verification")
+        
+        // Logout and verify we can login again
+        try logoutUserFromHome(app: app)
+        
+        try loginUser(app: app, username: testUsername, password: strongPassword, rememberMe: false)
+        
+        // Go to settings and check verification status persists (button still hidden)
+        let settingsTab2 = app.buttons["Settings"]
+        settingsTab2.tap()
+        
+        XCTAssertFalse(verifyIdentityButton.exists, "Verify Identity button should still be hidden")
+    }
+    
+    @MainActor
     func testLikeAndUnlikeCommentOnPostAndThread() throws {
         // UI tests must launch the application that they test.
         let app = XCUIApplication()

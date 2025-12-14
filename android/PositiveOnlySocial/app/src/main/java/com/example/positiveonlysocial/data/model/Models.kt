@@ -10,7 +10,13 @@ data class RegisterRequest(
     val email: String,
     val password: String,
     @SerializedName("remember_me") val rememberMe: String,
-    val ip: String
+    @SerializedName("remember_me") val rememberMe: String,
+    val ip: String,
+    @SerializedName("date_of_birth") val dateOfBirth: String
+)
+
+data class IdentityVerificationRequest(
+    @SerializedName("date_of_birth") val dateOfBirth: String
 )
 
 data class AuthResponse(
@@ -112,7 +118,10 @@ data class ProfileDetailsResponse(
     @SerializedName("post_count") val postCount: Int,
     @SerializedName("follower_count") val followerCount: Int,
     @SerializedName("following_count") val followingCount: Int,
-    @SerializedName("is_following") val isFollowing: Boolean
+    @SerializedName("following_count") val followingCount: Int,
+    @SerializedName("is_following") val isFollowing: Boolean,
+    @SerializedName("identity_is_verified") val identityIsVerified: Boolean = false,
+    @SerializedName("is_adult") val isAdult: Boolean = false
 )
 
 // Generic success/error response

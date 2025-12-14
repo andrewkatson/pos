@@ -166,7 +166,7 @@ final class StatefulStubbedAPI: APIProtocol {
 
     // MARK: - Implementations
     
-    func register(username: String, email: String, password: String, rememberMe: String, ip: String) async throws -> Data {
+    func register(username: String, email: String, password: String, rememberMe: String, ip: String, dateOfBirth: String) async throws -> Data {
         await simulateNetwork()
         if findUser(byUsername: username) != nil || findUser(byEmail: email) != nil {
             throw APIError.badServerResponse(statusCode: 400) // "User already exists"
@@ -286,7 +286,16 @@ final class StatefulStubbedAPI: APIProtocol {
         users.removeAll { $0.id == user.id }
         return try createEmptySuccessResponse()
     }
-
+    
+    func verifyIdentity(sessionManagementToken: String, dateOfBirth: String) async throws -> Data {
+        await simulateNetwork()
+        guard let user = findUser(bySessionToken: sessionManagementToken) else { throw APIError.badServerResponse(statusCode: 400) }
+        guard let userIndex = users.firstIndex(where: { $0.id == user.id }) else { throw APIError.badServerResponse(statusCode: 400) }
+        
+        users[userIndex].identityIsVerified = true
+        return try createEmptySuccessResponse()
+    }
+    
     func makePost(sessionManagementToken: String, imageURL: String, caption: String) async throws -> Data {
         await simulateNetwork()
         guard let user = findUser(bySessionToken: sessionManagementToken) else { throw APIError.badServerResponse(statusCode: 400) }

@@ -25,6 +25,12 @@ interface PositiveOnlySocialAPI {
     @POST("user/delete/")
     suspend fun deleteUser(@Header("Authorization") token: String): Response<GenericResponse>
 
+    @POST("verify-identity/")
+    suspend fun verifyIdentity(
+        @Header("Authorization") token: String,
+        @Body request: IdentityVerificationRequest
+    ): Response<GenericResponse>
+
     // ============================================================================================
     // PASSWORD RESET
     // ============================================================================================

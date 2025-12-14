@@ -76,7 +76,10 @@ struct ProfileDetailsResponse: Codable, Identifiable, Hashable {
     var postCount: Int
     var followerCount: Int
     var followingCount: Int
+    var followingCount: Int
     var isFollowing: Bool
+    var identityIsVerified: Bool = false
+    var isAdult: Bool = false
 
     enum CodingKeys: String, CodingKey {
         case username
@@ -84,6 +87,8 @@ struct ProfileDetailsResponse: Codable, Identifiable, Hashable {
         case followerCount = "follower_count"
         case followingCount = "following_count"
         case isFollowing = "is_following"
+        case identityIsVerified = "identity_is_verified"
+        case isAdult = "is_adult"
     }
 }
 

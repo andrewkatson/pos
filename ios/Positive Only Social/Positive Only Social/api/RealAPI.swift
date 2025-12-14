@@ -53,7 +53,13 @@ final class RealAPI: APIProtocol {
         let email: String
         let password: String
         let remember_me: String
+        let remember_me: String
         let ip: String
+        let date_of_birth: String
+    }
+    
+    private struct VerifyIdentityBody: Encodable {
+        let date_of_birth: String
     }
     
     private struct LoginBody: Encodable {
@@ -176,8 +182,8 @@ final class RealAPI: APIProtocol {
     // MARK: - User & Session Management
 
     /// Creates a user if they do not exist.
-    func register(username: String, email: String, password: String, rememberMe: String, ip: String) async throws -> Data {
-        let body = RegisterBody(username: username, email: email, password: password, remember_me: rememberMe, ip: ip)
+    func register(username: String, email: String, password: String, rememberMe: String, ip: String, dateOfBirth: String) async throws -> Data {
+        let body = RegisterBody(username: username, email: email, password: password, remember_me: rememberMe, ip: ip, date_of_birth: dateOfBirth)
         let requestBody = try encode(body)
         
         return try await performRequest(
@@ -265,6 +271,19 @@ final class RealAPI: APIProtocol {
         return try await performRequest(
             pathSegments: ["delete_user"],
             method: .post,
+            authToken: sessionManagementToken
+        )
+
+    
+    /// Verifies the identity of the user
+    func verifyIdentity(sessionManagementToken: String, dateOfBirth: String) async throws -> Data {
+        let body = VerifyIdentityBody(date_of_birth: dateOfBirth)
+        let requestBody = try encode(body)
+        
+        return try await performRequest(
+            pathSegments: ["verify-identity"],
+            method: .post,
+            body: requestBody,
             authToken: sessionManagementToken
         )
     }

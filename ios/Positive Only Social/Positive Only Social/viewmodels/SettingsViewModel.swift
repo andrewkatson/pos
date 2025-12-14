@@ -16,7 +16,13 @@ final class SettingsViewModel: ObservableObject {
     @Published var showingLogoutConfirm = false
     @Published var showingDeleteConfirm = false
     @Published var showingErrorAlert = false
+    @Published var showingErrorAlert = false
     @Published var errorMessage = ""
+    
+    // Verification state
+    @Published var showingVerificationAlert = false
+    @Published var verificationMessage = ""
+    @Published var showingVerificationInput = false
     
     // Unique identifiers for Keychain
     private let keychainService = "positive-only-social.Positive-Only-Social" // CHANGE to your app's bundle ID
@@ -82,6 +88,43 @@ final class SettingsViewModel: ObservableObject {
                 errorMessage = "Failed to delete account. Please try again."
                 showingErrorAlert = true
                 print("🔴 Account deletion failed: \(error.localizedDescription)")
+            }
+        }
+    }
+    
+    /// Verifies the identity of the user
+    func verifyIdentity(authManager: AuthenticationManager, dateOfBirth: Date) {
+        Task {
+            do {
+                guard let userSession = try keychainHelper.load(UserSession.self, from: keychainService, account: account) else {
+                    errorMessage = "Session not found."
+                    showingErrorAlert = true
+                    return
+                }
+                
+                let formatter = DateFormatter()
+                formatter.dateFormat = "yyyy-MM-dd"
+                let dateString = formatter.string(from: dateOfBirth)
+                
+                _ = try await api.verifyIdentity(sessionManagementToken: userSession.sessionToken, dateOfBirth: dateString)
+                
+                // Update local session to verified
+                let newSession = UserSession(
+                    sessionToken: userSession.sessionToken,
+                    username: userSession.username,
+                    isIdentityVerified: true
+                )
+                
+                // Save updated session to keychain and auth manager
+                try keychainHelper.save(newSession, service: keychainService, account: account)
+                authManager.login(with: newSession)
+                
+                verificationMessage = "Identity verified successfully!"
+                showingVerificationAlert = true
+                
+            } catch {
+                errorMessage = "Verification failed: \(error.localizedDescription)"
+                showingErrorAlert = true
             }
         }
     }

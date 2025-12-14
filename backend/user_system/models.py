@@ -12,6 +12,7 @@ class UserFollow(models.Model):
     created = models.DateTimeField(auto_now_add=True)
 
     class Meta:
+        app_label = 'user_system'
         constraints = [
             models.UniqueConstraint(fields=['user_from', 'user_to'], name='unique_followers')
         ]
@@ -23,6 +24,8 @@ class PositiveOnlySocialUser(AbstractUser):
     report_id = models.TextField(null=True)
     verification_report_status = models.TextField(default=NEVER_RUN)
     identity_is_verified = models.BooleanField(default=False)
+    is_adult = models.BooleanField(default=False)
+
     creation_time = models.DateTimeField(auto_now_add=True, null=True, blank=True)
     updated_time = models.DateTimeField(auto_now=True, null=True, blank=True)
     id = models.UUIDField(default=uuid.uuid4, primary_key=True, unique=True, editable=False)

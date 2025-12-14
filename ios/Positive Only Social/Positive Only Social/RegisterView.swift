@@ -24,6 +24,7 @@ struct RegisterView: View {
     @State private var email = ""
     @State private var password = ""
     @State private var confirmPassword = ""
+    @State private var dateOfBirth = Date()
 
     @State private var isLoading = false
     @State private var errorMessage: String?
@@ -83,7 +84,19 @@ struct RegisterView: View {
                 .background(Color(.systemGray6))
                 .cornerRadius(10)
                 .textContentType(.newPassword)
+            SecureField("Confirm Password", text: $confirmPassword)
+                .padding()
+                .background(Color(.systemGray6))
+                .cornerRadius(10)
+                .textContentType(.newPassword)
                 .accessibilityIdentifier("ConfirmPasswordSecureField")
+            
+            DatePicker("Date of Birth", selection: $dateOfBirth, displayedComponents: .date)
+                .datePickerStyle(.compact)
+                .padding()
+                .background(Color(.systemGray6))
+                .cornerRadius(10)
+                .accessibilityIdentifier("DateOfBirthPicker")
             
             // Real-time password mismatch warning
             if !isPasswordMatching {
@@ -128,12 +141,17 @@ struct RegisterView: View {
         Task {
             isLoading = true
             do {
+                let formatter = DateFormatter()
+                formatter.dateFormat = "yyyy-MM-dd"
+                let dateString = formatter.string(from: dateOfBirth)
+                
                 let responseData = try await api.register(
                     username: username,
                     email: email,
                     password: password,
                     rememberMe: "false", // We don't need remember me on registration
-                    ip: "127.0.0.1"
+                    ip: "127.0.0.1",
+                    dateOfBirth: dateString
                 )
 
                 // Try to decode a backend error first

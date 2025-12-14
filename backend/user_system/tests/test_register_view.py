@@ -1,4 +1,6 @@
 from django.urls import reverse
+from django.contrib.auth import get_user_model
+
 
 from .test_constants import (
     username, email, password, ip, invalid_username, invalid_password,
@@ -32,7 +34,8 @@ class RegisterTests(PositiveOnlySocialTestCase):
             'email': self.local_email,
             'password': self.local_password,
             'remember_me': false,
-            'ip': ip
+            'ip': ip,
+            'date_of_birth': '2000-01-01'
         }
 
     def test_invalid_username_returns_bad_response(self):
@@ -142,3 +145,29 @@ class RegisterTests(PositiveOnlySocialTestCase):
 
         self.assertNotIn(Fields.login_cookie_token, fields)
         self.assertNotIn(Fields.series_identifier, fields)
+
+    def test_register_creates_adult_user(self):
+        """
+        Tests that registering with an adult DOB creates a user with is_adult=True.
+        """
+        response = self.client.post(self.url, data=self.valid_data, content_type='application/json')
+        self.assertEqual(response.status_code, 201)
+        
+        user = get_user_model().objects.get(username=self.local_username)
+        self.assertTrue(user.identity_is_verified)
+        self.assertTrue(user.is_adult)
+
+    def test_register_creates_minor_user(self):
+        """
+        Tests that registering with a minor DOB creates a user with is_adult=False.
+        """
+        data = self.valid_data.copy()
+        # Set DOB to be a minor (e.g., 2020)
+        data['date_of_birth'] = '2020-01-01'
+        
+        response = self.client.post(self.url, data=data, content_type='application/json')
+        self.assertEqual(response.status_code, 201)
+        
+        user = get_user_model().objects.get(username=self.local_username)
+        self.assertTrue(user.identity_is_verified)
+        self.assertFalse(user.is_adult)

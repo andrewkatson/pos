@@ -51,7 +51,15 @@ fun SettingsScreen(
     // I will assume DependencyProvider.authManager exists.
     
     var showingLogoutConfirm by remember { mutableStateOf(false) }
+    var showingLogoutConfirm by remember { mutableStateOf(false) }
     var showingDeleteConfirm by remember { mutableStateOf(false) }
+    var showingVerifyIdentityDialog by remember { mutableStateOf(false) }
+    var identityDateOfBirth by remember { mutableStateOf("") }
+    var identityVerificationMessage by remember { mutableStateOf<String?>(null) }
+    
+    val scope = rememberCoroutineScope()
+    // Local processing state for the dialog
+    var isVerifying by remember { mutableStateOf(false) }
     
     // Observing ViewModel state
     val errorMessage by viewModel.errorMessage.collectAsState()
@@ -120,6 +128,71 @@ fun SettingsScreen(
         )
     }
 
+        )
+    }
+
+    if (showingVerifyIdentityDialog) {
+        AlertDialog(
+            onDismissRequest = { showingVerifyIdentityDialog = false },
+            title = { Text("Verify Identity") },
+            text = {
+                Column {
+                    Text("Enter your Date of Birth:")
+                    Spacer(modifier = Modifier.height(8.dp))
+                    TextField(
+                        value = identityDateOfBirth,
+                        onValueChange = { identityDateOfBirth = it },
+                        label = { Text("YYYY-MM-DD") },
+                        singleLine = true
+                    )
+                     if (identityVerificationMessage != null) {
+                         Spacer(modifier = Modifier.height(8.dp))
+                         Text(identityVerificationMessage!!, color = MaterialTheme.colorScheme.primary)
+                     }
+                }
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        scope.launch {
+                             isVerifying = true
+                             identityVerificationMessage = null
+                             try {
+                                 val token = authenticationManager.getSessionToken() ?: ""
+                                 val response = api.verifyIdentity(
+                                     token = "Bearer $token",
+                                     request = com.example.positiveonlysocial.data.model.IdentityVerificationRequest(identityDateOfBirth)
+                                 )
+                                 if (response.isSuccessful) {
+                                     identityVerificationMessage = "Identity verified successfully!"
+                                     // Optionally close after delay or let user close
+                                 } else {
+                                     identityVerificationMessage = "Verification failed."
+                                 }
+                             } catch (e: Exception) {
+                                 identityVerificationMessage = "Error: ${e.message}"
+                             } finally {
+                                 isVerifying = false
+                             }
+                        }
+                    },
+                    enabled = !isVerifying
+                ) {
+                    if (isVerifying) {
+                        CircularProgressIndicator(modifier = Modifier.size(16.dp))
+                    } else {
+                        Text("Verify")
+                    }
+                }
+            },
+            dismissButton = {
+                Button(onClick = { showingVerifyIdentityDialog = false }) {
+                    Text("Close")
+                }
+            }
+        )
+    }
+
     if (showingErrorAlert) {
         AlertDialog(
             onDismissRequest = { viewModel.clearError() },
@@ -139,6 +212,12 @@ fun SettingsScreen(
             style = MaterialTheme.typography.headlineMedium,
             modifier = Modifier.padding(16.dp)
         )
+        
+        ListListItem(text = "Verify Identity", textColor = Color.Blue) {
+            showingVerifyIdentityDialog = true
+        }
+        
+        HorizontalDivider()
         
         ListListItem(text = "Logout", textColor = Color.Red) {
             showingLogoutConfirm = true

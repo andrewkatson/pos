@@ -76,6 +76,8 @@ class GetProfileDetailsTests(PositiveOnlySocialTestCase):
         self.assertEqual(data[Fields.follower_count], 0)
         self.assertEqual(data[Fields.following_count], 0)
         self.assertEqual(data[Fields.is_following], False)  # Can't follow self
+        self.assertFalse(data[Fields.identity_is_verified])
+        self.assertFalse(data[Fields.is_adult])
 
     def test_valid_request_for_other_user_returns_correct_default_details(self):
         """
