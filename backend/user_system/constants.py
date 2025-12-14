@@ -50,6 +50,7 @@ class Params:
     username_fragment = "USERNAME_FRAGMENT"
 
 class Fields:
+    is_adult = 'is_adult'
     series_identifier = "series_identifier"
     login_cookie_token = "login_cookie_token"
     session_management_token = "token"

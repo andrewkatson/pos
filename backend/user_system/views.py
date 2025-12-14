@@ -1115,4 +1115,4 @@ def get_profile_details(request, username):
         Fields.is_adult: profile_user.is_adult
     }
 
-    return JsonResponse(data)
+    return JsonResponse(data, status=200)
