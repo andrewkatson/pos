@@ -8,10 +8,10 @@
       <SelectionState runConfigName="testFollowAndUnfollowFromSearch()">
         <option name="selectionMode" value="DROPDOWN" />
       </SelectionState>
-      <SelectionState runConfigName="testDeleteAccount()">
+      <SelectionState runConfigName="testVerifyIdentity()">
         <option name="selectionMode" value="DROPDOWN" />
       </SelectionState>
-      <SelectionState runConfigName="testVerifyIdentity()">
+      <SelectionState runConfigName="testBlockAndUnblockUser()">
         <option name="selectionMode" value="DROPDOWN" />
       </SelectionState>
     </selectionStates>
