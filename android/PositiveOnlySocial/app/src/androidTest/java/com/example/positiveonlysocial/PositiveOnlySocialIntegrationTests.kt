@@ -455,4 +455,36 @@ class PositiveOnlySocialIntegrationTests {
         // Verify "Verify Identity" button is GONE
         composeTestRule.onNodeWithTag("verifyIdentityDialog").assertDoesNotExist()
     }
+
+    @Test
+    fun testBlockAndUnblockUser() {
+        // Setup: Create other user via API
+        registerUserViaApi(otherTestUsername, strongPassword)
+        
+        // Login as main user
+        loginUser(testUsername, strongPassword, rememberMe = false, registerToo = true)
+
+        // Search for user
+        composeTestRule.onNodeWithText("Search for Users").performTextInput("other_user")
+        composeTestRule
+            .onNodeWithTag(otherTestUsername, useUnmergedTree = true)
+            .performClick()
+
+        assertOnProfileView()
+        
+        // Initially "Block" button should be visible
+        composeTestRule.onNodeWithText("Block").assertExists()
+        
+        // Click Block
+        composeTestRule.onNodeWithText("Block").performClick()
+        
+        // Verify changes to "Unblock"
+        composeTestRule.onNodeWithText("Unblock").assertExists()
+        
+        // Click Unblock
+        composeTestRule.onNodeWithText("Unblock").performClick()
+        
+        // Verify changes back to "Block"
+        composeTestRule.onNodeWithText("Block").assertExists()
+    }
 }

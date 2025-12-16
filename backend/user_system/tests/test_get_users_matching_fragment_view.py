@@ -12,6 +12,49 @@ invalid_username_fragment = '?'
 
 class GetUsersMatchingFragmentTests(PositiveOnlySocialTestCase):
 
+    def test_blocked_by_user_excludes_from_search(self):
+        # 1. User 1 (me) blocks User 2 (first_username)
+        # Wait, the requirement is "If user A blocks user B then user A can search for user B but user B cannot search for user A"
+        # So if I am B (blocked by A), I cannot find A.
+        
+        # Let's say local_user is A. first_username is B.
+        # A blocks B.
+        me = self.get_user_by_username(self.local_username)
+        user_b = self.get_user_by_username(self.first_username)
+        me.blocked.add(user_b)
+        
+        # A searches B -> Should find
+        url = reverse('get_users_matching_fragment', kwargs={'username_fragment': self.first_username})
+        response = self.client.get(url, **self.valid_header)
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(len(response.json()), 1)
+        
+        # B searches A -> Should NOT find
+        # We need authentication for B
+        # self.make_user_with_prefix creates user but returns fields.
+        # We didn't keep B's token in setUp but we can generate one or mock login?
+        # self.make_user_with_prefix implies we know the password or can create a session.
+        # Actually `make_user_with_prefix` uses `register_user`.
+        # We can just login as B.
+        
+        # Simpler: create a new user C, logged in.
+        fields_c = self.make_user_with_prefix('charlie')
+        user_c = self.get_user_by_username(fields_c[Fields.username])
+        token_c = fields_c[Fields.session_management_token]
+        header_c = {'HTTP_AUTHORIZATION': f'Bearer {token_c}'}
+        
+        # Me (A) blocks C.
+        me.blocked.add(user_c)
+        
+        # C searches A (me)
+        url = reverse('get_users_matching_fragment', kwargs={'username_fragment': self.local_username})
+        response = self.client.get(url, **header_c)
+        
+        # Should not find A
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(len(response.json()), 0)
+
+
     def setUp(self):
         super().setUp()
 

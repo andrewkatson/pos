@@ -89,6 +89,21 @@ fun ProfileScreen(
             ) {
                 Text(if (isFollowing) "Following" else "Follow")
             }
+            
+            Spacer(modifier = Modifier.height(8.dp))
+            
+            val isBlocked by viewModel.isBlocked.collectAsState()
+            
+            Button(
+                onClick = { viewModel.toggleBlock(username) },
+                modifier = Modifier.fillMaxWidth(),
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = if (isBlocked) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.surfaceVariant,
+                    contentColor = if (isBlocked) MaterialTheme.colorScheme.onError else MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            ) {
+                Text(if (isBlocked) "Unblock" else "Block")
+            }
         }
         
         Divider()

@@ -16,6 +16,8 @@ struct MockUser {
     var passwordHash: String // Storing plain text for mock purposes.
     var resetId: Int = -1
     var identityIsVerified: Bool = false
+    var blocked: [UUID] = []
+    var blockedBy: [UUID] = []
 }
 
 fileprivate struct MockUserFollow {
@@ -384,7 +386,12 @@ final class StatefulStubbedAPI: APIProtocol {
         
         // Get *all* relevant posts, sorted
         let relevantPosts = posts
-            .filter { $0.authorId != user.id && !$0.isHidden }
+            .filter { post in
+                post.authorId != user.id && 
+                !post.isHidden &&
+                !user.blocked.contains(post.authorId) &&
+                !user.blockedBy.contains(post.authorId)
+            }
             .sorted { $0.createdDate > $1.createdDate }
 
         // --- PAGINATION LOGIC ---
@@ -429,7 +436,10 @@ final class StatefulStubbedAPI: APIProtocol {
         let relevantPosts = posts
             .filter { post in
                 // Post author is in the followed list AND post is not hidden
-                followedUserIDs.contains(post.authorId) && !post.isHidden
+                followedUserIDs.contains(post.authorId) && 
+                !post.isHidden &&
+                !currentUser.blocked.contains(post.authorId) &&
+                !currentUser.blockedBy.contains(post.authorId)
             }
             .sorted { $0.createdDate > $1.createdDate } // Sort by newest first
         
@@ -468,6 +478,11 @@ final class StatefulStubbedAPI: APIProtocol {
         }
         guard let targetUser = findUser(byUsername: username) else {
             throw APIError.badServerResponse(statusCode: 400)
+        }
+        
+        let user = findUser(bySessionToken: sessionManagementToken)!
+        if user.blocked.contains(targetUser.id) || targetUser.blocked.contains(user.id) {
+             return try createSerializedListResponse(fieldsList: [Fields]())
         }
         
         let relevantPosts = posts
@@ -636,7 +651,10 @@ final class StatefulStubbedAPI: APIProtocol {
         guard findUser(bySessionToken: sessionManagementToken) != nil else {
             throw APIError.badServerResponse(statusCode: 400)
         }
-        let matchingUsers = users.filter { $0.username.lowercased().starts(with: usernameFragment.lowercased()) }
+        let matchingUsers = users.filter { 
+            $0.username.lowercased().starts(with: usernameFragment.lowercased()) &&
+            !findUser(bySessionToken: sessionManagementToken)!.blockedBy.contains($0.id)
+        }
         
         struct Fields: Codable { let username: String; let identity_is_verified: Bool }
         let fieldObjects = matchingUsers.map { Fields(username: $0.username, identity_is_verified: $0.identityIsVerified) }
@@ -686,6 +704,47 @@ final class StatefulStubbedAPI: APIProtocol {
         userFollows.remove(at: followIndex)
         
         return try createEmptySuccessResponse()
+        return try createEmptySuccessResponse()
+    }
+
+    func toggleBlock(sessionManagementToken: String, username: String) async throws -> Data {
+        await simulateNetwork()
+        guard let currentUser = findUser(bySessionToken: sessionManagementToken) else {
+            throw APIError.badServerResponse(statusCode: 400)
+        }
+        guard let userToBlock = findUser(byUsername: username) else {
+            throw APIError.badServerResponse(statusCode: 400)
+        }
+        
+        if currentUser.id == userToBlock.id {
+            throw APIError.badServerResponse(statusCode: 400) // Can't block self
+        }
+        
+        // Find indices to update structs in array
+        guard let currentIndex = users.firstIndex(where: {$0.id == currentUser.id}),
+              let targetIndex = users.firstIndex(where: {$0.id == userToBlock.id}) else {
+             throw APIError.badServerResponse(statusCode: 500)
+        }
+        
+        if users[currentIndex].blocked.contains(userToBlock.id) {
+            // Unblock
+            users[currentIndex].blocked.removeAll { $0 == userToBlock.id }
+            users[targetIndex].blockedBy.removeAll { $0 == currentUser.id }
+        } else {
+            // Block
+            users[currentIndex].blocked.append(userToBlock.id)
+            users[targetIndex].blockedBy.append(currentUser.id)
+            
+            // Unfollow logic
+            if isUserFollowing(from: currentUser.id, to: userToBlock.id) {
+                 userFollows.removeAll { $0.userFromId == currentUser.id && $0.userToId == userToBlock.id }
+            }
+            if isUserFollowing(from: userToBlock.id, to: currentUser.id) {
+                 userFollows.removeAll { $0.userFromId == userToBlock.id && $0.userToId == currentUser.id }
+            }
+        }
+        
+        return try createEmptySuccessResponse()
     }
 
     func getProfileDetails(sessionManagementToken: String, username: String) async throws -> Data {
@@ -714,6 +773,8 @@ final class StatefulStubbedAPI: APIProtocol {
         
         // 4. Check if the requesting user is following the profile user
         let isFollowing = isUserFollowing(from: requestingUser.id, to: profileUser.id)
+        let isBlocked = requestingUser.blocked.contains(profileUser.id)
+        let isBlockedBy = requestingUser.blockedBy.contains(profileUser.id)
 
         // 5. Build the response data (matching the Swift struct)
         struct Fields: Codable {
@@ -722,6 +783,19 @@ final class StatefulStubbedAPI: APIProtocol {
             let follower_count: Int
             let following_count: Int
             let is_following: Bool
+            let is_blocked: Bool
+        }
+        
+        if isBlockedBy {
+             let fields = Fields(
+                username: profileUser.username,
+                post_count: 0,
+                follower_count: 0,
+                following_count: 0,
+                is_following: false,
+                is_blocked: isBlocked
+            )
+            return try createSerializedResponse(fields: fields)
         }
         
         let fields = Fields(
@@ -729,7 +803,8 @@ final class StatefulStubbedAPI: APIProtocol {
             post_count: postCount,
             follower_count: followerCount,
             following_count: followingCount,
-            is_following: isFollowing
+            is_following: isFollowing,
+            is_blocked: isBlocked
         )
 
         // 6. Return the data using your existing helper

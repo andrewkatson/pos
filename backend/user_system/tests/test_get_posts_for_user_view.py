@@ -11,6 +11,36 @@ malformed_username = '??!!'
 
 class GetPostsForUserTests(PositiveOnlySocialTestCase):
 
+    def test_posts_hidden_when_user_blocked(self):
+        # 1. Block the user whose posts we want to see (self.username)
+        # We need to access the requesting user. 'make_user_with_posts' doesn't return the user object directly,
+        # but the test case setup usually has 'self.local_username' for the implicit user created if not explicit?
+        # Wait, 'make_user_with_posts' creates a user and returns fields.
+        # But who is the requester? 
+        # Ah, in this test class, we have `self.token` which belongs to `self.username`.
+        # So we are requesting OUR OWN posts?
+        # `get_posts_for_user(self.username)` with `self.token`.
+        # A user blocking themselves is not allowed / tested elsewhere.
+        
+        # We need a SECOND user to test blocking visibility.
+        fields_other = self.make_user_with_prefix('other')
+        token_other = fields_other[Fields.session_management_token]
+        header_other = {'HTTP_AUTHORIZATION': f'Bearer {token_other}'}
+        user_other = self.get_user_by_username(fields_other[Fields.username])
+        
+        target_user = self.get_user_by_username(self.username)
+        
+        # Case A: Other user blocks Target user.
+        user_other.blocked.add(target_user)
+        
+        url = reverse('get_posts_for_user', kwargs={'username': self.username, 'batch': 0})
+        response = self.client.get(url, **header_other)
+        
+        # Should be empty
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(len(response.json()), 0)
+
+
     def setUp(self):
         super().setUp()
 

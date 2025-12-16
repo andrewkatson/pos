@@ -52,6 +52,8 @@ class StatefulStubbedAPI : PositiveOnlySocialAPI {
         val followers: MutableList<String> = mutableListOf(),
         var isVerified: Boolean = false,
         var isAdult: Boolean = false,
+        val blocked: MutableList<String> = mutableListOf(),
+        val blockedBy: MutableList<String> = mutableListOf()
     )
 
     private data class SessionMock(
@@ -370,8 +372,11 @@ class StatefulStubbedAPI : PositiveOnlySocialAPI {
     override suspend fun getPostsInFeed(token: String, batch: Int): Response<List<Post>> {
         val user = getAuthorizedUser(token) ?: return errorGeneric(401, "Unauthorized")
 
-        // Stub Feed Algorithm: Just return all posts not hidden, reverse chrono
-        val allPosts = posts.filter { !it.hidden }.sortedByDescending { it.creationTime }
+        val allPosts = posts.filter { 
+            !it.hidden && 
+            !user.blocked.contains(it.authorId) && 
+            !user.blockedBy.contains(it.authorId)
+        }.sortedByDescending { it.creationTime }
         val batched = getBatch(allPosts, batch, POST_BATCH_SIZE)
 
         val dtos = batched.map { post ->
@@ -384,8 +389,12 @@ class StatefulStubbedAPI : PositiveOnlySocialAPI {
     override suspend fun getFollowedPosts(token: String, batch: Int): Response<List<Post>> {
         val user = getAuthorizedUser(token) ?: return errorGeneric(401, "Unauthorized")
 
-        val followedPosts = posts.filter { !it.hidden && user.following.contains(it.authorId) }
-            .sortedByDescending { it.creationTime }
+        val followedPosts = posts.filter { 
+            !it.hidden && 
+            user.following.contains(it.authorId) &&
+            !user.blocked.contains(it.authorId) &&
+            !user.blockedBy.contains(it.authorId)
+        }.sortedByDescending { it.creationTime }
 
         val batched = getBatch(followedPosts, batch, POST_BATCH_SIZE)
         val dtos = batched.map { post ->
@@ -396,8 +405,13 @@ class StatefulStubbedAPI : PositiveOnlySocialAPI {
     }
 
     override suspend fun getPostsForUser(token: String, username: String, batch: Int): Response<List<Post>> {
+        val user = getAuthorizedUser(token) ?: return errorGeneric(401, "Unauthorized")
         val targetUser = users.find { it.username == username }
             ?: return errorGeneric(404, "User not found")
+
+        if (user.blocked.contains(targetUser.id) || targetUser.blocked.contains(user.id)) {
+            return Response.success(emptyList()) // Or error? returning empty list matches backend logic
+        }
 
         val userPosts = posts.filter { !it.hidden && it.authorId == targetUser.id }
             .sortedByDescending { it.creationTime }
@@ -533,7 +547,11 @@ class StatefulStubbedAPI : PositiveOnlySocialAPI {
     override suspend fun searchUsers(token: String, fragment: String): Response<List<User>> {
         val currentUser = getAuthorizedUser(token)
         val matches = users
-            .filter { it.username.contains(fragment, ignoreCase = true) && it.id != currentUser?.id }
+            .filter { 
+                it.username.contains(fragment, ignoreCase = true) && 
+                it.id != currentUser?.id &&
+                (currentUser == null || !currentUser.blockedBy.contains(it.id))
+            }
             .take(10)
             .map { User(it.username, it.isVerified) }
         return Response.success(matches)
@@ -559,7 +577,39 @@ class StatefulStubbedAPI : PositiveOnlySocialAPI {
 
         user.following.remove(target.id)
         target.followers.remove(user.id)
+        user.following.remove(target.id)
+        target.followers.remove(user.id)
         return Response.success(GenericResponse("User unfollowed", null))
+    }
+
+    override suspend fun toggleBlock(token: String, username: String): Response<GenericResponse> {
+        val user = getAuthorizedUser(token) ?: return error(401, "Unauthorized")
+        val target = users.find { it.username == username } ?: return error(404, "User not found")
+
+        if (user.id == target.id) return error(404, "Cannot block self")
+
+        if (user.blocked.contains(target.id)) {
+            // Unblock
+            user.blocked.remove(target.id)
+            target.blockedBy.remove(user.id)
+            return Response.success(GenericResponse("User unblocked", null))
+        } else {
+            // Block
+            user.blocked.add(target.id)
+            target.blockedBy.add(user.id)
+            
+            // Remove follow relationships
+            if (user.following.contains(target.id)) {
+                user.following.remove(target.id)
+                target.followers.remove(user.id)
+            }
+            if (target.following.contains(user.id)) {
+                target.following.remove(user.id)
+                user.followers.remove(target.id)
+            }
+            
+            return Response.success(GenericResponse("User blocked", null))
+        }
     }
 
     override suspend fun getProfileDetails(token: String, username: String): Response<ProfileDetailsResponse> {
@@ -568,13 +618,27 @@ class StatefulStubbedAPI : PositiveOnlySocialAPI {
 
         val postCount = posts.count { it.authorId == target.id }
         val isFollowing = user?.following?.contains(target.id) ?: false
+        val isBlocked = user?.blocked?.contains(target.id) ?: false
+        val isBlockedBy = user?.blockedBy?.contains(target.id) ?: false
+
+        if (isBlockedBy) {
+             return Response.success(ProfileDetailsResponse(
+                target.username,
+                0,
+                0,
+                0,
+                false,
+                isBlocked = isBlocked
+            ))
+        }
 
         return Response.success(ProfileDetailsResponse(
             target.username,
             postCount,
             target.followers.size,
             target.following.size,
-            isFollowing
+            isFollowing,
+            isBlocked
         ))
     }
 

@@ -120,6 +120,9 @@ urlpatterns = [
     # POST /users/<str:username_to_unfollow>/unfollow/ (Token in header)
     path('users/<str:username_to_unfollow>/unfollow/', views.unfollow_user, name='unfollow_user'),
 
+    # POST /users/<str:username_to_toggle_block>/block/ (Token in header)
+    path('users/<str:username_to_toggle_block>/block/', views.toggle_block, name='toggle_block'),
+
     # GET /users/<str:username>/profile/ (Token in header)
     path('users/<str:username>/profile/', views.get_profile_details, name='get_profile_details'),
 ]

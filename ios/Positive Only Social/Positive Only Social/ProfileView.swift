@@ -97,6 +97,23 @@ struct ProfileView: View {
             .disabled(viewModel.isLoadingProfile) // Disable while loading
             .padding(.vertical)
             .accessibilityIdentifier("FollowButton")
+            
+            // --- BLOCK BUTTON ---
+            Button(action: viewModel.toggleBlock) {
+                Text(viewModel.isBlocked ? "Unblock" : "Block")
+                    .fontWeight(.medium)
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 8)
+                    .foregroundColor(viewModel.isBlocked ? .white : .red)
+                    .background(viewModel.isBlocked ? Color.red : Color.clear)
+                    .cornerRadius(8)
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 8)
+                            .stroke(Color.red, lineWidth: 1)
+                    )
+            }
+            .disabled(viewModel.isLoadingProfile)
+            .padding(.bottom)
         }
     }
     

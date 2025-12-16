@@ -78,6 +78,7 @@ struct ProfileDetailsResponse: Codable, Identifiable, Hashable {
     var followingCount: Int
     var followingCount: Int
     var isFollowing: Bool
+    var isBlocked: Bool = false
     var identityIsVerified: Bool = false
     var isAdult: Bool = false
 
@@ -87,6 +88,7 @@ struct ProfileDetailsResponse: Codable, Identifiable, Hashable {
         case followerCount = "follower_count"
         case followingCount = "following_count"
         case isFollowing = "is_following"
+        case isBlocked = "is_blocked"
         case identityIsVerified = "identity_is_verified"
         case isAdult = "is_adult"
     }

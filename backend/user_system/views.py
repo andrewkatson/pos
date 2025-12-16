@@ -16,7 +16,7 @@ from .constants import Patterns, Params, POST_BATCH_SIZE, MAX_BEFORE_HIDING_POST
     COMMENT_BATCH_SIZE, Fields, COMMENT_THREAD_BATCH_SIZE
 from .feed_algorithm import feed_algorithm
 from .input_validator import is_valid_pattern
-from .models import LoginCookie, Session, Post, CommentThread, PositiveOnlySocialUser, Comment
+from .models import LoginCookie, Session, Post, CommentThread, PositiveOnlySocialUser, Comment, UserBlock
 from .utils import convert_to_bool, generate_login_cookie_token, generate_management_token, generate_series_identifier, \
     generate_reset_id, get_batch
 
@@ -641,6 +641,11 @@ def get_posts_in_feed(request, batch):
         return JsonResponse({'error': "Invalid batch parameter"}, status=400)
 
     relevant_posts = feed_algorithm_class.get_posts_weighted(request.user, Post)
+    
+    # Filter out posts from users the current user has blocked or who have blocked the current user
+    blocked_users = request.user.blocked.all()
+    blocking_users = request.user.blocked_by.all()
+    relevant_posts = relevant_posts.exclude(author__in=blocked_users).exclude(author__in=blocking_users)
 
     if relevant_posts.count() > 0:
         batched_posts = get_batch(batch, POST_BATCH_SIZE, relevant_posts)
@@ -666,6 +671,11 @@ def get_posts_for_followed_users(request, batch):
         return JsonResponse({'error': "Invalid batch parameter"}, status=400)
 
     followed_users = request.user.following.all()
+    
+    # Filter out users who are blocked or blocking
+    blocked_users = request.user.blocked.all()
+    blocking_users = request.user.blocked_by.all()
+    followed_users = followed_users.exclude(pk__in=blocked_users).exclude(pk__in=blocking_users)
 
     if not followed_users.exists():
         return JsonResponse([], safe=False)
@@ -698,6 +708,10 @@ def get_posts_for_user(request, username, batch):
     target_user = get_user_with_username(username)
     if not target_user:
         return JsonResponse({'error': "User not found"}, status=400)
+
+    # Check if blocking relationship exists
+    if request.user.blocked.filter(pk=target_user.pk).exists() or target_user.blocked.filter(pk=request.user.pk).exists():
+        return JsonResponse([], safe=False)
 
     relevant_posts = feed_algorithm_class.get_posts_weighted_for_user(target_user, Post)
 
@@ -1030,7 +1044,15 @@ def get_users_matching_fragment(request, username_fragment):
     # user results in the search bar.
     users = PositiveOnlySocialUser.objects.filter(
         username__istartswith=username_fragment
-    ).exclude(pk=request.user.pk)[:10]
+    ).exclude(pk=request.user.pk)
+    
+    # User B cannot search for User A if User A blocked User B.
+    # request.user is B (searcher). We must exclude any user A who has blocked B.
+    # We must also exclude users that B has blocked? Spec says: "If user A blocks user B then user A can search for user B"
+    # So if I blocked someone, I can still search them.
+    # But if someone blocked me, I cannot search them.
+    users_who_blocked_me = request.user.blocked_by.all()
+    users = users.exclude(pk__in=users_who_blocked_me)[:10]
 
     users_data = [
         {
@@ -1083,6 +1105,37 @@ def unfollow_user(request, username_to_unfollow):
     return JsonResponse({'message': 'User unfollowed'})
 
 
+@csrf_exempt
+@api_login_required
+@require_POST
+def toggle_block(request, username_to_toggle_block):
+    # user is on request.user
+    if not is_valid_pattern(username_to_toggle_block, Patterns.alphanumeric):
+        return JsonResponse({'error': "Invalid username"}, status=400)
+
+    user_to_toggle_obj = get_user_with_username(username_to_toggle_block)
+    if not user_to_toggle_obj:
+        return JsonResponse({'error': "User does not exist"}, status=400)
+
+    if request.user == user_to_toggle_obj:
+        return JsonResponse({'error': "Cannot block self"}, status=400)
+
+    if request.user.blocked.filter(pk=user_to_toggle_obj.pk).exists():
+        # Unblock
+        request.user.blocked.remove(user_to_toggle_obj)
+        return JsonResponse({'message': 'User unblocked'})
+    else:
+        # Block
+        request.user.blocked.add(user_to_toggle_obj)
+        # Also force unfollow? Typically blocking unfollows.
+        if request.user.following.filter(pk=user_to_toggle_obj.pk).exists():
+            request.user.following.remove(user_to_toggle_obj)
+        if user_to_toggle_obj.following.filter(pk=request.user.pk).exists():
+            user_to_toggle_obj.following.remove(request.user)
+            
+        return JsonResponse({'message': 'User blocked'})
+
+
 @api_login_required
 @require_GET
 def get_profile_details(request, username):
@@ -1104,6 +1157,23 @@ def get_profile_details(request, username):
     following_count = profile_user.following.count()
 
     is_following = request.user.following.filter(pk=profile_user.pk).exists()
+    is_blocked = request.user.blocked.filter(pk=profile_user.pk).exists()
+    
+    # If I am blocked by them, should I see details? 
+    # Spec: "user B cannot search for user A".
+    # Typically profiles are also hidden or return 404.
+    # But `get_posts_for_user` will return empty.
+    # Let's hide stats if blocked by them.
+    is_blocked_by = request.user.blocked_by.filter(pk=profile_user.pk).exists()
+    
+    if is_blocked_by:
+        # Return limited info or error? 
+        # Usually it looks like the user doesn't exist or empty profile.
+        # Let's return empty stats.
+        post_count = 0
+        follower_count = 0
+        following_count = 0
+        is_following = False
 
     data = {
         Fields.username: profile_user.username,
@@ -1111,6 +1181,7 @@ def get_profile_details(request, username):
         Fields.follower_count: follower_count,
         Fields.following_count: following_count,
         Fields.is_following: is_following,
+        'is_blocked': is_blocked,
         Fields.identity_is_verified: profile_user.identity_is_verified,
         Fields.is_adult: profile_user.is_adult
     }

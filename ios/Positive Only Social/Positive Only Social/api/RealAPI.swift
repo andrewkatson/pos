@@ -308,6 +308,21 @@ final class RealAPI: APIProtocol {
         )
     }
 
+    /// Block or unblock a user
+    func toggleBlock(sessionManagementToken: String, username: String) async throws -> Data {
+        // This is a POST request, no body, with auth. Username is in path.
+        // URL pattern: users/<str:username_to_toggle_block>/block/
+        // Wait, backend URL is `users/<username>/block/`. 
+        // My RealAPI seems to use older patterns like `unfollow_user`. 
+        // But `toggle_block` view URL was added as: `path('users/<str:username_to_toggle_block>/block/', views.toggle_block, name='toggle_block')`
+        // So the path segments should be ["users", username, "block"]
+        return try await performRequest(
+            pathSegments: ["users", username, "block"],
+            method: .post,
+            authToken: sessionManagementToken
+        )
+    }
+
     // MARK: - Post Management
 
     /// Creates and stores a new post.

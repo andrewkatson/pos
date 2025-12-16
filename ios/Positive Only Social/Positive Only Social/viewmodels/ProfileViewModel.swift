@@ -18,6 +18,7 @@ class ProfileViewModel: ObservableObject {
     @Published var profileDetails: ProfileDetailsResponse?
     @Published var isLoadingProfile = false // For the button
     @Published var isFollowing = false
+    @Published var isBlocked = false
     
     // Private state for pagination and API
     private var batch = 0
@@ -94,6 +95,7 @@ class ProfileViewModel: ObservableObject {
                 
                 self.profileDetails = details
                 self.isFollowing = details.isFollowing // Set initial follow state
+                self.isBlocked = details.isBlocked // Set initial block state
             } catch {
                 print("Error fetching profile details: \(error)")
                 // Handle error (e.g., show alert)
@@ -136,6 +138,41 @@ class ProfileViewModel: ObservableObject {
                 // Handle error (e.g., show alert)
                 // Since we update the UI *after* the await, we don't need to
                 // manually roll back the change if the API call fails.
+            }
+            isLoadingProfile = false
+        }
+    }
+
+    func toggleBlock() {
+        // Toggle block status
+        guard !isLoadingProfile else { return }
+        isLoadingProfile = true
+        
+        let previousBlockState = isBlocked
+        // Optimistic update
+        isBlocked.toggle()
+        
+        // Blocking also unfollows in our backend logic
+        if isBlocked { 
+             isFollowing = false 
+             if self.profileDetails != nil {
+                 // self.profileDetails?.followerCount -= 1 // Maybe? Only if we were following. 
+                 // It's safer to just let the profile refresh or ignore count for now.
+             }
+        }
+        
+        Task {
+            do {
+                let userSession = try keychainHelper.load(UserSession.self, from: "positive-only-social.Positive-Only-Social", account: account) ?? UserSession(sessionToken: "123", username: "test", isIdentityVerified: false)
+                let token = userSession.sessionToken
+                
+                let _ = try await api.toggleBlock(sessionManagementToken: token, username: user.username)
+                
+                // Success, state already updated.
+            } catch {
+                print("Error toggling block: \(error)")
+                // Revert on error
+                isBlocked = previousBlockState
             }
             isLoadingProfile = false
         }

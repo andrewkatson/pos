@@ -18,6 +18,19 @@ class UserFollow(models.Model):
         ]
 
 
+# The model to explicitly define the "block" relationship
+class UserBlock(models.Model):
+    user_blocker = models.ForeignKey(settings.AUTH_USER_MODEL, related_name='blocking_set', on_delete=models.CASCADE)
+    user_blocked = models.ForeignKey(settings.AUTH_USER_MODEL, related_name='blocked_by_set', on_delete=models.CASCADE)
+    created = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        app_label = 'user_system'
+        constraints = [
+            models.UniqueConstraint(fields=['user_blocker', 'user_blocked'], name='unique_blocks')
+        ]
+
+
 # The non-admin user class (no changes needed here)
 class PositiveOnlySocialUser(AbstractUser):
     reset_id = models.IntegerField(default=-1)
@@ -31,6 +44,8 @@ class PositiveOnlySocialUser(AbstractUser):
     id = models.UUIDField(default=uuid.uuid4, primary_key=True, unique=True, editable=False)
     following = models.ManyToManyField('self', through=UserFollow, through_fields=('user_from', 'user_to'),
                                        symmetrical=False, related_name='followers')
+    blocked = models.ManyToManyField('self', through=UserBlock, through_fields=('user_blocker', 'user_blocked'),
+                                       symmetrical=False, related_name='blocked_by')
 
     def __str__(self):
         return self.username

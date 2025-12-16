@@ -1,12 +1,32 @@
 from django.urls import reverse
 
 from .test_parent_case import PositiveOnlySocialTestCase
+from ..constants import Fields
 
 invalid_session_management_token = '?'
 invalid_batch = -1
 
 
 class GetPostsInFeedTests(PositiveOnlySocialTestCase):
+
+    def test_blocked_user_posts_not_in_feed(self):
+        # 1. Create User B and their posts
+        fields = self.make_user_with_posts(num_posts=5)
+        user_b = self.get_user_by_username(fields[Fields.username])
+        
+        # 2. Block User B
+        self.get_user_by_username(self.local_username).blocked.add(user_b)
+        
+        # 3. Get feed
+        url = reverse('get_posts_in_feed', kwargs={'batch': 0})
+        response = self.client.get(url, **self.valid_header)
+        
+        # 4. Verify no posts from User B
+        self.assertEqual(response.status_code, 200)
+        responses = response.json()
+        for post in responses:
+            self.assertNotEqual(post[Fields.username], user_b.username)
+
 
     def setUp(self):
         super().setUp()

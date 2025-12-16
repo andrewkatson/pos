@@ -31,6 +31,9 @@ class ProfileViewModel(
     private val _isFollowing = MutableStateFlow(false)
     val isFollowing: StateFlow<Boolean> = _isFollowing.asStateFlow()
 
+    private val _isBlocked = MutableStateFlow(false)
+    val isBlocked: StateFlow<Boolean> = _isBlocked.asStateFlow()
+
     private val _errorMessage = MutableStateFlow<String?>(null)
     val errorMessage: StateFlow<String?> = _errorMessage.asStateFlow()
 
@@ -57,7 +60,10 @@ class ProfileViewModel(
                 // Fetch Profile Details
                 val profileResponse = api.getProfileDetails(userSession.sessionToken, username)
                 if (profileResponse.isSuccessful) {
-                    _profileDetails.value = profileResponse.body()
+                    val profile = profileResponse.body()
+                    _profileDetails.value = profile
+                    _isFollowing.value = profile?.isFollowing ?: false
+                    _isBlocked.value = profile?.isBlocked ?: false
                 } else {
                     _errorMessage.value = "Failed to load profile: ${profileResponse.errorBody()?.string()}"
                 }
@@ -151,6 +157,45 @@ class ProfileViewModel(
             } catch (e: Exception) {
                 // Revert on error
                 _profileDetails.value = currentProfile
+                _errorMessage.value = "Error: ${e.localizedMessage}"
+            }
+            } catch (e: Exception) {
+                // Revert on error
+                _profileDetails.value = currentProfile
+                _errorMessage.value = "Error: ${e.localizedMessage}"
+            }
+        }
+    }
+
+    fun toggleBlock(username: String) {
+        val currentBlockedStatus = _isBlocked.value
+        
+        // Optimistic Update
+        _isBlocked.value = !currentBlockedStatus
+        
+        // If we allow blocking to unfollow immediately in UI, we should update that too.
+        // Backend handles unfollowing.
+        if (!currentBlockedStatus) { // We are now blocking
+             _isFollowing.value = false
+        }
+
+        viewModelScope.launch {
+            try {
+                val userSession = keychainHelper.load(UserSession::class.java, service, account)
+                    ?: UserSession("123", "testuser", false, null, null)
+
+                val response = api.toggleBlock(userSession.sessionToken, username)
+
+                if (!response.isSuccessful) {
+                    // Revert on failure
+                    _isBlocked.value = currentBlockedStatus
+                    _errorMessage.value = "Failed to update block status"
+                    // Potentially revert follow status if we changed it optimistically? 
+                    // Simpler to just fetch profile again on error or success to sync state.
+                }
+            } catch (e: Exception) {
+                // Revert on error
+                _isBlocked.value = currentBlockedStatus
                 _errorMessage.value = "Error: ${e.localizedMessage}"
             }
         }

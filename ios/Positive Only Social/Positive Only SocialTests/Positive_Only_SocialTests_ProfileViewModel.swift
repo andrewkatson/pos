@@ -192,5 +192,39 @@ struct Positive_Only_SocialTests_ProfileViewModel {
         #expect(sut.isFollowing == false, "Should now be unfollowing")
         #expect(sut.profileDetails?.followerCount == 0, "Follower count should refresh to 0")
     }
+    
+    @Test func testToggleBlock_BlockAndUnblock_Success() async throws {
+        // Given: A logged-in user and a profile user
+        let (requestingUserToken, requestingUser) = try await registerUser(username: "mainBlocker")
+        let (profileUserToken, profileUser) = try await registerUser(username: "profileToBlock")
+        
+        let account = "mainBlocker_account"
+        try await setupLoggedInUser(user: requestingUser, token: requestingUserToken, account: account)
+        
+        let sut = ProfileViewModel(user: profileUser, api: stubAPI, keychainHelper: keychainHelper, account: account)
+        
+        // --- 1. Load Initial State (Not Blocked) ---
+        sut.fetchProfileDetails()
+        await yield()
+        
+        #expect(sut.isBlocked == false, "Pre-condition: Not blocked")
+        
+        // --- 2. Toggle to BLOCK ---
+        sut.toggleBlock()
+        await yield()
+        
+        // Then: The state is updated
+        #expect(sut.isBlocked == true, "Should now be blocked")
+        
+        // Verify in API stub that the block was recorded (optional, if we can access stub state cleanly)
+        // With current Stub API, we might need a helper, but verifying VM state matches expectation is key.
+
+        // --- 3. Toggle to UNBLOCK ---
+        sut.toggleBlock()
+        await yield()
+
+        // Then: The state is updated
+        #expect(sut.isBlocked == false, "Should now be unblocked")
+    }
 }
 

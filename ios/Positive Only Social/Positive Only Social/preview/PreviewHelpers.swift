@@ -139,6 +139,10 @@ struct MockedAPI: APIProtocol {
     func unfollowUser(sessionManagementToken: String, username: String) async throws -> Data {
         return try encodeGenericSuccess()
     }
+
+    func toggleBlock(sessionManagementToken: String, username: String) async throws -> Data {
+        return try encodeGenericSuccess()
+    }
     
     // MARK: - Post Management
 

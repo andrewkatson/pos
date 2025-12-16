@@ -118,6 +118,7 @@ data class ProfileDetailsResponse(
     @SerializedName("follower_count") val followerCount: Int,
     @SerializedName("following_count") val followingCount: Int,
     @SerializedName("is_following") val isFollowing: Boolean,
+    @SerializedName("is_blocked") val isBlocked: Boolean = false,
     @SerializedName("identity_is_verified") val identityIsVerified: Boolean = false,
     @SerializedName("is_adult") val isAdult: Boolean = false
 )

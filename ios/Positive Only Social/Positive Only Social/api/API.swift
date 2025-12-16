@@ -49,6 +49,9 @@ protocol APIProtocol {
     /// Unfollow a user
     func unfollowUser(sessionManagementToken: String, username: String) async throws -> Data
     
+    /// Block or unblock a user
+    func toggleBlock(sessionManagementToken: String, username: String) async throws -> Data
+    
     // MARK: - Post Management
 
     /// Creates and stores a new post.

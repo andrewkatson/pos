@@ -386,6 +386,18 @@ class MockPositiveOnlySocialAPI : PositiveOnlySocialAPI {
         )
     }
 
+    override suspend fun toggleBlock(
+        token: String,
+        username: String
+    ): Response<GenericResponse> {
+        return Response.success(
+            GenericResponse(
+                message = "User blocked/unblocked",
+                error = null
+            )
+        )
+    }
+
     override suspend fun getProfileDetails(
         token: String,
         username: String

@@ -76,4 +76,57 @@ class ProfileViewModelTest {
         
         verify(api).followUser("token123", "user1")
     }
+
+    @Test
+    fun testToggleBlock() = runTest {
+        // Arrange
+        val userId = "testUser"
+        var mockProfileDetailsResponse = ProfileDetailsResponse(userId, 1, 10, 3, false, isBlocked = false)
+        
+        whenever(api.toggleBlock(any(), any())).thenReturn(Response.success(GenericResponse("Success", "None")))
+        
+        // Initially not blocked, but following
+        mockProfileDetailsResponse = mockProfileDetailsResponse.copy(isBlocked = false, isFollowing = true)
+        whenever(api.getProfileDetails(any(), eq(userId))).thenReturn(Response.success(mockProfileDetailsResponse))
+        whenever(api.getPostsForUser(any(), eq(userId), any())).thenReturn(Response.success(emptyList()))
+
+        viewModel.fetchProfile(userId)
+
+        assertFalse(viewModel.isBlocked.value)
+        assertTrue(viewModel.isFollowing.value)
+
+        // Act - Block
+        viewModel.toggleBlock(userId)
+
+        // Assert - Blocked & Unfollowed (optimistically)
+        verify(api).toggleBlock(eq("token123"), eq(userId))
+        assertTrue(viewModel.isBlocked.value)
+        assertFalse(viewModel.isFollowing.value)
+        
+        // Simulate API response for unblocking
+        whenever(api.toggleBlock(any(), any())).thenReturn(Response.success(GenericResponse("Success", "None")))
+        
+        // Act - Unblock
+        viewModel.toggleBlock(userId)
+        
+        // Assert - Unblocked (optimistically)
+        assertFalse(viewModel.isBlocked.value)
+    }
+
+    @Test
+    fun testFetchProfileWithBlockedStatus() = runTest {
+        // Arrange
+        val userId = "testUser"
+        val mockProfileDetailsResponse = ProfileDetailsResponse(userId, 1, 10, 3, false, isBlocked = true)
+        
+        whenever(api.getProfileDetails(any(), eq(userId))).thenReturn(Response.success(mockProfileDetailsResponse))
+        whenever(api.getPostsForUser(any(), eq(userId), any())).thenReturn(Response.success(emptyList()))
+
+        // Act
+        viewModel.fetchProfile(userId)
+
+        // Assert
+        assertTrue(viewModel.isBlocked.value)
+    }
 }
+```

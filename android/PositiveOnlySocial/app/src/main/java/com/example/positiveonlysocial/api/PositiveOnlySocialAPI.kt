@@ -196,6 +196,12 @@ interface PositiveOnlySocialAPI {
         @Path("username") username: String
     ): Response<GenericResponse>
 
+    @POST("users/{username}/block/")
+    suspend fun toggleBlock(
+        @Header("Authorization") token: String,
+        @Path("username") username: String
+    ): Response<GenericResponse>
+
     @GET("users/{username}/profile/")
     suspend fun getProfileDetails(
         @Header("Authorization") token: String,

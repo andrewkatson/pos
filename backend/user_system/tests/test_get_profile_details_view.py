@@ -12,6 +12,35 @@ non_existent_username = 'Charlie222'
 
 class GetProfileDetailsTests(PositiveOnlySocialTestCase):
 
+    def test_is_blocked_is_true_when_blocked(self):
+        # 1. Block the profile user
+        self.requesting_user.blocked.add(self.profile_user)
+        
+        # 2. Get profile
+        url = reverse('get_profile_details', kwargs={'username': self.profile_username})
+        response = self.client.get(url, **self.valid_header)
+        
+        # 3. Verify 'is_blocked' is true
+        self.assertEqual(response.status_code, 200)
+        data = response.json()
+        self.assertTrue(data['is_blocked'])
+
+    def test_profile_details_hidden_when_blocked_by(self):
+        # 1. Profile user blocks requesting user
+        self.profile_user.blocked.add(self.requesting_user)
+        
+        # 2. Get profile
+        url = reverse('get_profile_details', kwargs={'username': self.profile_username})
+        response = self.client.get(url, **self.valid_header)
+        
+        # 3. Verify stats are hidden (0 or false)
+        self.assertEqual(response.status_code, 200)
+        data = response.json()
+        self.assertEqual(data[Fields.post_count], 0)
+        self.assertEqual(data[Fields.follower_count], 0)
+        self.assertEqual(data[Fields.following_count], 0)
+
+
     def setUp(self):
         super().setUp()
 
