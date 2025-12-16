@@ -159,11 +159,6 @@ class ProfileViewModel(
                 _profileDetails.value = currentProfile
                 _errorMessage.value = "Error: ${e.localizedMessage}"
             }
-            } catch (e: Exception) {
-                // Revert on error
-                _profileDetails.value = currentProfile
-                _errorMessage.value = "Error: ${e.localizedMessage}"
-            }
         }
     }
 

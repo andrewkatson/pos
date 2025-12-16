@@ -247,6 +247,10 @@ class PositiveOnlySocialIntegrationTests {
         // substring search works
         composeTestRule.onNodeWithText("Search for Users").performTextInput("other_user")
 
+        composeTestRule.waitUntil(timeoutMillis = 5000) {
+            composeTestRule.onNodeWithTag(otherTestUsername, useUnmergedTree = true).isDisplayed()
+        }
+
         composeTestRule
             .onNodeWithTag(
                 otherTestUsername, useUnmergedTree = true
@@ -448,6 +452,8 @@ class PositiveOnlySocialIntegrationTests {
         composeTestRule.waitUntil(timeoutMillis = 5000) {
              composeTestRule.onAllNodesWithText("Identity verified successfully!").fetchSemanticsNodes().isNotEmpty()
         }
+
+        // Wait until dialog disappears
         composeTestRule.waitUntil(timeoutMillis = 5000) {
             composeTestRule.onNodeWithTag("verifyIdentityDialog").isNotDisplayed()
         }
@@ -466,6 +472,11 @@ class PositiveOnlySocialIntegrationTests {
 
         // Search for user
         composeTestRule.onNodeWithText("Search for Users").performTextInput("other_user")
+
+        composeTestRule.waitUntil(timeoutMillis = 5000) {
+            composeTestRule.onNodeWithTag(otherTestUsername, useUnmergedTree = true).isDisplayed()
+        }
+
         composeTestRule
             .onNodeWithTag(otherTestUsername, useUnmergedTree = true)
             .performClick()

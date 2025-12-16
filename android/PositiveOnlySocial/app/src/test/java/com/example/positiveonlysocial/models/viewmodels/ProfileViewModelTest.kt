@@ -16,6 +16,7 @@ import org.junit.Before
 import org.junit.Rule
 import org.junit.Test
 import org.mockito.kotlin.any
+import org.mockito.kotlin.eq
 import org.mockito.kotlin.mock
 import org.mockito.kotlin.verify
 import org.mockito.kotlin.whenever
@@ -129,4 +130,4 @@ class ProfileViewModelTest {
         assertTrue(viewModel.isBlocked.value)
     }
 }
-```
+

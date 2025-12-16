@@ -89,13 +89,13 @@ class SettingsViewModelTest {
     @Test
     fun `verifyIdentity success calls api and updates state`() = runTest {
         whenever(api.verifyIdentity(
-            "Bearer token123",
+            "token123",
             IdentityVerificationRequest("1990-01-01")
         )).thenReturn(Response.success(GenericResponse("Success", "None")))
 
         viewModel.verifyIdentity("1990-01-01")
 
-        verify(api).verifyIdentity("Bearer token123", IdentityVerificationRequest("1990-01-01"))
+        verify(api).verifyIdentity("token123", IdentityVerificationRequest("1990-01-01"))
         // authManager.login IS called in the implementation
         verify(authManager).login(any())
         assertEquals("Identity verified successfully!", viewModel.verificationMessage.value)
