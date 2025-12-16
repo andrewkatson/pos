@@ -99,6 +99,7 @@ class PositiveOnlySocialIntegrationTests {
 
         composeTestRule.onNodeWithText("Username").performTextInput(username)
         composeTestRule.onNodeWithText("Email").performTextInput("$username@test.com")
+        composeTestRule.onNodeWithText("Date of Birth (YYYY-MM-DD)").performTextInput("1970-01-01")
         composeTestRule.onNodeWithText("Password").performTextInput(password)
         composeTestRule.onNodeWithText("Confirm Password").performTextInput(password)
 
@@ -422,5 +423,36 @@ class PositiveOnlySocialIntegrationTests {
 
         // Verify reported icon
         composeTestRule.onNodeWithContentDescription("Reported").assertExists()
+    }
+    @Test
+    fun testVerifyIdentity() {
+        // Register and Login
+        loginUser(testUsername, strongPassword, rememberMe = true, registerToo = true)
+
+        // Navigate to Settings
+        composeTestRule.onNodeWithText("Settings").performClick()
+
+        // Click Verify Identity
+        composeTestRule.onNodeWithText("Verify Identity").performClick()
+
+        // Assert Dialog appears
+        composeTestRule.onNodeWithTag("verifyIdentityDialog").assertExists()
+
+        // Enter Date
+        composeTestRule.onNodeWithText("YYYY-MM-DD").performTextInput("1970-01-01")
+
+        composeTestRule.onNodeWithText("Verify").performClick()
+
+        // Verify Success
+        // Wait for success message/alert
+        composeTestRule.waitUntil(timeoutMillis = 5000) {
+             composeTestRule.onAllNodesWithText("Identity verified successfully!").fetchSemanticsNodes().isNotEmpty()
+        }
+        composeTestRule.waitUntil(timeoutMillis = 5000) {
+            composeTestRule.onNodeWithTag("verifyIdentityDialog").isNotDisplayed()
+        }
+
+        // Verify "Verify Identity" button is GONE
+        composeTestRule.onNodeWithTag("verifyIdentityDialog").assertDoesNotExist()
     }
 }

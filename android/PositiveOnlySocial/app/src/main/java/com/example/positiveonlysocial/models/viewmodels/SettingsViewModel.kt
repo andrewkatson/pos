@@ -5,6 +5,7 @@ import androidx.lifecycle.viewModelScope
 import com.example.positiveonlysocial.api.PositiveOnlySocialAPI
 import com.example.positiveonlysocial.data.auth.AuthenticationManager
 import com.example.positiveonlysocial.data.model.UserSession
+import com.example.positiveonlysocial.data.model.IdentityVerificationRequest
 import com.example.positiveonlysocial.data.security.KeychainHelperProtocol
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -29,6 +30,12 @@ class SettingsViewModel(
 
     private val _showingErrorAlert = MutableStateFlow(false)
     val showingErrorAlert: StateFlow<Boolean> = _showingErrorAlert.asStateFlow()
+
+    private val _verificationMessage = MutableStateFlow<String?>(null)
+    val verificationMessage: StateFlow<String?> = _verificationMessage.asStateFlow()
+
+    private val _showingVerificationAlert = MutableStateFlow(false)
+    val showingVerificationAlert: StateFlow<Boolean> = _showingVerificationAlert.asStateFlow()
 
     private val service = "positive-only-social.Positive-Only-Social"
 
@@ -82,6 +89,38 @@ class SettingsViewModel(
                 }
             } catch (e: Exception) {
                 _errorMessage.value = "Error deleting account: ${e.localizedMessage}"
+            }
+        }
+    }
+
+    fun verifyIdentity(dateOfBirth: String) {
+        viewModelScope.launch {
+            try {
+                val userSession = keychainHelper.load(UserSession::class.java, service, account)
+                
+                if (userSession != null) {
+                    val request = IdentityVerificationRequest(dateOfBirth)
+                    val response = api.verifyIdentity(userSession.sessionToken, request)
+                    
+                    if (response.isSuccessful) {
+                        // Update local session to verified
+                        val newSession = userSession.copy(isIdentityVerified = true)
+                        keychainHelper.save(newSession, service, account)
+                        authenticationManager.login(newSession)
+                        
+                        _verificationMessage.value = "Identity verified successfully!"
+                        _showingVerificationAlert.value = true
+                    } else {
+                        _errorMessage.value = "Verification failed: ${response.errorBody()?.string()}"
+                        _showingErrorAlert.value = true
+                    }
+                } else {
+                    _errorMessage.value = "Session not found."
+                    _showingErrorAlert.value = true
+                }
+            } catch (e: Exception) {
+                _errorMessage.value = "Verification error: ${e.localizedMessage}"
+                _showingErrorAlert.value = true
             }
         }
     }

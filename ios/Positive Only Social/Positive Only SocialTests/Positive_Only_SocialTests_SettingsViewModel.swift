@@ -133,5 +133,32 @@ struct Positive_Only_SocialTests_SettingsViewModel {
         #expect(sut.showingErrorAlert == true)
         #expect(sut.errorMessage == "Session not found. Cannot delete account.")
     }
+    
+    // --- Verify Identity Tests ---
+    
+    @Test func testVerifyIdentity_Success_CallsAPIAndAuthManager() async throws {
+        // Given: A logged-in user
+        let token = try await setupLoggedInUser(username: "verifyUser")
+        let sut = SettingsViewModel(api: stubAPI, keychainHelper: keychainHelper, account: "verifyUser_account")
+        let authenticationManager = AuthenticationManager()
+        let dateOfBirth = Date() // Today
+        
+        // When: Verify Identity is called
+        sut.verifyIdentity(authManager: authenticationManager, dateOfBirth: dateOfBirth)
+        await yield()
+        
+        // Then: The auth manager is updated (indicating local session update)
+        // Since stubAPI.verifyIdentity updates the user in the stub, we mainly check if the view model state updated
+        // and if the auth manager got a new session with isIdentityVerified = true.
+        // However, AuthenticationManager is a class we can't easily peek into unless we mock it or check its published property.
+        // But we can check the View Model's state.
+        
+        #expect(sut.showingVerificationAlert == true)
+        #expect(sut.verificationMessage == "Identity verified successfully!")
+        
+        // And: Check the backend state
+        let user = stubAPI.findUser(byUsername: "verifyUser")
+        #expect(user?.identityIsVerified == true, "User should be verified in the backend")
+    }
 }
 

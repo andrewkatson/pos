@@ -5,6 +5,7 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.NavController
@@ -131,6 +132,7 @@ fun SettingsScreen(
         AlertDialog(
             onDismissRequest = { showingVerifyIdentityDialog = false },
             title = { Text("Verify Identity") },
+            modifier = Modifier.testTag("verifyIdentityDialog"),
             text = {
                 Column {
                     Text("Enter your Date of Birth:")
@@ -156,12 +158,18 @@ fun SettingsScreen(
                              try {
                                  val token = authenticationManager.session.value?.sessionToken ?: ""
                                  val response = api.verifyIdentity(
-                                     token = "Bearer $token",
+                                     token = token,
                                      request = com.example.positiveonlysocial.data.model.IdentityVerificationRequest(identityDateOfBirth)
                                  )
                                  if (response.isSuccessful) {
                                      identityVerificationMessage = "Identity verified successfully!"
-                                     // Optionally close after delay or let user close
+                                    // Add a small delay so user can see the success message
+                                    kotlinx.coroutines.delay(1500)
+                                    // Dismiss the dialog
+                                    showingVerifyIdentityDialog = false
+                                    // Reset state
+                                    identityDateOfBirth = ""
+                                    identityVerificationMessage = null
                                  } else {
                                      identityVerificationMessage = "Verification failed."
                                  }

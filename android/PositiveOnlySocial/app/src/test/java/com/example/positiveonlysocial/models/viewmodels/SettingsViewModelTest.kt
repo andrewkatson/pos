@@ -18,6 +18,7 @@ import org.mockito.kotlin.any
 import org.mockito.kotlin.mock
 import org.mockito.kotlin.verify
 import org.mockito.kotlin.whenever
+import com.example.positiveonlysocial.data.model.IdentityVerificationRequest
 import retrofit2.Response
 
 @OptIn(ExperimentalCoroutinesApi::class)
@@ -84,5 +85,19 @@ class SettingsViewModelTest {
         verify(api).deleteUser("token123")
         verify(authManager, org.mockito.kotlin.never()).logout()
         assertEquals("Failed to delete account: error", viewModel.errorMessage.value)
+    }
+    @Test
+    fun `verifyIdentity success calls api and updates state`() = runTest {
+        whenever(api.verifyIdentity(
+            "Bearer token123",
+            IdentityVerificationRequest("1990-01-01")
+        )).thenReturn(Response.success(GenericResponse("Success", "None")))
+
+        viewModel.verifyIdentity("1990-01-01")
+
+        verify(api).verifyIdentity("Bearer token123", IdentityVerificationRequest("1990-01-01"))
+        // authManager.login IS called in the implementation
+        verify(authManager).login(any())
+        assertEquals("Identity verified successfully!", viewModel.verificationMessage.value)
     }
 }
