@@ -171,3 +171,17 @@ class RegisterTests(PositiveOnlySocialTestCase):
         user = get_user_model().objects.get(username=self.local_username)
         self.assertTrue(user.identity_is_verified)
         self.assertFalse(user.is_adult)
+
+    def test_register_no_dob_leaves_unverified_identity(self):
+        """
+        Tests that registering with an adult DOB creates a user with is_adult=True.
+        """
+        data = self.valid_data.copy()
+        data['date_of_birth'] = None
+
+        response = self.client.post(self.url, data=data, content_type='application/json')
+        self.assertEqual(response.status_code, 201)
+
+        user = get_user_model().objects.get(username=self.local_username)
+        self.assertFalse(user.identity_is_verified)
+        self.assertFalse(user.is_adult)

@@ -9,22 +9,6 @@ invalid_batch = -1
 
 class GetFollowedPostsTests(PositiveOnlySocialTestCase):
 
-    def test_blocked_user_posts_not_in_followed_feed(self):
-        # 1. Block User B (who we are already following from setUp)
-        user_b = get_user_with_username(self.user_b_username)
-        user_a = get_user_with_username(self.user_a_username)
-        user_a.blocked.add(user_b)
-
-        # 2. Get followed feed
-        url = reverse('get_posts_for_followed_users', kwargs={'batch': 0})
-        response = self.client.get(url, **self.user_a_header)
-
-        # 3. Verify empty (since we only follow User B and blocked them)
-        self.assertEqual(response.status_code, 200)
-        responses = response.json()
-        self.assertEqual(len(responses), 0)
-
-
     def setUp(self):
         super().setUp()
 
@@ -131,4 +115,22 @@ class GetFollowedPostsTests(PositiveOnlySocialTestCase):
         responses = response.json()
 
         # Batch 2 should be empty
+        self.assertEqual(len(responses), 0)
+
+    def test_blocked_user_posts_not_in_followed_feed(self):
+        """
+        Tests that the blocked users posts are not in the following feed.
+        """
+        # 1. Block User B (who we are already following from setUp)
+        user_b = get_user_with_username(self.user_b_username)
+        user_a = get_user_with_username(self.user_a_username)
+        user_a.blocked.add(user_b)
+
+        # 2. Get followed feed
+        url = reverse('get_posts_for_followed_users', kwargs={'batch': 0})
+        response = self.client.get(url, **self.user_a_header)
+
+        # 3. Verify empty (since we only follow User B and blocked them)
+        self.assertEqual(response.status_code, 200)
+        responses = response.json()
         self.assertEqual(len(responses), 0)

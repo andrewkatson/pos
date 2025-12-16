@@ -202,7 +202,7 @@ def register(request):
 
     new_user = get_user_model().objects.create_user(username=username, email=email)
     new_user.set_password(password)
-    new_user.identity_is_verified = True
+    new_user.identity_is_verified = True if date_of_birth_str else False
     new_user.is_adult = is_adult
     new_user.save()
 

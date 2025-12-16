@@ -67,7 +67,7 @@ class ReportPostTests(PositiveOnlySocialTestCase):
             self.url, data=self.valid_data, content_type='application/json', **self.poster_header
         )
 
-        self.assertEqual(response.status_code, 404)
+        self.assertEqual(response.status_code, 400)
         self.assertEqual(response.json(), {'error': 'Cannot report own post'})
 
     def test_report_post_twice_returns_bad_response(self):
@@ -88,7 +88,7 @@ class ReportPostTests(PositiveOnlySocialTestCase):
         response2 = self.client.post(
             self.url, data=self.valid_data, content_type='application/json', **self.reporter_header
         )
-        self.assertEqual(response2.status_code, 404)
+        self.assertEqual(response2.status_code, 400)
         self.assertEqual(response2.json(), {'error': 'Cannot report post twice'})
 
         # 4. Verify database count hasn't changed
