@@ -16,7 +16,6 @@ final class SettingsViewModel: ObservableObject {
     @Published var showingLogoutConfirm = false
     @Published var showingDeleteConfirm = false
     @Published var showingErrorAlert = false
-    @Published var showingErrorAlert = false
     @Published var errorMessage = ""
     
     // Verification state
@@ -116,7 +115,7 @@ final class SettingsViewModel: ObservableObject {
                 )
                 
                 // Save updated session to keychain and auth manager
-                try keychainHelper.save(newSession, service: keychainService, account: account)
+                try keychainHelper.save(newSession, for: keychainService, account: account)
                 authManager.login(with: newSession)
                 
                 verificationMessage = "Identity verified successfully!"

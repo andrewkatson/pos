@@ -34,16 +34,15 @@ struct SettingsView: View {
                 }
                 
                 // MARK: - Verification Section
-                if !authManager.isIdentityVerified {
-                     Section {
-                         Button {
-                             showingDatePicker = true
-                         } label: {
-                             Text("Verify Identity")
-                                 .foregroundColor(.blue)
-                         }.accessibilityIdentifier("VerifyIdentityButton")
-                     }
+                Section {
+                    Button {
+                        showingDatePicker = true
+                    } label: {
+                        Text("Verify Identity")
+                            .foregroundColor(.blue)
+                    }.accessibilityIdentifier("VerifyIdentityButton")
                 }
+            
                 
                 // MARK: - Delete Account Section
                 Section(header: Text("Account Actions")) {

@@ -38,7 +38,7 @@ struct Positive_Only_SocialTests_FeedViewModel {
     /// Helper to register a user with the stub API and return their session token.
     /// This is needed because we must decode the nested JSON response.
     private func registerUserAndGetToken(username: String) async throws -> String {
-        let data = try await stubAPI.register(username: username, email: "\(username)@test.com", password: "123", rememberMe: "false", ip: "127.0.0.1")
+        let data = try await stubAPI.register(username: username, email: "\(username)@test.com", password: "123", rememberMe: "false", ip: "127.0.0.1", dateOfBirth: "1970-01-01")
         struct RegFields: Codable { let session_management_token: String }
         struct DjangoRegObject: Codable { let fields: RegFields }
 

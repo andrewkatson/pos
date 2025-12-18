@@ -55,7 +55,7 @@ struct Positive_Only_SocialTests_PostDetailViewModel {
     
     /// Helper to register a user and return their session token.
     private func registerUserAndGetToken(username: String) async throws -> String {
-        let data = try await stubAPI.register(username: username, email: "\(username)@test.com", password: "123", rememberMe: "false", ip: "127.0.0.1")
+        let data = try await stubAPI.register(username: username, email: "\(username)@test.com", password: "123", rememberMe: "false", ip: "127.0.0.1", dateOfBirth: "1970-01-01")
         
         struct RegFields: Decodable { let session_management_token: String }
         

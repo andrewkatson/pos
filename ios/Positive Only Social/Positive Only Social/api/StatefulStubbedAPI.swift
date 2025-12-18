@@ -16,6 +16,7 @@ struct MockUser {
     var passwordHash: String // Storing plain text for mock purposes.
     var resetId: Int = -1
     var identityIsVerified: Bool = false
+    var isAdult: Bool = false
     var blocked: [UUID] = []
     var blockedBy: [UUID] = []
 }
@@ -784,6 +785,8 @@ final class StatefulStubbedAPI: APIProtocol {
             let following_count: Int
             let is_following: Bool
             let is_blocked: Bool
+            let identity_is_verified: Bool
+            let is_adult: Bool
         }
         
         if isBlockedBy {
@@ -793,7 +796,9 @@ final class StatefulStubbedAPI: APIProtocol {
                 follower_count: 0,
                 following_count: 0,
                 is_following: false,
-                is_blocked: isBlocked
+                is_blocked: isBlocked,
+                identity_is_verified: false,
+                is_adult: false
             )
             return try createSerializedResponse(fields: fields)
         }
@@ -804,7 +809,9 @@ final class StatefulStubbedAPI: APIProtocol {
             follower_count: followerCount,
             following_count: followingCount,
             is_following: isFollowing,
-            is_blocked: isBlocked
+            is_blocked: isBlocked,
+            identity_is_verified: profileUser.identityIsVerified,
+            is_adult: profileUser.isAdult
         )
 
         // 6. Return the data using your existing helper

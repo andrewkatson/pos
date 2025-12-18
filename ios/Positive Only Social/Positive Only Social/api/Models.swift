@@ -76,7 +76,6 @@ struct ProfileDetailsResponse: Codable, Identifiable, Hashable {
     var postCount: Int
     var followerCount: Int
     var followingCount: Int
-    var followingCount: Int
     var isFollowing: Bool
     var isBlocked: Bool = false
     var identityIsVerified: Bool = false

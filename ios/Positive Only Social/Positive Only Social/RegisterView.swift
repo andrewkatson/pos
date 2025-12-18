@@ -78,12 +78,6 @@ struct RegisterView: View {
                 .cornerRadius(10)
                 .textContentType(.newPassword)
                 .accessibilityIdentifier("PasswordSecureField")
-
-            SecureField("Confirm Password", text: $confirmPassword)
-                .padding()
-                .background(Color(.systemGray6))
-                .cornerRadius(10)
-                .textContentType(.newPassword)
             SecureField("Confirm Password", text: $confirmPassword)
                 .padding()
                 .background(Color(.systemGray6))

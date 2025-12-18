@@ -35,7 +35,7 @@ enum APIError: Error, LocalizedError {
 // MARK: - Real API Implementation
 /// A concrete class that implements the APIProtocol to make live network requests.
 final class RealAPI: APIProtocol {
-
+    
     /// The base URL for all API endpoints. Remember to replace this with your actual server address.
     private let baseURL = "https://smiling.social/"
     
@@ -44,7 +44,7 @@ final class RealAPI: APIProtocol {
         case get = "GET"
         case post = "POST"
     }
-
+    
     // MARK: - Request Body Structs
     // Defines all Encodable structs used for JSON request bodies.
     
@@ -52,7 +52,6 @@ final class RealAPI: APIProtocol {
         let username: String
         let email: String
         let password: String
-        let remember_me: String
         let remember_me: String
         let ip: String
         let date_of_birth: String
@@ -98,7 +97,7 @@ final class RealAPI: APIProtocol {
     private struct CommentBody: Encodable {
         let comment_text: String
     }
-
+    
     // MARK: - Private Helpers
     
     /// Encodes an `Encodable` value into `Data`.
@@ -112,7 +111,7 @@ final class RealAPI: APIProtocol {
             throw APIError.encodingError(error)
         }
     }
-
+    
     /// A generic helper function to perform a network request.
     /// - Parameter pathSegments: The components of the URL path that will be joined by `/`.
     /// - Parameter method: The HTTP method to use (e.g., .get, .post).
@@ -135,7 +134,7 @@ final class RealAPI: APIProtocol {
         }.joined(separator: "/")
         
         urlComponents?.path = "/" + path
-
+        
         guard let url = urlComponents?.url else {
             throw APIError.invalidURL
         }
@@ -143,7 +142,7 @@ final class RealAPI: APIProtocol {
         // 2. Create the request and set the method
         var request = URLRequest(url: url)
         request.httpMethod = method.rawValue
-
+        
         // 3. Add Headers
         if let authToken = authToken {
             request.setValue("Bearer \(authToken)", forHTTPHeaderField: "Authorization")
@@ -154,16 +153,16 @@ final class RealAPI: APIProtocol {
             request.httpBody = body
             request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         }
-
+        
         // 5. Perform the network call
         do {
             let (data, response) = try await URLSession.shared.data(for: request)
-
+            
             // 6. Validate the HTTP response
             guard let httpResponse = response as? HTTPURLResponse else {
                 throw APIError.badServerResponse(statusCode: -1) // Should not happen with HTTP/S
             }
-
+            
             guard (200...299).contains(httpResponse.statusCode) else {
                 // You could try to decode an error JSON body here if your API sends one
                 // let errorBody = String(data: data, encoding: .utf8)
@@ -180,7 +179,7 @@ final class RealAPI: APIProtocol {
     }
     
     // MARK: - User & Session Management
-
+    
     /// Creates a user if they do not exist.
     func register(username: String, email: String, password: String, rememberMe: String, ip: String, dateOfBirth: String) async throws -> Data {
         let body = RegisterBody(username: username, email: email, password: password, remember_me: rememberMe, ip: ip, date_of_birth: dateOfBirth)
@@ -192,7 +191,7 @@ final class RealAPI: APIProtocol {
             body: requestBody
         )
     }
-
+    
     /// Logs the user in if they exist.
     func loginUser(usernameOrEmail: String, password: String, rememberMe: String, ip: String) async throws -> Data {
         let body = LoginBody(username_or_email: usernameOrEmail, password: password, remember_me: rememberMe, ip: ip)
@@ -204,7 +203,7 @@ final class RealAPI: APIProtocol {
             body: requestBody
         )
     }
-
+    
     /// Logs the user in using a "remember me" token.
     func loginUserWithRememberMe(sessionManagementToken: String, seriesIdentifier: String, loginCookieToken: String, ip: String) async throws -> Data {
         let body = RememberMeBody(
@@ -221,7 +220,7 @@ final class RealAPI: APIProtocol {
             body: requestBody
         )
     }
-
+    
     /// Resets the user's password.
     func resetPassword(username: String, email: String, newPassword: String) async throws -> Data {
         let body = ResetPasswordBody(username: username, email: email, password: newPassword)
@@ -233,7 +232,7 @@ final class RealAPI: APIProtocol {
             body: requestBody
         )
     }
-
+    
     /// Requests a password reset and sends the user an email.
     func requestPasswordReset(usernameOrEmail: String) async throws -> Data {
         let body = RequestResetBody(username_or_email: usernameOrEmail)
@@ -245,7 +244,7 @@ final class RealAPI: APIProtocol {
             body: requestBody
         )
     }
-
+    
     /// Verifies the password reset identifier.
     func verifyPasswordReset(usernameOrEmail: String, resetID: Int) async throws -> Data {
         // This is a GET request, no body or auth.
@@ -254,7 +253,7 @@ final class RealAPI: APIProtocol {
             method: .get
         )
     }
-
+    
     /// Logs the user out.
     func logoutUser(sessionManagementToken: String) async throws -> Data {
         // This is a POST request, no body, with auth.
@@ -273,8 +272,9 @@ final class RealAPI: APIProtocol {
             method: .post,
             authToken: sessionManagementToken
         )
-
-    
+    }
+        
+        
     /// Verifies the identity of the user
     func verifyIdentity(sessionManagementToken: String, dateOfBirth: String) async throws -> Data {
         let body = VerifyIdentityBody(date_of_birth: dateOfBirth)
@@ -297,7 +297,7 @@ final class RealAPI: APIProtocol {
             authToken: sessionManagementToken
         )
     }
-
+    
     /// Unfollow a user
     func unfollowUser(sessionManagementToken: String, username: String) async throws -> Data {
         // This is a POST request, no body, with auth. Username is in path.
@@ -307,13 +307,13 @@ final class RealAPI: APIProtocol {
             authToken: sessionManagementToken
         )
     }
-
+    
     /// Block or unblock a user
     func toggleBlock(sessionManagementToken: String, username: String) async throws -> Data {
         // This is a POST request, no body, with auth. Username is in path.
         // URL pattern: users/<str:username_to_toggle_block>/block/
-        // Wait, backend URL is `users/<username>/block/`. 
-        // My RealAPI seems to use older patterns like `unfollow_user`. 
+        // Wait, backend URL is `users/<username>/block/`.
+        // My RealAPI seems to use older patterns like `unfollow_user`.
         // But `toggle_block` view URL was added as: `path('users/<str:username_to_toggle_block>/block/', views.toggle_block, name='toggle_block')`
         // So the path segments should be ["users", username, "block"]
         return try await performRequest(
@@ -322,9 +322,9 @@ final class RealAPI: APIProtocol {
             authToken: sessionManagementToken
         )
     }
-
+    
     // MARK: - Post Management
-
+    
     /// Creates and stores a new post.
     func makePost(sessionManagementToken: String, imageURL: String, caption: String) async throws -> Data {
         let body = MakePostBody(image_url: imageURL, caption: caption)
@@ -337,7 +337,7 @@ final class RealAPI: APIProtocol {
             authToken: sessionManagementToken
         )
     }
-
+    
     /// Deletes a post.
     func deletePost(sessionManagementToken: String, postIdentifier: String) async throws -> Data {
         // This is a POST request, no body, with auth. ID is in path.
@@ -347,7 +347,7 @@ final class RealAPI: APIProtocol {
             authToken: sessionManagementToken
         )
     }
-
+    
     /// Reports a post for a specific reason.
     func reportPost(sessionManagementToken: String, postIdentifier: String, reason: String) async throws -> Data {
         let body = ReportBody(reason: reason)
@@ -360,7 +360,7 @@ final class RealAPI: APIProtocol {
             authToken: sessionManagementToken
         )
     }
-
+    
     /// Likes a post.
     func likePost(sessionManagementToken: String, postIdentifier: String) async throws -> Data {
         // This is a POST request, no body, with auth. ID is in path.
@@ -370,7 +370,7 @@ final class RealAPI: APIProtocol {
             authToken: sessionManagementToken
         )
     }
-
+    
     /// Unlikes a post.
     func unlikePost(sessionManagementToken: String, postIdentifier: String) async throws -> Data {
         // This is a POST request, no body, with auth. ID is in path.
@@ -380,7 +380,7 @@ final class RealAPI: APIProtocol {
             authToken: sessionManagementToken
         )
     }
-
+    
     /// Gets all posts for the user's feed in batches.
     func getPostsInFeed(sessionManagementToken: String, batch: Int) async throws -> Data {
         // This is a GET request, no body, with auth. Batch is in path.
@@ -390,8 +390,8 @@ final class RealAPI: APIProtocol {
             authToken: sessionManagementToken
         )
     }
-
-        /// Get all posts for a user's feed in batches for anyone they follow.
+    
+    /// Get all posts for a user's feed in batches for anyone they follow.
     func getPostsForFollowedUsers(sessionManagementToken: String, batch: Int) async throws -> Data {
         // This is a GET request, no body, with auth. Batch is in path.
         return try await performRequest(
@@ -400,8 +400,8 @@ final class RealAPI: APIProtocol {
             authToken: sessionManagementToken
         )
     }
-
-
+    
+    
     /// Gets a batch of posts for another user.
     func getPostsForUser(sessionManagementToken: String, username: String, batch: Int) async throws -> Data {
         // This is a GET request, no body, with auth. Username/Batch are in path.
@@ -411,7 +411,7 @@ final class RealAPI: APIProtocol {
             authToken: sessionManagementToken
         )
     }
-
+    
     /// Gets the details for a single post.
     func getPostDetails(postIdentifier: String) async throws -> Data {
         // This is a public GET request, no body, no auth. ID is in path.
@@ -420,9 +420,9 @@ final class RealAPI: APIProtocol {
             method: .get
         )
     }
-
+    
     // MARK: - Comment Management
-
+    
     /// Adds a direct comment to a post.
     func commentOnPost(sessionManagementToken: String, postIdentifier: String, commentText: String) async throws -> Data {
         let body = CommentBody(comment_text: commentText)
@@ -435,7 +435,7 @@ final class RealAPI: APIProtocol {
             authToken: sessionManagementToken
         )
     }
-
+    
     /// Likes a specific comment within a post.
     func likeComment(sessionManagementToken: String, postIdentifier: String, commentThreadIdentifier: String, commentIdentifier: String) async throws -> Data {
         // This is a POST request, no body, with auth. IDs are in path.
@@ -445,7 +445,7 @@ final class RealAPI: APIProtocol {
             authToken: sessionManagementToken
         )
     }
-
+    
     /// Unlikes a specific comment.
     func unlikeComment(sessionManagementToken: String, postIdentifier: String, commentThreadIdentifier: String, commentIdentifier: String) async throws -> Data {
         // This is a POST request, no body, with auth. IDs are in path.
@@ -455,7 +455,7 @@ final class RealAPI: APIProtocol {
             authToken: sessionManagementToken
         )
     }
-
+    
     /// Deletes a comment.
     func deleteComment(sessionManagementToken: String, postIdentifier: String, commentThreadIdentifier: String, commentIdentifier: String) async throws -> Data {
         // This is a POST request, no body, with auth. IDs are in path.
@@ -465,7 +465,7 @@ final class RealAPI: APIProtocol {
             authToken: sessionManagementToken
         )
     }
-
+    
     /// Reports a comment for a specific reason.
     func reportComment(sessionManagementToken: String, postIdentifier: String, commentThreadIdentifier: String, commentIdentifier: String, reason: String) async throws -> Data {
         let body = ReportBody(reason: reason)
@@ -478,7 +478,7 @@ final class RealAPI: APIProtocol {
             authToken: sessionManagementToken
         )
     }
-
+    
     /// Gets a batch of comments for a post.
     func getCommentsForPost(postIdentifier: String, batch: Int) async throws -> Data {
         // This is a GET request, no body, with no auth. ID/Batch are in path.
@@ -487,7 +487,7 @@ final class RealAPI: APIProtocol {
             method: .get,
         )
     }
-
+    
     /// Gets a batch of comments for a specific comment thread.
     func getCommentsForThread(commentThreadIdentifier: String, batch: Int) async throws -> Data {
         // This is a GET request, no body, with no auth. ID/Batch are in path.
@@ -496,7 +496,7 @@ final class RealAPI: APIProtocol {
             method: .get,
         )
     }
-
+    
     /// Replies to a comment thread.
     func replyToCommentThread(sessionManagementToken: String, postIdentifier: String, commentThreadIdentifier: String, commentText: String) async throws -> Data {
         let body = CommentBody(comment_text: commentText)
@@ -509,9 +509,9 @@ final class RealAPI: APIProtocol {
             authToken: sessionManagementToken
         )
     }
-
+    
     // MARK: - User Discovery
-
+    
     /// Gets users with a username matching the provided fragment.
     func getUsersMatchingFragment(sessionManagementToken: String, usernameFragment: String) async throws -> Data {
         // This is a GET request, no body, with auth. Fragment is in path.

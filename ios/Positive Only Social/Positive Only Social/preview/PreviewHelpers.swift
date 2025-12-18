@@ -84,7 +84,7 @@ struct MockedAPI: APIProtocol {
 
     // MARK: - User & Session Management
 
-    func register(username: String, email: String, password: String, rememberMe: String, ip: String) async throws -> Data {
+    func register(username: String, email: String, password: String, rememberMe: String, ip: String, dateOfBirth: String) async throws -> Data {
         let response = LoginResponseFields(
             sessionManagementToken: "mock_session_token",
             seriesIdentifier: "mock_series_id",
@@ -108,8 +108,11 @@ struct MockedAPI: APIProtocol {
             seriesIdentifier: "mock_series_id",
             loginCookieToken: "new_mock_cookie"
         )
-        // WelcomeView expects a list for this call
-        return try encodeList([response])
+        return try encodeSingle(response)
+    }
+    
+    func verifyIdentity(sessionManagementToken: String, dateOfBirth: String) async throws -> Data {
+        return try encodeGenericSuccess()
     }
 
     func resetPassword(username: String, email: String, newPassword: String) async throws -> Data {
