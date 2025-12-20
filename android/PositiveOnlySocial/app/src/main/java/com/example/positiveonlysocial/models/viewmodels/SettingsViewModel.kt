@@ -58,7 +58,10 @@ class SettingsViewModel(
                 
                 if (userSession != null) {
                     // Call API to invalidate token on server
-                    api.logout(userSession.sessionToken)
+                    val response = api.logout(userSession.sessionToken)
+                    if (!response.isSuccessful) {
+                        println("Backend logout failed: ${response.message()}")
+                    }
                 }
                 
                 // Clear local session regardless of API success

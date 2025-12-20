@@ -105,6 +105,10 @@ class PositiveOnlySocialIntegrationTests {
 
         composeTestRule.onNodeWithText("Register").performClick()
 
+        // Privacy Policy Dialog
+        composeTestRule.onNodeWithText("Privacy Policy").assertExists()
+        composeTestRule.onNodeWithText("Ok").performClick()
+
         assertOnHomeView()
     }
 

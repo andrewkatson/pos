@@ -39,11 +39,80 @@ fun RegisterScreen(
     var isLoading by remember { mutableStateOf(false) }
     var errorMessage by remember { mutableStateOf<String?>(null) }
     var showingErrorAlert by remember { mutableStateOf(false) }
+    var showingPrivacyPolicy by remember { mutableStateOf(false) }
 
     val scope = rememberCoroutineScope()
 
     val isPasswordMatching = confirmPassword.isEmpty() || password == confirmPassword
     val isFormValid = username.isNotEmpty() && email.isNotEmpty() && password.isNotEmpty() && password == confirmPassword && dateOfBirth.isNotEmpty()
+
+    if (showingPrivacyPolicy) {
+        AlertDialog(
+            onDismissRequest = { showingPrivacyPolicy = false },
+            title = { Text("Privacy Policy") },
+            text = {
+                Text("We collect your username and password for authentication. We do not store your date of birth or any other personal information. We store your posts, comments, and related metadata such as like counts and reports. We also track follower/following relationships and blocked users to maintain the social environment.")
+            },
+            confirmButton = {
+                Button(onClick = { 
+                    showingPrivacyPolicy = false
+                    // Start registration
+                    isLoading = true
+                    scope.launch {
+                        try {
+                            val registerRequest = RegisterRequest(
+                                username = username,
+                                email = email,
+                                password = password,
+                                rememberMe = "false",
+                                ip = "127.0.0.1",
+                                dateOfBirth = dateOfBirth
+                            )
+
+                            val response = api.register(
+                                request = registerRequest
+                            )
+
+                            if (response.isSuccessful) {
+                                val session = UserSession(
+                                    sessionToken = response.body()?.sessionToken ?: "dummy_token",
+                                    username = username,
+                                    isIdentityVerified = false
+                                )
+                                authManager.login(session)
+                                
+                                // Navigate to Home, clearing back stack
+                                navController.navigate(Screen.Home.route) {
+                                    popUpTo(Screen.Login.route) { inclusive = true }
+                                }
+                            } else {
+                                val errorBody = response.errorBody()?.string()
+                                val errorMsg = try {
+                                    org.json.JSONObject(errorBody).getString("error")
+                                } catch (e: Exception) {
+                                    "Registration failed. Username or email may be taken."
+                                }
+                                errorMessage = errorMsg
+                                showingErrorAlert = true
+                            }
+                        } catch (e: Exception) {
+                            errorMessage = "Registration failed. Please check your network connection."
+                            showingErrorAlert = true
+                        } finally {
+                            isLoading = false
+                        }
+                    }
+                }) {
+                    Text("Ok")
+                }
+            },
+            dismissButton = {
+                Button(onClick = { showingPrivacyPolicy = false }) {
+                    Text("Cancel")
+                }
+            }
+        )
+    }
 
     if (showingErrorAlert) {
         AlertDialog(
@@ -133,52 +202,7 @@ fun RegisterScreen(
         } else {
             Button(
                 onClick = {
-                    scope.launch {
-                        isLoading = true
-                        try {
-
-                            val registerRequest = RegisterRequest(
-                                username = username,
-                                email = email,
-                                password = password,
-                                rememberMe = "false",
-                                ip = "127.0.0.1",
-                                dateOfBirth = dateOfBirth
-                            )
-
-                            val response = api.register(
-                                request = registerRequest
-                            )
-
-                            if (response.isSuccessful) {
-                                val session = UserSession(
-                                    sessionToken = response.body()?.sessionToken ?: "dummy_token",
-                                    username = username,
-                                    isIdentityVerified = false
-                                )
-                                authManager.login(session)
-                                
-                                // Navigate to Home, clearing back stack
-                                navController.navigate(Screen.Home.route) {
-                                    popUpTo(Screen.Login.route) { inclusive = true }
-                                }
-                            } else {
-                                val errorBody = response.errorBody()?.string()
-                                val errorMsg = try {
-                                    org.json.JSONObject(errorBody).getString("error")
-                                } catch (e: Exception) {
-                                    "Registration failed. Username or email may be taken."
-                                }
-                                errorMessage = errorMsg
-                                showingErrorAlert = true
-                            }
-                        } catch (e: Exception) {
-                            errorMessage = "Registration failed. Please check your network connection."
-                            showingErrorAlert = true
-                        } finally {
-                            isLoading = false
-                        }
-                    }
+                    showingPrivacyPolicy = true
                 },
                 modifier = Modifier.fillMaxWidth(),
                 enabled = isFormValid

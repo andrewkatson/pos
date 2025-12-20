@@ -65,6 +65,23 @@ fun SettingsScreen(
     val errorMessage by viewModel.errorMessage.collectAsState()
     val showingErrorAlert by viewModel.showingErrorAlert.collectAsState()
 
+    var showingPrivacyPolicy by remember { mutableStateOf(false) }
+
+    if (showingPrivacyPolicy) {
+        AlertDialog(
+            onDismissRequest = { showingPrivacyPolicy = false },
+            title = { Text("Privacy Policy") },
+            text = {
+                Text("We collect your username and password for authentication. We do not store your date of birth or any other personal information. We store your posts, comments, and related metadata such as like counts and reports. We also track follower/following relationships and blocked users to maintain the social environment.")
+            },
+            confirmButton = {
+                Button(onClick = { showingPrivacyPolicy = false }) {
+                    Text("Ok")
+                }
+            }
+        )
+    }
+
     if (showingLogoutConfirm) {
         AlertDialog(
             onDismissRequest = { showingLogoutConfirm = false },
@@ -222,11 +239,29 @@ fun SettingsScreen(
         }
         
         HorizontalDivider()
+
+        ListListItem(text = "Privacy Policy") {
+            showingPrivacyPolicy = true
+        }
+
+        HorizontalDivider()
         
         ListListItem(text = "Logout", textColor = Color.Red) {
             showingLogoutConfirm = true
         }
         
+        HorizontalDivider()
+        
+        Text(
+            text = "Contact Information",
+            style = MaterialTheme.typography.titleMedium,
+            modifier = Modifier.padding(16.dp)
+        )
+        
+        ListListItem(text = "katsonsoftware@gmail.com") {
+            // Optional: Add logic to open email app
+        }
+
         HorizontalDivider()
         
         Text(

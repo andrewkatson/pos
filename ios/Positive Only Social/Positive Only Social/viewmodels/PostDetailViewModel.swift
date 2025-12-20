@@ -147,9 +147,16 @@ final class PostDetailViewModel: ObservableObject {
         }
         
         Task {
-            let userSession = try keychainHelper.load(UserSession.self, from: "positive-only-social.Positive-Only-Social", account: account) ?? UserSession(sessionToken: "123", username: "test", isIdentityVerified: false)
-            let token = userSession.sessionToken
-            _ = try await api.likePost(sessionManagementToken: token, postIdentifier: postIdentifier)
+            do {
+                let userSession = try keychainHelper.load(UserSession.self, from: "positive-only-social.Positive-Only-Social", account: account) ?? UserSession(sessionToken: "123", username: "test", isIdentityVerified: false)
+                let token = userSession.sessionToken
+                _ = try await api.likePost(sessionManagementToken: token, postIdentifier: postIdentifier)
+            } catch {
+                print("Failed to like post: \(error)")
+                await MainActor.run {
+                    self.alertMessage = "Failed to like post: \(error.localizedDescription)"
+                }
+            }
         }
     }
     
@@ -168,20 +175,34 @@ final class PostDetailViewModel: ObservableObject {
         }
         
         Task {
-            let userSession = try keychainHelper.load(UserSession.self, from: "positive-only-social.Positive-Only-Social", account: account) ?? UserSession(sessionToken: "123", username: "test", isIdentityVerified: false)
-            let token = userSession.sessionToken
-            _ = try await api.unlikePost(sessionManagementToken: token, postIdentifier: postIdentifier)
+            do {
+                let userSession = try keychainHelper.load(UserSession.self, from: "positive-only-social.Positive-Only-Social", account: account) ?? UserSession(sessionToken: "123", username: "test", isIdentityVerified: false)
+                let token = userSession.sessionToken
+                _ = try await api.unlikePost(sessionManagementToken: token, postIdentifier: postIdentifier)
+            } catch {
+                print("Failed to unlike post: \(error)")
+                await MainActor.run {
+                    self.alertMessage = "Failed to unlike post: \(error.localizedDescription)"
+                }
+            }
         }
     }
     
     func reportPost(reason: String) {
         print("ACTION: Report post \(postIdentifier) for reason: \(reason)")
         Task {
-            let userSession = try keychainHelper.load(UserSession.self, from: "positive-only-social.Positive-Only-Social", account: account) ?? UserSession(sessionToken: "123", username: "test", isIdentityVerified: false)
-            let token = userSession.sessionToken
-            _ = try await api.reportPost(sessionManagementToken: token, postIdentifier: postIdentifier, reason: reason)
-            await MainActor.run {
-                isPostReported = true
+            do {
+                let userSession = try keychainHelper.load(UserSession.self, from: "positive-only-social.Positive-Only-Social", account: account) ?? UserSession(sessionToken: "123", username: "test", isIdentityVerified: false)
+                let token = userSession.sessionToken
+                _ = try await api.reportPost(sessionManagementToken: token, postIdentifier: postIdentifier, reason: reason)
+                await MainActor.run {
+                    isPostReported = true
+                }
+            } catch {
+                print("Failed to report post: \(error)")
+                await MainActor.run {
+                    self.alertMessage = "Failed to report post: \(error.localizedDescription)"
+                }
             }
         }
     }
@@ -220,9 +241,16 @@ final class PostDetailViewModel: ObservableObject {
         // --- ⬆️ END OF OPTIMISTIC UPDATE ⬆️ ---
 
         Task {
-            let userSession = try keychainHelper.load(UserSession.self, from: "positive-only-social.Positive-Only-Social", account: account) ?? UserSession(sessionToken: "123", username: "test", isIdentityVerified: false)
-            let token = userSession.sessionToken
-            _ = try await api.likeComment(sessionManagementToken: token, postIdentifier: postIdentifier, commentThreadIdentifier: comment.threadId, commentIdentifier: comment.id)
+            do {
+                let userSession = try keychainHelper.load(UserSession.self, from: "positive-only-social.Positive-Only-Social", account: account) ?? UserSession(sessionToken: "123", username: "test", isIdentityVerified: false)
+                let token = userSession.sessionToken
+                _ = try await api.likeComment(sessionManagementToken: token, postIdentifier: postIdentifier, commentThreadIdentifier: comment.threadId, commentIdentifier: comment.id)
+            } catch {
+                print("Failed to like comment: \(error)")
+                await MainActor.run {
+                    self.alertMessage = "Failed to like comment: \(error.localizedDescription)"
+                }
+            }
         }
     }
     
@@ -257,21 +285,35 @@ final class PostDetailViewModel: ObservableObject {
         // --- ⬆️ END OF OPTIMISTIC UPDATE ⬆️ ---
 
         Task {
-            let userSession = try keychainHelper.load(UserSession.self, from: "positive-only-social.Positive-Only-Social", account: account) ?? UserSession(sessionToken: "123", username: "test", isIdentityVerified: false)
-            let token = userSession.sessionToken
-            _ = try await api.unlikeComment(sessionManagementToken: token, postIdentifier: postIdentifier, commentThreadIdentifier: comment.threadId, commentIdentifier: comment.id)
+            do {
+                let userSession = try keychainHelper.load(UserSession.self, from: "positive-only-social.Positive-Only-Social", account: account) ?? UserSession(sessionToken: "123", username: "test", isIdentityVerified: false)
+                let token = userSession.sessionToken
+                _ = try await api.unlikeComment(sessionManagementToken: token, postIdentifier: postIdentifier, commentThreadIdentifier: comment.threadId, commentIdentifier: comment.id)
+            } catch {
+                print("Failed to unlike comment: \(error)")
+                await MainActor.run {
+                    self.alertMessage = "Failed to unlike comment: \(error.localizedDescription)"
+                }
+            }
         }
     }
     
     func reportComment(_ comment: CommentViewData, reason: String) {
         print("ACTION: Report comment \(comment.id) for reason: \(reason)")
         Task {
-            let userSession = try keychainHelper.load(UserSession.self, from: "positive-only-social.Positive-Only-Social", account: account) ?? UserSession(sessionToken: "123", username: "test", isIdentityVerified: false)
-            let token = userSession.sessionToken
-            _ = try await api.reportComment(sessionManagementToken: token, postIdentifier: postIdentifier, commentThreadIdentifier: comment.threadId, commentIdentifier: comment.id, reason: reason)
-            
-            await MainActor.run {
-                reportedCommentIds.insert(comment.id)
+            do {
+                let userSession = try keychainHelper.load(UserSession.self, from: "positive-only-social.Positive-Only-Social", account: account) ?? UserSession(sessionToken: "123", username: "test", isIdentityVerified: false)
+                let token = userSession.sessionToken
+                _ = try await api.reportComment(sessionManagementToken: token, postIdentifier: postIdentifier, commentThreadIdentifier: comment.threadId, commentIdentifier: comment.id, reason: reason)
+                
+                await MainActor.run {
+                    reportedCommentIds.insert(comment.id)
+                }
+            } catch {
+                print("Failed to report comment: \(error)")
+                await MainActor.run {
+                    self.alertMessage = "Failed to report comment: \(error.localizedDescription)"
+                }
             }
         }
     }

@@ -15,6 +15,7 @@ struct SettingsView: View {
     @StateObject private var viewModel: SettingsViewModel
     @State private var dateOfBirth = Date()
     @State private var showingDatePicker = false
+    @State private var showingPrivacyPolicy = false
     
     init(api: APIProtocol, keychainHelper: KeychainHelperProtocol) {
         _viewModel = StateObject(wrappedValue: SettingsViewModel(api: api, keychainHelper: keychainHelper))
@@ -23,6 +24,12 @@ struct SettingsView: View {
     var body: some View {
         NavigationStack {
             List {
+                // MARK: - Contact Information Section
+                Section(header: Text("Contact Information")) {
+                    Text("katsonsoftware@gmail.com")
+                        .foregroundColor(.gray)
+                }
+
                 // MARK: - Logout Section
                 Section {
                     Button(role: .destructive) {
@@ -41,6 +48,14 @@ struct SettingsView: View {
                         Text("Verify Identity")
                             .foregroundColor(.blue)
                     }.accessibilityIdentifier("VerifyIdentityButton")
+                }
+                
+                Section {
+                    Button {
+                        showingPrivacyPolicy = true
+                    } label: {
+                        Text("Privacy Policy")
+                    }.accessibilityIdentifier("PrivacyPolicyButton")
                 }
             
                 
@@ -80,6 +95,11 @@ struct SettingsView: View {
                 Button("OK", role: .cancel) { }
             } message: {
                 Text(viewModel.verificationMessage)
+            }
+            .alert("Privacy Policy", isPresented: $showingPrivacyPolicy) {
+                Button("Ok", role: .cancel) { }
+            } message: {
+                Text("We collect your username and password for authentication. We do not store your date of birth or any other personal information. We store your posts, comments, and related metadata such as like counts and reports. We also track follower/following relationships and blocked users to maintain the social environment.")
             }
             .sheet(isPresented: $showingDatePicker) {
                 VStack(spacing: 20) {

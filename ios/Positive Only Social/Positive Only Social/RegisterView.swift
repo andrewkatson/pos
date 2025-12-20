@@ -29,6 +29,7 @@ struct RegisterView: View {
     @State private var isLoading = false
     @State private var errorMessage: String?
     @State private var showingErrorAlert = false
+    @State private var showingPrivacyPolicy = false
     
     // Unique identifiers for Keychain
     private let keychainService = "positive-only-social.Positive-Only-Social" // CHANGE to your app's bundle ID
@@ -102,11 +103,10 @@ struct RegisterView: View {
 
             Spacer()
 
-            // MARK: - Register Button
             if isLoading {
                 ProgressView()
             } else {
-                Button(action: register) {
+                Button(action: { showingPrivacyPolicy = true }) {
                     Text("Register")
                         .font(.headline)
                         .fontWeight(.semibold)
@@ -128,6 +128,15 @@ struct RegisterView: View {
         } message: {
             Text(errorMessage ?? "An unknown error occurred.")
         }
+        .alert("Privacy Policy", isPresented: $showingPrivacyPolicy) {
+            Button("Ok") {
+                register()
+            }
+            Button("Cancel", role: .cancel) { }
+        } message: {
+            Text("We collect your username and password for authentication. We do not store your date of birth or any other personal information. We store your posts, comments, and related metadata such as like counts and reports. We also track follower/following relationships and blocked users to maintain the social environment.")
+        }
+    }
     }
 
     // MARK: - Registration Action

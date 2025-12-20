@@ -157,6 +157,10 @@ final class Positive_Only_SocialUITests: XCTestCase {
         let otherRegisterButton = app.buttons["RegisterButton"]
         otherRegisterButton.tap()
         
+        let privacyPolicyAlert = app.alerts["Privacy Policy"]
+        XCTAssertTrue(privacyPolicyAlert.waitForExistence(timeout: 5))
+        privacyPolicyAlert.buttons["Ok"].tap()
+        
         assertOnHomeView(app: app)
     }
     

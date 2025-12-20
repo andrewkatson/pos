@@ -139,27 +139,20 @@ class PostDetailViewModel(
     }
 
     fun likePost() {
-        // Optimistic update
-        // Note: Post model doesn't have likeCount directly exposed as mutable var easily without copy
-        // But Post is a data class so copy works.
-        // However, Post model in Swift/Kotlin update removed likeCount from Post?
-        // Let's check Models.kt.
-        // Post: postIdentifier, imageUrl, caption, authorUsername. NO likeCount.
-        // PostDisplayData has likeCount.
-        // But _postDetail holds Post.
-        // So I cannot optimistically update likeCount on _postDetail if it doesn't have it.
-        // I might need to fetch details again or use PostDisplayData in ViewModel.
-        // For now, I will just make the API call.
-        
         viewModelScope.launch {
             try {
                 val userSession = keychainHelper.load(UserSession::class.java, service, account)
                     ?: UserSession("123", "testuser", false, null, null)
-                api.likePost(userSession.sessionToken, postIdentifier)
-                // Reload data to get fresh counts
-                loadAllData()
+                val response = api.likePost(userSession.sessionToken, postIdentifier)
+                if (response.isSuccessful) {
+                    // Reload data to get fresh counts
+                    loadAllData()
+                } else {
+                    _alertMessage.value = "Failed to like post: ${response.message()}"
+                }
             } catch (e: Exception) {
                 println("Failed to like post: $e")
+                _alertMessage.value = "Error: ${e.localizedMessage}"
             }
         }
     }
@@ -169,10 +162,15 @@ class PostDetailViewModel(
             try {
                 val userSession = keychainHelper.load(UserSession::class.java, service, account)
                     ?: UserSession("123", "testuser", false, null, null)
-                api.unlikePost(userSession.sessionToken, postIdentifier)
-                loadAllData()
+                val response = api.unlikePost(userSession.sessionToken, postIdentifier)
+                if (response.isSuccessful) {
+                    loadAllData()
+                } else {
+                    _alertMessage.value = "Failed to unlike post: ${response.message()}"
+                }
             } catch (e: Exception) {
                 println("Failed to unlike post: $e")
+                _alertMessage.value = "Error: ${e.localizedMessage}"
             }
         }
     }
@@ -182,25 +180,33 @@ class PostDetailViewModel(
             try {
                 val userSession = keychainHelper.load(UserSession::class.java, service, account)
                     ?: UserSession("123", "testuser", false, null, null)
-                api.reportPost(userSession.sessionToken, postIdentifier, ReportRequest(reason))
+                val response = api.reportPost(userSession.sessionToken, postIdentifier, ReportRequest(reason))
+                if (response.isSuccessful) {
+                    _alertMessage.value = "Post reported successfully."
+                } else {
+                    _alertMessage.value = "Failed to report post: ${response.message()}"
+                }
             } catch (e: Exception) {
                 println("Failed to report post: $e")
+                _alertMessage.value = "Error: ${e.localizedMessage}"
             }
         }
     }
 
     fun likeComment(comment: CommentViewData, threadId: String) {
-        // Optimistic update - tricky with nested lists and ViewData conversion
-        // Skipping optimistic update for now to ensure correctness first
-        
         viewModelScope.launch {
             try {
                 val userSession = keychainHelper.load(UserSession::class.java, service, account)
                     ?: UserSession("123", "testuser", false, null, null)
-                api.likeComment(userSession.sessionToken, postIdentifier, threadId, comment.id)
-                loadAllData()
+                val response = api.likeComment(userSession.sessionToken, postIdentifier, threadId, comment.id)
+                if (response.isSuccessful) {
+                    loadAllData()
+                } else {
+                    _alertMessage.value = "Failed to like comment: ${response.message()}"
+                }
             } catch (e: Exception) {
                 println("Failed to like comment: $e")
+                _alertMessage.value = "Error: ${e.localizedMessage}"
             }
         }
     }
@@ -210,10 +216,15 @@ class PostDetailViewModel(
             try {
                 val userSession = keychainHelper.load(UserSession::class.java, service, account)
                     ?: UserSession("123", "testuser", false, null, null)
-                api.unlikeComment(userSession.sessionToken, postIdentifier, threadId, comment.id)
-                loadAllData()
+                val response = api.unlikeComment(userSession.sessionToken, postIdentifier, threadId, comment.id)
+                if (response.isSuccessful) {
+                    loadAllData()
+                } else {
+                    _alertMessage.value = "Failed to unlike comment: ${response.message()}"
+                }
             } catch (e: Exception) {
                 println("Failed to unlike comment: $e")
+                _alertMessage.value = "Error: ${e.localizedMessage}"
             }
         }
     }
@@ -223,9 +234,15 @@ class PostDetailViewModel(
             try {
                 val userSession = keychainHelper.load(UserSession::class.java, service, account)
                     ?: UserSession("123", "testuser", false, null, null)
-                api.reportComment(userSession.sessionToken, postIdentifier, threadId, comment.id, ReportRequest(reason))
+                val response = api.reportComment(userSession.sessionToken, postIdentifier, threadId, comment.id, ReportRequest(reason))
+                if (response.isSuccessful) {
+                    _alertMessage.value = "Comment reported successfully."
+                } else {
+                    _alertMessage.value = "Failed to report comment: ${response.message()}"
+                }
             } catch (e: Exception) {
                 println("Failed to report comment: $e")
+                _alertMessage.value = "Error: ${e.localizedMessage}"
             }
         }
     }
@@ -248,7 +265,13 @@ class PostDetailViewModel(
                     _newCommentText.value = ""
                     loadAllData() // Reload to get the new thread
                 } else {
-                    _alertMessage.value = "Failed to post comment"
+                    val errorBody = response.errorBody()?.string()
+                    val errorMsg = try {
+                        org.json.JSONObject(errorBody).getString("error")
+                    } catch (e: Exception) {
+                        "Failed to post comment"
+                    }
+                    _alertMessage.value = errorMsg
                 }
             } catch (e: Exception) {
                 _alertMessage.value = "Failed to post comment: ${e.localizedMessage}"
@@ -274,7 +297,13 @@ class PostDetailViewModel(
                 if (response.isSuccessful) {
                     loadAllData() // Reload to get the new comment
                 } else {
-                    _alertMessage.value = "Failed to post reply"
+                    val errorBody = response.errorBody()?.string()
+                    val errorMsg = try {
+                        org.json.JSONObject(errorBody).getString("error")
+                    } catch (e: Exception) {
+                        "Failed to post reply"
+                    }
+                    _alertMessage.value = errorMsg
                 }
             } catch (e: Exception) {
                 _alertMessage.value = "Failed to post reply: ${e.localizedMessage}"
