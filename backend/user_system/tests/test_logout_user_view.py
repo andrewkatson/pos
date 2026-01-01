@@ -1,6 +1,6 @@
 from django.urls import reverse
 
-from backend.user_system.constants import Fields
+from ..constants import Fields
 from .test_parent_case import PositiveOnlySocialTestCase
 
 invalid_session_management_token = '?'

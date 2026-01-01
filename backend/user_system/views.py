@@ -1,4 +1,5 @@
 import json
+import logging
 from datetime import datetime, date
 
 from functools import wraps
@@ -23,6 +24,8 @@ from .utils import convert_to_bool, generate_login_cookie_token, generate_manage
 image_classifier_class = image_classifier
 text_classifier_class = text_classifier
 feed_algorithm_class = feed_algorithm
+
+logger = logging.getLogger(__name__)
 
 def get_user_with_username_and_email(username, email):
     try:
@@ -153,6 +156,7 @@ def api_login_required(view_func):
 def register(request):
     data = _get_json_body(request)
     if data is None:
+        logger.warning("Registration failed: Invalid JSON data")
         return JsonResponse({'error': "Invalid JSON data"}, status=400)
 
     username = data.get(Fields.username)
@@ -181,6 +185,7 @@ def register(request):
             if age >= 18:
                 is_adult = True
         except ValueError:
+            logger.warning("Registration failed: Invalid date_of_birth format")
             invalid_fields.append('date_of_birth')
     else:
         # If date_of_birth is mandatory, uncomment the next line
@@ -198,7 +203,16 @@ def register(request):
 
     # Check no user has this email or username.
     if get_user_with_username(username) is not None or get_user_with_email(email) is not None:
+        logger.warning("Registration failed: User already exists")
         return JsonResponse({'error': "User already exists"}, status=400)
+
+    # Classify text fields for positivity
+    if not text_classifier_class.is_text_positive(username):
+        return JsonResponse({'error': "Username is not positive"}, status=400)
+    if not text_classifier_class.is_text_positive(email):
+        return JsonResponse({'error': "Email is not positive"}, status=400)
+    if not text_classifier_class.is_text_positive(password):
+        return JsonResponse({'error': "Password is not positive"}, status=400)
 
     new_user = get_user_model().objects.create_user(username=username, email=email)
     new_user.set_password(password)
@@ -222,6 +236,7 @@ def register(request):
         response_data[Fields.series_identifier] = new_login_cookie.series_identifier
         response_data[Fields.login_cookie_token] = new_login_cookie.token
 
+    logger.info(f"Registration successful for user_id: {new_user.id}")
     return JsonResponse(response_data, status=201)
 
 
@@ -231,11 +246,13 @@ def register(request):
 def verify_identity(request):
     data = _get_json_body(request)
     if data is None:
+        logger.warning(f"Identity verification failed: Invalid JSON data for user_id: {request.user.id}")
         return JsonResponse({'error': "Invalid JSON data"}, status=400)
 
     date_of_birth_str = data.get('date_of_birth')
     
     if not date_of_birth_str:
+         logger.warning(f"Identity verification failed: Missing date_of_birth for user_id: {request.user.id}")
          return JsonResponse({'error': "Missing date_of_birth"}, status=400)
 
     try:
@@ -251,8 +268,10 @@ def verify_identity(request):
             
         request.user.save()
         
+        logger.info(f"Identity verification successful for user_id: {request.user.id}")
         return JsonResponse({'message': 'Identity verified'})
     except ValueError:
+        logger.warning(f"Identity verification failed: Invalid date format for user_id: {request.user.id}")
         return JsonResponse({'error': "Invalid date format, expected YYYY-MM-DD"}, status=400)
 
 
@@ -261,6 +280,7 @@ def verify_identity(request):
 def login_user(request):
     data = _get_json_body(request)
     if data is None:
+        logger.warning("Login failed: Invalid JSON data")
         return JsonResponse({'error': "Invalid JSON data"}, status=400)
 
     username_or_email = data.get(Fields.username_or_email)
@@ -290,6 +310,7 @@ def login_user(request):
     existing = get_user_with_username_or_email(username_or_email)
     if existing is not None:
         if not check_password(password, existing.password):
+            logger.warning(f"Login failed: Password was not correct for user_id: {existing.id}")
             return JsonResponse({'error': "Password was not correct"}, status=400)
 
         login(request, existing)  # Logs into Django's session auth
@@ -308,8 +329,10 @@ def login_user(request):
             response_data[Fields.series_identifier] = new_login_cookie.series_identifier
             response_data[Fields.login_cookie_token] = new_login_cookie.token
 
+        logger.info(f"Login successful for user_id: {existing.id}")
         return JsonResponse(response_data)
     else:
+        logger.warning("Login failed: No user exists with that information")
         return JsonResponse({'error': "No user exists with that information"}, status=400)
 
 
@@ -318,6 +341,7 @@ def login_user(request):
 def login_user_with_remember_me(request):
     data = _get_json_body(request)
     if data is None:
+        logger.warning("Login with remember me failed: Invalid JSON data")
         return JsonResponse({'error': "Invalid JSON data"}, status=400)
 
     session_management_token = data.get(Fields.session_management_token)
@@ -341,11 +365,14 @@ def login_user_with_remember_me(request):
     try:
         matching_login_cookie = LoginCookie.objects.get(series_identifier=series_identifier)
     except LoginCookie.DoesNotExist:
+        logger.warning(f"Login with remember me failed: Series identifier does not exist: {series_identifier}")
         return JsonResponse({'error': "Series identifier does not exist"}, status=400)
     except LoginCookie.MultipleObjectsReturned:
+        logger.error(f"Login with remember me failed: Series identifier exists too many times: {series_identifier}")
         return JsonResponse({'error': "Series identifier exists too many times"}, status=400)
 
     if matching_login_cookie.token != login_cookie_token:
+        logger.warning(f"Login with remember me failed: Login cookie token does not match for series: {series_identifier}")
         return JsonResponse({'error': "Login cookie token does not match"}, status=400)
 
     # Issue a new login cookie token (token rotation)
@@ -356,6 +383,7 @@ def login_user_with_remember_me(request):
     # Get the user with the *old* session management token
     existing = get_user_with_session_management_token(session_management_token)
     if existing is None:
+        logger.warning("Login with remember me failed: Original session token is invalid")
         return JsonResponse({'error': "Original session token is invalid"}, status=400)
 
     # Issue a new session management token
@@ -366,6 +394,7 @@ def login_user_with_remember_me(request):
         Fields.login_cookie_token: new_login_cookie_token,
         Fields.session_management_token: new_session_management_token
     }
+    logger.info(f"Login with remember me successful for user_id: {existing.id}")
     return JsonResponse(response_data)
 
 
@@ -380,9 +409,11 @@ def logout_user(request):
         session.delete()
     except Session.DoesNotExist:
         # This could happen if the token is valid but the session was already deleted
+        logger.warning(f"Logout failed: Session not found or already logged out for user_id: {request.user.id}")
         return JsonResponse({'error': 'Session not found or already logged out'}, status=400)
 
     logout(request)  # Also log out of the standard Django session
+    logger.info(f"Logout successful for user_id: {request.user.id}")
     return JsonResponse({'message': 'Logout successful'})
 
 
@@ -393,10 +424,13 @@ def delete_user(request):
     # request.user is attached by the decorator
     try:
         user_to_delete = request.user
+        user_id = user_to_delete.id
         logout(request)  # Log out of Django session first
         user_to_delete.delete()  # This will cascade and delete sessions, posts, etc.
+        logger.info(f"User deleted successfully: user_id: {user_id}")
         return JsonResponse({'message': 'User deleted successfully'})
     except Exception as e:
+        logger.error(f"Error deleting user {request.user.id}: {e}")
         return JsonResponse({'error': f"Error deleting user {e}"}, status=400)
 
 
@@ -428,8 +462,10 @@ def request_reset(request):
 
         user.reset_id = random_number
         user.save()
+        logger.info(f"Password reset request successful for user_id: {user.id}")
         return JsonResponse({'message': 'Reset email sent'})
     else:
+        logger.warning("Password reset request failed: No user with that username or email")
         return JsonResponse({'error': "No user with that username or email"}, status=400)
 
 
@@ -454,10 +490,13 @@ def verify_reset(request, username_or_email, reset_id):
         if user.reset_id == int(reset_id) and user.reset_id >= 0:
             user.reset_id = -1  # Invalidate the reset ID
             user.save()
+            logger.info(f"Password reset verification successful for user_id: {user.id}")
             return JsonResponse({'message': 'Verification successful'})
         else:
+            logger.warning(f"Password reset verification failed: Reset ID mismatch for user_id: {user.id}")
             return JsonResponse({'error': "That reset id does not match"}, status=400)
     else:
+        logger.warning("Password reset verification failed: No user with that username or email")
         return JsonResponse({'error': "No user with that username or email"}, status=400)
 
 
@@ -483,12 +522,22 @@ def reset_password(request):
     if len(invalid_fields) > 0:
         return JsonResponse({'error': f"Invalid fields {invalid_fields}"}, status=400)
 
+    # Classify text fields for positivity
+    if not text_classifier_class.is_text_positive(username):
+        return JsonResponse({'error': "Username is not positive"}, status=400)
+    if not text_classifier_class.is_text_positive(email):
+        return JsonResponse({'error': "Email is not positive"}, status=400)
+    if not text_classifier_class.is_text_positive(password):
+        return JsonResponse({'error': "Password is not positive"}, status=400)
+
     user = get_user_with_username_and_email(username, email)
     if user is not None:
         user.set_password(password)  # Use set_password to hash it!
         user.save()
+        logger.info(f"Password reset successful for user_id: {user.id}")
         return JsonResponse({'message': 'Password reset successfully'})
     else:
+        logger.warning("Password reset failed: No user with that username or email")
         return JsonResponse({'error': "No user with that username or email"}, status=400)
 
 
@@ -515,15 +564,19 @@ def make_post(request):
         invalid_fields.append(Params.caption)
 
     if len(invalid_fields) > 0:
+        logger.warning(f"Make post failed: Invalid fields {invalid_fields} for user_id: {request.user.id}")
         return JsonResponse({'error': f"Invalid fields {invalid_fields}"}, status=400)
 
     if not image_classifier_class.is_image_positive(image_url):
+        logger.warning(f"Make post failed: Image not positive for user_id: {request.user.id}")
         return JsonResponse({'error': "Image is not positive"}, status=400)
 
     if not text_classifier_class.is_text_positive(caption):
+        logger.warning(f"Make post failed: Caption not positive for user_id: {request.user.id}")
         return JsonResponse({'error': "Text is not positive"}, status=400)
 
     new_post = request.user.post_set.create(image_url=image_url, caption=caption)
+    logger.info(f"Post created successfully: post_id: {new_post.post_identifier} for user_id: {request.user.id}")
     return JsonResponse({Fields.post_identifier: new_post.post_identifier}, status=201)
 
 
@@ -538,8 +591,10 @@ def delete_post(request, post_identifier):
     try:
         post = request.user.post_set.get(post_identifier=post_identifier)
         post.delete()
+        logger.info(f"Post deleted successfully: post_id: {post_identifier} by user_id: {request.user.id}")
         return JsonResponse({'message': 'Post deleted'})
     except Post.DoesNotExist:
+        logger.warning(f"Delete post failed: Post {post_identifier} not found for user_id: {request.user.id}")
         return JsonResponse({'error': "No post with that identifier by that user"}, status=400)
 
 
@@ -566,19 +621,24 @@ def report_post(request, post_identifier):
     post = get_post_with_identifier(post_identifier)
     if post is not None:
         if post.author == request.user:
+            logger.warning(f"Report post failed: Cannot report own post for user_id: {request.user.id}")
             return JsonResponse({'error': "Cannot report own post"}, status=400)
 
         if post.postreport_set.filter(user=request.user).exists():
+            logger.warning(f"Report post failed: Post already reported by user_id: {request.user.id}")
             return JsonResponse({'error': "Cannot report post twice"}, status=400)
 
         post.postreport_set.create(user=request.user, reason=reason)
+        logger.info(f"Post reported successful: post_id: {post_identifier} by user_id: {request.user.id}")
 
         if post.postreport_set.count() > MAX_BEFORE_HIDING_POST:
             post.hidden = True
             post.save()
+            logger.info(f"Post hidden due to reports: post_id: {post_identifier}")
 
         return JsonResponse({'message': 'Post reported'})
     else:
+        logger.warning(f"Report post failed: Post {post_identifier} not found")
         return JsonResponse({'error': "No post with that identifier"}, status=400)
 
 
@@ -593,16 +653,20 @@ def like_post(request, post_identifier):
     post = get_post_with_identifier(post_identifier)
     if post is not None:
         if post.author == request.user:
+            logger.warning(f"Like post failed: Cannot like own post for user_id: {request.user.id}")
             return JsonResponse({'error': "Cannot like own post"}, status=400)
 
         # get_or_create handles the check and creation in one step
         like, created = post.postlike_set.get_or_create(user=request.user)
 
         if not created:
+            logger.warning(f"Like post failed: Already liked for user_id: {request.user.id} on post: {post_identifier}")
             return JsonResponse({'error': "Already liked post"}, status=400)
 
+        logger.info(f"Post liked successful: post_id: {post_identifier} by user_id: {request.user.id}")
         return JsonResponse({'message': 'Post liked'})
     else:
+        logger.warning(f"Like post failed: Post {post_identifier} not found")
         return JsonResponse({'error': "No post with that identifier"}, status=400)
 
 
@@ -617,15 +681,19 @@ def unlike_post(request, post_identifier):
     post = get_post_with_identifier(post_identifier)
     if post is not None:
         if post.author == request.user:
+            logger.warning(f"Unlike post failed: Cannot unlike own post for user_id: {request.user.id}")
             return JsonResponse({'error': "Cannot unlike own post"}, status=400)
 
         deleted_count, _ = post.postlike_set.filter(user=request.user).delete()
 
         if deleted_count > 0:
+            logger.info(f"Post unliked successful: post_id: {post_identifier} by user_id: {request.user.id}")
             return JsonResponse({'message': 'Post unliked'})
         else:
+            logger.warning(f"Unlike post failed: Post not liked yet for user_id: {request.user.id} on post: {post_identifier}")
             return JsonResponse({'error': "Post not liked yet"}, status=400)
     else:
+        logger.warning(f"Unlike post failed: Post {post_identifier} not found")
         return JsonResponse({'error': "No post with that identifier"}, status=400)
 
 
@@ -692,6 +760,7 @@ def get_posts_for_followed_users(request, batch):
         }
         for post in posts_batch
     ]
+    logger.info(f"Get followed posts successful for user_id: {request.user.id}, batch: {batch}, count: {len(posts_data)}")
     return JsonResponse(posts_data, safe=False)
 
 
@@ -711,6 +780,7 @@ def get_posts_for_user(request, username, batch):
 
     # Check if blocking relationship exists
     if request.user.blocked.filter(pk=target_user.pk).exists() or target_user.blocked.filter(pk=request.user.pk).exists():
+        logger.info(f"Get posts for user: Blocking relationship exists for user_id: {request.user.id} and target_user_id: {target_user.id}")
         return JsonResponse([], safe=False)
 
     relevant_posts = feed_algorithm_class.get_posts_weighted_for_user(target_user, Post)
@@ -748,6 +818,7 @@ def get_post_details(request, post_identifier):
         }
         return JsonResponse(post_data)
     else:
+        logger.warning(f"Get post details failed: Post {post_identifier} not found")
         return JsonResponse({'error': "No post with that identifier"}, status=400)
 
 
@@ -776,6 +847,7 @@ def comment_on_post(request, post_identifier):
 
     post = get_post_with_identifier(post_identifier)
     if post is None:
+        logger.warning(f"Comment on post failed: Post {post_identifier} not found")
         return JsonResponse({'error': "No post with that identifier"}, status=400)
 
     # Create a new thread for this top-level comment
@@ -786,6 +858,7 @@ def comment_on_post(request, post_identifier):
         Fields.comment_thread_identifier: comment_thread.comment_thread_identifier,
         Fields.comment_identifier: new_comment.comment_identifier
     }
+    logger.info(f"Comment on post successful: post_id: {post_identifier}, comment_id: {new_comment.comment_identifier} for user_id: {request.user.id}")
     return JsonResponse(response_data, status=201)
 
 
@@ -823,6 +896,7 @@ def reply_to_comment_thread(request, post_identifier, comment_thread_identifier)
         return JsonResponse({'error': "Comment thread not found for the given post"}, status=400)
 
     new_comment = comment_thread.comment_set.create(author=request.user, body=comment_text)
+    logger.info(f"Reply to comment successful: comment_thread_id: {comment_thread_identifier}, comment_id: {new_comment.comment_identifier} for user_id: {request.user.id}")
     return JsonResponse({Fields.comment_identifier: new_comment.comment_identifier}, status=201)
 
 
@@ -848,15 +922,19 @@ def like_comment(request, post_identifier, comment_thread_identifier, comment_id
             comment_thread__post__post_identifier=post_identifier
         )
     except Comment.DoesNotExist:
+        logger.warning(f"Like comment failed: Comment {comment_identifier} not found")
         return JsonResponse({'error': "Comment not found"}, status=400)
 
     if comment.author == request.user:
+        logger.warning(f"Like comment failed: Cannot like own comment for user_id: {request.user.id}")
         return JsonResponse({'error': "Cannot like own comment"}, status=400)
 
     like, created = comment.commentlike_set.get_or_create(user=request.user)
     if not created:
+        logger.warning(f"Like comment failed: Already liked for user_id: {request.user.id} on comment: {comment_identifier}")
         return JsonResponse({'error': "Already liked comment"}, status=400)
 
+    logger.info(f"Like comment successful: comment_id: {comment_identifier} for user_id: {request.user.id}")
     return JsonResponse({'message': 'Comment liked'})
 
 
@@ -882,15 +960,19 @@ def unlike_comment(request, post_identifier, comment_thread_identifier, comment_
             comment_thread__post__post_identifier=post_identifier
         )
     except Comment.DoesNotExist:
+        logger.warning(f"Unlike comment failed: Comment {comment_identifier} not found")
         return JsonResponse({'error': "Comment not found"}, status=400)
 
     if comment.author == request.user:
+        logger.warning(f"Unlike comment failed: Cannot unlike own comment for user_id: {request.user.id}")
         return JsonResponse({'error': "Cannot unlike own comment"}, status=400)
 
     deleted_count, _ = comment.commentlike_set.filter(user=request.user).delete()
     if deleted_count == 0:
+        logger.warning(f"Unlike comment failed: Comment not liked yet for user_id: {request.user.id} on comment: {comment_identifier}")
         return JsonResponse({'error': "Comment not liked yet"}, status=400)
 
+    logger.info(f"Unlike comment successful: comment_id: {comment_identifier} for user_id: {request.user.id}")
     return JsonResponse({'message': 'Comment unliked'})
 
 
@@ -916,12 +998,15 @@ def delete_comment(request, post_identifier, comment_thread_identifier, comment_
             comment_thread__post__post_identifier=post_identifier
         )
     except Comment.DoesNotExist:
+        logger.warning(f"Delete comment failed: Comment {comment_identifier} not found")
         return JsonResponse({'error': "Comment not found"}, status=400)
 
     if comment.author != request.user:
+        logger.warning(f"Delete comment failed: Unauthorized for user_id: {request.user.id} on comment: {comment_identifier}")
         return JsonResponse({'error': "Not authorized to delete comment"}, status=400)
 
     comment.delete()
+    logger.info(f"Delete comment successful: comment_id: {comment_identifier} for user_id: {request.user.id}")
     return JsonResponse({'message': 'Comment deleted'})
 
 
@@ -955,19 +1040,24 @@ def report_comment(request, post_identifier, comment_thread_identifier, comment_
             comment_thread__post__post_identifier=post_identifier
         )
     except Comment.DoesNotExist:
+        logger.warning(f"Report comment failed: Comment {comment_identifier} not found")
         return JsonResponse({'error': "Comment not found"}, status=400)
 
     if comment.author == request.user:
+        logger.warning(f"Report comment failed: Cannot report own comment for user_id: {request.user.id}")
         return JsonResponse({'error': "Cannot report own comment"}, status=400)
 
     if comment.commentreport_set.filter(user=request.user).exists():
+        logger.warning(f"Report comment failed: Already reported by user_id: {request.user.id}")
         return JsonResponse({'error': "Cannot report comment twice"}, status=400)
 
     comment.commentreport_set.create(user=request.user, reason=reason)
+    logger.info(f"Report comment successful: comment_id: {comment_identifier} by user_id: {request.user.id}")
 
     if comment.commentreport_set.count() > MAX_BEFORE_HIDING_COMMENT:
         comment.hidden = True
         comment.save()
+        logger.info(f"Comment hidden due to reports: comment_id: {comment_identifier}")
 
     return JsonResponse({'message': 'Comment reported'})
 
@@ -982,6 +1072,7 @@ def get_comments_for_post(request, post_identifier, batch):
 
     post = get_post_with_identifier(post_identifier)
     if not post:
+        logger.warning(f"Get comments for post failed: Post {post_identifier} not found")
         return JsonResponse({'error': "No post with that identifier"}, status=400)
 
     comment_threads = post.commentthread_set.all()
@@ -1006,6 +1097,7 @@ def get_comments_for_thread(request, comment_thread_identifier, batch):
 
     comment_thread = get_comment_thread_with_identifier(comment_thread_identifier)
     if not comment_thread:
+        logger.warning(f"Get comments for thread failed: Thread {comment_thread_identifier} not found")
         return JsonResponse({'error': "No comment thread with that identifier"}, status=400)
 
     comments = comment_thread.comment_set.all().order_by('creation_time')
@@ -1061,6 +1153,7 @@ def get_users_matching_fragment(request, username_fragment):
         }
         for user in users
     ]
+    logger.info(f"User search matching fragment successful: count: {len(users_data)} for user_id: {request.user.id}")
     return JsonResponse(users_data, safe=False)
 
 
@@ -1083,6 +1176,7 @@ def follow_user(request, username_to_follow):
         return JsonResponse({'error': "Already following user"}, status=400)
 
     request.user.following.add(user_to_follow_obj)
+    logger.info(f"Follow user successful: target_user_id: {user_to_follow_obj.id} by user_id: {request.user.id}")
     return JsonResponse({'message': 'User followed'})
 
 
@@ -1102,6 +1196,7 @@ def unfollow_user(request, username_to_unfollow):
         return JsonResponse({'error': "Not following user"}, status=400)
 
     request.user.following.remove(user_to_unfollow_obj)
+    logger.info(f"Unfollow user successful: target_user_id: {user_to_unfollow_obj.id} by user_id: {request.user.id}")
     return JsonResponse({'message': 'User unfollowed'})
 
 
@@ -1133,6 +1228,7 @@ def toggle_block(request, username_to_toggle_block):
         if user_to_toggle_obj.following.filter(pk=request.user.pk).exists():
             user_to_toggle_obj.following.remove(request.user)
             
+        logger.info(f"User blocked successful: target_user_id: {user_to_toggle_obj.id} by user_id: {request.user.id}")
         return JsonResponse({'message': 'User blocked'})
 
 
@@ -1145,6 +1241,7 @@ def get_profile_details(request, username):
 
     profile_user = get_user_with_username(username)
     if not profile_user:
+        logger.warning(f"Get profile details failed: User with username fragment not found")
         return JsonResponse({'error': "User not found"}, status=400)
 
     post_count = profile_user.post_set.count()

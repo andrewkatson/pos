@@ -13,7 +13,7 @@ def is_text_positive(text):
     testing = testing if isinstance(testing, bool) else convert_to_bool(testing)
 
     if testing:
-        return text == POSITIVE_TEXT
+        return "negative" not in text.lower()
 
     api_key = os.environ.get("GEMINI_API_KEY")
     if not api_key:
@@ -26,7 +26,18 @@ def is_text_positive(text):
         genai.configure(api_key=api_key)
         model = genai.GenerativeModel('gemini-1.5-flash')
         
-        prompt = f'Is the following text positive, happy or otherwise makes the user feel good? Answer with only "True" or "False".\n\nText: "{text}"'
+        prompt = (
+            "Is the following text positive, happy or otherwise makes the user feel good? "
+            "To be considered positive, it must follow these rules:\n"
+            "1. No swear words\n"
+            "2. No nudity\n"
+            "3. No gore\n"
+            "4. No hate speech\n"
+            "5. No harassment\n"
+            "6. No bullying\n"
+            'Answer with only "True" or "False".\n\n'
+            f'Text: "{text}"'
+        )
         
         response = model.generate_content(prompt)
         

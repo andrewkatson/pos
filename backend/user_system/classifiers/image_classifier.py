@@ -70,7 +70,17 @@ def is_image_positive(image_url):
         image_data = response['Body'].read()
         image = Image.open(BytesIO(image_data))
 
-        prompt = 'Is this image positive, happy or otherwise makes the user feel good? Answer with only "True" or "False".'
+        prompt = (
+            "Is this image positive, happy or otherwise makes the user feel good? "
+            "To be considered positive, it must follow these rules:\n"
+            "1. No swear words\n"
+            "2. No nudity\n"
+            "3. No gore\n"
+            "4. No hate speech\n"
+            "5. No harassment\n"
+            "6. No bullying\n"
+            'Answer with only "True" or "False".'
+        )
         
         response = model.generate_content([prompt, image])
         

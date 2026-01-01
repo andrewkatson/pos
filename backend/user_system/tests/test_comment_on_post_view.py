@@ -77,7 +77,9 @@ class CommentOnPostTests(PositiveOnlySocialTestCase):
         )
         self.assertEqual(response.status_code, 400)
 
-    def test_negative_text_returns_bad_response(self):
+    # The reason this test isn't "negative" in title is because the classifier looks for "negative" in tests
+    # in the username and will fail this test
+    def test_not_positive_text_returns_bad_response(self):
         """
         Tests that text classified as negative by the (fake) classifier
         is rejected with a 400 Bad Request.

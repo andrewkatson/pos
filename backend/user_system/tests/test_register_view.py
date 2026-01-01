@@ -1,3 +1,5 @@
+from unittest.mock import patch
+
 from django.urls import reverse
 from django.contrib.auth import get_user_model
 
@@ -10,9 +12,7 @@ from .test_parent_case import PositiveOnlySocialTestCase
 from ..constants import Fields, Patterns
 from ..input_validator import is_valid_pattern
 
-
-# The view is no longer imported
-# from ..views import register
+import os
 
 
 class RegisterTests(PositiveOnlySocialTestCase):
@@ -93,6 +93,7 @@ class RegisterTests(PositiveOnlySocialTestCase):
 
         self.assertEqual(response.status_code, 400)
 
+    @patch.dict(os.environ, {"TESTING": "True"}, clear=True)
     def test_user_already_exists_returns_bad_response(self):
         """
         Tests that attempting to register with an existing username/email fails.
@@ -106,6 +107,7 @@ class RegisterTests(PositiveOnlySocialTestCase):
         self.assertEqual(response2.status_code, 400)
         self.assertIn("User already exists", response2.json().get('error', ''))
 
+    @patch.dict(os.environ, {"TESTING": "True"}, clear=True)
     def test_user_doesnt_exist_with_remember_me_returns_good_response(self):
         """
         Tests the "happy path" with remember_me=true.
@@ -128,6 +130,7 @@ class RegisterTests(PositiveOnlySocialTestCase):
         self.assertTrue(is_valid_pattern(fields[Fields.login_cookie_token], Patterns.alphanumeric))
         self.assertTrue(is_valid_pattern(fields[Fields.session_management_token], Patterns.alphanumeric))
 
+    @patch.dict(os.environ, {"TESTING": "True"}, clear=True)
     def test_user_doesnt_exist_without_remember_me_returns_good_response(self):
         """
         Tests the "happy path" with remember_me=false.
@@ -146,6 +149,7 @@ class RegisterTests(PositiveOnlySocialTestCase):
         self.assertNotIn(Fields.login_cookie_token, fields)
         self.assertNotIn(Fields.series_identifier, fields)
 
+    @patch.dict(os.environ, {"TESTING": "True"}, clear=True)
     def test_register_creates_adult_user(self):
         """
         Tests that registering with an adult DOB creates a user with is_adult=True.
@@ -157,6 +161,7 @@ class RegisterTests(PositiveOnlySocialTestCase):
         self.assertTrue(user.identity_is_verified)
         self.assertTrue(user.is_adult)
 
+    @patch.dict(os.environ, {"TESTING": "True"}, clear=True)
     def test_register_creates_minor_user(self):
         """
         Tests that registering with a minor DOB creates a user with is_adult=False.
@@ -172,6 +177,7 @@ class RegisterTests(PositiveOnlySocialTestCase):
         self.assertTrue(user.identity_is_verified)
         self.assertFalse(user.is_adult)
 
+    @patch.dict(os.environ, {"TESTING": "True"}, clear=True)
     def test_register_no_dob_leaves_unverified_identity(self):
         """
         Tests that registering with an adult DOB creates a user with is_adult=True.
@@ -185,3 +191,39 @@ class RegisterTests(PositiveOnlySocialTestCase):
         user = get_user_model().objects.get(username=self.local_username)
         self.assertFalse(user.identity_is_verified)
         self.assertFalse(user.is_adult)
+
+    @patch.dict(os.environ, {"TESTING": "True"}, clear=True)
+    def test_register_non_positive_username_fails(self):
+        """
+        Tests that a non-positive username is rejected.
+        """
+        data = self.valid_data.copy()
+        data['username'] = 'negative_user_registration' # Match alphanumeric pattern (min 10 chars)
+
+        response = self.client.post(self.url, data=data, content_type='application/json')
+        self.assertEqual(response.status_code, 400)
+        self.assertIn("Username is not positive", response.json().get('error', ''))
+
+    @patch.dict(os.environ, {"TESTING": "True"}, clear=True)
+    def test_register_non_positive_email_fails(self):
+        """
+        Tests that a non-positive email is rejected.
+        """
+        data = self.valid_data.copy()
+        data['email'] = 'negative_email@email.com'
+
+        response = self.client.post(self.url, data=data, content_type='application/json')
+        self.assertEqual(response.status_code, 400)
+        self.assertIn("Email is not positive", response.json().get('error', ''))
+
+    @patch.dict(os.environ, {"TESTING": "True"}, clear=True)
+    def test_register_non_positive_password_fails(self):
+        """
+        Tests that a non-positive password is rejected.
+        """
+        data = self.valid_data.copy()
+        data['password'] = 'Negative_Password_123!' # Match password pattern
+
+        response = self.client.post(self.url, data=data, content_type='application/json')
+        self.assertEqual(response.status_code, 400)
+        self.assertIn("Password is not positive", response.json().get('error', ''))

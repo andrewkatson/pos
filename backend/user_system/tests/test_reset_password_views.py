@@ -1,10 +1,13 @@
 from django.urls import reverse
+from unittest.mock import patch
 
-from backend.user_system.constants import Fields
+from ..constants import Fields
 from .test_constants import username, password, false, ip
 from .test_parent_case import PositiveOnlySocialTestCase
 # Import the user model to check the reset_id
 from ..models import PositiveOnlySocialUser
+
+import os
 
 # --- Constants ---
 other_username = f'other_{username}'
@@ -45,7 +48,8 @@ class ResetPasswordTests(PositiveOnlySocialTestCase):
 
         self.assertEqual(response.status_code, 400)
         self.assertIn("No user with that username or email", response.json().get('error', ''))
-
+        
+    @patch.dict(os.environ, {"TESTING": "True"}, clear=True)
     def test_user_does_not_exist_reset_password_returns_bad_response(self):
         """
         Tests that reset_password fails for a non-existent user.
@@ -88,6 +92,7 @@ class ResetPasswordTests(PositiveOnlySocialTestCase):
         self.assertEqual(response.status_code, 400)
         self.assertIn("does not match", response.json().get('error', ''))
 
+    @patch.dict(os.environ, {"TESTING": "True"}, clear=True)
     def test_password_reset_flow_succeeds_and_changes_password(self):
         """
         Tests the full, "happy path" end-to-end flow:
@@ -154,3 +159,48 @@ class ResetPasswordTests(PositiveOnlySocialTestCase):
         response = self.client.post(login_url, data=new_login_data, content_type='application/json')
         self.assertEqual(response.status_code, 200)
         self.assertIn(Fields.session_management_token, response.json())
+
+    @patch.dict(os.environ, {"TESTING": "True"}, clear=True)
+    def test_reset_password_non_positive_username_fails(self):
+        """
+        Tests that a non-positive username is rejected during password reset.
+        """
+        url = reverse('reset_password')
+        data = {
+            'username': 'negative_user_reset',
+            'email': self.local_email,
+            'password': 'Positive_Password123!'
+        }
+        response = self.client.post(url, data=data, content_type='application/json')
+        self.assertEqual(response.status_code, 400)
+        self.assertIn("Username is not positive", response.json().get('error', ''))
+
+    @patch.dict(os.environ, {"TESTING": "True"}, clear=True)
+    def test_reset_password_non_positive_email_fails(self):
+        """
+        Tests that a non-positive email is rejected during password reset.
+        """
+        url = reverse('reset_password')
+        data = {
+            'username': self.local_username,
+            'email': 'negative_email@email.com',
+            'password': 'Positive_Password123!'
+        }
+        response = self.client.post(url, data=data, content_type='application/json')
+        self.assertEqual(response.status_code, 400)
+        self.assertIn("Email is not positive", response.json().get('error', ''))
+
+    @patch.dict(os.environ, {"TESTING": "True"}, clear=True)
+    def test_reset_password_non_positive_password_fails(self):
+        """
+        Tests that a non-positive password is rejected during password reset.
+        """
+        url = reverse('reset_password')
+        data = {
+            'username': self.local_username,
+            'email': self.local_email,
+            'password': 'Negative_Password_123!'
+        }
+        response = self.client.post(url, data=data, content_type='application/json')
+        self.assertEqual(response.status_code, 400)
+        self.assertIn("Password is not positive", response.json().get('error', ''))

@@ -79,8 +79,10 @@ class MakePostTests(PositiveOnlySocialTestCase):
 
         self.assertEqual(response.status_code, 400)
 
+    # The reason this test isn't "negative" in title is because the classifier looks for "negative" in tests
+    # in the username and will fail this test
     @patch.dict(os.environ, {"TESTING": "True"}, clear=True)
-    def test_negative_image_returns_bad_response(self):
+    def test_not_positive_image_returns_bad_response(self):
         """
         Tests that a negative image (as per the fake classifier) is rejected.
         """
@@ -96,8 +98,10 @@ class MakePostTests(PositiveOnlySocialTestCase):
         self.assertEqual(response.status_code, 400)
         self.assertIn("Image is not positive", response.json().get('error', ''))
 
+    # The reason this test isn't "negative" in title is because the classifier looks for "negative" in tests
+    # in the username and will fail this test
     @patch.dict(os.environ, {"TESTING": "True"}, clear=True)
-    def test_negative_caption_returns_bad_response(self):
+    def test_not_positive_caption_returns_bad_response(self):
         """
         Tests that a negative caption (as per the fake classifier) is rejected.
         """

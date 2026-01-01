@@ -68,6 +68,7 @@ class PositiveOnlySocialTestCase(TestCase):
         self.users[UserFields.PASSWORD].append(password)
         self.users[UserFields.TOKEN].append(token)
 
+    @patch.dict(os.environ, {"TESTING": "True"}, clear=True)
     def _register_user(self, username, email, password, remember_me=false):
         """
         Calls the 'register' endpoint and returns the parsed JSON response.

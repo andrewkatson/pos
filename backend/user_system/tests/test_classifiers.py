@@ -42,7 +42,7 @@ class TestClassifiers(PositiveOnlySocialTestCase):
     def test_text_classifier_no_api_key(self):
         # Test fallback
         self.assertTrue(is_text_positive(POSITIVE_TEXT))
-        self.assertFalse(is_text_positive("random text"))
+        self.assertFalse(is_text_positive("negative random text"))
 
     @patch.dict(os.environ, {
         "GEMINI_API_KEY": "fake_key",
