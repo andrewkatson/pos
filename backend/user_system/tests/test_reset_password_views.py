@@ -48,7 +48,7 @@ class ResetPasswordTests(PositiveOnlySocialTestCase):
 
         self.assertEqual(response.status_code, 400)
         self.assertIn("No user with that username or email", response.json().get('error', ''))
-        
+
     @patch.dict(os.environ, {"TESTING": "True"}, clear=True)
     def test_user_does_not_exist_reset_password_returns_bad_response(self):
         """
