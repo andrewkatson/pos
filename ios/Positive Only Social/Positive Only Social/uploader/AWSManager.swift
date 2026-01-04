@@ -69,7 +69,7 @@ final class AWSManager {
 
 final class S3Uploader {
     private let s3Client = AWSManager.shared.s3Client
-    private let bucketName = "positive-social-app-posts" // <-- CHANGE to your bucket name
+    private let bucketName = "goodvibesonly-images"
 
     /// Uploads data to S3 and returns the public URL.
     func upload(data: Data, fileName: String) async throws -> URL {
