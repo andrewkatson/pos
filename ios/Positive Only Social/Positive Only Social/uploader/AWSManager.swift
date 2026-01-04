@@ -41,8 +41,8 @@ final class AWSManager {
     private(set) var initializationError: Error?
     
     /// Publicly expose the region for URL construction
-    let awsRegion = "us-east-1" // <-- CHANGE to your bucket's region
-    private let identityPoolId = "us-east-1:xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx" // <-- CHANGE to your Cognito Pool ID
+    let awsRegion = "us-east-2"
+    private let identityPoolId = "us-east-2:445cf6ff-6f59-4cff-94c9-51db170ad81e"
 
     private init() {
         do {

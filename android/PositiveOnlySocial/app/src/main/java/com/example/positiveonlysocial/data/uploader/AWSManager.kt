@@ -29,8 +29,8 @@ sealed class AWSManagerError(message: String, cause: Throwable? = null) : Except
  */
 object AWSManager {
     // Publicly expose the region
-    const val AWS_REGION = "us-east-1" // <-- CHANGE to your bucket's region
-    private const val IDENTITY_POOL_ID = "us-east-1:xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx" // <-- CHANGE to your Pool ID
+    const val AWS_REGION = "us-east-2"
+    private const val IDENTITY_POOL_ID = "us-east-2:445cf6ff-6f59-4cff-94c9-51db170ad81e"
 
     var s3Client: S3Client? = null
         private set
@@ -70,7 +70,7 @@ object AWSManager {
 }
 
 class S3Uploader {
-    private val bucketName = "positive-social-app-posts" // <-- CHANGE to your bucket name
+    private val bucketName = "goodvibesonly-images"
 
     /**
      * Uploads data to S3 and returns the public URL.
