@@ -19,14 +19,14 @@ struct FeedView: View {
     
     // --- ADDED ---
     // Store api and keychainHelper to pass to navigation destinations
-    let api: APIProtocol
+    let api: Networking
     let keychainHelper: KeychainHelperProtocol
     // --- END ADDED ---
     
     // State to track the selected top tab
     @State private var selectedFeed: FeedType = .forYou
     
-    init(api: APIProtocol, keychainHelper: KeychainHelperProtocol) {
+    init(api: Networking, keychainHelper: KeychainHelperProtocol) {
         _forYouViewModel = StateObject(wrappedValue: FeedViewModel(api: api, keychainHelper: keychainHelper))
         _followingViewModel = StateObject(wrappedValue: FollowingFeedViewModel(api: api, keychainHelper: keychainHelper))
         

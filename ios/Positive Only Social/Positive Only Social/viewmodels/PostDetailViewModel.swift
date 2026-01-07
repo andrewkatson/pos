@@ -8,8 +8,8 @@
 import Foundation
 import Combine
 
-// Use the APIProtocol you've already defined
-// (Assuming APIProtocol is available in this scope)
+// Use the Networking you've already defined
+// (Assuming Networking is available in this scope)
 
 @MainActor
 final class PostDetailViewModel: ObservableObject {
@@ -35,7 +35,7 @@ final class PostDetailViewModel: ObservableObject {
     
     // MARK: - Private Properties
     private let postIdentifier: String
-    private let api: APIProtocol
+    private let api: Networking
     private let keychainHelper: KeychainHelperProtocol
     private let account : String
     
@@ -43,11 +43,11 @@ final class PostDetailViewModel: ObservableObject {
     private var cancellables = Set<AnyCancellable>()
 
     // MARK: - Initialization
-    convenience init(postIdentifier: String, api: APIProtocol, keychainHelper: KeychainHelperProtocol) {
+    convenience init(postIdentifier: String, api: Networking, keychainHelper: KeychainHelperProtocol) {
         self.init(postIdentifier: postIdentifier, api: api, keychainHelper: keychainHelper, account: "userSessionToken")
     }
     
-    init(postIdentifier: String, api: APIProtocol, keychainHelper: KeychainHelperProtocol, account: String) {
+    init(postIdentifier: String, api: Networking, keychainHelper: KeychainHelperProtocol, account: String) {
         self.postIdentifier = postIdentifier
         self.api = api
         self.keychainHelper = keychainHelper

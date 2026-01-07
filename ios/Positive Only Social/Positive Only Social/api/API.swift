@@ -11,7 +11,7 @@ import Foundation
 ///
 /// Each method corresponds to a specific endpoint and is designed to be asynchronous,
 /// throwing an error if the network request fails.
-protocol APIProtocol {
+protocol Networking {
 
     // MARK: - User & Session Management
 
