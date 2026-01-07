@@ -49,9 +49,9 @@
 		244C43342E93FB29003D2A61 /* Exceptions for "Positive Only Social" folder in "Positive Only SocialTests" target */ = {
 			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
 			membershipExceptions = (
-				api/API.swift,
 				api/Config.swift,
 				api/Models.swift,
+				api/Networking.swift,
 				api/RealAPI.swift,
 				api/StatefulStubbedAPI.swift,
 				FeedView.swift,
@@ -81,9 +81,9 @@
 		244C43352E93FB29003D2A61 /* Exceptions for "Positive Only Social" folder in "Positive Only SocialUITests" target */ = {
 			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
 			membershipExceptions = (
-				api/API.swift,
 				api/Config.swift,
 				api/Models.swift,
+				api/Networking.swift,
 				api/RealAPI.swift,
 				api/StatefulStubbedAPI.swift,
 				FeedView.swift,

@@ -13,7 +13,7 @@ fileprivate enum AuthState {
 }
 
 struct WelcomeView: View {
-    let api: APIProtocol
+    let api: Networking
     let keychainHelper: KeychainHelperProtocol
     
     // MARK: Envrionment Properties

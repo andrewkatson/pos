@@ -10,7 +10,7 @@ import Foundation
 // ViewModel to manage the state of the global feed
 @MainActor
 final class FeedViewModel: ObservableObject {
-    private let api: APIProtocol
+    private let api: Networking
     private let keychainHelper: KeychainHelperProtocol
     private let account: String
     @Published var feedPosts: [Post] = []
@@ -18,11 +18,11 @@ final class FeedViewModel: ObservableObject {
     private var canLoadMore = true
     private var currentPage = 0
     
-    convenience init(api: APIProtocol, keychainHelper: KeychainHelperProtocol) {
+    convenience init(api: Networking, keychainHelper: KeychainHelperProtocol) {
         self.init(api: api, keychainHelper: keychainHelper, account: "userSessionToken")
     }
     
-    init(api: APIProtocol, keychainHelper: KeychainHelperProtocol, account: String) {
+    init(api: Networking, keychainHelper: KeychainHelperProtocol, account: String) {
         self.api = api
         self.keychainHelper = keychainHelper
         self.account = account

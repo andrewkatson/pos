@@ -9,7 +9,7 @@ import SwiftUI
 
 struct HomeView: View {
     
-    let api: APIProtocol
+    let api: Networking
     let keychainHelper: KeychainHelperProtocol
     
     // The ViewModel is the single source of truth for this view's state.
@@ -17,7 +17,7 @@ struct HomeView: View {
     
     @State private var currentTab = 0
     
-    init(api: APIProtocol, keychainHelper: KeychainHelperProtocol) {
+    init(api: Networking, keychainHelper: KeychainHelperProtocol) {
         // We use _viewModel because we are initializing a @StateObject property
         _viewModel = StateObject(wrappedValue: HomeViewModel(api: api, keychainHelper: keychainHelper))
         
@@ -57,7 +57,7 @@ struct HomeView: View {
 
 // This sub-view contains the user's post grid and search logic
 struct MyPostsGridView: View {
-    let api: APIProtocol
+    let api: Networking
     let keychainHelper: KeychainHelperProtocol
     @EnvironmentObject private var viewModel: HomeViewModel
     

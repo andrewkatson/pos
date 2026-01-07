@@ -11,7 +11,7 @@ import SwiftUI
 
 struct RegisterView: View {
     // Dependencies passed from the parent view
-    let api: APIProtocol
+    let api: Networking
     let keychainHelper: KeychainHelperProtocol
     
     // MARK: Envrionment Properties

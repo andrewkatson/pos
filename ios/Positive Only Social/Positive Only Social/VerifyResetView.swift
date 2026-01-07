@@ -23,7 +23,7 @@ struct VerifyResetView: View {
     @State private var showingErrorAlert: Bool = false
     
     // The new API service
-    let api: APIProtocol
+    let api: Networking
     let keychainHelper: KeychainHelperProtocol
     
     var body: some View {

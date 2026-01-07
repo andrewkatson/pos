@@ -22,17 +22,17 @@ class ProfileViewModel: ObservableObject {
     
     // Private state for pagination and API
     private var batch = 0
-    private let api: APIProtocol
+    private let api: Networking
     private let keychainHelper: KeychainHelperProtocol
     private let account: String
     
     let user: User // The user this profile is for
 
-    convenience init(user: User, api: APIProtocol, keychainHelper: KeychainHelperProtocol) {
+    convenience init(user: User, api: Networking, keychainHelper: KeychainHelperProtocol) {
         self.init(user: user, api: api, keychainHelper: keychainHelper, account: "userSessionToken")
     }
     
-    init(user: User, api: APIProtocol, keychainHelper: KeychainHelperProtocol, account: String) {
+    init(user: User, api: Networking, keychainHelper: KeychainHelperProtocol, account: String) {
         self.user = user
         self.api = api
         self.keychainHelper = keychainHelper

@@ -76,7 +76,7 @@ fileprivate struct DjangoSerializedObject<F: Codable>: Codable {
 }
 
 // MARK: - Stateful API Implementation
-final class StatefulStubbedAPI: APIProtocol {
+final class StatefulStubbedAPI: Networking {
 
     // MARK: - In-Memory "Database"
     private var users: [MockUser] = []

@@ -9,7 +9,7 @@ import PhotosUI  // 1. Import the PhotosUI framework
 import SwiftUI
 
 struct NewPostView: View {
-    let api: APIProtocol
+    let api: Networking
     let keychainHelper: KeychainHelperProtocol
     // Create an instance of the S3Uploader
     private let s3Uploader = S3Uploader()

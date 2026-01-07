@@ -9,7 +9,7 @@ import Foundation
 
 @MainActor
 final class SettingsViewModel: ObservableObject {
-    private let api: APIProtocol
+    private let api: Networking
     private let keychainHelper: KeychainHelperProtocol
     
     // Published properties for showing alerts in the view
@@ -27,11 +27,11 @@ final class SettingsViewModel: ObservableObject {
     private let keychainService = "positive-only-social.Positive-Only-Social" // CHANGE to your app's bundle ID
     private let account: String
     
-    convenience init(api: APIProtocol, keychainHelper: KeychainHelperProtocol) {
+    convenience init(api: Networking, keychainHelper: KeychainHelperProtocol) {
         self.init(api: api, keychainHelper: keychainHelper, account: "userSessionToken")
     }
     
-    init(api: APIProtocol, keychainHelper: KeychainHelperProtocol, account: String) {
+    init(api: Networking, keychainHelper: KeychainHelperProtocol, account: String) {
         self.api = api
         self.keychainHelper = keychainHelper
         self.account = account

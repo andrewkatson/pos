@@ -11,7 +11,7 @@ import SwiftUI
 struct Positive_Only_SocialApp: App {
     // The API client and auth manager are created once and shared.
     @StateObject private var authManager = AuthenticationManager()
-    private let api: APIProtocol = Config.api
+    private let api: Networking = Config.api
     private let keychainHelper: KeychainHelperProtocol = KeychainHelper()
 
     init() {

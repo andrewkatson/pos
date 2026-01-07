@@ -33,7 +33,7 @@ class MockKeychainHelper: KeychainHelperProtocol {
 
 // MARK: - Mocked API
 
-struct MockedAPI: APIProtocol {
+struct MockedAPI: Networking {
     
     // MARK: - Helpers for Double Encoding
     
@@ -307,7 +307,7 @@ struct MockedAPI: APIProtocol {
 // MARK: - Preview Helpers
 
 struct PreviewHelpers {
-    static let api: APIProtocol = MockedAPI()
+    static let api: Networking = MockedAPI()
     static let keychainHelper: KeychainHelperProtocol = MockKeychainHelper()
     
     @MainActor static var authManager: AuthenticationManager {

@@ -34,7 +34,7 @@ enum APIError: Error, LocalizedError {
 
 // MARK: - Real API Implementation
 /// A concrete class that implements the APIProtocol to make live network requests.
-final class RealAPI: APIProtocol {
+final class RealAPI: Networking {
     
     /// The base URL for all API endpoints. Remember to replace this with your actual server address.
     private let baseURL = "https://smiling.social/"
