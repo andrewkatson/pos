@@ -54,11 +54,11 @@ final class RealAPI: APIProtocol {
         let password: String
         let remember_me: String
         let ip: String
-        let date_of_birth: String
+        let dateOfBirth: String
     }
     
     private struct VerifyIdentityBody: Encodable {
-        let date_of_birth: String
+        let dateOfBirth: String
     }
     
     private struct LoginBody: Encodable {
@@ -182,7 +182,7 @@ final class RealAPI: APIProtocol {
     
     /// Creates a user if they do not exist.
     func register(username: String, email: String, password: String, rememberMe: String, ip: String, dateOfBirth: String) async throws -> Data {
-        let body = RegisterBody(username: username, email: email, password: password, remember_me: rememberMe, ip: ip, date_of_birth: dateOfBirth)
+        let body = RegisterBody(username: username, email: email, password: password, remember_me: rememberMe, ip: ip, dateOfBirth: dateOfBirth)
         let requestBody = try encode(body)
         
         return try await performRequest(
@@ -277,7 +277,7 @@ final class RealAPI: APIProtocol {
         
     /// Verifies the identity of the user
     func verifyIdentity(sessionManagementToken: String, dateOfBirth: String) async throws -> Data {
-        let body = VerifyIdentityBody(date_of_birth: dateOfBirth)
+        let body = VerifyIdentityBody(dateOfBirth: dateOfBirth)
         let requestBody = try encode(body)
         
         return try await performRequest(
