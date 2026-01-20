@@ -1,6 +1,6 @@
 import os
 import boto3
-import google.generativeai as genai
+from google import genai
 from PIL import Image
 from io import BytesIO
 from urllib.parse import urlparse
@@ -29,8 +29,7 @@ def is_image_positive(image_url):
 
     try:
         # Initialize Gemini
-        genai.configure(api_key=api_key)
-        model = genai.GenerativeModel('gemini-1.5-flash')
+        client = genai.Client(api_key=api_key)
 
         # Initialize S3
         s3 = boto3.client(
@@ -52,8 +51,6 @@ def is_image_positive(image_url):
         elif parsed.scheme in ['http', 'https'] and 's3' in parsed.netloc:
             # Very basic parsing for standard s3 urls: https://bucket.s3.region.amazonaws.com/key
             # or https://s3.region.amazonaws.com/bucket/key
-            # This is brittle, so we prefer relying on the simple key + env bucket if possible.
-            # For now, if no bucket env var, we try to guess from URL or fail.
             if not bucket_name:
                  # Try to extract from subdomain
                  parts = parsed.netloc.split('.')
@@ -82,7 +79,10 @@ def is_image_positive(image_url):
             'Answer with only "True" or "False".'
         )
         
-        response = model.generate_content([prompt, image])
+        response = client.models.generate_content(
+            model='gemini-1.5-flash',
+            contents=[prompt, image]
+        )
         
         answer = response.text.strip().lower()
         return answer == "true"

@@ -1,5 +1,5 @@
 import os
-import google.generativeai as genai
+from google import genai
 from .classifier_constants import POSITIVE_TEXT
 from ..utils import convert_to_bool
 
@@ -23,8 +23,7 @@ def is_text_positive(text):
         return False
 
     try:
-        genai.configure(api_key=api_key)
-        model = genai.GenerativeModel('gemini-1.5-flash')
+        client = genai.Client(api_key=api_key)
         
         prompt = (
             "Is the following text positive, happy or otherwise makes the user feel good? "
@@ -39,7 +38,10 @@ def is_text_positive(text):
             f'Text: "{text}"'
         )
         
-        response = model.generate_content(prompt)
+        response = client.models.generate_content(
+            model='gemini-1.5-flash',
+            contents=prompt
+        )
         
         # Clean up response and check for "True"
         answer = response.text.strip().lower()
