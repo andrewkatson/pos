@@ -8,7 +8,7 @@ def main():
     """Run administrative tasks."""
 
     try:
-        dotenv.read_dotenv('REPLACE')
+        dotenv.load_dotenv()
     except Exception as exc:
         pass
 
