@@ -2,10 +2,16 @@
 """Django's command-line utility for administrative tasks."""
 import os
 import sys
-
+import dotenv
 
 def main():
     """Run administrative tasks."""
+
+    try:
+        dotenv.read_dotenv('REPLACE')
+    except Exception as exc:
+        pass
+
     os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'pos_backend.settings')
     try:
         from django.core.management import execute_from_command_line
