@@ -111,26 +111,46 @@ fun WelcomeScreen(
         }
     }
 
-    Surface(
-        modifier = Modifier.fillMaxSize(),
-        color = MaterialTheme.colorScheme.background
-    ) {
-        Column(
-            modifier = Modifier.fillMaxSize(),
-            horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.Center
+@OptIn(ExperimentalMaterial3Api::class)
+    Scaffold(
+        topBar = {
+            CenterAlignedTopAppBar(
+                title = {
+                    Text(
+                        "Good Vibes Only",
+                        fontWeight = FontWeight.Bold
+                    )
+                },
+                colors = TopAppBarDefaults.centerAlignedTopAppBarColors(
+                    containerColor = MaterialTheme.colorScheme.background,
+                    titleContentColor = MaterialTheme.colorScheme.onBackground
+                )
+            )
+        }
+    ) { paddingValues ->
+        Surface(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(paddingValues),
+            color = MaterialTheme.colorScheme.background
         ) {
-            when (authState) {
-                AuthState.Checking -> {
-                    CircularProgressIndicator()
-                    Spacer(modifier = Modifier.height(16.dp))
-                    Text("Checking session...")
-                }
-                AuthState.NeedsAuth -> {
-                    NeedsAuthContent(navController)
-                }
-                AuthState.Authenticated -> {
-                    // Navigation happens automatically, show nothing or loading
+            Column(
+                modifier = Modifier.fillMaxSize(),
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.Center
+            ) {
+                when (authState) {
+                    AuthState.Checking -> {
+                        CircularProgressIndicator()
+                        Spacer(modifier = Modifier.height(16.dp))
+                        Text("Checking session...")
+                    }
+                    AuthState.NeedsAuth -> {
+                        NeedsAuthContent(navController)
+                    }
+                    AuthState.Authenticated -> {
+                        // Navigation happens automatically, show nothing or loading
+                    }
                 }
             }
         }
