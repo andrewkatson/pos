@@ -1,5 +1,5 @@
 [versions]
-agp = "8.13.2"
+agp = "9.0.0"
 awsAndroidSdkCognitoidentityprovider = "2.81.1"
 cognitoidentity = "1.5.89"
 converterGson = "3.0.0"
