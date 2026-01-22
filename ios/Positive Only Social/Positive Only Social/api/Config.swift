@@ -9,9 +9,9 @@ import Foundation
 
 struct Config {
     
-    static let _api : APIProtocol = isUITesting() ? StatefulStubbedAPI() : RealAPI()
+    static let _api : Networking = isUITesting() ? StatefulStubbedAPI() : RealAPI()
     
-    static var api: APIProtocol {
+    static var api: Networking {
         get {
             return _api
         }

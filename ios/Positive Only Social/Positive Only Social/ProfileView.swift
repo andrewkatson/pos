@@ -34,10 +34,10 @@ struct ProfileView: View {
     // Grid layout, same as in HomeView
     private let columns: [GridItem] = Array(repeating: .init(.flexible()), count: 3)
     
-    private let api: APIProtocol
+    private let api: Networking
     private let keychainHelper: KeychainHelperProtocol
     
-    init(user: User, api: APIProtocol, keychainHelper: KeychainHelperProtocol) {
+    init(user: User, api: Networking, keychainHelper: KeychainHelperProtocol) {
         // Initialize the StateObject with the user and API
         _viewModel = StateObject(wrappedValue: ProfileViewModel(user: user, api: api, keychainHelper: keychainHelper))
         

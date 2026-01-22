@@ -17,7 +17,7 @@ struct SettingsView: View {
     @State private var showingDatePicker = false
     @State private var showingPrivacyPolicy = false
     
-    init(api: APIProtocol, keychainHelper: KeychainHelperProtocol) {
+    init(api: Networking, keychainHelper: KeychainHelperProtocol) {
         _viewModel = StateObject(wrappedValue: SettingsViewModel(api: api, keychainHelper: keychainHelper))
     }
     

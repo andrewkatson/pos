@@ -18,7 +18,7 @@ struct PostDetailView: View {
     @State private var isPostLiked = false
     
     // Public init
-    init(postIdentifier: String, api: APIProtocol, keychainHelper: KeychainHelperProtocol) {
+    init(postIdentifier: String, api: Networking, keychainHelper: KeychainHelperProtocol) {
         _viewModel = StateObject(wrappedValue: PostDetailViewModel(postIdentifier: postIdentifier, api: api, keychainHelper: keychainHelper))
     }
     

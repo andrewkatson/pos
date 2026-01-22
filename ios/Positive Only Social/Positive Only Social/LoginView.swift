@@ -1,7 +1,7 @@
 import SwiftUI
 
 struct LoginView: View {
-    let api: APIProtocol
+    let api: Networking
     let keychainHelper: KeychainHelperProtocol
     
     // MARK: Envrionment Properties
