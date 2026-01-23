@@ -73,7 +73,7 @@ fun MainScreen(
                 FeedScreen(rootNavController, api, keychainHelper)
             }
             composable(Screen.NewPost.route) {
-                NewPostScreen(rootNavController, api, keychainHelper)
+                NewPostScreen(bottomNavController, api, keychainHelper)
             }
             composable(Screen.Settings.route) {
                 SettingsScreen(rootNavController, api, keychainHelper, authManager)

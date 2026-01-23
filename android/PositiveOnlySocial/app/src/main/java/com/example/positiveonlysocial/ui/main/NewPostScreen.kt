@@ -13,9 +13,12 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.unit.dp
 import androidx.navigation.NavController
 import coil.compose.AsyncImage
+import androidx.compose.ui.platform.LocalContext
 import com.example.positiveonlysocial.api.PositiveOnlySocialAPI
 import com.example.positiveonlysocial.data.model.CreatePostRequest
 import com.example.positiveonlysocial.data.security.KeychainHelperProtocol
+import com.example.positiveonlysocial.data.uploader.S3Uploader
+import java.util.UUID
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.navigation.compose.rememberNavController
 import com.example.positiveonlysocial.ui.preview.PreviewHelpers
@@ -35,6 +38,7 @@ fun NewPostScreen(
     var failureMessage by remember { mutableStateOf("") }
 
     val scope = rememberCoroutineScope()
+    val context = LocalContext.current
 
     val singlePhotoPickerLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.PickVisualMedia(),
@@ -52,6 +56,10 @@ fun NewPostScreen(
                     // Reset form
                     caption = ""
                     selectedImageUri = null
+                    // Navigate back to Home tab
+                    navController.navigate(com.example.positiveonlysocial.ui.navigation.Screen.Home.route) {
+                        popUpTo(com.example.positiveonlysocial.ui.navigation.Screen.Home.route) { inclusive = true }
+                    }
                 }) {
                     Text("OK")
                 }
@@ -126,18 +134,21 @@ fun NewPostScreen(
                     scope.launch {
                         isLoading = true
                         try {
-                            // TODO: Implement actual image upload to S3 and then call API
-                            // For now, using a dummy URL as per Swift stub logic if needed, 
-                            // but real implementation requires S3 upload.
-                            // Swift code uses S3Uploader. 
-                            // I should check if S3Uploader exists in Android codebase.
-                            // PositiveOnlySocialApp.kt initialized AWSManager, so likely yes.
+                            val uri = selectedImageUri ?: return@launch
+                            val inputStream = context.contentResolver.openInputStream(uri)
+                            val bytes = inputStream?.use { it.readBytes() }
                             
-                            // Placeholder for S3 upload:
-                            val imageUrl = "https://example.com/image.jpg" // Replace with actual upload
+                            if (bytes == null) {
+                                failureMessage = "Failed to read image data."
+                                showFailureAlert = true
+                                return@launch
+                            }
+
+                            val fileName = "${UUID.randomUUID()}.jpg"
+                            val s3Uploader = S3Uploader()
                             
-                            // Retrieve session token (simplified)
-                            // In real app, use AuthenticationManager or KeychainHelper
+                            val uploadUrl = s3Uploader.upload(bytes, fileName)
+                            
                             val session = keychainHelper.load(
                                 com.example.positiveonlysocial.data.model.UserSession::class.java,
                                 "positive-only-social.Positive-Only-Social",
@@ -146,7 +157,7 @@ fun NewPostScreen(
                             
                             if (session != null) {
                                 val request = CreatePostRequest(
-                                    imageUrl = imageUrl,
+                                    imageUrl = uploadUrl.toString(),
                                     caption = caption
                                 )
                                 api.makePost(
