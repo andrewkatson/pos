@@ -23,6 +23,7 @@ import androidx.compose.ui.tooling.preview.Preview
 import androidx.navigation.compose.rememberNavController
 import com.example.positiveonlysocial.ui.preview.PreviewHelpers
 import com.example.positiveonlysocial.ui.navigation.Screen
+import com.example.positiveonlysocial.ui.theme.PositiveOnlySocialTheme
 
 @Composable
 fun FeedScreen(
@@ -30,23 +31,25 @@ fun FeedScreen(
     api: PositiveOnlySocialAPI,
     keychainHelper: KeychainHelperProtocol
 ) {
-    var selectedTab by remember { mutableIntStateOf(0) }
-    val tabs = listOf("For You", "Following")
+    PositiveOnlySocialTheme {
+        var selectedTab by remember { mutableIntStateOf(0) }
+        val tabs = listOf("For You", "Following")
 
-    Column(modifier = Modifier.fillMaxSize()) {
-        TabRow(selectedTabIndex = selectedTab) {
-            tabs.forEachIndexed { index, title ->
-                Tab(
-                    selected = selectedTab == index,
-                    onClick = { selectedTab = index },
-                    text = { Text(title) }
-                )
+        Column(modifier = Modifier.fillMaxSize()) {
+            TabRow(selectedTabIndex = selectedTab) {
+                tabs.forEachIndexed { index, title ->
+                    Tab(
+                        selected = selectedTab == index,
+                        onClick = { selectedTab = index },
+                        text = { Text(title) }
+                    )
+                }
             }
-        }
 
-        when (selectedTab) {
-            0 -> ForYouFeed(navController, api, keychainHelper)
-            1 -> FollowingFeed(navController, api, keychainHelper)
+            when (selectedTab) {
+                0 -> ForYouFeed(navController, api, keychainHelper)
+                1 -> FollowingFeed(navController, api, keychainHelper)
+            }
         }
     }
 }

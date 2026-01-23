@@ -29,6 +29,7 @@ private enum class AuthState {
 // Data class for Remember Me tokens (internal to this file, similar to Swift)
 private data class RememberMeTokens(val seriesId: String, val cookieToken: String)
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun WelcomeScreen(
     navController: NavController,
@@ -111,45 +112,46 @@ fun WelcomeScreen(
         }
     }
 
-@OptIn(ExperimentalMaterial3Api::class)
-    Scaffold(
-        topBar = {
-            CenterAlignedTopAppBar(
-                title = {
-                    Text(
-                        "Good Vibes Only",
-                        fontWeight = FontWeight.Bold
+    PositiveOnlySocialTheme {
+        Scaffold(
+            topBar = {
+                CenterAlignedTopAppBar(
+                    title = {
+                        Text(
+                            "Good Vibes Only",
+                            fontWeight = FontWeight.Bold
+                        )
+                    },
+                    colors = TopAppBarDefaults.centerAlignedTopAppBarColors(
+                        containerColor = MaterialTheme.colorScheme.background,
+                        titleContentColor = MaterialTheme.colorScheme.onBackground
                     )
-                },
-                colors = TopAppBarDefaults.centerAlignedTopAppBarColors(
-                    containerColor = MaterialTheme.colorScheme.background,
-                    titleContentColor = MaterialTheme.colorScheme.onBackground
                 )
-            )
-        }
-    ) { paddingValues ->
-        Surface(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(paddingValues),
-            color = MaterialTheme.colorScheme.background
-        ) {
-            Column(
-                modifier = Modifier.fillMaxSize(),
-                horizontalAlignment = Alignment.CenterHorizontally,
-                verticalArrangement = Arrangement.Center
+            }
+        ) { paddingValues ->
+            Surface(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(paddingValues),
+                color = MaterialTheme.colorScheme.background
             ) {
-                when (authState) {
-                    AuthState.Checking -> {
-                        CircularProgressIndicator()
-                        Spacer(modifier = Modifier.height(16.dp))
-                        Text("Checking session...")
-                    }
-                    AuthState.NeedsAuth -> {
-                        NeedsAuthContent(navController)
-                    }
-                    AuthState.Authenticated -> {
-                        // Navigation happens automatically, show nothing or loading
+                Column(
+                    modifier = Modifier.fillMaxSize(),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.Center
+                ) {
+                    when (authState) {
+                        AuthState.Checking -> {
+                            CircularProgressIndicator()
+                            Spacer(modifier = Modifier.height(16.dp))
+                            Text("Checking session...")
+                        }
+                        AuthState.NeedsAuth -> {
+                            NeedsAuthContent(navController)
+                        }
+                        AuthState.Authenticated -> {
+                            // Navigation happens automatically, show nothing or loading
+                        }
                     }
                 }
             }

@@ -23,6 +23,7 @@ import androidx.compose.ui.tooling.preview.Preview
 import androidx.navigation.compose.rememberNavController
 import com.example.positiveonlysocial.ui.preview.PreviewHelpers
 import kotlinx.coroutines.launch
+import com.example.positiveonlysocial.ui.theme.PositiveOnlySocialTheme
 
 @Composable
 fun NewPostScreen(
@@ -30,158 +31,160 @@ fun NewPostScreen(
     api: PositiveOnlySocialAPI,
     keychainHelper: KeychainHelperProtocol
 ) {
-    var caption by remember { mutableStateOf("") }
-    var selectedImageUri by remember { mutableStateOf<Uri?>(null) }
-    var isLoading by remember { mutableStateOf(false) }
-    var showSuccessAlert by remember { mutableStateOf(false) }
-    var showFailureAlert by remember { mutableStateOf(false) }
-    var failureMessage by remember { mutableStateOf("") }
+    PositiveOnlySocialTheme {
+        var caption by remember { mutableStateOf("") }
+        var selectedImageUri by remember { mutableStateOf<Uri?>(null) }
+        var isLoading by remember { mutableStateOf(false) }
+        var showSuccessAlert by remember { mutableStateOf(false) }
+        var showFailureAlert by remember { mutableStateOf(false) }
+        var failureMessage by remember { mutableStateOf("") }
 
-    val scope = rememberCoroutineScope()
-    val context = LocalContext.current
+        val scope = rememberCoroutineScope()
+        val context = LocalContext.current
 
-    val singlePhotoPickerLauncher = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.PickVisualMedia(),
-        onResult = { uri -> selectedImageUri = uri }
-    )
+        val singlePhotoPickerLauncher = rememberLauncherForActivityResult(
+            contract = ActivityResultContracts.PickVisualMedia(),
+            onResult = { uri -> selectedImageUri = uri }
+        )
 
-    if (showSuccessAlert) {
-        AlertDialog(
-            onDismissRequest = { showSuccessAlert = false },
-            title = { Text("Success!") },
-            text = { Text("Your post was shared successfully!") },
-            confirmButton = {
-                Button(onClick = { 
-                    showSuccessAlert = false
-                    // Reset form
-                    caption = ""
-                    selectedImageUri = null
-                    // Navigate back to Home tab
-                    navController.navigate(com.example.positiveonlysocial.ui.navigation.Screen.Home.route) {
-                        popUpTo(com.example.positiveonlysocial.ui.navigation.Screen.Home.route) { inclusive = true }
+        if (showSuccessAlert) {
+            AlertDialog(
+                onDismissRequest = { showSuccessAlert = false },
+                title = { Text("Success!") },
+                text = { Text("Your post was shared successfully!") },
+                confirmButton = {
+                    Button(onClick = { 
+                        showSuccessAlert = false
+                        // Reset form
+                        caption = ""
+                        selectedImageUri = null
+                        // Navigate back to Home tab
+                        navController.navigate(com.example.positiveonlysocial.ui.navigation.Screen.Home.route) {
+                            popUpTo(com.example.positiveonlysocial.ui.navigation.Screen.Home.route) { inclusive = true }
+                        }
+                    }) {
+                        Text("OK")
                     }
-                }) {
-                    Text("OK")
                 }
-            }
-        )
-    }
-
-    if (showFailureAlert) {
-        AlertDialog(
-            onDismissRequest = { showFailureAlert = false },
-            title = { Text("Post Failed") },
-            text = { Text(failureMessage) },
-            confirmButton = {
-                Button(onClick = { showFailureAlert = false }) {
-                    Text("OK")
-                }
-            }
-        )
-    }
-
-    Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .padding(16.dp),
-        verticalArrangement = Arrangement.spacedBy(16.dp)
-    ) {
-        Text(
-            text = "Create Post",
-            style = MaterialTheme.typography.headlineMedium
-        )
-
-        Button(
-            onClick = {
-                singlePhotoPickerLauncher.launch(
-                    PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)
-                )
-            },
-            modifier = Modifier.fillMaxWidth()
-        ) {
-            Text("Select a photo")
-        }
-
-        if (selectedImageUri != null) {
-            AsyncImage(
-                model = selectedImageUri,
-                contentDescription = "Selected Image",
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(200.dp),
-                contentScale = ContentScale.Crop
             )
         }
 
-        TextField(
-            value = caption,
-            onValueChange = { caption = it },
-            label = { Text("Caption") },
+        if (showFailureAlert) {
+            AlertDialog(
+                onDismissRequest = { showFailureAlert = false },
+                title = { Text("Post Failed") },
+                text = { Text(failureMessage) },
+                confirmButton = {
+                    Button(onClick = { showFailureAlert = false }) {
+                        Text("OK")
+                    }
+                }
+            )
+        }
+
+        Column(
             modifier = Modifier
-                .fillMaxWidth()
-                .height(100.dp)
-        )
+                .fillMaxSize()
+                .padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(16.dp)
+        ) {
+            Text(
+                text = "Create Post",
+                style = MaterialTheme.typography.headlineMedium
+            )
 
-        Spacer(modifier = Modifier.weight(1f))
-
-        if (isLoading) {
-            Box(modifier = Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
-                CircularProgressIndicator()
-            }
-        } else {
             Button(
                 onClick = {
-                    scope.launch {
-                        isLoading = true
-                        try {
-                            val uri = selectedImageUri ?: return@launch
-                            val inputStream = context.contentResolver.openInputStream(uri)
-                            val bytes = inputStream?.use { it.readBytes() }
-                            
-                            if (bytes == null) {
-                                failureMessage = "Failed to read image data."
-                                showFailureAlert = true
-                                return@launch
-                            }
-
-                            val fileName = "${UUID.randomUUID()}.jpg"
-                            val s3Uploader = S3Uploader()
-                            
-                            val uploadUrl = s3Uploader.upload(bytes, fileName)
-                            
-                            val session = keychainHelper.load(
-                                com.example.positiveonlysocial.data.model.UserSession::class.java,
-                                "positive-only-social.Positive-Only-Social",
-                                "userSessionToken"
-                            )
-                            
-                            if (session != null) {
-                                val request = CreatePostRequest(
-                                    imageUrl = uploadUrl.toString(),
-                                    caption = caption
-                                )
-                                api.makePost(
-                                    token = session.sessionToken,
-                                    request = request
-                                )
-                                showSuccessAlert = true
-                            } else {
-                                failureMessage = "User not logged in."
-                                showFailureAlert = true
-                            }
-
-                        } catch (e: Exception) {
-                            failureMessage = "Failed to share post: ${e.localizedMessage}"
-                            showFailureAlert = true
-                        } finally {
-                            isLoading = false
-                        }
-                    }
+                    singlePhotoPickerLauncher.launch(
+                        PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)
+                    )
                 },
-                modifier = Modifier.fillMaxWidth(),
-                enabled = selectedImageUri != null && caption.isNotEmpty()
+                modifier = Modifier.fillMaxWidth()
             ) {
-                Text("Share Post")
+                Text("Select a photo")
+            }
+
+            if (selectedImageUri != null) {
+                AsyncImage(
+                    model = selectedImageUri,
+                    contentDescription = "Selected Image",
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(200.dp),
+                    contentScale = ContentScale.Crop
+                )
+            }
+
+            TextField(
+                value = caption,
+                onValueChange = { caption = it },
+                label = { Text("Caption") },
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(100.dp)
+            )
+
+            Spacer(modifier = Modifier.weight(1f))
+
+            if (isLoading) {
+                Box(modifier = Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
+                    CircularProgressIndicator()
+                }
+            } else {
+                Button(
+                    onClick = {
+                        scope.launch {
+                            isLoading = true
+                            try {
+                                val uri = selectedImageUri ?: return@launch
+                                val inputStream = context.contentResolver.openInputStream(uri)
+                                val bytes = inputStream?.use { it.readBytes() }
+                                
+                                if (bytes == null) {
+                                    failureMessage = "Failed to read image data."
+                                    showFailureAlert = true
+                                    return@launch
+                                }
+
+                                val fileName = "${UUID.randomUUID()}.jpg"
+                                val s3Uploader = S3Uploader()
+                                
+                                val uploadUrl = s3Uploader.upload(bytes, fileName)
+                                
+                                val session = keychainHelper.load(
+                                    com.example.positiveonlysocial.data.model.UserSession::class.java,
+                                    "positive-only-social.Positive-Only-Social",
+                                    "userSessionToken"
+                                )
+                                
+                                if (session != null) {
+                                    val request = CreatePostRequest(
+                                        imageUrl = uploadUrl.toString(),
+                                        caption = caption
+                                    )
+                                    api.makePost(
+                                        token = session.sessionToken,
+                                        request = request
+                                    )
+                                    showSuccessAlert = true
+                                } else {
+                                    failureMessage = "User not logged in."
+                                    showFailureAlert = true
+                                }
+
+                            } catch (e: Exception) {
+                                failureMessage = "Failed to share post: ${e.localizedMessage}"
+                                showFailureAlert = true
+                            } finally {
+                                isLoading = false
+                            }
+                        }
+                    },
+                    modifier = Modifier.fillMaxWidth(),
+                    enabled = selectedImageUri != null && caption.isNotEmpty()
+                ) {
+                    Text("Share Post")
+                }
             }
         }
     }

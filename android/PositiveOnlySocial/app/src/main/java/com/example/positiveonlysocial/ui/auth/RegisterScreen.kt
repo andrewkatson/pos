@@ -22,6 +22,7 @@ import com.example.positiveonlysocial.data.model.RegisterRequest
 import com.example.positiveonlysocial.data.model.UserSession
 import com.example.positiveonlysocial.data.security.KeychainHelperProtocol
 import com.example.positiveonlysocial.ui.navigation.Screen
+import com.example.positiveonlysocial.ui.theme.PositiveOnlySocialTheme
 import kotlinx.coroutines.launch
 
 @Composable
@@ -31,183 +32,185 @@ fun RegisterScreen(
     keychainHelper: KeychainHelperProtocol,
     authManager: AuthenticationManager
 ) {
-    var username by remember { mutableStateOf("") }
-    var email by remember { mutableStateOf("") }
-    var password by remember { mutableStateOf("") }
-    var confirmPassword by remember { mutableStateOf("") }
-    var dateOfBirth by remember { mutableStateOf("") }
-    var isLoading by remember { mutableStateOf(false) }
-    var errorMessage by remember { mutableStateOf<String?>(null) }
-    var showingErrorAlert by remember { mutableStateOf(false) }
-    var showingPrivacyPolicy by remember { mutableStateOf(false) }
+    PositiveOnlySocialTheme {
+        var username by remember { mutableStateOf("") }
+        var email by remember { mutableStateOf("") }
+        var password by remember { mutableStateOf("") }
+        var confirmPassword by remember { mutableStateOf("") }
+        var dateOfBirth by remember { mutableStateOf("") }
+        var isLoading by remember { mutableStateOf(false) }
+        var errorMessage by remember { mutableStateOf<String?>(null) }
+        var showingErrorAlert by remember { mutableStateOf(false) }
+        var showingPrivacyPolicy by remember { mutableStateOf(false) }
 
-    val scope = rememberCoroutineScope()
+        val scope = rememberCoroutineScope()
 
-    val isPasswordMatching = confirmPassword.isEmpty() || password == confirmPassword
-    val isFormValid = username.isNotEmpty() && email.isNotEmpty() && password.isNotEmpty() && password == confirmPassword && dateOfBirth.isNotEmpty()
+        val isPasswordMatching = confirmPassword.isEmpty() || password == confirmPassword
+        val isFormValid = username.isNotEmpty() && email.isNotEmpty() && password.isNotEmpty() && password == confirmPassword && dateOfBirth.isNotEmpty()
 
-    if (showingPrivacyPolicy) {
-        AlertDialog(
-            onDismissRequest = { showingPrivacyPolicy = false },
-            title = { Text("Privacy Policy") },
-            text = {
-                Text("We collect your username and password for authentication. We do not store your date of birth or any other personal information. We store your posts, comments, and related metadata such as like counts and reports. We also track follower/following relationships and blocked users to maintain the social environment.")
-            },
-            confirmButton = {
-                Button(onClick = { 
-                    showingPrivacyPolicy = false
-                    // Start registration
-                    isLoading = true
-                    scope.launch {
-                        try {
-                            val registerRequest = RegisterRequest(
-                                username = username,
-                                email = email,
-                                password = password,
-                                rememberMe = "false",
-                                ip = "127.0.0.1",
-                                dateOfBirth = dateOfBirth
-                            )
-
-                            val response = api.register(
-                                request = registerRequest
-                            )
-
-                            if (response.isSuccessful) {
-                                val session = UserSession(
-                                    sessionToken = response.body()?.sessionToken ?: "dummy_token",
+        if (showingPrivacyPolicy) {
+            AlertDialog(
+                onDismissRequest = { showingPrivacyPolicy = false },
+                title = { Text("Privacy Policy") },
+                text = {
+                    Text("We collect your username and password for authentication. We do not store your date of birth or any other personal information. We store your posts, comments, and related metadata such as like counts and reports. We also track follower/following relationships and blocked users to maintain the social environment.")
+                },
+                confirmButton = {
+                    Button(onClick = { 
+                        showingPrivacyPolicy = false
+                        // Start registration
+                        isLoading = true
+                        scope.launch {
+                            try {
+                                val registerRequest = RegisterRequest(
                                     username = username,
-                                    isIdentityVerified = false
+                                    email = email,
+                                    password = password,
+                                    rememberMe = "false",
+                                    ip = "127.0.0.1",
+                                    dateOfBirth = dateOfBirth
                                 )
-                                authManager.login(session)
-                                
-                                // Navigate to Home, clearing back stack
-                                navController.navigate(Screen.Home.route) {
-                                    popUpTo(Screen.Login.route) { inclusive = true }
+
+                                val response = api.register(
+                                    request = registerRequest
+                                )
+
+                                if (response.isSuccessful) {
+                                    val session = UserSession(
+                                        sessionToken = response.body()?.sessionToken ?: "dummy_token",
+                                        username = username,
+                                        isIdentityVerified = false
+                                    )
+                                    authManager.login(session)
+                                    
+                                    // Navigate to Home, clearing back stack
+                                    navController.navigate(Screen.Home.route) {
+                                        popUpTo(Screen.Login.route) { inclusive = true }
+                                    }
+                                } else {
+                                    val errorBody = response.errorBody()?.string()
+                                    val errorMsg = try {
+                                        org.json.JSONObject(errorBody).getString("error")
+                                    } catch (e: Exception) {
+                                        "Registration failed. Username or email may be taken."
+                                    }
+                                    errorMessage = errorMsg
+                                    showingErrorAlert = true
                                 }
-                            } else {
-                                val errorBody = response.errorBody()?.string()
-                                val errorMsg = try {
-                                    org.json.JSONObject(errorBody).getString("error")
-                                } catch (e: Exception) {
-                                    "Registration failed. Username or email may be taken."
-                                }
-                                errorMessage = errorMsg
+                            } catch (e: Exception) {
+                                errorMessage = "Registration failed. Please check your network connection."
                                 showingErrorAlert = true
+                            } finally {
+                                isLoading = false
                             }
-                        } catch (e: Exception) {
-                            errorMessage = "Registration failed. Please check your network connection."
-                            showingErrorAlert = true
-                        } finally {
-                            isLoading = false
                         }
+                    }) {
+                        Text("Ok")
                     }
-                }) {
-                    Text("Ok")
+                },
+                dismissButton = {
+                    Button(onClick = { showingPrivacyPolicy = false }) {
+                        Text("Cancel")
+                    }
                 }
-            },
-            dismissButton = {
-                Button(onClick = { showingPrivacyPolicy = false }) {
-                    Text("Cancel")
-                }
-            }
-        )
-    }
-
-    if (showingErrorAlert) {
-        AlertDialog(
-            onDismissRequest = { showingErrorAlert = false },
-            title = { Text("Registration Failed") },
-            text = { Text(errorMessage ?: "An unknown error occurred.") },
-            confirmButton = {
-                Button(onClick = { showingErrorAlert = false }) {
-                    Text("OK")
-                }
-            }
-        )
-    }
-
-    Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .padding(16.dp),
-        verticalArrangement = Arrangement.spacedBy(15.dp),
-        horizontalAlignment = Alignment.CenterHorizontally
-    ) {
-        Text(
-            text = "Create Account",
-            fontSize = 30.sp,
-            fontWeight = FontWeight.Bold,
-            modifier = Modifier.padding(bottom = 20.dp)
-        )
-
-        TextField(
-            value = username,
-            onValueChange = { username = it },
-            label = { Text("Username") },
-            modifier = Modifier.fillMaxWidth(),
-            singleLine = true
-        )
-
-        TextField(
-            value = email,
-            onValueChange = { email = it },
-            label = { Text("Email") },
-            modifier = Modifier.fillMaxWidth(),
-            singleLine = true,
-            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Email)
-        )
-
-        TextField(
-            value = dateOfBirth,
-            onValueChange = { dateOfBirth = it },
-            label = { Text("Date of Birth (YYYY-MM-DD)") },
-            modifier = Modifier.fillMaxWidth(),
-            singleLine = true
-        )
-
-        TextField(
-            value = password,
-            onValueChange = { password = it },
-            label = { Text("Password") },
-            modifier = Modifier.fillMaxWidth(),
-            singleLine = true,
-            visualTransformation = PasswordVisualTransformation(),
-            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password)
-        )
-
-        TextField(
-            value = confirmPassword,
-            onValueChange = { confirmPassword = it },
-            label = { Text("Confirm Password") },
-            modifier = Modifier.fillMaxWidth(),
-            singleLine = true,
-            visualTransformation = PasswordVisualTransformation(),
-            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password)
-        )
-
-        if (!isPasswordMatching) {
-            Text(
-                text = "Passwords do not match.",
-                color = Color.Red,
-                fontSize = 12.sp,
-                modifier = Modifier.fillMaxWidth()
             )
         }
 
-        Spacer(modifier = Modifier.weight(1f))
+        if (showingErrorAlert) {
+            AlertDialog(
+                onDismissRequest = { showingErrorAlert = false },
+                title = { Text("Registration Failed") },
+                text = { Text(errorMessage ?: "An unknown error occurred.") },
+                confirmButton = {
+                    Button(onClick = { showingErrorAlert = false }) {
+                        Text("OK")
+                    }
+                }
+            )
+        }
 
-        if (isLoading) {
-            CircularProgressIndicator()
-        } else {
-            Button(
-                onClick = {
-                    showingPrivacyPolicy = true
-                },
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(15.dp),
+            horizontalAlignment = Alignment.CenterHorizontally
+        ) {
+            Text(
+                text = "Create Account",
+                fontSize = 30.sp,
+                fontWeight = FontWeight.Bold,
+                modifier = Modifier.padding(bottom = 20.dp)
+            )
+
+            TextField(
+                value = username,
+                onValueChange = { username = it },
+                label = { Text("Username") },
                 modifier = Modifier.fillMaxWidth(),
-                enabled = isFormValid
-            ) {
-                Text("Register", fontWeight = FontWeight.Bold)
+                singleLine = true
+            )
+
+            TextField(
+                value = email,
+                onValueChange = { email = it },
+                label = { Text("Email") },
+                modifier = Modifier.fillMaxWidth(),
+                singleLine = true,
+                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Email)
+            )
+
+            TextField(
+                value = dateOfBirth,
+                onValueChange = { dateOfBirth = it },
+                label = { Text("Date of Birth (YYYY-MM-DD)") },
+                modifier = Modifier.fillMaxWidth(),
+                singleLine = true
+            )
+
+            TextField(
+                value = password,
+                onValueChange = { password = it },
+                label = { Text("Password") },
+                modifier = Modifier.fillMaxWidth(),
+                singleLine = true,
+                visualTransformation = PasswordVisualTransformation(),
+                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password)
+            )
+
+            TextField(
+                value = confirmPassword,
+                onValueChange = { confirmPassword = it },
+                label = { Text("Confirm Password") },
+                modifier = Modifier.fillMaxWidth(),
+                singleLine = true,
+                visualTransformation = PasswordVisualTransformation(),
+                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password)
+            )
+
+            if (!isPasswordMatching) {
+                Text(
+                    text = "Passwords do not match.",
+                    color = Color.Red,
+                    fontSize = 12.sp,
+                    modifier = Modifier.fillMaxWidth()
+                )
+            }
+
+            Spacer(modifier = Modifier.weight(1f))
+
+            if (isLoading) {
+                CircularProgressIndicator()
+            } else {
+                Button(
+                    onClick = {
+                        showingPrivacyPolicy = true
+                    },
+                    modifier = Modifier.fillMaxWidth(),
+                    enabled = isFormValid
+                ) {
+                    Text("Register", fontWeight = FontWeight.Bold)
+                }
             }
         }
     }
