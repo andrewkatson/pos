@@ -6,7 +6,6 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
@@ -26,7 +25,6 @@ private enum class AuthState {
     Checking, NeedsAuth, Authenticated
 }
 
-// Data class for Remember Me tokens (internal to this file, similar to Swift)
 private data class RememberMeTokens(val seriesId: String, val cookieToken: String)
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -38,76 +36,76 @@ fun WelcomeScreen(
     authManager: AuthenticationManager
 ) {
     var authState by remember { mutableStateOf(AuthState.Checking) }
+    var errorMessage by remember { mutableStateOf<String?>(null) }
     val scope = rememberCoroutineScope()
-    
-    // Constants
+
     val keychainService = "positive-only-social.Positive-Only-Social"
     val sessionAccount = "userSessionToken"
     val rememberMeAccount = "userRememberMeTokens"
 
     LaunchedEffect(Unit) {
-        // 1. Try to load "Remember Me" tokens from Keychain
-        val tokens = try {
-            keychainHelper.load(RememberMeTokens::class.java, keychainService, rememberMeAccount)
-        } catch (e: Exception) {
-            null
-        }
-
-        if (tokens == null) {
-            authState = AuthState.NeedsAuth
-            return@LaunchedEffect
-        }
-
-        // 2. Call the API to log in with the tokens
         try {
-            val response = api.loginUserWithRememberMe(
-                TokenRefreshRequest(
-                    sessionToken = "", // Not needed for this call
-                    seriesIdentifier = tokens.seriesId,
-                    loginCookieToken = tokens.cookieToken,
-                    ip = "127.0.0.1",
+            // Try to load "Remember Me" tokens from Keychain
+            val tokens = try {
+                keychainHelper.load(RememberMeTokens::class.java, keychainService, rememberMeAccount)
+            } catch (e: Exception) {
+                println("No remember me tokens found: ${e.message}")
+                null
+            }
+
+            if (tokens == null) {
+                authState = AuthState.NeedsAuth
+                return@LaunchedEffect
+            }
+
+            // Call the API to log in with the tokens
+            try {
+                val response = api.loginUserWithRememberMe(
+                    TokenRefreshRequest(
+                        sessionToken = "",
+                        seriesIdentifier = tokens.seriesId,
+                        loginCookieToken = tokens.cookieToken,
+                        ip = "127.0.0.1",
+                    )
                 )
-            )
 
-            if (response.isSuccessful && response.body() != null) {
-                val loginDetails = response.body()!!
+                if (response.isSuccessful && response.body() != null) {
+                    val loginDetails = response.body()!!
+                    val oldSession = authManager.session.value
+                    val userSession = UserSession(
+                        sessionToken = loginDetails.newSessionToken,
+                        username = oldSession?.username ?: "test",
+                        isIdentityVerified = oldSession?.isIdentityVerified ?: false
+                    )
 
-                // 3. Securely save the new session token
-                // Note: We need the username and verification status. 
-                // The Swift code gets it from the *old* session or defaults.
-                // Here we might need to fetch profile or assume defaults if the API doesn't return full user info in this specific endpoint.
-                // Looking at Swift: let oldSession = authManager.session
-                // The Swift API wrapper seems to return a complex object. The Kotlin API returns TokenRefreshResponse.
-                // Let's check TokenRefreshResponse definition to be sure.
-                // Assuming TokenRefreshResponse has what we need or we update session partially.
-                
-                // For now, mirroring Swift's logic of using old session or defaults:
-                val oldSession = authManager.session.value
-                val userSession = UserSession(
-                    sessionToken = loginDetails.newSessionToken,
-                    username = oldSession?.username ?: "test", // Fallback as per Swift
-                    isIdentityVerified = oldSession?.isIdentityVerified ?: false
-                )
-                
-                authManager.login(userSession)
+                    authManager.login(userSession)
 
-                // 4. Update the "Remember Me" tokens
-                val newTokens = RememberMeTokens(tokens.seriesId, loginDetails.newLoginCookieToken)
-                keychainHelper.save(newTokens, keychainService, rememberMeAccount)
+                    // Update the "Remember Me" tokens
+                    val newTokens = RememberMeTokens(tokens.seriesId, loginDetails.newLoginCookieToken)
+                    keychainHelper.save(newTokens, keychainService, rememberMeAccount)
 
-                authState = AuthState.Authenticated
-                navController.navigate(Screen.Home.route) {
-                    popUpTo(Screen.Welcome.route) { inclusive = true }
+                    authState = AuthState.Authenticated
+                    navController.navigate(Screen.Home.route) {
+                        popUpTo(Screen.Welcome.route) { inclusive = true }
+                    }
+                } else {
+                    throw Exception("Login failed with status: ${response.code()}")
                 }
-            } else {
-                throw Exception("Login failed")
+            } catch (e: Exception) {
+                println("Auto-login failed: ${e.message}")
+                errorMessage = e.message
+                // Clear old data and show manual login
+                try {
+                    keychainHelper.delete(keychainService, rememberMeAccount)
+                    keychainHelper.delete(keychainService, sessionAccount)
+                } catch (ignore: Exception) {
+                    println("Failed to clear keychain: ${ignore.message}")
+                }
+                authState = AuthState.NeedsAuth
             }
         } catch (e: Exception) {
-            // If anything fails, clear old data and show manual login
-            try {
-                keychainHelper.delete(keychainService, rememberMeAccount)
-                keychainHelper.delete(keychainService, sessionAccount)
-            } catch (ignore: Exception) {}
+            println("LaunchedEffect error: ${e.message}")
+            errorMessage = e.message
             authState = AuthState.NeedsAuth
         }
     }
@@ -145,12 +143,22 @@ fun WelcomeScreen(
                             CircularProgressIndicator()
                             Spacer(modifier = Modifier.height(16.dp))
                             Text("Checking session...")
+                            if (errorMessage != null) {
+                                Spacer(modifier = Modifier.height(8.dp))
+                                Text(
+                                    "Debug: $errorMessage",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = Color.Gray
+                                )
+                            }
                         }
                         AuthState.NeedsAuth -> {
-                            NeedsAuthContent(navController)
+                            NeedsAuthContent(navController, errorMessage)
                         }
                         AuthState.Authenticated -> {
-                            // Navigation happens automatically, show nothing or loading
+                            CircularProgressIndicator()
+                            Spacer(modifier = Modifier.height(16.dp))
+                            Text("Logging in...")
                         }
                     }
                 }
@@ -160,18 +168,26 @@ fun WelcomeScreen(
 }
 
 @Composable
-fun NeedsAuthContent(navController: NavController) {
+fun NeedsAuthContent(navController: NavController, debugMessage: String? = null) {
     Column(
         modifier = Modifier.padding(16.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.spacedBy(20.dp)
     ) {
         Text(
-            text = "Welcome! \uD83D\uDC4B", // Wave emoji
+            text = "Welcome! 👋",
             style = MaterialTheme.typography.headlineLarge,
             fontWeight = FontWeight.Bold
         )
-        
+
+        if (debugMessage != null) {
+            Text(
+                "Debug: $debugMessage",
+                style = MaterialTheme.typography.bodySmall,
+                color = Color.Gray
+            )
+        }
+
         Spacer(modifier = Modifier.height(20.dp))
 
         Button(
