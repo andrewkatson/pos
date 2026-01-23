@@ -29,6 +29,15 @@ python3 manage.py migrate
 
 ## Testing 
 
+### For tools
+
+From folder `backend`
+
+```shell
+python3 pytest tests
+```
+
+### For backend 
 From folder `backend`
 
 ```shell
