@@ -19,7 +19,7 @@ from .feed_algorithm import feed_algorithm
 from .input_validator import is_valid_pattern
 from .models import LoginCookie, Session, Post, CommentThread, PositiveOnlySocialUser, Comment, UserBlock
 from .utils import convert_to_bool, generate_login_cookie_token, generate_management_token, generate_series_identifier, \
-    generate_reset_id, get_batch
+    generate_reset_id, get_batch, get_compressed_image_url
 
 image_classifier_class = image_classifier
 text_classifier_class = text_classifier
@@ -720,7 +720,7 @@ def get_posts_in_feed(request, batch):
         posts_data = [
             {
                 Fields.post_identifier: post.post_identifier,
-                Fields.image_url: post.image_url,
+                Fields.image_url: get_compressed_image_url(post.image_url),
                 Fields.username: post.author.username,
                 Fields.caption: post.caption
             }
@@ -754,7 +754,7 @@ def get_posts_for_followed_users(request, batch):
     posts_data = [
         {
             Fields.post_identifier: post.post_identifier,
-            Fields.image_url: post.image_url,
+            Fields.image_url: get_compressed_image_url(post.image_url),
             Fields.author_username: post.author.username,
             Fields.caption: post.caption
         }
@@ -790,7 +790,7 @@ def get_posts_for_user(request, username, batch):
         posts_data = [
             {
                 Fields.post_identifier: post.post_identifier,
-                Fields.image_url: post.image_url,
+                Fields.image_url: get_compressed_image_url(post.image_url),
                 Fields.caption: post.caption,
                 Fields.author_username: target_user.username
             }
@@ -811,7 +811,7 @@ def get_post_details(request, post_identifier):
         total_likes = post.postlike_set.count()
         post_data = {
             Fields.post_identifier: post.post_identifier,
-            Fields.image_url: post.image_url,
+            Fields.image_url: get_compressed_image_url(post.image_url),
             Fields.caption: post.caption,
             Fields.post_likes: total_likes,
             Fields.author_username: post.author.username

@@ -135,6 +135,9 @@ EMAIL_HOST_PASSWORD = os.environ.get("EMAIL_PASS")
 DATETIME_FORMAT = f"iso-8601"
 L10N=False
 
+AWS_STORAGE_BUCKET_NAME = os.environ.get("AWS_STORAGE_BUCKET_NAME", "goodvibesonly-images")
+AWS_COMPRESSED_STORAGE_BUCKET_NAME = os.environ.get("AWS_COMPRESSED_STORAGE_BUCKET_NAME", "goodvibesonly-imagescompressed")
+
 # Logging Configuration
 LOGGING = {
     'version': 1,

@@ -3,8 +3,26 @@ import string
 import hashlib
 import uuid
 import secrets
+from django.conf import settings
 
 from .constants import LEN_LOGIN_COOKIE_TOKEN, LEN_SESSION_MANAGEMENT_TOKEN
+
+
+def get_compressed_image_url(url):
+    """
+    Replaces the original bucket name in the URL with the compressed bucket name
+    if the original bucket name is present.
+    """
+    if not url:
+        return url
+    
+    source_bucket = settings.AWS_STORAGE_BUCKET_NAME
+    compressed_bucket = settings.AWS_COMPRESSED_STORAGE_BUCKET_NAME
+    
+    if source_bucket in url:
+        return url.replace(source_bucket, compressed_bucket)
+    
+    return url
 
 
 def generate_random_string(length):
