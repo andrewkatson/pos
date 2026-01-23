@@ -10,6 +10,9 @@ import aws.smithy.kotlin.runtime.auth.awscredentials.Credentials
 import aws.smithy.kotlin.runtime.auth.awscredentials.CredentialsProvider
 import aws.smithy.kotlin.runtime.collections.Attributes
 import aws.smithy.kotlin.runtime.content.ByteStream
+import android.graphics.Bitmap
+import android.graphics.BitmapFactory
+import java.io.ByteArrayOutputStream
 import java.net.URL
 
 // Custom Exception Class
@@ -84,10 +87,12 @@ class S3Uploader {
             throw AWSManagerError.ClientNotInitialized
         }
 
+        val compressedData = compressImage(data, 10 * 1024 * 1024) // 10MB
+
         val input = PutObjectRequest {
             bucket = bucketName
             key = fileName
-            body = ByteStream.fromBytes(data)
+            body = ByteStream.fromBytes(compressedData)
             contentType = "image/jpeg"
         }
 
@@ -105,6 +110,41 @@ class S3Uploader {
         } catch (e: Exception) {
             throw AWSManagerError.InitializationFailed(e) // Or a specific URLError
         }
+    }
+
+    /**
+     * Compresses the image data to be within the specified max size.
+     * @param data The original image data
+     * @param maxSizeBytes The maximum allowed size in bytes
+     * @return The compressed image data
+     */
+    private fun compressImage(data: ByteArray, maxSizeBytes: Long): ByteArray {
+        if (data.size <= maxSizeBytes) {
+            Log.d("S3Uploader", "Image size (${data.size} bytes) is within limits.")
+            return data
+        }
+
+        Log.d("S3Uploader", "Image size (${data.size} bytes) exceeds limit ($maxSizeBytes). Compressing...")
+        
+        val bitmap = BitmapFactory.decodeByteArray(data, 0, data.size) ?: run {
+            Log.e("S3Uploader", "Failed to decode bitmap for compression.")
+            return data
+        }
+
+        var quality = 90
+        var compressedData = data
+        
+        // Iteratively reduce quality until size is under limit or quality is too low
+        while (compressedData.size > maxSizeBytes && quality >= 10) {
+            val stream = ByteArrayOutputStream()
+            bitmap.compress(Bitmap.CompressFormat.JPEG, quality, stream)
+            compressedData = stream.toByteArray()
+            Log.d("S3Uploader", "Compressed to quality $quality, size: ${compressedData.size} bytes")
+            quality -= 10
+        }
+
+        bitmap.recycle() // Free memory
+        return compressedData
     }
 }
 
