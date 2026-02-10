@@ -17,8 +17,11 @@ object DependencyProvider {
         this.appContext = context.applicationContext
     }
 
+    // Flag to force UI testing mode
+    var isUITesting: Boolean = false
+
     val api: PositiveOnlySocialAPI by lazy {
-        StatefulStubbedAPI()
+        APIProvider.returnGoodVibesOnlyAPI(com.example.positiveonlysocial.data.constants.Constants.BASE_URL, isUITesting)
     }
 
     val keychainHelper: KeychainHelperProtocol by lazy {

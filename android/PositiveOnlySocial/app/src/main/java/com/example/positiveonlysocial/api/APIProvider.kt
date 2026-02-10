@@ -19,9 +19,9 @@ object APIProvider {
      * Note: The 'baseUrl' is only used if the service has not been created yet,
      * or if it was recently reset.
      */
-    fun returnDenariiService(baseUrl: String): PositiveOnlySocialAPI {
+    fun returnGoodVibesOnlyAPI(baseUrl: String, isUITesting: Boolean = false): PositiveOnlySocialAPI {
         // 1. Check Debug configurations
-        if (Constants.isUnitTesting || isUITesting) {
+        if (Constants.isUnitTesting || isUITesting || this.isUITesting) {
             return stubbedService
         }
 
