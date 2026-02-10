@@ -1,6 +1,7 @@
 package com.example.positiveonlysocial.di
 
 import android.content.Context
+import com.example.positiveonlysocial.api.APIProvider
 import com.example.positiveonlysocial.api.PositiveOnlySocialAPI
 import com.example.positiveonlysocial.api.StatefulStubbedAPI
 import com.example.positiveonlysocial.data.auth.AuthenticationManager

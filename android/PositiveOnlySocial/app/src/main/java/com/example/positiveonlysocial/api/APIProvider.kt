@@ -60,7 +60,6 @@ object APIProvider {
     private val isUITesting: Boolean
         get() {
             if (BuildConfig.DEBUG) return true
-
             return (Build.FINGERPRINT.startsWith("generic")
                     || Build.FINGERPRINT.startsWith("unknown")
                     || Build.MODEL.contains("google_sdk")
