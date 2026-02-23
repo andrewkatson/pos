@@ -144,3 +144,6 @@ local.properties
 
 # Google/Firebase secrets
 google-services.json
+
+# Release
+PositiveOnlySocial/app/release
