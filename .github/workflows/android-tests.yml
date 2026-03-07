@@ -40,7 +40,7 @@ jobs:
 
   android-test:
     name: Run Instrumentation Tests
-    runs-on: macos-latest
+    runs-on: macos-15
     strategy:
       matrix:
         api-level: [29]
@@ -67,10 +67,10 @@ jobs:
         with:
           api-level: ${{ matrix.api-level }}
           target: default
-          arch: x86_64
+          arch: arm64-v8a
           profile: pixel_6
           force-avd-creation: false
           emulator-options: -no-snapshot-save -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back none -memory 4096
           disable-animations: true
-          emulator-boot-timeout: 300
+          emulator-boot-timeout: 600
           script: cd android/PositiveOnlySocial && ./gradlew connectedAndroidTest
