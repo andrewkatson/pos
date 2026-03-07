@@ -51,6 +51,7 @@
 			membershipExceptions = (
 				api/Config.swift,
 				api/Models.swift,
+				api/Networking.swift,
 				api/RealAPI.swift,
 				api/StatefulStubbedAPI.swift,
 				FeedView.swift,
@@ -82,6 +83,7 @@
 			membershipExceptions = (
 				api/Config.swift,
 				api/Models.swift,
+				api/Networking.swift,
 				api/RealAPI.swift,
 				api/StatefulStubbedAPI.swift,
 				FeedView.swift,
