@@ -37,7 +37,7 @@ ALLOWED_HOSTS = ['smiling.social', 'www.smiling.social']
 CSRF_TRUSTED_ORIGINS = ['https://smiling.social', 'https://www.smiling.social']
 
 # Security settings for production
-SECURE_SSL_REDIRECT = True
+SECURE_SSL_REDIRECT = os.environ.get("SECURE_SSL_REDIRECT", "True").lower() == "true"
 SESSION_COOKIE_SECURE = True
 CSRF_COOKIE_SECURE = True
 SECURE_BROWSER_XSS_FILTER = True

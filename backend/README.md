@@ -40,8 +40,10 @@ python3 pytest tests
 ### For backend 
 From folder `backend`
 
+Note: You may need to set `SECURE_SSL_REDIRECT=False` in your environment when running tests locally to avoid HTTP to HTTPS redirects failing the tests.
+
 ```shell
-python3 manage.py test user_system.tests
+SECURE_SSL_REDIRECT=False python3 manage.py test user_system.tests
 ```
 
 Or from `PyCharm`
@@ -51,3 +53,4 @@ Or from `PyCharm`
 * `+` option 
 * `Python`
 * Set `manage.py` as script and `test user_system.tests` as parameter
+* Set the environment variable `SECURE_SSL_REDIRECT` to `False`
