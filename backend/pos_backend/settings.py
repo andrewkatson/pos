@@ -171,6 +171,9 @@ AWS_STORAGE_BUCKET_NAME = os.environ.get("AWS_STORAGE_BUCKET_NAME", "goodvibeson
 AWS_COMPRESSED_STORAGE_BUCKET_NAME = os.environ.get("AWS_COMPRESSED_STORAGE_BUCKET_NAME", "goodvibesonly-imagescompressed")
 
 # Logging Configuration
+log_dir = BASE_DIR / 'logs'
+log_dir.mkdir(exist_ok=True)
+
 LOGGING = {
     'version': 1,
     'disable_existing_loggers': False,
