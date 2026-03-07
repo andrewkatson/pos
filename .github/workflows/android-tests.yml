@@ -40,7 +40,7 @@ jobs:
 
   android-test:
     name: Run Instrumentation Tests
-    runs-on: macos-13
+    runs-on: macos-latest
     strategy:
       matrix:
         api-level: [29]
