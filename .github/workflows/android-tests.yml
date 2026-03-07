@@ -40,10 +40,10 @@ jobs:
 
   android-test:
     name: Run Instrumentation Tests
-    runs-on: macos-latest
+    runs-on: macos-13
     strategy:
       matrix:
-        api-level: [33]
+        api-level: [29]
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -70,6 +70,7 @@ jobs:
           arch: x86_64
           profile: pixel_6
           force-avd-creation: false
-          emulator-options: -no-snapshot-save -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back none
+          emulator-options: -no-snapshot-save -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back none -memory 4096
           disable-animations: true
+          emulator-boot-timeout: 300
           script: cd android/PositiveOnlySocial && ./gradlew connectedAndroidTest
