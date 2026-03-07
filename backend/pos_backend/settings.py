@@ -37,7 +37,7 @@ ALLOWED_HOSTS = ['smiling.social', 'www.smiling.social']
 CSRF_TRUSTED_ORIGINS = ['https://smiling.social', 'https://www.smiling.social']
 
 # Security settings for production
-SECURE_SSL_REDIRECT = True
+SECURE_SSL_REDIRECT = os.environ.get("SECURE_SSL_REDIRECT", "True").lower() == "true"
 SESSION_COOKIE_SECURE = True
 CSRF_COOKIE_SECURE = True
 SECURE_BROWSER_XSS_FILTER = True
@@ -171,6 +171,9 @@ AWS_STORAGE_BUCKET_NAME = os.environ.get("AWS_STORAGE_BUCKET_NAME", "goodvibeson
 AWS_COMPRESSED_STORAGE_BUCKET_NAME = os.environ.get("AWS_COMPRESSED_STORAGE_BUCKET_NAME", "goodvibesonly-imagescompressed")
 
 # Logging Configuration
+log_dir = BASE_DIR / 'logs'
+log_dir.mkdir(exist_ok=True)
+
 LOGGING = {
     'version': 1,
     'disable_existing_loggers': False,

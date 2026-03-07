@@ -1,0 +1,35 @@
+name: iOS Tests
+
+on:
+  push:
+    branches: [ "main" ]
+    paths:
+      - 'ios/**'
+      - '.github/workflows/ios-tests.yml'
+  pull_request:
+    branches: [ "main" ]
+    paths:
+      - 'ios/**'
+      - '.github/workflows/ios-tests.yml'
+
+jobs:
+  test:
+    name: Run Unit and UI Tests
+    runs-on: macos-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Select Xcode version
+        run: sudo xcode-select -s /Applications/Xcode.app/Contents/Developer
+
+      - name: Run Tests
+        working-directory: "ios/Positive Only Social"
+        run: |
+          xcodebuild test \
+            -project "Positive Only Social.xcodeproj" \
+            -scheme "Positive Only Social" \
+            -destination "platform=iOS Simulator,name=iPhone 16,OS=latest" \
+            CODE_SIGN_IDENTITY="" \
+            CODE_SIGNING_REQUIRED=NO
