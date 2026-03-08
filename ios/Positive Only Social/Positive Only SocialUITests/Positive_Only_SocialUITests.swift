@@ -9,6 +9,7 @@ import XCTest
 
 final class Positive_Only_SocialUITests: XCTestCase {
     
+    var app: XCUIApplication!
     var testUsername: String = ""
     var otherTestUsername: String = ""
     var newTestUsername: String = ""
@@ -20,6 +21,10 @@ final class Positive_Only_SocialUITests: XCTestCase {
 
         // In UI tests it is usually best to stop immediately when a failure occurs.
         continueAfterFailure = false
+        
+        app = XCUIApplication()
+        app.launchArguments.append("--ui_testing")
+        app.launch()
         
         // get the name and remove the opening
         var baseName = self.name.replacingOccurrences(of: "-[", with: "")
@@ -35,7 +40,7 @@ final class Positive_Only_SocialUITests: XCTestCase {
 
     override func tearDownWithError() throws {
         // We want the test to teardown properly even if it fails midway through
-        XCUIApplication().terminate()
+        app.terminate()
     }
     
     // MARK: Helpers
@@ -335,33 +340,21 @@ final class Positive_Only_SocialUITests: XCTestCase {
     // MARK: Tests
     @MainActor
     func testAutomaticLoginAfterRememberMe() throws {
-        // UI tests must launch the application that they test.
-        let app = XCUIApplication()
-        app.launchArguments.append("--ui_testing")
-        
-        app.launch()
         
         try ifOnHomeLogout(app: app)
         
         try loginUser(app: app, username: testUsername, password: strongPassword, rememberMe: true)
         
-        app.terminate()
         
         app.launch()
         
         // If we end the app and relaunch after remember me we should automatically be on the HomeView
         assertOnHomeView(app: app)
         
-        app.terminate()
     }
     
     @MainActor
     func testDeleteAccount() throws {
-        // UI tests must launch the application that they test.
-        let app = XCUIApplication()
-        app.launchArguments.append("--ui_testing")
-        
-        app.launch()
         
         try ifOnHomeLogout(app: app)
         
@@ -397,16 +390,10 @@ final class Positive_Only_SocialUITests: XCTestCase {
         
         XCTAssertTrue(app.buttons["LoginFailedOkButton"].exists, "Login should have failed")
         
-        app.terminate()
     }
     
     @MainActor
     func testResetPassword() throws {
-        // UI tests must launch the application that they test.
-        let app = XCUIApplication()
-        app.launchArguments.append("--ui_testing")
-        
-        app.launch()
         
         try ifOnHomeLogout(app: app)
 
@@ -488,16 +475,10 @@ final class Positive_Only_SocialUITests: XCTestCase {
         
         assertOnHomeView(app: app)
         
-        app.terminate()
     }
     
     @MainActor
     func testFollowAndUnfollowFromSearch() throws {
-        // UI tests must launch the application that they test.
-        let app = XCUIApplication()
-        app.launchArguments.append("--ui_testing")
-        
-        app.launch()
         
         try ifOnHomeLogout(app: app)
         
@@ -544,16 +525,10 @@ final class Positive_Only_SocialUITests: XCTestCase {
         expectation(for: zeroPredicate, evaluatedWith: followersLabel, handler: nil)
         waitForExpectations(timeout: 5.0, handler: nil)
         
-        app.terminate()
     }
     
     @MainActor
     func testFollowAndUnfollowFromPost() throws {
-        // UI tests must launch the application that they test.
-        let app = XCUIApplication()
-        app.launchArguments.append("--ui_testing")
-        
-        app.launch()
         
         try ifOnHomeLogout(app: app)
         
@@ -652,16 +627,10 @@ final class Positive_Only_SocialUITests: XCTestCase {
         let allPostsQuery4 = app.buttons.matching(identifier: "ForYouPostImage")
         XCTAssertEqual(allPostsQuery4.count, 1)
         
-        app.terminate()
     }
     
     @MainActor
     func testLikeAndUnlikePost() throws {
-        // UI tests must launch the application that they test.
-        let app = XCUIApplication()
-        app.launchArguments.append("--ui_testing")
-        
-        app.launch()
         
         try ifOnHomeLogout(app: app)
 
@@ -699,16 +668,10 @@ final class Positive_Only_SocialUITests: XCTestCase {
         
         XCTAssertEqual(postLikesText.label, "0 likes")
         
-        app.terminate()
     }
     
     @MainActor
     func testVerifyIdentity() throws {
-        // UI tests must launch the application that they test.
-        let app = XCUIApplication()
-        app.launchArguments.append("--ui_testing")
-        
-        app.launch()
         
         try ifOnHomeLogout(app: app)
         
@@ -737,16 +700,10 @@ final class Positive_Only_SocialUITests: XCTestCase {
         // Verify Identity submit button should be gone. This is a proxy for the dialog being gone.
         XCTAssertFalse(submitVerificationButton.exists, "Verify Identity submit button should disappear after verification")
         
-        app.terminate()
     }
     
     @MainActor
     func testLikeAndUnlikeCommentOnPostAndThread() throws {
-        // UI tests must launch the application that they test.
-        let app = XCUIApplication()
-        app.launchArguments.append("--ui_testing")
-        
-        app.launch()
         
         try ifOnHomeLogout(app: app)
 
@@ -828,16 +785,10 @@ final class Positive_Only_SocialUITests: XCTestCase {
         
         XCTAssertEqual(postCommentLikesText2.label, "0 likes")
         
-        app.terminate()
     }
     
     @MainActor
     func testReportPost() throws {
-        // UI tests must launch the application that they test.
-        let app = XCUIApplication()
-        app.launchArguments.append("--ui_testing")
-        
-        app.launch()
         
         try ifOnHomeLogout(app: app)
         
@@ -895,16 +846,10 @@ final class Positive_Only_SocialUITests: XCTestCase {
         let reportedCommentIcon = app.images["ReportedPostIcon"]
         XCTAssertTrue(reportedCommentIcon.exists, "Reported post icon is missing")
         
-        app.terminate()
     }
     
     @MainActor
     func testReportComment() throws {
-        // UI tests must launch the application that they test.
-        let app = XCUIApplication()
-        app.launchArguments.append("--ui_testing")
-        
-        app.launch()
         
         try ifOnHomeLogout(app: app)
         
@@ -986,14 +931,12 @@ final class Positive_Only_SocialUITests: XCTestCase {
         let reportedCommentIcon2 = app.images.matching(identifier: "ReportedCommentIcon")
         XCTAssertEqual(reportedCommentIcon2.count, 2, "Expected 2 reported comment icons but only found \(reportedCommentIcon2.count)")
         
-        app.terminate()
     }
 
     @MainActor
     func testLaunchPerformance() throws {
         // This measures how long it takes to launch your application.
         measure(metrics: [XCTApplicationLaunchMetric()]) {
-            let app = XCUIApplication()
             app.launch()
 
             do {
@@ -1002,17 +945,11 @@ final class Positive_Only_SocialUITests: XCTestCase {
                 XCTFail("ifOnHomeLogout threw error: \(error)")
             }
             
-            app.terminate()
         }
     }
 
     @MainActor
     func testBlockAndUnblockUser() throws {
-        // UI tests must launch the application that they test.
-        let app = XCUIApplication()
-        app.launchArguments.append("--ui_testing")
-        
-        app.launch()
         
         try ifOnHomeLogout(app: app)
         
@@ -1051,7 +988,6 @@ final class Positive_Only_SocialUITests: XCTestCase {
         // Verify changes back to "Block"
         XCTAssertTrue(blockButton.waitForExistence(timeout: 2))
         
-        app.terminate()
     }
 }
 
