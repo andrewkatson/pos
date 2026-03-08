@@ -40,10 +40,7 @@ jobs:
 
   android-test:
     name: Run Instrumentation Tests
-    runs-on: macos-15
-    strategy:
-      matrix:
-        api-level: [29]
+    runs-on: ubuntu-latest
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -62,15 +59,27 @@ jobs:
         working-directory: ./android/PositiveOnlySocial
         run: chmod +x gradlew
 
-      - name: Run Instrumentation Tests
-        uses: reactivecircus/android-emulator-runner@v2
+      - name: Build debug APK
+        working-directory: ./android/PositiveOnlySocial
+        run: ./gradlew assembleDebug
+
+      - name: Build instrumentation test APK
+        working-directory: ./android/PositiveOnlySocial
+        run: ./gradlew assembleAndroidTest
+
+      - name: Authenticate to Google Cloud
+        uses: google-github-actions/auth@v2
         with:
-          api-level: ${{ matrix.api-level }}
-          target: default
-          arch: arm64-v8a
-          profile: pixel_6
-          force-avd-creation: false
-          emulator-options: -no-snapshot-save -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back none -memory 4096
-          disable-animations: true
-          emulator-boot-timeout: 600
-          script: cd android/PositiveOnlySocial && ./gradlew connectedAndroidTest
+          credentials_json: ${{ secrets.GCP_CREDENTIALS }}
+
+      - name: Set up Google Cloud SDK
+        uses: google-github-actions/setup-gcloud@v2
+
+      - name: Run tests on Firebase Test Lab
+        run: |
+          gcloud firebase test android run \
+            --type instrumentation \
+            --app android/PositiveOnlySocial/app/build/outputs/apk/debug/app-debug.apk \
+            --test android/PositiveOnlySocial/app/build/outputs/apk/androidTest/debug/app-debug-androidTest.apk \
+            --device model=Pixel6,version=33,locale=en,orientation=portrait \
+            --timeout 5m
