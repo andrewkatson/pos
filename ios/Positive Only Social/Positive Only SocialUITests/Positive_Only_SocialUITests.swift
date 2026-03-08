@@ -34,7 +34,8 @@ final class Positive_Only_SocialUITests: XCTestCase {
     }
 
     override func tearDownWithError() throws {
-        // Put teardown code here. This method is called after the invocation of each test method in the class.
+        // We want the test to teardown properly even if it fails midway through
+        XCUIApplication().terminate()
     }
     
     // MARK: Helpers
@@ -350,6 +351,8 @@ final class Positive_Only_SocialUITests: XCTestCase {
         
         // If we end the app and relaunch after remember me we should automatically be on the HomeView
         assertOnHomeView(app: app)
+        
+        app.terminate()
     }
     
     @MainActor
@@ -393,6 +396,8 @@ final class Positive_Only_SocialUITests: XCTestCase {
         loginButton2.tap()
         
         XCTAssertTrue(app.buttons["LoginFailedOkButton"].exists, "Login should have failed")
+        
+        app.terminate()
     }
     
     @MainActor
@@ -482,6 +487,8 @@ final class Positive_Only_SocialUITests: XCTestCase {
         loginButton3.tap()
         
         assertOnHomeView(app: app)
+        
+        app.terminate()
     }
     
     @MainActor
@@ -536,6 +543,8 @@ final class Positive_Only_SocialUITests: XCTestCase {
         let zeroPredicate = NSPredicate(format: "label == '0'")
         expectation(for: zeroPredicate, evaluatedWith: followersLabel, handler: nil)
         waitForExpectations(timeout: 5.0, handler: nil)
+        
+        app.terminate()
     }
     
     @MainActor
@@ -642,6 +651,8 @@ final class Positive_Only_SocialUITests: XCTestCase {
         
         let allPostsQuery4 = app.buttons.matching(identifier: "ForYouPostImage")
         XCTAssertEqual(allPostsQuery4.count, 1)
+        
+        app.terminate()
     }
     
     @MainActor
@@ -687,6 +698,8 @@ final class Positive_Only_SocialUITests: XCTestCase {
         postImage.doubleTap()
         
         XCTAssertEqual(postLikesText.label, "0 likes")
+        
+        app.terminate()
     }
     
     @MainActor
@@ -723,6 +736,8 @@ final class Positive_Only_SocialUITests: XCTestCase {
         
         // Verify Identity submit button should be gone. This is a proxy for the dialog being gone.
         XCTAssertFalse(submitVerificationButton.exists, "Verify Identity submit button should disappear after verification")
+        
+        app.terminate()
     }
     
     @MainActor
@@ -812,6 +827,8 @@ final class Positive_Only_SocialUITests: XCTestCase {
         postCommentStack2.doubleTap()
         
         XCTAssertEqual(postCommentLikesText2.label, "0 likes")
+        
+        app.terminate()
     }
     
     @MainActor
@@ -877,6 +894,8 @@ final class Positive_Only_SocialUITests: XCTestCase {
         
         let reportedCommentIcon = app.images["ReportedPostIcon"]
         XCTAssertTrue(reportedCommentIcon.exists, "Reported post icon is missing")
+        
+        app.terminate()
     }
     
     @MainActor
@@ -966,6 +985,8 @@ final class Positive_Only_SocialUITests: XCTestCase {
         
         let reportedCommentIcon2 = app.images.matching(identifier: "ReportedCommentIcon")
         XCTAssertEqual(reportedCommentIcon2.count, 2, "Expected 2 reported comment icons but only found \(reportedCommentIcon2.count)")
+        
+        app.terminate()
     }
 
     @MainActor
@@ -980,6 +1001,8 @@ final class Positive_Only_SocialUITests: XCTestCase {
             } catch {
                 XCTFail("ifOnHomeLogout threw error: \(error)")
             }
+            
+            app.terminate()
         }
     }
 
@@ -1027,6 +1050,8 @@ final class Positive_Only_SocialUITests: XCTestCase {
         
         // Verify changes back to "Block"
         XCTAssertTrue(blockButton.waitForExistence(timeout: 2))
+        
+        app.terminate()
     }
 }
 
