@@ -24,13 +24,14 @@ final class Positive_Only_SocialUITests: XCTestCase {
         
         app = XCUIApplication()
         app.launchArguments.append("--ui_testing")
-        app.launch()
-        
         // get the name and remove the opening
         var baseName = self.name.replacingOccurrences(of: "-[", with: "")
 
         // And then you'll need to remove the closing square bracket at the end of the test name
         baseName = baseName.replacingOccurrences(of: "]", with: "")
+        
+        app.launchEnvironment["test-name"] = baseName
+        app.launch()
 
         // In UI tests it’s important to set the initial state - such as interface orientation - required for your tests before they run. The setUp method is a good place to do this.
         testUsername = "\(baseName)_user"

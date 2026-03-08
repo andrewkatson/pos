@@ -22,14 +22,18 @@ final class KeychainHelper : KeychainHelperProtocol {
     // A private lock to ensure thread-safe access to the keychain.
     private let lock = NSLock()
 
-    let testAccount : String
+    private let _testAccount: String
+    
+    var testAccount: String {
+        resolveAccount(_testAccount)
+    }
     
     convenience init() {
         self.init(testAccount: "testAccount")
     }
     
     init(testAccount: String) {
-        self.testAccount = testAccount
+        self._testAccount = testAccount
     }
 
     // MARK: - Public Methods
@@ -74,6 +78,7 @@ final class KeychainHelper : KeychainHelperProtocol {
 
     /// Deletes a value from the Keychain.
     func delete(service: String, account: String) throws {
+        let account = resolveAccount(account)
         // --- Acquire lock for thread-safety ---
         lock.lock()
         // --- Ensure lock is released on exit, even if an error is thrown ---
@@ -95,9 +100,18 @@ final class KeychainHelper : KeychainHelperProtocol {
         }
     }
 
+    private func resolveAccount(_ account: String) -> String {
+        guard isUITesting(), let testName = ProcessInfo.processInfo.environment["test-name"] else {
+            return account
+        }
+        let suffix = "-" + testName
+        return account.hasSuffix(suffix) ? account : account + suffix
+    }
+
     // MARK: - Private Core Functions
 
     private func saveData(_ data: Data, for service: String, account: String) throws {
+        let account = resolveAccount(account)
         // --- Acquire lock for thread-safety ---
         lock.lock()
         // --- Ensure lock is released on exit, even if an error is thrown ---
@@ -158,6 +172,7 @@ final class KeychainHelper : KeychainHelperProtocol {
     }
 
     private func loadData(from service: String, account: String) throws -> Data? {
+        let account = resolveAccount(account)
         // --- Acquire lock for thread-safety ---
         lock.lock()
         // --- Ensure lock is released on exit, even if an error is thrown ---

@@ -17,7 +17,13 @@ final class AuthenticationManager: ObservableObject {
     
     // Unique identifiers for Keychain
     private let keychainService = "positive-only-social.Positive-Only-Social"
-    private let sessionAccount = "userSessionToken"
+    private var sessionAccount: String {
+        let base = "userSessionToken"
+        guard isUITesting(), let testName = ProcessInfo.processInfo.environment["test-name"] else {
+            return base
+        }
+        return base + "-" + testName
+    }
     
     private let keychainHelper: KeychainHelperProtocol
     

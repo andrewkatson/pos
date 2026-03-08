@@ -20,6 +20,15 @@ final class Positive_Only_SocialUITestsLaunchTests: XCTestCase {
     @MainActor
     func testLaunch() throws {
         let app = XCUIApplication()
+        
+        // get the name and remove the opening
+        var baseName = self.name.replacingOccurrences(of: "-[", with: "")
+
+        // And then you'll need to remove the closing square bracket at the end of the test name
+        baseName = baseName.replacingOccurrences(of: "]", with: "")
+        
+        app.launchArguments.append("--ui_testing")
+        app.launchEnvironment["test-name"] = baseName
         app.launch()
 
         // Insert steps here to perform after app launch but before taking a screenshot,
