@@ -1,5 +1,4 @@
 name: iOS Tests
-
 on:
   push:
     branches: [ "main" ]
@@ -15,14 +14,19 @@ on:
 jobs:
   test:
     name: Run Unit and UI Tests
-    runs-on: macos-latest
+    runs-on: macos-15
 
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
 
       - name: Select Xcode version
-        run: sudo xcode-select -s /Applications/Xcode.app/Contents/Developer
+        run: sudo xcode-select -s /Applications/Xcode_16.2.app/Contents/Developer
+
+      - name: Boot Simulator
+        run: |
+          xcrun simctl boot "iPhone 16" || true
+          xcrun simctl bootstatus "iPhone 16" -b
 
       - name: Run Tests
         working-directory: "ios/Positive Only Social"
@@ -30,6 +34,14 @@ jobs:
           xcodebuild test \
             -project "Positive Only Social.xcodeproj" \
             -scheme "Positive Only Social" \
-            -destination "platform=iOS Simulator,name=iPhone 16,OS=latest" \
+            -destination "platform=iOS Simulator,name=iPhone 16,OS=18.2" \
             CODE_SIGN_IDENTITY="" \
-            CODE_SIGNING_REQUIRED=NO
+            CODE_SIGNING_REQUIRED=NO \
+          | tee xcodebuild.log | xcpretty
+
+      - name: Upload test log
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: xcodebuild-log
+          path: ios/Positive Only Social/xcodebuild.log
