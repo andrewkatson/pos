@@ -23,6 +23,12 @@ jobs:
       - name: Select Xcode version
         run: sudo xcode-select -s /Applications/Xcode_16.2.app/Contents/Developer
 
+      - name: Install iOS Simulator Runtime
+        run: xcodebuild -downloadPlatform iOS
+
+      - name: Install xcpretty
+        run: gem install xcpretty
+
       - name: Boot Simulator
         run: |
           xcrun simctl boot "iPhone 16" || true
@@ -38,10 +44,11 @@ jobs:
             CODE_SIGN_IDENTITY="" \
             CODE_SIGNING_REQUIRED=NO \
           | tee xcodebuild.log | xcpretty
+          exit ${PIPESTATUS[0]}
 
       - name: Upload test log
         if: failure()
         uses: actions/upload-artifact@v4
         with:
           name: xcodebuild-log
-          path: ios/Positive Only Social/xcodebuild.log
+          path: "ios/Positive Only Social/xcodebuild.log"
