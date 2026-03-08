@@ -23,8 +23,11 @@ jobs:
       - name: Select Xcode version
         run: sudo xcode-select -s /Applications/Xcode_16.2.app/Contents/Developer
 
-      - name: Install iOS Simulator Runtime
-        uses: yukiarrr/ios-build-action@v1.5.0
+      - name: Get available runtime
+        run: |
+          RUNTIME=$(xcrun simctl list runtimes | grep iOS | tail -1 | awk '{print $NF}')
+          echo "Available runtime: $RUNTIME"
+          xcrun simctl list devices available | grep iPhone
 
       - name: Install xcpretty
         run: gem install xcpretty
