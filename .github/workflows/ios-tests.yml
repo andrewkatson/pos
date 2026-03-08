@@ -34,7 +34,7 @@ jobs:
           xcodebuild test \
             -project "Positive Only Social.xcodeproj" \
             -scheme "Positive Only Social" \
-            -destination "platform=iOS Simulator,name=iPhone 16,OS=18.2" \
+            -destination "platform=iOS Simulator,name=iPhone 16,OS=latest" \
             CODE_SIGN_IDENTITY="" \
             CODE_SIGNING_REQUIRED=NO \
           | tee xcodebuild.log | xcpretty
