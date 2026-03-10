@@ -40,6 +40,13 @@ jobs:
           xcrun simctl boot "iPhone 16" || true
           xcrun simctl bootstatus "iPhone 16" -b
 
+      - name: Resolve Package Dependencies
+        working-directory: "ios/Positive Only Social"
+        run: |
+          xcodebuild -resolvePackageDependencies \
+            -project "Positive Only Social.xcodeproj" \
+            -scheme "Positive Only Social"
+
       - name: Run Tests
         working-directory: "ios/Positive Only Social"
         run: |
@@ -47,6 +54,7 @@ jobs:
             -project "Positive Only Social.xcodeproj" \
             -scheme "Positive Only Social" \
             -destination "platform=iOS Simulator,name=iPhone 16,OS=26.2" \
+            -parallel-testing-enabled NO \
             CODE_SIGN_IDENTITY="" \
             CODE_SIGNING_REQUIRED=NO \
           | tee xcodebuild.log | xcpretty
