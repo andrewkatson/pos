@@ -54,15 +54,17 @@ jobs:
             -project "Positive Only Social.xcodeproj" \
             -scheme "Positive Only Social" \
             -destination "platform=iOS Simulator,name=iPhone 16,OS=26.2" \
-            -parallel-testing-enabled NO \
+            -resultBundlePath TestResults.xcresult \
             CODE_SIGN_IDENTITY="" \
             CODE_SIGNING_REQUIRED=NO \
           | tee xcodebuild.log | xcpretty
           exit ${PIPESTATUS[0]}
 
-      - name: Upload test log
+      - name: Upload test artifacts
         if: failure()
         uses: actions/upload-artifact@v4
         with:
-          name: xcodebuild-log
-          path: "ios/Positive Only Social/xcodebuild.log"
+          name: test-artifacts
+          path: |
+            "ios/Positive Only Social/xcodebuild.log"
+            "ios/Positive Only Social/TestResults.xcresult"
