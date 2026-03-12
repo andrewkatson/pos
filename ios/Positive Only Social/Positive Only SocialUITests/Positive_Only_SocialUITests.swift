@@ -989,8 +989,8 @@ final class Positive_Only_SocialUITests: XCTestCase {
         let reportedCommentIcon2 = app.images.matching(identifier: "ReportedCommentIcon")
         XCTAssertEqual(reportedCommentIcon2.count, 2, "Expected 2 reported comment icons but only found \(reportedCommentIcon2.count)")
         
-        let backButton2 = app.navigationBars.firstMatch.buttons.element(boundBy: 0)
-        backButton2.tap()
+        let backButton3 = app.navigationBars.firstMatch.buttons.element(boundBy: 0)
+        backButton3.tap()
         
         let homeButton2 = app.buttons["Home"]
         if homeButton2.exists {
