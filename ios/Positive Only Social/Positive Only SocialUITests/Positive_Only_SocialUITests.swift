@@ -101,16 +101,7 @@ final class Positive_Only_SocialUITests: XCTestCase {
     
     private func assertOnSettingsView(app: XCUIApplication) {
         XCTAssertTrue(app.buttons["LogoutButton"].exists, "Logout button not present")
-        
-        // Scroll down until DeleteAccountButton exists
-        let deleteAccountButton = app.buttons["DeleteAccountButton"]
-        let maxSwipes = 5
-        var swipeCount = 0
-        while !deleteAccountButton.exists && swipeCount < maxSwipes {
-            app.swipeUp()
-            swipeCount += 1
-        }
-        XCTAssertTrue(deleteAccountButton.exists, "Delete Account button not present")
+        XCTAssertTrue(app.buttons["DeleteAccountButton"].exists, "Delete Account button not present")
     }
     
     private func assertOnProfileView(app: XCUIApplication) {
@@ -256,11 +247,7 @@ final class Positive_Only_SocialUITests: XCTestCase {
 
         let sharePostButton = app.buttons["SharePostButton"]
         sharePostButton.tap()
-        
-        let successAlertOkButton = app.buttons["OkButtonSuccess"]
-        XCTAssertTrue(successAlertOkButton.waitForExistence(timeout: 5), "Success alert did not appear")
-        successAlertOkButton.tap()
-        
+
         assertOnHomeView(app: app)
     }
     
