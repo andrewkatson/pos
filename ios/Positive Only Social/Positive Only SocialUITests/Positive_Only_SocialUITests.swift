@@ -350,12 +350,10 @@ final class Positive_Only_SocialUITests: XCTestCase {
         
         try loginUser(app: app, username: testUsername, password: strongPassword, rememberMe: true)
         
-        
         app.launch()
         
         // If we end the app and relaunch after remember me we should automatically be on the HomeView
         assertOnHomeView(app: app)
-        
     }
     
     @MainActor
@@ -397,6 +395,12 @@ final class Positive_Only_SocialUITests: XCTestCase {
         
         XCTAssertTrue(app.buttons["LoginFailedOkButton"].exists, "Login should have failed")
         
+        app.buttons["LoginFailedOkButton"].tap()
+        
+        let backButton = app.navigationBars.firstMatch.buttons.element(boundBy: 0)
+        backButton.tap()
+        
+        try registerUser(app: app, username: newTestUsername, password: strongPassword)
     }
     
     @MainActor
@@ -481,7 +485,6 @@ final class Positive_Only_SocialUITests: XCTestCase {
         loginButton3.tap()
         
         assertOnHomeView(app: app)
-        
     }
     
     @MainActor
@@ -532,6 +535,15 @@ final class Positive_Only_SocialUITests: XCTestCase {
         expectation(for: zeroPredicate, evaluatedWith: followersLabel, handler: nil)
         waitForExpectations(timeout: 5.0, handler: nil)
         
+        let backButton = app.navigationBars.firstMatch.buttons.element(boundBy: 0)
+        backButton.tap()
+        
+        let homeButton = app.buttons["Home"]
+        if homeButton.exists {
+            homeButton.tap()
+        }
+        
+        assertOnHomeView(app: app)
     }
     
     @MainActor
@@ -634,6 +646,12 @@ final class Positive_Only_SocialUITests: XCTestCase {
         let allPostsQuery4 = app.buttons.matching(identifier: "ForYouPostImage")
         XCTAssertEqual(allPostsQuery4.count, 1)
         
+        let homeButton = app.buttons["Home"]
+        if homeButton.exists {
+            homeButton.tap()
+        }
+        
+        assertOnHomeView(app: app)
     }
     
     @MainActor
@@ -675,6 +693,15 @@ final class Positive_Only_SocialUITests: XCTestCase {
         
         XCTAssertEqual(postLikesText.label, "0 likes")
         
+        let backButton = app.navigationBars.firstMatch.buttons.element(boundBy: 0)
+        backButton.tap()
+        
+        let homeButton = app.buttons["Home"]
+        if homeButton.exists {
+            homeButton.tap()
+        }
+        
+        assertOnHomeView(app: app)
     }
     
     @MainActor
@@ -707,6 +734,12 @@ final class Positive_Only_SocialUITests: XCTestCase {
         // Verify Identity submit button should be gone. This is a proxy for the dialog being gone.
         XCTAssertFalse(submitVerificationButton.exists, "Verify Identity submit button should disappear after verification")
         
+        let homeButton = app.buttons["Home"]
+        if homeButton.exists {
+            homeButton.tap()
+        }
+        
+        assertOnHomeView(app: app)
     }
     
     @MainActor
@@ -792,6 +825,15 @@ final class Positive_Only_SocialUITests: XCTestCase {
         
         XCTAssertEqual(postCommentLikesText2.label, "0 likes")
         
+        let backButton = app.navigationBars.firstMatch.buttons.element(boundBy: 0)
+        backButton.tap()
+        
+        let homeButton = app.buttons["Home"]
+        if homeButton.exists {
+            homeButton.tap()
+        }
+        
+        assertOnHomeView(app: app)
     }
     
     @MainActor
@@ -853,6 +895,15 @@ final class Positive_Only_SocialUITests: XCTestCase {
         let reportedCommentIcon = app.images["ReportedPostIcon"]
         XCTAssertTrue(reportedCommentIcon.exists, "Reported post icon is missing")
         
+        let backButton = app.navigationBars.firstMatch.buttons.element(boundBy: 0)
+        backButton.tap()
+        
+        let homeButton = app.buttons["Home"]
+        if homeButton.exists {
+            homeButton.tap()
+        }
+        
+        assertOnHomeView(app: app)
     }
     
     @MainActor
@@ -938,6 +989,15 @@ final class Positive_Only_SocialUITests: XCTestCase {
         let reportedCommentIcon2 = app.images.matching(identifier: "ReportedCommentIcon")
         XCTAssertEqual(reportedCommentIcon2.count, 2, "Expected 2 reported comment icons but only found \(reportedCommentIcon2.count)")
         
+        let backButton = app.navigationBars.firstMatch.buttons.element(boundBy: 0)
+        backButton.tap()
+        
+        let homeButton = app.buttons["Home"]
+        if homeButton.exists {
+            homeButton.tap()
+        }
+        
+        assertOnHomeView(app: app)
     }
 
     @MainActor
@@ -953,6 +1013,9 @@ final class Positive_Only_SocialUITests: XCTestCase {
             }
             
         }
+        
+        try registerUser(app: app, username: newTestUsername, password: strongPassword)
+        assertOnHomeView(app: app)
     }
 
     @MainActor
@@ -995,6 +1058,15 @@ final class Positive_Only_SocialUITests: XCTestCase {
         // Verify changes back to "Block"
         XCTAssertTrue(blockButton.waitForExistence(timeout: 2))
         
+        let backButton = app.navigationBars.firstMatch.buttons.element(boundBy: 0)
+        backButton.tap()
+        
+        let homeButton = app.buttons["Home"]
+        if homeButton.exists {
+            homeButton.tap()
+        }
+        
+        assertOnHomeView(app: app)
     }
 }
 
