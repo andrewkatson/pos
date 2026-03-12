@@ -828,9 +828,9 @@ final class Positive_Only_SocialUITests: XCTestCase {
         let backButton = app.navigationBars.firstMatch.buttons.element(boundBy: 0)
         backButton.tap()
         
-        let homeButton = app.buttons["Home"]
-        if homeButton.exists {
-            homeButton.tap()
+        let homeButton3 = app.buttons["Home"]
+        if homeButton3.exists {
+            homeButton3.tap()
         }
         
         assertOnHomeView(app: app)
@@ -895,12 +895,12 @@ final class Positive_Only_SocialUITests: XCTestCase {
         let reportedCommentIcon = app.images["ReportedPostIcon"]
         XCTAssertTrue(reportedCommentIcon.exists, "Reported post icon is missing")
         
-        let backButton = app.navigationBars.firstMatch.buttons.element(boundBy: 0)
-        backButton.tap()
+        let backButton2 = app.navigationBars.firstMatch.buttons.element(boundBy: 0)
+        backButton2.tap()
         
-        let homeButton = app.buttons["Home"]
-        if homeButton.exists {
-            homeButton.tap()
+        let homeButton2 = app.buttons["Home"]
+        if homeButton2.exists {
+            homeButton2.tap()
         }
         
         assertOnHomeView(app: app)
@@ -989,12 +989,12 @@ final class Positive_Only_SocialUITests: XCTestCase {
         let reportedCommentIcon2 = app.images.matching(identifier: "ReportedCommentIcon")
         XCTAssertEqual(reportedCommentIcon2.count, 2, "Expected 2 reported comment icons but only found \(reportedCommentIcon2.count)")
         
-        let backButton = app.navigationBars.firstMatch.buttons.element(boundBy: 0)
-        backButton.tap()
+        let backButton2 = app.navigationBars.firstMatch.buttons.element(boundBy: 0)
+        backButton2.tap()
         
-        let homeButton = app.buttons["Home"]
-        if homeButton.exists {
-            homeButton.tap()
+        let homeButton2 = app.buttons["Home"]
+        if homeButton2.exists {
+            homeButton2.tap()
         }
         
         assertOnHomeView(app: app)
