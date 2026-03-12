@@ -55,6 +55,7 @@ jobs:
             -scheme "Positive Only Social" \
             -destination "platform=iOS Simulator,name=iPhone 16,OS=26.2" \
             -resultBundlePath TestResults.xcresult \
+            -parallel-testing-enabled NO \
             CODE_SIGN_IDENTITY="" \
             CODE_SIGNING_REQUIRED=NO \
           | tee xcodebuild.log | xcpretty
