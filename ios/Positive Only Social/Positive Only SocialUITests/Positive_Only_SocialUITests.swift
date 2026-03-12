@@ -100,8 +100,6 @@ final class Positive_Only_SocialUITests: XCTestCase {
     }
     
     private func assertOnSettingsView(app: XCUIApplication) {
-        print("DEBUG SettingsView:")
-        print(app.debugDescription)
         XCTAssertTrue(app.buttons["LogoutButton"].exists, "Logout button not present")
         XCTAssertTrue(app.buttons["DeleteAccountButton"].exists, "Delete Account button not present")
     }
@@ -114,8 +112,6 @@ final class Positive_Only_SocialUITests: XCTestCase {
     }
     
     private func assertOnNewPostView(app: XCUIApplication) {
-        print("DEBUG NewPostView:")
-        print(app.debugDescription)
         XCTAssertTrue(app.buttons["SelectAPhotoPicker"].exists, "Select a photo picker not present")
         XCTAssertTrue(app.textViews["CaptionTextEditor"].exists, "Caption text editor not present")
         XCTAssertTrue(app.buttons["SharePostButton"].exists, "Share post button is not empty")
@@ -506,13 +502,9 @@ final class Positive_Only_SocialUITests: XCTestCase {
         
         let userSearchField = app.searchFields["Search for Users"]
         userSearchField.tap()
-        print("DEBUG FollowAndUnfollow SearchField tap:")
-        print(app.debugDescription)
         userSearchField.typeText(otherTestUsername)
         
         let userLink = app.buttons[otherTestUsername]
-        print("DEBUG FollowAndUnfollow userLink exists:")
-        print(app.debugDescription)
         userLink.tap()
         
         assertOnProfileView(app: app)
@@ -1041,14 +1033,10 @@ final class Positive_Only_SocialUITests: XCTestCase {
         // Search for user
         let userSearchField = app.searchFields["Search for Users"]
         userSearchField.tap()
-        print("DEBUG BlockAndUnblock SearchField tap:")
-        print(app.debugDescription)
         userSearchField.typeText(otherTestUsername)
         
         let userLink = app.buttons[otherTestUsername]
         XCTAssertTrue(userLink.waitForExistence(timeout: 5))
-        print("DEBUG BlockAndUnblock userLink exists:")
-        print(app.debugDescription)
         userLink.tap()
         
         assertOnProfileView(app: app)
