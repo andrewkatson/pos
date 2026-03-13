@@ -127,9 +127,9 @@ final class Positive_Only_SocialUITests: XCTestCase {
         XCTAssertTrue(app.textFields["AddACommentTextFieldToPost"].exists, "Add a comment text field not present")
     }
     
-    private func ifOnHomeLogout(app: XCUIApplication) throws {
+    private func ifOnHomeDeleteAccount(app: XCUIApplication) throws {
         if (app.buttons["Home"].exists) {
-            try logoutUserFromHome(app: app)
+            try deleteAccountFromHome(app: app)
         }
     }
     
@@ -224,6 +224,21 @@ final class Positive_Only_SocialUITests: XCTestCase {
         /// Don't know why but there is a hierarchy of confirm logout buttons
         let confirmLogoutButton = app.buttons["ConfirmLogoutButton"].firstMatch
         confirmLogoutButton.tap()
+        
+        assertOnWelcomeView(app: app)
+    }
+    
+    private func deleteAccountFromHome(app: XCUIApplication) throws {
+        let settingsTab = app.buttons["Settings"]
+        settingsTab.tap()
+        
+        assertOnSettingsView(app: app)
+        
+        let deleteAccountButton = app.buttons["DeleteAccountButton"]
+        deleteAccountButton.tap()
+        
+        let confirmDeleteAccountButton = app.buttons["ConfirmDeleteAccountButton"].firstMatch
+        confirmDeleteAccountButton.tap()
         
         assertOnWelcomeView(app: app)
     }
@@ -346,7 +361,7 @@ final class Positive_Only_SocialUITests: XCTestCase {
     @MainActor
     func testAutomaticLoginAfterRememberMe() throws {
         
-        try ifOnHomeLogout(app: app)
+        try ifOnHomeDeleteAccount(app: app)
         
         try loginUser(app: app, username: testUsername, password: strongPassword, rememberMe: true)
         
@@ -359,7 +374,7 @@ final class Positive_Only_SocialUITests: XCTestCase {
     @MainActor
     func testDeleteAccount() throws {
         
-        try ifOnHomeLogout(app: app)
+        try ifOnHomeDeleteAccount(app: app)
         
         // Remember me is true here so we can test that the deleting clears the token
         try loginUser(app: app, username: testUsername, password: strongPassword, rememberMe: true)
@@ -395,7 +410,7 @@ final class Positive_Only_SocialUITests: XCTestCase {
         
         XCTAssertTrue(app.buttons["LoginFailedOkButton"].exists, "Login should have failed")
         
-        app.buttons["LoginFailedOkButton"].tap()
+        app.buttons["LoginFailedOkButton"].firstMatch.tap()
         
         let backButton = app.navigationBars.firstMatch.buttons.element(boundBy: 0)
         backButton.tap()
@@ -406,7 +421,7 @@ final class Positive_Only_SocialUITests: XCTestCase {
     @MainActor
     func testResetPassword() throws {
         
-        try ifOnHomeLogout(app: app)
+        try ifOnHomeDeleteAccount(app: app)
 
         try registerUser(app: app, username: testUsername, password: strongPassword)
         
@@ -490,7 +505,7 @@ final class Positive_Only_SocialUITests: XCTestCase {
     @MainActor
     func testFollowAndUnfollowFromSearch() throws {
         
-        try ifOnHomeLogout(app: app)
+        try ifOnHomeDeleteAccount(app: app)
         
         try registerUser(app: app, username: otherTestUsername, password: strongPassword)
         
@@ -549,7 +564,7 @@ final class Positive_Only_SocialUITests: XCTestCase {
     @MainActor
     func testFollowAndUnfollowFromPost() throws {
         
-        try ifOnHomeLogout(app: app)
+        try ifOnHomeDeleteAccount(app: app)
         
         try loginUser(app: app, username: testUsername, password: strongPassword, rememberMe: false)
         
@@ -657,7 +672,7 @@ final class Positive_Only_SocialUITests: XCTestCase {
     @MainActor
     func testLikeAndUnlikePost() throws {
         
-        try ifOnHomeLogout(app: app)
+        try ifOnHomeDeleteAccount(app: app)
 
         try loginUser(app: app, username: testUsername, password: strongPassword, rememberMe: false)
         
@@ -707,7 +722,7 @@ final class Positive_Only_SocialUITests: XCTestCase {
     @MainActor
     func testVerifyIdentity() throws {
         
-        try ifOnHomeLogout(app: app)
+        try ifOnHomeDeleteAccount(app: app)
         
         try loginUser(app: app, username: testUsername, password: strongPassword, rememberMe: false)
         
@@ -745,7 +760,7 @@ final class Positive_Only_SocialUITests: XCTestCase {
     @MainActor
     func testLikeAndUnlikeCommentOnPostAndThread() throws {
         
-        try ifOnHomeLogout(app: app)
+        try ifOnHomeDeleteAccount(app: app)
 
         try loginUser(app: app, username: testUsername, password: strongPassword, rememberMe: false)
         
@@ -839,7 +854,7 @@ final class Positive_Only_SocialUITests: XCTestCase {
     @MainActor
     func testReportPost() throws {
         
-        try ifOnHomeLogout(app: app)
+        try ifOnHomeDeleteAccount(app: app)
         
         try loginUser(app: app, username: testUsername, password: strongPassword, rememberMe: false)
         
@@ -909,7 +924,7 @@ final class Positive_Only_SocialUITests: XCTestCase {
     @MainActor
     func testReportComment() throws {
         
-        try ifOnHomeLogout(app: app)
+        try ifOnHomeDeleteAccount(app: app)
         
         try loginUser(app: app, username: testUsername, password: strongPassword, rememberMe: false)
         
@@ -1007,9 +1022,9 @@ final class Positive_Only_SocialUITests: XCTestCase {
             app.launch()
 
             do {
-                try ifOnHomeLogout(app: app)
+                try ifOnHomeDeleteAccount(app: app)
             } catch {
-                XCTFail("ifOnHomeLogout threw error: \(error)")
+                XCTFail("ifOnHomeDeleteAccount threw error: \(error)")
             }
             
         }
@@ -1021,7 +1036,7 @@ final class Positive_Only_SocialUITests: XCTestCase {
     @MainActor
     func testBlockAndUnblockUser() throws {
         
-        try ifOnHomeLogout(app: app)
+        try ifOnHomeDeleteAccount(app: app)
         
         // Setup: Create other user
         try registerUser(app: app, username: otherTestUsername, password: strongPassword)
