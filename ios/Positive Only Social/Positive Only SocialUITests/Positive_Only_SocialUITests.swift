@@ -180,6 +180,15 @@ final class Positive_Only_SocialUITests: XCTestCase {
         privacyPolicyAlert.buttons["Ok"].tap()
         
         assertOnHomeView(app: app)
+        
+        dismissSavePassword(app: app)
+    }
+    
+    private func dismissSavePassword(app: XCUIApplication) {
+        let notNowButton = app.buttons["Not Now"]
+        if notNowButton.waitForExistence(timeout: elementTimeout) {
+            notNowButton.tap()
+        }
     }
     
     private func loginUser(app: XCUIApplication, username: String, password: String, rememberMe: Bool) throws {
@@ -223,6 +232,8 @@ final class Positive_Only_SocialUITests: XCTestCase {
         loginButton2.tap()
         
         assertOnHomeView(app: app)
+        
+        dismissSavePassword(app: app)
     }
     
     private func logoutUserFromHome(app: XCUIApplication) throws {
