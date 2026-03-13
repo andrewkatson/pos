@@ -64,6 +64,18 @@ final class Positive_Only_SocialUITests: XCTestCase {
         }
     }
     
+    private func typeText(element: XCUIElement, text: String) {
+        let maxAttempts = 5
+        var attempt = 0
+        while !element.hasFocus && attempt < maxAttempts {
+            element.tap()
+            RunLoop.current.run(until: NSDate(timeIntervalSinceNow: 1.0) as Date)
+            attempt += 1
+        }
+        XCTAssertTrue(element.hasFocus, "Element did not gain keyboard focus.")
+        typeText(element: element, text: text)
+    }
+    
     private func assertOnWelcomeView(app: XCUIApplication) {
         // We wait until the "Welcome! 👋" text (which is in NeedsAuthView) appears.
         let welcomeText = app.staticTexts["Welcome! 👋"]
@@ -153,22 +165,22 @@ final class Positive_Only_SocialUITests: XCTestCase {
         let usernameField = app.textFields["UsernameTextField"]
         XCTAssertTrue(usernameField.waitForExistence(timeout: elementTimeout))
         usernameField.tap()
-        usernameField.typeText(username)
+        typeText(element: usernameField, text: username)
         
         let emailField = app.textFields["EmailTextField"]
         XCTAssertTrue(emailField.waitForExistence(timeout: elementTimeout))
         emailField.tap()
-        emailField.typeText("\(username)@test.com")
+        typeText(element: emailField, text: "\(username)@test.com")
         
         let passwordField = app.secureTextFields["PasswordSecureField"]
         XCTAssertTrue(passwordField.waitForExistence(timeout: elementTimeout))
         passwordField.tap()
-        passwordField.typeText(password)
+        typeText(element: passwordField, text: password)
         
         let confirmPasswordField = app.secureTextFields["ConfirmPasswordSecureField"]
         XCTAssertTrue(confirmPasswordField.waitForExistence(timeout: elementTimeout))
         confirmPasswordField.tap()
-        confirmPasswordField.typeText(password)
+        typeText(element: confirmPasswordField, text: password)
         
         let otherRegisterButton = app.buttons["RegisterButton"]
         XCTAssertTrue(otherRegisterButton.waitForExistence(timeout: elementTimeout))
@@ -207,12 +219,12 @@ final class Positive_Only_SocialUITests: XCTestCase {
         let usernameOrEmailTextField = app.textFields["UsernameOrEmailTextField"]
         XCTAssertTrue(usernameOrEmailTextField.waitForExistence(timeout: elementTimeout))
         usernameOrEmailTextField.tap()
-        usernameOrEmailTextField.typeText(username)
+        typeText(element: usernameOrEmailTextField, text: username)
         
         let passwordSecureField = app.secureTextFields["PasswordSecureField"]
         XCTAssertTrue(passwordSecureField.waitForExistence(timeout: elementTimeout))
         passwordSecureField.tap()
-        passwordSecureField.typeText(password)
+        typeText(element: passwordSecureField, text: password)
         
         if (rememberMe) {
             dismissKeyboardIfPresent(app)
@@ -286,7 +298,7 @@ final class Positive_Only_SocialUITests: XCTestCase {
         let captionTextEditor = app.textViews["CaptionTextEditor"]
         XCTAssertTrue(captionTextEditor.waitForExistence(timeout: elementTimeout))
         captionTextEditor.tap()
-        captionTextEditor.typeText(postText)
+        typeText(element: captionTextEditor, text: postText)
         
         // Find the photo picker's main view (identifier may vary)
         let picker = app.buttons["SelectAPhotoPicker"]
@@ -326,7 +338,7 @@ final class Positive_Only_SocialUITests: XCTestCase {
         let addACommentTextField = app.textFields["AddACommentTextFieldToPost"]
         XCTAssertTrue(addACommentTextField.waitForExistence(timeout: elementTimeout))
         addACommentTextField.tap()
-        addACommentTextField.typeText(commentText)
+        typeText(element: addACommentTextField, text: commentText)
         
         let postCommentButton = app.buttons["PostCommentButton"]
         XCTAssertTrue(postCommentButton.waitForExistence(timeout: elementTimeout))
@@ -382,7 +394,7 @@ final class Positive_Only_SocialUITests: XCTestCase {
         
         // Tap and type the reply
         replyTextEditor.tap()
-        replyTextEditor.typeText(commentText)
+        typeText(element: replyTextEditor, text: commentText)
         
         // Tap the Send button
         let sendButton = app.buttons["Send"]
@@ -444,12 +456,12 @@ final class Positive_Only_SocialUITests: XCTestCase {
         let usernameOrEmailTextField = app.textFields["UsernameOrEmailTextField"]
         XCTAssertTrue(usernameOrEmailTextField.waitForExistence(timeout: elementTimeout))
         usernameOrEmailTextField.tap()
-        usernameOrEmailTextField.typeText(testUsername)
+        typeText(element: usernameOrEmailTextField, text: testUsername)
         
         let passwordSecureField = app.secureTextFields["PasswordSecureField"]
         XCTAssertTrue(passwordSecureField.waitForExistence(timeout: elementTimeout))
         passwordSecureField.tap()
-        passwordSecureField.typeText(strongPassword)
+        typeText(element: passwordSecureField, text: strongPassword)
         
         let loginButton2 = app.buttons["LoginButton"]
         XCTAssertTrue(loginButton2.waitForExistence(timeout: elementTimeout))
@@ -495,7 +507,7 @@ final class Positive_Only_SocialUITests: XCTestCase {
         let usernameOrEmailTextField = app.textFields["UsernameOrEmailTextField"]
         XCTAssertTrue(usernameOrEmailTextField.waitForExistence(timeout: elementTimeout))
         usernameOrEmailTextField.tap()
-        usernameOrEmailTextField.typeText(testUsername)
+        typeText(element: usernameOrEmailTextField, text: testUsername)
         
         let requestResetButton = app.buttons["RequestResetButton"]
         XCTAssertTrue(requestResetButton.waitForExistence(timeout: elementTimeout))
@@ -509,7 +521,7 @@ final class Positive_Only_SocialUITests: XCTestCase {
         XCTAssertTrue(sixDigitPinTextField.waitForExistence(timeout: elementTimeout))
         sixDigitPinTextField.tap()
         // We hardcode the test value in StatefulStubbedAPI
-        sixDigitPinTextField.typeText("100000")
+        typeText(element: sixDigitPinTextField, text: "100000")
         
         let verifyButton = app.buttons["VerifyButton"]
         XCTAssertTrue(verifyButton.waitForExistence(timeout: elementTimeout))
@@ -524,12 +536,12 @@ final class Positive_Only_SocialUITests: XCTestCase {
         let emailTextField = app.textFields["EmailTextField"]
         XCTAssertTrue(emailTextField.waitForExistence(timeout: elementTimeout))
         emailTextField.tap()
-        emailTextField.typeText("\(testUsername)@test.com")
+        typeText(element: emailTextField, text: "\(testUsername)@test.com")
         
         let passwordTextField = app.secureTextFields["NewPasswordSecureField"]
         XCTAssertTrue(passwordTextField.waitForExistence(timeout: elementTimeout))
         passwordTextField.tap()
-        passwordTextField.typeText(newStrongPassword)
+        typeText(element: passwordTextField, text: newStrongPassword)
         
         let resetPasswordAndLoginButton = app.buttons["ResetPasswordAndLoginButton"]
         XCTAssertTrue(resetPasswordAndLoginButton.waitForExistence(timeout: elementTimeout))
@@ -550,12 +562,12 @@ final class Positive_Only_SocialUITests: XCTestCase {
         let usernameOrEmailTextField2 = app.textFields["UsernameOrEmailTextField"]
         XCTAssertTrue(usernameOrEmailTextField.waitForExistence(timeout: elementTimeout))
         usernameOrEmailTextField.tap()
-        usernameOrEmailTextField2.typeText(testUsername)
+        typeText(element: usernameOrEmailTextField2, text: testUsername)
         
         let passwordSecureField = app.secureTextFields["PasswordSecureField"]
         XCTAssertTrue(passwordSecureField.waitForExistence(timeout: elementTimeout))
         passwordSecureField.tap()
-        passwordSecureField.typeText(newStrongPassword)
+        typeText(element: passwordSecureField, text: newStrongPassword)
         
         let loginButton3 = app.buttons["LoginButton"]
         XCTAssertTrue(loginButton3.waitForExistence(timeout: elementTimeout))
@@ -580,7 +592,7 @@ final class Positive_Only_SocialUITests: XCTestCase {
         let userSearchField = app.searchFields["Search for Users"]
         XCTAssertTrue(userSearchField.waitForExistence(timeout: elementTimeout))
         userSearchField.tap()
-        userSearchField.typeText(otherTestUsername)
+        typeText(element: userSearchField, text: otherTestUsername)
         
         let userLink = app.buttons[otherTestUsername]
         XCTAssertTrue(userLink.waitForExistence(timeout: elementTimeout))
@@ -1008,7 +1020,7 @@ final class Positive_Only_SocialUITests: XCTestCase {
         let reasonTextField = app.textFields["ProvideAReasonTextField"]
         XCTAssertTrue(reasonTextField.waitForExistence(timeout: elementTimeout))
         reasonTextField.tap()
-        reasonTextField.typeText("Report post")
+        typeText(element: reasonTextField, text: "Report post")
         
         let reportButton = app.buttons["SubmitReportButton"]
         XCTAssertTrue(reportButton.waitForExistence(timeout: elementTimeout))
@@ -1096,7 +1108,7 @@ final class Positive_Only_SocialUITests: XCTestCase {
         let reasonTextField = app.textFields["ProvideAReasonTextField"]
         XCTAssertTrue(reasonTextField.waitForExistence(timeout: elementTimeout))
         reasonTextField.tap()
-        reasonTextField.typeText("Report comment thread")
+        typeText(element: reasonTextField, text: "Report comment thread")
         
         let reportButton = app.buttons["SubmitReportButton"]
         XCTAssertTrue(reportButton.waitForExistence(timeout: elementTimeout))
@@ -1115,7 +1127,7 @@ final class Positive_Only_SocialUITests: XCTestCase {
         let reasonTextField2 = app.textFields["ProvideAReasonTextField"]
         XCTAssertTrue(reasonTextField2.waitForExistence(timeout: elementTimeout))
         reasonTextField2.tap()
-        reasonTextField2.typeText("Report comment reply")
+        typeText(element: reasonTextField2, text: "Report comment reply")
         
         let reportButton2 = app.buttons["SubmitReportButton"]
         XCTAssertTrue(reportButton2.waitForExistence(timeout: elementTimeout))
@@ -1171,7 +1183,7 @@ final class Positive_Only_SocialUITests: XCTestCase {
         let userSearchField = app.searchFields["Search for Users"]
         XCTAssertTrue(userSearchField.waitForExistence(timeout: elementTimeout))
         userSearchField.tap()
-        userSearchField.typeText(otherTestUsername)
+        typeText(element: userSearchField, text: otherTestUsername)
         
         let userLink = app.buttons[otherTestUsername]
         XCTAssertTrue(userLink.waitForExistence(timeout: elementTimeout))
