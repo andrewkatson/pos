@@ -67,5 +67,5 @@ jobs:
         with:
           name: test-artifacts
           path: |
-            "ios/Positive Only Social/xcodebuild.log"
-            "ios/Positive Only Social/TestResults.xcresult"
+            ios/Positive Only Social/xcodebuild.log
+            ios/Positive Only Social/TestResults.xcresult
