@@ -67,13 +67,13 @@ final class Positive_Only_SocialUITests: XCTestCase {
     private func typeText(element: XCUIElement, text: String) {
         let maxAttempts = 5
         var attempt = 0
-        while !element.hasFocus && attempt < maxAttempts {
+        while (!element.isSelected && !element.hasFocus) && attempt < maxAttempts {
             element.tap()
             RunLoop.current.run(until: NSDate(timeIntervalSinceNow: 1.0) as Date)
             attempt += 1
         }
-        XCTAssertTrue(element.hasFocus, "Element did not gain keyboard focus.")
-        typeText(element: element, text: text)
+        XCTAssertTrue(element.hasFocus || element.isSelected, "Element did not gain keyboard focus.")
+        element.typeText(text)
     }
     
     private func assertOnWelcomeView(app: XCUIApplication) {
