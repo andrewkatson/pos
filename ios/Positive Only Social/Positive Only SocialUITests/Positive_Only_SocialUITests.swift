@@ -476,9 +476,13 @@ final class Positive_Only_SocialUITests: XCTestCase {
         XCTAssertTrue(app.buttons["LoginFailedOkButton"].firstMatch.waitForExistence(timeout: elementTimeout))
         app.buttons["LoginFailedOkButton"].firstMatch.tap()
         
+        dismissSavePassword(app: app)
+        
         let backButton = app.navigationBars.firstMatch.buttons.element(boundBy: 0)
         XCTAssertTrue(backButton.waitForExistence(timeout: elementTimeout))
         backButton.tap()
+        
+        dismissSavePassword(app: app)
         
         try registerUser(app: app, username: newTestUsername, password: strongPassword)
     }
@@ -551,7 +555,11 @@ final class Positive_Only_SocialUITests: XCTestCase {
         XCTAssertTrue(resetPasswordAndLoginButton.waitForExistence(timeout: elementTimeout))
         resetPasswordAndLoginButton.tap()
         
+        dismissSavePassword(app: app)
+        
         assertOnHomeView(app: app)
+        
+        dismissSavePassword(app: app)
         
         try logoutUserFromHome(app: app)
         
@@ -576,6 +584,8 @@ final class Positive_Only_SocialUITests: XCTestCase {
         let loginButton3 = app.buttons["LoginButton"]
         XCTAssertTrue(loginButton3.waitForExistence(timeout: elementTimeout))
         loginButton3.tap()
+        
+        dismissSavePassword(app: app)
         
         assertOnHomeView(app: app)
     }
