@@ -352,6 +352,8 @@ final class Positive_Only_SocialUITests: XCTestCase {
         
         // Should be one comment total
         let commentElements = app.staticTexts.matching(identifier: "CommentText")
+        expectation(for: NSPredicate(format: "count == 1"), evaluatedWith: commentElements, handler: nil)
+        waitForExpectations(timeout: elementTimeout, handler: nil)
         XCTAssert(commentElements.count == 1, "Expected to find 1 comment, but found \(commentElements.count)")
         
         assertOnPostDetailView(app: app)
@@ -408,6 +410,8 @@ final class Positive_Only_SocialUITests: XCTestCase {
         
         // Should be two comments total
         let commentElements = app.staticTexts.matching(identifier: "CommentText")
+        expectation(for: NSPredicate(format: "count == 2"), evaluatedWith: commentElements, handler: nil)
+        waitForExpectations(timeout: elementTimeout, handler: nil)
         XCTAssert(commentElements.count == 2, "Expected to find 2 comments, but found \(commentElements.count)")
         
         assertOnPostDetailView(app: app)
@@ -675,6 +679,8 @@ final class Positive_Only_SocialUITests: XCTestCase {
         followingSegment.tap()
         
         let allPostsQuery = app.buttons.matching(identifier: "FollowingPostImage")
+        expectation(for: NSPredicate(format: "count == 0"), evaluatedWith: allPostsQuery, handler: nil)
+        waitForExpectations(timeout: elementTimeout, handler: nil)
         XCTAssertEqual(allPostsQuery.count, 0)
         
         let forYouPickerTab = feedPicker.buttons["For You"]
@@ -682,6 +688,8 @@ final class Positive_Only_SocialUITests: XCTestCase {
         forYouPickerTab.tap()
         
         let allPostsQuery2 = app.buttons.matching(identifier: "ForYouPostImage")
+        expectation(for: NSPredicate(format: "count == 1"), evaluatedWith: allPostsQuery2, handler: nil)
+        waitForExpectations(timeout: elementTimeout, handler: nil)
         XCTAssertEqual(allPostsQuery2.count, 1)
         
         // First, get the query for all elements matching our identifier.
@@ -746,6 +754,8 @@ final class Positive_Only_SocialUITests: XCTestCase {
         followingSegment2.tap()
         
         let allPostsQuery3 = app.buttons.matching(identifier: "FollowingPostImage")
+        expectation(for: NSPredicate(format: "count == 1"), evaluatedWith: allPostsQuery3, handler: nil)
+        waitForExpectations(timeout: elementTimeout, handler: nil)
         XCTAssertEqual(allPostsQuery3.count, 1)
         
         let forYouPickerTab2 = feedPicker2.buttons["For You"]
@@ -753,6 +763,8 @@ final class Positive_Only_SocialUITests: XCTestCase {
         forYouPickerTab2.tap()
         
         let allPostsQuery4 = app.buttons.matching(identifier: "ForYouPostImage")
+        expectation(for: NSPredicate(format: "count == 1"), evaluatedWith: allPostsQuery4, handler: nil)
+        waitForExpectations(timeout: elementTimeout, handler: nil)
         XCTAssertEqual(allPostsQuery4.count, 1)
         
         let homeButton = app.buttons["Home"]
@@ -1138,6 +1150,8 @@ final class Positive_Only_SocialUITests: XCTestCase {
         reportButton2.tap()
         
         let reportedCommentIcon2 = app.images.matching(identifier: "ReportedCommentIcon")
+        expectation(for: NSPredicate(format: "count == 2"), evaluatedWith: reportedCommentIcon2, handler: nil)
+        waitForExpectations(timeout: elementTimeout, handler: nil)
         XCTAssertEqual(reportedCommentIcon2.count, 2, "Expected 2 reported comment icons but only found \(reportedCommentIcon2.count)")
         
         let backButton3 = app.navigationBars.firstMatch.buttons.element(boundBy: 0)
