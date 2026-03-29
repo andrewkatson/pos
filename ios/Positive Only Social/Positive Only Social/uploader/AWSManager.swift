@@ -57,6 +57,7 @@ final class AWSManager {
             
             // A log message is very helpful for debugging
             // We use NSLog() instead of a print() because it shows local and in Firebase.
+            //See https://shorturl.at/KF2XX for more info.
             NSLog("✅ AWSManager: S3Client initialized successfully.")
             
         } catch {
@@ -102,7 +103,7 @@ final class S3Uploader {
             throw URLError(.badURL)
         }
 
-        NSLog("Successfully uploaded to S3. URL: \(url)")
+        NSLog("✅ Successfully uploaded to S3. URL: \(url)")
         return url
     }
         
@@ -112,18 +113,34 @@ final class S3Uploader {
          * @param maxSizeBytes The maximum allowed size in bytes
          * @return The compressed image data
          */
-     func compressImage(data: Data, maxSizeBytes: Int) ->Data {
-        
-         if (data.count <= maxSizeBytes) {
-             NSLog("S3Uploader", "Image size (${data.size} bytes) is within limits.")
+    func compressImage(data: Data, maxSizeBytes: Int) -> Data {
+        // 1. Check if already within limits
+        if data.count <= maxSizeBytes {
+            NSLog("✅ Good news ,Image size (\(data.count) bytes) is within limits.")
             return data
         }
         
-        let image = UIImage(data: data)
-        image?.jpegData(compressionQuality: 0.9)
-        
-         return (image?.pngData())!
+        // 2. Convert Data to UIImage
+        guard let image = UIImage(data: data) else {
+            NSLog("❌ Oops,Error: Could not decode image data")
+            return data // Return original data if conversion fails
+        }
+
+        // 3. Compress using JPEG (PNG does not support compression levels)
+        var compression: CGFloat = 0.9
+        guard var imageData = image.jpegData(compressionQuality: compression) else {
+            return data
+        }
+
+        // 4. Iteratively reduce quality until size is met
+        while imageData.count > maxSizeBytes && compression > 0.1 {
+            compression -= 0.1
+            if let compressedImage = image.jpegData(compressionQuality: compression) {
+                imageData = compressedImage
+            }
+        }
+
+        return imageData
     }
-    
 }
 
