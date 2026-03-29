@@ -107,12 +107,12 @@ final class S3Uploader {
         return url
     }
         
-    /**
-         * Compresses the image data to be within the specified max size.
-         * @param data The original image data
-         * @param maxSizeBytes The maximum allowed size in bytes
-         * @return The compressed image data
-         */
+    /// Compresses the image data to be within the specified maximum size.
+    ///
+    /// - Parameters:
+    ///   - data: The original image data.
+    ///   - maxSizeBytes: The maximum allowed size in bytes.
+    /// - Returns: The compressed image data.
     func compressImage(data: Data, maxSizeBytes: Int) -> Data {
         // 1. Check if already within limits
         if data.count <= maxSizeBytes {
