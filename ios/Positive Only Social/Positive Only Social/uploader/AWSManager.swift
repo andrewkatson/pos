@@ -12,6 +12,7 @@ import AWSSDKIdentity
 import AWSCognitoIdentity
 import AWSCognitoIdentityProvider
 import AwsCommonRuntimeKit
+import UIKit
 
 public enum AWSManagerError: Error, LocalizedError {
     /// The client failed to initialize during app launch.
@@ -55,12 +56,14 @@ final class AWSManager {
             self.initializationError = nil
             
             // A log message is very helpful for debugging
-            print("✅ AWSManager: S3Client initialized successfully.")
+            // We use NSLog() instead of a print() because it shows local and in Firebase.
+            NSLog("✅ AWSManager: S3Client initialized successfully.")
             
         } catch {
             // 3. This is the new graceful handling.
             // Instead of crashing, we log the error and set our client to nil.
-            print("❌ AWSManager: Failed to initialize AWS S3 Client: \(error)")
+            
+            NSLog("❌ AWSManager: Failed to initialize AWS S3 Client: \(error)")
             self.s3Client = nil
             self.initializationError = AWSManagerError.initializationFailed(error)
         }
@@ -73,13 +76,17 @@ final class S3Uploader {
 
     /// Uploads data to S3 and returns the public URL.
     func upload(data: Data, fileName: String) async throws -> URL {
+        
+        let compressedData = self.compressImage(data:data,maxSizeBytes: 10 * 1024 * 1024) //10 MB
+        
         let input = PutObjectInput(
-            body: .data(data),
+            body: .data(compressedData),
             bucket: bucketName,
-            contentType: "image/jpeg",
+            contentType: "image/png",
             key: fileName
         )
         
+       
         guard let s3Client = self.s3Client else {
             // If the client is nil, throw our custom error.
             // The call site (e.g., your ViewModel) can now catch this.
@@ -95,7 +102,28 @@ final class S3Uploader {
             throw URLError(.badURL)
         }
 
-        print("Successfully uploaded to S3. URL: \(url)")
+        NSLog("Successfully uploaded to S3. URL: \(url)")
         return url
     }
+        
+    /**
+         * Compresses the image data to be within the specified max size.
+         * @param data The original image data
+         * @param maxSizeBytes The maximum allowed size in bytes
+         * @return The compressed image data
+         */
+     func compressImage(data: Data, maxSizeBytes: Int) ->Data {
+        
+         if (data.count <= maxSizeBytes) {
+             NSLog("S3Uploader", "Image size (${data.size} bytes) is within limits.")
+            return data
+        }
+        
+        let image = UIImage(data: data)
+        image?.jpegData(compressionQuality: 0.9)
+        
+         return (image?.pngData())!
+    }
+    
 }
+
