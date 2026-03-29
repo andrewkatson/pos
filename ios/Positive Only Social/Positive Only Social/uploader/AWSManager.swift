@@ -116,7 +116,7 @@ final class S3Uploader {
     func compressImage(data: Data, maxSizeBytes: Int) -> Data {
         // 1. Check if already within limits
         if data.count <= maxSizeBytes {
-            NSLog("✅ Good news ,Image size (\(data.count) bytes) is within limits.")
+            NSLog("✅ Good news, Image size (\(data.count) bytes) is within limits.")
             return data
         }
         
