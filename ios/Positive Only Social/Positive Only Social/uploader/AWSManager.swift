@@ -140,6 +140,37 @@ final class S3Uploader {
             }
         }
 
+        // 5. If still too large at minimum quality, progressively downscale the image
+        if imageData.count > maxSizeBytes {
+            var currentImage = image
+            var currentSize = currentImage.size
+            
+            // Safety: avoid infinite loops by enforcing a minimum dimension
+            let minimumDimension: CGFloat = 1.0
+            let scaleFactor: CGFloat = 0.9
+            
+            while imageData.count > maxSizeBytes &&
+                  currentSize.width > minimumDimension &&
+                  currentSize.height > minimumDimension {
+                
+                currentSize = CGSize(width: currentSize.width * scaleFactor,
+                                     height: currentSize.height * scaleFactor)
+                
+                UIGraphicsBeginImageContextWithOptions(currentSize, false, currentImage.scale)
+                currentImage.draw(in: CGRect(origin: .zero, size: currentSize))
+                let resizedImage = UIGraphicsGetImageFromCurrentImageContext()
+                UIGraphicsEndImageContext()
+                
+                guard let resized = resizedImage,
+                      let resizedData = resized.jpegData(compressionQuality: compression) else {
+                    // If resizing or encoding fails, break and use the best effort so far
+                    break
+                }
+                
+                currentImage = resized
+                imageData = resizedData
+            }
+        }
         return imageData
     }
 }
