@@ -83,7 +83,7 @@ final class S3Uploader {
         let input = PutObjectInput(
             body: .data(compressedData),
             bucket: bucketName,
-            contentType: "image/png",
+            contentType: "image/jpeg",
             key: fileName
         )
         
