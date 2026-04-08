@@ -12,6 +12,7 @@ import AWSSDKIdentity
 import AWSCognitoIdentity
 import AWSCognitoIdentityProvider
 import AwsCommonRuntimeKit
+import UIKit
 
 public enum AWSManagerError: Error, LocalizedError {
     /// The client failed to initialize during app launch.
@@ -55,12 +56,15 @@ final class AWSManager {
             self.initializationError = nil
             
             // A log message is very helpful for debugging
-            print("✅ AWSManager: S3Client initialized successfully.")
+            // We use NSLog() instead of a print() because it shows local and in Firebase.
+            //See https://shorturl.at/KF2XX for more info.
+            NSLog("✅ AWSManager: S3Client initialized successfully.")
             
         } catch {
             // 3. This is the new graceful handling.
             // Instead of crashing, we log the error and set our client to nil.
-            print("❌ AWSManager: Failed to initialize AWS S3 Client: \(error)")
+            
+            NSLog("❌ AWSManager: Failed to initialize AWS S3 Client: \(error)")
             self.s3Client = nil
             self.initializationError = AWSManagerError.initializationFailed(error)
         }
@@ -73,13 +77,17 @@ final class S3Uploader {
 
     /// Uploads data to S3 and returns the public URL.
     func upload(data: Data, fileName: String) async throws -> URL {
+        
+        let compressedData = self.compressImage(data:data,maxSizeBytes: 10 * 1024 * 1024) //10 MB
+        
         let input = PutObjectInput(
-            body: .data(data),
+            body: .data(compressedData),
             bucket: bucketName,
             contentType: "image/jpeg",
             key: fileName
         )
         
+       
         guard let s3Client = self.s3Client else {
             // If the client is nil, throw our custom error.
             // The call site (e.g., your ViewModel) can now catch this.
@@ -95,7 +103,75 @@ final class S3Uploader {
             throw URLError(.badURL)
         }
 
-        print("Successfully uploaded to S3. URL: \(url)")
+        NSLog("✅ Successfully uploaded to S3. URL: \(url)")
         return url
     }
+        
+    /// Compresses the image data to be within the specified maximum size.
+    ///
+    /// - Parameters:
+    ///   - data: The original image data.
+    ///   - maxSizeBytes: The maximum allowed size in bytes.
+    /// - Returns: The compressed image data.
+    func compressImage(data: Data, maxSizeBytes: Int) -> Data {
+        // 1. Check if already within limits
+        if data.count <= maxSizeBytes {
+            NSLog("✅ Good news, Image size (\(data.count) bytes) is within limits.")
+            return data
+        }
+        
+        // 2. Convert Data to UIImage
+        guard let image = UIImage(data: data) else {
+            NSLog("❌ Oops,Error: Could not decode image data")
+            return data // Return original data if conversion fails
+        }
+
+        // 3. Compress using JPEG (PNG does not support compression levels)
+        var compression: CGFloat = 0.9
+        guard var imageData = image.jpegData(compressionQuality: compression) else {
+            return data
+        }
+
+        // 4. Iteratively reduce quality until size is met
+        while imageData.count > maxSizeBytes && compression > 0.1 {
+            compression -= 0.1
+            if let compressedImage = image.jpegData(compressionQuality: compression) {
+                imageData = compressedImage
+            }
+        }
+
+        // 5. If still too large at minimum quality, progressively downscale the image
+        if imageData.count > maxSizeBytes {
+            var currentImage = image
+            var currentSize = currentImage.size
+            
+            // Safety: avoid infinite loops by enforcing a minimum dimension
+            let minimumDimension: CGFloat = 1.0
+            let scaleFactor: CGFloat = 0.9
+            
+            while imageData.count > maxSizeBytes &&
+                  currentSize.width > minimumDimension &&
+                  currentSize.height > minimumDimension {
+                
+                currentSize = CGSize(width: currentSize.width * scaleFactor,
+                                     height: currentSize.height * scaleFactor)
+                
+                UIGraphicsBeginImageContextWithOptions(currentSize, false, currentImage.scale)
+                currentImage.draw(in: CGRect(origin: .zero, size: currentSize))
+                let resizedImage = UIGraphicsGetImageFromCurrentImageContext()
+                UIGraphicsEndImageContext()
+                
+                guard let resized = resizedImage,
+                      let resizedData = resized.jpegData(compressionQuality: compression) else {
+                    // If resizing or encoding fails, break and use the best effort so far
+                    break
+                }
+                
+                currentImage = resized
+                imageData = resizedData
+            }
+        }
+        return imageData
+    }
 }
+
