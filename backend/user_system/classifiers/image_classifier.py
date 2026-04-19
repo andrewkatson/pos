@@ -4,7 +4,7 @@ from google import genai
 from PIL import Image
 from io import BytesIO
 from urllib.parse import urlparse
-from .classifier_constants import POSITIVE_IMAGE_URL
+from .classifier_constants import POSITIVE_IMAGE_URL, GEMINI_MODEL
 from ..utils import convert_to_bool
 
 
@@ -80,7 +80,7 @@ def is_image_positive(image_url):
         )
         
         response = client.models.generate_content(
-            model='gemini-1.5-flash',
+            model=GEMINI_MODEL,
             contents=[prompt, image]
         )
         

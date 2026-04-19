@@ -1,6 +1,6 @@
 import os
 from google import genai
-from .classifier_constants import POSITIVE_TEXT
+from .classifier_constants import POSITIVE_TEXT, GEMINI_MODEL
 from ..utils import convert_to_bool
 
 
@@ -39,7 +39,7 @@ def is_text_positive(text):
         )
         
         response = client.models.generate_content(
-            model='gemini-1.5-flash',
+            model=GEMINI_MODEL,
             contents=prompt
         )
         
