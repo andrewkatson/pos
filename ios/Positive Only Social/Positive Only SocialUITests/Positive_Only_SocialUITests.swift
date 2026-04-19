@@ -18,8 +18,10 @@ final class Positive_Only_SocialUITests: XCTestCase {
     let elementTimeout: TimeInterval = 3
 
     override func setUpWithError() throws {
-        // Put setup code here. This method is called before the invocation of each test method in the class.
-
+        try super.setUpWithError()
+        // Force to portrait so that we don't squish things and fail the tests
+        XCUIDevice.shared.orientation = .portrait
+        
         // In UI tests it is usually best to stop immediately when a failure occurs.
         continueAfterFailure = false
         
@@ -43,6 +45,8 @@ final class Positive_Only_SocialUITests: XCTestCase {
     override func tearDownWithError() throws {
         // We want the test to teardown properly even if it fails midway through
         app.terminate()
+        
+        try super.tearDownWithError()
     }
     
     // MARK: Helpers
