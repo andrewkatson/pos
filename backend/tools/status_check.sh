@@ -16,7 +16,7 @@ echo -e "\n=== Recent Gunicorn Logs ==="
 sudo journalctl -u gunicorn -n 10 --no-pager
 
 echo -e "\n=== Testing Local Connection ==="
-curl -I http://localhost/admin/login/ 2>/dev/null | head -n 1
+curl -H "Host: smiling.social" -I http://localhost/admin/login/ 2>/dev/null | head -n 1
 
 echo -e "\n=== Testing HTTPS ==="
 curl -I https://smiling.social/admin/login/ 2>/dev/null | head -n 1
