@@ -27,6 +27,14 @@ feed_algorithm_class = feed_algorithm
 
 logger = logging.getLogger(__name__)
 
+
+def log_and_return_json(view_name, data, **kwargs):
+    status = kwargs.get('status', 200)
+    if status >= 400:
+        logger.warning(f"Endpoint {view_name} returned {status}: {data}")
+    else:
+        logger.info(f"Endpoint {view_name} succeeded.")
+    return JsonResponse(data, **kwargs)
 def get_user_with_username_and_email(username, email):
     try:
         existing = get_user_model().objects.get(username=username, email=email)
@@ -154,10 +162,11 @@ def api_login_required(view_func):
 @csrf_exempt
 @require_POST
 def register(request):
+    logger.info("Endpoint register invoked by IP or User")
     data = _get_json_body(request)
     if data is None:
         logger.warning("Registration failed: Invalid JSON data")
-        return JsonResponse({'error': "Invalid JSON data"}, status=400)
+        return log_and_return_json("register", {'error': "Invalid JSON data"}, status=400)
 
     username = data.get(Fields.username)
     email = data.get(Fields.email)
@@ -199,20 +208,24 @@ def register(request):
         invalid_fields.append(Params.remember_me)
 
     if len(invalid_fields) > 0:
-        return JsonResponse({'error': f"Invalid fields {invalid_fields}"}, status=400)
+        logger.warning(f"Registration failed: Invalid fields {invalid_fields}")
+        return log_and_return_json("register", {'error': f"Invalid fields {invalid_fields}"}, status=400)
 
     # Check no user has this email or username.
     if get_user_with_username(username) is not None or get_user_with_email(email) is not None:
         logger.warning("Registration failed: User already exists")
-        return JsonResponse({'error': "User already exists"}, status=400)
+        return log_and_return_json("register", {'error': "User already exists"}, status=400)
 
     # Classify text fields for positivity
     if not text_classifier_class.is_text_positive(username):
-        return JsonResponse({'error': "Username is not positive"}, status=400)
+        logger.warning(f"Registration failed: Username not positive")
+        return log_and_return_json("register", {'error': "Username is not positive"}, status=400)
     if not text_classifier_class.is_text_positive(email):
-        return JsonResponse({'error': "Email is not positive"}, status=400)
+        logger.warning(f"Registration failed: Email not positive")
+        return log_and_return_json("register", {'error': "Email is not positive"}, status=400)
     if not text_classifier_class.is_text_positive(password):
-        return JsonResponse({'error': "Password is not positive"}, status=400)
+        logger.warning(f"Registration failed: Password not positive")
+        return log_and_return_json("register", {'error': "Password is not positive"}, status=400)
 
     new_user = get_user_model().objects.create_user(username=username, email=email)
     new_user.set_password(password)
@@ -237,23 +250,24 @@ def register(request):
         response_data[Fields.login_cookie_token] = new_login_cookie.token
 
     logger.info(f"Registration successful for user_id: {new_user.id}")
-    return JsonResponse(response_data, status=201)
+    return log_and_return_json("register", response_data, status=201)
 
 
 @csrf_exempt
 @api_login_required
 @require_POST
 def verify_identity(request):
+    logger.info("Endpoint verify_identity invoked by IP or User")
     data = _get_json_body(request)
     if data is None:
         logger.warning(f"Identity verification failed: Invalid JSON data for user_id: {request.user.id}")
-        return JsonResponse({'error': "Invalid JSON data"}, status=400)
+        return log_and_return_json("verify_identity", {'error': "Invalid JSON data"}, status=400)
 
     date_of_birth_str = data.get('date_of_birth')
     
     if not date_of_birth_str:
          logger.warning(f"Identity verification failed: Missing date_of_birth for user_id: {request.user.id}")
-         return JsonResponse({'error': "Missing date_of_birth"}, status=400)
+         return log_and_return_json("verify_identity", {'error': "Missing date_of_birth"}, status=400)
 
     try:
         dob = datetime.strptime(date_of_birth_str, '%Y-%m-%d').date()
@@ -269,19 +283,20 @@ def verify_identity(request):
         request.user.save()
         
         logger.info(f"Identity verification successful for user_id: {request.user.id}")
-        return JsonResponse({'message': 'Identity verified'})
+        return log_and_return_json("verify_identity", {'message': 'Identity verified'})
     except ValueError:
         logger.warning(f"Identity verification failed: Invalid date format for user_id: {request.user.id}")
-        return JsonResponse({'error': "Invalid date format, expected YYYY-MM-DD"}, status=400)
+        return log_and_return_json("verify_identity", {'error': "Invalid date format, expected YYYY-MM-DD"}, status=400)
 
 
 @csrf_exempt
 @require_POST
 def login_user(request):
+    logger.info("Endpoint login_user invoked by IP or User")
     data = _get_json_body(request)
     if data is None:
         logger.warning("Login failed: Invalid JSON data")
-        return JsonResponse({'error': "Invalid JSON data"}, status=400)
+        return log_and_return_json("login_user", {'error': "Invalid JSON data"}, status=400)
 
     username_or_email = data.get(Fields.username_or_email)
     password = data.get(Fields.password)
@@ -305,13 +320,13 @@ def login_user(request):
         invalid_fields.append(Params.remember_me)
 
     if len(invalid_fields) > 0:
-        return JsonResponse({'error': f"Invalid fields {invalid_fields}"}, status=400)
+        return log_and_return_json("login_user", {'error': f"Invalid fields {invalid_fields}"}, status=400)
 
     existing = get_user_with_username_or_email(username_or_email)
     if existing is not None:
         if not check_password(password, existing.password):
             logger.warning(f"Login failed: Password was not correct for user_id: {existing.id}")
-            return JsonResponse({'error': "Password was not correct"}, status=400)
+            return log_and_return_json("login_user", {'error': "Password was not correct"}, status=400)
 
         login(request, existing)  # Logs into Django's session auth
 
@@ -330,19 +345,20 @@ def login_user(request):
             response_data[Fields.login_cookie_token] = new_login_cookie.token
 
         logger.info(f"Login successful for user_id: {existing.id}")
-        return JsonResponse(response_data)
+        return log_and_return_json("login_user", response_data)
     else:
         logger.warning("Login failed: No user exists with that information")
-        return JsonResponse({'error': "No user exists with that information"}, status=400)
+        return log_and_return_json("login_user", {'error': "No user exists with that information"}, status=400)
 
 
 @csrf_exempt
 @require_POST
 def login_user_with_remember_me(request):
+    logger.info("Endpoint login_user_with_remember_me invoked by IP or User")
     data = _get_json_body(request)
     if data is None:
         logger.warning("Login with remember me failed: Invalid JSON data")
-        return JsonResponse({'error': "Invalid JSON data"}, status=400)
+        return log_and_return_json("login_user_with_remember_me", {'error': "Invalid JSON data"}, status=400)
 
     session_management_token = data.get(Fields.session_management_token)
     series_identifier = data.get(Fields.series_identifier)
@@ -360,20 +376,20 @@ def login_user_with_remember_me(request):
         invalid_fields.append(Params.ip)
 
     if len(invalid_fields) > 0:
-        return JsonResponse({'error': f"Invalid fields {invalid_fields}"}, status=400)
+        return log_and_return_json("login_user_with_remember_me", {'error': f"Invalid fields {invalid_fields}"}, status=400)
 
     try:
         matching_login_cookie = LoginCookie.objects.get(series_identifier=series_identifier)
     except LoginCookie.DoesNotExist:
         logger.warning(f"Login with remember me failed: Series identifier does not exist: {series_identifier}")
-        return JsonResponse({'error': "Series identifier does not exist"}, status=400)
+        return log_and_return_json("login_user_with_remember_me", {'error': "Series identifier does not exist"}, status=400)
     except LoginCookie.MultipleObjectsReturned:
         logger.error(f"Login with remember me failed: Series identifier exists too many times: {series_identifier}")
-        return JsonResponse({'error': "Series identifier exists too many times"}, status=400)
+        return log_and_return_json("login_user_with_remember_me", {'error': "Series identifier exists too many times"}, status=400)
 
     if matching_login_cookie.token != login_cookie_token:
         logger.warning(f"Login with remember me failed: Login cookie token does not match for series: {series_identifier}")
-        return JsonResponse({'error': "Login cookie token does not match"}, status=400)
+        return log_and_return_json("login_user_with_remember_me", {'error': "Login cookie token does not match"}, status=400)
 
     # Issue a new login cookie token (token rotation)
     new_login_cookie_token = generate_login_cookie_token()
@@ -384,7 +400,7 @@ def login_user_with_remember_me(request):
     existing = get_user_with_session_management_token(session_management_token)
     if existing is None:
         logger.warning("Login with remember me failed: Original session token is invalid")
-        return JsonResponse({'error': "Original session token is invalid"}, status=400)
+        return log_and_return_json("login_user_with_remember_me", {'error': "Original session token is invalid"}, status=400)
 
     # Issue a new session management token
     new_session_management_token = generate_management_token()
@@ -395,13 +411,14 @@ def login_user_with_remember_me(request):
         Fields.session_management_token: new_session_management_token
     }
     logger.info(f"Login with remember me successful for user_id: {existing.id}")
-    return JsonResponse(response_data)
+    return log_and_return_json("login_user_with_remember_me", response_data)
 
 
 @csrf_exempt
 @api_login_required
 @require_POST
 def logout_user(request):
+    logger.info("Endpoint logout_user invoked by IP or User")
     # request.user and request.token are added by the decorator
     try:
         # Find the specific session object and delete it to invalidate the token
@@ -410,17 +427,18 @@ def logout_user(request):
     except Session.DoesNotExist:
         # This could happen if the token is valid but the session was already deleted
         logger.warning(f"Logout failed: Session not found or already logged out for user_id: {request.user.id}")
-        return JsonResponse({'error': 'Session not found or already logged out'}, status=400)
+        return log_and_return_json("logout_user", {'error': 'Session not found or already logged out'}, status=400)
 
     logout(request)  # Also log out of the standard Django session
     logger.info(f"Logout successful for user_id: {request.user.id}")
-    return JsonResponse({'message': 'Logout successful'})
+    return log_and_return_json("logout_user", {'message': 'Logout successful'})
 
 
 @csrf_exempt
 @api_login_required
 @require_POST
 def delete_user(request):
+    logger.info("Endpoint delete_user invoked by IP or User")
     # request.user is attached by the decorator
     try:
         user_to_delete = request.user
@@ -428,10 +446,10 @@ def delete_user(request):
         logout(request)  # Log out of Django session first
         user_to_delete.delete()  # This will cascade and delete sessions, posts, etc.
         logger.info(f"User deleted successfully: user_id: {user_id}")
-        return JsonResponse({'message': 'User deleted successfully'})
+        return log_and_return_json("delete_user", {'message': 'User deleted successfully'})
     except Exception as e:
         logger.error(f"Error deleting user {request.user.id}: {e}")
-        return JsonResponse({'error': f"Error deleting user {e}"}, status=400)
+        return log_and_return_json("delete_user", {'error': f"Error deleting user {e}"}, status=400)
 
 
 # =============================================================================
@@ -441,16 +459,17 @@ def delete_user(request):
 @csrf_exempt
 @require_POST
 def request_reset(request):
+    logger.info("Endpoint request_reset invoked by IP or User")
     data = _get_json_body(request)
     if data is None:
-        return JsonResponse({'error': "Invalid JSON data"}, status=400)
+        return log_and_return_json("request_reset", {'error': "Invalid JSON data"}, status=400)
 
     username_or_email = data.get(Fields.username_or_email)
 
     if not username_or_email or (
             not is_valid_pattern(username_or_email, Patterns.alphanumeric) and not is_valid_pattern(username_or_email,
                                                                                                     Patterns.email)):
-        return JsonResponse({'error': f"Invalid fields {Fields.username_or_email}"}, status=400)
+        return log_and_return_json("request_reset", {'error': f"Invalid fields {Fields.username_or_email}"}, status=400)
 
     user = get_user_with_username_or_email(username_or_email)
     if user is not None:
@@ -463,14 +482,15 @@ def request_reset(request):
         user.reset_id = random_number
         user.save()
         logger.info(f"Password reset request successful for user_id: {user.id}")
-        return JsonResponse({'message': 'Reset email sent'})
+        return log_and_return_json("request_reset", {'message': 'Reset email sent'})
     else:
         logger.warning("Password reset request failed: No user with that username or email")
-        return JsonResponse({'error': "No user with that username or email"}, status=400)
+        return log_and_return_json("request_reset", {'error': "No user with that username or email"}, status=400)
 
 
 @require_GET
 def verify_reset(request, username_or_email, reset_id):
+    logger.info("Endpoint verify_reset invoked by IP or User")
     # Data comes from URL, not JSON body
     invalid_fields = []
     if not is_valid_pattern(username_or_email, Patterns.alphanumeric) and not is_valid_pattern(username_or_email,
@@ -482,7 +502,7 @@ def verify_reset(request, username_or_email, reset_id):
         invalid_fields.append(Params.reset_id)
 
     if len(invalid_fields) > 0:
-        return JsonResponse({'error': f"Invalid fields {invalid_fields}"}, status=400)
+        return log_and_return_json("verify_reset", {'error': f"Invalid fields {invalid_fields}"}, status=400)
 
     user = get_user_with_username_or_email(username_or_email)
     if user is not None:
@@ -491,21 +511,22 @@ def verify_reset(request, username_or_email, reset_id):
             user.reset_id = -1  # Invalidate the reset ID
             user.save()
             logger.info(f"Password reset verification successful for user_id: {user.id}")
-            return JsonResponse({'message': 'Verification successful'})
+            return log_and_return_json("verify_reset", {'message': 'Verification successful'})
         else:
             logger.warning(f"Password reset verification failed: Reset ID mismatch for user_id: {user.id}")
-            return JsonResponse({'error': "That reset id does not match"}, status=400)
+            return log_and_return_json("verify_reset", {'error': "That reset id does not match"}, status=400)
     else:
         logger.warning("Password reset verification failed: No user with that username or email")
-        return JsonResponse({'error': "No user with that username or email"}, status=400)
+        return log_and_return_json("verify_reset", {'error': "No user with that username or email"}, status=400)
 
 
 @csrf_exempt
 @require_POST
 def reset_password(request):
+    logger.info("Endpoint reset_password invoked by IP or User")
     data = _get_json_body(request)
     if data is None:
-        return JsonResponse({'error': "Invalid JSON data"}, status=400)
+        return log_and_return_json("reset_password", {'error': "Invalid JSON data"}, status=400)
 
     username = data.get(Fields.username)
     email = data.get(Fields.email)
@@ -520,25 +541,25 @@ def reset_password(request):
         invalid_fields.append(Params.password)
 
     if len(invalid_fields) > 0:
-        return JsonResponse({'error': f"Invalid fields {invalid_fields}"}, status=400)
+        return log_and_return_json("reset_password", {'error': f"Invalid fields {invalid_fields}"}, status=400)
 
     # Classify text fields for positivity
     if not text_classifier_class.is_text_positive(username):
-        return JsonResponse({'error': "Username is not positive"}, status=400)
+        return log_and_return_json("reset_password", {'error': "Username is not positive"}, status=400)
     if not text_classifier_class.is_text_positive(email):
-        return JsonResponse({'error': "Email is not positive"}, status=400)
+        return log_and_return_json("reset_password", {'error': "Email is not positive"}, status=400)
     if not text_classifier_class.is_text_positive(password):
-        return JsonResponse({'error': "Password is not positive"}, status=400)
+        return log_and_return_json("reset_password", {'error': "Password is not positive"}, status=400)
 
     user = get_user_with_username_and_email(username, email)
     if user is not None:
         user.set_password(password)  # Use set_password to hash it!
         user.save()
         logger.info(f"Password reset successful for user_id: {user.id}")
-        return JsonResponse({'message': 'Password reset successfully'})
+        return log_and_return_json("reset_password", {'message': 'Password reset successfully'})
     else:
         logger.warning("Password reset failed: No user with that username or email")
-        return JsonResponse({'error': "No user with that username or email"}, status=400)
+        return log_and_return_json("reset_password", {'error': "No user with that username or email"}, status=400)
 
 
 # =============================================================================
@@ -549,10 +570,11 @@ def reset_password(request):
 @api_login_required
 @require_POST
 def make_post(request):
+    logger.info("Endpoint make_post invoked by IP or User")
     # user is on request.user
     data = _get_json_body(request)
     if data is None:
-        return JsonResponse({'error': "Invalid JSON data"}, status=400)
+        return log_and_return_json("make_post", {'error': "Invalid JSON data"}, status=400)
 
     image_url = data.get(Fields.image_url)
     caption = data.get(Fields.caption)
@@ -565,47 +587,49 @@ def make_post(request):
 
     if len(invalid_fields) > 0:
         logger.warning(f"Make post failed: Invalid fields {invalid_fields} for user_id: {request.user.id}")
-        return JsonResponse({'error': f"Invalid fields {invalid_fields}"}, status=400)
+        return log_and_return_json("make_post", {'error': f"Invalid fields {invalid_fields}"}, status=400)
 
     if not image_classifier_class.is_image_positive(image_url):
         logger.warning(f"Make post failed: Image not positive for user_id: {request.user.id}")
-        return JsonResponse({'error': "Image is not positive"}, status=400)
+        return log_and_return_json("make_post", {'error': "Image is not positive"}, status=400)
 
     if not text_classifier_class.is_text_positive(caption):
         logger.warning(f"Make post failed: Caption not positive for user_id: {request.user.id}")
-        return JsonResponse({'error': "Text is not positive"}, status=400)
+        return log_and_return_json("make_post", {'error': "Text is not positive"}, status=400)
 
     new_post = request.user.post_set.create(image_url=image_url, caption=caption)
     logger.info(f"Post created successfully: post_id: {new_post.post_identifier} for user_id: {request.user.id}")
-    return JsonResponse({Fields.post_identifier: new_post.post_identifier}, status=201)
+    return log_and_return_json("make_post", {Fields.post_identifier: new_post.post_identifier}, status=201)
 
 
 @csrf_exempt
 @api_login_required
 @require_POST  # Or @require_DELETE if you prefer
 def delete_post(request, post_identifier):
+    logger.info("Endpoint delete_post invoked by IP or User")
     # user is on request.user
     if not is_valid_pattern(post_identifier, Patterns.uuid4):
-        return JsonResponse({'error': f"Invalid fields {Fields.post_identifier}"}, status=400)
+        return log_and_return_json("delete_post", {'error': f"Invalid fields {Fields.post_identifier}"}, status=400)
 
     try:
         post = request.user.post_set.get(post_identifier=post_identifier)
         post.delete()
         logger.info(f"Post deleted successfully: post_id: {post_identifier} by user_id: {request.user.id}")
-        return JsonResponse({'message': 'Post deleted'})
+        return log_and_return_json("delete_post", {'message': 'Post deleted'})
     except Post.DoesNotExist:
         logger.warning(f"Delete post failed: Post {post_identifier} not found for user_id: {request.user.id}")
-        return JsonResponse({'error': "No post with that identifier by that user"}, status=400)
+        return log_and_return_json("delete_post", {'error': "No post with that identifier by that user"}, status=400)
 
 
 @csrf_exempt
 @api_login_required
 @require_POST
 def report_post(request, post_identifier):
+    logger.info("Endpoint report_post invoked by IP or User")
     # user is on request.user
     data = _get_json_body(request)
     if data is None:
-        return JsonResponse({'error': "Invalid JSON data"}, status=400)
+        return log_and_return_json("report_post", {'error': "Invalid JSON data"}, status=400)
 
     reason = data.get(Fields.reason)
 
@@ -616,17 +640,17 @@ def report_post(request, post_identifier):
         invalid_fields.append(Params.reason)
 
     if len(invalid_fields) > 0:
-        return JsonResponse({'error': f"Invalid fields {invalid_fields}"}, status=400)
+        return log_and_return_json("report_post", {'error': f"Invalid fields {invalid_fields}"}, status=400)
 
     post = get_post_with_identifier(post_identifier)
     if post is not None:
         if post.author == request.user:
             logger.warning(f"Report post failed: Cannot report own post for user_id: {request.user.id}")
-            return JsonResponse({'error': "Cannot report own post"}, status=400)
+            return log_and_return_json("report_post", {'error': "Cannot report own post"}, status=400)
 
         if post.postreport_set.filter(user=request.user).exists():
             logger.warning(f"Report post failed: Post already reported by user_id: {request.user.id}")
-            return JsonResponse({'error': "Cannot report post twice"}, status=400)
+            return log_and_return_json("report_post", {'error': "Cannot report post twice"}, status=400)
 
         post.postreport_set.create(user=request.user, reason=reason)
         logger.info(f"Post reported successful: post_id: {post_identifier} by user_id: {request.user.id}")
@@ -636,65 +660,67 @@ def report_post(request, post_identifier):
             post.save()
             logger.info(f"Post hidden due to reports: post_id: {post_identifier}")
 
-        return JsonResponse({'message': 'Post reported'})
+        return log_and_return_json("report_post", {'message': 'Post reported'})
     else:
         logger.warning(f"Report post failed: Post {post_identifier} not found")
-        return JsonResponse({'error': "No post with that identifier"}, status=400)
+        return log_and_return_json("report_post", {'error': "No post with that identifier"}, status=400)
 
 
 @csrf_exempt
 @api_login_required
 @require_POST
 def like_post(request, post_identifier):
+    logger.info("Endpoint like_post invoked by IP or User")
     # user is on request.user
     if not is_valid_pattern(post_identifier, Patterns.uuid4):
-        return JsonResponse({'error': f"Invalid fields {Fields.post_identifier}"}, status=400)
+        return log_and_return_json("like_post", {'error': f"Invalid fields {Fields.post_identifier}"}, status=400)
 
     post = get_post_with_identifier(post_identifier)
     if post is not None:
         if post.author == request.user:
             logger.warning(f"Like post failed: Cannot like own post for user_id: {request.user.id}")
-            return JsonResponse({'error': "Cannot like own post"}, status=400)
+            return log_and_return_json("like_post", {'error': "Cannot like own post"}, status=400)
 
         # get_or_create handles the check and creation in one step
         like, created = post.postlike_set.get_or_create(user=request.user)
 
         if not created:
             logger.warning(f"Like post failed: Already liked for user_id: {request.user.id} on post: {post_identifier}")
-            return JsonResponse({'error': "Already liked post"}, status=400)
+            return log_and_return_json("like_post", {'error': "Already liked post"}, status=400)
 
         logger.info(f"Post liked successful: post_id: {post_identifier} by user_id: {request.user.id}")
-        return JsonResponse({'message': 'Post liked'})
+        return log_and_return_json("like_post", {'message': 'Post liked'})
     else:
         logger.warning(f"Like post failed: Post {post_identifier} not found")
-        return JsonResponse({'error': "No post with that identifier"}, status=400)
+        return log_and_return_json("like_post", {'error': "No post with that identifier"}, status=400)
 
 
 @csrf_exempt
 @api_login_required
 @require_POST  # Or @require_DELETE
 def unlike_post(request, post_identifier):
+    logger.info("Endpoint unlike_post invoked by IP or User")
     # user is on request.user
     if not is_valid_pattern(post_identifier, Patterns.uuid4):
-        return JsonResponse({'error': f"Invalid fields {Fields.post_identifier}"}, status=400)
+        return log_and_return_json("unlike_post", {'error': f"Invalid fields {Fields.post_identifier}"}, status=400)
 
     post = get_post_with_identifier(post_identifier)
     if post is not None:
         if post.author == request.user:
             logger.warning(f"Unlike post failed: Cannot unlike own post for user_id: {request.user.id}")
-            return JsonResponse({'error': "Cannot unlike own post"}, status=400)
+            return log_and_return_json("unlike_post", {'error': "Cannot unlike own post"}, status=400)
 
         deleted_count, _ = post.postlike_set.filter(user=request.user).delete()
 
         if deleted_count > 0:
             logger.info(f"Post unliked successful: post_id: {post_identifier} by user_id: {request.user.id}")
-            return JsonResponse({'message': 'Post unliked'})
+            return log_and_return_json("unlike_post", {'message': 'Post unliked'})
         else:
             logger.warning(f"Unlike post failed: Post not liked yet for user_id: {request.user.id} on post: {post_identifier}")
-            return JsonResponse({'error': "Post not liked yet"}, status=400)
+            return log_and_return_json("unlike_post", {'error': "Post not liked yet"}, status=400)
     else:
         logger.warning(f"Unlike post failed: Post {post_identifier} not found")
-        return JsonResponse({'error': "No post with that identifier"}, status=400)
+        return log_and_return_json("unlike_post", {'error': "No post with that identifier"}, status=400)
 
 
 # =============================================================================
@@ -704,9 +730,10 @@ def unlike_post(request, post_identifier):
 @api_login_required
 @require_GET
 def get_posts_in_feed(request, batch):
+    logger.info("Endpoint get_posts_in_feed invoked by IP or User")
     # user is on request.user
     if batch < 0:
-        return JsonResponse({'error': "Invalid batch parameter"}, status=400)
+        return log_and_return_json("get_posts_in_feed", {'error': "Invalid batch parameter"}, status=400)
 
     relevant_posts = feed_algorithm_class.get_posts_weighted(request.user, Post)
     
@@ -726,17 +753,18 @@ def get_posts_in_feed(request, batch):
             }
             for post in batched_posts
         ]
-        return JsonResponse(posts_data, safe=False)
+        return log_and_return_json("get_posts_in_feed", posts_data, safe=False)
     else:
-        return JsonResponse([], safe=False)
+        return log_and_return_json("get_posts_in_feed", [], safe=False)
 
 
 @api_login_required
 @require_GET
 def get_posts_for_followed_users(request, batch):
+    logger.info("Endpoint get_posts_for_followed_users invoked by IP or User")
     # user is on request.user
     if batch < 0:
-        return JsonResponse({'error': "Invalid batch parameter"}, status=400)
+        return log_and_return_json("get_posts_for_followed_users", {'error': "Invalid batch parameter"}, status=400)
 
     followed_users = request.user.following.all()
     
@@ -746,7 +774,7 @@ def get_posts_for_followed_users(request, batch):
     followed_users = followed_users.exclude(pk__in=blocked_users).exclude(pk__in=blocking_users)
 
     if not followed_users.exists():
-        return JsonResponse([], safe=False)
+        return log_and_return_json("get_posts_for_followed_users", [], safe=False)
 
     posts_queryset = Post.objects.filter(author__in=followed_users).order_by('-creation_time')
     posts_batch = get_batch(batch, POST_BATCH_SIZE, posts_queryset)
@@ -761,27 +789,28 @@ def get_posts_for_followed_users(request, batch):
         for post in posts_batch
     ]
     logger.info(f"Get followed posts successful for user_id: {request.user.id}, batch: {batch}, count: {len(posts_data)}")
-    return JsonResponse(posts_data, safe=False)
+    return log_and_return_json("get_posts_for_followed_users", posts_data, safe=False)
 
 
 @api_login_required
 @require_GET
 def get_posts_for_user(request, username, batch):
+    logger.info("Endpoint get_posts_for_user invoked by IP or User")
 
     # user is on request.user (for auth), username is for target
     if not is_valid_pattern(username, Patterns.alphanumeric):
-        return JsonResponse({'error': "Invalid username"}, status=400)
+        return log_and_return_json("get_posts_for_user", {'error': "Invalid username"}, status=400)
     if batch < 0:
-        return JsonResponse({'error': "Invalid batch parameter"}, status=400)
+        return log_and_return_json("get_posts_for_user", {'error': "Invalid batch parameter"}, status=400)
 
     target_user = get_user_with_username(username)
     if not target_user:
-        return JsonResponse({'error': "User not found"}, status=400)
+        return log_and_return_json("get_posts_for_user", {'error': "User not found"}, status=400)
 
     # Check if blocking relationship exists
     if request.user.blocked.filter(pk=target_user.pk).exists() or target_user.blocked.filter(pk=request.user.pk).exists():
         logger.info(f"Get posts for user: Blocking relationship exists for user_id: {request.user.id} and target_user_id: {target_user.id}")
-        return JsonResponse([], safe=False)
+        return log_and_return_json("get_posts_for_user", [], safe=False)
 
     relevant_posts = feed_algorithm_class.get_posts_weighted_for_user(target_user, Post)
 
@@ -796,15 +825,16 @@ def get_posts_for_user(request, username, batch):
             }
             for post in batched_posts
         ]
-        return JsonResponse(posts_data, safe=False)
+        return log_and_return_json("get_posts_for_user", posts_data, safe=False)
     else:
-        return JsonResponse([], safe=False)
+        return log_and_return_json("get_posts_for_user", [], safe=False)
 
 
 @require_GET  # Publicly viewable, no @api_login_required
 def get_post_details(request, post_identifier):
+    logger.info("Endpoint get_post_details invoked by IP or User")
     if not is_valid_pattern(post_identifier, Patterns.uuid4):
-        return JsonResponse({'error': "Invalid post identifier"}, status=400)
+        return log_and_return_json("get_post_details", {'error': "Invalid post identifier"}, status=400)
 
     post = get_post_with_identifier(post_identifier)
     if post is not None:
@@ -816,10 +846,10 @@ def get_post_details(request, post_identifier):
             Fields.post_likes: total_likes,
             Fields.author_username: post.author.username
         }
-        return JsonResponse(post_data)
+        return log_and_return_json("get_post_details", post_data)
     else:
         logger.warning(f"Get post details failed: Post {post_identifier} not found")
-        return JsonResponse({'error': "No post with that identifier"}, status=400)
+        return log_and_return_json("get_post_details", {'error': "No post with that identifier"}, status=400)
 
 
 # =============================================================================
@@ -830,25 +860,26 @@ def get_post_details(request, post_identifier):
 @api_login_required
 @require_POST
 def comment_on_post(request, post_identifier):
+    logger.info("Endpoint comment_on_post invoked by IP or User")
     # user is on request.user
     data = _get_json_body(request)
     if data is None:
-        return JsonResponse({'error': "Invalid JSON data"}, status=400)
+        return log_and_return_json("comment_on_post", {'error': "Invalid JSON data"}, status=400)
 
     comment_text = data.get(Fields.comment_text)
 
     if not is_valid_pattern(post_identifier, Patterns.uuid4):
-        return JsonResponse({'error': "Invalid post_identifier"}, status=400)
+        return log_and_return_json("comment_on_post", {'error': "Invalid post_identifier"}, status=400)
     if not comment_text or not is_valid_pattern(comment_text, Patterns.alphanumeric_with_special_chars):
-        return JsonResponse({'error': "Invalid comment text"}, status=400)
+        return log_and_return_json("comment_on_post", {'error': "Invalid comment text"}, status=400)
 
     if not text_classifier_class.is_text_positive(comment_text):
-        return JsonResponse({'error': "Text is not positive"}, status=400)
+        return log_and_return_json("comment_on_post", {'error': "Text is not positive"}, status=400)
 
     post = get_post_with_identifier(post_identifier)
     if post is None:
         logger.warning(f"Comment on post failed: Post {post_identifier} not found")
-        return JsonResponse({'error': "No post with that identifier"}, status=400)
+        return log_and_return_json("comment_on_post", {'error': "No post with that identifier"}, status=400)
 
     # Create a new thread for this top-level comment
     comment_thread = post.commentthread_set.create()
@@ -859,17 +890,18 @@ def comment_on_post(request, post_identifier):
         Fields.comment_identifier: new_comment.comment_identifier
     }
     logger.info(f"Comment on post successful: post_id: {post_identifier}, comment_id: {new_comment.comment_identifier} for user_id: {request.user.id}")
-    return JsonResponse(response_data, status=201)
+    return log_and_return_json("comment_on_post", response_data, status=201)
 
 
 @csrf_exempt
 @api_login_required
 @require_POST
 def reply_to_comment_thread(request, post_identifier, comment_thread_identifier):
+    logger.info("Endpoint reply_to_comment_thread invoked by IP or User")
     # user is on request.user
     data = _get_json_body(request)
     if data is None:
-        return JsonResponse({'error': "Invalid JSON data"}, status=400)
+        return log_and_return_json("reply_to_comment_thread", {'error': "Invalid JSON data"}, status=400)
 
     comment_text = data.get(Fields.comment_text)
 
@@ -882,10 +914,10 @@ def reply_to_comment_thread(request, post_identifier, comment_thread_identifier)
         invalid_fields.append(Params.comment_text)
 
     if len(invalid_fields) > 0:
-        return JsonResponse({'error': f"Invalid fields {invalid_fields}"}, status=400)
+        return log_and_return_json("reply_to_comment_thread", {'error': f"Invalid fields {invalid_fields}"}, status=400)
 
     if not text_classifier_class.is_text_positive(comment_text):
-        return JsonResponse({'error': "Text is not positive"}, status=400)
+        return log_and_return_json("reply_to_comment_thread", {'error': "Text is not positive"}, status=400)
 
     try:
         comment_thread = CommentThread.objects.get(
@@ -893,17 +925,18 @@ def reply_to_comment_thread(request, post_identifier, comment_thread_identifier)
             post__post_identifier=post_identifier
         )
     except CommentThread.DoesNotExist:
-        return JsonResponse({'error': "Comment thread not found for the given post"}, status=400)
+        return log_and_return_json("reply_to_comment_thread", {'error': "Comment thread not found for the given post"}, status=400)
 
     new_comment = comment_thread.comment_set.create(author=request.user, body=comment_text)
     logger.info(f"Reply to comment successful: comment_thread_id: {comment_thread_identifier}, comment_id: {new_comment.comment_identifier} for user_id: {request.user.id}")
-    return JsonResponse({Fields.comment_identifier: new_comment.comment_identifier}, status=201)
+    return log_and_return_json("reply_to_comment_thread", {Fields.comment_identifier: new_comment.comment_identifier}, status=201)
 
 
 @csrf_exempt
 @api_login_required
 @require_POST
 def like_comment(request, post_identifier, comment_thread_identifier, comment_identifier):
+    logger.info("Endpoint like_comment invoked by IP or User")
     # user is on request.user
     invalid_fields = []
     if not is_valid_pattern(post_identifier, Patterns.uuid4):
@@ -913,7 +946,7 @@ def like_comment(request, post_identifier, comment_thread_identifier, comment_id
     if not is_valid_pattern(comment_identifier, Patterns.uuid4):
         invalid_fields.append(Params.comment_identifier)
     if len(invalid_fields) > 0:
-        return JsonResponse({'error': f"Invalid fields {invalid_fields}"}, status=400)
+        return log_and_return_json("like_comment", {'error': f"Invalid fields {invalid_fields}"}, status=400)
 
     try:
         comment = Comment.objects.get(
@@ -923,25 +956,26 @@ def like_comment(request, post_identifier, comment_thread_identifier, comment_id
         )
     except Comment.DoesNotExist:
         logger.warning(f"Like comment failed: Comment {comment_identifier} not found")
-        return JsonResponse({'error': "Comment not found"}, status=400)
+        return log_and_return_json("like_comment", {'error': "Comment not found"}, status=400)
 
     if comment.author == request.user:
         logger.warning(f"Like comment failed: Cannot like own comment for user_id: {request.user.id}")
-        return JsonResponse({'error': "Cannot like own comment"}, status=400)
+        return log_and_return_json("like_comment", {'error': "Cannot like own comment"}, status=400)
 
     like, created = comment.commentlike_set.get_or_create(user=request.user)
     if not created:
         logger.warning(f"Like comment failed: Already liked for user_id: {request.user.id} on comment: {comment_identifier}")
-        return JsonResponse({'error': "Already liked comment"}, status=400)
+        return log_and_return_json("like_comment", {'error': "Already liked comment"}, status=400)
 
     logger.info(f"Like comment successful: comment_id: {comment_identifier} for user_id: {request.user.id}")
-    return JsonResponse({'message': 'Comment liked'})
+    return log_and_return_json("like_comment", {'message': 'Comment liked'})
 
 
 @csrf_exempt
 @api_login_required
 @require_POST  # Or @require_DELETE
 def unlike_comment(request, post_identifier, comment_thread_identifier, comment_identifier):
+    logger.info("Endpoint unlike_comment invoked by IP or User")
     # user is on request.user
     invalid_fields = []
     if not is_valid_pattern(post_identifier, Patterns.uuid4):
@@ -951,7 +985,7 @@ def unlike_comment(request, post_identifier, comment_thread_identifier, comment_
     if not is_valid_pattern(comment_identifier, Patterns.uuid4):
         invalid_fields.append(Params.comment_identifier)
     if len(invalid_fields) > 0:
-        return JsonResponse({'error': f"Invalid fields {invalid_fields}"}, status=400)
+        return log_and_return_json("unlike_comment", {'error': f"Invalid fields {invalid_fields}"}, status=400)
 
     try:
         comment = Comment.objects.get(
@@ -961,25 +995,26 @@ def unlike_comment(request, post_identifier, comment_thread_identifier, comment_
         )
     except Comment.DoesNotExist:
         logger.warning(f"Unlike comment failed: Comment {comment_identifier} not found")
-        return JsonResponse({'error': "Comment not found"}, status=400)
+        return log_and_return_json("unlike_comment", {'error': "Comment not found"}, status=400)
 
     if comment.author == request.user:
         logger.warning(f"Unlike comment failed: Cannot unlike own comment for user_id: {request.user.id}")
-        return JsonResponse({'error': "Cannot unlike own comment"}, status=400)
+        return log_and_return_json("unlike_comment", {'error': "Cannot unlike own comment"}, status=400)
 
     deleted_count, _ = comment.commentlike_set.filter(user=request.user).delete()
     if deleted_count == 0:
         logger.warning(f"Unlike comment failed: Comment not liked yet for user_id: {request.user.id} on comment: {comment_identifier}")
-        return JsonResponse({'error': "Comment not liked yet"}, status=400)
+        return log_and_return_json("unlike_comment", {'error': "Comment not liked yet"}, status=400)
 
     logger.info(f"Unlike comment successful: comment_id: {comment_identifier} for user_id: {request.user.id}")
-    return JsonResponse({'message': 'Comment unliked'})
+    return log_and_return_json("unlike_comment", {'message': 'Comment unliked'})
 
 
 @csrf_exempt
 @api_login_required
 @require_POST  # Or @require_DELETE
 def delete_comment(request, post_identifier, comment_thread_identifier, comment_identifier):
+    logger.info("Endpoint delete_comment invoked by IP or User")
     # user is on request.user
     invalid_fields = []
     if not is_valid_pattern(post_identifier, Patterns.uuid4):
@@ -989,7 +1024,7 @@ def delete_comment(request, post_identifier, comment_thread_identifier, comment_
     if not is_valid_pattern(comment_identifier, Patterns.uuid4):
         invalid_fields.append(Params.comment_identifier)
     if len(invalid_fields) > 0:
-        return JsonResponse({'error': f"Invalid fields {invalid_fields}"}, status=400)
+        return log_and_return_json("delete_comment", {'error': f"Invalid fields {invalid_fields}"}, status=400)
 
     try:
         comment = Comment.objects.get(
@@ -999,25 +1034,26 @@ def delete_comment(request, post_identifier, comment_thread_identifier, comment_
         )
     except Comment.DoesNotExist:
         logger.warning(f"Delete comment failed: Comment {comment_identifier} not found")
-        return JsonResponse({'error': "Comment not found"}, status=400)
+        return log_and_return_json("delete_comment", {'error': "Comment not found"}, status=400)
 
     if comment.author != request.user:
         logger.warning(f"Delete comment failed: Unauthorized for user_id: {request.user.id} on comment: {comment_identifier}")
-        return JsonResponse({'error': "Not authorized to delete comment"}, status=400)
+        return log_and_return_json("delete_comment", {'error': "Not authorized to delete comment"}, status=400)
 
     comment.delete()
     logger.info(f"Delete comment successful: comment_id: {comment_identifier} for user_id: {request.user.id}")
-    return JsonResponse({'message': 'Comment deleted'})
+    return log_and_return_json("delete_comment", {'message': 'Comment deleted'})
 
 
 @csrf_exempt
 @api_login_required
 @require_POST
 def report_comment(request, post_identifier, comment_thread_identifier, comment_identifier):
+    logger.info("Endpoint report_comment invoked by IP or User")
     # user is on request.user
     data = _get_json_body(request)
     if data is None:
-        return JsonResponse({'error': "Invalid JSON data"}, status=400)
+        return log_and_return_json("report_comment", {'error': "Invalid JSON data"}, status=400)
 
     reason = data.get(Fields.reason)
 
@@ -1031,7 +1067,7 @@ def report_comment(request, post_identifier, comment_thread_identifier, comment_
     if not reason or not is_valid_pattern(reason, Patterns.alphanumeric_with_special_chars):
         invalid_fields.append(Params.reason)
     if len(invalid_fields) > 0:
-        return JsonResponse({'error': f"Invalid fields {invalid_fields}"}, status=400)
+        return log_and_return_json("report_comment", {'error': f"Invalid fields {invalid_fields}"}, status=400)
 
     try:
         comment = Comment.objects.get(
@@ -1041,15 +1077,15 @@ def report_comment(request, post_identifier, comment_thread_identifier, comment_
         )
     except Comment.DoesNotExist:
         logger.warning(f"Report comment failed: Comment {comment_identifier} not found")
-        return JsonResponse({'error': "Comment not found"}, status=400)
+        return log_and_return_json("report_comment", {'error': "Comment not found"}, status=400)
 
     if comment.author == request.user:
         logger.warning(f"Report comment failed: Cannot report own comment for user_id: {request.user.id}")
-        return JsonResponse({'error': "Cannot report own comment"}, status=400)
+        return log_and_return_json("report_comment", {'error': "Cannot report own comment"}, status=400)
 
     if comment.commentreport_set.filter(user=request.user).exists():
         logger.warning(f"Report comment failed: Already reported by user_id: {request.user.id}")
-        return JsonResponse({'error': "Cannot report comment twice"}, status=400)
+        return log_and_return_json("report_comment", {'error': "Cannot report comment twice"}, status=400)
 
     comment.commentreport_set.create(user=request.user, reason=reason)
     logger.info(f"Report comment successful: comment_id: {comment_identifier} by user_id: {request.user.id}")
@@ -1059,52 +1095,54 @@ def report_comment(request, post_identifier, comment_thread_identifier, comment_
         comment.save()
         logger.info(f"Comment hidden due to reports: comment_id: {comment_identifier}")
 
-    return JsonResponse({'message': 'Comment reported'})
+    return log_and_return_json("report_comment", {'message': 'Comment reported'})
 
 
 @api_login_required  # Original had @login_required
 @require_GET
 def get_comments_for_post(request, post_identifier, batch):
+    logger.info("Endpoint get_comments_for_post invoked by IP or User")
     if not is_valid_pattern(post_identifier, Patterns.uuid4):
-        return JsonResponse({'error': "Invalid post identifier"}, status=400)
+        return log_and_return_json("get_comments_for_post", {'error': "Invalid post identifier"}, status=400)
     if batch < 0:
-        return JsonResponse({'error': "Invalid batch parameter"}, status=400)
+        return log_and_return_json("get_comments_for_post", {'error': "Invalid batch parameter"}, status=400)
 
     post = get_post_with_identifier(post_identifier)
     if not post:
         logger.warning(f"Get comments for post failed: Post {post_identifier} not found")
-        return JsonResponse({'error': "No post with that identifier"}, status=400)
+        return log_and_return_json("get_comments_for_post", {'error': "No post with that identifier"}, status=400)
 
     comment_threads = post.commentthread_set.all()
 
     relevant_comment_threads = feed_algorithm_class.get_comment_threads_weighted_for_post(comment_threads)
 
     if not relevant_comment_threads.count() > 0:
-        return JsonResponse([], safe=False)
+        return log_and_return_json("get_comments_for_post", [], safe=False)
 
     batched_comment_threads = get_batch(batch, COMMENT_THREAD_BATCH_SIZE, relevant_comment_threads)
     data = [{Fields.comment_thread_identifier: ct.comment_thread_identifier} for ct in batched_comment_threads]
-    return JsonResponse(data, safe=False)
+    return log_and_return_json("get_comments_for_post", data, safe=False)
 
 
 @api_login_required  # Original had @login_required
 @require_GET
 def get_comments_for_thread(request, comment_thread_identifier, batch):
+    logger.info("Endpoint get_comments_for_thread invoked by IP or User")
     if not is_valid_pattern(comment_thread_identifier, Patterns.uuid4):
-        return JsonResponse({'error': "Invalid comment thread identifier"}, status=400)
+        return log_and_return_json("get_comments_for_thread", {'error': "Invalid comment thread identifier"}, status=400)
     if batch < 0:
-        return JsonResponse({'error': "Invalid batch parameter"}, status=400)
+        return log_and_return_json("get_comments_for_thread", {'error': "Invalid batch parameter"}, status=400)
 
     comment_thread = get_comment_thread_with_identifier(comment_thread_identifier)
     if not comment_thread:
         logger.warning(f"Get comments for thread failed: Thread {comment_thread_identifier} not found")
-        return JsonResponse({'error': "No comment thread with that identifier"}, status=400)
+        return log_and_return_json("get_comments_for_thread", {'error': "No comment thread with that identifier"}, status=400)
 
     comments = comment_thread.comment_set.all().order_by('creation_time')
     relevant_comments = feed_algorithm_class.get_comments_weighted_for_thread(comments)
 
     if not relevant_comments.count() > 0:
-        return JsonResponse([], safe=False)
+        return log_and_return_json("get_comments_for_thread", [], safe=False)
 
     batched_comments = get_batch(batch, COMMENT_BATCH_SIZE, relevant_comments)
     comments_data = [
@@ -1118,7 +1156,7 @@ def get_comments_for_thread(request, comment_thread_identifier, batch):
         }
         for comment in batched_comments
     ]
-    return JsonResponse(comments_data, safe=False)
+    return log_and_return_json("get_comments_for_thread", comments_data, safe=False)
 
 
 # =============================================================================
@@ -1128,9 +1166,10 @@ def get_comments_for_thread(request, comment_thread_identifier, batch):
 @api_login_required
 @require_GET
 def get_users_matching_fragment(request, username_fragment):
+    logger.info("Endpoint get_users_matching_fragment invoked by IP or User")
     # user is on request.user
     if not is_valid_pattern(username_fragment, Patterns.short_alphanumeric):
-        return JsonResponse({'error': "Invalid username fragment"}, status=400)
+        return log_and_return_json("get_users_matching_fragment", {'error': "Invalid username fragment"}, status=400)
 
     # We only get the first 10 users because we don't support endlessly scrolling through
     # user results in the search bar.
@@ -1154,71 +1193,74 @@ def get_users_matching_fragment(request, username_fragment):
         for user in users
     ]
     logger.info(f"User search matching fragment successful: count: {len(users_data)} for user_id: {request.user.id}")
-    return JsonResponse(users_data, safe=False)
+    return log_and_return_json("get_users_matching_fragment", users_data, safe=False)
 
 
 @csrf_exempt
 @api_login_required
 @require_POST
 def follow_user(request, username_to_follow):
+    logger.info("Endpoint follow_user invoked by IP or User")
     # user is on request.user
     if not is_valid_pattern(username_to_follow, Patterns.alphanumeric):
-        return JsonResponse({'error': "Invalid username fragment"}, status=400)
+        return log_and_return_json("follow_user", {'error': "Invalid username fragment"}, status=400)
 
     user_to_follow_obj = get_user_with_username(username_to_follow)
     if not user_to_follow_obj:
-        return JsonResponse({'error': "User does not exist"}, status=400)
+        return log_and_return_json("follow_user", {'error': "User does not exist"}, status=400)
 
     if request.user == user_to_follow_obj:
-        return JsonResponse({'error': "Cannot follow self"}, status=400)
+        return log_and_return_json("follow_user", {'error': "Cannot follow self"}, status=400)
 
     if request.user.following.filter(pk=user_to_follow_obj.pk).exists():
-        return JsonResponse({'error': "Already following user"}, status=400)
+        return log_and_return_json("follow_user", {'error': "Already following user"}, status=400)
 
     request.user.following.add(user_to_follow_obj)
     logger.info(f"Follow user successful: target_user_id: {user_to_follow_obj.id} by user_id: {request.user.id}")
-    return JsonResponse({'message': 'User followed'})
+    return log_and_return_json("follow_user", {'message': 'User followed'})
 
 
 @csrf_exempt
 @api_login_required
 @require_POST  # Or @require_DELETE
 def unfollow_user(request, username_to_unfollow):
+    logger.info("Endpoint unfollow_user invoked by IP or User")
     # user is on request.user
     if not is_valid_pattern(username_to_unfollow, Patterns.alphanumeric):
-        return JsonResponse({'error': "Invalid username fragment"}, status=400)
+        return log_and_return_json("unfollow_user", {'error': "Invalid username fragment"}, status=400)
 
     user_to_unfollow_obj = get_user_with_username(username_to_unfollow)
     if not user_to_unfollow_obj:
-        return JsonResponse({'error': "User does not exist"}, status=400)
+        return log_and_return_json("unfollow_user", {'error': "User does not exist"}, status=400)
 
     if not request.user.following.filter(pk=user_to_unfollow_obj.pk).exists():
-        return JsonResponse({'error': "Not following user"}, status=400)
+        return log_and_return_json("unfollow_user", {'error': "Not following user"}, status=400)
 
     request.user.following.remove(user_to_unfollow_obj)
     logger.info(f"Unfollow user successful: target_user_id: {user_to_unfollow_obj.id} by user_id: {request.user.id}")
-    return JsonResponse({'message': 'User unfollowed'})
+    return log_and_return_json("unfollow_user", {'message': 'User unfollowed'})
 
 
 @csrf_exempt
 @api_login_required
 @require_POST
 def toggle_block(request, username_to_toggle_block):
+    logger.info("Endpoint toggle_block invoked by IP or User")
     # user is on request.user
     if not is_valid_pattern(username_to_toggle_block, Patterns.alphanumeric):
-        return JsonResponse({'error': "Invalid username"}, status=400)
+        return log_and_return_json("toggle_block", {'error': "Invalid username"}, status=400)
 
     user_to_toggle_obj = get_user_with_username(username_to_toggle_block)
     if not user_to_toggle_obj:
-        return JsonResponse({'error': "User does not exist"}, status=400)
+        return log_and_return_json("toggle_block", {'error': "User does not exist"}, status=400)
 
     if request.user == user_to_toggle_obj:
-        return JsonResponse({'error': "Cannot block self"}, status=400)
+        return log_and_return_json("toggle_block", {'error': "Cannot block self"}, status=400)
 
     if request.user.blocked.filter(pk=user_to_toggle_obj.pk).exists():
         # Unblock
         request.user.blocked.remove(user_to_toggle_obj)
-        return JsonResponse({'message': 'User unblocked'})
+        return log_and_return_json("toggle_block", {'message': 'User unblocked'})
     else:
         # Block
         request.user.blocked.add(user_to_toggle_obj)
@@ -1229,20 +1271,21 @@ def toggle_block(request, username_to_toggle_block):
             user_to_toggle_obj.following.remove(request.user)
             
         logger.info(f"User blocked successful: target_user_id: {user_to_toggle_obj.id} by user_id: {request.user.id}")
-        return JsonResponse({'message': 'User blocked'})
+        return log_and_return_json("toggle_block", {'message': 'User blocked'})
 
 
 @api_login_required
 @require_GET
 def get_profile_details(request, username):
+    logger.info("Endpoint get_profile_details invoked by IP or User")
     # user is on request.user (requesting_user)
     if not is_valid_pattern(username, Patterns.alphanumeric_with_special_chars):
-        return JsonResponse({'error': "Invalid username"}, status=400)
+        return log_and_return_json("get_profile_details", {'error': "Invalid username"}, status=400)
 
     profile_user = get_user_with_username(username)
     if not profile_user:
         logger.warning(f"Get profile details failed: User with username fragment not found")
-        return JsonResponse({'error': "User not found"}, status=400)
+        return log_and_return_json("get_profile_details", {'error': "User not found"}, status=400)
 
     post_count = profile_user.post_set.count()
 
@@ -1283,4 +1326,4 @@ def get_profile_details(request, username):
         Fields.is_adult: profile_user.is_adult
     }
 
-    return JsonResponse(data, status=200)
+    return log_and_return_json("get_profile_details", data, status=200)
