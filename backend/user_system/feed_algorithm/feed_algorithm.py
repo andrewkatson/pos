@@ -1,7 +1,11 @@
 from django.db.models import Q, Count, F, ExpressionWrapper, FloatField, DurationField
 from django.db.models.functions import Power, Now
+import logging
+
+logger = logging.getLogger(__name__)
 
 def calculate_weights(qs, like_field, G=1.8, user=None):
+    logger.debug(f"Calculating feed weights with gravity G={G}")
     # 1. Annotate the like count for each post
     qs = qs.annotate(
         like_count=Count(like_field)
@@ -47,7 +51,7 @@ def get_posts_weighted(user, posts_model):
     """
     # Gravity constant. Higher value = time matters more.
     G = 1.8
-
+    logger.debug("Ranking all posts for feed via hot algorithm")
     return calculate_weights(posts_model.objects.all(), 'postlike', G, user)
 
 
@@ -70,7 +74,7 @@ def get_comment_threads_weighted_for_post(comment_threads):
     """
     # Gravity constant. Higher value = time matters more.
     G = 1.8
-
+    logger.debug("Ranking comment threads for post via hot algorithm")
     return calculate_weights(comment_threads, 'comment__commentlike', G)
 
 def get_comments_weighted_for_thread(comments):
@@ -85,5 +89,5 @@ def get_comments_weighted_for_thread(comments):
     return comments.order_by('-creation_time')
     """
     G = 1.8
-
+    logger.debug("Ranking single comments within thread via hot algorithm")
     return calculate_weights(comments, 'commentlike', G)

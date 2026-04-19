@@ -1,11 +1,14 @@
 import os
 import boto3
+import logging
 from google import genai
 from PIL import Image
 from io import BytesIO
 from urllib.parse import urlparse
 from .classifier_constants import POSITIVE_IMAGE_URL, GEMINI_MODEL
 from ..utils import convert_to_bool
+
+logger = logging.getLogger(__name__)
 
 
 def is_image_positive(image_url):
@@ -24,7 +27,7 @@ def is_image_positive(image_url):
 
     # Fallback if keys are missing
     if not api_key or not aws_access_key or not aws_secret_key:
-        print("Missing API keys (GEMINI or AWS). Using fallback.")
+        logger.error("Missing API keys (GEMINI or AWS). Using fallback.")
         return False
 
     try:
@@ -59,7 +62,7 @@ def is_image_positive(image_url):
                      key = parsed.path.lstrip('/')
         
         if not bucket_name:
-            print("Could not determine S3 bucket name.")
+            logger.error("Could not determine S3 bucket name.")
             return image_url == POSITIVE_IMAGE_URL
 
         # Download image from S3
@@ -85,8 +88,10 @@ def is_image_positive(image_url):
         )
         
         answer = response.text.strip().lower()
-        return answer == "true"
+        is_positive = (answer == "true")
+        logger.info(f"Gemini image classification returned: {is_positive}")
+        return is_positive
 
     except Exception as e:
-        print(f"Error in image classifier: {e}")
+        logger.exception("Error in image classifier calling Gemini API")
         return False

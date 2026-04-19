@@ -1,5 +1,9 @@
 from django.urls import path
+import logging
 from . import views
+
+logger = logging.getLogger(__name__)
+logger.info("Initializing user_system URL routes")
 
 urlpatterns = [
     # =========================================================================
