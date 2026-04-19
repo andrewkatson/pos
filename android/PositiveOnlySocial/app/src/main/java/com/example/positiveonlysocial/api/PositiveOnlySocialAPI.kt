@@ -10,16 +10,16 @@ interface PositiveOnlySocialAPI {
     // AUTHENTICATION
     // =============================================================================
 
-    @POST("login")
+    @POST("login/")
     suspend fun loginUser(@Body request: LoginRequest): Response<AuthResponse>
 
-    @POST("login/remember")
+    @POST("login/remember/")
     suspend fun loginUserWithRememberMe(@Body request: TokenRefreshRequest): Response<TokenRefreshResponse>
 
-    @POST("register")
+    @POST("register/")
     suspend fun register(@Body request: RegisterRequest): Response<AuthResponse>
 
-    @POST("logout")
+    @POST("logout/")
     suspend fun logout(@Header("Authorization") token: String): Response<GenericResponse>
 
     @POST("user/delete/")
@@ -35,7 +35,7 @@ interface PositiveOnlySocialAPI {
     // PASSWORD RESET
     // ============================================================================================
 
-    @POST("password/request-reset")
+    @POST("password/request-reset/")
     suspend fun requestReset(@Body request: ResetRequest): Response<GenericResponse>
 
     @GET("password/verify-reset/{username_or_email}/{reset_id}")
@@ -44,33 +44,33 @@ interface PositiveOnlySocialAPI {
         @Path("reset_id") resetId: Int
     ): Response<GenericResponse>
 
-    @POST("password/reset")
+    @POST("password/reset/")
     suspend fun resetPassword(@Body request: PasswordResetSubmitRequest): Response<GenericResponse>
 
     // ============================================================================================
     // FEED / RETRIEVAL
     // ============================================================================================
 
-    @GET("feed/")
+    @GET("feed/{batch}/")
     suspend fun getPostsInFeed(
         @Header("Authorization") token: String,
-        @Query("batch") batch: Int
+        @Path("batch") batch: Int
     ): Response<List<Post>>
 
-    @GET("feed/following/")
+    @GET("feed/followed/{batch}/")
     suspend fun getFollowedPosts(
         @Header("Authorization") token: String,
-        @Query("batch") batch: Int
+        @Path("batch") batch: Int
     ): Response<List<Post>>
 
-    @GET("posts/user/{username}/")
+    @GET("users/{username}/posts/{batch}/")
     suspend fun getPostsForUser(
         @Header("Authorization") token: String,
         @Path("username") username: String,
-        @Query("batch") batch: Int
+        @Path("batch") batch: Int
     ): Response<List<Post>>
 
-    @GET("posts/{post_id}/")
+    @GET("posts/{post_id}/details/")
     suspend fun getPostDetails(
         @Path("post_id") postId: String
     ): Response<Post>
@@ -79,7 +79,7 @@ interface PositiveOnlySocialAPI {
     // POSTS
     // ============================================================================================
 
-    @POST("posts/create")
+    @POST("posts/create/")
     suspend fun makePost(
         @Header("Authorization") token: String,
         @Body request: CreatePostRequest
@@ -121,7 +121,7 @@ interface PositiveOnlySocialAPI {
         @Body request: CommentRequest
     ): Response<CommentResponse>
 
-    @POST("posts/{post_id}/comment/{thread_id}/reply/")
+    @POST("posts/{post_id}/threads/{thread_id}/reply/")
     suspend fun replyToThread(
         @Header("Authorization") token: String,
         @Path("post_id") postId: String,
@@ -129,7 +129,7 @@ interface PositiveOnlySocialAPI {
         @Body request: CommentRequest
     ): Response<CommentResponse>
 
-    @POST("posts/{post_id}/comment/{thread_id}/comment/{comment_id}/like/")
+    @POST("posts/{post_id}/threads/{thread_id}/comments/{comment_id}/like/")
     suspend fun likeComment(
         @Header("Authorization") token: String,
         @Path("post_id") postId: String,
@@ -137,7 +137,7 @@ interface PositiveOnlySocialAPI {
         @Path("comment_id") commentId: String
     ): Response<GenericResponse>
 
-    @POST("posts/{post_id}/comment/{thread_id}/comment/{comment_id}/unlike/")
+    @POST("posts/{post_id}/threads/{thread_id}/comments/{comment_id}/unlike/")
     suspend fun unlikeComment(
         @Header("Authorization") token: String,
         @Path("post_id") postId: String,
@@ -145,7 +145,7 @@ interface PositiveOnlySocialAPI {
         @Path("comment_id") commentId: String
     ): Response<GenericResponse>
 
-    @POST("posts/{post_id}/comment/{thread_id}/comment/{comment_id}/delete/")
+    @POST("posts/{post_id}/threads/{thread_id}/comments/{comment_id}/delete/")
     suspend fun deleteComment(
         @Header("Authorization") token: String,
         @Path("post_id") postId: String,
@@ -153,7 +153,7 @@ interface PositiveOnlySocialAPI {
         @Path("comment_id") commentId: String
     ): Response<GenericResponse>
 
-    @POST("posts/{post_id}/comment/{thread_id}/comment/{comment_id}/report/")
+    @POST("posts/{post_id}/threads/{thread_id}/comments/{comment_id}/report/")
     suspend fun reportComment(
         @Header("Authorization") token: String,
         @Path("post_id") postId: String,
@@ -162,26 +162,26 @@ interface PositiveOnlySocialAPI {
         @Body request: ReportRequest
     ): Response<GenericResponse>
 
-    @GET("posts/{post_id}/comments/")
+    @GET("posts/{post_id}/comments/{batch}/")
     suspend fun getCommentsForPost(
         @Path("post_id") postId: String,
-        @Query("batch") batch: Int
+        @Path("batch") batch: Int
     ): Response<List<CommentThreadDto>>
 
-    @GET("comments/{thread_id}/")
+    @GET("threads/{thread_id}/comments/{batch}/")
     suspend fun getCommentsForThread(
         @Path("thread_id") threadId: String,
-        @Query("batch") batch: Int
+        @Path("batch") batch: Int
     ): Response<List<CommentDto>>
 
     // ============================================================================================
     // USER / PROFILE
     // ============================================================================================
 
-    @GET("users/search/")
+    @GET("users/search/{fragment}/")
     suspend fun searchUsers(
         @Header("Authorization") token: String,
-        @Query("fragment") fragment: String
+        @Path("fragment") fragment: String
     ): Response<List<User>>
 
     @POST("users/{username}/follow/")
