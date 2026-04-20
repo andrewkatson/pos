@@ -220,12 +220,6 @@ def register(request):
     if not text_classifier_class.is_text_positive(username):
         logger.warning(f"Registration failed: Username not positive")
         return log_and_return_json("register", {'error': "Username is not positive"}, status=400)
-    if not text_classifier_class.is_text_positive(email):
-        logger.warning(f"Registration failed: Email not positive")
-        return log_and_return_json("register", {'error': "Email is not positive"}, status=400)
-    if not text_classifier_class.is_text_positive(password):
-        logger.warning(f"Registration failed: Password not positive")
-        return log_and_return_json("register", {'error': "Password is not positive"}, status=400)
 
     new_user = get_user_model().objects.create_user(username=username, email=email)
     new_user.set_password(password)
