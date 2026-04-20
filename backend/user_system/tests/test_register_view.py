@@ -205,9 +205,9 @@ class RegisterTests(PositiveOnlySocialTestCase):
         self.assertIn("Username is not positive", response.json().get('error', ''))
 
     @patch.dict(os.environ, {"TESTING": "True"}, clear=True)
-    def test_register_negative_email_succeeds(self):
+    def test_register_nonpositive_email_succeeds(self):
         """
-        Tests that a negative email is allowed.
+        Tests that a non-positive email is allowed.
         """
         data = self.valid_data.copy()
         data['email'] = 'negative_email@email.com'
@@ -216,12 +216,13 @@ class RegisterTests(PositiveOnlySocialTestCase):
         self.assertEqual(response.status_code, 201)
 
     @patch.dict(os.environ, {"TESTING": "True"}, clear=True)
-    def test_register_negative_password_succeeds(self):
+    def test_register_nonpositive_password_succeeds(self):
         """
-        Tests that a negative password is allowed.
+        Tests that a non-positive password is allowed.
         """
         data = self.valid_data.copy()
-        data['password'] = 'Negative_Password_123!' # Match password pattern
+        data['email'] = f'{self.local_email[:-10]}_pwtest@email.com'  # Unique email to avoid collision
+        data['password'] = 'Nonpositive_Password_123!'
 
         response = self.client.post(self.url, data=data, content_type='application/json')
         self.assertEqual(response.status_code, 201)
