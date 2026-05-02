@@ -31,10 +31,10 @@ SECRET_KEY = os.environ.get("DJANGO_SECRET_KEY", dev_key)
 DEBUG = False
 
 # ALLOWED_HOSTS
-ALLOWED_HOSTS = ['smiling.social', 'www.smiling.social']
+ALLOWED_HOSTS = os.environ.get('ALLOWED_HOSTS', '').split(',')
 
 # CSRF settings
-CSRF_TRUSTED_ORIGINS = ['https://smiling.social', 'https://www.smiling.social']
+CSRF_TRUSTED_ORIGINS = os.environ.get('CSRF_TRUSTED_ORIGINS', '').split(',')
 
 # Security settings for production
 SECURE_SSL_REDIRECT = os.environ.get("SECURE_SSL_REDIRECT", "True").lower() == "true"
