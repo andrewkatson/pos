@@ -1,7 +1,7 @@
 #!/bin/bash
 
 ###############################################################################
-# Django EC2 Setup Script for smiling.social
+# Django EC2 Setup Script for api.smiling.social
 # This script sets up a fresh Ubuntu EC2 instance with Django, Gunicorn, Nginx
 #
 # Usage:
@@ -35,12 +35,12 @@ YELLOW='\033[1;33m'
 NC='\033[0m' # No Color
 
 # Default Configuration Variables
-DOMAIN="smiling.social"
+DOMAIN="api.smiling.social"
 APP_DIR="/var/www/smiling-social"
 GIT_REPO=""
 PROJECT_NAME=""
 APP_USER="ubuntu"
-ADMIN_EMAIL="admin@smiling.social"
+ADMIN_EMAIL="admin@smiling.social"  # used for Let's Encrypt notifications
 
 # Environment Variables (from command line)
 DJANGO_SECRET_KEY=""
@@ -107,7 +107,7 @@ Required Options:
 
 Optional:
   --db-port PORT                Database port (default: 5432)
-  --domain DOMAIN               Domain name (default: smiling.social)
+  --domain DOMAIN               Domain name (default: api.smiling.social)
   --admin-email EMAIL           Admin email for Let's Encrypt
   --help                        Show this help message
 
@@ -424,7 +424,7 @@ setup_nginx() {
     sudo tee /etc/nginx/sites-available/$DOMAIN > /dev/null << EOF
 server {
     listen 80;
-    server_name $DOMAIN www.$DOMAIN;
+    server_name $DOMAIN;
 
     client_max_body_size 10M;
 
@@ -473,17 +473,15 @@ setup_ssl() {
     read -p "Is DNS configured and pointing to this server? (yes/no): " dns_ready
     
     if [ "$dns_ready" = "yes" ]; then
-        sudo certbot --nginx -d $DOMAIN -d www.$DOMAIN --non-interactive --agree-tos -m $ADMIN_EMAIL
-        
-        if [ $? -eq 0 ]; then
+        if sudo certbot --nginx -d $DOMAIN --non-interactive --agree-tos -m $ADMIN_EMAIL; then
             print_status "SSL certificate installed successfully"
         else
             print_error "SSL certificate installation failed. You can run it manually later with:"
-            echo "sudo certbot --nginx -d $DOMAIN -d www.$DOMAIN"
+            echo "sudo certbot --nginx -d $DOMAIN"
         fi
     else
         print_warning "Skipping SSL setup. Run this command when DNS is ready:"
-        echo "sudo certbot --nginx -d $DOMAIN -d www.$DOMAIN"
+        echo "sudo certbot --nginx -d $DOMAIN"
     fi
 }
 
@@ -616,7 +614,7 @@ print_summary() {
 main() {
     clear
     echo "========================================================================="
-    echo "Django EC2 Setup Script for smiling.social"
+    echo "Django EC2 Setup Script for api.smiling.social"
     echo "========================================================================="
     echo ""
     
