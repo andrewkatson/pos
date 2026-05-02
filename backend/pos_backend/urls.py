@@ -17,7 +17,10 @@ Including another URLconf
 from django.contrib import admin
 from django.urls import path, include
 
+from pos_backend.views import health
+
 urlpatterns = [
     path('admin/', admin.site.urls),
     path("user_index/", include("user_system.urls")),
+    path("health/", health, name="health"),
 ]
