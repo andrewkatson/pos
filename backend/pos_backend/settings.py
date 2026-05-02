@@ -37,7 +37,8 @@ ALLOWED_HOSTS = os.environ.get('ALLOWED_HOSTS', '').split(',')
 CSRF_TRUSTED_ORIGINS = os.environ.get('CSRF_TRUSTED_ORIGINS', '').split(',')
 
 # Security settings for production
-SECURE_SSL_REDIRECT = os.environ.get("SECURE_SSL_REDIRECT", "True").lower() == "true"
+SECURE_SSL_REDIRECT = os.environ.get("SECURE_SSL_REDIRECT", "False").lower() == "true"
+SECURE_PROXY_SSL_HEADER = ("HTTP_X_FORWARDED_PROTO", "https")
 SESSION_COOKIE_SECURE = True
 CSRF_COOKIE_SECURE = True
 SECURE_BROWSER_XSS_FILTER = True
