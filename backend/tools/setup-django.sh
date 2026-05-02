@@ -107,7 +107,7 @@ Required Options:
 
 Optional:
   --db-port PORT                Database port (default: 5432)
-  --domain DOMAIN               Domain name (default: smiling.social)
+  --domain DOMAIN               Domain name (default: api.smiling.social)
   --admin-email EMAIL           Admin email for Let's Encrypt
   --help                        Show this help message
 
@@ -473,9 +473,7 @@ setup_ssl() {
     read -p "Is DNS configured and pointing to this server? (yes/no): " dns_ready
     
     if [ "$dns_ready" = "yes" ]; then
-        sudo certbot --nginx -d $DOMAIN --non-interactive --agree-tos -m $ADMIN_EMAIL
-
-        if [ $? -eq 0 ]; then
+        if sudo certbot --nginx -d $DOMAIN --non-interactive --agree-tos -m $ADMIN_EMAIL; then
             print_status "SSL certificate installed successfully"
         else
             print_error "SSL certificate installation failed. You can run it manually later with:"

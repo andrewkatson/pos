@@ -16,7 +16,15 @@ echo -e "\n=== Recent Gunicorn Logs ==="
 sudo journalctl -u gunicorn -n 10 --no-pager
 
 echo -e "\n=== Testing Local Connection ==="
-curl --unix-socket /var/www/smiling-social/gunicorn.sock -H "Host: api.smiling.social" http://localhost/health/ 2>/dev/null
+curl --unix-socket /var/www/smiling-social/gunicorn.sock \
+  -H "Host: api.smiling.social" \
+  -w "\nHTTP %{http_code}\n" \
+  --fail-with-body \
+  http://localhost/health/ \
+  || echo "Local health check FAILED (see output above)"
 
 echo -e "\n=== Testing HTTPS ==="
-curl -s https://api.smiling.social/health/ 2>/dev/null
+curl -w "\nHTTP %{http_code}\n" \
+  --fail-with-body \
+  https://api.smiling.social/health/ \
+  || echo "HTTPS health check FAILED (see output above)"
