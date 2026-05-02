@@ -101,6 +101,7 @@ if os.environ.get('DATABASE_NAME') and os.environ.get('DATABASE_USER') and os.en
                 'connect_timeout': 10,
             },
             'CONN_MAX_AGE': 600,
+            'sslmode': 'require',
         }
     }
 else:
