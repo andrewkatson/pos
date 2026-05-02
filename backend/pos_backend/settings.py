@@ -34,7 +34,13 @@ DEBUG = False
 ALLOWED_HOSTS = os.environ.get('ALLOWED_HOSTS', '').split(',')
 
 # CSRF settings
-CSRF_TRUSTED_ORIGINS = os.environ.get('CSRF_TRUSTED_ORIGINS', '').split(',')
+CSRF_TRUSTED_ORIGINS = [
+    origin for origin in os.environ.get(
+        "CSRF_TRUSTED_ORIGINS",
+        "http://localhost,https://localhost"
+    ).split(",")
+    if origin
+]
 
 # Security settings for production
 SECURE_SSL_REDIRECT = os.environ.get("SECURE_SSL_REDIRECT", "False").lower() == "true"
