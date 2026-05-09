@@ -601,15 +601,15 @@ final class StatefulStubbedAPI: Networking {
 
         struct Fields: Codable {
             let comment_identifier, body, author_username: String
-            let comment_creation_time, comment_updated_time: String
+            let creation_time, updated_time: String
             let comment_likes: Int
         }
-        
+
         let dateFormatter = ISO8601DateFormatter()
         let fieldObjects = relevantComments.map { comment in
             Fields(comment_identifier: comment.commentIdentifier, body: comment.body, author_username: comment.authorUsername,
-                   comment_creation_time: dateFormatter.string(from: comment.createdDate),
-                   comment_updated_time: dateFormatter.string(from: comment.updatedDate),
+                   creation_time: dateFormatter.string(from: comment.createdDate),
+                   updated_time: dateFormatter.string(from: comment.updatedDate),
                    comment_likes: comment.likes.count)
         }
         return try createSerializedListResponse(fieldsList: fieldObjects)
