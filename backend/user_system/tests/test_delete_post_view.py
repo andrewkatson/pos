@@ -1,5 +1,6 @@
 from django.urls import reverse
 from .test_parent_case import PositiveOnlySocialTestCase
+from ..constants import Fields
 from ..views import get_user_with_username
 
 invalid_session_management_token = '?'
