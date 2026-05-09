@@ -12,8 +12,8 @@ on:
       - '.github/workflows/ios-tests.yml'
 
 jobs:
-  test:
-    name: Run Unit and UI Tests
+  build:
+    name: Build for Testing
     runs-on: macos-15
 
     steps:
@@ -32,6 +32,46 @@ jobs:
           echo "Available runtime: $RUNTIME"
           xcrun simctl list devices available | grep iPhone
 
+      - name: Resolve Package Dependencies
+        working-directory: "ios/Positive Only Social"
+        run: |
+          xcodebuild -resolvePackageDependencies \
+            -project "Positive Only Social.xcodeproj" \
+            -scheme "Positive Only Social"
+
+      - name: Build for Testing
+        working-directory: "ios/Positive Only Social"
+        run: |
+          xcodebuild build-for-testing \
+            -project "Positive Only Social.xcodeproj" \
+            -scheme "Positive Only Social" \
+            -destination "platform=iOS Simulator,name=iPhone 16,OS=26.2" \
+            -derivedDataPath build \
+            CODE_SIGN_IDENTITY="" \
+            CODE_SIGNING_REQUIRED=NO
+
+      - name: Upload Test Bundle
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-bundle
+          path: "ios/Positive Only Social/build/Build/Products/"
+
+  test:
+    name: Test (${{ matrix.test-group }})
+    needs: build
+    runs-on: macos-15
+    strategy:
+      fail-fast: false
+      matrix:
+        test-group: [Unit_Tests, UI_Tests_Alpha, UI_Tests_Beta]
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Select Xcode version
+        run: sudo xcode-select -s /Applications/Xcode_26.3.app/Contents/Developer
+
       - name: Install xcpretty
         run: gem install xcpretty
 
@@ -40,24 +80,53 @@ jobs:
           xcrun simctl boot "iPhone 16" || true
           xcrun simctl bootstatus "iPhone 16" -b
 
-      - name: Resolve Package Dependencies
-        working-directory: "ios/Positive Only Social"
-        run: |
-          xcodebuild -resolvePackageDependencies \
-            -project "Positive Only Social.xcodeproj" \
-            -scheme "Positive Only Social"
+      - name: Download Test Bundle
+        uses: actions/download-artifact@v4
+        with:
+          name: test-bundle
+          path: "ios/Positive Only Social/build/Build/Products"
 
       - name: Run Tests
         working-directory: "ios/Positive Only Social"
         run: |
-          xcodebuild test \
-            -project "Positive Only Social.xcodeproj" \
-            -scheme "Positive Only Social" \
+          case "${{ matrix.test-group }}" in
+            Unit_Tests)
+              TESTS=(
+                "Positive Only SocialTests"
+              )
+              ;;
+            UI_Tests_Alpha)
+              TESTS=(
+                "Positive Only SocialUITests/Positive_Only_SocialUITests/testAutomaticLoginAfterRememberMe"
+                "Positive Only SocialUITests/Positive_Only_SocialUITests/testDeleteAccount"
+                "Positive Only SocialUITests/Positive_Only_SocialUITests/testResetPassword"
+                "Positive Only SocialUITests/Positive_Only_SocialUITests/testFollowAndUnfollowFromSearch"
+                "Positive Only SocialUITests/Positive_Only_SocialUITests/testFollowAndUnfollowFromPost"
+                "Positive Only SocialUITests/Positive_Only_SocialUITests/testLikeAndUnlikePost"
+              )
+              ;;
+            UI_Tests_Beta)
+              TESTS=(
+                "Positive Only SocialUITests/Positive_Only_SocialUITests/testVerifyIdentity"
+                "Positive Only SocialUITests/Positive_Only_SocialUITests/testLikeAndUnlikeCommentOnPostAndThread"
+                "Positive Only SocialUITests/Positive_Only_SocialUITests/testReportPost"
+                "Positive Only SocialUITests/Positive_Only_SocialUITests/testReportComment"
+                "Positive Only SocialUITests/Positive_Only_SocialUITests/testLaunchPerformance"
+                "Positive Only SocialUITests/Positive_Only_SocialUITests/testBlockAndUnblockUser"
+              )
+              ;;
+          esac
+
+          ONLY_TESTING_ARGS=()
+          for t in "${TESTS[@]}"; do
+            ONLY_TESTING_ARGS+=("-only-testing:$t")
+          done
+
+          xcodebuild test-without-building \
+            -xctestrun build/Build/Products/*.xctestrun \
             -destination "platform=iOS Simulator,name=iPhone 16,OS=26.2" \
             -resultBundlePath TestResults.xcresult \
-            -parallel-testing-enabled YES \
-            CODE_SIGN_IDENTITY="" \
-            CODE_SIGNING_REQUIRED=NO \
+            "${ONLY_TESTING_ARGS[@]}" \
           | tee xcodebuild.log | xcpretty
           exit ${PIPESTATUS[0]}
 
@@ -78,7 +147,7 @@ jobs:
         if: failure()
         uses: actions/upload-artifact@v4
         with:
-          name: test-artifacts
+          name: test-artifacts-${{ matrix.test-group }}
           path: |
             ios/Positive Only Social/xcodebuild.log
             ios/Positive Only Social/TestResults.xcresult
