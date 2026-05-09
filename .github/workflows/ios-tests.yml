@@ -61,6 +61,19 @@ jobs:
           | tee xcodebuild.log | xcpretty
           exit ${PIPESTATUS[0]}
 
+      - name: Show failed tests
+        if: failure()
+        working-directory: "ios/Positive Only Social"
+        run: |
+          echo "=== Failed test cases ==="
+          grep -E "Test Case .* failed|Test Suite .* failed at" xcodebuild.log || echo "(no test-case lines found — build may have failed before tests ran)"
+          echo ""
+          echo "=== Compiler errors ==="
+          grep -E "error:" xcodebuild.log | grep -v "^▸" | head -50 || echo "(none)"
+          echo ""
+          echo "=== Last 150 lines of raw log ==="
+          tail -150 xcodebuild.log
+
       - name: Upload test artifacts
         if: failure()
         uses: actions/upload-artifact@v4
