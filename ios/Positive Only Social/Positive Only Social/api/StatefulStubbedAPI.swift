@@ -475,9 +475,9 @@ final class StatefulStubbedAPI: Networking {
             let post_identifier: String
             let image_url: String
             let caption: String
-            let authorUsername: String
+            let author_username: String
         }
-        
+
         let fieldObjects = paginatedPosts.map {
             let post = $0
             let authorUsername = users.first(where: { $0.id == post.authorId })?.username ?? "Unknown User"
@@ -485,7 +485,7 @@ final class StatefulStubbedAPI: Networking {
                 post_identifier: $0.postIdentifier,
                 image_url: $0.imageURL,
                 caption: $0.caption,
-                authorUsername: authorUsername
+                author_username: authorUsername
             )
         }
         
