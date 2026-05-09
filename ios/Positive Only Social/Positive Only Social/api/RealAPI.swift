@@ -12,9 +12,10 @@ import Foundation
 enum APIError: Error, LocalizedError {
     case invalidURL
     case badServerResponse(statusCode: Int)
+    case serverError(statusCode: Int, serverMessage: String)
     case requestFailed(Error)
     case decodingError(Error)
-    case encodingError(Error) // Added for JSON encoding failures
+    case encodingError(Error)
 
     var errorDescription: String? {
         switch self {
@@ -22,6 +23,8 @@ enum APIError: Error, LocalizedError {
             return "The URL provided was invalid."
         case .badServerResponse(let statusCode):
             return "The server returned an unsuccessful status code: \(statusCode)."
+        case .serverError(_, let message):
+            return message
         case .requestFailed(let error):
             return "The network request failed: \(error.localizedDescription)."
         case .decodingError(let error):
@@ -37,7 +40,7 @@ enum APIError: Error, LocalizedError {
 final class RealAPI: Networking {
     
     /// The base URL for all API endpoints. Remember to replace this with your actual server address.
-    private let baseURL = "https://smiling.social/user_index/"
+    private let baseURL = "https://api.smiling.social/user_index/"
     
     /// Defines the HTTP methods used by the API.
     private enum HTTPMethod: String {
@@ -54,11 +57,11 @@ final class RealAPI: Networking {
         let password: String
         let remember_me: String
         let ip: String
-        let dateOfBirth: String
+        let date_of_birth: String
     }
-    
+
     private struct VerifyIdentityBody: Encodable {
-        let dateOfBirth: String
+        let date_of_birth: String
     }
     
     private struct LoginBody: Encodable {
@@ -166,8 +169,12 @@ final class RealAPI: Networking {
             }
             
             guard (200...299).contains(httpResponse.statusCode) else {
-                // You could try to decode an error JSON body here if your API sends one
-                // let errorBody = String(data: data, encoding: .utf8)
+                // Try to extract the server's error message from the response body
+                struct ServerErrorBody: Decodable { let error: String? }
+                if let body = try? JSONDecoder().decode(ServerErrorBody.self, from: data),
+                   let message = body.error {
+                    throw APIError.serverError(statusCode: httpResponse.statusCode, serverMessage: message)
+                }
                 throw APIError.badServerResponse(statusCode: httpResponse.statusCode)
             }
             
@@ -184,7 +191,7 @@ final class RealAPI: Networking {
     
     /// Creates a user if they do not exist.
     func register(username: String, email: String, password: String, rememberMe: String, ip: String, dateOfBirth: String) async throws -> Data {
-        let body = RegisterBody(username: username, email: email, password: password, remember_me: rememberMe, ip: ip, dateOfBirth: dateOfBirth)
+        let body = RegisterBody(username: username, email: email, password: password, remember_me: rememberMe, ip: ip, date_of_birth: dateOfBirth)
         let requestBody = try encode(body)
         
         return try await performRequest(
@@ -279,7 +286,7 @@ final class RealAPI: Networking {
         
     /// Verifies the identity of the user
     func verifyIdentity(sessionManagementToken: String, dateOfBirth: String) async throws -> Data {
-        let body = VerifyIdentityBody(dateOfBirth: dateOfBirth)
+        let body = VerifyIdentityBody(date_of_birth: dateOfBirth)
         let requestBody = try encode(body)
         
         return try await performRequest(

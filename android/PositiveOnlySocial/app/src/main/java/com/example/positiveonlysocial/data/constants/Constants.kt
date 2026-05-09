@@ -2,5 +2,5 @@ package com.example.positiveonlysocial.data.constants
 
 object Constants {
     val isUnitTesting = false
-    const val BASE_URL = "https://smiling.social/user_index/"
+    const val BASE_URL = "https://api.smiling.social/user_index/"
 }
