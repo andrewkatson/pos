@@ -21,7 +21,7 @@ struct Positive_Only_SocialTests_SettingsViewModel {
     
     // --- Test Setup ---
     init() {
-        keychainHelper = KeychainHelper()
+        keychainHelper = MockKeychainHelper()
         stubAPI = StatefulStubbedAPI()
     }
 

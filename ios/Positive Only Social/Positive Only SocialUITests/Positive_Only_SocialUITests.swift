@@ -357,7 +357,7 @@ final class Positive_Only_SocialUITests: XCTestCase {
         // Should be one comment total
         let commentElements = app.staticTexts.matching(identifier: "CommentText")
         expectation(for: NSPredicate(format: "count == 1"), evaluatedWith: commentElements, handler: nil)
-        waitForExpectations(timeout: elementTimeout, handler: nil)
+        waitForExpectations(timeout: 10, handler: nil)
         XCTAssert(commentElements.count == 1, "Expected to find 1 comment, but found \(commentElements.count)")
         
         assertOnPostDetailView(app: app)
@@ -415,7 +415,7 @@ final class Positive_Only_SocialUITests: XCTestCase {
         // Should be two comments total
         let commentElements = app.staticTexts.matching(identifier: "CommentText")
         expectation(for: NSPredicate(format: "count == 2"), evaluatedWith: commentElements, handler: nil)
-        waitForExpectations(timeout: elementTimeout, handler: nil)
+        waitForExpectations(timeout: 10, handler: nil)
         XCTAssert(commentElements.count == 2, "Expected to find 2 comments, but found \(commentElements.count)")
         
         assertOnPostDetailView(app: app)

@@ -24,8 +24,8 @@ struct Positive_Only_SocialTests_FeedViewModel {
     
     init() {
         // This 'init' runs before *each* @Test
-        keychainHelper = KeychainHelper()
-        
+        keychainHelper = MockKeychainHelper()
+
         // 1. Set up the mocks
         stubAPI = StatefulStubbedAPI()
     }
