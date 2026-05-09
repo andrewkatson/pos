@@ -39,15 +39,8 @@ struct Positive_Only_SocialTests_FeedViewModel {
     /// This is needed because we must decode the nested JSON response.
     private func registerUserAndGetToken(username: String) async throws -> String {
         let data = try await stubAPI.register(username: username, email: "\(username)@test.com", password: "123", rememberMe: "false", ip: "127.0.0.1", dateOfBirth: "1970-01-01")
-        struct RegFields: Codable { let session_management_token: String }
-        struct DjangoRegObject: Codable { let fields: RegFields }
-
-        let wrapper = try JSONDecoder().decode(APIWrapperResponse.self, from: data)
-        let responseString = String(describing: wrapper.responseList)
-        let innerData = responseString.data(using: String.Encoding.utf8)!
-        let djangoObject = try JSONDecoder().decode(DjangoRegObject.self, from: innerData)
-        
-        return djangoObject.fields.session_management_token
+        struct RegFields: Decodable { let session_management_token: String }
+        return try JSONDecoder().decode(RegFields.self, from: data).session_management_token
     }
 
     // --- Test Cases ---

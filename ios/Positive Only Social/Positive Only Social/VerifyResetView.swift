@@ -82,10 +82,8 @@ struct VerifyResetView: View {
         }
         
         do {
-            let responseData = try await api.verifyPasswordReset(usernameOrEmail: usernameOrEmail, resetID: resetID)
-            
-            _ = try JSONDecoder().decode(APIWrapperResponse.self, from: responseData)
-            
+            let _ = try await api.verifyPasswordReset(usernameOrEmail: usernameOrEmail, resetID: resetID)
+
             print("✅ PIN verification successful.")
 
             isLoading = false

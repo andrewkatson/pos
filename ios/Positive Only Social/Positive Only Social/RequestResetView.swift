@@ -66,15 +66,8 @@ struct RequestResetView: View {
         // defer { isLoading = false } // A defer block is even cleaner
         
         do {
-            let responseData = try await api.requestPasswordReset(usernameOrEmail: usernameOrEmail)
-            
-            // --- Decoding ---
-            // Your example shows a complex decoding process.
-            // For this endpoint, we'll just decode the simple success response.
-            // You can replace this with your own custom decoding logic.
-            let decoder = JSONDecoder()
-            _ = try decoder.decode(APIWrapperResponse.self, from: responseData)
-            
+            let _ = try await api.requestPasswordReset(usernameOrEmail: usernameOrEmail)
+
             print("✅ Reset request successful.")
             
             // Handle success

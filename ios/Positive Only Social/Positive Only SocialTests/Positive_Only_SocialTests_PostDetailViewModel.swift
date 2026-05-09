@@ -32,19 +32,6 @@ struct Positive_Only_SocialTests_PostDetailViewModel {
         stubAPI = StatefulStubbedAPI()
     }
 
-    // --- Local Decoder Structs (for test setup) ---
-    // These mirror the structs used by the stub API to decode responses
-    
-    /// A generic wrapper for the stub API's double-encoded JSON
-    private struct APIWrapperResponse: Decodable {
-        let response_list: String
-    }
-    
-    /// A generic wrapper for the "fields" object inside the JSON
-    private struct DjangoObject<F: Decodable>: Decodable {
-        let fields: F
-    }
-    
     // MARK: - Test Helpers
     
     /// Helper to pause the test and let async/debounce tasks complete.
@@ -58,12 +45,7 @@ struct Positive_Only_SocialTests_PostDetailViewModel {
         let data = try await stubAPI.register(username: username, email: "\(username)@test.com", password: "123", rememberMe: "false", ip: "127.0.0.1", dateOfBirth: "1970-01-01")
         
         struct RegFields: Decodable { let session_management_token: String }
-        
-        let wrapper = try JSONDecoder().decode(APIWrapperResponse.self, from: data)
-        let innerData = wrapper.response_list.data(using: .utf8)!
-        let djangoObject = try JSONDecoder().decode(DjangoObject<RegFields>.self, from: innerData)
-        
-        return djangoObject.fields.session_management_token
+        return try JSONDecoder().decode(RegFields.self, from: data).session_management_token
     }
     
     /// Helper to log in the "testuser" and save their token to the keychain
@@ -79,12 +61,7 @@ struct Positive_Only_SocialTests_PostDetailViewModel {
         let data = try await stubAPI.makePost(sessionManagementToken: token, imageURL: "my.image/1", caption: caption)
         
         struct PostFields: Decodable { let post_identifier: String }
-        
-        let wrapper = try JSONDecoder().decode(APIWrapperResponse.self, from: data)
-        let innerData = wrapper.response_list.data(using: .utf8)!
-        let djangoObject = try JSONDecoder().decode(DjangoObject<PostFields>.self, from: innerData)
-        
-        return djangoObject.fields.post_identifier
+        return try JSONDecoder().decode(PostFields.self, from: data).post_identifier
     }
     
     /// Helper to create a comment and return its thread and comment identifiers
@@ -96,11 +73,8 @@ struct Positive_Only_SocialTests_PostDetailViewModel {
             let comment_identifier: String
         }
         
-        let wrapper = try JSONDecoder().decode(APIWrapperResponse.self, from: data)
-        let innerData = wrapper.response_list.data(using: .utf8)!
-        let djangoObject = try JSONDecoder().decode(DjangoObject<CommentFields>.self, from: innerData)
-        
-        return (djangoObject.fields.comment_thread_identifier, djangoObject.fields.comment_identifier)
+        let decoded = try JSONDecoder().decode(CommentFields.self, from: data)
+        return (decoded.comment_thread_identifier, decoded.comment_identifier)
     }
 
     /// Helper to reply to a comment and return its new comment identifier
@@ -108,12 +82,7 @@ struct Positive_Only_SocialTests_PostDetailViewModel {
         let data = try await stubAPI.replyToCommentThread(sessionManagementToken: token, postIdentifier: postID, commentThreadIdentifier: threadID, commentText: body)
         
         struct ReplyFields: Decodable { let comment_identifier: String }
-        
-        let wrapper = try JSONDecoder().decode(APIWrapperResponse.self, from: data)
-        let innerData = wrapper.response_list.data(using: .utf8)!
-        let djangoObject = try JSONDecoder().decode(DjangoObject<ReplyFields>.self, from: innerData)
-        
-        return djangoObject.fields.comment_identifier
+        return try JSONDecoder().decode(ReplyFields.self, from: data).comment_identifier
     }
     
     /// A master helper to set up a full environment for testing

@@ -34,52 +34,15 @@ class MockKeychainHelper: KeychainHelperProtocol {
 // MARK: - Mocked API
 
 struct MockedAPI: Networking {
-    
-    // MARK: - Helpers for Double Encoding
-    
-    // Used for single objects and list items. Includes model/pk to satisfy DjangoLoginResponseObject.
-    private struct DjangoSingleResponse<T: Codable>: Codable {
-        let model: String
-        let pk: Int
-        let fields: T
-        
-        enum CodingKeys: String, CodingKey { case model, pk, fields }
-        
-        init(model: String = "", pk: Int = 0, fields: T) {
-            self.model = model
-            self.pk = pk
-            self.fields = fields
-        }
+
+    // MARK: - Encoding Helpers
+
+    private func encode<T: Encodable>(_ value: T) throws -> Data {
+        return try JSONEncoder().encode(value)
     }
-    
-    private struct APIWrapper: Codable {
-        let response_list: String
-    }
-    
-    private func encodeSingle<T: Codable>(_ item: T) throws -> Data {
-        let djangoObj = DjangoSingleResponse(fields: item)
-        let innerData = try JSONEncoder().encode(djangoObj)
-        guard let innerString = String(data: innerData, encoding: .utf8) else {
-            throw URLError(.cannotDecodeContentData)
-        }
-        let wrapper = APIWrapper(response_list: innerString)
-        return try JSONEncoder().encode(wrapper)
-    }
-    
-    private func encodeList<T: Codable>(_ items: [T]) throws -> Data {
-        let djangoList = items.map { DjangoSingleResponse(fields: $0) }
-        let innerData = try JSONEncoder().encode(djangoList)
-        guard let innerString = String(data: innerData, encoding: .utf8) else {
-            throw URLError(.cannotDecodeContentData)
-        }
-        let wrapper = APIWrapper(response_list: innerString)
-        return try JSONEncoder().encode(wrapper)
-    }
-    
+
     private func encodeGenericSuccess() throws -> Data {
-        let innerString = "{}"
-        let wrapper = APIWrapper(response_list: innerString)
-        return try JSONEncoder().encode(wrapper)
+        return try JSONEncoder().encode(["message": "ok"])
     }
 
     // MARK: - User & Session Management
@@ -90,7 +53,7 @@ struct MockedAPI: Networking {
             seriesIdentifier: "mock_series_id",
             loginCookieToken: "mock_login_cookie"
         )
-        return try encodeSingle(response)
+        return try encode(response)
     }
 
     func loginUser(usernameOrEmail: String, password: String, rememberMe: String, ip: String) async throws -> Data {
@@ -99,7 +62,7 @@ struct MockedAPI: Networking {
             seriesIdentifier: "mock_series_id",
             loginCookieToken: "mock_login_cookie"
         )
-        return try encodeSingle(response)
+        return try encode(response)
     }
 
     func loginUserWithRememberMe(sessionManagementToken: String, seriesIdentifier: String, loginCookieToken: String, ip: String) async throws -> Data {
@@ -108,7 +71,7 @@ struct MockedAPI: Networking {
             seriesIdentifier: "mock_series_id",
             loginCookieToken: "new_mock_cookie"
         )
-        return try encodeSingle(response)
+        return try encode(response)
     }
     
     func verifyIdentity(sessionManagementToken: String, dateOfBirth: String) async throws -> Data {
@@ -174,21 +137,21 @@ struct MockedAPI: Networking {
             Post(postIdentifier: "1", imageUrl: "https://picsum.photos/400/300", caption: "Beautiful sunset!", authorUsername: "nature_lover"),
             Post(postIdentifier: "2", imageUrl: "https://picsum.photos/400/301", caption: "My new puppy", authorUsername: "dog_fan")
         ]
-        return try encodeList(posts)
+        return try encode(posts)
     }
 
     func getPostsForFollowedUsers(sessionManagementToken: String, batch: Int) async throws -> Data {
         let posts = [
             Post(postIdentifier: "3", imageUrl: "https://picsum.photos/400/302", caption: "Coffee time", authorUsername: "coffee_addict")
         ]
-        return try encodeList(posts)
+        return try encode(posts)
     }
 
     func getPostsForUser(sessionManagementToken: String, username: String, batch: Int) async throws -> Data {
         let posts = [
             Post(postIdentifier: "4", imageUrl: "https://picsum.photos/400/303", caption: "Just me", authorUsername: username)
         ]
-        return try encodeList(posts)
+        return try encode(posts)
     }
 
     func getPostDetails(postIdentifier: String) async throws -> Data {
@@ -208,7 +171,7 @@ struct MockedAPI: Networking {
             post_likes: 100,
             author_username: "mock_author"
         )
-        return try encodeSingle(detail)
+        return try encode(detail)
     }
     
     // MARK: - Comment Management
@@ -243,7 +206,7 @@ struct MockedAPI: Networking {
             ThreadIDResponse(comment_thread_identifier: "thread_1"),
             ThreadIDResponse(comment_thread_identifier: "thread_2")
         ]
-        return try encodeList(threads)
+        return try encode(threads)
     }
 
     func getCommentsForThread(commentThreadIdentifier: String, batch: Int) async throws -> Data {
@@ -252,30 +215,30 @@ struct MockedAPI: Networking {
             let comment_identifier: String
             let body: String
             let author_username: String
-            let comment_creation_time: String
-            let comment_updated_time: String
+            let creation_time: String
+            let updated_time: String
             let comment_likes: Int
         }
-        
+
         let comments = [
             CommentResponse(
                 comment_identifier: "c1",
                 body: "Great post!",
                 author_username: "fan_1",
-                comment_creation_time: "2023-01-01T12:00:00Z",
-                comment_updated_time: "2023-01-01T12:00:00Z",
+                creation_time: "2023-01-01T12:00:00Z",
+                updated_time: "2023-01-01T12:00:00Z",
                 comment_likes: 5
             ),
             CommentResponse(
                 comment_identifier: "c2",
                 body: "I agree!",
                 author_username: "fan_2",
-                comment_creation_time: "2023-01-01T12:05:00Z",
-                comment_updated_time: "2023-01-01T12:05:00Z",
+                creation_time: "2023-01-01T12:05:00Z",
+                updated_time: "2023-01-01T12:05:00Z",
                 comment_likes: 2
             )
         ]
-        return try encodeList(comments)
+        return try encode(comments)
     }
 
     func replyToCommentThread(sessionManagementToken: String, postIdentifier: String, commentThreadIdentifier: String, commentText: String) async throws -> Data {
@@ -289,7 +252,7 @@ struct MockedAPI: Networking {
             User(username: "search_result_1", identityIsVerified: true),
             User(username: "search_result_2", identityIsVerified: false)
         ]
-        return try encodeList(users)
+        return try encode(users)
     }
     
     func getProfileDetails(sessionManagementToken: String, username: String) async throws -> Data {
@@ -300,7 +263,7 @@ struct MockedAPI: Networking {
             followingCount: 50,
             isFollowing: false
         )
-        return try encodeSingle(profile)
+        return try encode(profile)
     }
 }
 
