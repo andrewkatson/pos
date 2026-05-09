@@ -12,8 +12,7 @@ class ToggleBlockViewTests(PositiveOnlySocialTestCase):
         fields_a = self.register_and_login_user(prefix='user_a')
         self.user_a_username = fields_a['username']
         self.user_a = get_user_with_username(self.user_a_username)
-        # make_user_with_prefix returns a helper dict with 'token' key
-        self.user_a_header = {'HTTP_AUTHORIZATION': f"Bearer {fields_a['token']}"}
+        self.user_a_header = {'HTTP_AUTHORIZATION': f"Bearer {fields_a[Fields.session_management_token]}"}
 
         # Create User B (another user to block)
         fields_b = self.make_user_with_prefix(prefix='user_b')

@@ -1,6 +1,7 @@
 from django.urls import reverse
 
 from .test_parent_case import PositiveOnlySocialTestCase
+from .test_constants import UserFields
 from ..constants import Fields, MAX_BEFORE_HIDING_COMMENT
 from ..models import Comment
 
@@ -36,7 +37,7 @@ class ReportCommentTests(PositiveOnlySocialTestCase):
         self.valid_data = {'reason': self.reason}
 
         # 4. Get the first reporter's info (User 1)
-        self.reporter_token = self.users[Fields.session_management_token][1]
+        self.reporter_token = self.users[UserFields.TOKEN][1]
         self.reporter_header = {'HTTP_AUTHORIZATION': f'Bearer {self.reporter_token}'}
 
         # 5. Define the URL for all tests
@@ -159,7 +160,7 @@ class ReportCommentTests(PositiveOnlySocialTestCase):
         # Loop through all users *except* the commenter (User 0)
         # This will be MAX + 1 reports
         for i in range(1, MAX_BEFORE_HIDING_COMMENT + 2):
-            token = self.users[Fields.session_management_token][i]
+            token = self.users[UserFields.TOKEN][i]
             header = {'HTTP_AUTHORIZATION': f'Bearer {token}'}
 
             response = self.client.post(
