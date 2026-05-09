@@ -485,7 +485,7 @@ final class StatefulStubbedAPI: Networking {
                 post_identifier: $0.postIdentifier,
                 image_url: $0.imageURL,
                 caption: $0.caption,
-                author_username: authorUsername
+                authorUsername: authorUsername
             )
         }
         

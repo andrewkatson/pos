@@ -89,11 +89,7 @@ struct WelcomeView: View {
                 )
                 
                 // 3. Decode the response to get the NEW tokens
-                let decoder = JSONDecoder()
-                let wrapper = try decoder.decode(APIWrapperResponse.self, from: responseData)
-                guard let innerData = wrapper.responseList.data(using: .utf8) else { throw URLError(.cannotDecodeContentData) }
-                let loginResponse = try decoder.decode(DjangoLoginResponseObject.self, from: innerData)
-                let loginDetails = loginResponse.fields
+                let loginDetails = try JSONDecoder().decode(LoginResponseFields.self, from: responseData)
 
                 // 4. Securely save the new session token
                 let oldSession = authManager.session
