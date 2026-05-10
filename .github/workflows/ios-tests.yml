@@ -187,40 +187,42 @@ jobs:
         working-directory: "ios/Positive Only Social"
         run: |
           echo "=== Failed test cases (xcodebuild.log) ==="
-          grep -iE "test case .* failed|test suite .* failed" xcodebuild.log || echo "(no test-case lines found — build may have failed before tests ran)"
+          grep -iE "test case .* failed|test suite .* failed" xcodebuild.log || echo "(no test-case lines found)"
           echo ""
           echo "=== Assertion failures (xcresult) ==="
+          cat > /tmp/parse_xcresult.py << 'PYEOF'
+          import json, sys
+
+          def walk(node):
+              if not isinstance(node, dict):
+                  return
+              if (node.get("_type", {}).get("_name") == "ActionTestSummary"
+                      and node.get("testStatus", {}).get("_value") == "Failure"):
+                  name = node.get("name", {}).get("_value", "(unknown)")
+                  print("FAILED: " + name)
+                  for s in node.get("failureSummaries", {}).get("_values", []):
+                      msg = s.get("message", {}).get("_value", "")
+                      loc = s.get("sourceCodeContext", {}).get("location", {})
+                      f   = loc.get("file", {}).get("_value", "").split("/")[-1]
+                      ln  = loc.get("line", {}).get("_value", "")
+                      print("  -> " + msg)
+                      if f:
+                          print("     at " + f + ":" + ln)
+              for v in node.values():
+                  if isinstance(v, dict):
+                      walk(v)
+                  elif isinstance(v, list):
+                      for item in v:
+                          walk(item)
+
+          try:
+              walk(json.load(sys.stdin))
+          except Exception as e:
+              print("(xcresult parse error: " + str(e) + ")")
+          PYEOF
           xcrun xcresulttool get --path TestResults.xcresult --format json 2>/dev/null \
-          | python3 -c "
-import json, sys
-
-def walk(node):
-    if not isinstance(node, dict):
-        return
-    if node.get('_type', {}).get('_name') == 'ActionTestSummary' \
-       and node.get('testStatus', {}).get('_value') == 'Failure':
-        name = node.get('name', {}).get('_value', '(unknown)')
-        print(f'FAILED: {name}')
-        for s in node.get('failureSummaries', {}).get('_values', []):
-            msg  = s.get('message', {}).get('_value', '')
-            loc  = s.get('sourceCodeContext', {}).get('location', {})
-            file = loc.get('file', {}).get('_value', '').split('/')[-1]
-            line = loc.get('line', {}).get('_value', '')
-            print(f'  -> {msg}')
-            if file:
-                print(f'     at {file}:{line}')
-    for v in node.values():
-        if isinstance(v, dict):
-            walk(v)
-        elif isinstance(v, list):
-            for item in v:
-                walk(item)
-
-try:
-    walk(json.load(sys.stdin))
-except Exception as e:
-    print(f'(xcresult parse error: {e})')
-" || echo "(xcresulttool unavailable or no xcresult found)"
+            | python3 /tmp/parse_xcresult.py \
+            || echo "(xcresulttool unavailable or no xcresult found)"
           echo ""
           echo "=== Compiler errors ==="
           grep -E "error:" xcodebuild.log | grep -v "^▸" | head -50 || echo "(none)"
