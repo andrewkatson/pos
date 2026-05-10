@@ -47,8 +47,14 @@ final class AWSManager {
 
     private init() {
         do {
-            let credentialsResolver = try CognitoAWSCredentialIdentityResolver(identityPoolId: identityPoolId)
-            
+            // The resolver's internal CognitoIdentityClient also needs a region — it won't
+            // pick one up from the environment on a mobile device. Supply it explicitly.
+            let cognitoConfig = try CognitoIdentityClient.Config(region: awsRegion)
+            let credentialsResolver = try CognitoAWSCredentialIdentityResolver(
+                identityPoolId: identityPoolId,
+                cognitoIdentityClientConfig: cognitoConfig
+            )
+
             let configuration = try S3Client.Config(awsCredentialIdentityResolver: credentialsResolver, region: awsRegion)
             
             // Initialize the S3 client
