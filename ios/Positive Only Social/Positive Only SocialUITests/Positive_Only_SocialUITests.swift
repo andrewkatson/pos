@@ -15,7 +15,6 @@ final class Positive_Only_SocialUITests: XCTestCase {
     var newTestUsername: String = ""
     let strongPassword: String = "StrongPassword123!"
     let newStrongPassword: String = "NewStrongPassword456!"
-    let elementTimeout: TimeInterval = 3
 
     override func setUpWithError() throws {
         try super.setUpWithError()
@@ -50,7 +49,7 @@ final class Positive_Only_SocialUITests: XCTestCase {
     }
     
     // MARK: Helpers
-    private func yield(duration: Duration = .seconds(1)) async {
+    private func yield(duration: Duration = .seconds(TestConstants.shortTimeout)) async {
         try? await Task.sleep(for: duration)
     }
     
@@ -60,7 +59,7 @@ final class Positive_Only_SocialUITests: XCTestCase {
         while (true && attempt < maxAttempts) {
             RunLoop.current.run(until: NSDate(timeIntervalSinceNow: 1.0) as Date)
             if app.keyboards.buttons["Return"].exists {
-                XCTAssertTrue(app.keyboards.buttons["Return"].waitForExistence(timeout: elementTimeout))
+                XCTAssertTrue(app.keyboards.buttons["Return"].waitForExistence(timeout: TestConstants.shortTimeout))
                 app.keyboards.buttons["Return"].tap()
                 break
             }
@@ -89,64 +88,64 @@ final class Positive_Only_SocialUITests: XCTestCase {
         let welcomeText = app.staticTexts["Welcome! 👋"]
         
         // Use a robust existence check with a reasonable timeout.
-        XCTAssertTrue(welcomeText.waitForExistence(timeout: elementTimeout), "The Welcome! 👋 text (NeedsAuthView) did not appear in time.")
+        XCTAssertTrue(welcomeText.waitForExistence(timeout: TestConstants.shortTimeout), "The Welcome! 👋 text (NeedsAuthView) did not appear in time.")
 
-        XCTAssertTrue(app.buttons["RegisterText"].waitForExistence(timeout: elementTimeout), "Register button is not empty")
-        XCTAssertTrue(app.buttons["LoginText"].waitForExistence(timeout: elementTimeout), "Login button is not empty")
+        XCTAssertTrue(app.buttons["RegisterText"].waitForExistence(timeout: TestConstants.shortTimeout), "Register button is not empty")
+        XCTAssertTrue(app.buttons["LoginText"].waitForExistence(timeout: TestConstants.shortTimeout), "Login button is not empty")
     }
     
     private func assertOnRegisterView(app: XCUIApplication) {
-        XCTAssertTrue(app.textFields["UsernameTextField"].waitForExistence(timeout: elementTimeout), "Username field not present")
-        XCTAssertTrue(app.textFields["EmailTextField"].waitForExistence(timeout: elementTimeout), "Email field not present")
-        XCTAssertTrue(app.secureTextFields["PasswordSecureField"].waitForExistence(timeout: elementTimeout), "Password field not present")
-        XCTAssertTrue(app.secureTextFields["ConfirmPasswordSecureField"].waitForExistence(timeout: elementTimeout), "Confirm Password field not present")
-        XCTAssertTrue(app.datePickers["DateOfBirthPicker"].waitForExistence(timeout: elementTimeout), "Date of birth picker not present")
-        XCTAssertTrue(app.buttons["RegisterButton"].waitForExistence(timeout: elementTimeout), "Register button not present")
+        XCTAssertTrue(app.textFields["UsernameTextField"].waitForExistence(timeout: TestConstants.shortTimeout), "Username field not present")
+        XCTAssertTrue(app.textFields["EmailTextField"].waitForExistence(timeout: TestConstants.shortTimeout), "Email field not present")
+        XCTAssertTrue(app.secureTextFields["PasswordSecureField"].waitForExistence(timeout: TestConstants.shortTimeout), "Password field not present")
+        XCTAssertTrue(app.secureTextFields["ConfirmPasswordSecureField"].waitForExistence(timeout: TestConstants.shortTimeout), "Confirm Password field not present")
+        XCTAssertTrue(app.datePickers["DateOfBirthPicker"].waitForExistence(timeout: TestConstants.shortTimeout), "Date of birth picker not present")
+        XCTAssertTrue(app.buttons["RegisterButton"].waitForExistence(timeout: TestConstants.shortTimeout), "Register button not present")
     }
     
     private func assertOnLoginView(app: XCUIApplication) {
-        XCTAssertTrue(app.staticTexts["Login"].waitForExistence(timeout: elementTimeout), "Login text did not appear in time.")
+        XCTAssertTrue(app.staticTexts["Login"].waitForExistence(timeout: TestConstants.shortTimeout), "Login text did not appear in time.")
 
-        XCTAssertTrue(app.textFields["UsernameOrEmailTextField"].waitForExistence(timeout: elementTimeout), "Username or email field not present")
-        XCTAssertTrue(app.secureTextFields["PasswordSecureField"].waitForExistence(timeout: elementTimeout), "Password field not present")
-        XCTAssertTrue(app.buttons["LoginButton"].waitForExistence(timeout: elementTimeout), "Login button not present")
-        XCTAssertTrue(app.switches["RememberMeToggle"].waitForExistence(timeout: elementTimeout), "Remember me toggle not present")
-        XCTAssertTrue(app.buttons["ForgotPasswordButton"].waitForExistence(timeout: elementTimeout), "Forgot password button not present")
+        XCTAssertTrue(app.textFields["UsernameOrEmailTextField"].waitForExistence(timeout: TestConstants.shortTimeout), "Username or email field not present")
+        XCTAssertTrue(app.secureTextFields["PasswordSecureField"].waitForExistence(timeout: TestConstants.shortTimeout), "Password field not present")
+        XCTAssertTrue(app.buttons["LoginButton"].waitForExistence(timeout: TestConstants.shortTimeout), "Login button not present")
+        XCTAssertTrue(app.switches["RememberMeToggle"].waitForExistence(timeout: TestConstants.shortTimeout), "Remember me toggle not present")
+        XCTAssertTrue(app.buttons["ForgotPasswordButton"].waitForExistence(timeout: TestConstants.shortTimeout), "Forgot password button not present")
     }
     
     private func assertOnHomeView(app: XCUIApplication) {
-        XCTAssertTrue(app.buttons["Home"].waitForExistence(timeout: elementTimeout), "Home tab not present")
-        XCTAssertTrue(app.buttons["Feed"].waitForExistence(timeout: elementTimeout), "Feed tab not present")
-        XCTAssertTrue(app.buttons["Post"].waitForExistence(timeout: elementTimeout), "New post tab not present")
-        XCTAssertTrue(app.buttons["Settings"].waitForExistence(timeout: elementTimeout), "Settings tab not present")
+        XCTAssertTrue(app.buttons["Home"].waitForExistence(timeout: TestConstants.shortTimeout), "Home tab not present")
+        XCTAssertTrue(app.buttons["Feed"].waitForExistence(timeout: TestConstants.shortTimeout), "Feed tab not present")
+        XCTAssertTrue(app.buttons["Post"].waitForExistence(timeout: TestConstants.shortTimeout), "New post tab not present")
+        XCTAssertTrue(app.buttons["Settings"].waitForExistence(timeout: TestConstants.shortTimeout), "Settings tab not present")
     }
     
     private func assertOnSettingsView(app: XCUIApplication) {
-        XCTAssertTrue(app.buttons["LogoutButton"].waitForExistence(timeout: elementTimeout), "Logout button not present")
-        XCTAssertTrue(app.buttons["DeleteAccountButton"].waitForExistence(timeout: elementTimeout), "Delete Account button not present")
+        XCTAssertTrue(app.buttons["LogoutButton"].waitForExistence(timeout: TestConstants.shortTimeout), "Logout button not present")
+        XCTAssertTrue(app.buttons["DeleteAccountButton"].waitForExistence(timeout: TestConstants.shortTimeout), "Delete Account button not present")
     }
     
     private func assertOnProfileView(app: XCUIApplication) {
-        XCTAssertTrue(app.buttons["FollowButton"].waitForExistence(timeout: elementTimeout), "Follow button not present")
-        XCTAssertTrue(app.staticTexts["Following"].waitForExistence(timeout: elementTimeout), "Following stat item not present")
-        XCTAssertTrue(app.staticTexts["Followers"].waitForExistence(timeout: elementTimeout), "Followers stat item not present")
-        XCTAssertTrue(app.staticTexts["Posts"].waitForExistence(timeout: elementTimeout), "Posts stat item not present")
+        XCTAssertTrue(app.buttons["FollowButton"].waitForExistence(timeout: TestConstants.shortTimeout), "Follow button not present")
+        XCTAssertTrue(app.staticTexts["Following"].waitForExistence(timeout: TestConstants.shortTimeout), "Following stat item not present")
+        XCTAssertTrue(app.staticTexts["Followers"].waitForExistence(timeout: TestConstants.shortTimeout), "Followers stat item not present")
+        XCTAssertTrue(app.staticTexts["Posts"].waitForExistence(timeout: TestConstants.shortTimeout), "Posts stat item not present")
     }
     
     private func assertOnNewPostView(app: XCUIApplication) {
-        XCTAssertTrue(app.buttons["SelectAPhotoPicker"].waitForExistence(timeout: elementTimeout), "Select a photo picker not present")
-        XCTAssertTrue(app.textViews["CaptionTextEditor"].waitForExistence(timeout: elementTimeout), "Caption text editor not present")
-        XCTAssertTrue(app.buttons["SharePostButton"].waitForExistence(timeout: elementTimeout), "Share post button is not empty")
+        XCTAssertTrue(app.buttons["SelectAPhotoPicker"].waitForExistence(timeout: TestConstants.shortTimeout), "Select a photo picker not present")
+        XCTAssertTrue(app.textViews["CaptionTextEditor"].waitForExistence(timeout: TestConstants.shortTimeout), "Caption text editor not present")
+        XCTAssertTrue(app.buttons["SharePostButton"].waitForExistence(timeout: TestConstants.shortTimeout), "Share post button is not empty")
     }
     
     private func assertOnFeedView(app: XCUIApplication) {
-        XCTAssertTrue(app.segmentedControls["FeedTypePicker"].waitForExistence(timeout: elementTimeout), "Feed type picker not present")
+        XCTAssertTrue(app.segmentedControls["FeedTypePicker"].waitForExistence(timeout: TestConstants.shortTimeout), "Feed type picker not present")
     }
     
     private func assertOnPostDetailView(app: XCUIApplication) {
-        XCTAssertTrue(app.buttons["PostCommentButton"].waitForExistence(timeout: elementTimeout), "Post comment button not present")
-        XCTAssertTrue(app.buttons["PostImage"].waitForExistence(timeout: elementTimeout), "Post image not present in time")
-        XCTAssertTrue(app.textFields["AddACommentTextFieldToPost"].waitForExistence(timeout: elementTimeout), "Add a comment text field not present")
+        XCTAssertTrue(app.buttons["PostCommentButton"].waitForExistence(timeout: TestConstants.shortTimeout), "Post comment button not present")
+        XCTAssertTrue(app.buttons["PostImage"].waitForExistence(timeout: TestConstants.shortTimeout), "Post image not present in time")
+        XCTAssertTrue(app.textFields["AddACommentTextFieldToPost"].waitForExistence(timeout: TestConstants.shortTimeout), "Add a comment text field not present")
     }
     
     private func ifOnHomeDeleteAccount(app: XCUIApplication) throws {
@@ -160,10 +159,10 @@ final class Positive_Only_SocialUITests: XCTestCase {
         let welcomeText = app.staticTexts["Welcome! 👋"]
         
         // Use a robust existence check with a reasonable timeout.
-        XCTAssertTrue(welcomeText.waitForExistence(timeout: elementTimeout), "The Welcome! 👋 text (NeedsAuthView) did not appear in time.")
+        XCTAssertTrue(welcomeText.waitForExistence(timeout: TestConstants.shortTimeout), "The Welcome! 👋 text (NeedsAuthView) did not appear in time.")
         
         let registerButton = app.buttons["RegisterText"]
-        XCTAssertTrue(registerButton.waitForExistence(timeout: elementTimeout))
+        XCTAssertTrue(registerButton.waitForExistence(timeout: TestConstants.shortTimeout))
         registerButton.tap()
         
         assertOnRegisterView(app: app)
@@ -171,32 +170,32 @@ final class Positive_Only_SocialUITests: XCTestCase {
         dismissKeyboardIfPresent(app)
         
         let usernameField = app.textFields["UsernameTextField"]
-        XCTAssertTrue(usernameField.waitForExistence(timeout: elementTimeout))
+        XCTAssertTrue(usernameField.waitForExistence(timeout: TestConstants.shortTimeout))
         usernameField.tap()
         typeText(element: usernameField, text: username)
         
         let emailField = app.textFields["EmailTextField"]
-        XCTAssertTrue(emailField.waitForExistence(timeout: elementTimeout))
+        XCTAssertTrue(emailField.waitForExistence(timeout: TestConstants.shortTimeout))
         emailField.tap()
         typeText(element: emailField, text: "\(username)@test.com")
         
         let passwordField = app.secureTextFields["PasswordSecureField"]
-        XCTAssertTrue(passwordField.waitForExistence(timeout: elementTimeout))
+        XCTAssertTrue(passwordField.waitForExistence(timeout: TestConstants.shortTimeout))
         passwordField.tap()
         typeText(element: passwordField, text: password)
         
         let confirmPasswordField = app.secureTextFields["ConfirmPasswordSecureField"]
-        XCTAssertTrue(confirmPasswordField.waitForExistence(timeout: elementTimeout))
+        XCTAssertTrue(confirmPasswordField.waitForExistence(timeout: TestConstants.shortTimeout))
         confirmPasswordField.tap()
         typeText(element: confirmPasswordField, text: password)
         
         let otherRegisterButton = app.buttons["RegisterButton"]
-        XCTAssertTrue(otherRegisterButton.waitForExistence(timeout: elementTimeout))
+        XCTAssertTrue(otherRegisterButton.waitForExistence(timeout: TestConstants.shortTimeout))
         otherRegisterButton.tap()
         
         let privacyPolicyAlert = app.alerts["Privacy Policy"]
-        XCTAssertTrue(privacyPolicyAlert.waitForExistence(timeout: elementTimeout))
-        XCTAssertTrue(privacyPolicyAlert.buttons["Ok"].waitForExistence(timeout: elementTimeout))
+        XCTAssertTrue(privacyPolicyAlert.waitForExistence(timeout: TestConstants.shortTimeout))
+        XCTAssertTrue(privacyPolicyAlert.buttons["Ok"].waitForExistence(timeout: TestConstants.shortTimeout))
         privacyPolicyAlert.buttons["Ok"].tap()
         
         assertOnHomeView(app: app)
@@ -206,7 +205,7 @@ final class Positive_Only_SocialUITests: XCTestCase {
     
     private func dismissSavePassword(app: XCUIApplication) {
         let notNowButton = app.buttons["Not Now"]
-        if notNowButton.waitForExistence(timeout: elementTimeout) {
+        if notNowButton.waitForExistence(timeout: TestConstants.shortTimeout) {
             notNowButton.tap()
         }
     }
@@ -217,7 +216,7 @@ final class Positive_Only_SocialUITests: XCTestCase {
         try logoutUserFromHome(app: app)
         
         let loginButton = app.buttons["LoginText"]
-        XCTAssertTrue(loginButton.waitForExistence(timeout: elementTimeout))
+        XCTAssertTrue(loginButton.waitForExistence(timeout: TestConstants.shortTimeout))
         loginButton.tap()
         
         assertOnLoginView(app: app)
@@ -225,12 +224,12 @@ final class Positive_Only_SocialUITests: XCTestCase {
         dismissKeyboardIfPresent(app)
         
         let usernameOrEmailTextField = app.textFields["UsernameOrEmailTextField"]
-        XCTAssertTrue(usernameOrEmailTextField.waitForExistence(timeout: elementTimeout))
+        XCTAssertTrue(usernameOrEmailTextField.waitForExistence(timeout: TestConstants.shortTimeout))
         usernameOrEmailTextField.tap()
         typeText(element: usernameOrEmailTextField, text: username)
         
         let passwordSecureField = app.secureTextFields["PasswordSecureField"]
-        XCTAssertTrue(passwordSecureField.waitForExistence(timeout: elementTimeout))
+        XCTAssertTrue(passwordSecureField.waitForExistence(timeout: TestConstants.shortTimeout))
         passwordSecureField.tap()
         typeText(element: passwordSecureField, text: password)
         
@@ -248,7 +247,7 @@ final class Positive_Only_SocialUITests: XCTestCase {
         }
         
         let loginButton2 = app.buttons["LoginButton"]
-        XCTAssertTrue(loginButton2.waitForExistence(timeout: elementTimeout))
+        XCTAssertTrue(loginButton2.waitForExistence(timeout: TestConstants.shortTimeout))
         loginButton2.tap()
         
         assertOnHomeView(app: app)
@@ -258,18 +257,18 @@ final class Positive_Only_SocialUITests: XCTestCase {
     
     private func logoutUserFromHome(app: XCUIApplication) throws {
         let settingsTab = app.buttons["Settings"]
-        XCTAssertTrue(settingsTab.waitForExistence(timeout: elementTimeout))
+        XCTAssertTrue(settingsTab.waitForExistence(timeout: TestConstants.shortTimeout))
         settingsTab.tap()
         
         assertOnSettingsView(app: app)
         
         let logoutButton = app.buttons["LogoutButton"]
-        XCTAssertTrue(logoutButton.waitForExistence(timeout: elementTimeout))
+        XCTAssertTrue(logoutButton.waitForExistence(timeout: TestConstants.shortTimeout))
         logoutButton.tap()
         
         /// Don't know why but there is a hierarchy of confirm logout buttons
         let confirmLogoutButton = app.buttons["ConfirmLogoutButton"].firstMatch
-        XCTAssertTrue(confirmLogoutButton.waitForExistence(timeout: elementTimeout))
+        XCTAssertTrue(confirmLogoutButton.waitForExistence(timeout: TestConstants.shortTimeout))
         confirmLogoutButton.tap()
         
         assertOnWelcomeView(app: app)
@@ -277,17 +276,17 @@ final class Positive_Only_SocialUITests: XCTestCase {
     
     private func deleteAccountFromHome(app: XCUIApplication) throws {
         let settingsTab = app.buttons["Settings"]
-        XCTAssertTrue(settingsTab.waitForExistence(timeout: elementTimeout))
+        XCTAssertTrue(settingsTab.waitForExistence(timeout: TestConstants.shortTimeout))
         settingsTab.tap()
         
         assertOnSettingsView(app: app)
         
         let deleteAccountButton = app.buttons["DeleteAccountButton"]
-        XCTAssertTrue(deleteAccountButton.waitForExistence(timeout: elementTimeout))
+        XCTAssertTrue(deleteAccountButton.waitForExistence(timeout: TestConstants.shortTimeout))
         deleteAccountButton.tap()
         
         let confirmDeleteAccountButton = app.buttons["ConfirmDeleteAccountButton"].firstMatch
-        XCTAssertTrue(confirmDeleteAccountButton.waitForExistence(timeout: elementTimeout))
+        XCTAssertTrue(confirmDeleteAccountButton.waitForExistence(timeout: TestConstants.shortTimeout))
         confirmDeleteAccountButton.tap()
         
         assertOnWelcomeView(app: app)
@@ -298,23 +297,23 @@ final class Positive_Only_SocialUITests: XCTestCase {
         assertOnHomeView(app: app)
         
         let newPostTab = app.buttons["Post"]
-        XCTAssertTrue(newPostTab.waitForExistence(timeout: elementTimeout))
+        XCTAssertTrue(newPostTab.waitForExistence(timeout: TestConstants.shortTimeout))
         newPostTab.tap()
         
         assertOnNewPostView(app: app)
         
         let captionTextEditor = app.textViews["CaptionTextEditor"]
-        XCTAssertTrue(captionTextEditor.waitForExistence(timeout: elementTimeout))
+        XCTAssertTrue(captionTextEditor.waitForExistence(timeout: TestConstants.shortTimeout))
         captionTextEditor.tap()
         typeText(element: captionTextEditor, text: postText)
         
         // Find the photo picker's main view (identifier may vary)
         let picker = app.buttons["SelectAPhotoPicker"]
-        XCTAssertTrue(picker.waitForExistence(timeout: elementTimeout))
+        XCTAssertTrue(picker.waitForExistence(timeout: TestConstants.shortTimeout))
         picker.tap()
 
         let sharePostButton = app.buttons["SharePostButton"]
-        XCTAssertTrue(sharePostButton.waitForExistence(timeout: elementTimeout))
+        XCTAssertTrue(sharePostButton.waitForExistence(timeout: TestConstants.shortTimeout))
         sharePostButton.tap()
 
         assertOnHomeView(app: app)
@@ -326,7 +325,7 @@ final class Positive_Only_SocialUITests: XCTestCase {
         assertOnHomeView(app: app)
         
         let feedTab = app.buttons["Feed"]
-        XCTAssertTrue(feedTab.waitForExistence(timeout: elementTimeout))
+        XCTAssertTrue(feedTab.waitForExistence(timeout: TestConstants.shortTimeout))
         feedTab.tap()
         
         assertOnFeedView(app: app)
@@ -338,18 +337,18 @@ final class Positive_Only_SocialUITests: XCTestCase {
         // Now, get the specific element at index 0 (the first one)
         let firstPostElement = allPostsQuery.element(boundBy: 0)
         
-        XCTAssertTrue(firstPostElement.waitForExistence(timeout: elementTimeout))
+        XCTAssertTrue(firstPostElement.waitForExistence(timeout: TestConstants.shortTimeout))
         firstPostElement.tap()
         
         assertOnPostDetailView(app: app)
         
         let addACommentTextField = app.textFields["AddACommentTextFieldToPost"]
-        XCTAssertTrue(addACommentTextField.waitForExistence(timeout: elementTimeout))
+        XCTAssertTrue(addACommentTextField.waitForExistence(timeout: TestConstants.shortTimeout))
         addACommentTextField.tap()
         typeText(element: addACommentTextField, text: commentText)
         
         let postCommentButton = app.buttons["PostCommentButton"]
-        XCTAssertTrue(postCommentButton.waitForExistence(timeout: elementTimeout))
+        XCTAssertTrue(postCommentButton.waitForExistence(timeout: TestConstants.shortTimeout))
         postCommentButton.tap()
         
         dismissKeyboardIfPresent(app)
@@ -357,7 +356,7 @@ final class Positive_Only_SocialUITests: XCTestCase {
         // Should be one comment total
         let commentElements = app.staticTexts.matching(identifier: "CommentText")
         expectation(for: NSPredicate(format: "count == 1"), evaluatedWith: commentElements, handler: nil)
-        waitForExpectations(timeout: 10, handler: nil)
+        waitForExpectations(timeout: TestConstants.timeout, handler: nil)
         XCTAssert(commentElements.count == 1, "Expected to find 1 comment, but found \(commentElements.count)")
         
         assertOnPostDetailView(app: app)
@@ -369,7 +368,7 @@ final class Positive_Only_SocialUITests: XCTestCase {
         assertOnHomeView(app: app)
         
         let feedTab = app.buttons["Feed"]
-        XCTAssertTrue(feedTab.waitForExistence(timeout: elementTimeout))
+        XCTAssertTrue(feedTab.waitForExistence(timeout: TestConstants.shortTimeout))
         feedTab.tap()
         
         assertOnFeedView(app: app)
@@ -381,26 +380,26 @@ final class Positive_Only_SocialUITests: XCTestCase {
         // Now, get the specific element at index 0 (the first one)
         let firstPostElement = allPostsQuery.element(boundBy: 0)
         
-        XCTAssertTrue(firstPostElement.waitForExistence(timeout: elementTimeout))
+        XCTAssertTrue(firstPostElement.waitForExistence(timeout: TestConstants.shortTimeout))
         firstPostElement.tap()
         
         assertOnPostDetailView(app: app)
         
         // Wait for comments to load
         let replyButton = app.buttons["ReplyToCommentThreadButton"]
-        XCTAssertTrue(replyButton.waitForExistence(timeout: elementTimeout))
+        XCTAssertTrue(replyButton.waitForExistence(timeout: TestConstants.shortTimeout))
         
         // Tap the Reply button to open the sheet
         replyButton.tap()
         
         // Wait for the reply sheet to appear
         let replySheet = app.navigationBars["Post Reply"]
-        XCTAssertTrue(replySheet.waitForExistence(timeout: elementTimeout))
+        XCTAssertTrue(replySheet.waitForExistence(timeout: TestConstants.shortTimeout))
         
         // Find the TextEditor in the sheet
         // TextEditor appears as a textView in the accessibility hierarchy
         let replyTextEditor = app.textViews.firstMatch
-        XCTAssertTrue(replyTextEditor.waitForExistence(timeout: elementTimeout))
+        XCTAssertTrue(replyTextEditor.waitForExistence(timeout: TestConstants.shortTimeout))
         
         // Tap and type the reply
         replyTextEditor.tap()
@@ -408,14 +407,14 @@ final class Positive_Only_SocialUITests: XCTestCase {
         
         // Tap the Send button
         let sendButton = app.buttons["Send"]
-        XCTAssertTrue(sendButton.waitForExistence(timeout: elementTimeout))
+        XCTAssertTrue(sendButton.waitForExistence(timeout: TestConstants.shortTimeout))
         XCTAssertTrue(sendButton.isEnabled)
         sendButton.tap()
         
         // Should be two comments total
         let commentElements = app.staticTexts.matching(identifier: "CommentText")
         expectation(for: NSPredicate(format: "count == 2"), evaluatedWith: commentElements, handler: nil)
-        waitForExpectations(timeout: 10, handler: nil)
+        waitForExpectations(timeout: TestConstants.timeout, handler: nil)
         XCTAssert(commentElements.count == 2, "Expected to find 2 comments, but found \(commentElements.count)")
         
         assertOnPostDetailView(app: app)
@@ -444,50 +443,50 @@ final class Positive_Only_SocialUITests: XCTestCase {
         try loginUser(app: app, username: testUsername, password: strongPassword, rememberMe: true)
 
         let settingsTab = app.buttons["Settings"]
-        XCTAssertTrue(settingsTab.waitForExistence(timeout: elementTimeout))
+        XCTAssertTrue(settingsTab.waitForExistence(timeout: TestConstants.shortTimeout))
         settingsTab.tap()
         
         assertOnSettingsView(app: app)
         
         let deleteAccountButton = app.buttons["DeleteAccountButton"]
-        XCTAssertTrue(deleteAccountButton.waitForExistence(timeout: elementTimeout))
+        XCTAssertTrue(deleteAccountButton.waitForExistence(timeout: TestConstants.shortTimeout))
         deleteAccountButton.tap()
         
         let confirmDeleteAccountButton = app.buttons["ConfirmDeleteAccountButton"].firstMatch
-        XCTAssertTrue(confirmDeleteAccountButton.waitForExistence(timeout: elementTimeout))
+        XCTAssertTrue(confirmDeleteAccountButton.waitForExistence(timeout: TestConstants.shortTimeout))
         confirmDeleteAccountButton.tap()
         
         assertOnWelcomeView(app: app)
         
         let loginButton = app.buttons["LoginText"]
-        XCTAssertTrue(loginButton.waitForExistence(timeout: elementTimeout))
+        XCTAssertTrue(loginButton.waitForExistence(timeout: TestConstants.shortTimeout))
         loginButton.tap()
         
         assertOnLoginView(app: app)
         
         let usernameOrEmailTextField = app.textFields["UsernameOrEmailTextField"]
-        XCTAssertTrue(usernameOrEmailTextField.waitForExistence(timeout: elementTimeout))
+        XCTAssertTrue(usernameOrEmailTextField.waitForExistence(timeout: TestConstants.shortTimeout))
         usernameOrEmailTextField.tap()
         typeText(element: usernameOrEmailTextField, text: testUsername)
         
         let passwordSecureField = app.secureTextFields["PasswordSecureField"]
-        XCTAssertTrue(passwordSecureField.waitForExistence(timeout: elementTimeout))
+        XCTAssertTrue(passwordSecureField.waitForExistence(timeout: TestConstants.shortTimeout))
         passwordSecureField.tap()
         typeText(element: passwordSecureField, text: strongPassword)
         
         let loginButton2 = app.buttons["LoginButton"]
-        XCTAssertTrue(loginButton2.waitForExistence(timeout: elementTimeout))
+        XCTAssertTrue(loginButton2.waitForExistence(timeout: TestConstants.shortTimeout))
         loginButton2.tap()
         
-        XCTAssertTrue(app.buttons["LoginFailedOkButton"].waitForExistence(timeout: elementTimeout), "Login should have failed")
+        XCTAssertTrue(app.buttons["LoginFailedOkButton"].waitForExistence(timeout: TestConstants.shortTimeout), "Login should have failed")
         
-        XCTAssertTrue(app.buttons["LoginFailedOkButton"].firstMatch.waitForExistence(timeout: elementTimeout))
+        XCTAssertTrue(app.buttons["LoginFailedOkButton"].firstMatch.waitForExistence(timeout: TestConstants.shortTimeout))
         app.buttons["LoginFailedOkButton"].firstMatch.tap()
         
         dismissSavePassword(app: app)
         
         let backButton = app.navigationBars.firstMatch.buttons.element(boundBy: 0)
-        XCTAssertTrue(backButton.waitForExistence(timeout: elementTimeout))
+        XCTAssertTrue(backButton.waitForExistence(timeout: TestConstants.shortTimeout))
         backButton.tap()
         
         dismissSavePassword(app: app)
@@ -507,60 +506,60 @@ final class Positive_Only_SocialUITests: XCTestCase {
         assertOnWelcomeView(app: app)
         
         let loginButton = app.buttons["LoginText"]
-        XCTAssertTrue(loginButton.waitForExistence(timeout: elementTimeout))
+        XCTAssertTrue(loginButton.waitForExistence(timeout: TestConstants.shortTimeout))
         loginButton.tap()
         
         assertOnLoginView(app: app)
         
         let forgotPasswordButton = app.buttons["ForgotPasswordButton"]
-        XCTAssertTrue(forgotPasswordButton.waitForExistence(timeout: elementTimeout))
+        XCTAssertTrue(forgotPasswordButton.waitForExistence(timeout: TestConstants.shortTimeout))
         forgotPasswordButton.tap()
         
         // Assert we are on request reset view
-        XCTAssertTrue(app.buttons["RequestResetButton"].waitForExistence(timeout: elementTimeout), "Request reset button should exist")
-        XCTAssertTrue(app.textFields["UsernameOrEmailTextField"].waitForExistence(timeout: elementTimeout), "Username or email text field should exist")
+        XCTAssertTrue(app.buttons["RequestResetButton"].waitForExistence(timeout: TestConstants.shortTimeout), "Request reset button should exist")
+        XCTAssertTrue(app.textFields["UsernameOrEmailTextField"].waitForExistence(timeout: TestConstants.shortTimeout), "Username or email text field should exist")
         
         let usernameOrEmailTextField = app.textFields["UsernameOrEmailTextField"]
-        XCTAssertTrue(usernameOrEmailTextField.waitForExistence(timeout: elementTimeout))
+        XCTAssertTrue(usernameOrEmailTextField.waitForExistence(timeout: TestConstants.shortTimeout))
         usernameOrEmailTextField.tap()
         typeText(element: usernameOrEmailTextField, text: testUsername)
         
         let requestResetButton = app.buttons["RequestResetButton"]
-        XCTAssertTrue(requestResetButton.waitForExistence(timeout: elementTimeout))
+        XCTAssertTrue(requestResetButton.waitForExistence(timeout: TestConstants.shortTimeout))
         requestResetButton.tap()
         
         // Assert we are on the verify reset view
-        XCTAssertTrue(app.buttons["VerifyButton"].waitForExistence(timeout: elementTimeout), "Verify button should exist")
-        XCTAssertTrue(app.textFields["6DigitPinTextField"].waitForExistence(timeout: elementTimeout), "6 Digit pin field should exist")
+        XCTAssertTrue(app.buttons["VerifyButton"].waitForExistence(timeout: TestConstants.shortTimeout), "Verify button should exist")
+        XCTAssertTrue(app.textFields["6DigitPinTextField"].waitForExistence(timeout: TestConstants.shortTimeout), "6 Digit pin field should exist")
         
         let sixDigitPinTextField = app.textFields["6DigitPinTextField"]
-        XCTAssertTrue(sixDigitPinTextField.waitForExistence(timeout: elementTimeout))
+        XCTAssertTrue(sixDigitPinTextField.waitForExistence(timeout: TestConstants.shortTimeout))
         sixDigitPinTextField.tap()
         // We hardcode the test value in StatefulStubbedAPI
         typeText(element: sixDigitPinTextField, text: "100000")
         
         let verifyButton = app.buttons["VerifyButton"]
-        XCTAssertTrue(verifyButton.waitForExistence(timeout: elementTimeout))
+        XCTAssertTrue(verifyButton.waitForExistence(timeout: TestConstants.shortTimeout))
         verifyButton.tap()
         
         // Assert we are on the reset password view
-        XCTAssertTrue(app.buttons["ResetPasswordAndLoginButton"].waitForExistence(timeout: elementTimeout), "Reset password and login button should exist")
-        XCTAssertTrue(app.textFields["UsernameTextField"].waitForExistence(timeout: elementTimeout), "Username text field should exist")
-        XCTAssertTrue(app.textFields["EmailTextField"].waitForExistence(timeout: elementTimeout), "Email text field should exist")
-        XCTAssertTrue(app.secureTextFields["NewPasswordSecureField"].waitForExistence(timeout: elementTimeout), "New password text field should exist")
+        XCTAssertTrue(app.buttons["ResetPasswordAndLoginButton"].waitForExistence(timeout: TestConstants.shortTimeout), "Reset password and login button should exist")
+        XCTAssertTrue(app.textFields["UsernameTextField"].waitForExistence(timeout: TestConstants.shortTimeout), "Username text field should exist")
+        XCTAssertTrue(app.textFields["EmailTextField"].waitForExistence(timeout: TestConstants.shortTimeout), "Email text field should exist")
+        XCTAssertTrue(app.secureTextFields["NewPasswordSecureField"].waitForExistence(timeout: TestConstants.shortTimeout), "New password text field should exist")
         
         let emailTextField = app.textFields["EmailTextField"]
-        XCTAssertTrue(emailTextField.waitForExistence(timeout: elementTimeout))
+        XCTAssertTrue(emailTextField.waitForExistence(timeout: TestConstants.shortTimeout))
         emailTextField.tap()
         typeText(element: emailTextField, text: "\(testUsername)@test.com")
         
         let passwordTextField = app.secureTextFields["NewPasswordSecureField"]
-        XCTAssertTrue(passwordTextField.waitForExistence(timeout: elementTimeout))
+        XCTAssertTrue(passwordTextField.waitForExistence(timeout: TestConstants.shortTimeout))
         passwordTextField.tap()
         typeText(element: passwordTextField, text: newStrongPassword)
         
         let resetPasswordAndLoginButton = app.buttons["ResetPasswordAndLoginButton"]
-        XCTAssertTrue(resetPasswordAndLoginButton.waitForExistence(timeout: elementTimeout))
+        XCTAssertTrue(resetPasswordAndLoginButton.waitForExistence(timeout: TestConstants.shortTimeout))
         resetPasswordAndLoginButton.tap()
         
         dismissSavePassword(app: app)
@@ -574,23 +573,23 @@ final class Positive_Only_SocialUITests: XCTestCase {
         assertOnWelcomeView(app: app)
         
         let loginButton2 = app.buttons["LoginText"]
-        XCTAssertTrue(loginButton2.waitForExistence(timeout: elementTimeout))
+        XCTAssertTrue(loginButton2.waitForExistence(timeout: TestConstants.shortTimeout))
         loginButton2.tap()
         
         assertOnLoginView(app: app)
         
         let usernameOrEmailTextField2 = app.textFields["UsernameOrEmailTextField"]
-        XCTAssertTrue(usernameOrEmailTextField.waitForExistence(timeout: elementTimeout))
+        XCTAssertTrue(usernameOrEmailTextField.waitForExistence(timeout: TestConstants.shortTimeout))
         usernameOrEmailTextField.tap()
         typeText(element: usernameOrEmailTextField2, text: testUsername)
         
         let passwordSecureField = app.secureTextFields["PasswordSecureField"]
-        XCTAssertTrue(passwordSecureField.waitForExistence(timeout: elementTimeout))
+        XCTAssertTrue(passwordSecureField.waitForExistence(timeout: TestConstants.shortTimeout))
         passwordSecureField.tap()
         typeText(element: passwordSecureField, text: newStrongPassword)
         
         let loginButton3 = app.buttons["LoginButton"]
-        XCTAssertTrue(loginButton3.waitForExistence(timeout: elementTimeout))
+        XCTAssertTrue(loginButton3.waitForExistence(timeout: TestConstants.shortTimeout))
         loginButton3.tap()
         
         dismissSavePassword(app: app)
@@ -612,12 +611,12 @@ final class Positive_Only_SocialUITests: XCTestCase {
         try loginUser(app: app, username: testUsername, password: strongPassword, rememberMe: false)
         
         let userSearchField = app.searchFields["Search for Users"]
-        XCTAssertTrue(userSearchField.waitForExistence(timeout: elementTimeout))
+        XCTAssertTrue(userSearchField.waitForExistence(timeout: TestConstants.shortTimeout))
         userSearchField.tap()
         typeText(element: userSearchField, text: otherTestUsername)
         
         let userLink = app.buttons[otherTestUsername]
-        XCTAssertTrue(userLink.waitForExistence(timeout: elementTimeout))
+        XCTAssertTrue(userLink.waitForExistence(timeout: TestConstants.shortTimeout))
         userLink.tap()
         
         assertOnProfileView(app: app)
@@ -630,7 +629,7 @@ final class Positive_Only_SocialUITests: XCTestCase {
         XCTAssertEqual(followersLabel.label, "0")
         
         // 2. Tap Follow
-        XCTAssertTrue(followButton.waitForExistence(timeout: elementTimeout))
+        XCTAssertTrue(followButton.waitForExistence(timeout: TestConstants.shortTimeout))
         followButton.tap()
         
         // 3. WAIT for the change (Async logic)
@@ -642,7 +641,7 @@ final class Positive_Only_SocialUITests: XCTestCase {
         waitForExpectations(timeout: 5.0, handler: nil)
         
         // 4. Tap Unfollow
-        XCTAssertTrue(followButton.waitForExistence(timeout: elementTimeout))
+        XCTAssertTrue(followButton.waitForExistence(timeout: TestConstants.shortTimeout))
         followButton.tap()
         
         // 5. WAIT for it to go back to "0"
@@ -651,12 +650,12 @@ final class Positive_Only_SocialUITests: XCTestCase {
         waitForExpectations(timeout: 5.0, handler: nil)
         
         let backButton = app.navigationBars.firstMatch.buttons.element(boundBy: 0)
-        XCTAssertTrue(backButton.waitForExistence(timeout: elementTimeout))
+        XCTAssertTrue(backButton.waitForExistence(timeout: TestConstants.shortTimeout))
         backButton.tap()
         
         let homeButton = app.buttons["Home"]
         if homeButton.exists {
-            XCTAssertTrue(homeButton.waitForExistence(timeout: elementTimeout))
+            XCTAssertTrue(homeButton.waitForExistence(timeout: TestConstants.shortTimeout))
             homeButton.tap()
         }
         
@@ -677,7 +676,7 @@ final class Positive_Only_SocialUITests: XCTestCase {
         try loginUser(app: app, username: otherTestUsername, password: strongPassword, rememberMe: false)
         
         let feedTab = app.buttons["Feed"]
-        XCTAssertTrue(feedTab.waitForExistence(timeout: elementTimeout))
+        XCTAssertTrue(feedTab.waitForExistence(timeout: TestConstants.shortTimeout))
         feedTab.tap()
         
         assertOnFeedView(app: app)
@@ -685,25 +684,25 @@ final class Positive_Only_SocialUITests: XCTestCase {
         // Make sure there is one post in For You and no posts in Following
         // 1. Find the Picker container
         let feedPicker = app.segmentedControls["FeedTypePicker"]
-        XCTAssertTrue(feedPicker.waitForExistence(timeout: elementTimeout))
+        XCTAssertTrue(feedPicker.waitForExistence(timeout: TestConstants.shortTimeout))
 
         // 2. Find the button INSIDE the picker
         let followingSegment = feedPicker.buttons["Following"]
-        XCTAssertTrue(followingSegment.waitForExistence(timeout: elementTimeout))
+        XCTAssertTrue(followingSegment.waitForExistence(timeout: TestConstants.shortTimeout))
         followingSegment.tap()
         
         let allPostsQuery = app.buttons.matching(identifier: "FollowingPostImage")
         expectation(for: NSPredicate(format: "count == 0"), evaluatedWith: allPostsQuery, handler: nil)
-        waitForExpectations(timeout: elementTimeout, handler: nil)
+        waitForExpectations(timeout: TestConstants.shortTimeout, handler: nil)
         XCTAssertEqual(allPostsQuery.count, 0)
         
         let forYouPickerTab = feedPicker.buttons["For You"]
-        XCTAssertTrue(forYouPickerTab.waitForExistence(timeout: elementTimeout))
+        XCTAssertTrue(forYouPickerTab.waitForExistence(timeout: TestConstants.shortTimeout))
         forYouPickerTab.tap()
         
         let allPostsQuery2 = app.buttons.matching(identifier: "ForYouPostImage")
         expectation(for: NSPredicate(format: "count == 1"), evaluatedWith: allPostsQuery2, handler: nil)
-        waitForExpectations(timeout: elementTimeout, handler: nil)
+        waitForExpectations(timeout: TestConstants.shortTimeout, handler: nil)
         XCTAssertEqual(allPostsQuery2.count, 1)
         
         // First, get the query for all elements matching our identifier.
@@ -713,7 +712,7 @@ final class Positive_Only_SocialUITests: XCTestCase {
         // Now, get the specific element at index 0 (the first one)
         let firstPostAuthorElement = allPostAuthorsQuery.element(boundBy: 0)
 
-        XCTAssertTrue(firstPostAuthorElement.waitForExistence(timeout: elementTimeout))
+        XCTAssertTrue(firstPostAuthorElement.waitForExistence(timeout: TestConstants.shortTimeout))
         firstPostAuthorElement.tap()
 
         assertOnProfileView(app: app)
@@ -726,7 +725,7 @@ final class Positive_Only_SocialUITests: XCTestCase {
         XCTAssertEqual(followersLabel.label, "0")
         
         // 2. Tap Follow
-        XCTAssertTrue(followButton.waitForExistence(timeout: elementTimeout))
+        XCTAssertTrue(followButton.waitForExistence(timeout: TestConstants.shortTimeout))
         followButton.tap()
         
         // 3. WAIT for the change (Async logic)
@@ -738,7 +737,7 @@ final class Positive_Only_SocialUITests: XCTestCase {
         waitForExpectations(timeout: 5.0, handler: nil)
         
         // 4. Tap Unfollow
-        XCTAssertTrue(followButton.waitForExistence(timeout: elementTimeout))
+        XCTAssertTrue(followButton.waitForExistence(timeout: TestConstants.shortTimeout))
         followButton.tap()
         
         // 5. WAIT for it to go back to "0"
@@ -747,12 +746,12 @@ final class Positive_Only_SocialUITests: XCTestCase {
         waitForExpectations(timeout: 5.0, handler: nil)
         
         /// We refollow so that we can check that the post now shows up in the "Following" Feed
-        XCTAssertTrue(followButton.waitForExistence(timeout: elementTimeout))
+        XCTAssertTrue(followButton.waitForExistence(timeout: TestConstants.shortTimeout))
         followButton.tap()
         
         // Go back to FeedView
         let backButton = app.navigationBars.firstMatch.buttons.element(boundBy: 0)
-        XCTAssertTrue(backButton.waitForExistence(timeout: elementTimeout))
+        XCTAssertTrue(backButton.waitForExistence(timeout: TestConstants.shortTimeout))
         backButton.tap()
         
         assertOnFeedView(app: app)
@@ -760,30 +759,30 @@ final class Positive_Only_SocialUITests: XCTestCase {
         // Make sure there is one post in For You and one post in Following
         // 1. Find the Picker container
         let feedPicker2 = app.segmentedControls["FeedTypePicker"]
-        XCTAssertTrue(feedPicker2.waitForExistence(timeout: elementTimeout))
+        XCTAssertTrue(feedPicker2.waitForExistence(timeout: TestConstants.shortTimeout))
 
         // 2. Find the button INSIDE the picker
         let followingSegment2 = feedPicker2.buttons["Following"]
-        XCTAssertTrue(followingSegment2.waitForExistence(timeout: elementTimeout))
+        XCTAssertTrue(followingSegment2.waitForExistence(timeout: TestConstants.shortTimeout))
         followingSegment2.tap()
         
         let allPostsQuery3 = app.buttons.matching(identifier: "FollowingPostImage")
         expectation(for: NSPredicate(format: "count == 1"), evaluatedWith: allPostsQuery3, handler: nil)
-        waitForExpectations(timeout: elementTimeout, handler: nil)
+        waitForExpectations(timeout: TestConstants.shortTimeout, handler: nil)
         XCTAssertEqual(allPostsQuery3.count, 1)
         
         let forYouPickerTab2 = feedPicker2.buttons["For You"]
-        XCTAssertTrue(forYouPickerTab2.waitForExistence(timeout: elementTimeout))
+        XCTAssertTrue(forYouPickerTab2.waitForExistence(timeout: TestConstants.shortTimeout))
         forYouPickerTab2.tap()
         
         let allPostsQuery4 = app.buttons.matching(identifier: "ForYouPostImage")
         expectation(for: NSPredicate(format: "count == 1"), evaluatedWith: allPostsQuery4, handler: nil)
-        waitForExpectations(timeout: elementTimeout, handler: nil)
+        waitForExpectations(timeout: TestConstants.shortTimeout, handler: nil)
         XCTAssertEqual(allPostsQuery4.count, 1)
         
         let homeButton = app.buttons["Home"]
         if homeButton.exists {
-            XCTAssertTrue(homeButton.waitForExistence(timeout: elementTimeout))
+            XCTAssertTrue(homeButton.waitForExistence(timeout: TestConstants.shortTimeout))
             homeButton.tap()
         }
         
@@ -804,7 +803,7 @@ final class Positive_Only_SocialUITests: XCTestCase {
         try loginUser(app: app, username: otherTestUsername, password: strongPassword, rememberMe: false)
         
         let feedTab = app.buttons["Feed"]
-        XCTAssertTrue(feedTab.waitForExistence(timeout: elementTimeout))
+        XCTAssertTrue(feedTab.waitForExistence(timeout: TestConstants.shortTimeout))
         feedTab.tap()
         
         assertOnFeedView(app: app)
@@ -816,30 +815,30 @@ final class Positive_Only_SocialUITests: XCTestCase {
         // Now, get the specific element at index 0 (the first one)
         let firstPostElement = allPostsQuery.element(boundBy: 0)
 
-        XCTAssertTrue(firstPostElement.waitForExistence(timeout: elementTimeout))
+        XCTAssertTrue(firstPostElement.waitForExistence(timeout: TestConstants.shortTimeout))
         firstPostElement.tap()
 
         assertOnPostDetailView(app: app)
         
         let postImage = app.buttons["PostImage"]
-        XCTAssertTrue(postImage.waitForExistence(timeout: elementTimeout))
+        XCTAssertTrue(postImage.waitForExistence(timeout: TestConstants.shortTimeout))
         postImage.doubleTap()
         
         let postLikesText = app.staticTexts["PostLikesText"]
         XCTAssertEqual(postLikesText.label, "1 likes")
         
-        XCTAssertTrue(postImage.waitForExistence(timeout: elementTimeout))
+        XCTAssertTrue(postImage.waitForExistence(timeout: TestConstants.shortTimeout))
         postImage.doubleTap()
         
         XCTAssertEqual(postLikesText.label, "0 likes")
         
         let backButton = app.navigationBars.firstMatch.buttons.element(boundBy: 0)
-        XCTAssertTrue(backButton.waitForExistence(timeout: elementTimeout))
+        XCTAssertTrue(backButton.waitForExistence(timeout: TestConstants.shortTimeout))
         backButton.tap()
         
         let homeButton = app.buttons["Home"]
         if homeButton.exists {
-            XCTAssertTrue(homeButton.waitForExistence(timeout: elementTimeout))
+            XCTAssertTrue(homeButton.waitForExistence(timeout: TestConstants.shortTimeout))
             homeButton.tap()
         }
         
@@ -854,25 +853,25 @@ final class Positive_Only_SocialUITests: XCTestCase {
         try loginUser(app: app, username: testUsername, password: strongPassword, rememberMe: false)
         
         let settingsTab = app.buttons["Settings"]
-        XCTAssertTrue(settingsTab.waitForExistence(timeout: elementTimeout))
+        XCTAssertTrue(settingsTab.waitForExistence(timeout: TestConstants.shortTimeout))
         settingsTab.tap()
         
         assertOnSettingsView(app: app)
         
         let verifyIdentityButton = app.buttons["VerifyIdentityButton"]
-        XCTAssertTrue(verifyIdentityButton.waitForExistence(timeout: elementTimeout), "Verify Identity button should be present for new user")
+        XCTAssertTrue(verifyIdentityButton.waitForExistence(timeout: TestConstants.shortTimeout), "Verify Identity button should be present for new user")
         verifyIdentityButton.tap()
         
         let submitVerificationButton = app.buttons["SubmitVerificationButton"]
-        XCTAssertTrue(submitVerificationButton.waitForExistence(timeout: elementTimeout))
+        XCTAssertTrue(submitVerificationButton.waitForExistence(timeout: TestConstants.shortTimeout))
         
         // We just tap verify to send the default date (today)
         submitVerificationButton.tap()
         
         // Wait for success alert
         let successAlert = app.alerts["Identity Verified"]
-        XCTAssertTrue(successAlert.waitForExistence(timeout: elementTimeout))
-        XCTAssertTrue(successAlert.buttons["OK"].waitForExistence(timeout: elementTimeout))
+        XCTAssertTrue(successAlert.waitForExistence(timeout: TestConstants.shortTimeout))
+        XCTAssertTrue(successAlert.buttons["OK"].waitForExistence(timeout: TestConstants.shortTimeout))
         successAlert.buttons["OK"].tap()
         
         // Verify Identity submit button should be gone. This is a proxy for the dialog being gone.
@@ -880,7 +879,7 @@ final class Positive_Only_SocialUITests: XCTestCase {
         
         let homeButton = app.buttons["Home"]
         if homeButton.exists {
-            XCTAssertTrue(homeButton.waitForExistence(timeout: elementTimeout))
+            XCTAssertTrue(homeButton.waitForExistence(timeout: TestConstants.shortTimeout))
             homeButton.tap()
         }
         
@@ -903,13 +902,13 @@ final class Positive_Only_SocialUITests: XCTestCase {
         makeCommentOnPost(app: app, commentText: "Comment On a Post")
         
         let firstBackButton = app.navigationBars.buttons.element(boundBy: 0)
-        XCTAssertTrue(firstBackButton.waitForExistence(timeout: elementTimeout))
+        XCTAssertTrue(firstBackButton.waitForExistence(timeout: TestConstants.shortTimeout))
         firstBackButton.tap()
         
         assertOnFeedView(app: app)
         
         let homeButton = app.buttons["Home"]
-        XCTAssertTrue(homeButton.waitForExistence(timeout: elementTimeout))
+        XCTAssertTrue(homeButton.waitForExistence(timeout: TestConstants.shortTimeout))
         homeButton.tap()
         
         assertOnHomeView(app: app)
@@ -917,13 +916,13 @@ final class Positive_Only_SocialUITests: XCTestCase {
         makeCommentOnThread(app: app, commentText: "Comment On a Thread")
         
         let backButton2 = app.navigationBars.buttons.element(boundBy: 0)
-        XCTAssertTrue(backButton2.waitForExistence(timeout: elementTimeout))
+        XCTAssertTrue(backButton2.waitForExistence(timeout: TestConstants.shortTimeout))
         backButton2.tap()
         
         assertOnFeedView(app: app)
         
         let homeButton2 = app.buttons["Home"]
-        XCTAssertTrue(homeButton2.waitForExistence(timeout: elementTimeout))
+        XCTAssertTrue(homeButton2.waitForExistence(timeout: TestConstants.shortTimeout))
         homeButton2.tap()
         
         assertOnHomeView(app: app)
@@ -933,7 +932,7 @@ final class Positive_Only_SocialUITests: XCTestCase {
         try loginUser(app: app, username: newTestUsername, password: strongPassword, rememberMe: false)
         
         let feedTab = app.buttons["Feed"]
-        XCTAssertTrue(feedTab.waitForExistence(timeout: elementTimeout))
+        XCTAssertTrue(feedTab.waitForExistence(timeout: TestConstants.shortTimeout))
         feedTab.tap()
         
         assertOnFeedView(app: app)
@@ -945,7 +944,7 @@ final class Positive_Only_SocialUITests: XCTestCase {
         // Now, get the specific element at index 0 (the first one)
         let firstPostElement = allPostsQuery.element(boundBy: 0)
 
-        XCTAssertTrue(firstPostElement.waitForExistence(timeout: elementTimeout))
+        XCTAssertTrue(firstPostElement.waitForExistence(timeout: TestConstants.shortTimeout))
         firstPostElement.tap()
 
         assertOnPostDetailView(app: app)
@@ -953,14 +952,14 @@ final class Positive_Only_SocialUITests: XCTestCase {
         // First we like and unlike the comment post comment
         let postCommentStackQuery = app.buttons.matching(identifier: "CommentStack")
         let postCommentStack = postCommentStackQuery.element(boundBy: 0)
-        XCTAssertTrue(postCommentStack.waitForExistence(timeout: elementTimeout))
+        XCTAssertTrue(postCommentStack.waitForExistence(timeout: TestConstants.shortTimeout))
         postCommentStack.doubleTap()
         
         let postCommentLikesTextQuery = app.staticTexts.matching(identifier: "CommentLikesCount")
         let postCommentLikesText = postCommentLikesTextQuery.element(boundBy: 0)
         XCTAssertEqual(postCommentLikesText.label, "1 likes")
         
-        XCTAssertTrue(postCommentStack.waitForExistence(timeout: elementTimeout))
+        XCTAssertTrue(postCommentStack.waitForExistence(timeout: TestConstants.shortTimeout))
         postCommentStack.doubleTap()
         
         XCTAssertEqual(postCommentLikesText.label, "0 likes")
@@ -968,25 +967,25 @@ final class Positive_Only_SocialUITests: XCTestCase {
         // Then we like and unlike the comment thread comment
         let postCommentStackQuery2 = app.buttons.matching(identifier: "CommentStack")
         let postCommentStack2 = postCommentStackQuery2.element(boundBy: 1)
-        XCTAssertTrue(postCommentStack2.waitForExistence(timeout: elementTimeout))
+        XCTAssertTrue(postCommentStack2.waitForExistence(timeout: TestConstants.shortTimeout))
         postCommentStack2.doubleTap()
         
         let postCommentLikesTextQuery2 = app.staticTexts.matching(identifier: "CommentLikesCount")
         let postCommentLikesText2 = postCommentLikesTextQuery2.element(boundBy: 1)
         XCTAssertEqual(postCommentLikesText2.label, "1 likes")
         
-        XCTAssertTrue(postCommentStack2.waitForExistence(timeout: elementTimeout))
+        XCTAssertTrue(postCommentStack2.waitForExistence(timeout: TestConstants.shortTimeout))
         postCommentStack2.doubleTap()
         
         XCTAssertEqual(postCommentLikesText2.label, "0 likes")
         
         let backButton = app.navigationBars.firstMatch.buttons.element(boundBy: 0)
-        XCTAssertTrue(backButton.waitForExistence(timeout: elementTimeout))
+        XCTAssertTrue(backButton.waitForExistence(timeout: TestConstants.shortTimeout))
         backButton.tap()
         
         let homeButton3 = app.buttons["Home"]
         if homeButton3.exists {
-            XCTAssertTrue(homeButton3.waitForExistence(timeout: elementTimeout))
+            XCTAssertTrue(homeButton3.waitForExistence(timeout: TestConstants.shortTimeout))
             homeButton3.tap()
         }
         
@@ -1009,13 +1008,13 @@ final class Positive_Only_SocialUITests: XCTestCase {
         makeCommentOnPost(app: app, commentText: "Comment On a Post")
         
         let backButton = app.navigationBars.buttons.element(boundBy: 0)
-        XCTAssertTrue(backButton.waitForExistence(timeout: elementTimeout))
+        XCTAssertTrue(backButton.waitForExistence(timeout: TestConstants.shortTimeout))
         backButton.tap()
         
         assertOnFeedView(app: app)
         
         let homeButton = app.buttons["Home"]
-        XCTAssertTrue(homeButton.waitForExistence(timeout: elementTimeout))
+        XCTAssertTrue(homeButton.waitForExistence(timeout: TestConstants.shortTimeout))
         homeButton.tap()
         
         assertOnHomeView(app: app)
@@ -1025,7 +1024,7 @@ final class Positive_Only_SocialUITests: XCTestCase {
         try loginUser(app: app, username: newTestUsername, password: strongPassword, rememberMe: false)
         
         let feedTab = app.buttons["Feed"]
-        XCTAssertTrue(feedTab.waitForExistence(timeout: elementTimeout))
+        XCTAssertTrue(feedTab.waitForExistence(timeout: TestConstants.shortTimeout))
         feedTab.tap()
         
         assertOnFeedView(app: app)
@@ -1037,35 +1036,35 @@ final class Positive_Only_SocialUITests: XCTestCase {
         // Now, get the specific element at index 0 (the first one)
         let firstPostElement = allPostsQuery.element(boundBy: 0)
 
-        XCTAssertTrue(firstPostElement.waitForExistence(timeout: elementTimeout))
+        XCTAssertTrue(firstPostElement.waitForExistence(timeout: TestConstants.shortTimeout))
         firstPostElement.tap()
 
         assertOnPostDetailView(app: app)
         
         let postImage = app.buttons["PostImage"]
         // 2 second press
-        XCTAssertTrue(postImage.waitForExistence(timeout: elementTimeout))
+        XCTAssertTrue(postImage.waitForExistence(timeout: TestConstants.shortTimeout))
         postImage.press(forDuration: 2)
         
         let reasonTextField = app.textFields["ProvideAReasonTextField"]
-        XCTAssertTrue(reasonTextField.waitForExistence(timeout: elementTimeout))
+        XCTAssertTrue(reasonTextField.waitForExistence(timeout: TestConstants.shortTimeout))
         reasonTextField.tap()
         typeText(element: reasonTextField, text: "Report post")
         
         let reportButton = app.buttons["SubmitReportButton"]
-        XCTAssertTrue(reportButton.waitForExistence(timeout: elementTimeout))
+        XCTAssertTrue(reportButton.waitForExistence(timeout: TestConstants.shortTimeout))
         reportButton.tap()
         
         let reportedCommentIcon = app.images["ReportedPostIcon"]
-        XCTAssertTrue(reportedCommentIcon.waitForExistence(timeout: elementTimeout), "Reported post icon is missing")
+        XCTAssertTrue(reportedCommentIcon.waitForExistence(timeout: TestConstants.shortTimeout), "Reported post icon is missing")
         
         let backButton2 = app.navigationBars.firstMatch.buttons.element(boundBy: 0)
-        XCTAssertTrue(backButton2.waitForExistence(timeout: elementTimeout))
+        XCTAssertTrue(backButton2.waitForExistence(timeout: TestConstants.shortTimeout))
         backButton2.tap()
         
         let homeButton2 = app.buttons["Home"]
         if homeButton2.exists {
-            XCTAssertTrue(homeButton2.waitForExistence(timeout: elementTimeout))
+            XCTAssertTrue(homeButton2.waitForExistence(timeout: TestConstants.shortTimeout))
             homeButton2.tap()
         }
         
@@ -1088,13 +1087,13 @@ final class Positive_Only_SocialUITests: XCTestCase {
         makeCommentOnPost(app: app, commentText: "Comment On a Post")
         
         let backButton = app.navigationBars.buttons.element(boundBy: 0)
-        XCTAssertTrue(backButton.waitForExistence(timeout: elementTimeout))
+        XCTAssertTrue(backButton.waitForExistence(timeout: TestConstants.shortTimeout))
         backButton.tap()
         
         assertOnFeedView(app: app)
         
         let homeButton = app.buttons["Home"]
-        XCTAssertTrue(homeButton.waitForExistence(timeout: elementTimeout))
+        XCTAssertTrue(homeButton.waitForExistence(timeout: TestConstants.shortTimeout))
         homeButton.tap()
         
         assertOnHomeView(app: app)
@@ -1102,7 +1101,7 @@ final class Positive_Only_SocialUITests: XCTestCase {
         makeCommentOnThread(app: app, commentText: "Comment On a Thread")
         
         let backButton2 = app.navigationBars.buttons.element(boundBy: 0)
-        XCTAssertTrue(backButton2.waitForExistence(timeout: elementTimeout))
+        XCTAssertTrue(backButton2.waitForExistence(timeout: TestConstants.shortTimeout))
         backButton2.tap()
         
         assertOnHomeView(app: app)
@@ -1112,7 +1111,7 @@ final class Positive_Only_SocialUITests: XCTestCase {
         try loginUser(app: app, username: newTestUsername, password: strongPassword, rememberMe: false)
         
         let feedTab = app.buttons["Feed"]
-        XCTAssertTrue(feedTab.waitForExistence(timeout: elementTimeout))
+        XCTAssertTrue(feedTab.waitForExistence(timeout: TestConstants.shortTimeout))
         feedTab.tap()
         
         assertOnFeedView(app: app)
@@ -1124,7 +1123,7 @@ final class Positive_Only_SocialUITests: XCTestCase {
         // Now, get the specific element at index 0 (the first one)
         let firstPostElement = allPostsQuery.element(boundBy: 0)
 
-        XCTAssertTrue(firstPostElement.waitForExistence(timeout: elementTimeout))
+        XCTAssertTrue(firstPostElement.waitForExistence(timeout: TestConstants.shortTimeout))
         firstPostElement.tap()
 
         assertOnPostDetailView(app: app)
@@ -1132,49 +1131,49 @@ final class Positive_Only_SocialUITests: XCTestCase {
         let commentStackQuery = app.buttons.matching(identifier: "CommentStack")
         let commentStack = commentStackQuery.element(boundBy: 0)
         // 2 second press
-        XCTAssertTrue(commentStack.waitForExistence(timeout: elementTimeout))
+        XCTAssertTrue(commentStack.waitForExistence(timeout: TestConstants.shortTimeout))
         commentStack.press(forDuration: 2)
         
         let reasonTextField = app.textFields["ProvideAReasonTextField"]
-        XCTAssertTrue(reasonTextField.waitForExistence(timeout: elementTimeout))
+        XCTAssertTrue(reasonTextField.waitForExistence(timeout: TestConstants.shortTimeout))
         reasonTextField.tap()
         typeText(element: reasonTextField, text: "Report comment thread")
         
         let reportButton = app.buttons["SubmitReportButton"]
-        XCTAssertTrue(reportButton.waitForExistence(timeout: elementTimeout))
+        XCTAssertTrue(reportButton.waitForExistence(timeout: TestConstants.shortTimeout))
         reportButton.tap()
         
         let reportedCommentIcon = app.images["ReportedCommentIcon"]
-        XCTAssertTrue(reportedCommentIcon.waitForExistence(timeout: elementTimeout), "Reported comment icon is missing")
+        XCTAssertTrue(reportedCommentIcon.waitForExistence(timeout: TestConstants.shortTimeout), "Reported comment icon is missing")
         
         
         let commentStackQuery2 = app.buttons.matching(identifier: "CommentStack")
         let commentStack2 = commentStackQuery2.element(boundBy: 1)
         // 2 second press
-        XCTAssertTrue(commentStack2.waitForExistence(timeout: elementTimeout))
+        XCTAssertTrue(commentStack2.waitForExistence(timeout: TestConstants.shortTimeout))
         commentStack2.press(forDuration: 2)
         
         let reasonTextField2 = app.textFields["ProvideAReasonTextField"]
-        XCTAssertTrue(reasonTextField2.waitForExistence(timeout: elementTimeout))
+        XCTAssertTrue(reasonTextField2.waitForExistence(timeout: TestConstants.shortTimeout))
         reasonTextField2.tap()
         typeText(element: reasonTextField2, text: "Report comment reply")
         
         let reportButton2 = app.buttons["SubmitReportButton"]
-        XCTAssertTrue(reportButton2.waitForExistence(timeout: elementTimeout))
+        XCTAssertTrue(reportButton2.waitForExistence(timeout: TestConstants.shortTimeout))
         reportButton2.tap()
         
         let reportedCommentIcon2 = app.images.matching(identifier: "ReportedCommentIcon")
         expectation(for: NSPredicate(format: "count == 2"), evaluatedWith: reportedCommentIcon2, handler: nil)
-        waitForExpectations(timeout: elementTimeout, handler: nil)
+        waitForExpectations(timeout: TestConstants.shortTimeout, handler: nil)
         XCTAssertEqual(reportedCommentIcon2.count, 2, "Expected 2 reported comment icons but only found \(reportedCommentIcon2.count)")
         
         let backButton3 = app.navigationBars.firstMatch.buttons.element(boundBy: 0)
-        XCTAssertTrue(backButton3.waitForExistence(timeout: elementTimeout))
+        XCTAssertTrue(backButton3.waitForExistence(timeout: TestConstants.shortTimeout))
         backButton3.tap()
         
         let homeButton2 = app.buttons["Home"]
         if homeButton2.exists {
-            XCTAssertTrue(homeButton2.waitForExistence(timeout: elementTimeout))
+            XCTAssertTrue(homeButton2.waitForExistence(timeout: TestConstants.shortTimeout))
             homeButton2.tap()
         }
         
@@ -1213,40 +1212,40 @@ final class Positive_Only_SocialUITests: XCTestCase {
         
         // Search for user
         let userSearchField = app.searchFields["Search for Users"]
-        XCTAssertTrue(userSearchField.waitForExistence(timeout: elementTimeout))
+        XCTAssertTrue(userSearchField.waitForExistence(timeout: TestConstants.shortTimeout))
         userSearchField.tap()
         typeText(element: userSearchField, text: otherTestUsername)
         
         let userLink = app.buttons[otherTestUsername]
-        XCTAssertTrue(userLink.waitForExistence(timeout: elementTimeout))
+        XCTAssertTrue(userLink.waitForExistence(timeout: TestConstants.shortTimeout))
         userLink.tap()
         
         assertOnProfileView(app: app)
         
         // Initially "Block" button should be visible
         let blockButton = app.buttons["Block"]
-        XCTAssertTrue(blockButton.waitForExistence(timeout: elementTimeout))
+        XCTAssertTrue(blockButton.waitForExistence(timeout: TestConstants.shortTimeout))
         
         // Click Block
         blockButton.tap()
         
         // Verify changes to "Unblock"
         let unblockButton = app.buttons["Unblock"]
-        XCTAssertTrue(unblockButton.waitForExistence(timeout: elementTimeout))
+        XCTAssertTrue(unblockButton.waitForExistence(timeout: TestConstants.shortTimeout))
         
         // Click Unblock
         unblockButton.tap()
         
         // Verify changes back to "Block"
-        XCTAssertTrue(blockButton.waitForExistence(timeout: elementTimeout))
+        XCTAssertTrue(blockButton.waitForExistence(timeout: TestConstants.shortTimeout))
         
         let backButton = app.navigationBars.firstMatch.buttons.element(boundBy: 0)
-        XCTAssertTrue(backButton.waitForExistence(timeout: elementTimeout))
+        XCTAssertTrue(backButton.waitForExistence(timeout: TestConstants.shortTimeout))
         backButton.tap()
         
         let homeButton = app.buttons["Home"]
         if homeButton.exists {
-            XCTAssertTrue(homeButton.waitForExistence(timeout: elementTimeout))
+            XCTAssertTrue(homeButton.waitForExistence(timeout: TestConstants.shortTimeout))
             homeButton.tap()
         }
         

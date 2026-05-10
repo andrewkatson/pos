@@ -31,7 +31,7 @@ struct Positive_Only_SocialTests_FollowingFeedViewModel {
     // --- Test Helpers ---
     
     private func yield() async {
-        try? await Task.sleep(nanoseconds: 2_000_000_000) // 2 seconds
+        try? await Task.sleep(for: .seconds(TestConstants.shortTimeout))
     }
     
     /// Helper to register a user with the stub API and return their session token.

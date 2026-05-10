@@ -32,7 +32,7 @@ struct Positive_Only_SocialTests_FeedViewModel {
     
     // A small helper to pause the test and let the ViewModel's 'Task' complete
     private func yield() async {
-        try? await Task.sleep(nanoseconds: 1_000_000_000) // 1 seconds
+        try? await Task.sleep(for: .seconds(TestConstants.shortTimeout))
     }
     
     /// Helper to register a user with the stub API and return their session token.

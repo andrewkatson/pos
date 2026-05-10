@@ -29,7 +29,7 @@ struct Positive_Only_SocialTests_HomeViewModel {
     // --- Test Helpers ---
     
     /// Helper to pause the test and let async/debounce tasks complete.
-    private func yield(for duration: Duration = .seconds(2)) async {
+    private func yield(for duration: Duration = .seconds(TestConstants.shortTimeout)) async {
         try? await Task.sleep(for: duration)
     }
     

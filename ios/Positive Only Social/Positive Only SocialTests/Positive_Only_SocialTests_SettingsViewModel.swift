@@ -28,7 +28,7 @@ struct Positive_Only_SocialTests_SettingsViewModel {
     // --- Test Helpers ---
     
     /// Helper to pause the test and let async tasks complete.
-    private func yield(for duration: Duration = .seconds(1)) async {
+    private func yield(for duration: Duration = .seconds(TestConstants.shortTimeout)) async {
         try? await Task.sleep(for: duration)
     }
     

@@ -35,8 +35,7 @@ struct Positive_Only_SocialTests_PostDetailViewModel {
     // MARK: - Test Helpers
     
     /// Helper to pause the test and let async/debounce tasks complete.
-    private func yield(for duration: Duration = .seconds(0.5)) async {
-        // Using a slightly shorter yield as VM tasks are not debounced
+    private func yield(for duration: Duration = .seconds(TestConstants.shortTimeout)) async {
         try? await Task.sleep(for: duration)
     }
     
