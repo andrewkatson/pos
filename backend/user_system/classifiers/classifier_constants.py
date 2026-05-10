@@ -1,5 +1,5 @@
-POSITIVE_IMAGE_URL = 'positive_image_url.png'
-NEGATIVE_IMAGE_URL = 'negative_image_url.png'
+POSITIVE_IMAGE_URL = 'https://test-bucket.s3.amazonaws.com/positive_image_url.png'
+NEGATIVE_IMAGE_URL = 'https://test-bucket.s3.amazonaws.com/negative_image_url.png'
 POSITIVE_TEXT = 'positive'
 NEGATIVE_TEXT = 'negative'
 GEMINI_MODEL = 'gemini-2.5-flash'
