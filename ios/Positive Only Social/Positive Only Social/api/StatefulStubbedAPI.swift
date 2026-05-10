@@ -69,11 +69,6 @@ fileprivate struct MockComment {
     var updatedDate = Date()
 }
 
-fileprivate struct DjangoSerializedObject<F: Codable>: Codable {
-    var model: String = "app.response"
-    var pk: String? = nil
-    let fields: F
-}
 
 // MARK: - Stateful API Implementation
 final class StatefulStubbedAPI: Networking {
@@ -116,53 +111,18 @@ final class StatefulStubbedAPI: Networking {
     }
 
     // MARK: - Private Helpers
-    /// Creates a "single item" response, like for registration.
+    /// Returns a single-object JSON response matching the real backend format.
     private func createSerializedResponse<T: Codable>(fields: T) throws -> Data {
-        // 1. Create the single "inner" object
-        let serializedObject = DjangoSerializedObject(fields: fields)
-        
-        let encoder = JSONEncoder()
-
-        // 2. Encode the single object (NOT an array) into Data
-        let innerData = try encoder.encode(serializedObject)
-
-        // 3. Convert that inner Data into a String
-        guard let innerString = String(data: innerData, encoding: .utf8) else {
-            throw SerializationError()
-        }
-
-        // 4. Encode the final outer wrapper: {"response_list": "..."}
-        let outerWrapper = ["response_list": innerString]
-        return try encoder.encode(outerWrapper)
+        return try JSONEncoder().encode(fields)
     }
 
-    /// Creates a "list" response, which is the base for all your stubbed responses.
+    /// Returns a JSON array response matching the real backend format.
     private func createSerializedListResponse<T: Codable>(fieldsList: [T]) throws -> Data {
-        
-        // 1. Create the array of "inner" objects, now including the model
-        let serializedObjects = fieldsList.map {
-            DjangoSerializedObject(fields: $0)
-        }
-        
-        let encoder = JSONEncoder()
-
-        // 2. Encode the inner array ([DjangoSerializedObject]) into Data
-        let innerData = try encoder.encode(serializedObjects)
-
-        // 3. Convert that inner Data into a String (SAFELY)
-        //    This is the fix for your `!` crash.
-        guard let innerString = String(data: innerData, encoding: .utf8) else {
-            throw SerializationError()
-        }
-
-        // 4. Encode the final outer wrapper: {"response_list": "..."}
-        let outerWrapper = ["response_list": innerString]
-        return try encoder.encode(outerWrapper)
+        return try JSONEncoder().encode(fieldsList)
     }
 
     private func createEmptySuccessResponse() throws -> Data {
-        struct EmptyFields: Codable {}
-        return try createSerializedResponse(fields: EmptyFields())
+        return try JSONEncoder().encode(["message": "ok"])
     }
     private func simulateNetwork() async { try? await Task.sleep(for: .seconds(simulatedLatency)) }
     private func generateToken() -> String { UUID().uuidString.replacingOccurrences(of: "-", with: "") }
@@ -184,7 +144,11 @@ final class StatefulStubbedAPI: Networking {
             let cookie = MockLoginCookie(seriesIdentifier: UUID().uuidString, token: generateToken(), userId: newUser.id)
             loginCookies.append(cookie)
             struct Fields: Codable { let series_identifier, login_cookie_token, session_management_token: String }
-            return try createSerializedResponse(fields: Fields(series_identifier: cookie.seriesIdentifier, login_cookie_token: cookie.token, session_management_token: newSession.managementToken))
+            return try createSerializedResponse(fields: Fields(
+                series_identifier: cookie.seriesIdentifier,
+                login_cookie_token: cookie.token,
+                session_management_token: newSession.managementToken
+            ))
         } else {
             struct Fields: Codable { let session_management_token: String }
             return try createSerializedResponse(fields: Fields(session_management_token: newSession.managementToken))
@@ -195,17 +159,21 @@ final class StatefulStubbedAPI: Networking {
         await simulateNetwork()
         guard let user = findUser(byUsernameOrEmail: usernameOrEmail) else { throw APIError.badServerResponse(statusCode: 400) }
         if user.passwordHash != password { throw APIError.badServerResponse(statusCode: 400) }
-        
+
         sessions.removeAll { $0.userId == user.id }
         let newSession = MockSession(managementToken: generateToken(), userId: user.id, ip: ip)
         sessions.append(newSession)
-        
+
         let wantsRememberMe = Bool(rememberMe.lowercased()) ?? false
         if wantsRememberMe {
             let cookie = MockLoginCookie(seriesIdentifier: UUID().uuidString, token: generateToken(), userId: user.id)
             loginCookies.append(cookie)
             struct Fields: Codable { let series_identifier, login_cookie_token, session_management_token: String }
-            return try createSerializedResponse(fields: Fields(series_identifier: cookie.seriesIdentifier, login_cookie_token: cookie.token, session_management_token: newSession.managementToken))
+            return try createSerializedResponse(fields: Fields(
+                series_identifier: cookie.seriesIdentifier,
+                login_cookie_token: cookie.token,
+                session_management_token: newSession.managementToken
+            ))
         } else {
             struct Fields: Codable { let session_management_token: String }
             return try createSerializedResponse(fields: Fields(session_management_token: newSession.managementToken))
@@ -235,13 +203,14 @@ final class StatefulStubbedAPI: Networking {
         let newSession = MockSession(managementToken: generateToken(), userId: user.id, ip: ip)
         sessions.append(newSession)
 
-        // 3. Return both the new cookie and the new session token
         struct Fields: Codable {
             let login_cookie_token: String
             let session_management_token: String
         }
-        let fields = Fields(login_cookie_token: newCookieToken, session_management_token: newSession.managementToken)
-        return try createSerializedResponse(fields: fields)
+        return try createSerializedResponse(fields: Fields(
+            login_cookie_token: newCookieToken,
+            session_management_token: newSession.managementToken
+        ))
     }
 
 
@@ -408,12 +377,12 @@ final class StatefulStubbedAPI: Networking {
         let paginatedPosts = Array(relevantPosts[startIndex..<endIndex])
         // --- END PAGINATION LOGIC ---
 
-        struct Fields: Codable { let post_identifier: String; let image_url: String; let caption: String; let authorUsername: String}
+        struct Fields: Codable { let post_identifier: String; let image_url: String; let caption: String; let author_username: String }
         
         let fieldObjects = paginatedPosts.map {
             let post = $0
             let authorUsername = users.first(where: { $0.id == post.authorId })?.username ?? "Unknown User"
-            return Fields(post_identifier: $0.postIdentifier, image_url: $0.imageURL, caption: $0.caption, authorUsername: authorUsername)
+            return Fields(post_identifier: $0.postIdentifier, image_url: $0.imageURL, caption: $0.caption, author_username: authorUsername)
         }
         
         return try createSerializedListResponse(fieldsList: fieldObjects)
@@ -458,12 +427,12 @@ final class StatefulStubbedAPI: Networking {
         // --- END PAGINATION LOGIC ---
 
         // 5. Format the response (matching getPostsInFeed)
-        struct Fields: Codable { let post_identifier: String; let image_url: String; let caption: String; let authorUsername: String}
+        struct Fields: Codable { let post_identifier: String; let image_url: String; let caption: String; let author_username: String }
         
         let fieldObjects = paginatedPosts.map {
             let post = $0
             let authorUsername = users.first(where: { $0.id == post.authorId })?.username ?? "Unknown User"
-            return Fields(post_identifier: $0.postIdentifier, image_url: $0.imageURL, caption: $0.caption, authorUsername: authorUsername)
+            return Fields(post_identifier: $0.postIdentifier, image_url: $0.imageURL, caption: $0.caption, author_username: authorUsername)
         }
         
         // 6. Return the serialized list
@@ -506,9 +475,9 @@ final class StatefulStubbedAPI: Networking {
             let post_identifier: String
             let image_url: String
             let caption: String
-            let authorUsername: String
+            let author_username: String
         }
-        
+
         let fieldObjects = paginatedPosts.map {
             let post = $0
             let authorUsername = users.first(where: { $0.id == post.authorId })?.username ?? "Unknown User"
@@ -516,7 +485,7 @@ final class StatefulStubbedAPI: Networking {
                 post_identifier: $0.postIdentifier,
                 image_url: $0.imageURL,
                 caption: $0.caption,
-                authorUsername: authorUsername
+                author_username: authorUsername
             )
         }
         
@@ -632,15 +601,15 @@ final class StatefulStubbedAPI: Networking {
 
         struct Fields: Codable {
             let comment_identifier, body, author_username: String
-            let comment_creation_time, comment_updated_time: String
+            let creation_time, updated_time: String
             let comment_likes: Int
         }
-        
+
         let dateFormatter = ISO8601DateFormatter()
         let fieldObjects = relevantComments.map { comment in
             Fields(comment_identifier: comment.commentIdentifier, body: comment.body, author_username: comment.authorUsername,
-                   comment_creation_time: dateFormatter.string(from: comment.createdDate),
-                   comment_updated_time: dateFormatter.string(from: comment.updatedDate),
+                   creation_time: dateFormatter.string(from: comment.createdDate),
+                   updated_time: dateFormatter.string(from: comment.updatedDate),
                    comment_likes: comment.likes.count)
         }
         return try createSerializedListResponse(fieldsList: fieldObjects)
@@ -703,8 +672,6 @@ final class StatefulStubbedAPI: Networking {
         }
         
         userFollows.remove(at: followIndex)
-        
-        return try createEmptySuccessResponse()
         return try createEmptySuccessResponse()
     }
 

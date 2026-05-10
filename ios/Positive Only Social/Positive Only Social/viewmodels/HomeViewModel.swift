@@ -106,23 +106,12 @@ final class HomeViewModel: ObservableObject {
     // Decodes the API response for get_posts_for_user
     private func fetchPosts(for username: String, token: String, page: Int) async throws -> [Post] {
         let responseData = try await api.getPostsForUser(sessionManagementToken: token, username: username, batch: page)
-        let wrapper = try JSONDecoder().decode(APIWrapperResponse.self, from: responseData)
-        guard let innerData = wrapper.responseList.data(using: .utf8) else { return [] }
-        let responseArray = try JSONDecoder().decode([DjangoObject<Post>].self, from: innerData)
-        return responseArray.map { $0.fields }
+        return try JSONDecoder().decode([Post].self, from: responseData)
     }
-    
+
     // Decodes the API response for get_users_matching_fragment
     private func searchForUsers(fragment: String, token: String) async throws -> [User] {
         let responseData = try await api.getUsersMatchingFragment(sessionManagementToken: token, usernameFragment: fragment)
-        let wrapper = try JSONDecoder().decode(APIWrapperResponse.self, from: responseData)
-        guard let innerData = wrapper.responseList.data(using: .utf8) else { return [] }
-        let responseArray = try JSONDecoder().decode([DjangoObject<User>].self, from: innerData)
-        return responseArray.map { $0.fields }
+        return try JSONDecoder().decode([User].self, from: responseData)
     }
-}
-
-// A generic helper to decode the Django serializer format
-struct DjangoObject<T: Codable>: Codable {
-    let fields: T
 }

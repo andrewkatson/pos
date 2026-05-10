@@ -53,7 +53,7 @@ class Fields:
     is_adult = 'is_adult'
     series_identifier = "series_identifier"
     login_cookie_token = "login_cookie_token"
-    session_management_token = "token"
+    session_management_token = "session_management_token"
     post_identifier = "post_identifier"
     image_url = "image_url"
     caption = "caption"

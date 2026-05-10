@@ -95,12 +95,11 @@ final class PostDetailViewModel: ObservableObject {
                             return commentFields.map { field in
                                 CommentViewData(
                                     id: field.comment_identifier,
-                                    threadId: threadId, // We know this from the context
+                                    threadId: threadId,
                                     authorUsername: field.author_username,
                                     body: field.body,
                                     likeCount: field.comment_likes,
-                                    // Handle date conversion
-                                    createdDate: ISO8601DateFormatter().date(from: field.comment_creation_time) ?? Date()
+                                    createdDate: Self.parseDate(field.creation_time)
                                 )
                             }
                         }
@@ -307,7 +306,7 @@ final class PostDetailViewModel: ObservableObject {
                 _ = try await api.reportComment(sessionManagementToken: token, postIdentifier: postIdentifier, commentThreadIdentifier: comment.threadId, commentIdentifier: comment.id, reason: reason)
                 
                 await MainActor.run {
-                    reportedCommentIds.insert(comment.id)
+                    _ = reportedCommentIds.insert(comment.id)
                 }
             } catch {
                 print("Failed to report comment: \(error)")
@@ -388,37 +387,42 @@ final class PostDetailViewModel: ObservableObject {
         let comment_identifier: String
         let body: String
         let author_username: String
-        let comment_creation_time: String
-        let comment_updated_time: String
+        let creation_time: String
+        let updated_time: String
         let comment_likes: Int
-    }
-    
-    // These helpers handle the specific double-encoded JSON from your stub
-    private struct APIResponseWrapper: Decodable {
-        let response_list: String
-    }
-    
-    private struct DjangoSerializedObject<F: Decodable>: Decodable {
-        let fields: F
     }
 
     private func decodeSingle<T: Decodable>(from data: Data, type: T.Type) throws -> T {
-        let decoder = JSONDecoder()
-        let wrapper = try decoder.decode(APIResponseWrapper.self, from: data)
-        guard let innerData = wrapper.response_list.data(using: .utf8) else {
-            throw SerializationError()
-        }
-        let serializedObject = try decoder.decode(DjangoSerializedObject<T>.self, from: innerData)
-        return serializedObject.fields
+        return try JSONDecoder().decode(T.self, from: data)
     }
 
     private func decodeList<T: Decodable>(from data: Data, type: T.Type) throws -> [T] {
-        let decoder = JSONDecoder()
-        let wrapper = try decoder.decode(APIResponseWrapper.self, from: data)
-        guard let innerData = wrapper.response_list.data(using: .utf8) else {
-            throw SerializationError()
+        return try JSONDecoder().decode([T].self, from: data)
+    }
+
+    // MARK: - Date Parsing
+
+    /// Parses an ISO8601 date string produced by Django, which typically includes
+    /// fractional seconds and a `+00:00` timezone offset (e.g. "2024-01-15T10:30:45.123456+00:00").
+    /// Falls back to parsing without fractional seconds for older rows, then to `Date()`.
+    /// Marked `nonisolated` so it can be called from async task groups without actor hopping.
+    /// Formatters are created locally to avoid sharing non-Sendable NSObject state across isolation domains.
+    /// Parses an ISO8601 date string produced by Django, which typically includes
+    /// fractional seconds and a `+00:00` timezone offset (e.g. "2024-01-15T10:30:45.123456+00:00").
+    /// Falls back to parsing without fractional seconds for older rows, then to `Date()`.
+    /// Uses `Date.ISO8601FormatStyle` (a value type) to avoid allocating `NSObject`-backed
+    /// formatters on each call — safe to call from any isolation domain without extra cost.
+    private nonisolated static func parseDate(_ string: String) -> Date {
+        if let date = try? Date(string, strategy: .iso8601.year().month().day()
+            .time(includingFractionalSeconds: true)
+            .timeZone(separator: .omitted)) {
+            return date
         }
-        let serializedObjects = try decoder.decode([DjangoSerializedObject<T>].self, from: innerData)
-        return serializedObjects.map { $0.fields }
+        if let date = try? Date(string, strategy: .iso8601.year().month().day()
+            .time(includingFractionalSeconds: false)
+            .timeZone(separator: .omitted)) {
+            return date
+        }
+        return Date()
     }
 }

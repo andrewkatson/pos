@@ -197,7 +197,7 @@ class PositiveOnlySocialTestCase(TestCase):
             'username': username,
             'password': password,
             'email': email,
-            'token': data[Fields.session_management_token]
+            Fields.session_management_token: data[Fields.session_management_token]
         }
 
     def register_user_and_setup_local_fields(self, index=0, remember_me=false):

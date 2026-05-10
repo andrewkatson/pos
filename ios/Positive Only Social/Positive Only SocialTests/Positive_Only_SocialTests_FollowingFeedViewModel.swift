@@ -22,8 +22,8 @@ struct Positive_Only_SocialTests_FollowingFeedViewModel {
     // --- Test Setup ---
     
     init() {
-        keychainHelper = KeychainHelper()
-        
+        keychainHelper = MockKeychainHelper()
+
         // This 'init' runs before *each* @Test
         stubAPI = StatefulStubbedAPI()
     }
@@ -31,21 +31,15 @@ struct Positive_Only_SocialTests_FollowingFeedViewModel {
     // --- Test Helpers ---
     
     private func yield() async {
-        try? await Task.sleep(nanoseconds: 2_000_000_000) // 2 seconds
+        try? await Task.sleep(for: .seconds(TestConstants.shortTimeout))
     }
     
     /// Helper to register a user with the stub API and return their session token.
     private func registerUserAndGetToken(username: String) async throws -> String {
         let data = try await stubAPI.register(username: username, email: "\(username)@test.com", password: "123", rememberMe: "false", ip: "127.0.0.1", dateOfBirth: "1970-01-01")
         
-        struct RegFields: Codable { let session_management_token: String }
-        struct DjangoRegObject: Codable { let fields: RegFields }
-
-        let wrapper = try JSONDecoder().decode(APIWrapperResponse.self, from: data)
-        let innerData = wrapper.responseList.data(using: .utf8)!
-        let djangoObject = try JSONDecoder().decode(DjangoRegObject.self, from: innerData)
-        
-        return djangoObject.fields.session_management_token
+        struct RegFields: Decodable { let session_management_token: String }
+        return try JSONDecoder().decode(RegFields.self, from: data).session_management_token
     }
 
     // --- Test Cases ---

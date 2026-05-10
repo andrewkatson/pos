@@ -24,30 +24,23 @@ struct Positive_Only_SocialTests_FeedViewModel {
     
     init() {
         // This 'init' runs before *each* @Test
-        keychainHelper = KeychainHelper()
-        
+        keychainHelper = MockKeychainHelper()
+
         // 1. Set up the mocks
         stubAPI = StatefulStubbedAPI()
     }
     
     // A small helper to pause the test and let the ViewModel's 'Task' complete
     private func yield() async {
-        try? await Task.sleep(nanoseconds: 1_000_000_000) // 1 seconds
+        try? await Task.sleep(for: .seconds(TestConstants.shortTimeout))
     }
     
     /// Helper to register a user with the stub API and return their session token.
     /// This is needed because we must decode the nested JSON response.
     private func registerUserAndGetToken(username: String) async throws -> String {
         let data = try await stubAPI.register(username: username, email: "\(username)@test.com", password: "123", rememberMe: "false", ip: "127.0.0.1", dateOfBirth: "1970-01-01")
-        struct RegFields: Codable { let session_management_token: String }
-        struct DjangoRegObject: Codable { let fields: RegFields }
-
-        let wrapper = try JSONDecoder().decode(APIWrapperResponse.self, from: data)
-        let responseString = String(describing: wrapper.responseList)
-        let innerData = responseString.data(using: String.Encoding.utf8)!
-        let djangoObject = try JSONDecoder().decode(DjangoRegObject.self, from: innerData)
-        
-        return djangoObject.fields.session_management_token
+        struct RegFields: Decodable { let session_management_token: String }
+        return try JSONDecoder().decode(RegFields.self, from: data).session_management_token
     }
 
     // --- Test Cases ---

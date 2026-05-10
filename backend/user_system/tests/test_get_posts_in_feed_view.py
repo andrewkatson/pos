@@ -116,4 +116,4 @@ class GetPostsInFeedTests(PositiveOnlySocialTestCase):
         self.assertEqual(response.status_code, 200)
         responses = response.json()
         for post in responses:
-            self.assertNotEqual(post[Fields.username], user_b.username)
+            self.assertNotEqual(post[Fields.author_username], user_b.username)

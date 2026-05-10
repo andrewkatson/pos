@@ -9,26 +9,9 @@ import Foundation
 
 // MARK: - API Response Models
 
-/// The outermost JSON object, which contains the response list as a STRING.
-struct APIWrapperResponse: Codable {
-    let responseList: String
-
-    enum CodingKeys: String, CodingKey {
-        case responseList = "response_list"
-    }
-}
-
-/// The structure inside the `responseList` string, mirroring Django's serializer output.
-struct DjangoLoginResponseObject: Codable {
-    let model: String
-    let pk: Int?
-    let fields: LoginResponseFields
-}
-
-/// The actual data fields you care about.
+/// The actual data fields returned by the login/register endpoints.
 /// Properties are optional since "remember me" tokens may not be present.
 struct LoginResponseFields: Codable {
-    // This property can now be returned by both login methods
     let sessionManagementToken: String
     let seriesIdentifier: String?
     let loginCookieToken: String?
@@ -53,7 +36,7 @@ struct Post: Codable, Identifiable, Hashable {
         case postIdentifier = "post_identifier"
         case imageUrl = "image_url"
         case caption = "caption"
-        case authorUsername = "authorUsername"
+        case authorUsername = "author_username"
     }
 }
 

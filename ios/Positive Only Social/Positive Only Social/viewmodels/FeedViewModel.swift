@@ -37,9 +37,7 @@ final class FeedViewModel: ObservableObject {
                 let userSession = try keychainHelper.load(UserSession.self, from: "positive-only-social.Positive-Only-Social", account: account) ?? UserSession(sessionToken: "123", username: "test", isIdentityVerified: false)
                 
                 let responseData = try await api.getPostsInFeed(sessionManagementToken: userSession.sessionToken, batch: currentPage)
-                let wrapper = try JSONDecoder().decode(APIWrapperResponse.self, from: responseData)
-                guard let innerData = wrapper.responseList.data(using: .utf8) else { return }
-                let newPosts = try JSONDecoder().decode([DjangoObject<Post>].self, from: innerData).map { $0.fields }
+                let newPosts = try JSONDecoder().decode([Post].self, from: responseData)
                 
                 if newPosts.isEmpty {
                     canLoadMore = false

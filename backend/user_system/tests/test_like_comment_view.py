@@ -1,6 +1,7 @@
 from django.urls import reverse
 
 from ..constants import Fields
+from .test_constants import UserFields
 from .test_parent_case import PositiveOnlySocialTestCase
 from ..models import Comment  # Import the Comment model for assertions
 
@@ -23,7 +24,7 @@ class LikeCommentTests(PositiveOnlySocialTestCase):
         super().comment_on_post_with_users()
 
         # Get the token for the "liker" user (assumed to be the 3rd user, index 2)
-        other_session_management_tokens = self.users.get(Fields.session_management_token, [])
+        other_session_management_tokens = self.users.get(UserFields.TOKEN, [])
         self.liker_session_management_token = other_session_management_tokens[2]
 
         # Create the auth headers for our two key users

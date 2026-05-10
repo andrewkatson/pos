@@ -1,6 +1,7 @@
 from django.urls import reverse
 
 from ..constants import Fields
+from .test_constants import UserFields
 from .test_parent_case import PositiveOnlySocialTestCase
 from ..models import Post  # Import the Post model for assertions
 
@@ -24,7 +25,7 @@ class LikePostTests(PositiveOnlySocialTestCase):
         self.poster_header = {'HTTP_AUTHORIZATION': f'Bearer {self.poster_token}'}
 
         # 2. Set up the user who will do the liking ("liker")
-        liker_tokens = self.users.get(Fields.session_management_token, [])
+        liker_tokens = self.users.get(UserFields.TOKEN, [])
         self.liker_token = liker_tokens[1]
         self.liker_header = {'HTTP_AUTHORIZATION': f'Bearer {self.liker_token}'}
 

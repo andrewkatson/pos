@@ -56,10 +56,7 @@ class ProfileViewModel: ObservableObject {
                     username: user.username,
                     batch: batch
                 )
-                
-                let wrapper = try JSONDecoder().decode(APIWrapperResponse.self, from: responseData)
-                guard let innerData = wrapper.responseList.data(using: .utf8) else { return }
-                let newPosts = try JSONDecoder().decode([DjangoObject<Post>].self, from: innerData).map { $0.fields }
+                let newPosts = try JSONDecoder().decode([Post].self, from: responseData)
                 
                 if newPosts.isEmpty {
                     // No more posts to load
@@ -88,10 +85,7 @@ class ProfileViewModel: ObservableObject {
                 let userSession = try keychainHelper.load(UserSession.self, from: "positive-only-social.Positive-Only-Social", account: account) ?? UserSession(sessionToken: "123", username: "test", isIdentityVerified: false)
                 
                 let responseData = try await api.getProfileDetails(sessionManagementToken: userSession.sessionToken, username: user.username)
-                
-                let wrapper = try JSONDecoder().decode(APIWrapperResponse.self, from: responseData)
-                guard let innerData = wrapper.responseList.data(using: .utf8) else { return }
-                let details = try JSONDecoder().decode(DjangoObject<ProfileDetailsResponse>.self, from: innerData).fields
+                let details = try JSONDecoder().decode(ProfileDetailsResponse.self, from: responseData)
                 
                 self.profileDetails = details
                 self.isFollowing = details.isFollowing // Set initial follow state

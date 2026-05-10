@@ -21,14 +21,14 @@ struct Positive_Only_SocialTests_SettingsViewModel {
     
     // --- Test Setup ---
     init() {
-        keychainHelper = KeychainHelper()
+        keychainHelper = MockKeychainHelper()
         stubAPI = StatefulStubbedAPI()
     }
 
     // --- Test Helpers ---
     
     /// Helper to pause the test and let async tasks complete.
-    private func yield(for duration: Duration = .seconds(1)) async {
+    private func yield(for duration: Duration = .seconds(TestConstants.shortTimeout)) async {
         try? await Task.sleep(for: duration)
     }
     
@@ -36,14 +36,8 @@ struct Positive_Only_SocialTests_SettingsViewModel {
     private func registerUserAndGetToken(username: String) async throws -> String {
         let data = try await stubAPI.register(username: username, email: "\(username)@test.com", password: "123", rememberMe: "false", ip: "127.0.0.1", dateOfBirth: "1970-01-01")
         
-        struct RegFields: Codable { let session_management_token: String }
-        struct DjangoRegObject: Codable { let fields: RegFields }
-        
-        let wrapper: APIWrapperResponse = try JSONDecoder().decode(APIWrapperResponse.self, from: data)
-        let innerData = wrapper.responseList.data(using: .utf8)!
-        let djangoObject = try JSONDecoder().decode(DjangoRegObject.self, from: innerData)
-        
-        return djangoObject.fields.session_management_token
+        struct RegFields: Decodable { let session_management_token: String }
+        return try JSONDecoder().decode(RegFields.self, from: data).session_management_token
     }
     
     /// Helper to log in a user and save their token to the keychain

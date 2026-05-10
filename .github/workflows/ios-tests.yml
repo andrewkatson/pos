@@ -12,9 +12,10 @@ on:
       - '.github/workflows/ios-tests.yml'
 
 jobs:
-  test:
-    name: Run Unit and UI Tests
+  build:
+    name: Build for Testing
     runs-on: macos-15
+    timeout-minutes: 30
 
     steps:
       - name: Checkout repository
@@ -35,37 +36,217 @@ jobs:
       - name: Install xcpretty
         run: gem install xcpretty
 
-      - name: Boot Simulator
-        run: |
-          xcrun simctl boot "iPhone 16" || true
-          xcrun simctl bootstatus "iPhone 16" -b
-
       - name: Resolve Package Dependencies
         working-directory: "ios/Positive Only Social"
         run: |
           xcodebuild -resolvePackageDependencies \
             -project "Positive Only Social.xcodeproj" \
-            -scheme "Positive Only Social"
+            -scheme "Positive Only Social" \
+          | xcpretty
+          exit ${PIPESTATUS[0]}
+
+      - name: Build for Testing
+        working-directory: "ios/Positive Only Social"
+        run: |
+          xcodebuild build-for-testing \
+            -project "Positive Only Social.xcodeproj" \
+            -scheme "Positive Only Social" \
+            -destination "platform=iOS Simulator,name=iPhone 16,OS=26.2" \
+            -derivedDataPath build \
+            CODE_SIGN_IDENTITY="" \
+            CODE_SIGNING_REQUIRED=NO \
+          | tee build.log | xcpretty
+          exit ${PIPESTATUS[0]}
+
+      - name: Show build failures
+        if: failure()
+        working-directory: "ios/Positive Only Social"
+        run: |
+          echo "=== Compiler errors ==="
+          grep -E "error:" build.log | grep -v "^▸" | head -50 || echo "(none)"
+          echo ""
+          echo "=== Last 150 lines of raw log ==="
+          tail -500 build.log
+
+      - name: Upload build log
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-log
+          path: "ios/Positive Only Social/build.log"
+
+      - name: Upload Test Bundle
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-bundle
+          path: "ios/Positive Only Social/build/Build/Products/"
+
+  test:
+    name: Test (${{ matrix.test-group }})
+    needs: build
+    runs-on: macos-15
+    timeout-minutes: 90
+    strategy:
+      fail-fast: false
+      matrix:
+        test-group: [Unit_Tests, UI_Tests_Alpha, UI_Tests_Beta, UI_Tests_Gamma, UI_Tests_Delta]
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Select Xcode version
+        run: sudo xcode-select -s /Applications/Xcode_26.3.app/Contents/Developer
+
+      - name: Install xcpretty
+        run: gem install xcpretty
+
+      - name: Boot Simulator
+        run: |
+          xcrun simctl boot "iPhone 16" || true
+          xcrun simctl bootstatus "iPhone 16" -b
+
+      - name: Download Test Bundle
+        uses: actions/download-artifact@v4
+        with:
+          name: test-bundle
+          path: "ios/Positive Only Social/build/Build/Products"
+
+      - name: List available test bundles
+        working-directory: "ios/Positive Only Social"
+        run: |
+          echo "=== xctestrun files ==="
+          find build/Build/Products -name "*.xctestrun"
 
       - name: Run Tests
         working-directory: "ios/Positive Only Social"
         run: |
-          xcodebuild test \
-            -project "Positive Only Social.xcodeproj" \
-            -scheme "Positive Only Social" \
+          case "${{ matrix.test-group }}" in
+            Unit_Tests)
+              TESTS=(
+                "Positive Only SocialTests"
+              )
+              # "Positive Only Social Unit Tests" plan covers unit tests only
+              XCTESTRUN=$(find build/Build/Products -name "*.xctestrun" | grep "Unit Tests" | head -1)
+              ;;
+            UI_Tests_Alpha)
+              TESTS=(
+                "Positive Only SocialUITests/Positive_Only_SocialUITests/testAutomaticLoginAfterRememberMe"
+                "Positive Only SocialUITests/Positive_Only_SocialUITests/testDeleteAccount"
+                "Positive Only SocialUITests/Positive_Only_SocialUITests/testResetPassword"
+              )
+              # "Positive Only Social" (default) plan covers both unit and UI tests
+              XCTESTRUN=$(find build/Build/Products -name "*.xctestrun" | grep -v "Unit Tests" | head -1)
+              ;;
+            UI_Tests_Beta)
+              TESTS=(
+                "Positive Only SocialUITests/Positive_Only_SocialUITests/testFollowAndUnfollowFromSearch"
+                "Positive Only SocialUITests/Positive_Only_SocialUITests/testFollowAndUnfollowFromPost"
+                "Positive Only SocialUITests/Positive_Only_SocialUITests/testLikeAndUnlikePost"
+              )
+              # "Positive Only Social" (default) plan covers both unit and UI tests
+              XCTESTRUN=$(find build/Build/Products -name "*.xctestrun" | grep -v "Unit Tests" | head -1)
+              ;;
+            UI_Tests_Gamma)
+              TESTS=(
+                "Positive Only SocialUITests/Positive_Only_SocialUITests/testVerifyIdentity"
+                "Positive Only SocialUITests/Positive_Only_SocialUITests/testLikeAndUnlikeCommentOnPostAndThread"
+                "Positive Only SocialUITests/Positive_Only_SocialUITests/testReportPost"
+              )
+              # "Positive Only Social" (default) plan covers both unit and UI tests
+              XCTESTRUN=$(find build/Build/Products -name "*.xctestrun" | grep -v "Unit Tests" | head -1)
+              ;;
+            UI_Tests_Delta)
+              TESTS=(
+                "Positive Only SocialUITests/Positive_Only_SocialUITests/testReportComment"
+                "Positive Only SocialUITests/Positive_Only_SocialUITests/testLaunchPerformance"
+                "Positive Only SocialUITests/Positive_Only_SocialUITests/testBlockAndUnblockUser"
+              )
+              # "Positive Only Social" (default) plan covers both unit and UI tests
+              XCTESTRUN=$(find build/Build/Products -name "*.xctestrun" | grep -v "Unit Tests" | head -1)
+              ;;
+          esac
+
+          # Fallback: if the pattern found nothing, take the first available file
+          XCTESTRUN=${XCTESTRUN:-$(find build/Build/Products -name "*.xctestrun" | head -1)}
+          echo "Using xctestrun: $XCTESTRUN"
+
+          ONLY_TESTING_ARGS=()
+          for t in "${TESTS[@]}"; do
+            ONLY_TESTING_ARGS+=("-only-testing:$t")
+          done
+
+          xcodebuild test-without-building \
+            -xctestrun "$XCTESTRUN" \
             -destination "platform=iOS Simulator,name=iPhone 16,OS=26.2" \
             -resultBundlePath TestResults.xcresult \
-            -parallel-testing-enabled NO \
-            CODE_SIGN_IDENTITY="" \
-            CODE_SIGNING_REQUIRED=NO \
+            "${ONLY_TESTING_ARGS[@]}" \
           | tee xcodebuild.log | xcpretty
           exit ${PIPESTATUS[0]}
+
+      - name: Show failed tests
+        if: failure()
+        working-directory: "ios/Positive Only Social"
+        run: |
+          echo "=== Failed test cases (xcodebuild.log) ==="
+          grep -iE "test case .* failed|test suite .* failed" xcodebuild.log || echo "(no test-case lines found)"
+          echo ""
+          echo "=== Assertion failures (xcresult) ==="
+          cat > /tmp/parse_xcresult.py << 'PYEOF'
+          import json, sys
+
+          def walk(node):
+              if not isinstance(node, dict):
+                  return
+              if (node.get("_type", {}).get("_name") == "ActionTestSummary"
+                      and node.get("testStatus", {}).get("_value") == "Failure"):
+                  name = node.get("name", {}).get("_value", "(unknown)")
+                  print("FAILED: " + name)
+                  for s in node.get("failureSummaries", {}).get("_values", []):
+                      msg = s.get("message", {}).get("_value", "")
+                      loc = s.get("sourceCodeContext", {}).get("location", {})
+                      f   = loc.get("file", {}).get("_value", "").split("/")[-1]
+                      ln  = loc.get("line", {}).get("_value", "")
+                      print("  -> " + msg)
+                      if f:
+                          print("     at " + f + ":" + ln)
+              for v in node.values():
+                  if isinstance(v, dict):
+                      walk(v)
+                  elif isinstance(v, list):
+                      for item in v:
+                          walk(item)
+
+          try:
+              walk(json.load(sys.stdin))
+          except Exception as e:
+              print("(xcresult parse error: " + str(e) + ")")
+          PYEOF
+          xcrun xcresulttool get --path TestResults.xcresult --format json \
+            > /tmp/xcresult.json 2>/tmp/xcresult_err.txt || true
+          if [ -s /tmp/xcresult.json ]; then
+            python3 /tmp/parse_xcresult.py < /tmp/xcresult.json
+          else
+            echo "(xcresulttool produced no JSON — stderr below)"
+            cat /tmp/xcresult_err.txt || true
+            echo ""
+            echo "--- Trying legacy invocation ---"
+            xcrun xcresulttool get --path TestResults.xcresult \
+              > /tmp/xcresult_legacy.txt 2>&1 || true
+            head -30 /tmp/xcresult_legacy.txt || true
+          fi
+          echo ""
+          echo "=== Compiler errors ==="
+          grep -E "error:" xcodebuild.log | grep -v "^▸" | head -50 || echo "(none)"
+          echo ""
+          echo "=== Last 500 lines of raw log ==="
+          tail -500 xcodebuild.log
 
       - name: Upload test artifacts
         if: failure()
         uses: actions/upload-artifact@v4
         with:
-          name: test-artifacts
+          name: test-artifacts-${{ matrix.test-group }}
           path: |
             ios/Positive Only Social/xcodebuild.log
             ios/Positive Only Social/TestResults.xcresult

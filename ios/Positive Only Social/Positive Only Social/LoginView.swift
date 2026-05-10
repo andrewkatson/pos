@@ -53,22 +53,8 @@ struct LoginView: View {
             isLoading = true
             do {
                 let responseData = try await api.loginUser(usernameOrEmail: usernameOrEmail, password: password, rememberMe: String(rememberMe), ip: "127.0.0.1")
-                
-                // Try to decode a backend error first
-                struct BackendError: Codable { let error: String }
-                if let backendError = try? JSONDecoder().decode(BackendError.self, from: responseData) {
-                    errorMessage = backendError.error
-                    showingErrorAlert = true
-                    isLoading = false
-                    return
-                }
 
-                // MARK: Decoding Logic (remains the same)
-                let decoder = JSONDecoder()
-                let wrapper = try decoder.decode(APIWrapperResponse.self, from: responseData)
-                guard let innerData = wrapper.responseList.data(using: .utf8) else { throw URLError(.cannotDecodeContentData) }
-                let loginResponse = try decoder.decode(DjangoLoginResponseObject.self, from: innerData)
-                let loginDetails = loginResponse.fields
+                let loginDetails = try JSONDecoder().decode(LoginResponseFields.self, from: responseData)
                 
                 // MARK: - Securely Store Token in Keychain
                 authManager.login(with: UserSession(sessionToken: loginDetails.sessionManagementToken, username: usernameOrEmail, isIdentityVerified: false))
@@ -87,6 +73,14 @@ struct LoginView: View {
                     try keychainHelper.delete(service: keychainService, account: rememberMeAccount)
                 }
                 
+            } catch let error as APIError {
+                if case .serverError(_, let message) = error {
+                    errorMessage = message
+                } else {
+                    errorMessage = "Login failed. Please check your credentials and try again."
+                }
+                showingErrorAlert = true
+                print("🔴 Login failed with error: \(error)")
             } catch {
                 errorMessage = "Login failed. Please check your credentials and try again."
                 showingErrorAlert = true

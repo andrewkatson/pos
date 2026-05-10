@@ -104,7 +104,7 @@ class DeleteCommentTests(PositiveOnlySocialTestCase):
         """
         # 1. Create a second user and log them in
         other_user_data = self.make_user_with_prefix(prefix='Delete_another_user_comment')
-        other_header = {'HTTP_AUTHORIZATION': f'Bearer {other_user_data["token"]}'}
+        other_header = {'HTTP_AUTHORIZATION': f'Bearer {other_user_data[Fields.session_management_token]}'}
 
         # 2. Try to delete the first user's comment
         response = self.client.post(self.delete_url, **other_header)

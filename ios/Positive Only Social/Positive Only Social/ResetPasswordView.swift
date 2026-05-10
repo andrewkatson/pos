@@ -79,31 +79,24 @@ struct ResetPasswordView: View {
         
         do {
             // Using the INSECURE method as requested
-            let responseData = try await api.resetPassword(
+            _ = try await api.resetPassword(
                 username: username,
                 email: email,
                 newPassword: newPassword
             )
             
-            // Just check that it didn't throw an error
-            _ = try JSONDecoder().decode(APIWrapperResponse.self, from: responseData)
             print("✅ Password reset successful. Attempting auto-login...")
-            
+
             // 2. IMMEDIATELY Log in with the new password
-            // This retrieves the session token you need for the HomeView
             let loginData = try await api.loginUser(
                 usernameOrEmail: username.isEmpty ? email : username,
                 password: newPassword,
                 rememberMe: "false",
                 ip: "127.0.0.1"
             )
-            
+
             // 3. Decode the Login Response
-            let decoder = JSONDecoder()
-            let wrapper = try decoder.decode(APIWrapperResponse.self, from: loginData)
-            guard let innerData = wrapper.responseList.data(using: .utf8) else { throw URLError(.cannotDecodeContentData) }
-            let loginResponse = try decoder.decode(DjangoLoginResponseObject.self, from: innerData)
-            let loginDetails = loginResponse.fields
+            let loginDetails = try JSONDecoder().decode(LoginResponseFields.self, from: loginData)
             
             // 4. Update AuthManager
             // This is the magic trigger that swaps the view to HomeView

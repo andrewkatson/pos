@@ -156,24 +156,7 @@ struct RegisterView: View {
                     dateOfBirth: dateString
                 )
 
-                // Try to decode a backend error first
-                struct BackendError: Codable { let error: String }
-                if let backendError = try? JSONDecoder().decode(BackendError.self, from: responseData) {
-                    errorMessage = backendError.error
-                    showingErrorAlert = true
-                    isLoading = false
-                    return
-                }
-
-                // Decode the response to get the session token
-                let decoder = JSONDecoder()
-                let wrapper = try decoder.decode(APIWrapperResponse.self, from: responseData)
-                guard let innerData = wrapper.responseList.data(using: .utf8) else {
-                    throw URLError(.cannotDecodeContentData)
-                }
-                
-                let loginResponse = try decoder.decode(DjangoLoginResponseObject.self, from: innerData)
-                let loginDetails = loginResponse.fields
+                let loginDetails = try JSONDecoder().decode(LoginResponseFields.self, from: responseData)
 
                 // Securely save the new session token to the Keychain
                 authManager.login(with: UserSession(sessionToken: loginDetails.sessionManagementToken, username: username, isIdentityVerified: false))
@@ -183,6 +166,14 @@ struct RegisterView: View {
                 // Navigate to Home, replacing the stack so the user can't go back.
                 path = NavigationPath(["HomeView"])
 
+            } catch let error as APIError {
+                if case .serverError(_, let message) = error {
+                    errorMessage = message
+                } else {
+                    errorMessage = "This username or email may already be taken. Please try again."
+                }
+                showingErrorAlert = true
+                print("🔴 Registration failed: \(error)")
             } catch {
                 errorMessage = "This username or email may already be taken. Please try again."
                 showingErrorAlert = true

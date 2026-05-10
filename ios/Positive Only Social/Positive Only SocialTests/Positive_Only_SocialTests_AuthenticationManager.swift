@@ -44,7 +44,7 @@ struct Positive_Only_SocialTests_AuthenticationManager {
         // Clean things up
         sut.logout()
         
-        try await Task.sleep(nanoseconds: 1_000_000_000) // 1 second
+        try await Task.sleep(for: .seconds(TestConstants.shortTimeout))
     }
 
     @Test mutating func testInit_WhenKeychainHasToken_isLoggedInIsTrue() async throws {
@@ -62,7 +62,7 @@ struct Positive_Only_SocialTests_AuthenticationManager {
         // Clean things up
         sut.logout()
         
-        try await Task.sleep(nanoseconds: 1_000_000_000) // 1 second
+        try await Task.sleep(for: .seconds(TestConstants.shortTimeout))
     }
 
     @Test mutating func testLogin_SetsIsLoggedInToTrue() async throws {
@@ -78,7 +78,7 @@ struct Positive_Only_SocialTests_AuthenticationManager {
         
         // And: We wait for the background Task in login() to complete.
         // A tiny sleep is needed to let the new Task execute and update the state.
-        try await Task.sleep(nanoseconds: 1_000_000_000) // 1 seconds
+        try await Task.sleep(for: .seconds(TestConstants.shortTimeout))
         
         // Then: The published property is updated to true
         #expect(sut.isLoggedIn == true, "isLoggedIn should be true after calling login()")
@@ -86,7 +86,7 @@ struct Positive_Only_SocialTests_AuthenticationManager {
         // Clean things up
         sut.logout()
         
-        try await Task.sleep(nanoseconds: 1_000_000_000) // 1 second
+        try await Task.sleep(for: .seconds(TestConstants.shortTimeout))
     }
     
     @Test mutating func testLogout_SetsIsLoggedInToFalse_AndClearsKeychain() async throws {
@@ -98,7 +98,7 @@ struct Positive_Only_SocialTests_AuthenticationManager {
         sut = AuthenticationManager(shouldAutoLogin: true, keychainHelper: keychain)
         
         // Wait to login
-        try await Task.sleep(nanoseconds: 1_000_000_000) // 1 second
+        try await Task.sleep(for: .seconds(TestConstants.shortTimeout))
         
         #expect(sut.isLoggedIn == true) // Verify initial logged-in state
         
@@ -107,7 +107,7 @@ struct Positive_Only_SocialTests_AuthenticationManager {
         
         // And: We wait for the background Task in logout() to complete.
         // A tiny sleep is needed to let the new Task execute and update the state.
-        try await Task.sleep(nanoseconds: 1_000_000_000) // 1 second
+        try await Task.sleep(for: .seconds(TestConstants.shortTimeout))
         
         // Then: The published property is updated to false
         #expect(sut.isLoggedIn == false, "isLoggedIn should be false after logout")
@@ -119,7 +119,7 @@ struct Positive_Only_SocialTests_AuthenticationManager {
         // Clean things up
         sut.logout()
         
-        try await Task.sleep(nanoseconds: 1_000_000_000) // 1 second
+        try await Task.sleep(for: .seconds(TestConstants.shortTimeout))
     }
 
 }

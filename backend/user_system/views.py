@@ -742,7 +742,7 @@ def get_posts_in_feed(request, batch):
             {
                 Fields.post_identifier: post.post_identifier,
                 Fields.image_url: get_compressed_image_url(post.image_url),
-                Fields.username: post.author.username,
+                Fields.author_username: post.author.username,
                 Fields.caption: post.caption
             }
             for post in batched_posts

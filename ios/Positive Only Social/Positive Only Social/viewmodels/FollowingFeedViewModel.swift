@@ -41,10 +41,8 @@ final class FollowingFeedViewModel: ObservableObject {
                 // Call the API endpoint for followed users
                 let responseData = try await api.getPostsForFollowedUsers(sessionManagementToken: userSession.sessionToken, batch: currentPage)
                 // --- END KEY CHANGE ---
-                
-                let wrapper = try JSONDecoder().decode(APIWrapperResponse.self, from: responseData)
-                guard let innerData = wrapper.responseList.data(using: .utf8) else { return }
-                let newPosts = try JSONDecoder().decode([DjangoObject<Post>].self, from: innerData).map { $0.fields }
+
+                let newPosts = try JSONDecoder().decode([Post].self, from: responseData)
                 
                 if newPosts.isEmpty {
                     canLoadMore = false
