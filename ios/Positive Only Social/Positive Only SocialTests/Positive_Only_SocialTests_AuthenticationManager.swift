@@ -78,7 +78,7 @@ struct Positive_Only_SocialTests_AuthenticationManager {
         
         // And: We wait for the background Task in login() to complete.
         // A tiny sleep is needed to let the new Task execute and update the state.
-        try await Task.sleep(for: .seconds(TestConstants.shortTimeout))s
+        try await Task.sleep(for: .seconds(TestConstants.shortTimeout))
         
         // Then: The published property is updated to true
         #expect(sut.isLoggedIn == true, "isLoggedIn should be true after calling login()")
