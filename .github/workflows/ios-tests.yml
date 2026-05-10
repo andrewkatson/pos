@@ -122,8 +122,11 @@ jobs:
             ONLY_TESTING_ARGS+=("-only-testing:$t")
           done
 
+          XCTESTRUN=$(find build/Build/Products -name "*.xctestrun" | head -1)
+          echo "Using xctestrun: $XCTESTRUN"
+
           xcodebuild test-without-building \
-            -xctestrun build/Build/Products/*.xctestrun \
+            -xctestrun "$XCTESTRUN" \
             -destination "platform=iOS Simulator,name=iPhone 16,OS=26.2" \
             -resultBundlePath TestResults.xcresult \
             "${ONLY_TESTING_ARGS[@]}" \
