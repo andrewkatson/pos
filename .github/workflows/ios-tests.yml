@@ -42,6 +42,7 @@ jobs:
             -project "Positive Only Social.xcodeproj" \
             -scheme "Positive Only Social" \
           | xcpretty
+          exit ${PIPESTATUS[0]}
 
       - name: Build for Testing
         working-directory: "ios/Positive Only Social"

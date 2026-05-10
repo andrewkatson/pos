@@ -99,7 +99,7 @@ final class PostDetailViewModel: ObservableObject {
                                     authorUsername: field.author_username,
                                     body: field.body,
                                     likeCount: field.comment_likes,
-                                    createdDate: ISO8601DateFormatter().date(from: field.creation_time) ?? Date()
+                                    createdDate: Self.parseDate(field.creation_time)
                                 )
                             }
                         }
@@ -398,5 +398,28 @@ final class PostDetailViewModel: ObservableObject {
 
     private func decodeList<T: Decodable>(from data: Data, type: T.Type) throws -> [T] {
         return try JSONDecoder().decode([T].self, from: data)
+    }
+
+    // MARK: - Date Parsing
+
+    /// Parses an ISO8601 date string produced by Django, which typically includes
+    /// fractional seconds and a `+00:00` timezone offset (e.g. "2024-01-15T10:30:45.123456+00:00").
+    /// Falls back to parsing without fractional seconds for older rows, then to `Date()`.
+    private static let isoDateFormatterWithFractional: ISO8601DateFormatter = {
+        let f = ISO8601DateFormatter()
+        f.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        return f
+    }()
+
+    private static let isoDateFormatterNoFractional: ISO8601DateFormatter = {
+        let f = ISO8601DateFormatter()
+        f.formatOptions = [.withInternetDateTime]
+        return f
+    }()
+
+    private static func parseDate(_ string: String) -> Date {
+        return isoDateFormatterWithFractional.date(from: string)
+            ?? isoDateFormatterNoFractional.date(from: string)
+            ?? Date()
     }
 }

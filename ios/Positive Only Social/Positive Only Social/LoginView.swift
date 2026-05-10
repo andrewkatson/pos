@@ -74,7 +74,11 @@ struct LoginView: View {
                 }
                 
             } catch let error as APIError {
-                errorMessage = error.errorDescription ?? "Login failed. Please check your credentials and try again."
+                if case .serverError(_, let message) = error {
+                    errorMessage = message
+                } else {
+                    errorMessage = "Login failed. Please check your credentials and try again."
+                }
                 showingErrorAlert = true
                 print("🔴 Login failed with error: \(error)")
             } catch {

@@ -167,7 +167,11 @@ struct RegisterView: View {
                 path = NavigationPath(["HomeView"])
 
             } catch let error as APIError {
-                errorMessage = error.errorDescription ?? "This username or email may already be taken. Please try again."
+                if case .serverError(_, let message) = error {
+                    errorMessage = message
+                } else {
+                    errorMessage = "This username or email may already be taken. Please try again."
+                }
                 showingErrorAlert = true
                 print("🔴 Registration failed: \(error)")
             } catch {
