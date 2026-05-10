@@ -87,7 +87,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        test-group: [Unit_Tests, UI_Tests_Alpha, UI_Tests_Beta]
+        test-group: [Unit_Tests, UI_Tests_Alpha, UI_Tests_Beta, UI_Tests_Gamma, UI_Tests_Delta]
 
     steps:
       - name: Checkout repository
@@ -132,6 +132,12 @@ jobs:
                 "Positive Only SocialUITests/Positive_Only_SocialUITests/testAutomaticLoginAfterRememberMe"
                 "Positive Only SocialUITests/Positive_Only_SocialUITests/testDeleteAccount"
                 "Positive Only SocialUITests/Positive_Only_SocialUITests/testResetPassword"
+              )
+              # "Positive Only Social" (default) plan covers both unit and UI tests
+              XCTESTRUN=$(find build/Build/Products -name "*.xctestrun" | grep -v "Unit Tests" | head -1)
+              ;;
+            UI_Tests_Beta)
+              TESTS=(
                 "Positive Only SocialUITests/Positive_Only_SocialUITests/testFollowAndUnfollowFromSearch"
                 "Positive Only SocialUITests/Positive_Only_SocialUITests/testFollowAndUnfollowFromPost"
                 "Positive Only SocialUITests/Positive_Only_SocialUITests/testLikeAndUnlikePost"
@@ -139,11 +145,17 @@ jobs:
               # "Positive Only Social" (default) plan covers both unit and UI tests
               XCTESTRUN=$(find build/Build/Products -name "*.xctestrun" | grep -v "Unit Tests" | head -1)
               ;;
-            UI_Tests_Beta)
+            UI_Tests_Gamma)
               TESTS=(
                 "Positive Only SocialUITests/Positive_Only_SocialUITests/testVerifyIdentity"
                 "Positive Only SocialUITests/Positive_Only_SocialUITests/testLikeAndUnlikeCommentOnPostAndThread"
                 "Positive Only SocialUITests/Positive_Only_SocialUITests/testReportPost"
+              )
+              # "Positive Only Social" (default) plan covers both unit and UI tests
+              XCTESTRUN=$(find build/Build/Products -name "*.xctestrun" | grep -v "Unit Tests" | head -1)
+              ;;
+            UI_Tests_Delta)
+              TESTS=(
                 "Positive Only SocialUITests/Positive_Only_SocialUITests/testReportComment"
                 "Positive Only SocialUITests/Positive_Only_SocialUITests/testLaunchPerformance"
                 "Positive Only SocialUITests/Positive_Only_SocialUITests/testBlockAndUnblockUser"
@@ -175,7 +187,7 @@ jobs:
         working-directory: "ios/Positive Only Social"
         run: |
           echo "=== Failed test cases ==="
-          grep -E "Test Case .* failed|Test Suite .* failed at" xcodebuild.log || echo "(no test-case lines found — build may have failed before tests ran)"
+          grep -iE "test case .* failed|test suite .* failed" xcodebuild.log || echo "(no test-case lines found — build may have failed before tests ran)"
           echo ""
           echo "=== Compiler errors ==="
           grep -E "error:" xcodebuild.log | grep -v "^▸" | head -50 || echo "(none)"
