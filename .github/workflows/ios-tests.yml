@@ -220,9 +220,19 @@ jobs:
           except Exception as e:
               print("(xcresult parse error: " + str(e) + ")")
           PYEOF
-          xcrun xcresulttool get --path TestResults.xcresult --format json 2>/dev/null \
-            | python3 /tmp/parse_xcresult.py \
-            || echo "(xcresulttool unavailable or no xcresult found)"
+          xcrun xcresulttool get --path TestResults.xcresult --format json \
+            > /tmp/xcresult.json 2>/tmp/xcresult_err.txt || true
+          if [ -s /tmp/xcresult.json ]; then
+            python3 /tmp/parse_xcresult.py < /tmp/xcresult.json
+          else
+            echo "(xcresulttool produced no JSON — stderr below)"
+            cat /tmp/xcresult_err.txt || true
+            echo ""
+            echo "--- Trying legacy invocation ---"
+            xcrun xcresulttool get --path TestResults.xcresult \
+              > /tmp/xcresult_legacy.txt 2>&1 || true
+            head -30 /tmp/xcresult_legacy.txt || true
+          fi
           echo ""
           echo "=== Compiler errors ==="
           grep -E "error:" xcodebuild.log | grep -v "^▸" | head -50 || echo "(none)"
