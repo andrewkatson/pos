@@ -65,7 +65,7 @@ jobs:
           grep -E "error:" build.log | grep -v "^▸" | head -50 || echo "(none)"
           echo ""
           echo "=== Last 150 lines of raw log ==="
-          tail -150 build.log
+          tail -500 build.log
 
       - name: Upload build log
         if: failure()
@@ -193,7 +193,7 @@ jobs:
           grep -E "error:" xcodebuild.log | grep -v "^▸" | head -50 || echo "(none)"
           echo ""
           echo "=== Last 150 lines of raw log ==="
-          tail -150 xcodebuild.log
+          tail -500 xcodebuild.log
 
       - name: Upload test artifacts
         if: failure()

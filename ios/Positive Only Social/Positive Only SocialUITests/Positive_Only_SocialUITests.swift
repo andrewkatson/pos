@@ -39,6 +39,20 @@ final class Positive_Only_SocialUITests: XCTestCase {
         testUsername = "\(baseName)_user"
         otherTestUsername = "\(baseName)_other_user"
         newTestUsername = "\(baseName)_new_user"
+
+        // Automatically dismiss any "Save Password" / "Update Password" system
+        // dialogs (presented by SpringBoard, not the app) that would otherwise
+        // block interactions. The monitor fires the next time the test tries to
+        // interact with a UI element while the system dialog is in front.
+        addUIInterruptionMonitor(withDescription: "Save Password dialog") { alert -> Bool in
+            for title in ["Not Now", "Never for This Website", "Cancel"] {
+                if alert.buttons[title].exists {
+                    alert.buttons[title].tap()
+                    return true
+                }
+            }
+            return false
+        }
     }
 
     override func tearDownWithError() throws {
@@ -80,6 +94,16 @@ final class Positive_Only_SocialUITests: XCTestCase {
         }
 
         XCTAssertTrue(element.hasFocus || app.keyboards.count > 0, "Element did not gain keyboard focus.")
+
+        // Clear any pre-existing content so that a retry never appends to
+        // stale text.  Triple-tap selects all text in a field on iOS; the
+        // following typeText call then replaces the selection.
+        let existing = (element.value as? String) ?? ""
+        if !existing.isEmpty {
+            element.tap(withNumberOfTaps: 3, numberOfTouches: 1)
+            RunLoop.current.run(until: NSDate(timeIntervalSinceNow: 0.3) as Date)
+        }
+
         element.typeText(text)
     }
     
