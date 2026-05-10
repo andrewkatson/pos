@@ -124,8 +124,8 @@ jobs:
               TESTS=(
                 "Positive Only SocialTests"
               )
-              # Unit Tests xctestrun only covers the unit test target
-              XCTESTRUN=$(find build/Build/Products -name "*Unit*Tests*.xctestrun" | head -1)
+              # "Positive Only Social Unit Tests" plan covers unit tests only
+              XCTESTRUN=$(find build/Build/Products -name "*.xctestrun" | grep "Unit Tests" | head -1)
               ;;
             UI_Tests_Alpha)
               TESTS=(
@@ -136,8 +136,8 @@ jobs:
                 "Positive Only SocialUITests/Positive_Only_SocialUITests/testFollowAndUnfollowFromPost"
                 "Positive Only SocialUITests/Positive_Only_SocialUITests/testLikeAndUnlikePost"
               )
-              # UI Tests xctestrun covers the UI test target
-              XCTESTRUN=$(find build/Build/Products -name "*UI*Tests*.xctestrun" | head -1)
+              # "Positive Only Social" (default) plan covers both unit and UI tests
+              XCTESTRUN=$(find build/Build/Products -name "*.xctestrun" | grep -v "Unit Tests" | head -1)
               ;;
             UI_Tests_Beta)
               TESTS=(
@@ -148,8 +148,8 @@ jobs:
                 "Positive Only SocialUITests/Positive_Only_SocialUITests/testLaunchPerformance"
                 "Positive Only SocialUITests/Positive_Only_SocialUITests/testBlockAndUnblockUser"
               )
-              # UI Tests xctestrun covers the UI test target
-              XCTESTRUN=$(find build/Build/Products -name "*UI*Tests*.xctestrun" | head -1)
+              # "Positive Only Social" (default) plan covers both unit and UI tests
+              XCTESTRUN=$(find build/Build/Products -name "*.xctestrun" | grep -v "Unit Tests" | head -1)
               ;;
           esac
 
