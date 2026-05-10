@@ -32,12 +32,16 @@ jobs:
           echo "Available runtime: $RUNTIME"
           xcrun simctl list devices available | grep iPhone
 
+      - name: Install xcpretty
+        run: gem install xcpretty
+
       - name: Resolve Package Dependencies
         working-directory: "ios/Positive Only Social"
         run: |
           xcodebuild -resolvePackageDependencies \
             -project "Positive Only Social.xcodeproj" \
-            -scheme "Positive Only Social"
+            -scheme "Positive Only Social" \
+          | xcpretty
 
       - name: Build for Testing
         working-directory: "ios/Positive Only Social"
@@ -48,7 +52,26 @@ jobs:
             -destination "platform=iOS Simulator,name=iPhone 16,OS=26.2" \
             -derivedDataPath build \
             CODE_SIGN_IDENTITY="" \
-            CODE_SIGNING_REQUIRED=NO
+            CODE_SIGNING_REQUIRED=NO \
+          | tee build.log | xcpretty
+          exit ${PIPESTATUS[0]}
+
+      - name: Show build failures
+        if: failure()
+        working-directory: "ios/Positive Only Social"
+        run: |
+          echo "=== Compiler errors ==="
+          grep -E "error:" build.log | grep -v "^▸" | head -50 || echo "(none)"
+          echo ""
+          echo "=== Last 150 lines of raw log ==="
+          tail -150 build.log
+
+      - name: Upload build log
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-log
+          path: "ios/Positive Only Social/build.log"
 
       - name: Upload Test Bundle
         uses: actions/upload-artifact@v4
