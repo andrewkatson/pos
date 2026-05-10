@@ -79,7 +79,7 @@ struct ResetPasswordView: View {
         
         do {
             // Using the INSECURE method as requested
-            let responseData = try await api.resetPassword(
+            _ = try await api.resetPassword(
                 username: username,
                 email: email,
                 newPassword: newPassword

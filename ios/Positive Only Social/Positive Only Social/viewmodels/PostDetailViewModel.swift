@@ -306,7 +306,7 @@ final class PostDetailViewModel: ObservableObject {
                 _ = try await api.reportComment(sessionManagementToken: token, postIdentifier: postIdentifier, commentThreadIdentifier: comment.threadId, commentIdentifier: comment.id, reason: reason)
                 
                 await MainActor.run {
-                    reportedCommentIds.insert(comment.id)
+                    _ = reportedCommentIds.insert(comment.id)
                 }
             } catch {
                 print("Failed to report comment: \(error)")
@@ -405,21 +405,14 @@ final class PostDetailViewModel: ObservableObject {
     /// Parses an ISO8601 date string produced by Django, which typically includes
     /// fractional seconds and a `+00:00` timezone offset (e.g. "2024-01-15T10:30:45.123456+00:00").
     /// Falls back to parsing without fractional seconds for older rows, then to `Date()`.
-    private static let isoDateFormatterWithFractional: ISO8601DateFormatter = {
-        let f = ISO8601DateFormatter()
-        f.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
-        return f
-    }()
-
-    private static let isoDateFormatterNoFractional: ISO8601DateFormatter = {
-        let f = ISO8601DateFormatter()
-        f.formatOptions = [.withInternetDateTime]
-        return f
-    }()
-
-    private static func parseDate(_ string: String) -> Date {
-        return isoDateFormatterWithFractional.date(from: string)
-            ?? isoDateFormatterNoFractional.date(from: string)
-            ?? Date()
+    /// Marked `nonisolated` so it can be called from async task groups without actor hopping.
+    /// Formatters are created locally to avoid sharing non-Sendable NSObject state across isolation domains.
+    private nonisolated static func parseDate(_ string: String) -> Date {
+        let withFractional = ISO8601DateFormatter()
+        withFractional.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        if let date = withFractional.date(from: string) { return date }
+        let withoutFractional = ISO8601DateFormatter()
+        withoutFractional.formatOptions = [.withInternetDateTime]
+        return withoutFractional.date(from: string) ?? Date()
     }
 }
