@@ -638,7 +638,7 @@ final class Positive_Only_SocialUITests: XCTestCase {
         
         // Wait up to 5 seconds for the label to update
         expectation(for: existsPredicate, evaluatedWith: followersLabel, handler: nil)
-        waitForExpectations(timeout: 5.0, handler: nil)
+        waitForExpectations(timeout: TestConstants.timeout, handler: nil)
         
         // 4. Tap Unfollow
         XCTAssertTrue(followButton.waitForExistence(timeout: TestConstants.shortTimeout))
@@ -647,7 +647,7 @@ final class Positive_Only_SocialUITests: XCTestCase {
         // 5. WAIT for it to go back to "0"
         let zeroPredicate = NSPredicate(format: "label == '0'")
         expectation(for: zeroPredicate, evaluatedWith: followersLabel, handler: nil)
-        waitForExpectations(timeout: 5.0, handler: nil)
+        waitForExpectations(timeout: TestConstants.timeout, handler: nil)
         
         let backButton = app.navigationBars.firstMatch.buttons.element(boundBy: 0)
         XCTAssertTrue(backButton.waitForExistence(timeout: TestConstants.shortTimeout))
@@ -734,7 +734,7 @@ final class Positive_Only_SocialUITests: XCTestCase {
         
         // Wait up to 5 seconds for the label to update
         expectation(for: existsPredicate, evaluatedWith: followersLabel, handler: nil)
-        waitForExpectations(timeout: 5.0, handler: nil)
+        waitForExpectations(timeout: TestConstants.timeout, handler: nil)
         
         // 4. Tap Unfollow
         XCTAssertTrue(followButton.waitForExistence(timeout: TestConstants.shortTimeout))
@@ -743,7 +743,7 @@ final class Positive_Only_SocialUITests: XCTestCase {
         // 5. WAIT for it to go back to "0"
         let zeroPredicate = NSPredicate(format: "label == '0'")
         expectation(for: zeroPredicate, evaluatedWith: followersLabel, handler: nil)
-        waitForExpectations(timeout: 5.0, handler: nil)
+        waitForExpectations(timeout: TestConstants.timeout, handler: nil)
         
         /// We refollow so that we can check that the post now shows up in the "Following" Feed
         XCTAssertTrue(followButton.waitForExistence(timeout: TestConstants.shortTimeout))
