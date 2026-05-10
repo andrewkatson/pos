@@ -110,6 +110,12 @@ jobs:
           name: test-bundle
           path: "ios/Positive Only Social/build/Build/Products"
 
+      - name: List available test bundles
+        working-directory: "ios/Positive Only Social"
+        run: |
+          echo "=== xctestrun files ==="
+          find build/Build/Products -name "*.xctestrun"
+
       - name: Run Tests
         working-directory: "ios/Positive Only Social"
         run: |
@@ -118,6 +124,8 @@ jobs:
               TESTS=(
                 "Positive Only SocialTests"
               )
+              # Unit Tests xctestrun only covers the unit test target
+              XCTESTRUN=$(find build/Build/Products -name "*Unit*Tests*.xctestrun" | head -1)
               ;;
             UI_Tests_Alpha)
               TESTS=(
@@ -128,6 +136,8 @@ jobs:
                 "Positive Only SocialUITests/Positive_Only_SocialUITests/testFollowAndUnfollowFromPost"
                 "Positive Only SocialUITests/Positive_Only_SocialUITests/testLikeAndUnlikePost"
               )
+              # UI Tests xctestrun covers the UI test target
+              XCTESTRUN=$(find build/Build/Products -name "*UI*Tests*.xctestrun" | head -1)
               ;;
             UI_Tests_Beta)
               TESTS=(
@@ -138,16 +148,19 @@ jobs:
                 "Positive Only SocialUITests/Positive_Only_SocialUITests/testLaunchPerformance"
                 "Positive Only SocialUITests/Positive_Only_SocialUITests/testBlockAndUnblockUser"
               )
+              # UI Tests xctestrun covers the UI test target
+              XCTESTRUN=$(find build/Build/Products -name "*UI*Tests*.xctestrun" | head -1)
               ;;
           esac
+
+          # Fallback: if the pattern found nothing, take the first available file
+          XCTESTRUN=${XCTESTRUN:-$(find build/Build/Products -name "*.xctestrun" | head -1)}
+          echo "Using xctestrun: $XCTESTRUN"
 
           ONLY_TESTING_ARGS=()
           for t in "${TESTS[@]}"; do
             ONLY_TESTING_ARGS+=("-only-testing:$t")
           done
-
-          XCTESTRUN=$(find build/Build/Products -name "*.xctestrun" | head -1)
-          echo "Using xctestrun: $XCTESTRUN"
 
           xcodebuild test-without-building \
             -xctestrun "$XCTESTRUN" \
