@@ -51,7 +51,7 @@ final class AWSManager {
             // pick one up from the environment on a mobile device. Supply it explicitly.
             let credentialsResolver = try CognitoAWSCredentialIdentityResolver(
                 identityPoolId: identityPoolId,
-                region: awsRegion
+                identityPoolRegion: awsRegion
             )
 
             let configuration = try S3Client.Config(awsCredentialIdentityResolver: credentialsResolver, region: awsRegion)
