@@ -56,11 +56,24 @@ class LoginUserTests(PositiveOnlySocialTestCase):
         Tests that a correctly formatted but incorrect password fails.
         """
         data = self.valid_data.copy()
-        data['password'] = "CorrectFormatButWrongPassword123!"
+        data['password'] = "CorrectFormatButWrongPassword123$"
 
         response = self.client.post(self.url, data=data, content_type='application/json')
 
         self.assertEqual(response.status_code, 400)
+        self.assertEqual(response.json().get('error'), "Invalid username or password")
+
+    def test_unknown_username_or_email_returns_generic_bad_response(self):
+        """
+        Tests that an unknown account does not reveal whether the username/email exists.
+        """
+        data = self.valid_data.copy()
+        data['username_or_email'] = "UnknownUser123"
+
+        response = self.client.post(self.url, data=data, content_type='application/json')
+
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(response.json().get('error'), "Invalid username or password")
 
     def test_invalid_remember_me_returns_bad_response(self):
         """
