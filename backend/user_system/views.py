@@ -320,7 +320,7 @@ def login_user(request):
     if existing is not None:
         if not check_password(password, existing.password):
             logger.warning(f"Login failed: Password was not correct for user_id: {existing.id}")
-            return log_and_return_json("login_user", {'error': "Password was not correct"}, status=400)
+            return log_and_return_json("login_user", {'error': "Invalid username or password"}, status=400)
 
         login(request, existing)  # Logs into Django's session auth
 
@@ -342,7 +342,7 @@ def login_user(request):
         return log_and_return_json("login_user", response_data)
     else:
         logger.warning("Login failed: No user exists with that information")
-        return log_and_return_json("login_user", {'error': "No user exists with that information"}, status=400)
+        return log_and_return_json("login_user", {'error': "Invalid username or password"}, status=400)
 
 
 @csrf_exempt

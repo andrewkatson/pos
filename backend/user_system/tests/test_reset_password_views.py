@@ -147,7 +147,7 @@ class ResetPasswordTests(PositiveOnlySocialTestCase):
         }
         response = self.client.post(login_url, data=old_login_data, content_type='application/json')
         self.assertEqual(response.status_code, 400)
-        self.assertIn("Password was not correct", response.json().get('error', ''))
+        self.assertEqual(response.json().get('error'), "Invalid username or password")
 
         # b) Try to log in with the NEW password (should succeed)
         new_login_data = {
