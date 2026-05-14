@@ -332,7 +332,8 @@ def login_user(request):
         new_session = existing.session_set.create(management_token=generate_management_token(), ip=ip)
 
         response_data = {
-            Fields.session_management_token: new_session.management_token
+            Fields.session_management_token: new_session.management_token,
+            Fields.username: existing.username
         }
         if remember_me and new_login_cookie:
             response_data[Fields.series_identifier] = new_login_cookie.series_identifier

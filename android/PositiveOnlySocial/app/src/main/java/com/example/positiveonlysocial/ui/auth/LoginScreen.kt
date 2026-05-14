@@ -124,7 +124,7 @@ fun LoginScreen(
                                 if (response.isSuccessful) {
                                     val session = UserSession(
                                         sessionToken = response.body()?.sessionToken ?: "dummy_token",
-                                        username = usernameOrEmail,
+                                        username = response.body()?.username ?: usernameOrEmail,
                                         isIdentityVerified = false
                                     )
                                     authManager.login(session)

@@ -112,10 +112,12 @@ class LoginUserTests(PositiveOnlySocialTestCase):
         self.assertIn(Fields.series_identifier, fields)
         self.assertIn(Fields.login_cookie_token, fields)
         self.assertIn(Fields.session_management_token, fields)
+        self.assertIn(Fields.username, fields)
 
         self.assertTrue(is_valid_pattern(fields[Fields.series_identifier], Patterns.uuid4))
         self.assertTrue(is_valid_pattern(fields[Fields.login_cookie_token], Patterns.alphanumeric))
         self.assertTrue(is_valid_pattern(fields[Fields.session_management_token], Patterns.alphanumeric))
+        self.assertEqual(fields[Fields.username], self.local_username)
 
     def test_user_without_remember_me_and_with_username_returns_good_response(self):
         """
@@ -128,7 +130,9 @@ class LoginUserTests(PositiveOnlySocialTestCase):
 
         fields = response.json()
         self.assertIn(Fields.session_management_token, fields)
+        self.assertIn(Fields.username, fields)
         self.assertTrue(is_valid_pattern(fields[Fields.session_management_token], Patterns.alphanumeric))
+        self.assertEqual(fields[Fields.username], self.local_username)
 
         # Should not include "remember me" fields
         self.assertNotIn(Fields.login_cookie_token, fields)
@@ -150,10 +154,12 @@ class LoginUserTests(PositiveOnlySocialTestCase):
         self.assertIn(Fields.series_identifier, fields)
         self.assertIn(Fields.login_cookie_token, fields)
         self.assertIn(Fields.session_management_token, fields)
+        self.assertIn(Fields.username, fields)
 
         self.assertTrue(is_valid_pattern(fields[Fields.series_identifier], Patterns.uuid4))
         self.assertTrue(is_valid_pattern(fields[Fields.login_cookie_token], Patterns.alphanumeric))
         self.assertTrue(is_valid_pattern(fields[Fields.session_management_token], Patterns.alphanumeric))
+        self.assertEqual(fields[Fields.username], self.local_username)
 
     def test_user_without_remember_me_and_with_email_returns_good_response(self):
         """
@@ -168,7 +174,9 @@ class LoginUserTests(PositiveOnlySocialTestCase):
 
         fields = response.json()
         self.assertIn(Fields.session_management_token, fields)
+        self.assertIn(Fields.username, fields)
         self.assertTrue(is_valid_pattern(fields[Fields.session_management_token], Patterns.alphanumeric))
+        self.assertEqual(fields[Fields.username], self.local_username)
 
         self.assertNotIn(Fields.login_cookie_token, fields)
         self.assertNotIn(Fields.series_identifier, fields)
