@@ -50,6 +50,7 @@ struct MockedAPI: Networking {
     func register(username: String, email: String, password: String, rememberMe: String, ip: String, dateOfBirth: String) async throws -> Data {
         let response = LoginResponseFields(
             sessionManagementToken: "mock_session_token",
+            username: username,
             seriesIdentifier: "mock_series_id",
             loginCookieToken: "mock_login_cookie"
         )
@@ -59,6 +60,7 @@ struct MockedAPI: Networking {
     func loginUser(usernameOrEmail: String, password: String, rememberMe: String, ip: String) async throws -> Data {
         let response = LoginResponseFields(
             sessionManagementToken: "mock_session_token",
+            username: usernameOrEmail,
             seriesIdentifier: "mock_series_id",
             loginCookieToken: "mock_login_cookie"
         )
@@ -68,6 +70,7 @@ struct MockedAPI: Networking {
     func loginUserWithRememberMe(sessionManagementToken: String, seriesIdentifier: String, loginCookieToken: String, ip: String) async throws -> Data {
         let response = LoginResponseFields(
             sessionManagementToken: "new_mock_session",
+            username: "mock_user",
             seriesIdentifier: "mock_series_id",
             loginCookieToken: "new_mock_cookie"
         )
