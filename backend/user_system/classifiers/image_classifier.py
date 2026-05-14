@@ -66,6 +66,7 @@ def is_image_positive(image_url):
             return image_url == POSITIVE_IMAGE_URL
 
         # Download image from S3
+        logger.info(f"Fetching image from S3 with key: {key}")
         response = s3.get_object(Bucket=bucket_name, Key=key)
         image_data = response['Body'].read()
         image = Image.open(BytesIO(image_data))
