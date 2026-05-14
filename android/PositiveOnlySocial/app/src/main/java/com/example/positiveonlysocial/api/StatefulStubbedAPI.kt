@@ -149,7 +149,7 @@ class StatefulStubbedAPI : PositiveOnlySocialAPI {
             loginCookies.add(LoginCookieMock(seriesId, cookieToken, newUser.id))
         }
 
-        return Response.success(AuthResponse(sessionToken, seriesId, cookieToken))
+        return Response.success(AuthResponse(sessionToken, newUser.username, seriesId, cookieToken))
     }
 
     override suspend fun loginUser(request: LoginRequest): Response<AuthResponse> {
@@ -176,7 +176,7 @@ class StatefulStubbedAPI : PositiveOnlySocialAPI {
         // Auto-set the token for convenience in this stateful stub
         simulatedAuthToken = sessionToken
 
-        return Response.success(AuthResponse(sessionToken, seriesId, cookieToken))
+        return Response.success(AuthResponse(sessionToken, user.username, seriesId, cookieToken))
     }
 
     override suspend fun loginUserWithRememberMe(request: TokenRefreshRequest): Response<TokenRefreshResponse> {

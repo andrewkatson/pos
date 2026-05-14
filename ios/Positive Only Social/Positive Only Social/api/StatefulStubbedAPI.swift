@@ -168,15 +168,19 @@ final class StatefulStubbedAPI: Networking {
         if wantsRememberMe {
             let cookie = MockLoginCookie(seriesIdentifier: UUID().uuidString, token: generateToken(), userId: user.id)
             loginCookies.append(cookie)
-            struct Fields: Codable { let series_identifier, login_cookie_token, session_management_token: String }
+            struct Fields: Codable { let series_identifier, login_cookie_token, session_management_token, username: String }
             return try createSerializedResponse(fields: Fields(
                 series_identifier: cookie.seriesIdentifier,
                 login_cookie_token: cookie.token,
-                session_management_token: newSession.managementToken
+                session_management_token: newSession.managementToken,
+                username: user.username
             ))
         } else {
-            struct Fields: Codable { let session_management_token: String }
-            return try createSerializedResponse(fields: Fields(session_management_token: newSession.managementToken))
+            struct Fields: Codable { let session_management_token, username: String }
+            return try createSerializedResponse(fields: Fields(
+                session_management_token: newSession.managementToken,
+                username: user.username
+            ))
         }
     }
 
