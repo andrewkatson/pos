@@ -13,7 +13,7 @@ import Foundation
 /// Properties are optional since "remember me" tokens may not be present.
 struct LoginResponseFields: Codable {
     let sessionManagementToken: String
-    let username: String
+    let username: String?
     let seriesIdentifier: String?
     let loginCookieToken: String?
 
