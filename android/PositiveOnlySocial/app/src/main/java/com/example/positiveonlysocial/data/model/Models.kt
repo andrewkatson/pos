@@ -20,7 +20,7 @@ data class IdentityVerificationRequest(
 
 data class AuthResponse(
     @SerializedName("session_management_token") val sessionToken: String,
-    val username: String,
+    val username: String?,
     @SerializedName("series_identifier") val seriesIdentifier: String?,
     @SerializedName("login_cookie_token") val loginCookieToken: String?
 )
