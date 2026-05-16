@@ -4,7 +4,7 @@ from io import BytesIO
 from PIL import Image
 from ..classifiers.text_classifier import is_text_positive
 from ..classifiers.image_classifier import is_image_positive
-from ..classifiers.classifier_constants import POSITIVE_TEXT, POSITIVE_IMAGE_URL
+from ..classifiers.classifier_constants import POSITIVE_TEXT, POSITIVE_IMAGE_URL, TEXT_CLASSIFIER_PROMPT, IMAGE_CLASSIFIER_PROMPT
 from .test_parent_case import PositiveOnlySocialTestCase
 
 class TestClassifiers(PositiveOnlySocialTestCase):
@@ -119,3 +119,21 @@ class TestClassifiers(PositiveOnlySocialTestCase):
         # Test fallback
         self.assertTrue(is_image_positive(POSITIVE_IMAGE_URL))
         self.assertFalse(is_image_positive("random_image.png"))
+
+    def test_text_classifier_prompt_content(self):
+        for phrase in [
+            "neutral",
+            "sexually suggestive content",
+            "misinformation",
+            "begins sad but ends on a happy or hopeful note",
+        ]:
+            self.assertIn(phrase, TEXT_CLASSIFIER_PROMPT, msg=f"Missing in TEXT_CLASSIFIER_PROMPT: {phrase!r}")
+
+    def test_image_classifier_prompt_content(self):
+        for phrase in [
+            "neutral",
+            "sexually suggestive content",
+            "misinformation",
+            "begins sad but ends on a happy or hopeful note",
+        ]:
+            self.assertIn(phrase, IMAGE_CLASSIFIER_PROMPT, msg=f"Missing in IMAGE_CLASSIFIER_PROMPT: {phrase!r}")

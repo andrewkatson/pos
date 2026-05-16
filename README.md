@@ -5,7 +5,7 @@
 
 ## Overview
 
-Social media site that only allows "positive" text and image posts. The guidelines are as follows.
+Social media site that only allows positive or neutral text and image posts. The guidelines are as follows.
 
 1. No swear words
 2. No nudity

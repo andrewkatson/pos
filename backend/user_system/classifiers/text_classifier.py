@@ -1,7 +1,7 @@
 import os
 import logging
 from google import genai
-from .classifier_constants import POSITIVE_TEXT, GEMINI_MODEL
+from .classifier_constants import POSITIVE_TEXT, GEMINI_MODEL, TEXT_CLASSIFIER_PROMPT
 from ..utils import convert_to_bool
 
 logger = logging.getLogger(__name__)
@@ -28,21 +28,7 @@ def is_text_positive(text):
     try:
         client = genai.Client(api_key=api_key)
         
-        prompt = (
-            "Is the following text positive, neutral, or otherwise acceptable? "
-            "Text is acceptable if it follows these rules:\n"
-            "1. No swear words\n"
-            "2. No nudity\n"
-            "3. No sexually suggestive content\n"
-            "4. No gore\n"
-            "5. No hate speech\n"
-            "6. No harassment\n"
-            "7. No bullying\n"
-            "8. No misinformation\n"
-            "Neutral content is acceptable. Text that begins sad but ends on a happy or hopeful note is also acceptable.\n"
-            'Answer with only "True" or "False".\n\n'
-            f'Text: "{text}"'
-        )
+        prompt = TEXT_CLASSIFIER_PROMPT.format(text=text)
         
         response = client.models.generate_content(
             model=GEMINI_MODEL,

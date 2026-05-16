@@ -5,7 +5,7 @@ from google import genai
 from PIL import Image
 from io import BytesIO
 from urllib.parse import urlparse
-from .classifier_constants import POSITIVE_IMAGE_URL, GEMINI_MODEL
+from .classifier_constants import POSITIVE_IMAGE_URL, GEMINI_MODEL, IMAGE_CLASSIFIER_PROMPT
 from ..utils import convert_to_bool
 
 logger = logging.getLogger(__name__)
@@ -71,20 +71,7 @@ def is_image_positive(image_url):
         image_data = response['Body'].read()
         image = Image.open(BytesIO(image_data))
 
-        prompt = (
-            "Is this image positive, neutral, or otherwise acceptable? "
-            "An image is acceptable if it follows these rules:\n"
-            "1. No swear words\n"
-            "2. No nudity\n"
-            "3. No sexually suggestive content\n"
-            "4. No gore\n"
-            "5. No hate speech\n"
-            "6. No harassment\n"
-            "7. No bullying\n"
-            "8. No misinformation\n"
-            "Neutral content is acceptable. Content that begins sad but ends on a happy or hopeful note is also acceptable.\n"
-            'Answer with only "True" or "False".'
-        )
+        prompt = IMAGE_CLASSIFIER_PROMPT
         
         response = client.models.generate_content(
             model=GEMINI_MODEL,
