@@ -5,7 +5,7 @@ from google import genai
 from PIL import Image
 from io import BytesIO
 from urllib.parse import urlparse
-from .classifier_constants import POSITIVE_IMAGE_URL, GEMINI_MODEL
+from .classifier_constants import POSITIVE_IMAGE_URL, GEMINI_MODEL, IMAGE_CLASSIFIER_PROMPT
 from ..utils import convert_to_bool
 
 logger = logging.getLogger(__name__)
@@ -71,17 +71,7 @@ def is_image_positive(image_url):
         image_data = response['Body'].read()
         image = Image.open(BytesIO(image_data))
 
-        prompt = (
-            "Is this image positive, happy or otherwise makes the user feel good? "
-            "To be considered positive, it must follow these rules:\n"
-            "1. No swear words\n"
-            "2. No nudity\n"
-            "3. No gore\n"
-            "4. No hate speech\n"
-            "5. No harassment\n"
-            "6. No bullying\n"
-            'Answer with only "True" or "False".'
-        )
+        prompt = IMAGE_CLASSIFIER_PROMPT
         
         response = client.models.generate_content(
             model=GEMINI_MODEL,

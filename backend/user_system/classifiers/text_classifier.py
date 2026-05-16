@@ -1,7 +1,7 @@
 import os
 import logging
 from google import genai
-from .classifier_constants import POSITIVE_TEXT, GEMINI_MODEL
+from .classifier_constants import POSITIVE_TEXT, GEMINI_MODEL, TEXT_CLASSIFIER_PROMPT
 from ..utils import convert_to_bool
 
 logger = logging.getLogger(__name__)
@@ -28,18 +28,7 @@ def is_text_positive(text):
     try:
         client = genai.Client(api_key=api_key)
         
-        prompt = (
-            "Is the following text positive, happy or otherwise makes the user feel good? "
-            "To be considered positive, it must follow these rules:\n"
-            "1. No swear words\n"
-            "2. No nudity\n"
-            "3. No gore\n"
-            "4. No hate speech\n"
-            "5. No harassment\n"
-            "6. No bullying\n"
-            'Answer with only "True" or "False".\n\n'
-            f'Text: "{text}"'
-        )
+        prompt = TEXT_CLASSIFIER_PROMPT.format(text=text)
         
         response = client.models.generate_content(
             model=GEMINI_MODEL,
