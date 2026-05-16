@@ -13,11 +13,13 @@ import Foundation
 /// Properties are optional since "remember me" tokens may not be present.
 struct LoginResponseFields: Codable {
     let sessionManagementToken: String
+    let username: String?
     let seriesIdentifier: String?
     let loginCookieToken: String?
 
     enum CodingKeys: String, CodingKey {
         case sessionManagementToken = "session_management_token"
+        case username
         case seriesIdentifier = "series_identifier"
         case loginCookieToken = "login_cookie_token"
     }
