@@ -9,9 +9,13 @@ Social media site that only allows "positive" text and image posts. The guidelin
 
 1. No swear words
 2. No nudity
-3. No gore
-4. No hate speech
-5. No harassment
-6. No bullying
+3. No sexually suggestive content
+4. No gore
+5. No hate speech
+6. No harassment
+7. No bullying
+8. No misinformation
+
+Neutral content is allowed. Content that starts sad but ends on a happy or hopeful note is also allowed.
 
 These will be updated as time goes on.

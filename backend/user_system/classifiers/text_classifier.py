@@ -29,14 +29,17 @@ def is_text_positive(text):
         client = genai.Client(api_key=api_key)
         
         prompt = (
-            "Is the following text positive, happy or otherwise makes the user feel good? "
-            "To be considered positive, it must follow these rules:\n"
+            "Is the following text positive, neutral, or otherwise acceptable? "
+            "Text is acceptable if it follows these rules:\n"
             "1. No swear words\n"
             "2. No nudity\n"
-            "3. No gore\n"
-            "4. No hate speech\n"
-            "5. No harassment\n"
-            "6. No bullying\n"
+            "3. No sexually suggestive content\n"
+            "4. No gore\n"
+            "5. No hate speech\n"
+            "6. No harassment\n"
+            "7. No bullying\n"
+            "8. No misinformation\n"
+            "Neutral content is acceptable. Text that begins sad but ends on a happy or hopeful note is also acceptable.\n"
             'Answer with only "True" or "False".\n\n'
             f'Text: "{text}"'
         )
