@@ -3,6 +3,8 @@ NEGATIVE_IMAGE_URL = 'https://test-bucket.s3.amazonaws.com/negative_image_url.pn
 POSITIVE_TEXT = 'positive'
 NEGATIVE_TEXT = 'negative'
 GEMINI_MODEL = 'gemini-2.5-flash'
+CLAUDE_MODEL = 'claude-haiku-4-5-20251001'
+OPENAI_MODEL = 'gpt-4o-mini'
 
 _CONTENT_RULES = (
     "1. No swear words\n"

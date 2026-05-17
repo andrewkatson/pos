@@ -1,5 +1,7 @@
+anthropic
 boto3
 google-genai
+openai
 Pillow
 django
 pytest
