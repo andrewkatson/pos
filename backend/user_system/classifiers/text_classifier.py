@@ -21,13 +21,17 @@ def is_text_positive(text):
     available_apis = get_available_apis()
 
     def call_api(api_name):
+        api_mapping = {
+            API_GEMINI: call_text_gemini,
+            API_CLAUDE: call_text_claude,
+            API_OPENAI: call_text_openai,
+        }
         try:
-            if api_name == API_GEMINI:
-                return call_text_gemini(text, TEXT_CLASSIFIER_PROMPT)
-            if api_name == API_CLAUDE:
-                return call_text_claude(text, TEXT_CLASSIFIER_PROMPT)
-            if api_name == API_OPENAI:
-                return call_text_openai(text, TEXT_CLASSIFIER_PROMPT)
+            api_func = api_mapping.get(api_name)
+            if not api_func:
+                logger.error("Unsupported API name: %s", api_name)
+                return False
+            return api_func(text, TEXT_CLASSIFIER_PROMPT)
         except Exception:
             logger.exception("Error calling %s API for text classification", api_name)
             return False

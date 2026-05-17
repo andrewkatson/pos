@@ -16,14 +16,12 @@ API_OPENAI = 'openai'
 
 
 def get_available_apis():
-    available = []
-    if os.environ.get('GEMINI_API_KEY'):
-        available.append(API_GEMINI)
-    if os.environ.get('ANTHROPIC_API_KEY'):
-        available.append(API_CLAUDE)
-    if os.environ.get('OPENAI_API_KEY'):
-        available.append(API_OPENAI)
-    return available
+    api_mapping = {
+        'GEMINI_API_KEY': API_GEMINI,
+        'ANTHROPIC_API_KEY': API_CLAUDE,
+        'OPENAI_API_KEY': API_OPENAI,
+    }
+    return [api for env_var, api in api_mapping.items() if os.environ.get(env_var)]
 
 
 def classify_with_voting(available_apis, call_fn):

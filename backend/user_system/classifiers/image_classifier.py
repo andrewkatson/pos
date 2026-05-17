@@ -67,13 +67,17 @@ def is_image_positive(image_url):
         image = Image.open(BytesIO(image_data))
 
         def call_api(api_name):
+            api_mapping = {
+                API_GEMINI: call_image_gemini,
+                API_CLAUDE: call_image_claude,
+                API_OPENAI: call_image_openai,
+            }
             try:
-                if api_name == API_GEMINI:
-                    return call_image_gemini(image, IMAGE_CLASSIFIER_PROMPT)
-                if api_name == API_CLAUDE:
-                    return call_image_claude(image, IMAGE_CLASSIFIER_PROMPT)
-                if api_name == API_OPENAI:
-                    return call_image_openai(image, IMAGE_CLASSIFIER_PROMPT)
+                api_func = api_mapping.get(api_name)
+                if not api_func:
+                    logger.error("Unsupported API name: %s", api_name)
+                    return False
+                return api_func(image, IMAGE_CLASSIFIER_PROMPT)
             except Exception:
                 logger.exception("Error calling %s API for image classification", api_name)
                 return False
