@@ -2,9 +2,7 @@ import os
 import logging
 from .classifier_constants import TEXT_CLASSIFIER_PROMPT
 from .classifier_utils import (
-    get_available_apis, classify_with_voting,
-    call_text_gemini, call_text_claude, call_text_openai,
-    API_GEMINI, API_CLAUDE, API_OPENAI,
+    get_available_apis, classify_with_voting, TEXT_API_DISPATCH,
 )
 from ..utils import convert_to_bool
 
@@ -21,13 +19,8 @@ def is_text_positive(text):
     available_apis = get_available_apis()
 
     def call_api(api_name):
-        api_mapping = {
-            API_GEMINI: call_text_gemini,
-            API_CLAUDE: call_text_claude,
-            API_OPENAI: call_text_openai,
-        }
         try:
-            api_func = api_mapping.get(api_name)
+            api_func = TEXT_API_DISPATCH.get(api_name)
             if not api_func:
                 logger.error("Unsupported API name: %s", api_name)
                 return False
