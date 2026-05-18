@@ -17,13 +17,15 @@ import com.example.positiveonlysocial.data.security.KeychainHelperProtocol
 import com.example.positiveonlysocial.ui.navigation.Screen
 import com.example.positiveonlysocial.ui.theme.PositiveOnlySocialTheme
 import kotlinx.coroutines.launch
+import org.json.JSONObject
 
 @Composable
 fun VerifyResetScreen(
     navController: NavController,
     api: PositiveOnlySocialAPI,
     keychainHelper: KeychainHelperProtocol,
-    usernameOrEmail: String
+    usernameOrEmail: String,
+    onVerified: (String) -> Unit
 ) {
     PositiveOnlySocialTheme {
         var pin by remember { mutableStateOf("") }
@@ -56,7 +58,7 @@ fun VerifyResetScreen(
                 text = "Verify Your Identity",
                 style = MaterialTheme.typography.headlineSmall
             )
-            
+
             Text(
                 text = "Enter the 6-digit PIN sent to $usernameOrEmail.",
                 style = MaterialTheme.typography.bodyMedium
@@ -94,6 +96,14 @@ fun VerifyResetScreen(
 
                             try {
                                 val response = api.verifyReset(usernameOrEmail = usernameOrEmail, resetId = resetId)
+                                if (!response.isSuccessful) {
+                                    val backendError = response.errorBody()?.string()
+                                        ?.let { runCatching { JSONObject(it).getString("error") }.getOrNull() }
+                                    errorMessage = backendError ?: "Invalid PIN or an unknown error occurred."
+                                    showingErrorAlert = true
+                                    isLoading = false
+                                    return@launch
+                                }
                                 val resetToken = response.body()?.resetToken
                                 if (resetToken == null) {
                                     errorMessage = "Verification failed: no reset token received."
@@ -101,7 +111,8 @@ fun VerifyResetScreen(
                                     isLoading = false
                                     return@launch
                                 }
-                                navController.navigate(Screen.ResetPassword.createRoute(usernameOrEmail, resetToken))
+                                onVerified(resetToken)
+                                navController.navigate(Screen.ResetPassword.createRoute(usernameOrEmail))
                             } catch (e: Exception) {
                                 errorMessage = "Invalid PIN or an unknown error occurred."
                                 showingErrorAlert = true
@@ -127,6 +138,7 @@ fun VerifyResetScreenPreview() {
         navController = rememberNavController(),
         api = PreviewHelpers.mockApi,
         keychainHelper = PreviewHelpers.mockKeychainHelper,
-        usernameOrEmail = "test@example.com"
+        usernameOrEmail = "test@example.com",
+        onVerified = {}
     )
 }

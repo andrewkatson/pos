@@ -1,10 +1,11 @@
 from django.urls import reverse
+from django.utils import timezone
+from datetime import timedelta
 from unittest.mock import patch
 
 from ..constants import Fields
 from .test_constants import username, password, false, ip
 from .test_parent_case import PositiveOnlySocialTestCase
-# Import the user model to check the reset_id
 from ..models import PositiveOnlySocialUser
 
 import os
@@ -163,6 +164,63 @@ class ResetPasswordTests(PositiveOnlySocialTestCase):
         response = self.client.post(login_url, data=new_login_data, content_type='application/json')
         self.assertEqual(response.status_code, 200)
         self.assertIn(Fields.session_management_token, response.json())
+
+    @patch.dict(os.environ, {"TESTING": "True"}, clear=True)
+    def test_expired_reset_token_rejected(self):
+        """
+        Tests that reset_password is rejected when the reset token has expired.
+        """
+        # 1. Request and verify reset to get a valid token
+        self.client.post(reverse('request_reset'), data={'username_or_email': self.local_username}, content_type='application/json')
+        user = PositiveOnlySocialUser.objects.get(username=self.local_username)
+        verify_url = reverse('verify_reset', kwargs={'username_or_email': self.local_username, 'reset_id': user.reset_id})
+        response = self.client.get(verify_url)
+        self.assertEqual(response.status_code, 200)
+        reset_token = response.json().get('reset_token')
+
+        # 2. Manually expire the token
+        user.refresh_from_db()
+        user.reset_token_expires = timezone.now() - timedelta(minutes=1)
+        user.save()
+
+        # 3. Attempt to reset password with the expired token
+        reset_url = reverse('reset_password')
+        response = self.client.post(reset_url, data={
+            'username': self.local_username,
+            'email': self.local_email,
+            'password': f'new_{password}_{self.prefix}!',
+            'reset_token': reset_token
+        }, content_type='application/json')
+
+        self.assertEqual(response.status_code, 400)
+        self.assertIn("expired", response.json().get('error', ''))
+
+    @patch.dict(os.environ, {"TESTING": "True"}, clear=True)
+    def test_reset_token_is_single_use(self):
+        """
+        Tests that the reset token cannot be reused after a successful password reset.
+        """
+        new_password = f'new_{password}_{self.prefix}!'
+
+        # 1. Full reset flow
+        self.client.post(reverse('request_reset'), data={'username_or_email': self.local_username}, content_type='application/json')
+        user = PositiveOnlySocialUser.objects.get(username=self.local_username)
+        verify_url = reverse('verify_reset', kwargs={'username_or_email': self.local_username, 'reset_id': user.reset_id})
+        response = self.client.get(verify_url)
+        reset_token = response.json().get('reset_token')
+
+        reset_url = reverse('reset_password')
+        reset_data = {'username': self.local_username, 'email': self.local_email, 'password': new_password, 'reset_token': reset_token}
+        response = self.client.post(reset_url, data=reset_data, content_type='application/json')
+        self.assertEqual(response.status_code, 200)
+
+        # 2. Attempt a second reset with the same token
+        second_password = f'second_{password}_{self.prefix}!'
+        reset_data['password'] = second_password
+        response = self.client.post(reset_url, data=reset_data, content_type='application/json')
+
+        self.assertEqual(response.status_code, 400)
+        self.assertIn("Invalid reset token", response.json().get('error', ''))
 
     @patch.dict(os.environ, {"TESTING": "True"}, clear=True)
     def test_reset_password_without_verify_step_fails(self):

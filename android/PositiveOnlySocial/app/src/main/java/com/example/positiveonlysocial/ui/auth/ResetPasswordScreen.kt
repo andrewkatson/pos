@@ -19,6 +19,7 @@ import com.example.positiveonlysocial.data.security.KeychainHelperProtocol
 import com.example.positiveonlysocial.ui.navigation.Screen
 import com.example.positiveonlysocial.ui.theme.PositiveOnlySocialTheme
 import kotlinx.coroutines.launch
+import org.json.JSONObject
 
 @Composable
 fun ResetPasswordScreen(
@@ -147,18 +148,16 @@ fun ResetPasswordScreen(
                                     password = newPassword,
                                     resetToken = resetToken
                                 )
-                                api.resetPassword(
-                                    request = request
-                                )
-                                // On success, navigate to Home (or Login, but Swift goes to Home so let's assume auto-login or just Home)
-                                // Swift code: didResetSuccessfully = true -> HomeView
-                                // We should probably navigate to Login to be safe or Home if we can auto-login.
-                                // The Swift code implies it logs in or just goes to Home. 
-                                // Let's go to Home for now to match Swift behavior, but note we might not have a session.
-                                // Actually, without a session token, Home might fail. 
-                                // But let's follow the Swift flow.
-                                navController.navigate(Screen.Home.route) {
-                                    popUpTo(Screen.Login.route) { inclusive = true }
+                                val response = api.resetPassword(request = request)
+                                if (!response.isSuccessful) {
+                                    val backendError = response.errorBody()?.string()
+                                        ?.let { runCatching { JSONObject(it).getString("error") }.getOrNull() }
+                                    errorMessage = backendError ?: "Password reset failed. Please try again."
+                                    showingErrorAlert = true
+                                } else {
+                                    navController.navigate(Screen.Home.route) {
+                                        popUpTo(Screen.Login.route) { inclusive = true }
+                                    }
                                 }
                             } catch (e: Exception) {
                                 errorMessage = e.localizedMessage ?: "An unknown error occurred."

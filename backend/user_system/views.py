@@ -1,3 +1,4 @@
+import hashlib
 import json
 import logging
 import secrets
@@ -9,6 +10,7 @@ from django.conf import settings
 from django.contrib.auth import login, logout, get_user_model
 from django.contrib.auth.hashers import check_password
 from django.core.mail import send_mail
+from django.db import transaction
 from django.http import JsonResponse
 from django.utils import timezone
 from django.views.decorators.csrf import csrf_exempt
@@ -505,12 +507,15 @@ def verify_reset(request, username_or_email, reset_id):
     if user is not None:
         # Ensure types match for comparison
         if user.reset_id == int(reset_id) and user.reset_id >= 0:
+            token = secrets.token_hex(32)
             user.reset_id = -1
-            user.reset_token = secrets.token_hex(32)
+            user.reset_token = hashlib.sha256(token.encode()).hexdigest()
             user.reset_token_expires = timezone.now() + timedelta(minutes=15)
             user.save()
             logger.info(f"Password reset verification successful for user_id: {user.id}")
-            return log_and_return_json("verify_reset", {'message': 'Verification successful', 'reset_token': user.reset_token})
+            response = log_and_return_json("verify_reset", {'message': 'Verification successful', 'reset_token': token})
+            response['Cache-Control'] = 'no-store'
+            return response
         else:
             logger.warning(f"Password reset verification failed: Reset ID mismatch for user_id: {user.id}")
             return log_and_return_json("verify_reset", {'error': "That reset id does not match"}, status=400)
@@ -539,7 +544,7 @@ def reset_password(request):
         invalid_fields.append(Params.email)
     if not password or not is_valid_pattern(password, Patterns.password):
         invalid_fields.append(Params.password)
-    if not reset_token:
+    if not reset_token or not isinstance(reset_token, str):
         invalid_fields.append(Params.reset_token)
 
     if len(invalid_fields) > 0:
@@ -553,24 +558,29 @@ def reset_password(request):
     if not text_classifier_class.is_text_positive(password):
         return log_and_return_json("reset_password", {'error': "Password is not positive"}, status=400)
 
-    user = get_user_with_username_and_email(username, email)
-    if user is None:
+    submitted_digest = hashlib.sha256(reset_token.encode()).hexdigest()
+
+    try:
+        with transaction.atomic():
+            user = get_user_model().objects.select_for_update().get(username=username, email=email)
+
+            if not user.reset_token or not secrets.compare_digest(user.reset_token, submitted_digest):
+                logger.warning(f"Password reset failed: Invalid reset token for user_id: {user.id}")
+                return log_and_return_json("reset_password", {'error': "Invalid reset token"}, status=400)
+
+            if user.reset_token_expires is None or timezone.now() > user.reset_token_expires:
+                logger.warning(f"Password reset failed: Expired reset token for user_id: {user.id}")
+                return log_and_return_json("reset_password", {'error': "Reset token has expired"}, status=400)
+
+            user.set_password(password)
+            user.reset_token = None
+            user.reset_token_expires = None
+            user.save()
+    except get_user_model().DoesNotExist:
         logger.warning("Password reset failed: No user with that username or email")
         return log_and_return_json("reset_password", {'error': "No user with that username or email"}, status=400)
 
-    if not user.reset_token or not secrets.compare_digest(user.reset_token, reset_token):
-        logger.warning(f"Password reset failed: Invalid reset token for user_id: {user.id}")
-        return log_and_return_json("reset_password", {'error': "Invalid reset token"}, status=400)
-
-    if user.reset_token_expires is None or timezone.now() > user.reset_token_expires:
-        logger.warning(f"Password reset failed: Expired reset token for user_id: {user.id}")
-        return log_and_return_json("reset_password", {'error': "Reset token has expired"}, status=400)
-
-    user.set_password(password)
-    user.reset_token = None
-    user.reset_token_expires = None
-    user.save()
-    logger.info(f"Password reset successful for user_id: {user.id}")
+    logger.info("Password reset successful")
     return log_and_return_json("reset_password", {'message': 'Password reset successfully'})
 
 
