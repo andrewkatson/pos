@@ -508,7 +508,11 @@ def verify_reset(request):
             not is_valid_pattern(username_or_email, Patterns.alphanumeric) and
             not is_valid_pattern(username_or_email, Patterns.email)):
         invalid_fields.append(Params.username_or_email)
-    if not verification_token or not isinstance(verification_token, str):
+    _URLSAFE_TOKEN_LEN = 43
+    _URLSAFE_TOKEN_CHARS = frozenset('ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789_-')
+    if (not verification_token or not isinstance(verification_token, str)
+            or len(verification_token) != _URLSAFE_TOKEN_LEN
+            or not all(c in _URLSAFE_TOKEN_CHARS for c in verification_token)):
         invalid_fields.append(Params.verification_token)
 
     if len(invalid_fields) > 0:
@@ -575,14 +579,6 @@ def reset_password(request):
     if len(invalid_fields) > 0:
         return log_and_return_json("reset_password", {'error': f"Invalid fields {invalid_fields}"}, status=400)
 
-    # Classify text fields for positivity
-    if not text_classifier_class.is_text_positive(username):
-        return log_and_return_json("reset_password", {'error': "Username is not positive"}, status=400)
-    if not text_classifier_class.is_text_positive(email):
-        return log_and_return_json("reset_password", {'error': "Email is not positive"}, status=400)
-    if not text_classifier_class.is_text_positive(password):
-        return log_and_return_json("reset_password", {'error': "Password is not positive"}, status=400)
-
     submitted_digest = hashlib.sha256(reset_token.encode()).hexdigest()
 
     try:
@@ -596,6 +592,10 @@ def reset_password(request):
             if user.reset_token_expires is None or timezone.now() > user.reset_token_expires:
                 logger.warning(f"Password reset failed: Expired reset token for user_id: {user.id}")
                 return log_and_return_json("reset_password", {'error': "Reset token has expired"}, status=400)
+
+            # Only run the classifier for an authenticated (token-verified) reset request.
+            if not text_classifier_class.is_text_positive(password):
+                return log_and_return_json("reset_password", {'error': "Password is not positive"}, status=400)
 
             user.set_password(password)
             user.reset_token = None

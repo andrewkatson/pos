@@ -9,7 +9,7 @@ from unittest.mock import patch
 from ..constants import Fields
 from .test_constants import username, password, false, ip
 from .test_parent_case import PositiveOnlySocialTestCase
-from ..models import PositiveOnlySocialUser
+from ..models import LoginCookie, PositiveOnlySocialUser, Session
 
 import os
 
@@ -224,37 +224,42 @@ class ResetPasswordTests(PositiveOnlySocialTestCase):
         self.assertIn("Invalid reset token", response.json().get('error', ''))
 
     @patch.dict(os.environ, {"TESTING": "True"}, clear=True)
-    def test_reset_password_non_positive_username_fails(self):
-        url = reverse('reset_password')
-        response = self.client.post(url, data={
-            'username': 'negative_user_reset',
-            'email': self.local_email,
-            'password': 'Positive_Password123!',
-            'reset_token': FAKE_HEX_TOKEN,
-        }, content_type='application/json')
-        self.assertEqual(response.status_code, 400)
-        self.assertIn("Username is not positive", response.json().get('error', ''))
-
-    @patch.dict(os.environ, {"TESTING": "True"}, clear=True)
-    def test_reset_password_non_positive_email_fails(self):
-        url = reverse('reset_password')
-        response = self.client.post(url, data={
-            'username': self.local_username,
-            'email': 'negative_email@email.com',
-            'password': 'Positive_Password123!',
-            'reset_token': FAKE_HEX_TOKEN,
-        }, content_type='application/json')
-        self.assertEqual(response.status_code, 400)
-        self.assertIn("Email is not positive", response.json().get('error', ''))
-
-    @patch.dict(os.environ, {"TESTING": "True"}, clear=True)
     def test_reset_password_non_positive_password_fails(self):
-        url = reverse('reset_password')
-        response = self.client.post(url, data={
+        """New password positivity is checked after token validation; needs a real token."""
+        reset_token = self._do_full_verify()
+        response = self.client.post(reverse('reset_password'), data={
             'username': self.local_username,
             'email': self.local_email,
             'password': 'Negative_Password_123!',
-            'reset_token': FAKE_HEX_TOKEN,
+            'reset_token': reset_token,
         }, content_type='application/json')
         self.assertEqual(response.status_code, 400)
         self.assertIn("Password is not positive", response.json().get('error', ''))
+
+    @patch.dict(os.environ, {"TESTING": "True"}, clear=True)
+    def test_session_and_cookie_invalidated_after_reset(self):
+        """Active sessions and remember-me cookies must be wiped when a password is reset."""
+        login_url = reverse('login_user')
+        login_response = self.client.post(login_url, data={
+            'username_or_email': self.local_username,
+            'password': self.local_password,
+            'remember_me': 'true',
+            'ip': ip,
+        }, content_type='application/json')
+        self.assertEqual(login_response.status_code, 200)
+
+        user = PositiveOnlySocialUser.objects.get(username=self.local_username)
+        self.assertGreater(Session.objects.filter(management_user=user).count(), 0)
+        self.assertGreater(LoginCookie.objects.filter(cookie_user=user).count(), 0)
+
+        reset_token = self._do_full_verify()
+        response = self.client.post(reverse('reset_password'), data={
+            'username': self.local_username,
+            'email': self.local_email,
+            'password': f'new_{password}_{self.prefix}!',
+            'reset_token': reset_token,
+        }, content_type='application/json')
+        self.assertEqual(response.status_code, 200)
+
+        self.assertEqual(Session.objects.filter(management_user=user).count(), 0)
+        self.assertEqual(LoginCookie.objects.filter(cookie_user=user).count(), 0)

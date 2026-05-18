@@ -554,13 +554,13 @@ final class Positive_Only_SocialUITests: XCTestCase {
         
         // Assert we are on the verify reset view
         XCTAssertTrue(app.buttons["VerifyButton"].waitForExistence(timeout: TestConstants.shortTimeout), "Verify button should exist")
-        XCTAssertTrue(app.textFields["6DigitPinTextField"].waitForExistence(timeout: TestConstants.shortTimeout), "6 Digit pin field should exist")
-        
-        let sixDigitPinTextField = app.textFields["6DigitPinTextField"]
-        XCTAssertTrue(sixDigitPinTextField.waitForExistence(timeout: TestConstants.shortTimeout))
-        sixDigitPinTextField.tap()
-        // We hardcode the test value in StatefulStubbedAPI
-        typeText(element: sixDigitPinTextField, text: "100000")
+        XCTAssertTrue(app.textFields["VerificationTokenTextField"].waitForExistence(timeout: TestConstants.shortTimeout), "Verification token field should exist")
+
+        let verificationTokenTextField = app.textFields["VerificationTokenTextField"]
+        XCTAssertTrue(verificationTokenTextField.waitForExistence(timeout: TestConstants.shortTimeout))
+        verificationTokenTextField.tap()
+        // The stub value is set in StatefulStubbedAPI.requestPasswordReset
+        typeText(element: verificationTokenTextField, text: "stub_verification_token_\(testUsername)")
         
         let verifyButton = app.buttons["VerifyButton"]
         XCTAssertTrue(verifyButton.waitForExistence(timeout: TestConstants.shortTimeout))
