@@ -1,6 +1,7 @@
 package com.example.positiveonlysocial.ui.navigation
 
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -58,7 +59,18 @@ fun NavGraph(
             arguments = listOf(navArgument("usernameOrEmail") { type = NavType.StringType })
         ) { backStackEntry ->
             val usernameOrEmail = backStackEntry.arguments?.getString("usernameOrEmail") ?: ""
-            ResetPasswordScreen(navController, api, keychainHelper, usernameOrEmail, pendingResetToken)
+            // Guard: if the token was lost (e.g. process death), send the user back to Login
+            // so they restart the flow rather than landing on a broken screen.
+            LaunchedEffect(pendingResetToken) {
+                if (pendingResetToken.isEmpty()) {
+                    navController.navigate(Screen.Login.route) {
+                        popUpTo(Screen.RequestReset.route) { inclusive = true }
+                    }
+                }
+            }
+            if (pendingResetToken.isNotEmpty()) {
+                ResetPasswordScreen(navController, api, keychainHelper, usernameOrEmail, pendingResetToken)
+            }
         }
 
         // Main App Flow

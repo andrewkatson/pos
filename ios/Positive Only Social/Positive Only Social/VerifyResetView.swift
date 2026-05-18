@@ -9,7 +9,11 @@ import SwiftUI
 import Combine
 
 private struct VerifyResetResponse: Decodable {
-    let reset_token: String?
+    let resetToken: String?
+
+    enum CodingKeys: String, CodingKey {
+        case resetToken = "reset_token"
+    }
 }
 
 // Handles the 'verify_reset' flow.
@@ -75,7 +79,7 @@ struct VerifyResetView: View {
         do {
             let data = try await api.verifyPasswordReset(usernameOrEmail: usernameOrEmail, verificationToken: verificationToken)
             let response = try JSONDecoder().decode(VerifyResetResponse.self, from: data)
-            guard let token = response.reset_token else {
+            guard let token = response.resetToken else {
                 errorMessage = "Verification failed: no reset token received."
                 showingErrorAlert = true
                 isLoading = false

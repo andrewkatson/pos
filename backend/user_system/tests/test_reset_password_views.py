@@ -1,3 +1,5 @@
+import hashlib
+
 from django.core import mail
 from django.urls import reverse
 from django.utils import timezone
@@ -62,8 +64,10 @@ class ResetPasswordTests(PositiveOnlySocialTestCase):
 
     def test_request_reset_stores_verification_token_hash(self):
         self._request_reset()
+        emailed_token = _get_verification_token_from_email()
         user = PositiveOnlySocialUser.objects.get(username=self.local_username)
-        self.assertIsNotNone(user.verification_token)
+        expected_hash = hashlib.sha256(emailed_token.encode()).hexdigest()
+        self.assertEqual(user.verification_token, expected_hash)
         self.assertIsNotNone(user.verification_token_expires)
         self.assertGreater(user.verification_token_expires, timezone.now())
 

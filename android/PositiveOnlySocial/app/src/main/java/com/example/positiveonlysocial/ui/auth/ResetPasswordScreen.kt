@@ -155,8 +155,8 @@ fun ResetPasswordScreen(
                                     errorMessage = backendError ?: "Password reset failed. Please try again."
                                     showingErrorAlert = true
                                 } else {
-                                    navController.navigate(Screen.Home.route) {
-                                        popUpTo(Screen.Login.route) { inclusive = true }
+                                    navController.navigate(Screen.Login.route) {
+                                        popUpTo(Screen.Welcome.route) { inclusive = false }
                                     }
                                 }
                             } catch (e: Exception) {
@@ -170,7 +170,7 @@ fun ResetPasswordScreen(
                     modifier = Modifier.fillMaxWidth(),
                     enabled = isFormValid
                 ) {
-                    Text("Reset Password and Login")
+                    Text("Reset Password")
                 }
             }
         }
