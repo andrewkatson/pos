@@ -284,7 +284,7 @@ class StatefulStubbedAPI : PositiveOnlySocialAPI {
             user.resetToken = token
             return Response.success(VerifyResetResponse("Verification successful", null, token))
         }
-        return error(404, "That reset id does not match")
+        return errorGeneric(404, "That reset id does not match")
     }
 
     override suspend fun resetPassword(request: PasswordResetSubmitRequest): Response<GenericResponse> {
