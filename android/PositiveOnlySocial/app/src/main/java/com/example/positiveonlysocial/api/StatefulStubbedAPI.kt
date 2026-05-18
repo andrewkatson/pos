@@ -48,6 +48,7 @@ class StatefulStubbedAPI : PositiveOnlySocialAPI {
         val email: String,
         var passwordHash: String, // Storing plain text for stub simplicity, or simple hash
         var resetId: Int = -1,
+        var resetToken: String? = null,
         val following: MutableList<String> = mutableListOf(), // List of User IDs
         val followers: MutableList<String> = mutableListOf(),
         var isVerified: Boolean = false,
@@ -275,22 +276,25 @@ class StatefulStubbedAPI : PositiveOnlySocialAPI {
         return error(404, "No user found with that username or email")
     }
 
-    override suspend fun verifyReset(usernameOrEmail: String, resetId: Int): Response<GenericResponse> {
+    override suspend fun verifyReset(usernameOrEmail: String, resetId: Int): Response<VerifyResetResponse> {
         val user = users.find { it.username == usernameOrEmail || it.email == usernameOrEmail }
         if (user != null && user.resetId == resetId && user.resetId != -1) {
-            user.resetId = -1 // Invalidate
-            return Response.success(GenericResponse("Verification successful", null))
+            val token = "stub_reset_token_${user.username}"
+            user.resetId = -1
+            user.resetToken = token
+            return Response.success(VerifyResetResponse("Verification successful", null, token))
         }
         return error(404, "That reset id does not match")
     }
 
     override suspend fun resetPassword(request: PasswordResetSubmitRequest): Response<GenericResponse> {
         val user = users.find { it.username == request.username && it.email == request.email }
-        if (user != null) {
+        if (user != null && user.resetToken != null && user.resetToken == request.resetToken) {
             user.passwordHash = request.password
+            user.resetToken = null
             return Response.success(GenericResponse("Password reset successfully", null))
         }
-        return error(404, "No user with that username or email")
+        return error(400, "Invalid reset token or no user with that username or email")
     }
 
     // ============================================================================================

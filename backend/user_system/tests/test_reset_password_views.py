@@ -59,7 +59,8 @@ class ResetPasswordTests(PositiveOnlySocialTestCase):
         data = {
             'username': non_existent_username,
             'email': self.local_email,
-            'password': new_password
+            'password': new_password,
+            'reset_token': 'dummy_token'
         }
 
         response = self.client.post(url, data=data, content_type='application/json')
@@ -118,6 +119,8 @@ class ResetPasswordTests(PositiveOnlySocialTestCase):
         })
         response = self.client.get(verify_url)
         self.assertEqual(response.status_code, 200)
+        reset_token = response.json().get('reset_token')
+        self.assertIsNotNone(reset_token)
 
         # Check that the reset_id was invalidated
         user.refresh_from_db()
@@ -129,7 +132,8 @@ class ResetPasswordTests(PositiveOnlySocialTestCase):
         reset_data = {
             'username': self.local_username,
             'email': self.local_email,
-            'password': new_password
+            'password': new_password,
+            'reset_token': reset_token
         }
         response = self.client.post(reset_url, data=reset_data, content_type='application/json')
         self.assertEqual(response.status_code, 200)
@@ -161,6 +165,26 @@ class ResetPasswordTests(PositiveOnlySocialTestCase):
         self.assertIn(Fields.session_management_token, response.json())
 
     @patch.dict(os.environ, {"TESTING": "True"}, clear=True)
+    def test_reset_password_without_verify_step_fails(self):
+        """
+        Tests that reset_password is rejected when verify_reset was never completed
+        (i.e., no valid reset_token was issued).
+        """
+        new_password = f'new_{password}_{self.prefix}!'
+        url = reverse('reset_password')
+        data = {
+            'username': self.local_username,
+            'email': self.local_email,
+            'password': new_password,
+            'reset_token': 'fake_token_without_verify'
+        }
+
+        response = self.client.post(url, data=data, content_type='application/json')
+
+        self.assertEqual(response.status_code, 400)
+        self.assertIn("Invalid reset token", response.json().get('error', ''))
+
+    @patch.dict(os.environ, {"TESTING": "True"}, clear=True)
     def test_reset_password_non_positive_username_fails(self):
         """
         Tests that a non-positive username is rejected during password reset.
@@ -169,7 +193,8 @@ class ResetPasswordTests(PositiveOnlySocialTestCase):
         data = {
             'username': 'negative_user_reset',
             'email': self.local_email,
-            'password': 'Positive_Password123!'
+            'password': 'Positive_Password123!',
+            'reset_token': 'dummy_token'
         }
         response = self.client.post(url, data=data, content_type='application/json')
         self.assertEqual(response.status_code, 400)
@@ -184,7 +209,8 @@ class ResetPasswordTests(PositiveOnlySocialTestCase):
         data = {
             'username': self.local_username,
             'email': 'negative_email@email.com',
-            'password': 'Positive_Password123!'
+            'password': 'Positive_Password123!',
+            'reset_token': 'dummy_token'
         }
         response = self.client.post(url, data=data, content_type='application/json')
         self.assertEqual(response.status_code, 400)
@@ -199,7 +225,8 @@ class ResetPasswordTests(PositiveOnlySocialTestCase):
         data = {
             'username': self.local_username,
             'email': self.local_email,
-            'password': 'Negative_Password_123!'
+            'password': 'Negative_Password_123!',
+            'reset_token': 'dummy_token'
         }
         response = self.client.post(url, data=data, content_type='application/json')
         self.assertEqual(response.status_code, 400)

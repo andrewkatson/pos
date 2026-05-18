@@ -15,6 +15,7 @@ struct MockUser {
     var email: String
     var passwordHash: String // Storing plain text for mock purposes.
     var resetId: Int = -1
+    var resetToken: String? = nil
     var identityIsVerified: Bool = false
     var isAdult: Bool = false
     var blocked: [UUID] = []
@@ -232,16 +233,26 @@ final class StatefulStubbedAPI: Networking {
         await simulateNetwork()
         guard let userIndex = users.firstIndex(where: { $0.username == usernameOrEmail || $0.email == usernameOrEmail }) else { throw APIError.badServerResponse(statusCode: 400) }
         if users[userIndex].resetId == resetID && users[userIndex].resetId != -1 {
+            let token = "stub_reset_token_\(users[userIndex].username)"
             users[userIndex].resetId = -1
-            return try createEmptySuccessResponse()
+            users[userIndex].resetToken = token
+            struct VerifyResetResponseFields: Encodable {
+                let message: String
+                let reset_token: String
+            }
+            return try createSerializedResponse(fields: VerifyResetResponseFields(message: "Verification successful", reset_token: token))
         }
         throw APIError.badServerResponse(statusCode: 400)
     }
 
-    func resetPassword(username: String, email: String, newPassword: String) async throws -> Data {
+    func resetPassword(username: String, email: String, newPassword: String, resetToken: String) async throws -> Data {
         await simulateNetwork()
-        guard let userIndex = users.firstIndex(where: { $0.username == username && $0.email == email }) else { throw APIError.badServerResponse(statusCode: 400) }
+        guard let userIndex = users.firstIndex(where: { $0.username == username && $0.email == email }),
+              users[userIndex].resetToken == resetToken else {
+            throw APIError.badServerResponse(statusCode: 400)
+        }
         users[userIndex].passwordHash = newPassword
+        users[userIndex].resetToken = nil
         return try createEmptySuccessResponse()
     }
 

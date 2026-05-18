@@ -46,10 +46,14 @@ fun NavGraph(
         }
         composable(
             route = Screen.ResetPassword.route,
-            arguments = listOf(navArgument("usernameOrEmail") { type = NavType.StringType })
+            arguments = listOf(
+                navArgument("usernameOrEmail") { type = NavType.StringType },
+                navArgument("resetToken") { type = NavType.StringType }
+            )
         ) { backStackEntry ->
             val usernameOrEmail = backStackEntry.arguments?.getString("usernameOrEmail") ?: ""
-            ResetPasswordScreen(navController, api, keychainHelper, usernameOrEmail)
+            val resetToken = backStackEntry.arguments?.getString("resetToken") ?: ""
+            ResetPasswordScreen(navController, api, keychainHelper, usernameOrEmail, resetToken)
         }
 
         // Main App Flow

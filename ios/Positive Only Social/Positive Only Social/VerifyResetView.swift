@@ -8,6 +8,10 @@
 import SwiftUI
 import Combine
 
+private struct VerifyResetResponse: Decodable {
+    let reset_token: String?
+}
+
 // Handles the 'verify_reset' flow.
 struct VerifyResetView: View {
     // MARK: Envrionment Properties
@@ -16,6 +20,7 @@ struct VerifyResetView: View {
     var usernameOrEmail: String
     @State private var pin: String = ""
     @State private var didVerifySuccessfully: Bool = false
+    @State private var resetToken: String = ""
     
     // State matching your template
     @State private var isLoading:Bool = false
@@ -66,7 +71,7 @@ struct VerifyResetView: View {
             Text(message)
         }
         .navigationDestination(isPresented: $didVerifySuccessfully) {
-            ResetPasswordView(usernameOrEmail: usernameOrEmail, api: api, keychainHelper: keychainHelper).environmentObject(authManager)
+            ResetPasswordView(usernameOrEmail: usernameOrEmail, resetToken: resetToken, api: api, keychainHelper: keychainHelper).environmentObject(authManager)
         }
     }
     
@@ -82,10 +87,18 @@ struct VerifyResetView: View {
         }
         
         do {
-            let _ = try await api.verifyPasswordReset(usernameOrEmail: usernameOrEmail, resetID: resetID)
+            let data = try await api.verifyPasswordReset(usernameOrEmail: usernameOrEmail, resetID: resetID)
+            let response = try JSONDecoder().decode(VerifyResetResponse.self, from: data)
+            guard let token = response.reset_token else {
+                errorMessage = "Verification failed: no reset token received."
+                showingErrorAlert = true
+                isLoading = false
+                return
+            }
 
             print("✅ PIN verification successful.")
 
+            resetToken = token
             isLoading = false
             didVerifySuccessfully = true // Trigger navigation
             

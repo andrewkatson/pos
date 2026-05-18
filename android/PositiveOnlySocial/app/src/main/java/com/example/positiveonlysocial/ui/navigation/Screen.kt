@@ -8,8 +8,8 @@ sealed class Screen(val route: String) {
     object VerifyReset : Screen("verify_reset/{usernameOrEmail}") {
         fun createRoute(usernameOrEmail: String) = "verify_reset/$usernameOrEmail"
     }
-    object ResetPassword : Screen("reset_password/{usernameOrEmail}") {
-        fun createRoute(usernameOrEmail: String) = "reset_password/$usernameOrEmail"
+    object ResetPassword : Screen("reset_password/{usernameOrEmail}/{resetToken}") {
+        fun createRoute(usernameOrEmail: String, resetToken: String) = "reset_password/$usernameOrEmail/$resetToken"
     }
     object Home : Screen("home")
     object Feed : Screen("feed")

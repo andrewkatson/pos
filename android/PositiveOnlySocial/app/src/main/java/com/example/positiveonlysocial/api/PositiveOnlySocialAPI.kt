@@ -42,7 +42,7 @@ interface PositiveOnlySocialAPI {
     suspend fun verifyReset(
         @Path("username_or_email") usernameOrEmail: String,
         @Path("reset_id") resetId: Int
-    ): Response<GenericResponse>
+    ): Response<VerifyResetResponse>
 
     @POST("password/reset/")
     suspend fun resetPassword(@Body request: PasswordResetSubmitRequest): Response<GenericResponse>

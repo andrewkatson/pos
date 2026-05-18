@@ -25,7 +25,8 @@ fun ResetPasswordScreen(
     navController: NavController,
     api: PositiveOnlySocialAPI,
     keychainHelper: KeychainHelperProtocol,
-    usernameOrEmail: String
+    usernameOrEmail: String,
+    resetToken: String
 ) {
     PositiveOnlySocialTheme {
         var username by remember { mutableStateOf("") }
@@ -143,7 +144,8 @@ fun ResetPasswordScreen(
                                 val request = PasswordResetSubmitRequest(
                                     username = username,
                                     email = email,
-                                    password = newPassword
+                                    password = newPassword,
+                                    resetToken = resetToken
                                 )
                                 api.resetPassword(
                                     request = request
@@ -183,6 +185,7 @@ fun ResetPasswordScreenPreview() {
         navController = rememberNavController(),
         api = PreviewHelpers.mockApi,
         keychainHelper = PreviewHelpers.mockKeychainHelper,
-        usernameOrEmail = "test@example.com"
+        usernameOrEmail = "test@example.com",
+        resetToken = ""
     )
 }

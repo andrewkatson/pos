@@ -81,7 +81,7 @@ struct MockedAPI: Networking {
         return try encodeGenericSuccess()
     }
 
-    func resetPassword(username: String, email: String, newPassword: String) async throws -> Data {
+    func resetPassword(username: String, email: String, newPassword: String, resetToken: String) async throws -> Data {
         return try encodeGenericSuccess()
     }
 

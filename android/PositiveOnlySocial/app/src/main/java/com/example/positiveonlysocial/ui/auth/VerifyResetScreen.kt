@@ -93,9 +93,15 @@ fun VerifyResetScreen(
                             }
 
                             try {
-                                api.verifyReset(usernameOrEmail = usernameOrEmail, resetId = resetId)
-                                // On success, navigate to ResetPasswordScreen
-                                navController.navigate(Screen.ResetPassword.createRoute(usernameOrEmail))
+                                val response = api.verifyReset(usernameOrEmail = usernameOrEmail, resetId = resetId)
+                                val resetToken = response.body()?.resetToken
+                                if (resetToken == null) {
+                                    errorMessage = "Verification failed: no reset token received."
+                                    showingErrorAlert = true
+                                    isLoading = false
+                                    return@launch
+                                }
+                                navController.navigate(Screen.ResetPassword.createRoute(usernameOrEmail, resetToken))
                             } catch (e: Exception) {
                                 errorMessage = "Invalid PIN or an unknown error occurred."
                                 showingErrorAlert = true

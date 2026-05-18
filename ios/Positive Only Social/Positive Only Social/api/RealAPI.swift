@@ -82,8 +82,9 @@ final class RealAPI: Networking {
         let username: String
         let email: String
         let password: String
+        let reset_token: String
     }
-    
+
     private struct RequestResetBody: Encodable {
         let username_or_email: String
     }
@@ -231,8 +232,8 @@ final class RealAPI: Networking {
     }
     
     /// Resets the user's password.
-    func resetPassword(username: String, email: String, newPassword: String) async throws -> Data {
-        let body = ResetPasswordBody(username: username, email: email, password: newPassword)
+    func resetPassword(username: String, email: String, newPassword: String, resetToken: String) async throws -> Data {
+        let body = ResetPasswordBody(username: username, email: email, password: newPassword, reset_token: resetToken)
         let requestBody = try encode(body)
         
         return try await performRequest(
