@@ -234,8 +234,15 @@ class PositiveOnlySocialIntegrationTests {
         composeTestRule.onNodeWithText("Email").performTextInput("$testUsername@test.com")
         composeTestRule.onNodeWithText("New Password").performTextInput(newStrongPassword)
         composeTestRule.onNodeWithText("Confirm Password").performTextInput(newStrongPassword)
-        composeTestRule.onNodeWithText("Reset Password and Login").performClick()
+        composeTestRule.onNodeWithText("Reset Password").performClick()
 
+        // After reset the user is sent to Login (no session was created).
+        assertOnLoginView()
+
+        // Verify the new password works.
+        composeTestRule.onNodeWithText("Username or Email").performTextInput(testUsername)
+        composeTestRule.onNodeWithText("Password").performTextInput(newStrongPassword)
+        composeTestRule.onNodeWithText("Login").performClick()
         assertOnHomeView()
     }
 
