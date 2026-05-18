@@ -1,18 +1,17 @@
 package com.example.positiveonlysocial.ui.auth
 
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.navigation.NavController
 import androidx.navigation.compose.rememberNavController
 import com.example.positiveonlysocial.ui.preview.PreviewHelpers
 import com.example.positiveonlysocial.api.PositiveOnlySocialAPI
+import com.example.positiveonlysocial.data.model.VerificationRequest
 import com.example.positiveonlysocial.data.security.KeychainHelperProtocol
 import com.example.positiveonlysocial.ui.navigation.Screen
 import com.example.positiveonlysocial.ui.theme.PositiveOnlySocialTheme
@@ -28,7 +27,7 @@ fun VerifyResetScreen(
     onVerified: (String) -> Unit
 ) {
     PositiveOnlySocialTheme {
-        var pin by remember { mutableStateOf("") }
+        var verificationToken by remember { mutableStateOf("") }
         var isLoading by remember { mutableStateOf(false) }
         var errorMessage by remember { mutableStateOf<String?>(null) }
         var showingErrorAlert by remember { mutableStateOf(false) }
@@ -60,21 +59,16 @@ fun VerifyResetScreen(
             )
 
             Text(
-                text = "Enter the 6-digit PIN sent to $usernameOrEmail.",
+                text = "Enter the verification token sent to $usernameOrEmail.",
                 style = MaterialTheme.typography.bodyMedium
             )
 
             TextField(
-                value = pin,
-                onValueChange = { newValue ->
-                    if (newValue.length <= 6 && newValue.all { it.isDigit() }) {
-                        pin = newValue
-                    }
-                },
-                label = { Text("Enter 6-Digit PIN") },
+                value = verificationToken,
+                onValueChange = { verificationToken = it },
+                label = { Text("Verification Token") },
                 modifier = Modifier.fillMaxWidth(),
-                singleLine = true,
-                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number)
+                singleLine = true
             )
 
             if (isLoading) {
@@ -86,20 +80,17 @@ fun VerifyResetScreen(
                     onClick = {
                         scope.launch {
                             isLoading = true
-                            val resetId = pin.toIntOrNull()
-                            if (resetId == null || pin.length != 6) {
-                                errorMessage = "PIN must be a 6-digit number."
-                                showingErrorAlert = true
-                                isLoading = false
-                                return@launch
-                            }
-
                             try {
-                                val response = api.verifyReset(usernameOrEmail = usernameOrEmail, resetId = resetId)
+                                val response = api.verifyReset(
+                                    VerificationRequest(
+                                        usernameOrEmail = usernameOrEmail,
+                                        verificationToken = verificationToken
+                                    )
+                                )
                                 if (!response.isSuccessful) {
                                     val backendError = response.errorBody()?.string()
                                         ?.let { runCatching { JSONObject(it).getString("error") }.getOrNull() }
-                                    errorMessage = backendError ?: "Invalid PIN or an unknown error occurred."
+                                    errorMessage = backendError ?: "Invalid token or an unknown error occurred."
                                     showingErrorAlert = true
                                     isLoading = false
                                     return@launch
@@ -114,7 +105,7 @@ fun VerifyResetScreen(
                                 onVerified(resetToken)
                                 navController.navigate(Screen.ResetPassword.createRoute(usernameOrEmail))
                             } catch (e: Exception) {
-                                errorMessage = "Invalid PIN or an unknown error occurred."
+                                errorMessage = "Invalid token or an unknown error occurred."
                                 showingErrorAlert = true
                             } finally {
                                 isLoading = false
@@ -122,7 +113,7 @@ fun VerifyResetScreen(
                         }
                     },
                     modifier = Modifier.fillMaxWidth(),
-                    enabled = pin.length == 6
+                    enabled = verificationToken.isNotEmpty()
                 ) {
                     Text("Verify")
                 }

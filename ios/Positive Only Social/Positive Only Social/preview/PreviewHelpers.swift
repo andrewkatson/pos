@@ -89,7 +89,7 @@ struct MockedAPI: Networking {
         return try encodeGenericSuccess()
     }
 
-    func verifyPasswordReset(usernameOrEmail: String, resetID: Int) async throws -> Data {
+    func verifyPasswordReset(usernameOrEmail: String, verificationToken: String) async throws -> Data {
         return try encodeGenericSuccess()
     }
 

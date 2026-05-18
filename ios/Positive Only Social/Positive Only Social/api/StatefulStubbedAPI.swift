@@ -14,7 +14,7 @@ struct MockUser {
     var username: String
     var email: String
     var passwordHash: String // Storing plain text for mock purposes.
-    var resetId: Int = -1
+    var verificationToken: String? = nil
     var resetToken: String? = nil
     var identityIsVerified: Bool = false
     var isAdult: Bool = false
@@ -222,27 +222,26 @@ final class StatefulStubbedAPI: Networking {
     func requestPasswordReset(usernameOrEmail: String) async throws -> Data {
         await simulateNetwork()
         guard let userIndex = users.firstIndex(where: { $0.username == usernameOrEmail || $0.email == usernameOrEmail }) else { throw APIError.badServerResponse(statusCode: 400) }
-        // We hardcode the reset id for easier testing
-        let resetId = 100000
-        users[userIndex].resetId = resetId
-        print("Password reset ID for \(users[userIndex].username) is: \(resetId)") // Simulate sending email
+        let stubToken = "stub_verification_token_\(users[userIndex].username)"
+        users[userIndex].verificationToken = stubToken
+        print("Password reset verification token for \(users[userIndex].username) is: \(stubToken)")
         return try createEmptySuccessResponse()
     }
 
-    func verifyPasswordReset(usernameOrEmail: String, resetID: Int) async throws -> Data {
+    func verifyPasswordReset(usernameOrEmail: String, verificationToken: String) async throws -> Data {
         await simulateNetwork()
         guard let userIndex = users.firstIndex(where: { $0.username == usernameOrEmail || $0.email == usernameOrEmail }) else { throw APIError.badServerResponse(statusCode: 400) }
-        if users[userIndex].resetId == resetID && users[userIndex].resetId != -1 {
-            let token = "stub_reset_token_\(users[userIndex].username)"
-            users[userIndex].resetId = -1
-            users[userIndex].resetToken = token
-            struct VerifyResetResponseFields: Codable {
-                let message: String
-                let reset_token: String
-            }
-            return try createSerializedResponse(fields: VerifyResetResponseFields(message: "Verification successful", reset_token: token))
+        guard users[userIndex].verificationToken == verificationToken else {
+            throw APIError.badServerResponse(statusCode: 400)
         }
-        throw APIError.badServerResponse(statusCode: 400)
+        let resetToken = "stub_reset_token_\(users[userIndex].username)"
+        users[userIndex].verificationToken = nil
+        users[userIndex].resetToken = resetToken
+        struct VerifyResetResponseFields: Codable {
+            let message: String
+            let reset_token: String
+        }
+        return try createSerializedResponse(fields: VerifyResetResponseFields(message: "Verification successful", reset_token: resetToken))
     }
 
     func resetPassword(username: String, email: String, newPassword: String, resetToken: String) async throws -> Data {

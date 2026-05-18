@@ -39,6 +39,7 @@ class Params:
     comment = "COMMENT"
     reset_id = "RESET_ID"
     reset_token = "RESET_TOKEN"
+    verification_token = "VERIFICATION_TOKEN"
     ip = "IP"
     session_management_token = "SESSION_MANAGEMENT_TOKEN"
     series_identifier = "SERIES_IDENTIFIER"
@@ -83,6 +84,7 @@ class Fields:
     comment_likes = "comment_likes"
     identity_is_verified = "identity_is_verified"
     reset_token = "reset_token"
+    verification_token = "verification_token"
 
 # Lengths of things
 LEN_LOGIN_COOKIE_TOKEN = 32

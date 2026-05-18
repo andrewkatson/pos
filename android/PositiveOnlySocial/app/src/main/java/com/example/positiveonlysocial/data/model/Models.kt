@@ -50,6 +50,11 @@ data class ResetRequest(
     @SerializedName("username_or_email") val usernameOrEmail: String
 )
 
+data class VerificationRequest(
+    @SerializedName("username_or_email") val usernameOrEmail: String,
+    @SerializedName("verification_token") val verificationToken: String
+)
+
 data class PasswordResetSubmitRequest(
     val username: String,
     val email: String,

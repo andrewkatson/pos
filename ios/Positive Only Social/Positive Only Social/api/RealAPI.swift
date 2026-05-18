@@ -88,6 +88,11 @@ final class RealAPI: Networking {
     private struct RequestResetBody: Encodable {
         let username_or_email: String
     }
+
+    private struct VerifyResetBody: Encodable {
+        let username_or_email: String
+        let verification_token: String
+    }
     
     private struct MakePostBody: Encodable {
         let image_url: String
@@ -255,12 +260,14 @@ final class RealAPI: Networking {
         )
     }
     
-    /// Verifies the password reset identifier.
-    func verifyPasswordReset(usernameOrEmail: String, resetID: Int) async throws -> Data {
-        // This is a GET request, no body or auth.
+    /// Verifies the password reset token received via email.
+    func verifyPasswordReset(usernameOrEmail: String, verificationToken: String) async throws -> Data {
+        let body = VerifyResetBody(username_or_email: usernameOrEmail, verification_token: verificationToken)
+        let requestBody = try encode(body)
         return try await performRequest(
-            pathSegments: ["password", "verify-reset", usernameOrEmail, String(resetID)],
-            method: .get
+            pathSegments: ["password", "verify-reset"],
+            method: .post,
+            body: requestBody
         )
     }
     

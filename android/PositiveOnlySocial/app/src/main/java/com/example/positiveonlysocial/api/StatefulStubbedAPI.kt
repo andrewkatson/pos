@@ -47,7 +47,7 @@ class StatefulStubbedAPI : PositiveOnlySocialAPI {
         val username: String,
         val email: String,
         var passwordHash: String, // Storing plain text for stub simplicity, or simple hash
-        var resetId: Int = -1,
+        var verificationToken: String? = null,
         var resetToken: String? = null,
         val following: MutableList<String> = mutableListOf(), // List of User IDs
         val followers: MutableList<String> = mutableListOf(),
@@ -267,24 +267,23 @@ class StatefulStubbedAPI : PositiveOnlySocialAPI {
         val user = users.find { it.email == request.usernameOrEmail || it.username == request.usernameOrEmail }
 
         if (user != null) {
-            // 2. Assign a STATIC reset ID for testing purposes
-            user.resetId = 123456
-
-            return Response.success(GenericResponse("Password reset code generated", null))
+            val stubToken = "stub_verification_token_${user.username}"
+            user.verificationToken = stubToken
+            return Response.success(GenericResponse("Password reset token generated", null))
         }
 
         return error(404, "No user found with that username or email")
     }
 
-    override suspend fun verifyReset(usernameOrEmail: String, resetId: Int): Response<VerifyResetResponse> {
-        val user = users.find { it.username == usernameOrEmail || it.email == usernameOrEmail }
-        if (user != null && user.resetId == resetId && user.resetId != -1) {
-            val token = "stub_reset_token_${user.username}"
-            user.resetId = -1
-            user.resetToken = token
-            return Response.success(VerifyResetResponse("Verification successful", null, token))
+    override suspend fun verifyReset(request: VerificationRequest): Response<VerifyResetResponse> {
+        val user = users.find { it.username == request.usernameOrEmail || it.email == request.usernameOrEmail }
+        if (user != null && user.verificationToken != null && user.verificationToken == request.verificationToken) {
+            val resetToken = "stub_reset_token_${user.username}"
+            user.verificationToken = null
+            user.resetToken = resetToken
+            return Response.success(VerifyResetResponse("Verification successful", null, resetToken))
         }
-        return errorGeneric(404, "That reset id does not match")
+        return errorGeneric(400, "Invalid or expired verification token")
     }
 
     override suspend fun resetPassword(request: PasswordResetSubmitRequest): Response<GenericResponse> {

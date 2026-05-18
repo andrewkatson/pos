@@ -472,13 +472,18 @@ def request_reset(request):
 
     user = get_user_with_username_or_email(username_or_email)
     if user is not None:
-        random_number = int(generate_reset_id(6))
+        token = secrets.token_urlsafe(32)
+        token_hash = hashlib.sha256(token.encode()).hexdigest()
 
-        send_mail("Password reset id", f"Your password reset id is {random_number}",
-                  settings.EMAIL_HOST_USER,
-                  [user.email])
+        send_mail(
+            "Password Reset",
+            f"Your password reset verification token is:\n\n{token}\n\nEnter this in the app to proceed. It expires in 1 hour.",
+            settings.EMAIL_HOST_USER,
+            [user.email]
+        )
 
-        user.reset_id = random_number
+        user.verification_token = token_hash
+        user.verification_token_expires = timezone.now() + timedelta(hours=1)
         user.save()
         logger.info(f"Password reset request successful for user_id: {user.id}")
         return log_and_return_json("request_reset", {'message': 'Reset email sent'})
@@ -487,38 +492,49 @@ def request_reset(request):
         return log_and_return_json("request_reset", {'error': "No user with that username or email"}, status=400)
 
 
-@require_GET
-def verify_reset(request, username_or_email, reset_id):
+@csrf_exempt
+@require_POST
+def verify_reset(request):
     logger.info("Endpoint verify_reset invoked by IP or User")
-    # Data comes from URL, not JSON body
-    invalid_fields = []
-    if not is_valid_pattern(username_or_email, Patterns.alphanumeric) and not is_valid_pattern(username_or_email,
-                                                                                               Patterns.email):
-        invalid_fields.append(Params.username_or_email)
+    data = _get_json_body(request)
+    if data is None:
+        return log_and_return_json("verify_reset", {'error': "Invalid JSON data"}, status=400)
 
-    # reset_id is already an int from the URL path, no need to check pattern
-    if reset_id is None:
-        invalid_fields.append(Params.reset_id)
+    username_or_email = data.get(Fields.username_or_email)
+    verification_token = data.get(Fields.verification_token)
+
+    invalid_fields = []
+    if not username_or_email or (
+            not is_valid_pattern(username_or_email, Patterns.alphanumeric) and
+            not is_valid_pattern(username_or_email, Patterns.email)):
+        invalid_fields.append(Params.username_or_email)
+    if not verification_token or not isinstance(verification_token, str):
+        invalid_fields.append(Params.verification_token)
 
     if len(invalid_fields) > 0:
         return log_and_return_json("verify_reset", {'error': f"Invalid fields {invalid_fields}"}, status=400)
 
+    submitted_hash = hashlib.sha256(verification_token.encode()).hexdigest()
+
     user = get_user_with_username_or_email(username_or_email)
     if user is not None:
-        # Ensure types match for comparison
-        if user.reset_id == int(reset_id) and user.reset_id >= 0:
-            token = secrets.token_hex(32)
-            user.reset_id = -1
-            user.reset_token = hashlib.sha256(token.encode()).hexdigest()
+        if (user.verification_token and
+                secrets.compare_digest(user.verification_token, submitted_hash) and
+                user.verification_token_expires is not None and
+                timezone.now() <= user.verification_token_expires):
+            reset_token = secrets.token_hex(32)
+            user.verification_token = None
+            user.verification_token_expires = None
+            user.reset_token = hashlib.sha256(reset_token.encode()).hexdigest()
             user.reset_token_expires = timezone.now() + timedelta(minutes=15)
             user.save()
             logger.info(f"Password reset verification successful for user_id: {user.id}")
-            response = log_and_return_json("verify_reset", {'message': 'Verification successful', 'reset_token': token})
+            response = log_and_return_json("verify_reset", {'message': 'Verification successful', 'reset_token': reset_token})
             response['Cache-Control'] = 'no-store'
             return response
         else:
-            logger.warning(f"Password reset verification failed: Reset ID mismatch for user_id: {user.id}")
-            return log_and_return_json("verify_reset", {'error': "That reset id does not match"}, status=400)
+            logger.warning(f"Password reset verification failed for user_id: {user.id}")
+            return log_and_return_json("verify_reset", {'error': "Invalid or expired verification token"}, status=400)
     else:
         logger.warning("Password reset verification failed: No user with that username or email")
         return log_and_return_json("verify_reset", {'error': "No user with that username or email"}, status=400)

@@ -93,10 +93,7 @@ class MockPositiveOnlySocialAPI : PositiveOnlySocialAPI {
         )
     }
 
-    override suspend fun verifyReset(
-        usernameOrEmail: String,
-        resetId: Int
-    ): Response<VerifyResetResponse> {
+    override suspend fun verifyReset(request: VerificationRequest): Response<VerifyResetResponse> {
         return Response.success(
             VerifyResetResponse(
                 message = "Reset verified",

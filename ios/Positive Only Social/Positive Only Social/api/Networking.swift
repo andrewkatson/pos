@@ -31,8 +31,8 @@ protocol Networking {
     /// Requests a password reset and sends the user an email with instructions.
     func requestPasswordReset(usernameOrEmail: String) async throws -> Data
 
-    /// Verifies the password reset by checking that the reset identifier matches the one sent in the email.
-    func verifyPasswordReset(usernameOrEmail: String, resetID: Int) async throws -> Data
+    /// Verifies the password reset by submitting the signed token received via email.
+    func verifyPasswordReset(usernameOrEmail: String, verificationToken: String) async throws -> Data
 
     /// Logs the user out.
     func logoutUser(sessionManagementToken: String) async throws -> Data
