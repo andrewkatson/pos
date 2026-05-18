@@ -16,6 +16,9 @@ import os
 # --- Constants ---
 other_username = f'other_{username}'
 non_existent_username = 'iamnotauser'
+# A syntactically valid (64-char lowercase hex) but cryptographically fake reset token.
+# Used in tests that need to reach the logic *past* format validation.
+FAKE_HEX_TOKEN = 'a' * 64
 
 
 def _get_verification_token_from_email():
@@ -103,7 +106,7 @@ class ResetPasswordTests(PositiveOnlySocialTestCase):
             'username': non_existent_username,
             'email': self.local_email,
             'password': new_password,
-            'reset_token': 'dummy_token'
+            'reset_token': FAKE_HEX_TOKEN,
         }
         response = self.client.post(url, data=data, content_type='application/json')
         self.assertEqual(response.status_code, 400)
@@ -215,7 +218,7 @@ class ResetPasswordTests(PositiveOnlySocialTestCase):
             'username': self.local_username,
             'email': self.local_email,
             'password': f'new_{password}_{self.prefix}!',
-            'reset_token': 'fake_token_without_verify',
+            'reset_token': FAKE_HEX_TOKEN,
         }, content_type='application/json')
         self.assertEqual(response.status_code, 400)
         self.assertIn("Invalid reset token", response.json().get('error', ''))
@@ -227,7 +230,7 @@ class ResetPasswordTests(PositiveOnlySocialTestCase):
             'username': 'negative_user_reset',
             'email': self.local_email,
             'password': 'Positive_Password123!',
-            'reset_token': 'dummy_token',
+            'reset_token': FAKE_HEX_TOKEN,
         }, content_type='application/json')
         self.assertEqual(response.status_code, 400)
         self.assertIn("Username is not positive", response.json().get('error', ''))
@@ -239,7 +242,7 @@ class ResetPasswordTests(PositiveOnlySocialTestCase):
             'username': self.local_username,
             'email': 'negative_email@email.com',
             'password': 'Positive_Password123!',
-            'reset_token': 'dummy_token',
+            'reset_token': FAKE_HEX_TOKEN,
         }, content_type='application/json')
         self.assertEqual(response.status_code, 400)
         self.assertIn("Email is not positive", response.json().get('error', ''))
@@ -251,7 +254,7 @@ class ResetPasswordTests(PositiveOnlySocialTestCase):
             'username': self.local_username,
             'email': self.local_email,
             'password': 'Negative_Password_123!',
-            'reset_token': 'dummy_token',
+            'reset_token': FAKE_HEX_TOKEN,
         }, content_type='application/json')
         self.assertEqual(response.status_code, 400)
         self.assertIn("Password is not positive", response.json().get('error', ''))
