@@ -224,19 +224,6 @@ class ResetPasswordTests(PositiveOnlySocialTestCase):
         self.assertIn("Invalid reset token", response.json().get('error', ''))
 
     @patch.dict(os.environ, {"TESTING": "True"}, clear=True)
-    def test_reset_password_non_positive_password_fails(self):
-        """New password positivity is checked after token validation; needs a real token."""
-        reset_token = self._do_full_verify()
-        response = self.client.post(reverse('reset_password'), data={
-            'username': self.local_username,
-            'email': self.local_email,
-            'password': 'Negative_Password_123!',
-            'reset_token': reset_token,
-        }, content_type='application/json')
-        self.assertEqual(response.status_code, 400)
-        self.assertIn("Password is not positive", response.json().get('error', ''))
-
-    @patch.dict(os.environ, {"TESTING": "True"}, clear=True)
     def test_session_and_cookie_invalidated_after_reset(self):
         """Active sessions and remember-me cookies must be wiped when a password is reset."""
         login_url = reverse('login_user')

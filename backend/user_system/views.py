@@ -593,10 +593,6 @@ def reset_password(request):
                 logger.warning(f"Password reset failed: Expired reset token for user_id: {user.id}")
                 return log_and_return_json("reset_password", {'error': "Reset token has expired"}, status=400)
 
-            # Only run the classifier for an authenticated (token-verified) reset request.
-            if not text_classifier_class.is_text_positive(password):
-                return log_and_return_json("reset_password", {'error': "Password is not positive"}, status=400)
-
             user.set_password(password)
             user.reset_token = None
             user.reset_token_expires = None
