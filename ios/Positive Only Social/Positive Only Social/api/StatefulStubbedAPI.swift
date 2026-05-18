@@ -236,7 +236,7 @@ final class StatefulStubbedAPI: Networking {
             let token = "stub_reset_token_\(users[userIndex].username)"
             users[userIndex].resetId = -1
             users[userIndex].resetToken = token
-            struct VerifyResetResponseFields: Encodable {
+            struct VerifyResetResponseFields: Codable {
                 let message: String
                 let reset_token: String
             }
