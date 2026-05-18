@@ -222,10 +222,10 @@ class PositiveOnlySocialIntegrationTests {
         composeTestRule.onNodeWithText("Username or Email").performTextInput(testUsername)
         composeTestRule.onNodeWithText("Request Reset").performClick()
 
-        // Verify Reset
+        // Verify Reset — stub issues "stub_verification_token_<username>"
         composeTestRule.onNodeWithText("Verify Your Identity").assertExists()
-        composeTestRule.onNodeWithText("Enter 6-Digit PIN")
-            .performTextInput("123456") // Static PIN
+        composeTestRule.onNodeWithText("Verification Token")
+            .performTextInput("stub_verification_token_$testUsername")
         composeTestRule.onNodeWithText("Verify").performClick()
 
         // Reset Password
