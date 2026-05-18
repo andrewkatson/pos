@@ -19,6 +19,9 @@ _AWS_KEYS = {
     "AWS_STORAGE_BUCKET_NAME": "fake_bucket",
 }
 
+_TEXT_DISPATCH = "user_system.classifiers.classifier_utils.TEXT_API_DISPATCH"
+_IMAGE_DISPATCH = "user_system.classifiers.classifier_utils.IMAGE_API_DISPATCH"
+
 
 def _make_fake_image_bytes():
     img = Image.new('RGB', (10, 10), color='red')
@@ -51,26 +54,29 @@ class TestClassifiers(PositiveOnlySocialTestCase):
     # ------------------------------------------------------------------ #
 
     @patch.dict(os.environ, {"GEMINI_API_KEY": "fake_key"}, clear=True)
-    @patch("user_system.classifiers.text_classifier.call_text_gemini", return_value=True)
-    def test_text_classifier_single_gemini_positive(self, mock_gemini):
-        self.assertTrue(is_text_positive("I am happy"))
+    def test_text_classifier_single_gemini_positive(self):
+        mock_gemini = MagicMock(return_value=True)
+        with patch.dict(_TEXT_DISPATCH, {API_GEMINI: mock_gemini}):
+            self.assertTrue(is_text_positive("I am happy"))
         mock_gemini.assert_called_once_with("I am happy", TEXT_CLASSIFIER_PROMPT)
 
     @patch.dict(os.environ, {"GEMINI_API_KEY": "fake_key"}, clear=True)
-    @patch("user_system.classifiers.text_classifier.call_text_gemini", return_value=False)
-    def test_text_classifier_single_gemini_negative(self, mock_gemini):
-        self.assertFalse(is_text_positive("I am sad"))
+    def test_text_classifier_single_gemini_negative(self):
+        with patch.dict(_TEXT_DISPATCH, {API_GEMINI: MagicMock(return_value=False)}):
+            self.assertFalse(is_text_positive("I am sad"))
 
     @patch.dict(os.environ, {"ANTHROPIC_API_KEY": "fake_key"}, clear=True)
-    @patch("user_system.classifiers.text_classifier.call_text_claude", return_value=True)
-    def test_text_classifier_single_claude_positive(self, mock_claude):
-        self.assertTrue(is_text_positive("Great day"))
+    def test_text_classifier_single_claude_positive(self):
+        mock_claude = MagicMock(return_value=True)
+        with patch.dict(_TEXT_DISPATCH, {API_CLAUDE: mock_claude}):
+            self.assertTrue(is_text_positive("Great day"))
         mock_claude.assert_called_once_with("Great day", TEXT_CLASSIFIER_PROMPT)
 
     @patch.dict(os.environ, {"OPENAI_API_KEY": "fake_key"}, clear=True)
-    @patch("user_system.classifiers.text_classifier.call_text_openai", return_value=True)
-    def test_text_classifier_single_openai_positive(self, mock_openai):
-        self.assertTrue(is_text_positive("Wonderful"))
+    def test_text_classifier_single_openai_positive(self):
+        mock_openai = MagicMock(return_value=True)
+        with patch.dict(_TEXT_DISPATCH, {API_OPENAI: mock_openai}):
+            self.assertTrue(is_text_positive("Wonderful"))
         mock_openai.assert_called_once_with("Wonderful", TEXT_CLASSIFIER_PROMPT)
 
     # ------------------------------------------------------------------ #
@@ -79,22 +85,24 @@ class TestClassifiers(PositiveOnlySocialTestCase):
 
     @patch.dict(os.environ, _ALL_AI_KEYS, clear=True)
     @patch("user_system.classifiers.classifier_utils.random")
-    @patch("user_system.classifiers.text_classifier.call_text_openai", return_value=True)
-    @patch("user_system.classifiers.text_classifier.call_text_claude", return_value=True)
-    @patch("user_system.classifiers.text_classifier.call_text_gemini", return_value=True)
-    def test_text_voting_two_agree_true(self, mock_gemini, mock_claude, mock_openai, mock_random):
+    def test_text_voting_two_agree_true(self, mock_random):
         mock_random.sample.return_value = [API_GEMINI, API_CLAUDE]
-        self.assertTrue(is_text_positive("nice text"))
+        mock_gemini = MagicMock(return_value=True)
+        mock_claude = MagicMock(return_value=True)
+        mock_openai = MagicMock(return_value=True)
+        with patch.dict(_TEXT_DISPATCH, {API_GEMINI: mock_gemini, API_CLAUDE: mock_claude, API_OPENAI: mock_openai}):
+            self.assertTrue(is_text_positive("nice text"))
         mock_openai.assert_not_called()
 
     @patch.dict(os.environ, _ALL_AI_KEYS, clear=True)
     @patch("user_system.classifiers.classifier_utils.random")
-    @patch("user_system.classifiers.text_classifier.call_text_openai", return_value=False)
-    @patch("user_system.classifiers.text_classifier.call_text_claude", return_value=False)
-    @patch("user_system.classifiers.text_classifier.call_text_gemini", return_value=False)
-    def test_text_voting_two_agree_false(self, mock_gemini, mock_claude, mock_openai, mock_random):
+    def test_text_voting_two_agree_false(self, mock_random):
         mock_random.sample.return_value = [API_GEMINI, API_CLAUDE]
-        self.assertFalse(is_text_positive("bad text"))
+        mock_gemini = MagicMock(return_value=False)
+        mock_claude = MagicMock(return_value=False)
+        mock_openai = MagicMock(return_value=False)
+        with patch.dict(_TEXT_DISPATCH, {API_GEMINI: mock_gemini, API_CLAUDE: mock_claude, API_OPENAI: mock_openai}):
+            self.assertFalse(is_text_positive("bad text"))
         mock_openai.assert_not_called()
 
     # ------------------------------------------------------------------ #
@@ -103,22 +111,24 @@ class TestClassifiers(PositiveOnlySocialTestCase):
 
     @patch.dict(os.environ, _ALL_AI_KEYS, clear=True)
     @patch("user_system.classifiers.classifier_utils.random")
-    @patch("user_system.classifiers.text_classifier.call_text_openai", return_value=True)
-    @patch("user_system.classifiers.text_classifier.call_text_claude", return_value=False)
-    @patch("user_system.classifiers.text_classifier.call_text_gemini", return_value=True)
-    def test_text_voting_disagree_tiebreaker_true(self, mock_gemini, mock_claude, mock_openai, mock_random):
+    def test_text_voting_disagree_tiebreaker_true(self, mock_random):
         mock_random.sample.return_value = [API_GEMINI, API_CLAUDE]
-        self.assertTrue(is_text_positive("some text"))
+        mock_gemini = MagicMock(return_value=True)
+        mock_claude = MagicMock(return_value=False)
+        mock_openai = MagicMock(return_value=True)
+        with patch.dict(_TEXT_DISPATCH, {API_GEMINI: mock_gemini, API_CLAUDE: mock_claude, API_OPENAI: mock_openai}):
+            self.assertTrue(is_text_positive("some text"))
         mock_openai.assert_called_once()
 
     @patch.dict(os.environ, _ALL_AI_KEYS, clear=True)
     @patch("user_system.classifiers.classifier_utils.random")
-    @patch("user_system.classifiers.text_classifier.call_text_openai", return_value=False)
-    @patch("user_system.classifiers.text_classifier.call_text_claude", return_value=False)
-    @patch("user_system.classifiers.text_classifier.call_text_gemini", return_value=True)
-    def test_text_voting_disagree_tiebreaker_false(self, mock_gemini, mock_claude, mock_openai, mock_random):
+    def test_text_voting_disagree_tiebreaker_false(self, mock_random):
         mock_random.sample.return_value = [API_GEMINI, API_CLAUDE]
-        self.assertFalse(is_text_positive("some text"))
+        mock_gemini = MagicMock(return_value=True)
+        mock_claude = MagicMock(return_value=False)
+        mock_openai = MagicMock(return_value=False)
+        with patch.dict(_TEXT_DISPATCH, {API_GEMINI: mock_gemini, API_CLAUDE: mock_claude, API_OPENAI: mock_openai}):
+            self.assertFalse(is_text_positive("some text"))
         mock_openai.assert_called_once()
 
     # ------------------------------------------------------------------ #
@@ -127,11 +137,12 @@ class TestClassifiers(PositiveOnlySocialTestCase):
 
     @patch.dict(os.environ, {"GEMINI_API_KEY": "gk", "ANTHROPIC_API_KEY": "ak"}, clear=True)
     @patch("user_system.classifiers.classifier_utils.random")
-    @patch("user_system.classifiers.text_classifier.call_text_claude", return_value=False)
-    @patch("user_system.classifiers.text_classifier.call_text_gemini", return_value=True)
-    def test_text_voting_two_apis_disagree_no_tiebreaker(self, mock_gemini, mock_claude, mock_random):
+    def test_text_voting_two_apis_disagree_no_tiebreaker(self, mock_random):
         mock_random.sample.return_value = [API_GEMINI, API_CLAUDE]
-        self.assertFalse(is_text_positive("some text"))
+        mock_gemini = MagicMock(return_value=True)
+        mock_claude = MagicMock(return_value=False)
+        with patch.dict(_TEXT_DISPATCH, {API_GEMINI: mock_gemini, API_CLAUDE: mock_claude}):
+            self.assertFalse(is_text_positive("some text"))
 
     # ------------------------------------------------------------------ #
     # Image classifier – testing mode                                      #
@@ -156,54 +167,57 @@ class TestClassifiers(PositiveOnlySocialTestCase):
 
     @patch.dict(os.environ, {"GEMINI_API_KEY": "fake_key", **_AWS_KEYS}, clear=True)
     @patch("user_system.classifiers.image_classifier.boto3")
-    @patch("user_system.classifiers.image_classifier.call_image_gemini", return_value=True)
-    def test_image_classifier_single_gemini_positive(self, mock_gemini, mock_boto3):
+    def test_image_classifier_single_gemini_positive(self, mock_boto3):
         mock_s3 = MagicMock()
         mock_boto3.client.return_value = mock_s3
         mock_body = MagicMock()
         mock_body.read.return_value = _make_fake_image_bytes()
         mock_s3.get_object.return_value = {'Body': mock_body}
 
-        self.assertTrue(is_image_positive("some_image.png"))
+        mock_gemini = MagicMock(return_value=True)
+        with patch.dict(_IMAGE_DISPATCH, {API_GEMINI: mock_gemini}):
+            self.assertTrue(is_image_positive("some_image.png"))
         mock_s3.get_object.assert_called_with(Bucket="fake_bucket", Key="some_image.png")
         mock_gemini.assert_called_once()
 
     @patch.dict(os.environ, {"GEMINI_API_KEY": "fake_key", **_AWS_KEYS}, clear=True)
     @patch("user_system.classifiers.image_classifier.boto3")
-    @patch("user_system.classifiers.image_classifier.call_image_gemini", return_value=False)
-    def test_image_classifier_single_gemini_negative(self, mock_gemini, mock_boto3):
+    def test_image_classifier_single_gemini_negative(self, mock_boto3):
         mock_s3 = MagicMock()
         mock_boto3.client.return_value = mock_s3
         mock_body = MagicMock()
         mock_body.read.return_value = _make_fake_image_bytes()
         mock_s3.get_object.return_value = {'Body': mock_body}
 
-        self.assertFalse(is_image_positive("some_image.png"))
+        with patch.dict(_IMAGE_DISPATCH, {API_GEMINI: MagicMock(return_value=False)}):
+            self.assertFalse(is_image_positive("some_image.png"))
 
     @patch.dict(os.environ, {"ANTHROPIC_API_KEY": "fake_key", **_AWS_KEYS}, clear=True)
     @patch("user_system.classifiers.image_classifier.boto3")
-    @patch("user_system.classifiers.image_classifier.call_image_claude", return_value=True)
-    def test_image_classifier_single_claude_positive(self, mock_claude, mock_boto3):
+    def test_image_classifier_single_claude_positive(self, mock_boto3):
         mock_s3 = MagicMock()
         mock_boto3.client.return_value = mock_s3
         mock_body = MagicMock()
         mock_body.read.return_value = _make_fake_image_bytes()
         mock_s3.get_object.return_value = {'Body': mock_body}
 
-        self.assertTrue(is_image_positive("some_image.png"))
+        mock_claude = MagicMock(return_value=True)
+        with patch.dict(_IMAGE_DISPATCH, {API_CLAUDE: mock_claude}):
+            self.assertTrue(is_image_positive("some_image.png"))
         mock_claude.assert_called_once()
 
     @patch.dict(os.environ, {"OPENAI_API_KEY": "fake_key", **_AWS_KEYS}, clear=True)
     @patch("user_system.classifiers.image_classifier.boto3")
-    @patch("user_system.classifiers.image_classifier.call_image_openai", return_value=True)
-    def test_image_classifier_single_openai_positive(self, mock_openai, mock_boto3):
+    def test_image_classifier_single_openai_positive(self, mock_boto3):
         mock_s3 = MagicMock()
         mock_boto3.client.return_value = mock_s3
         mock_body = MagicMock()
         mock_body.read.return_value = _make_fake_image_bytes()
         mock_s3.get_object.return_value = {'Body': mock_body}
 
-        self.assertTrue(is_image_positive("some_image.png"))
+        mock_openai = MagicMock(return_value=True)
+        with patch.dict(_IMAGE_DISPATCH, {API_OPENAI: mock_openai}):
+            self.assertTrue(is_image_positive("some_image.png"))
         mock_openai.assert_called_once()
 
     # ------------------------------------------------------------------ #
@@ -213,10 +227,7 @@ class TestClassifiers(PositiveOnlySocialTestCase):
     @patch.dict(os.environ, {**_ALL_AI_KEYS, **_AWS_KEYS}, clear=True)
     @patch("user_system.classifiers.classifier_utils.random")
     @patch("user_system.classifiers.image_classifier.boto3")
-    @patch("user_system.classifiers.image_classifier.call_image_openai", return_value=True)
-    @patch("user_system.classifiers.image_classifier.call_image_claude", return_value=True)
-    @patch("user_system.classifiers.image_classifier.call_image_gemini", return_value=True)
-    def test_image_voting_two_agree_true(self, mock_gemini, mock_claude, mock_openai, mock_boto3, mock_random):
+    def test_image_voting_two_agree_true(self, mock_boto3, mock_random):
         mock_random.sample.return_value = [API_GEMINI, API_CLAUDE]
         mock_s3 = MagicMock()
         mock_boto3.client.return_value = mock_s3
@@ -224,7 +235,11 @@ class TestClassifiers(PositiveOnlySocialTestCase):
         mock_body.read.return_value = _make_fake_image_bytes()
         mock_s3.get_object.return_value = {'Body': mock_body}
 
-        self.assertTrue(is_image_positive("img.png"))
+        mock_gemini = MagicMock(return_value=True)
+        mock_claude = MagicMock(return_value=True)
+        mock_openai = MagicMock(return_value=True)
+        with patch.dict(_IMAGE_DISPATCH, {API_GEMINI: mock_gemini, API_CLAUDE: mock_claude, API_OPENAI: mock_openai}):
+            self.assertTrue(is_image_positive("img.png"))
         mock_openai.assert_not_called()
 
     # ------------------------------------------------------------------ #
@@ -234,10 +249,7 @@ class TestClassifiers(PositiveOnlySocialTestCase):
     @patch.dict(os.environ, {**_ALL_AI_KEYS, **_AWS_KEYS}, clear=True)
     @patch("user_system.classifiers.classifier_utils.random")
     @patch("user_system.classifiers.image_classifier.boto3")
-    @patch("user_system.classifiers.image_classifier.call_image_openai", return_value=False)
-    @patch("user_system.classifiers.image_classifier.call_image_claude", return_value=False)
-    @patch("user_system.classifiers.image_classifier.call_image_gemini", return_value=True)
-    def test_image_voting_disagree_tiebreaker_false(self, mock_gemini, mock_claude, mock_openai, mock_boto3, mock_random):
+    def test_image_voting_disagree_tiebreaker_false(self, mock_boto3, mock_random):
         mock_random.sample.return_value = [API_GEMINI, API_CLAUDE]
         mock_s3 = MagicMock()
         mock_boto3.client.return_value = mock_s3
@@ -245,7 +257,11 @@ class TestClassifiers(PositiveOnlySocialTestCase):
         mock_body.read.return_value = _make_fake_image_bytes()
         mock_s3.get_object.return_value = {'Body': mock_body}
 
-        self.assertFalse(is_image_positive("img.png"))
+        mock_gemini = MagicMock(return_value=True)
+        mock_claude = MagicMock(return_value=False)
+        mock_openai = MagicMock(return_value=False)
+        with patch.dict(_IMAGE_DISPATCH, {API_GEMINI: mock_gemini, API_CLAUDE: mock_claude, API_OPENAI: mock_openai}):
+            self.assertFalse(is_image_positive("img.png"))
         mock_openai.assert_called_once()
 
     # ------------------------------------------------------------------ #

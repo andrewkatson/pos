@@ -6,9 +6,7 @@ from io import BytesIO
 from urllib.parse import urlparse
 from .classifier_constants import POSITIVE_IMAGE_URL, IMAGE_CLASSIFIER_PROMPT
 from .classifier_utils import (
-    get_available_apis, classify_with_voting,
-    call_image_gemini, call_image_claude, call_image_openai,
-    API_GEMINI, API_CLAUDE, API_OPENAI,
+    get_available_apis, classify_with_voting, IMAGE_API_DISPATCH,
 )
 from ..utils import convert_to_bool
 
@@ -68,12 +66,11 @@ def is_image_positive(image_url):
 
         def call_api(api_name):
             try:
-                if api_name == API_GEMINI:
-                    return call_image_gemini(image, IMAGE_CLASSIFIER_PROMPT)
-                if api_name == API_CLAUDE:
-                    return call_image_claude(image, IMAGE_CLASSIFIER_PROMPT)
-                if api_name == API_OPENAI:
-                    return call_image_openai(image, IMAGE_CLASSIFIER_PROMPT)
+                api_func = IMAGE_API_DISPATCH.get(api_name)
+                if not api_func:
+                    logger.error("Unsupported API name: %s", api_name)
+                    return False
+                return api_func(image, IMAGE_CLASSIFIER_PROMPT)
             except Exception:
                 logger.exception("Error calling %s API for image classification", api_name)
                 return False

@@ -14,16 +14,15 @@ API_GEMINI = 'gemini'
 API_CLAUDE = 'claude'
 API_OPENAI = 'openai'
 
+ENV_KEY_TO_API = {
+    'GEMINI_API_KEY': API_GEMINI,
+    'ANTHROPIC_API_KEY': API_CLAUDE,
+    'OPENAI_API_KEY': API_OPENAI,
+}
+
 
 def get_available_apis():
-    available = []
-    if os.environ.get('GEMINI_API_KEY'):
-        available.append(API_GEMINI)
-    if os.environ.get('ANTHROPIC_API_KEY'):
-        available.append(API_CLAUDE)
-    if os.environ.get('OPENAI_API_KEY'):
-        available.append(API_OPENAI)
-    return available
+    return [api for env_var, api in ENV_KEY_TO_API.items() if os.environ.get(env_var)]
 
 
 def classify_with_voting(available_apis, call_fn):
@@ -132,3 +131,16 @@ def call_image_openai(image, prompt):
         }]
     )
     return response.choices[0].message.content.strip().lower() == 'true'
+
+
+TEXT_API_DISPATCH = {
+    API_GEMINI: call_text_gemini,
+    API_CLAUDE: call_text_claude,
+    API_OPENAI: call_text_openai,
+}
+
+IMAGE_API_DISPATCH = {
+    API_GEMINI: call_image_gemini,
+    API_CLAUDE: call_image_claude,
+    API_OPENAI: call_image_openai,
+}
