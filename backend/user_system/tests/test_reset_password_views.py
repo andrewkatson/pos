@@ -19,6 +19,8 @@ non_existent_username = 'iamnotauser'
 # A syntactically valid (64-char lowercase hex) but cryptographically fake reset token.
 # Used in tests that need to reach the logic *past* format validation.
 FAKE_HEX_TOKEN = 'a' * 64
+# A syntactically valid (43-char URL-safe base64) but cryptographically fake verification token.
+FAKE_URLSAFE_TOKEN = 'a' * 43
 
 
 def _get_verification_token_from_email():
@@ -78,14 +80,14 @@ class ResetPasswordTests(PositiveOnlySocialTestCase):
 
     def test_user_does_not_exist_verify_reset_returns_bad_response(self):
         url = reverse('verify_reset')
-        data = {'username_or_email': non_existent_username, 'verification_token': 'sometoken'}
+        data = {'username_or_email': non_existent_username, 'verification_token': FAKE_URLSAFE_TOKEN}
         response = self.client.post(url, data=data, content_type='application/json')
         self.assertEqual(response.status_code, 400)
         self.assertIn("No user with that username or email", response.json().get('error', ''))
 
     def test_invalid_verification_token_returns_bad_response(self):
         self._request_reset()
-        response = self._verify_reset('definitely_wrong_token')
+        response = self._verify_reset(FAKE_URLSAFE_TOKEN)
         self.assertEqual(response.status_code, 400)
         self.assertIn("Invalid or expired", response.json().get('error', ''))
 
