@@ -598,6 +598,8 @@ def reset_password(request):
             user.set_password(password)
             user.reset_token = None
             user.reset_token_expires = None
+            Session.objects.filter(user=user).delete()
+            LoginCookie.objects.filter(user=user).delete()
             user.save()
             Session.objects.filter(management_user=user).delete()
             LoginCookie.objects.filter(cookie_user=user).delete()
@@ -605,7 +607,7 @@ def reset_password(request):
         logger.warning("Password reset failed: No user with that username or email")
         return log_and_return_json("reset_password", {'error': "No user with that username or email"}, status=400)
 
-    logger.info("Password reset successful")
+    logger.info(f"Password reset successful for user_id: {user.id}, username: {user.username}")
     return log_and_return_json("reset_password", {'message': 'Password reset successfully'})
 
 

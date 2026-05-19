@@ -43,7 +43,7 @@ struct VerifyResetView: View {
                         .font(.callout)
 
                     TextField("Verification Token", text: $verificationToken)
-                        .accessibilityIdentifier("VerificationTokenTextField")
+                        .accessibilityIdentifier("6DigitPinTextField")
                         .autocapitalization(.none)
                         .disableAutocorrection(true)
                 }
