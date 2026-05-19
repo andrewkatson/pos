@@ -598,8 +598,6 @@ def reset_password(request):
             user.set_password(password)
             user.reset_token = None
             user.reset_token_expires = None
-            Session.objects.filter(user=user).delete()
-            LoginCookie.objects.filter(user=user).delete()
             user.save()
             Session.objects.filter(management_user=user).delete()
             LoginCookie.objects.filter(cookie_user=user).delete()
