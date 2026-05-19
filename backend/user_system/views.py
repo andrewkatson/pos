@@ -484,6 +484,8 @@ def request_reset(request):
 
         user.verification_token = token_hash
         user.verification_token_expires = timezone.now() + timedelta(hours=1)
+        user.reset_token = None
+        user.reset_token_expires = None
         user.save()
         logger.info(f"Password reset request successful for user_id: {user.id}")
         return log_and_return_json("request_reset", {'message': 'Reset email sent'})
