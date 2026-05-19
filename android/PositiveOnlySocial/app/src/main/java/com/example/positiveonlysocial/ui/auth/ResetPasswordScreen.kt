@@ -6,6 +6,7 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
@@ -19,13 +20,15 @@ import com.example.positiveonlysocial.data.security.KeychainHelperProtocol
 import com.example.positiveonlysocial.ui.navigation.Screen
 import com.example.positiveonlysocial.ui.theme.PositiveOnlySocialTheme
 import kotlinx.coroutines.launch
+import org.json.JSONObject
 
 @Composable
 fun ResetPasswordScreen(
     navController: NavController,
     api: PositiveOnlySocialAPI,
     keychainHelper: KeychainHelperProtocol,
-    usernameOrEmail: String
+    usernameOrEmail: String,
+    resetToken: String
 ) {
     PositiveOnlySocialTheme {
         var username by remember { mutableStateOf("") }
@@ -40,15 +43,6 @@ fun ResetPasswordScreen(
 
         val isPasswordMatching = confirmPassword.isEmpty() || newPassword == confirmPassword
         val isFormValid = username.isNotEmpty() && email.isNotEmpty() && newPassword.isNotEmpty() && newPassword == confirmPassword
-
-        // Pre-fill username or email based on input
-        LaunchedEffect(usernameOrEmail) {
-            if (usernameOrEmail.contains("@")) {
-                email = usernameOrEmail
-            } else {
-                username = usernameOrEmail
-            }
-        }
 
         if (showingErrorAlert) {
             AlertDialog(
@@ -71,7 +65,8 @@ fun ResetPasswordScreen(
         ) {
             Text(
                 text = "Reset Password",
-                style = MaterialTheme.typography.headlineSmall
+                style = MaterialTheme.typography.headlineSmall,
+                modifier = Modifier.testTag("ResetPasswordHeader")
             )
 
             Text(
@@ -143,20 +138,19 @@ fun ResetPasswordScreen(
                                 val request = PasswordResetSubmitRequest(
                                     username = username,
                                     email = email,
-                                    password = newPassword
+                                    password = newPassword,
+                                    resetToken = resetToken
                                 )
-                                api.resetPassword(
-                                    request = request
-                                )
-                                // On success, navigate to Home (or Login, but Swift goes to Home so let's assume auto-login or just Home)
-                                // Swift code: didResetSuccessfully = true -> HomeView
-                                // We should probably navigate to Login to be safe or Home if we can auto-login.
-                                // The Swift code implies it logs in or just goes to Home. 
-                                // Let's go to Home for now to match Swift behavior, but note we might not have a session.
-                                // Actually, without a session token, Home might fail. 
-                                // But let's follow the Swift flow.
-                                navController.navigate(Screen.Home.route) {
-                                    popUpTo(Screen.Login.route) { inclusive = true }
+                                val response = api.resetPassword(request = request)
+                                if (!response.isSuccessful) {
+                                    val backendError = response.errorBody()?.string()
+                                        ?.let { runCatching { JSONObject(it).getString("error") }.getOrNull() }
+                                    errorMessage = backendError ?: "Password reset failed. Please try again."
+                                    showingErrorAlert = true
+                                } else {
+                                    navController.navigate(Screen.Login.route) {
+                                        popUpTo(Screen.Welcome.route) { inclusive = false }
+                                    }
                                 }
                             } catch (e: Exception) {
                                 errorMessage = e.localizedMessage ?: "An unknown error occurred."
@@ -166,10 +160,10 @@ fun ResetPasswordScreen(
                             }
                         }
                     },
-                    modifier = Modifier.fillMaxWidth(),
+                    modifier = Modifier.fillMaxWidth().testTag("ResetPasswordButton"),
                     enabled = isFormValid
                 ) {
-                    Text("Reset Password and Login")
+                    Text("Reset Password")
                 }
             }
         }
@@ -183,6 +177,7 @@ fun ResetPasswordScreenPreview() {
         navController = rememberNavController(),
         api = PreviewHelpers.mockApi,
         keychainHelper = PreviewHelpers.mockKeychainHelper,
-        usernameOrEmail = "test@example.com"
+        usernameOrEmail = "test@example.com",
+        resetToken = ""
     )
 }

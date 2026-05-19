@@ -81,7 +81,7 @@ struct MockedAPI: Networking {
         return try encodeGenericSuccess()
     }
 
-    func resetPassword(username: String, email: String, newPassword: String) async throws -> Data {
+    func resetPassword(username: String, email: String, newPassword: String, resetToken: String) async throws -> Data {
         return try encodeGenericSuccess()
     }
 
@@ -89,8 +89,8 @@ struct MockedAPI: Networking {
         return try encodeGenericSuccess()
     }
 
-    func verifyPasswordReset(usernameOrEmail: String, resetID: Int) async throws -> Data {
-        return try encodeGenericSuccess()
+    func verifyPasswordReset(usernameOrEmail: String, verificationToken: String) async throws -> Data {
+        return try encode(["message": "ok", "reset_token": "preview_reset_token"])
     }
 
     func logoutUser(sessionManagementToken: String) async throws -> Data {

@@ -33,7 +33,10 @@ class UserBlock(models.Model):
 
 # The non-admin user class (no changes needed here)
 class PositiveOnlySocialUser(AbstractUser):
-    reset_id = models.IntegerField(default=-1)
+    verification_token = models.TextField(null=True, blank=True, default=None)
+    verification_token_expires = models.DateTimeField(null=True, blank=True, default=None)
+    reset_token = models.TextField(null=True, blank=True, default=None)
+    reset_token_expires = models.DateTimeField(null=True, blank=True, default=None)
     report_id = models.TextField(null=True)
     verification_report_status = models.TextField(default=NEVER_RUN)
     identity_is_verified = models.BooleanField(default=False)

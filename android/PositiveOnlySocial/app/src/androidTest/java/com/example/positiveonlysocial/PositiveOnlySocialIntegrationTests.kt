@@ -222,20 +222,27 @@ class PositiveOnlySocialIntegrationTests {
         composeTestRule.onNodeWithText("Username or Email").performTextInput(testUsername)
         composeTestRule.onNodeWithText("Request Reset").performClick()
 
-        // Verify Reset
+        // Verify Reset — stub issues "stub_verification_token_<username>"
         composeTestRule.onNodeWithText("Verify Your Identity").assertExists()
-        composeTestRule.onNodeWithText("Enter 6-Digit PIN")
-            .performTextInput("123456") // Static PIN
+        composeTestRule.onNodeWithText("Verification Token")
+            .performTextInput("stub_verification_token_$testUsername")
         composeTestRule.onNodeWithText("Verify").performClick()
 
         // Reset Password
-        composeTestRule.onNodeWithText("Reset Password").assertExists()
+        composeTestRule.onNodeWithTag("ResetPasswordHeader").assertExists()
         composeTestRule.onNodeWithText("Username").performTextInput(testUsername)
         composeTestRule.onNodeWithText("Email").performTextInput("$testUsername@test.com")
         composeTestRule.onNodeWithText("New Password").performTextInput(newStrongPassword)
         composeTestRule.onNodeWithText("Confirm Password").performTextInput(newStrongPassword)
-        composeTestRule.onNodeWithText("Reset Password and Login").performClick()
+        composeTestRule.onNodeWithTag("ResetPasswordButton").performClick()
 
+        // After reset the user is sent to Login (no session was created).
+        assertOnLoginView()
+
+        // Verify the new password works.
+        composeTestRule.onNodeWithText("Username or Email").performTextInput(testUsername)
+        composeTestRule.onNodeWithText("Password").performTextInput(newStrongPassword)
+        composeTestRule.onNodeWithText("Login").performClick()
         assertOnHomeView()
     }
 

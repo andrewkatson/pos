@@ -20,7 +20,6 @@ class Patterns:
     uuid4 = r"^[0-9a-f]{12}4[0-9a-f]{3}[89ab][0-9a-f]{15}\Z$"
     boolean = r"^(?i)(true|false)$"
     json_dict_of_upper_and_lower_case_chars = r"^[\]\[{}:\"\\, a-zA-Z]{2,5000}$"
-    reset_id = r"^\d{6}$"
     ipv6 = r"(([0-9a-fA-F]{1,4}:){7,7}[0-9a-fA-F]{1,4}|([0-9a-fA-F]{1,4}:){1,7}:|([0-9a-fA-F]{1,4}:){1,6}:[0-9a-fA-F]{1,4}|([0-9a-fA-F]{1,4}:){1,5}(:[0-9a-fA-F]{1,4}){1,2}|([0-9a-fA-F]{1,4}:){1,4}(:[0-9a-fA-F]{1,4}){1,3}|([0-9a-fA-F]{1,4}:){1,3}(:[0-9a-fA-F]{1,4}){1,4}|([0-9a-fA-F]{1,4}:){1,2}(:[0-9a-fA-F]{1,4}){1,5}|[0-9a-fA-F]{1,4}:((:[0-9a-fA-F]{1,4}){1,6})|:((:[0-9a-fA-F]{1,4}){1,7}|:)|fe80:(:[0-9a-fA-F]{0,4}){0,4}%[0-9a-zA-Z]{1,}|::(ffff(:0{1,4}){0,1}:){0,1}((25[0-5]|(2[0-4]|1{0,1}[0-9]){0,1}[0-9])\.){3,3}(25[0-5]|(2[0-4]|1{0,1}[0-9]){0,1}[0-9])|([0-9a-fA-F]{1,4}:){1,4}:((25[0-5]|(2[0-4]|1{0,1}[0-9]){0,1}[0-9])\.){3,3}(25[0-5]|(2[0-4]|1{0,1}[0-9]){0,1}[0-9]))"
     ipv4 = r"^((25[0-5]|(2[0-4]|1\d|[1-9]|)\d)\.?\b){4}$"
     image_url = (
@@ -37,7 +36,8 @@ class Params:
     user_id = "USER_ID"
     image_url = "IMAGE_URL"
     comment = "COMMENT"
-    reset_id = "RESET_ID"
+    reset_token = "RESET_TOKEN"
+    verification_token = "VERIFICATION_TOKEN"
     ip = "IP"
     session_management_token = "SESSION_MANAGEMENT_TOKEN"
     series_identifier = "SERIES_IDENTIFIER"
@@ -81,6 +81,8 @@ class Fields:
     updated_time = "updated_time"
     comment_likes = "comment_likes"
     identity_is_verified = "identity_is_verified"
+    reset_token = "reset_token"
+    verification_token = "verification_token"
 
 # Lengths of things
 LEN_LOGIN_COOKIE_TOKEN = 32

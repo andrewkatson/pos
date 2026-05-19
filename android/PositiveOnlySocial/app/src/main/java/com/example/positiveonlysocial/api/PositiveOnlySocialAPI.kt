@@ -38,11 +38,8 @@ interface PositiveOnlySocialAPI {
     @POST("password/request-reset/")
     suspend fun requestReset(@Body request: ResetRequest): Response<GenericResponse>
 
-    @GET("password/verify-reset/{username_or_email}/{reset_id}")
-    suspend fun verifyReset(
-        @Path("username_or_email") usernameOrEmail: String,
-        @Path("reset_id") resetId: Int
-    ): Response<GenericResponse>
+    @POST("password/verify-reset/")
+    suspend fun verifyReset(@Body request: VerificationRequest): Response<VerifyResetResponse>
 
     @POST("password/reset/")
     suspend fun resetPassword(@Body request: PasswordResetSubmitRequest): Response<GenericResponse>

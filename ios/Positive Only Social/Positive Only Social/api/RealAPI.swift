@@ -82,10 +82,16 @@ final class RealAPI: Networking {
         let username: String
         let email: String
         let password: String
+        let reset_token: String
     }
-    
+
     private struct RequestResetBody: Encodable {
         let username_or_email: String
+    }
+
+    private struct VerifyResetBody: Encodable {
+        let username_or_email: String
+        let verification_token: String
     }
     
     private struct MakePostBody: Encodable {
@@ -231,8 +237,8 @@ final class RealAPI: Networking {
     }
     
     /// Resets the user's password.
-    func resetPassword(username: String, email: String, newPassword: String) async throws -> Data {
-        let body = ResetPasswordBody(username: username, email: email, password: newPassword)
+    func resetPassword(username: String, email: String, newPassword: String, resetToken: String) async throws -> Data {
+        let body = ResetPasswordBody(username: username, email: email, password: newPassword, reset_token: resetToken)
         let requestBody = try encode(body)
         
         return try await performRequest(
@@ -254,12 +260,14 @@ final class RealAPI: Networking {
         )
     }
     
-    /// Verifies the password reset identifier.
-    func verifyPasswordReset(usernameOrEmail: String, resetID: Int) async throws -> Data {
-        // This is a GET request, no body or auth.
+    /// Verifies the password reset token received via email.
+    func verifyPasswordReset(usernameOrEmail: String, verificationToken: String) async throws -> Data {
+        let body = VerifyResetBody(username_or_email: usernameOrEmail, verification_token: verificationToken)
+        let requestBody = try encode(body)
         return try await performRequest(
-            pathSegments: ["password", "verify-reset", usernameOrEmail, String(resetID)],
-            method: .get
+            pathSegments: ["password", "verify-reset"],
+            method: .post,
+            body: requestBody
         )
     }
     

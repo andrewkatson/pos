@@ -1,6 +1,11 @@
 package com.example.positiveonlysocial.ui.navigation
 
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.navigation.NavHostController
 import androidx.navigation.NavType
 import androidx.navigation.compose.NavHost
@@ -20,6 +25,10 @@ fun NavGraph(
     keychainHelper: KeychainHelperProtocol,
     authManager: AuthenticationManager
 ) {
+    // Holds the reset token in memory between VerifyReset and ResetPassword screens.
+    // Not passed via the nav route to avoid logging/persisting a bearer credential.
+    var pendingResetToken by remember { mutableStateOf("") }
+
     NavHost(
         navController = navController,
         startDestination = Screen.Welcome.route
@@ -42,14 +51,27 @@ fun NavGraph(
             arguments = listOf(navArgument("usernameOrEmail") { type = NavType.StringType })
         ) { backStackEntry ->
             val usernameOrEmail = backStackEntry.arguments?.getString("usernameOrEmail") ?: ""
-            VerifyResetScreen(navController, api, keychainHelper, usernameOrEmail)
+            VerifyResetScreen(navController, api, keychainHelper, usernameOrEmail,
+                onVerified = { token -> pendingResetToken = token })
         }
         composable(
             route = Screen.ResetPassword.route,
             arguments = listOf(navArgument("usernameOrEmail") { type = NavType.StringType })
         ) { backStackEntry ->
             val usernameOrEmail = backStackEntry.arguments?.getString("usernameOrEmail") ?: ""
-            ResetPasswordScreen(navController, api, keychainHelper, usernameOrEmail)
+            // Check at composition time (not in a coroutine) so the branch is decided
+            // synchronously — no race between the LaunchedEffect clock and the state write
+            // from onVerified().  Process death / direct deep-link: token is "" → schedule
+            // the redirect and render nothing.  Normal flow: token is set → render screen.
+            if (pendingResetToken.isEmpty()) {
+                LaunchedEffect(Unit) {
+                    navController.navigate(Screen.Login.route) {
+                        popUpTo(Screen.RequestReset.route) { inclusive = true }
+                    }
+                }
+            } else {
+                ResetPasswordScreen(navController, api, keychainHelper, usernameOrEmail, pendingResetToken)
+            }
         }
 
         // Main App Flow

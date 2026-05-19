@@ -10,7 +10,8 @@ import SwiftUI
 // Handles the 'reset_password' flow.
 struct ResetPasswordView: View {
     var usernameOrEmail: String
-    
+    var resetToken: String
+
     // MARK: Envrionment Properties
     @EnvironmentObject var authManager: AuthenticationManager
     
@@ -78,11 +79,11 @@ struct ResetPasswordView: View {
         isLoading = true
         
         do {
-            // Using the INSECURE method as requested
             _ = try await api.resetPassword(
                 username: username,
                 email: email,
-                newPassword: newPassword
+                newPassword: newPassword,
+                resetToken: resetToken
             )
             
             print("✅ Password reset successful. Attempting auto-login...")
@@ -123,5 +124,5 @@ struct ResetPasswordView: View {
 }
 
 #Preview {
-    ResetPasswordView(usernameOrEmail: "test", api: PreviewHelpers.api, keychainHelper: PreviewHelpers.keychainHelper).environmentObject(PreviewHelpers.authManager)
+    ResetPasswordView(usernameOrEmail: "test", resetToken: "", api: PreviewHelpers.api, keychainHelper: PreviewHelpers.keychainHelper).environmentObject(PreviewHelpers.authManager)
 }

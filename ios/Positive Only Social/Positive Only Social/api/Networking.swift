@@ -25,14 +25,14 @@ protocol Networking {
     /// This is used if the user's series identifier and login cookie token exist and match what is on record.
     func loginUserWithRememberMe(sessionManagementToken: String, seriesIdentifier: String, loginCookieToken: String, ip: String) async throws -> Data
 
-    /// Resets the user's password. Assumes the new password has already been confirmed by the user.
-    func resetPassword(username: String, email: String, newPassword: String) async throws -> Data
+    /// Resets the user's password. Requires a reset token issued by verifyPasswordReset.
+    func resetPassword(username: String, email: String, newPassword: String, resetToken: String) async throws -> Data
 
     /// Requests a password reset and sends the user an email with instructions.
     func requestPasswordReset(usernameOrEmail: String) async throws -> Data
 
-    /// Verifies the password reset by checking that the reset identifier matches the one sent in the email.
-    func verifyPasswordReset(usernameOrEmail: String, resetID: Int) async throws -> Data
+    /// Verifies the password reset by submitting the opaque verification token received via email.
+    func verifyPasswordReset(usernameOrEmail: String, verificationToken: String) async throws -> Data
 
     /// Logs the user out.
     func logoutUser(sessionManagementToken: String) async throws -> Data

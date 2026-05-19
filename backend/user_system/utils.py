@@ -78,12 +78,6 @@ def generate_password(length):
             return password
 
 
-def generate_reset_id(length):
-    # No zero because a leading zero will cause a reset id to be not 6 chars.
-    alphabet = '12346789'
-    return ''.join(secrets.choice(alphabet) for i in range(length))
-
-
 def get_batch(batch_num, batch_size, lst):
     starting_index = batch_num * batch_size
     ending_index = min((batch_num + 1) * batch_size, len(lst))

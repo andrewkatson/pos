@@ -34,8 +34,8 @@ urlpatterns = [
     # POST /password/request-reset/
     path('password/request-reset/', views.request_reset, name='request_reset'),
 
-    # GET /password/verify-reset/<username_or_email>/<reset_id>/
-    path('password/verify-reset/<str:username_or_email>/<int:reset_id>/', views.verify_reset, name='verify_reset'),
+    # POST /password/verify-reset/
+    path('password/verify-reset/', views.verify_reset, name='verify_reset'),
 
     # POST /password/reset/
     path('password/reset/', views.reset_password, name='reset_password'),

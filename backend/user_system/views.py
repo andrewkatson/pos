@@ -1,6 +1,8 @@
+import hashlib
 import json
 import logging
-from datetime import datetime, date
+import secrets
+from datetime import datetime, date, timedelta
 
 from functools import wraps
 
@@ -8,7 +10,9 @@ from django.conf import settings
 from django.contrib.auth import login, logout, get_user_model
 from django.contrib.auth.hashers import check_password
 from django.core.mail import send_mail
+from django.db import transaction
 from django.http import JsonResponse
+from django.utils import timezone
 from django.views.decorators.csrf import csrf_exempt
 from django.views.decorators.http import require_POST, require_GET
 
@@ -19,7 +23,7 @@ from .feed_algorithm import feed_algorithm
 from .input_validator import is_valid_pattern
 from .models import LoginCookie, Session, Post, CommentThread, PositiveOnlySocialUser, Comment, UserBlock
 from .utils import convert_to_bool, generate_login_cookie_token, generate_management_token, generate_series_identifier, \
-    generate_reset_id, get_batch, get_compressed_image_url
+    get_batch, get_compressed_image_url
 
 image_classifier_class = image_classifier
 text_classifier_class = text_classifier
@@ -468,13 +472,20 @@ def request_reset(request):
 
     user = get_user_with_username_or_email(username_or_email)
     if user is not None:
-        random_number = int(generate_reset_id(6))
+        token = secrets.token_urlsafe(32)
+        token_hash = hashlib.sha256(token.encode()).hexdigest()
 
-        send_mail("Password reset id", f"Your password reset id is {random_number}",
-                  settings.EMAIL_HOST_USER,
-                  [user.email])
+        send_mail(
+            "Password Reset",
+            f"Your password reset verification token is:\n\n{token}\n\nEnter this in the app to proceed. It expires in 1 hour.",
+            settings.EMAIL_HOST_USER,
+            [user.email]
+        )
 
-        user.reset_id = random_number
+        user.verification_token = token_hash
+        user.verification_token_expires = timezone.now() + timedelta(hours=1)
+        user.reset_token = None
+        user.reset_token_expires = None
         user.save()
         logger.info(f"Password reset request successful for user_id: {user.id}")
         return log_and_return_json("request_reset", {'message': 'Reset email sent'})
@@ -483,34 +494,60 @@ def request_reset(request):
         return log_and_return_json("request_reset", {'error': "No user with that username or email"}, status=400)
 
 
-@require_GET
-def verify_reset(request, username_or_email, reset_id):
+@csrf_exempt
+@require_POST
+def verify_reset(request):
     logger.info("Endpoint verify_reset invoked by IP or User")
-    # Data comes from URL, not JSON body
-    invalid_fields = []
-    if not is_valid_pattern(username_or_email, Patterns.alphanumeric) and not is_valid_pattern(username_or_email,
-                                                                                               Patterns.email):
-        invalid_fields.append(Params.username_or_email)
+    data = _get_json_body(request)
+    if data is None:
+        return log_and_return_json("verify_reset", {'error': "Invalid JSON data"}, status=400)
 
-    # reset_id is already an int from the URL path, no need to check pattern
-    if reset_id is None:
-        invalid_fields.append(Params.reset_id)
+    username_or_email = data.get(Fields.username_or_email)
+    verification_token = data.get(Fields.verification_token)
+
+    invalid_fields = []
+    if not username_or_email or (
+            not is_valid_pattern(username_or_email, Patterns.alphanumeric) and
+            not is_valid_pattern(username_or_email, Patterns.email)):
+        invalid_fields.append(Params.username_or_email)
+    _URLSAFE_TOKEN_LEN = 43
+    _URLSAFE_TOKEN_CHARS = frozenset('ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789_-')
+    if (not verification_token or not isinstance(verification_token, str)
+            or len(verification_token) != _URLSAFE_TOKEN_LEN
+            or not all(c in _URLSAFE_TOKEN_CHARS for c in verification_token)):
+        invalid_fields.append(Params.verification_token)
 
     if len(invalid_fields) > 0:
         return log_and_return_json("verify_reset", {'error': f"Invalid fields {invalid_fields}"}, status=400)
 
+    submitted_hash = hashlib.sha256(verification_token.encode()).hexdigest()
+
     user = get_user_with_username_or_email(username_or_email)
-    if user is not None:
-        # Ensure types match for comparison
-        if user.reset_id == int(reset_id) and user.reset_id >= 0:
-            user.reset_id = -1  # Invalidate the reset ID
-            user.save()
-            logger.info(f"Password reset verification successful for user_id: {user.id}")
-            return log_and_return_json("verify_reset", {'message': 'Verification successful'})
-        else:
-            logger.warning(f"Password reset verification failed: Reset ID mismatch for user_id: {user.id}")
-            return log_and_return_json("verify_reset", {'error': "That reset id does not match"}, status=400)
-    else:
+    if user is None:
+        logger.warning("Password reset verification failed: No user with that username or email")
+        return log_and_return_json("verify_reset", {'error': "No user with that username or email"}, status=400)
+
+    try:
+        with transaction.atomic():
+            user = get_user_model().objects.select_for_update().get(pk=user.pk)
+            if (user.verification_token and
+                    secrets.compare_digest(user.verification_token, submitted_hash) and
+                    user.verification_token_expires is not None and
+                    timezone.now() <= user.verification_token_expires):
+                reset_token = secrets.token_hex(32)
+                user.verification_token = None
+                user.verification_token_expires = None
+                user.reset_token = hashlib.sha256(reset_token.encode()).hexdigest()
+                user.reset_token_expires = timezone.now() + timedelta(minutes=15)
+                user.save()
+                logger.info(f"Password reset verification successful for user_id: {user.id}")
+                response = log_and_return_json("verify_reset", {'message': 'Verification successful', 'reset_token': reset_token})
+                response['Cache-Control'] = 'no-store'
+                return response
+            else:
+                logger.warning(f"Password reset verification failed for user_id: {user.id}")
+                return log_and_return_json("verify_reset", {'error': "Invalid or expired verification token"}, status=400)
+    except get_user_model().DoesNotExist:
         logger.warning("Password reset verification failed: No user with that username or email")
         return log_and_return_json("verify_reset", {'error': "No user with that username or email"}, status=400)
 
@@ -526,6 +563,7 @@ def reset_password(request):
     username = data.get(Fields.username)
     email = data.get(Fields.email)
     password = data.get(Fields.password)
+    reset_token = data.get(Fields.reset_token)
 
     invalid_fields = []
     if not username or not is_valid_pattern(username, Patterns.alphanumeric):
@@ -534,27 +572,43 @@ def reset_password(request):
         invalid_fields.append(Params.email)
     if not password or not is_valid_pattern(password, Patterns.password):
         invalid_fields.append(Params.password)
+    _HEX_TOKEN_LEN = 64
+    if (not reset_token or not isinstance(reset_token, str)
+            or len(reset_token) != _HEX_TOKEN_LEN
+            or not all(c in '0123456789abcdef' for c in reset_token)):
+        invalid_fields.append(Params.reset_token)
 
     if len(invalid_fields) > 0:
         return log_and_return_json("reset_password", {'error': f"Invalid fields {invalid_fields}"}, status=400)
 
-    # Classify text fields for positivity
-    if not text_classifier_class.is_text_positive(username):
-        return log_and_return_json("reset_password", {'error': "Username is not positive"}, status=400)
-    if not text_classifier_class.is_text_positive(email):
-        return log_and_return_json("reset_password", {'error': "Email is not positive"}, status=400)
-    if not text_classifier_class.is_text_positive(password):
-        return log_and_return_json("reset_password", {'error': "Password is not positive"}, status=400)
+    submitted_digest = hashlib.sha256(reset_token.encode()).hexdigest()
 
-    user = get_user_with_username_and_email(username, email)
-    if user is not None:
-        user.set_password(password)  # Use set_password to hash it!
-        user.save()
-        logger.info(f"Password reset successful for user_id: {user.id}")
-        return log_and_return_json("reset_password", {'message': 'Password reset successfully'})
-    else:
+    try:
+        with transaction.atomic():
+            user = get_user_model().objects.select_for_update().get(username=username, email=email)
+
+            if not user.reset_token or not secrets.compare_digest(user.reset_token, submitted_digest):
+                logger.warning(f"Password reset failed: Invalid reset token for user_id: {user.id}")
+                return log_and_return_json("reset_password", {'error': "Invalid reset token"}, status=400)
+
+            if user.reset_token_expires is None or timezone.now() > user.reset_token_expires:
+                logger.warning(f"Password reset failed: Expired reset token for user_id: {user.id}")
+                return log_and_return_json("reset_password", {'error': "Reset token has expired"}, status=400)
+
+            user.set_password(password)
+            user.reset_token = None
+            user.reset_token_expires = None
+            Session.objects.filter(user=user).delete()
+            LoginCookie.objects.filter(user=user).delete()
+            user.save()
+            Session.objects.filter(management_user=user).delete()
+            LoginCookie.objects.filter(cookie_user=user).delete()
+    except get_user_model().DoesNotExist:
         logger.warning("Password reset failed: No user with that username or email")
         return log_and_return_json("reset_password", {'error': "No user with that username or email"}, status=400)
+
+    logger.info(f"Password reset successful for user_id: {user.id}, username: {user.username}")
+    return log_and_return_json("reset_password", {'message': 'Password reset successfully'})
 
 
 # =============================================================================

@@ -50,10 +50,22 @@ data class ResetRequest(
     @SerializedName("username_or_email") val usernameOrEmail: String
 )
 
+data class VerificationRequest(
+    @SerializedName("username_or_email") val usernameOrEmail: String,
+    @SerializedName("verification_token") val verificationToken: String
+)
+
 data class PasswordResetSubmitRequest(
     val username: String,
     val email: String,
-    val password: String
+    val password: String,
+    @SerializedName("reset_token") val resetToken: String
+)
+
+data class VerifyResetResponse(
+    val message: String?,
+    val error: String?,
+    @SerializedName("reset_token") val resetToken: String?
 )
 
 // --- Post DTOs ---
