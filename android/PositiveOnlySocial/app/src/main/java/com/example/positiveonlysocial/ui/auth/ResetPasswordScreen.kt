@@ -43,15 +43,6 @@ fun ResetPasswordScreen(
         val isPasswordMatching = confirmPassword.isEmpty() || newPassword == confirmPassword
         val isFormValid = username.isNotEmpty() && email.isNotEmpty() && newPassword.isNotEmpty() && newPassword == confirmPassword
 
-        // Pre-fill username or email based on input
-        LaunchedEffect(usernameOrEmail) {
-            if (usernameOrEmail.contains("@")) {
-                email = usernameOrEmail
-            } else {
-                username = usernameOrEmail
-            }
-        }
-
         if (showingErrorAlert) {
             AlertDialog(
                 onDismissRequest = { showingErrorAlert = false },

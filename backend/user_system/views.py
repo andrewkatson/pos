@@ -23,7 +23,7 @@ from .feed_algorithm import feed_algorithm
 from .input_validator import is_valid_pattern
 from .models import LoginCookie, Session, Post, CommentThread, PositiveOnlySocialUser, Comment, UserBlock
 from .utils import convert_to_bool, generate_login_cookie_token, generate_management_token, generate_series_identifier, \
-    generate_reset_id, get_batch, get_compressed_image_url
+    get_batch, get_compressed_image_url
 
 image_classifier_class = image_classifier
 text_classifier_class = text_classifier

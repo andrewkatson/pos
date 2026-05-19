@@ -85,7 +85,7 @@ fun RegisterScreen(
                                     
                                     // Navigate to Home, clearing back stack
                                     navController.navigate(Screen.Home.route) {
-                                        popUpTo(Screen.Login.route) { inclusive = true }
+                                        popUpTo(Screen.Welcome.route) { inclusive = true }
                                     }
                                 } else {
                                     val errorBody = response.errorBody()?.string()
