@@ -65,7 +65,8 @@ fun ResetPasswordScreen(
         ) {
             Text(
                 text = "Reset Password",
-                style = MaterialTheme.typography.headlineSmall
+                style = MaterialTheme.typography.headlineSmall,
+                modifier = Modifier.testTag("ResetPasswordHeader")
             )
 
             Text(

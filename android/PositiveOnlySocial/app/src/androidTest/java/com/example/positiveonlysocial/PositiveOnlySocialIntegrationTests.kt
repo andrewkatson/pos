@@ -229,7 +229,7 @@ class PositiveOnlySocialIntegrationTests {
         composeTestRule.onNodeWithText("Verify").performClick()
 
         // Reset Password
-        composeTestRule.onNodeWithText("Reset Password").assertExists()
+        composeTestRule.onNodeWithTag("ResetPasswordHeader").assertExists()
         composeTestRule.onNodeWithText("Username").performTextInput(testUsername)
         composeTestRule.onNodeWithText("Email").performTextInput("$testUsername@test.com")
         composeTestRule.onNodeWithText("New Password").performTextInput(newStrongPassword)
