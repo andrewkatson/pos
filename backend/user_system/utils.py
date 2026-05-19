@@ -1,4 +1,3 @@
-import random
 import string
 import hashlib
 import uuid
@@ -28,7 +27,7 @@ def get_compressed_image_url(url):
 def generate_random_string(length):
     """Generates a random string of specified length."""
     characters = string.ascii_letters + string.digits + string.punctuation
-    return ''.join(random.choice(characters) for i in range(length))
+    return ''.join(secrets.choice(characters) for i in range(length))
 
 
 def hash_string_sha256(input_string):
