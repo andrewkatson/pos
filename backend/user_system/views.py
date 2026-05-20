@@ -634,7 +634,9 @@ def make_post(request):
         parsed = urlparse(image_url)
         key = parsed.path.lstrip('/')
         # For path-hosted URLs (s3.region.amazonaws.com/bucket/key), strip the bucket segment.
-        if parsed.netloc.startswith('s3'):
+        # Only treat as path-hosted when the first DNS label is exactly "s3", not bucket names
+        # that happen to start with "s3" (e.g. s3bucket.s3.us-east-2.amazonaws.com).
+        if parsed.hostname and parsed.hostname.split('.')[0] == 's3':
             _, _, key = key.partition('/')
         if not key.startswith(f"{request.user.username}/"):
             invalid_fields.append(Params.image)

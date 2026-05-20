@@ -113,7 +113,18 @@ struct NewPostView: View {
             isLoading = true
             do {
                 // 1. LOAD SESSION (needed for the scoped S3 key)
-                let userSession = try keychainHelper.load(UserSession.self, from: "positive-only-social.Positive-Only-Social", account: "userSessionToken") ?? UserSession(sessionToken: "123", username: "test", isIdentityVerified: false)
+                let userSession: UserSession
+                if isTesting() {
+                    userSession = try keychainHelper.load(UserSession.self, from: "positive-only-social.Positive-Only-Social", account: "userSessionToken") ?? UserSession(sessionToken: "123", username: "test", isIdentityVerified: false)
+                } else {
+                    guard let loaded = try keychainHelper.load(UserSession.self, from: "positive-only-social.Positive-Only-Social", account: "userSessionToken") else {
+                        failureAlertMessage = "You must be logged in to post."
+                        isLoading = false
+                        showFailureAlert = true
+                        return
+                    }
+                    userSession = loaded
+                }
 
                 // 2. UPLOAD IMAGE TO S3 — key scoped to the authenticated user
                 let uniqueFileName = "\(userSession.username)/\(UUID().uuidString).jpeg"
@@ -127,7 +138,6 @@ struct NewPostView: View {
                 }
 
                 // 3. SEND THE S3 URL TO YOUR BACKEND
-                
                 _ = try await api.makePost(
                     sessionManagementToken: userSession.sessionToken,
                     imageURL: imageURL.absoluteString,
