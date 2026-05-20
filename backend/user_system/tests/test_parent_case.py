@@ -10,7 +10,7 @@ from .test_constants import ip, false, UserFields
 # Note: test_utils.get_response_fields is replaced by response.json()
 from ..classifiers.classifier_constants import POSITIVE_IMAGE_URL, POSITIVE_TEXT
 from ..constants import Fields
-from ..models import Post, CommentThread, Comment
+from ..models import Post, CommentThread, Comment, Session
 
 
 class PositiveOnlySocialTestCase(TestCase):
@@ -108,12 +108,15 @@ class PositiveOnlySocialTestCase(TestCase):
         return response.json()
 
     @patch.dict(os.environ, {"TESTING": "True"}, clear=True)
-    def _make_post(self, token, image_url=POSITIVE_IMAGE_URL, caption=POSITIVE_TEXT):
+    def _make_post(self, token, image_url=None, caption=POSITIVE_TEXT):
         """
         Calls the 'make_post' endpoint with a valid auth token.
         Returns the parsed JSON response. Asserts 201 Created.
         NOTE: The calling test MUST patch the image/text classifiers.
         """
+        if image_url is None:
+            username = Session.objects.get(management_token=token).management_user.username
+            image_url = f'https://test-bucket.s3.amazonaws.com/{username}/positive_image_url.png'
         url = reverse('make_post')
         header = {'HTTP_AUTHORIZATION': f'Bearer {token}'}
         data = {'image_url': image_url, 'caption': caption}
