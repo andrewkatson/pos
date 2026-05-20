@@ -8,7 +8,7 @@ from django.urls import reverse
 # Note: test_constants are no longer used for FAIL/SUCCESS
 from .test_constants import ip, false, UserFields
 # Note: test_utils.get_response_fields is replaced by response.json()
-from ..classifiers.classifier_constants import POSITIVE_IMAGE_URL, POSITIVE_TEXT
+from ..classifiers.classifier_constants import POSITIVE_IMAGE_URL, POSITIVE_IMAGE_FILENAME, POSITIVE_TEXT
 from ..constants import Fields
 from ..models import Post, CommentThread, Comment, Session
 
@@ -116,7 +116,7 @@ class PositiveOnlySocialTestCase(TestCase):
         """
         if image_url is None:
             username = Session.objects.get(management_token=token).management_user.username
-            image_url = f'https://test-bucket.s3.amazonaws.com/{username}/positive_image_url.png'
+            image_url = f'https://test-bucket.s3.amazonaws.com/{username}/{POSITIVE_IMAGE_FILENAME}'
         url = reverse('make_post')
         header = {'HTTP_AUTHORIZATION': f'Bearer {token}'}
         data = {'image_url': image_url, 'caption': caption}
