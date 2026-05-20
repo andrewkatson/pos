@@ -112,9 +112,12 @@ struct NewPostView: View {
         Task {
             isLoading = true
             do {
-                // 1. UPLOAD IMAGE TO S3
-                let uniqueFileName = "\(UUID().uuidString).jpeg"
-                
+                // 1. LOAD SESSION (needed for the scoped S3 key)
+                let userSession = try keychainHelper.load(UserSession.self, from: "positive-only-social.Positive-Only-Social", account: "userSessionToken") ?? UserSession(sessionToken: "123", username: "test", isIdentityVerified: false)
+
+                // 2. UPLOAD IMAGE TO S3 — key scoped to the authenticated user
+                let uniqueFileName = "\(userSession.username)/\(UUID().uuidString).jpeg"
+
                 var imageURL: URL! = URL(string: "https://picsum.photos/400/400")!
                 if !isTesting() {
                     imageURL = try await s3Uploader.upload(
@@ -122,9 +125,8 @@ struct NewPostView: View {
                         fileName: uniqueFileName
                     )
                 }
-                
-                // 2. SEND THE S3 URL TO YOUR BACKEND
-                let userSession = try keychainHelper.load(UserSession.self, from: "positive-only-social.Positive-Only-Social", account: "userSessionToken") ?? UserSession(sessionToken: "123", username: "test", isIdentityVerified: false)
+
+                // 3. SEND THE S3 URL TO YOUR BACKEND
                 
                 _ = try await api.makePost(
                     sessionManagementToken: userSession.sessionToken,

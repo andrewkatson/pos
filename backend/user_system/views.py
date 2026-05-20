@@ -3,6 +3,7 @@ import json
 import logging
 import secrets
 from datetime import datetime, date, timedelta
+from urllib.parse import urlparse
 
 from functools import wraps
 
@@ -629,6 +630,14 @@ def make_post(request):
     invalid_fields = []
     if not image_url or not is_valid_pattern(image_url, Patterns.image_url):
         invalid_fields.append(Params.image)
+    else:
+        parsed = urlparse(image_url)
+        key = parsed.path.lstrip('/')
+        # For path-hosted URLs (s3.region.amazonaws.com/bucket/key), strip the bucket segment.
+        if parsed.netloc.startswith('s3'):
+            _, _, key = key.partition('/')
+        if not key.startswith(f"{request.user.username}/"):
+            invalid_fields.append(Params.image)
     if not caption or not is_valid_pattern(caption, Patterns.alphanumeric_with_special_chars):
         invalid_fields.append(Params.caption)
 

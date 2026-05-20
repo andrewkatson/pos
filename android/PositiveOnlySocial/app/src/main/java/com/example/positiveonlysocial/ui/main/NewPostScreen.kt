@@ -146,31 +146,33 @@ fun NewPostScreen(
                                     return@launch
                                 }
 
-                                val fileName = "${UUID.randomUUID()}.jpg"
-                                val s3Uploader = S3Uploader()
-                                
-                                val uploadUrl = s3Uploader.upload(bytes, fileName)
-                                
+                                // Load session first so we can scope the S3 key to the authenticated user.
                                 val session = keychainHelper.load(
                                     com.example.positiveonlysocial.data.model.UserSession::class.java,
                                     "positive-only-social.Positive-Only-Social",
                                     "userSessionToken"
                                 )
-                                
-                                if (session != null) {
-                                    val request = CreatePostRequest(
-                                        imageUrl = uploadUrl.toString(),
-                                        caption = caption
-                                    )
-                                    api.makePost(
-                                        token = session.sessionToken,
-                                        request = request
-                                    )
-                                    showSuccessAlert = true
-                                } else {
+
+                                if (session == null) {
                                     failureMessage = "User not logged in."
                                     showFailureAlert = true
+                                    return@launch
                                 }
+
+                                val fileName = "${session.username}/${UUID.randomUUID()}.jpg"
+                                val s3Uploader = S3Uploader()
+
+                                val uploadUrl = s3Uploader.upload(bytes, fileName)
+
+                                val request = CreatePostRequest(
+                                    imageUrl = uploadUrl.toString(),
+                                    caption = caption
+                                )
+                                api.makePost(
+                                    token = session.sessionToken,
+                                    request = request
+                                )
+                                showSuccessAlert = true
 
                             } catch (e: Exception) {
                                 failureMessage = "Failed to share post: ${e.localizedMessage}"
