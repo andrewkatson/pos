@@ -115,8 +115,8 @@ class PositiveOnlySocialTestCase(TestCase):
         NOTE: The calling test MUST patch the image/text classifiers.
         """
         if image_url is None:
-            username = Session.objects.get(management_token=token).management_user.username
-            image_url = f'https://test-bucket.s3.amazonaws.com/{username}/{POSITIVE_IMAGE_FILENAME}'
+            user_id = Session.objects.get(management_token=token).management_user.id
+            image_url = f'https://test-bucket.s3.amazonaws.com/{user_id}/{POSITIVE_IMAGE_FILENAME}'
         url = reverse('make_post')
         header = {'HTTP_AUTHORIZATION': f'Bearer {token}'}
         data = {'image_url': image_url, 'caption': caption}

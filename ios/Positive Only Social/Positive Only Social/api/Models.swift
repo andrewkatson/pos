@@ -14,12 +14,14 @@ import Foundation
 struct LoginResponseFields: Codable {
     let sessionManagementToken: String
     let username: String?
+    let userId: Int?
     let seriesIdentifier: String?
     let loginCookieToken: String?
 
     enum CodingKeys: String, CodingKey {
         case sessionManagementToken = "session_management_token"
         case username
+        case userId = "user_id"
         case seriesIdentifier = "series_identifier"
         case loginCookieToken = "login_cookie_token"
     }
@@ -82,6 +84,7 @@ struct ProfileDetailsResponse: Codable, Identifiable, Hashable {
 struct UserSession: Codable, Equatable {
     let sessionToken: String
     let username: String
+    let userId: Int
     let isIdentityVerified: Bool
 }
 

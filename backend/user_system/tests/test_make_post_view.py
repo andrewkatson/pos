@@ -28,7 +28,7 @@ class MakePostTests(PositiveOnlySocialTestCase):
 
         # A valid data payload for the "happy path" — key scoped to the authenticated user
         self.valid_data = {
-            'image_url': f'https://test-bucket.s3.amazonaws.com/{self.local_username}/{POSITIVE_IMAGE_FILENAME}',
+            'image_url': f'https://test-bucket.s3.amazonaws.com/{self.user.id}/{POSITIVE_IMAGE_FILENAME}',
             'caption': POSITIVE_TEXT
         }
 
@@ -86,7 +86,7 @@ class MakePostTests(PositiveOnlySocialTestCase):
         """
         Tests that a negative image (as per the fake classifier) is rejected.
         """
-        data = {'image_url': f'https://test-bucket.s3.amazonaws.com/{self.local_username}/{NEGATIVE_IMAGE_FILENAME}', 'caption': POSITIVE_TEXT}
+        data = {'image_url': f'https://test-bucket.s3.amazonaws.com/{self.user.id}/{NEGATIVE_IMAGE_FILENAME}', 'caption': POSITIVE_TEXT}
 
         response = self.client.post(
             self.url,
@@ -154,7 +154,7 @@ class MakePostTests(PositiveOnlySocialTestCase):
         A valid S3 URL whose key is prefixed with a different user's name must be rejected.
         """
         data = self.valid_data.copy()
-        data['image_url'] = f'https://test-bucket.s3.amazonaws.com/otheruser/{POSITIVE_IMAGE_FILENAME}'
+        data['image_url'] = f'https://test-bucket.s3.amazonaws.com/99999/{POSITIVE_IMAGE_FILENAME}'
 
         response = self.client.post(
             self.url,

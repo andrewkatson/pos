@@ -54,6 +54,7 @@ class Params:
 
 class Fields:
     is_adult = 'is_adult'
+    user_id = "user_id"
     series_identifier = "series_identifier"
     login_cookie_token = "login_cookie_token"
     session_management_token = "session_management_token"

@@ -159,7 +159,7 @@ fun NewPostScreen(
                                     return@launch
                                 }
 
-                                val fileName = "${session.username}/${UUID.randomUUID()}.jpg"
+                                val fileName = "${session.userId}/${UUID.randomUUID()}.jpg"
                                 val s3Uploader = S3Uploader()
 
                                 val uploadUrl = s3Uploader.upload(bytes, fileName)

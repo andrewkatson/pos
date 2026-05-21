@@ -242,7 +242,8 @@ def register(request):
     # .create() already saves
 
     response_data = {
-        Fields.session_management_token: new_session.management_token
+        Fields.session_management_token: new_session.management_token,
+        Fields.user_id: new_user.id,
     }
     if remember_me and new_login_cookie:
         response_data[Fields.series_identifier] = new_login_cookie.series_identifier
@@ -338,7 +339,8 @@ def login_user(request):
 
         response_data = {
             Fields.session_management_token: new_session.management_token,
-            Fields.username: existing.username
+            Fields.username: existing.username,
+            Fields.user_id: existing.id,
         }
         if remember_me and new_login_cookie:
             response_data[Fields.series_identifier] = new_login_cookie.series_identifier
@@ -639,7 +641,7 @@ def make_post(request):
         first_label = parsed.hostname.split('.')[0] if parsed.hostname else ''
         if first_label == 's3' or first_label.startswith('s3-'):
             _, _, key = key.partition('/')
-        if not key.startswith(f"{request.user.username}/"):
+        if not key.startswith(f"{request.user.id}/"):
             invalid_fields.append(Params.image)
     if not caption or not is_valid_pattern(caption, Patterns.alphanumeric_with_special_chars):
         invalid_fields.append(Params.caption)

@@ -159,7 +159,7 @@ struct RegisterView: View {
                 let loginDetails = try JSONDecoder().decode(LoginResponseFields.self, from: responseData)
 
                 // Securely save the new session token to the Keychain
-                authManager.login(with: UserSession(sessionToken: loginDetails.sessionManagementToken, username: username, isIdentityVerified: false))
+                authManager.login(with: UserSession(sessionToken: loginDetails.sessionManagementToken, username: username, userId: loginDetails.userId ?? 0, isIdentityVerified: false))
 
                 print("✅ Registration successful. Session token stored.")
 

@@ -93,7 +93,7 @@ struct WelcomeView: View {
 
                 // 4. Securely save the new session token
                 let oldSession = authManager.session
-                let userSession = UserSession(sessionToken: loginDetails.sessionManagementToken, username: oldSession?.username ?? "test", isIdentityVerified: oldSession?.isIdentityVerified ?? false)
+                let userSession = UserSession(sessionToken: loginDetails.sessionManagementToken, username: oldSession?.username ?? "test", userId: oldSession?.userId ?? 0, isIdentityVerified: oldSession?.isIdentityVerified ?? false)
                 authManager.login(with: userSession)
                 
                 // 5. Update the "Remember Me" tokens in the Keychain with the refreshed cookie token

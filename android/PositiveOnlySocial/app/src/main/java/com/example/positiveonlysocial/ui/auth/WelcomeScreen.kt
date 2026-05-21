@@ -75,6 +75,7 @@ fun WelcomeScreen(
                     val userSession = UserSession(
                         sessionToken = loginDetails.newSessionToken,
                         username = oldSession?.username ?: "test",
+                        userId = oldSession?.userId ?: 0,
                         isIdentityVerified = oldSession?.isIdentityVerified ?: false
                     )
 

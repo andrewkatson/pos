@@ -79,6 +79,7 @@ fun RegisterScreen(
                                     val session = UserSession(
                                         sessionToken = response.body()?.sessionToken ?: "dummy_token",
                                         username = username,
+                                        userId = response.body()?.userId ?: 0,
                                         isIdentityVerified = false
                                     )
                                     authManager.login(session)

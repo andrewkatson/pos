@@ -104,6 +104,7 @@ struct ResetPasswordView: View {
             let userSession = UserSession(
                 sessionToken: loginDetails.sessionManagementToken,
                 username: username,
+                userId: loginDetails.userId ?? 0,
                 isIdentityVerified: false
             )
             

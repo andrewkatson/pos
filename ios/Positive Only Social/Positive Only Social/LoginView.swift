@@ -57,7 +57,7 @@ struct LoginView: View {
                 let loginDetails = try JSONDecoder().decode(LoginResponseFields.self, from: responseData)
                 
                 // MARK: - Securely Store Token in Keychain
-                authManager.login(with: UserSession(sessionToken: loginDetails.sessionManagementToken, username: loginDetails.username ?? usernameOrEmail, isIdentityVerified: false))
+                authManager.login(with: UserSession(sessionToken: loginDetails.sessionManagementToken, username: loginDetails.username ?? usernameOrEmail, userId: loginDetails.userId ?? 0, isIdentityVerified: false))
                 
                 print("✅ Session token securely saved to Keychain.")
                 

@@ -115,7 +115,7 @@ struct NewPostView: View {
                 // 1. LOAD SESSION (needed for the scoped S3 key)
                 let userSession: UserSession
                 if isTesting() {
-                    userSession = try keychainHelper.load(UserSession.self, from: "positive-only-social.Positive-Only-Social", account: "userSessionToken") ?? UserSession(sessionToken: "123", username: "test", isIdentityVerified: false)
+                    userSession = try keychainHelper.load(UserSession.self, from: "positive-only-social.Positive-Only-Social", account: "userSessionToken") ?? UserSession(sessionToken: "123", username: "test", userId: 0, isIdentityVerified: false)
                 } else {
                     guard let loaded = try keychainHelper.load(UserSession.self, from: "positive-only-social.Positive-Only-Social", account: "userSessionToken") else {
                         failureAlertMessage = "You must be logged in to post."
@@ -127,7 +127,7 @@ struct NewPostView: View {
                 }
 
                 // 2. UPLOAD IMAGE TO S3 — key scoped to the authenticated user
-                let uniqueFileName = "\(userSession.username)/\(UUID().uuidString).jpeg"
+                let uniqueFileName = "\(userSession.userId)/\(UUID().uuidString).jpeg"
 
                 var imageURL: URL! = URL(string: "https://picsum.photos/400/400")!
                 if !isTesting() {
