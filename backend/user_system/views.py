@@ -1,4 +1,5 @@
 import hashlib
+import ipaddress
 import json
 import logging
 import secrets
@@ -46,10 +47,20 @@ def log_and_return_json(view_name, data, **kwargs):
 
 
 def _get_client_ip(group, request):
-    """Rate limit key: real client IP, honouring X-Forwarded-For from the ALB."""
+    """Rate limit key: real client IP from AWS ALB.
+
+    AWS ALB appends the actual client IP to the *end* of any existing
+    X-Forwarded-For header, so reading the last entry is tamper-resistant
+    (a client can forge earlier entries but not the one the ALB adds).
+    """
     x_forwarded_for = request.META.get('HTTP_X_FORWARDED_FOR', '')
     if x_forwarded_for:
-        return x_forwarded_for.split(',')[0].strip()
+        candidate = x_forwarded_for.split(',')[-1].strip()
+        try:
+            ipaddress.ip_address(candidate)
+            return candidate
+        except ValueError:
+            pass
     return request.META.get('REMOTE_ADDR', '')
 
 
@@ -594,10 +605,14 @@ def verify_reset(request):
                 if user.verification_failed_attempts >= VERIFY_RESET_MAX_ATTEMPTS:
                     user.verification_lockout_until = timezone.now() + timedelta(minutes=VERIFY_RESET_LOCKOUT_MINUTES)
                     user.verification_failed_attempts = 0
+                    user.save()
                     logger.warning(
                         f"Password reset verification locked out after {VERIFY_RESET_MAX_ATTEMPTS} "
                         f"attempts for user_id: {user.id}"
                     )
+                    return log_and_return_json("verify_reset", {
+                        'error': "Too many failed attempts. Try again later."
+                    }, status=429)
                 user.save()
                 logger.warning(f"Password reset verification failed for user_id: {user.id}")
                 return log_and_return_json("verify_reset", {'error': "Invalid or expired verification token"}, status=400)

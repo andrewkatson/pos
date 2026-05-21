@@ -166,7 +166,7 @@ DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 # Rate limiting
 # Uses DatabaseCache by default (cross-process, no extra deps).
 # For high-traffic deployments set REDIS_URL to use Redis instead.
-# After deploying with DatabaseCache, run: python manage.py createcachetable
+# After deploying with DatabaseCache, run: python manage.py createcachetable rate_limit_cache
 RATELIMIT_VIEW = 'pos_backend.views.ratelimited'
 RATELIMIT_ENABLE = True
 
