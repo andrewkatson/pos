@@ -124,7 +124,7 @@ struct NewPostView: View {
                 }
                 
                 // 2. SEND THE S3 URL TO YOUR BACKEND
-                let userSession = try keychainHelper.load(UserSession.self, from: "positive-only-social.Positive-Only-Social", account: "userSessionToken") ?? UserSession(sessionToken: "123", username: "test", isIdentityVerified: false)
+                let userSession = try keychainHelper.load(UserSession.self, from: "positive-only-social.Positive-Only-Social", account: "userSessionToken") ?? UserSession(sessionToken: "123", userName: "test", isIdentityVerified: false)
                 
                 _ = try await api.makePost(
                     sessionManagementToken: userSession.sessionToken,

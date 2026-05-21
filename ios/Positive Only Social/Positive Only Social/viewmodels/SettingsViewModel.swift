@@ -110,7 +110,7 @@ final class SettingsViewModel: ObservableObject {
                 // Update local session to verified
                 let newSession = UserSession(
                     sessionToken: userSession.sessionToken,
-                    username: userSession.username,
+                    userName: userSession.userName,
                     isIdentityVerified: true
                 )
                 

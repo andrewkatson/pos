@@ -45,7 +45,7 @@ struct Positive_Only_SocialTests_ProfileViewModel {
     
     /// Helper to log in a user and save their token to the keychain
     private func setupLoggedInUser(user: User, token: String, account: String) async throws {
-        let userSession = UserSession(sessionToken: token, username: user.username, isIdentityVerified: user.identityIsVerified)
+        let userSession = UserSession(sessionToken: token, userName: user.username, isIdentityVerified: user.identityIsVerified)
         try keychainHelper.save(userSession, for: testService, account: account)
     }
 
@@ -142,7 +142,7 @@ struct Positive_Only_SocialTests_ProfileViewModel {
 
         // Then: The details are loaded correctly
         #expect(sut.profileDetails != nil)
-        #expect(sut.profileDetails?.username == "starUser")
+        #expect(sut.profileDetails?.userName == "starUser")
         #expect(sut.profileDetails?.postCount == 2)
         #expect(sut.profileDetails?.followerCount == 1)
         #expect(sut.profileDetails?.followingCount == 0)
@@ -189,7 +189,7 @@ struct Positive_Only_SocialTests_ProfileViewModel {
     @Test func testToggleBlock_BlockAndUnblock_Success() async throws {
         // Given: A logged-in user and a profile user
         let (requestingUserToken, requestingUser) = try await registerUser(username: "mainBlocker")
-        let (profileUserToken, profileUser) = try await registerUser(username: "profileToBlock")
+        let (_, profileUser) = try await registerUser(username: "profileToBlock")
         
         let account = "mainBlocker_account"
         try await setupLoggedInUser(user: requestingUser, token: requestingUserToken, account: account)

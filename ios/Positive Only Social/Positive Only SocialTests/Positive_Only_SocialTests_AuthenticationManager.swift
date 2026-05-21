@@ -51,7 +51,7 @@ struct Positive_Only_SocialTests_AuthenticationManager {
         // Given: A valid token is saved in the keychain
         let testToken = "abc-123-valid-token"
         let testUsername = "username"
-        let userSession = UserSession(sessionToken: testToken, username: testUsername, isIdentityVerified: false)
+        let userSession = UserSession(sessionToken: testToken, userName: testUsername, isIdentityVerified: false)
         try keychain.save(userSession, for: keychainService, account: userSessionAccount)
         
         // When: The AuthenticationManager is initialized
@@ -73,7 +73,7 @@ struct Positive_Only_SocialTests_AuthenticationManager {
         // When: login() is called
         let token = "abc-123-valid-token"
         let testUsername = "username"
-        let userSession = UserSession(sessionToken: token, username: testUsername, isIdentityVerified: false)
+        let userSession = UserSession(sessionToken: token, userName: testUsername, isIdentityVerified: false)
         sut.login(with: userSession)
         
         // And: We wait for the background Task in login() to complete.
@@ -93,7 +93,7 @@ struct Positive_Only_SocialTests_AuthenticationManager {
         // Given: A token is saved and the SUT is in a logged-in state
         let token = "abc-123-valid-token"
         let testUsername = "username"
-        let userSession = UserSession(sessionToken: token, username: testUsername, isIdentityVerified: false)
+        let userSession = UserSession(sessionToken: token, userName: testUsername, isIdentityVerified: false)
         try keychain.save(userSession, for: keychainService, account: userSessionAccount)
         sut = AuthenticationManager(shouldAutoLogin: true, keychainHelper: keychain)
         

@@ -103,7 +103,7 @@ struct ResetPasswordView: View {
             // This is the magic trigger that swaps the view to HomeView
             let userSession = UserSession(
                 sessionToken: loginDetails.sessionManagementToken,
-                username: username,
+                userName: username,
                 isIdentityVerified: false
             )
             

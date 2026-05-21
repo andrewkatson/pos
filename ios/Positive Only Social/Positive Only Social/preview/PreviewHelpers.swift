@@ -50,7 +50,7 @@ struct MockedAPI: Networking {
     func register(username: String, email: String, password: String, rememberMe: String, ip: String, dateOfBirth: String) async throws -> Data {
         let response = LoginResponseFields(
             sessionManagementToken: "mock_session_token",
-            username: username,
+            userName: username,
             seriesIdentifier: "mock_series_id",
             loginCookieToken: "mock_login_cookie"
         )
@@ -60,7 +60,7 @@ struct MockedAPI: Networking {
     func loginUser(usernameOrEmail: String, password: String, rememberMe: String, ip: String) async throws -> Data {
         let response = LoginResponseFields(
             sessionManagementToken: "mock_session_token",
-            username: usernameOrEmail,
+            userName: usernameOrEmail,
             seriesIdentifier: "mock_series_id",
             loginCookieToken: "mock_login_cookie"
         )
@@ -70,7 +70,7 @@ struct MockedAPI: Networking {
     func loginUserWithRememberMe(sessionManagementToken: String, seriesIdentifier: String, loginCookieToken: String, ip: String) async throws -> Data {
         let response = LoginResponseFields(
             sessionManagementToken: "new_mock_session",
-            username: "mock_user",
+            userName: "mock_user",
             seriesIdentifier: "mock_series_id",
             loginCookieToken: "new_mock_cookie"
         )
@@ -260,7 +260,7 @@ struct MockedAPI: Networking {
     
     func getProfileDetails(sessionManagementToken: String, username: String) async throws -> Data {
         let profile = ProfileDetailsResponse(
-            username: username,
+            userName: username,
             postCount: 10,
             followerCount: 100,
             followingCount: 50,
@@ -283,7 +283,7 @@ struct PreviewHelpers {
     
     @MainActor static func loggedInAuthManager() -> AuthenticationManager {
         let manager = AuthenticationManager(shouldAutoLogin: false, keychainHelper: keychainHelper)
-        manager.login(with: UserSession(sessionToken: "mock_token", username: "preview_user", isIdentityVerified: true))
+        manager.login(with: UserSession(sessionToken: "mock_token", userName: "preview_user", isIdentityVerified: true))
         return manager
     }
 }

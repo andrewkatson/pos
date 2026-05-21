@@ -13,13 +13,13 @@ import Foundation
 /// Properties are optional since "remember me" tokens may not be present.
 struct LoginResponseFields: Codable {
     let sessionManagementToken: String
-    let username: String?
+    let userName: String?
     let seriesIdentifier: String?
     let loginCookieToken: String?
 
     enum CodingKeys: String, CodingKey {
         case sessionManagementToken = "session_management_token"
-        case username
+        case userName
         case seriesIdentifier = "series_identifier"
         case loginCookieToken = "login_cookie_token"
     }
@@ -56,8 +56,8 @@ struct User: Codable, Identifiable, Hashable {
 
 // Represents another user's profile
 struct ProfileDetailsResponse: Codable, Identifiable, Hashable {
-    var id: String { username }
-    var username: String
+    var id: String { userName }
+    var userName: String
     var postCount: Int
     var followerCount: Int
     var followingCount: Int
@@ -67,7 +67,7 @@ struct ProfileDetailsResponse: Codable, Identifiable, Hashable {
     var isAdult: Bool = false
 
     enum CodingKeys: String, CodingKey {
-        case username
+        case userName
         case postCount = "post_count"
         case followerCount = "follower_count"
         case followingCount = "following_count"
@@ -81,7 +81,7 @@ struct ProfileDetailsResponse: Codable, Identifiable, Hashable {
 // The user session we can save and load
 struct UserSession: Codable, Equatable {
     let sessionToken: String
-    let username: String
+    let userName: String
     let isIdentityVerified: Bool
 }
 
