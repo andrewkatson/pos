@@ -9,3 +9,5 @@ pytest-django
 gunicorn
 psycopg
 python-dotenv
+django-ratelimit
+redis

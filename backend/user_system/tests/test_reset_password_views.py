@@ -6,7 +6,7 @@ from django.utils import timezone
 from datetime import timedelta
 from unittest.mock import patch
 
-from ..constants import Fields
+from ..constants import Fields, VERIFY_RESET_MAX_ATTEMPTS, VERIFY_RESET_LOCKOUT_MINUTES
 from .test_constants import username, password, false, ip
 from .test_parent_case import PositiveOnlySocialTestCase
 from ..models import LoginCookie, PositiveOnlySocialUser, Session
@@ -224,6 +224,47 @@ class ResetPasswordTests(PositiveOnlySocialTestCase):
         }, content_type='application/json')
         self.assertEqual(response.status_code, 400)
         self.assertIn("Invalid reset token", response.json().get('error', ''))
+
+    def test_verify_reset_lockout_after_max_attempts(self):
+        """After VERIFY_RESET_MAX_ATTEMPTS bad tokens the Nth call returns 429."""
+        self._request_reset()
+        for _ in range(VERIFY_RESET_MAX_ATTEMPTS - 1):
+            response = self._verify_reset(FAKE_URLSAFE_TOKEN)
+            self.assertEqual(response.status_code, 400)
+            self.assertIn("Invalid or expired", response.json().get('error', ''))
+        # The Nth failure triggers the lockout
+        response = self._verify_reset(FAKE_URLSAFE_TOKEN)
+        self.assertEqual(response.status_code, 429)
+        self.assertIn("Too many failed attempts", response.json().get('error', ''))
+
+    def test_locked_out_user_stays_locked_until_expiry(self):
+        """Subsequent requests while locked out continue to return 429."""
+        self._request_reset()
+        for _ in range(VERIFY_RESET_MAX_ATTEMPTS):
+            self._verify_reset(FAKE_URLSAFE_TOKEN)
+        # Already locked — further attempts also return 429
+        response = self._verify_reset(FAKE_URLSAFE_TOKEN)
+        self.assertEqual(response.status_code, 429)
+
+    def test_request_reset_clears_active_lockout(self):
+        """Calling request_reset resets the failed-attempt counter and clears any lockout."""
+        self._request_reset()
+        # Trigger lockout
+        for _ in range(VERIFY_RESET_MAX_ATTEMPTS):
+            self._verify_reset(FAKE_URLSAFE_TOKEN)
+        # Confirm locked
+        self.assertEqual(self._verify_reset(FAKE_URLSAFE_TOKEN).status_code, 429)
+
+        # A new reset request clears the lockout
+        self._request_reset()
+        user = PositiveOnlySocialUser.objects.get(username=self.local_username)
+        self.assertEqual(user.verification_failed_attempts, 0)
+        self.assertIsNone(user.verification_lockout_until)
+
+        # Bad token now returns 400 (not locked), good token still works
+        response = self._verify_reset(FAKE_URLSAFE_TOKEN)
+        self.assertEqual(response.status_code, 400)
+        self.assertIn("Invalid or expired", response.json().get('error', ''))
 
     @patch.dict(os.environ, {"TESTING": "True"}, clear=True)
     def test_session_and_cookie_invalidated_after_reset(self):
