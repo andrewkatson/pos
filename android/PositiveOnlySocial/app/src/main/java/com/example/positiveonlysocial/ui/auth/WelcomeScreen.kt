@@ -71,11 +71,19 @@ fun WelcomeScreen(
 
                 if (response.isSuccessful && response.body() != null) {
                     val loginDetails = response.body()!!
-                    val oldSession = authManager.session.value
+                    val existingSession = authManager.session.value
+                        ?: keychainHelper.load(UserSession::class.java, keychainService, sessionAccount)
+                    if (existingSession == null) {
+                        throw Exception("No existing session found for remember-me refresh.")
+                    }
+                    if (existingSession.userId == 0) {
+                        throw Exception("Stored session has no valid user ID. Please log in again.")
+                    }
                     val userSession = UserSession(
                         sessionToken = loginDetails.newSessionToken,
-                        username = oldSession?.username ?: "test",
-                        isIdentityVerified = oldSession?.isIdentityVerified ?: false
+                        username = existingSession.username,
+                        userId = existingSession.userId,
+                        isIdentityVerified = existingSession.isIdentityVerified
                     )
 
                     authManager.login(userSession)

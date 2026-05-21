@@ -55,7 +55,7 @@ class ProfileViewModel(
         viewModelScope.launch {
             try {
                 val userSession = keychainHelper.load(UserSession::class.java, service, account)
-                    ?: UserSession("123", "testuser", false, null, null)
+                    ?: UserSession("123", "testuser", 0, false, null, null)
 
                 // Fetch Profile Details
                 val profileResponse = api.getProfileDetails(userSession.sessionToken, username)
@@ -103,7 +103,7 @@ class ProfileViewModel(
         viewModelScope.launch {
             try {
                 val userSession = keychainHelper.load(UserSession::class.java, service, account)
-                    ?: UserSession("123", "testuser", false, null, null)
+                    ?: UserSession("123", "testuser", 0, false, null, null)
 
                 val response = api.getPostsForUser(userSession.sessionToken, username, currentPage)
 
@@ -141,7 +141,7 @@ class ProfileViewModel(
         viewModelScope.launch {
             try {
                 val userSession = keychainHelper.load(UserSession::class.java, service, account)
-                    ?: UserSession("123", "testuser", false, null, null)
+                    ?: UserSession("123", "testuser", 0, false, null, null)
 
                 val response = if (isFollowing) {
                     api.unfollowUser(userSession.sessionToken, username)
@@ -177,7 +177,7 @@ class ProfileViewModel(
         viewModelScope.launch {
             try {
                 val userSession = keychainHelper.load(UserSession::class.java, service, account)
-                    ?: UserSession("123", "testuser", false, null, null)
+                    ?: UserSession("123", "testuser", 0, false, null, null)
 
                 val response = api.toggleBlock(userSession.sessionToken, username)
 

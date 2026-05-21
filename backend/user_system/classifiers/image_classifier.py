@@ -4,7 +4,7 @@ import logging
 from PIL import Image
 from io import BytesIO
 from urllib.parse import urlparse
-from .classifier_constants import POSITIVE_IMAGE_URL, IMAGE_CLASSIFIER_PROMPT
+from .classifier_constants import POSITIVE_IMAGE_FILENAME, IMAGE_CLASSIFIER_PROMPT
 from .classifier_utils import (
     get_available_apis, classify_with_voting, IMAGE_API_DISPATCH,
 )
@@ -18,7 +18,8 @@ def is_image_positive(image_url):
     testing = testing if isinstance(testing, bool) else convert_to_bool(testing)
 
     if testing:
-        return image_url == POSITIVE_IMAGE_URL
+        parsed_url = urlparse(image_url)
+        return parsed_url.path.endswith(POSITIVE_IMAGE_FILENAME)
 
     available_apis = get_available_apis()
 

@@ -32,7 +32,7 @@ class SettingsViewModelTest {
     private lateinit var authManager: AuthenticationManager
     private lateinit var keychainHelper: KeychainHelperProtocol
 
-    private val mockUserSession = UserSession("token123", "testuser", false, null, null)
+    private val mockUserSession = UserSession("token123", "testuser", 1, false, null, null)
 
     @Before
     fun setup() {

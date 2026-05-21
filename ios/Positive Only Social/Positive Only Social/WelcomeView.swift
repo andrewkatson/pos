@@ -91,9 +91,16 @@ struct WelcomeView: View {
                 // 3. Decode the response to get the NEW tokens
                 let loginDetails = try JSONDecoder().decode(LoginResponseFields.self, from: responseData)
 
-                // 4. Securely save the new session token
-                let oldSession = authManager.session
-                let userSession = UserSession(sessionToken: loginDetails.sessionManagementToken, username: oldSession?.username ?? "test", isIdentityVerified: oldSession?.isIdentityVerified ?? false)
+                // 4. Restore session identity from in-memory state or keychain fallback
+                let existingSession = authManager.session
+                    ?? (try? keychainHelper.load(UserSession.self, from: keychainService, account: sessionAccount))
+                guard let existingSession = existingSession else {
+                    throw NSError(domain: "AutoLoginError", code: 0, userInfo: [NSLocalizedDescriptionKey: "No existing session found for remember-me refresh."])
+                }
+                guard existingSession.userId != 0 else {
+                    throw NSError(domain: "AutoLoginError", code: 0, userInfo: [NSLocalizedDescriptionKey: "Stored session has no valid user ID. Please log in again."])
+                }
+                let userSession = UserSession(sessionToken: loginDetails.sessionManagementToken, username: existingSession.username, userId: existingSession.userId, isIdentityVerified: existingSession.isIdentityVerified)
                 authManager.login(with: userSession)
                 
                 // 5. Update the "Remember Me" tokens in the Keychain with the refreshed cookie token

@@ -3,7 +3,7 @@ import os
 from django.urls import reverse
 
 from .test_parent_case import PositiveOnlySocialTestCase
-from ..classifiers.classifier_constants import POSITIVE_IMAGE_URL, POSITIVE_TEXT, NEGATIVE_TEXT, NEGATIVE_IMAGE_URL
+from ..classifiers.classifier_constants import POSITIVE_IMAGE_URL, POSITIVE_IMAGE_FILENAME, NEGATIVE_IMAGE_FILENAME, POSITIVE_TEXT, NEGATIVE_TEXT, NEGATIVE_IMAGE_URL
 from ..constants import Fields
 from ..views import get_user_with_username
 
@@ -26,9 +26,9 @@ class MakePostTests(PositiveOnlySocialTestCase):
         self.valid_header = {'HTTP_AUTHORIZATION': f'Bearer {self.session_management_token}'}
         self.url = reverse('make_post')
 
-        # A valid data payload for the "happy path"
+        # A valid data payload for the "happy path" — key scoped to the authenticated user
         self.valid_data = {
-            'image_url': POSITIVE_IMAGE_URL,
+            'image_url': f'https://test-bucket.s3.amazonaws.com/{self.user.id}/{POSITIVE_IMAGE_FILENAME}',
             'caption': POSITIVE_TEXT
         }
 
@@ -86,7 +86,7 @@ class MakePostTests(PositiveOnlySocialTestCase):
         """
         Tests that a negative image (as per the fake classifier) is rejected.
         """
-        data = {'image_url': NEGATIVE_IMAGE_URL, 'caption': POSITIVE_TEXT}
+        data = {'image_url': f'https://test-bucket.s3.amazonaws.com/{self.user.id}/{NEGATIVE_IMAGE_FILENAME}', 'caption': POSITIVE_TEXT}
 
         response = self.client.post(
             self.url,
@@ -105,7 +105,8 @@ class MakePostTests(PositiveOnlySocialTestCase):
         """
         Tests that a negative caption (as per the fake classifier) is rejected.
         """
-        data = {'image_url': POSITIVE_IMAGE_URL, 'caption': NEGATIVE_TEXT}
+        data = self.valid_data.copy()
+        data['caption'] = NEGATIVE_TEXT
 
         response = self.client.post(
             self.url,
@@ -146,4 +147,36 @@ class MakePostTests(PositiveOnlySocialTestCase):
         post = self.user.post_set.first()
         self.assertEqual(fields[Fields.post_identifier], str(post.post_identifier))
         self.assertEqual(post.caption, POSITIVE_TEXT)
-        self.assertEqual(post.image_url, POSITIVE_IMAGE_URL)
+        self.assertEqual(post.image_url, self.valid_data['image_url'])
+
+    def test_image_url_with_wrong_user_prefix_returns_bad_response(self):
+        """
+        A valid S3 URL whose key is prefixed with a different user's ID must be rejected.
+        """
+        data = self.valid_data.copy()
+        data['image_url'] = f'https://test-bucket.s3.amazonaws.com/99999/{POSITIVE_IMAGE_FILENAME}'
+
+        response = self.client.post(
+            self.url,
+            data=data,
+            content_type='application/json',
+            **self.valid_header
+        )
+
+        self.assertEqual(response.status_code, 400)
+
+    def test_image_url_with_no_user_prefix_returns_bad_response(self):
+        """
+        A valid S3 URL whose key has no user ID prefix must be rejected.
+        """
+        data = self.valid_data.copy()
+        data['image_url'] = POSITIVE_IMAGE_URL  # bare key, no user ID segment
+
+        response = self.client.post(
+            self.url,
+            data=data,
+            content_type='application/json',
+            **self.valid_header
+        )
+
+        self.assertEqual(response.status_code, 400)

@@ -122,14 +122,22 @@ fun LoginScreen(
                                 )
 
                                 if (response.isSuccessful) {
-                                    val session = UserSession(
-                                        sessionToken = response.body()?.sessionToken ?: "dummy_token",
-                                        username = response.body()?.username ?: usernameOrEmail,
-                                        isIdentityVerified = false
-                                    )
-                                    authManager.login(session)
-                                    navController.navigate(Screen.Home.route) {
-                                        popUpTo(Screen.Login.route) { inclusive = true }
+                                    val body = response.body()
+                                    val userId = body?.userId
+                                    if (userId == null) {
+                                        errorMessage = "Login failed: server did not return a user ID."
+                                        showingErrorAlert = true
+                                    } else {
+                                        val session = UserSession(
+                                            sessionToken = body.sessionToken,
+                                            username = body.username ?: usernameOrEmail,
+                                            userId = userId,
+                                            isIdentityVerified = false
+                                        )
+                                        authManager.login(session)
+                                        navController.navigate(Screen.Home.route) {
+                                            popUpTo(Screen.Login.route) { inclusive = true }
+                                        }
                                     }
                                 } else {
                                     val errorBody = response.errorBody()?.string()

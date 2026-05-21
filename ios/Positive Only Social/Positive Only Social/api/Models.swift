@@ -14,12 +14,14 @@ import Foundation
 struct LoginResponseFields: Codable {
     let sessionManagementToken: String
     let username: String?
+    let userId: Int?
     let seriesIdentifier: String?
     let loginCookieToken: String?
 
     enum CodingKeys: String, CodingKey {
         case sessionManagementToken = "session_management_token"
         case username
+        case userId = "user_id"
         case seriesIdentifier = "series_identifier"
         case loginCookieToken = "login_cookie_token"
     }
@@ -82,7 +84,24 @@ struct ProfileDetailsResponse: Codable, Identifiable, Hashable {
 struct UserSession: Codable, Equatable {
     let sessionToken: String
     let username: String
+    let userId: Int
     let isIdentityVerified: Bool
+
+    init(sessionToken: String, username: String, userId: Int, isIdentityVerified: Bool) {
+        self.sessionToken = sessionToken
+        self.username = username
+        self.userId = userId
+        self.isIdentityVerified = isIdentityVerified
+    }
+
+    // Decodes gracefully from older persisted sessions that lack `userId`.
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        sessionToken = try c.decode(String.self, forKey: .sessionToken)
+        username = try c.decode(String.self, forKey: .username)
+        userId = try c.decodeIfPresent(Int.self, forKey: .userId) ?? 0
+        isIdentityVerified = try c.decode(Bool.self, forKey: .isIdentityVerified)
+    }
 }
 
 // A simple, identifiable struct representing the post in the post detail view

@@ -21,6 +21,7 @@ data class IdentityVerificationRequest(
 data class AuthResponse(
     @SerializedName("session_management_token") val sessionToken: String,
     val username: String?,
+    @SerializedName("user_id") val userId: Int?,
     @SerializedName("series_identifier") val seriesIdentifier: String?,
     @SerializedName("login_cookie_token") val loginCookieToken: String?
 )
@@ -149,6 +150,7 @@ data class GenericResponse(
 data class UserSession(
     val sessionToken: String,
     val username: String,
+    val userId: Int,
     val isIdentityVerified: Boolean,
     // Kept for internal Android logic if needed, but nullable
     val seriesIdentifier: String? = null,

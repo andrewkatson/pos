@@ -3,6 +3,7 @@ import json
 import logging
 import secrets
 from datetime import datetime, date, timedelta
+from urllib.parse import urlparse
 
 from functools import wraps
 
@@ -241,7 +242,8 @@ def register(request):
     # .create() already saves
 
     response_data = {
-        Fields.session_management_token: new_session.management_token
+        Fields.session_management_token: new_session.management_token,
+        Fields.user_id: new_user.id,
     }
     if remember_me and new_login_cookie:
         response_data[Fields.series_identifier] = new_login_cookie.series_identifier
@@ -337,7 +339,8 @@ def login_user(request):
 
         response_data = {
             Fields.session_management_token: new_session.management_token,
-            Fields.username: existing.username
+            Fields.username: existing.username,
+            Fields.user_id: existing.id,
         }
         if remember_me and new_login_cookie:
             response_data[Fields.series_identifier] = new_login_cookie.series_identifier
@@ -629,6 +632,17 @@ def make_post(request):
     invalid_fields = []
     if not image_url or not is_valid_pattern(image_url, Patterns.image_url):
         invalid_fields.append(Params.image)
+    else:
+        parsed = urlparse(image_url)
+        key = parsed.path.lstrip('/')
+        # For path-hosted URLs (s3[.-]region.amazonaws.com/bucket/key), strip the bucket segment.
+        # Match exactly "s3" or "s3-<region>" first labels (per the accepted image_url regex),
+        # but not bucket names that happen to start with "s3" (e.g. s3bucket.s3.amazonaws.com).
+        first_label = parsed.hostname.split('.')[0] if parsed.hostname else ''
+        if first_label == 's3' or first_label.startswith('s3-'):
+            _, _, key = key.partition('/')
+        if not key.startswith(f"{request.user.id}/"):
+            invalid_fields.append(Params.image)
     if not caption or not is_valid_pattern(caption, Patterns.alphanumeric_with_special_chars):
         invalid_fields.append(Params.caption)
 

@@ -10,7 +10,9 @@ struct SerializationError: Error, LocalizedError {
 
 // Public so the Settings tests can use it
 struct MockUser {
+    private static var counter: Int = 0
     let id = UUID()
+    let numericId: Int
     var username: String
     var email: String
     var passwordHash: String // Storing plain text for mock purposes.
@@ -20,6 +22,14 @@ struct MockUser {
     var isAdult: Bool = false
     var blocked: [UUID] = []
     var blockedBy: [UUID] = []
+
+    init(username: String, email: String, passwordHash: String) {
+        MockUser.counter += 1
+        numericId = MockUser.counter
+        self.username = username
+        self.email = email
+        self.passwordHash = passwordHash
+    }
 }
 
 fileprivate struct MockUserFollow {
@@ -144,15 +154,16 @@ final class StatefulStubbedAPI: Networking {
         if wantsRememberMe {
             let cookie = MockLoginCookie(seriesIdentifier: UUID().uuidString, token: generateToken(), userId: newUser.id)
             loginCookies.append(cookie)
-            struct Fields: Codable { let series_identifier, login_cookie_token, session_management_token: String }
+            struct Fields: Codable { let series_identifier, login_cookie_token, session_management_token: String; let user_id: Int }
             return try createSerializedResponse(fields: Fields(
                 series_identifier: cookie.seriesIdentifier,
                 login_cookie_token: cookie.token,
-                session_management_token: newSession.managementToken
+                session_management_token: newSession.managementToken,
+                user_id: newUser.numericId
             ))
         } else {
-            struct Fields: Codable { let session_management_token: String }
-            return try createSerializedResponse(fields: Fields(session_management_token: newSession.managementToken))
+            struct Fields: Codable { let session_management_token: String; let user_id: Int }
+            return try createSerializedResponse(fields: Fields(session_management_token: newSession.managementToken, user_id: newUser.numericId))
         }
     }
 
@@ -169,18 +180,20 @@ final class StatefulStubbedAPI: Networking {
         if wantsRememberMe {
             let cookie = MockLoginCookie(seriesIdentifier: UUID().uuidString, token: generateToken(), userId: user.id)
             loginCookies.append(cookie)
-            struct Fields: Codable { let series_identifier, login_cookie_token, session_management_token, username: String }
+            struct Fields: Codable { let series_identifier, login_cookie_token, session_management_token, username: String; let user_id: Int }
             return try createSerializedResponse(fields: Fields(
                 series_identifier: cookie.seriesIdentifier,
                 login_cookie_token: cookie.token,
                 session_management_token: newSession.managementToken,
-                username: user.username
+                username: user.username,
+                user_id: user.numericId
             ))
         } else {
-            struct Fields: Codable { let session_management_token, username: String }
+            struct Fields: Codable { let session_management_token, username: String; let user_id: Int }
             return try createSerializedResponse(fields: Fields(
                 session_management_token: newSession.managementToken,
-                username: user.username
+                username: user.username,
+                user_id: user.numericId
             ))
         }
     }
