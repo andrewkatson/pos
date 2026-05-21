@@ -76,17 +76,24 @@ fun RegisterScreen(
                                 )
 
                                 if (response.isSuccessful) {
-                                    val session = UserSession(
-                                        sessionToken = response.body()?.sessionToken ?: "dummy_token",
-                                        username = username,
-                                        userId = response.body()?.userId ?: 0,
-                                        isIdentityVerified = false
-                                    )
-                                    authManager.login(session)
-                                    
-                                    // Navigate to Home, clearing back stack
-                                    navController.navigate(Screen.Home.route) {
-                                        popUpTo(Screen.Welcome.route) { inclusive = true }
+                                    val body = response.body()
+                                    val userId = body?.userId
+                                    if (userId == null) {
+                                        errorMessage = "Registration failed: server did not return a user ID."
+                                        showingErrorAlert = true
+                                    } else {
+                                        val session = UserSession(
+                                            sessionToken = body.sessionToken,
+                                            username = username,
+                                            userId = userId,
+                                            isIdentityVerified = false
+                                        )
+                                        authManager.login(session)
+
+                                        // Navigate to Home, clearing back stack
+                                        navController.navigate(Screen.Home.route) {
+                                            popUpTo(Screen.Welcome.route) { inclusive = true }
+                                        }
                                     }
                                 } else {
                                     val errorBody = response.errorBody()?.string()

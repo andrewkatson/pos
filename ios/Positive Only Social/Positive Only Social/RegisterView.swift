@@ -158,8 +158,12 @@ struct RegisterView: View {
 
                 let loginDetails = try JSONDecoder().decode(LoginResponseFields.self, from: responseData)
 
+                guard let userId = loginDetails.userId else {
+                    throw NSError(domain: "RegisterError", code: 0, userInfo: [NSLocalizedDescriptionKey: "Registration failed: server did not return a user ID."])
+                }
+
                 // Securely save the new session token to the Keychain
-                authManager.login(with: UserSession(sessionToken: loginDetails.sessionManagementToken, username: username, userId: loginDetails.userId ?? 0, isIdentityVerified: false))
+                authManager.login(with: UserSession(sessionToken: loginDetails.sessionManagementToken, username: username, userId: userId, isIdentityVerified: false))
 
                 print("✅ Registration successful. Session token stored.")
 

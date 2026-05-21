@@ -101,10 +101,14 @@ struct ResetPasswordView: View {
             
             // 4. Update AuthManager
             // This is the magic trigger that swaps the view to HomeView
+            guard let userId = loginDetails.userId else {
+                throw NSError(domain: "ResetPasswordError", code: 0, userInfo: [NSLocalizedDescriptionKey: "Password reset failed: server did not return a user ID."])
+            }
+
             let userSession = UserSession(
                 sessionToken: loginDetails.sessionManagementToken,
                 username: username,
-                userId: loginDetails.userId ?? 0,
+                userId: userId,
                 isIdentityVerified: false
             )
             

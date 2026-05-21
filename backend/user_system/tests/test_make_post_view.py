@@ -151,7 +151,7 @@ class MakePostTests(PositiveOnlySocialTestCase):
 
     def test_image_url_with_wrong_user_prefix_returns_bad_response(self):
         """
-        A valid S3 URL whose key is prefixed with a different user's name must be rejected.
+        A valid S3 URL whose key is prefixed with a different user's ID must be rejected.
         """
         data = self.valid_data.copy()
         data['image_url'] = f'https://test-bucket.s3.amazonaws.com/99999/{POSITIVE_IMAGE_FILENAME}'
@@ -167,7 +167,7 @@ class MakePostTests(PositiveOnlySocialTestCase):
 
     def test_image_url_with_no_user_prefix_returns_bad_response(self):
         """
-        A valid S3 URL whose key has no username prefix must be rejected.
+        A valid S3 URL whose key has no user ID prefix must be rejected.
         """
         data = self.valid_data.copy()
         data['image_url'] = POSITIVE_IMAGE_URL  # bare key, no username segment

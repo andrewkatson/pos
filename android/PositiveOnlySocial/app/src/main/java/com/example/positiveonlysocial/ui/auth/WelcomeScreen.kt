@@ -72,11 +72,14 @@ fun WelcomeScreen(
                 if (response.isSuccessful && response.body() != null) {
                     val loginDetails = response.body()!!
                     val oldSession = authManager.session.value
+                    if (oldSession == null) {
+                        throw Exception("No existing session; cannot refresh remember-me token.")
+                    }
                     val userSession = UserSession(
                         sessionToken = loginDetails.newSessionToken,
-                        username = oldSession?.username ?: "test",
-                        userId = oldSession?.userId ?: 0,
-                        isIdentityVerified = oldSession?.isIdentityVerified ?: false
+                        username = oldSession.username,
+                        userId = oldSession.userId,
+                        isIdentityVerified = oldSession.isIdentityVerified
                     )
 
                     authManager.login(userSession)

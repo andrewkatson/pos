@@ -55,9 +55,13 @@ struct LoginView: View {
                 let responseData = try await api.loginUser(usernameOrEmail: usernameOrEmail, password: password, rememberMe: String(rememberMe), ip: "127.0.0.1")
 
                 let loginDetails = try JSONDecoder().decode(LoginResponseFields.self, from: responseData)
-                
+
+                guard let userId = loginDetails.userId else {
+                    throw NSError(domain: "LoginError", code: 0, userInfo: [NSLocalizedDescriptionKey: "Login failed: server did not return a user ID."])
+                }
+
                 // MARK: - Securely Store Token in Keychain
-                authManager.login(with: UserSession(sessionToken: loginDetails.sessionManagementToken, username: loginDetails.username ?? usernameOrEmail, userId: loginDetails.userId ?? 0, isIdentityVerified: false))
+                authManager.login(with: UserSession(sessionToken: loginDetails.sessionManagementToken, username: loginDetails.username ?? usernameOrEmail, userId: userId, isIdentityVerified: false))
                 
                 print("✅ Session token securely saved to Keychain.")
                 
