@@ -48,7 +48,7 @@ class ProfileViewModel: ObservableObject {
         
         Task {
             do {
-                let userSession = try keychainHelper.load(UserSession.self, from: "positive-only-social.Positive-Only-Social", account: account) ?? UserSession(sessionToken: "123", username: "test", isIdentityVerified: false)
+                let userSession = try keychainHelper.load(UserSession.self, from: "positive-only-social.Positive-Only-Social", account: account) ?? UserSession(sessionToken: "123", username: "test", userId: 0, isIdentityVerified: false)
                 
                 // Call the API endpoint we defined in the Django views
                 let responseData = try await api.getPostsForUser(
@@ -82,7 +82,7 @@ class ProfileViewModel: ObservableObject {
         
         Task {
             do {
-                let userSession = try keychainHelper.load(UserSession.self, from: "positive-only-social.Positive-Only-Social", account: account) ?? UserSession(sessionToken: "123", username: "test", isIdentityVerified: false)
+                let userSession = try keychainHelper.load(UserSession.self, from: "positive-only-social.Positive-Only-Social", account: account) ?? UserSession(sessionToken: "123", username: "test", userId: 0, isIdentityVerified: false)
                 
                 let responseData = try await api.getProfileDetails(sessionManagementToken: userSession.sessionToken, username: user.username)
                 let details = try JSONDecoder().decode(ProfileDetailsResponse.self, from: responseData)
@@ -104,7 +104,7 @@ class ProfileViewModel: ObservableObject {
             
         Task {
             do {
-                let userSession = try keychainHelper.load(UserSession.self, from: "positive-only-social.Positive-Only-Social", account: account) ?? UserSession(sessionToken: "123", username: "test", isIdentityVerified: false)
+                let userSession = try keychainHelper.load(UserSession.self, from: "positive-only-social.Positive-Only-Social", account: account) ?? UserSession(sessionToken: "123", username: "test", userId: 0, isIdentityVerified: false)
                 let token = userSession.sessionToken
                 
                 if isFollowing {
@@ -157,7 +157,7 @@ class ProfileViewModel: ObservableObject {
         
         Task {
             do {
-                let userSession = try keychainHelper.load(UserSession.self, from: "positive-only-social.Positive-Only-Social", account: account) ?? UserSession(sessionToken: "123", username: "test", isIdentityVerified: false)
+                let userSession = try keychainHelper.load(UserSession.self, from: "positive-only-social.Positive-Only-Social", account: account) ?? UserSession(sessionToken: "123", username: "test", userId: 0, isIdentityVerified: false)
                 let token = userSession.sessionToken
                 
                 let _ = try await api.toggleBlock(sessionManagementToken: token, username: user.username)
