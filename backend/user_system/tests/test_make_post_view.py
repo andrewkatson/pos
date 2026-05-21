@@ -170,7 +170,7 @@ class MakePostTests(PositiveOnlySocialTestCase):
         A valid S3 URL whose key has no user ID prefix must be rejected.
         """
         data = self.valid_data.copy()
-        data['image_url'] = POSITIVE_IMAGE_URL  # bare key, no username segment
+        data['image_url'] = POSITIVE_IMAGE_URL  # bare key, no user ID segment
 
         response = self.client.post(
             self.url,

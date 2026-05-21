@@ -159,6 +159,12 @@ fun NewPostScreen(
                                     return@launch
                                 }
 
+                                if (session.userId == 0) {
+                                    failureMessage = "Session is invalid. Please log in again."
+                                    showFailureAlert = true
+                                    return@launch
+                                }
+
                                 val fileName = "${session.userId}/${UUID.randomUUID()}.jpg"
                                 val s3Uploader = S3Uploader()
 
