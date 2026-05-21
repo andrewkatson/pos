@@ -71,15 +71,16 @@ fun WelcomeScreen(
 
                 if (response.isSuccessful && response.body() != null) {
                     val loginDetails = response.body()!!
-                    val oldSession = authManager.session.value
-                    if (oldSession == null) {
-                        throw Exception("No existing session; cannot refresh remember-me token.")
+                    val existingSession = authManager.session.value
+                        ?: keychainHelper.load(UserSession::class.java, keychainService, sessionAccount)
+                    if (existingSession == null) {
+                        throw Exception("No existing session found for remember-me refresh.")
                     }
                     val userSession = UserSession(
                         sessionToken = loginDetails.newSessionToken,
-                        username = oldSession.username,
-                        userId = oldSession.userId,
-                        isIdentityVerified = oldSession.isIdentityVerified
+                        username = existingSession.username,
+                        userId = existingSession.userId,
+                        isIdentityVerified = existingSession.isIdentityVerified
                     )
 
                     authManager.login(userSession)

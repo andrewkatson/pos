@@ -86,6 +86,22 @@ struct UserSession: Codable, Equatable {
     let username: String
     let userId: Int
     let isIdentityVerified: Bool
+
+    init(sessionToken: String, username: String, userId: Int, isIdentityVerified: Bool) {
+        self.sessionToken = sessionToken
+        self.username = username
+        self.userId = userId
+        self.isIdentityVerified = isIdentityVerified
+    }
+
+    // Decodes gracefully from older persisted sessions that lack `userId`.
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        sessionToken = try c.decode(String.self, forKey: .sessionToken)
+        username = try c.decode(String.self, forKey: .username)
+        userId = try c.decodeIfPresent(Int.self, forKey: .userId) ?? 0
+        isIdentityVerified = try c.decode(Bool.self, forKey: .isIdentityVerified)
+    }
 }
 
 // A simple, identifiable struct representing the post in the post detail view
