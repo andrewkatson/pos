@@ -16,10 +16,13 @@ from django.http import JsonResponse
 from django.utils import timezone
 from django.views.decorators.csrf import csrf_exempt
 from django.views.decorators.http import require_POST, require_GET
+from django_ratelimit.decorators import ratelimit
+from django_ratelimit.exceptions import Ratelimited
 
 from .classifiers import image_classifier, text_classifier
 from .constants import Patterns, Params, POST_BATCH_SIZE, MAX_BEFORE_HIDING_POST, MAX_BEFORE_HIDING_COMMENT, \
-    COMMENT_BATCH_SIZE, Fields, COMMENT_THREAD_BATCH_SIZE
+    COMMENT_BATCH_SIZE, Fields, COMMENT_THREAD_BATCH_SIZE, \
+    VERIFY_RESET_MAX_ATTEMPTS, VERIFY_RESET_LOCKOUT_MINUTES
 from .feed_algorithm import feed_algorithm
 from .input_validator import is_valid_pattern
 from .models import LoginCookie, Session, Post, CommentThread, PositiveOnlySocialUser, Comment, UserBlock
@@ -40,6 +43,16 @@ def log_and_return_json(view_name, data, **kwargs):
     else:
         logger.info(f"Endpoint {view_name} succeeded.")
     return JsonResponse(data, **kwargs)
+
+
+def _get_client_ip(group, request):
+    """Rate limit key: real client IP, honouring X-Forwarded-For from the ALB."""
+    x_forwarded_for = request.META.get('HTTP_X_FORWARDED_FOR', '')
+    if x_forwarded_for:
+        return x_forwarded_for.split(',')[0].strip()
+    return request.META.get('REMOTE_ADDR', '')
+
+
 def get_user_with_username_and_email(username, email):
     try:
         existing = get_user_model().objects.get(username=username, email=email)
@@ -154,6 +167,8 @@ def api_login_required(view_func):
         request.token = token
         try:
             return view_func(request, *args, **kwargs)
+        except Ratelimited:
+            raise
         except Exception as e:
             return JsonResponse({'error': str(e)}, status=401)
 
@@ -164,6 +179,7 @@ def api_login_required(view_func):
 # AUTHENTICATION VIEWS
 # =============================================================================
 
+@ratelimit(key=_get_client_ip, rate='5/h', block=True)
 @csrf_exempt
 @require_POST
 def register(request):
@@ -255,6 +271,7 @@ def register(request):
 
 @csrf_exempt
 @api_login_required
+@ratelimit(key='user', rate='5/h', block=True)
 @require_POST
 def verify_identity(request):
     logger.info("Endpoint verify_identity invoked by IP or User")
@@ -264,7 +281,7 @@ def verify_identity(request):
         return log_and_return_json("verify_identity", {'error': "Invalid JSON data"}, status=400)
 
     date_of_birth_str = data.get('date_of_birth')
-    
+
     if not date_of_birth_str:
          logger.warning(f"Identity verification failed: Missing date_of_birth for user_id: {request.user.id}")
          return log_and_return_json("verify_identity", {'error': "Missing date_of_birth"}, status=400)
@@ -273,15 +290,15 @@ def verify_identity(request):
         dob = datetime.strptime(date_of_birth_str, '%Y-%m-%d').date()
         today = date.today()
         age = today.year - dob.year - ((today.month, today.day) < (dob.month, dob.day))
-        
+
         request.user.identity_is_verified = True
         if age >= 18:
             request.user.is_adult = True
         else:
             request.user.is_adult = False
-            
+
         request.user.save()
-        
+
         logger.info(f"Identity verification successful for user_id: {request.user.id}")
         return log_and_return_json("verify_identity", {'message': 'Identity verified'})
     except ValueError:
@@ -289,6 +306,7 @@ def verify_identity(request):
         return log_and_return_json("verify_identity", {'error': "Invalid date format, expected YYYY-MM-DD"}, status=400)
 
 
+@ratelimit(key=_get_client_ip, rate='10/m', block=True)
 @csrf_exempt
 @require_POST
 def login_user(request):
@@ -353,6 +371,7 @@ def login_user(request):
         return log_and_return_json("login_user", {'error': "Invalid username or password"}, status=400)
 
 
+@ratelimit(key=_get_client_ip, rate='10/m', block=True)
 @csrf_exempt
 @require_POST
 def login_user_with_remember_me(request):
@@ -418,6 +437,7 @@ def login_user_with_remember_me(request):
 
 @csrf_exempt
 @api_login_required
+@ratelimit(key='user', rate='10/m', block=True)
 @require_POST
 def logout_user(request):
     logger.info("Endpoint logout_user invoked by IP or User")
@@ -438,6 +458,7 @@ def logout_user(request):
 
 @csrf_exempt
 @api_login_required
+@ratelimit(key='user', rate='5/h', block=True)
 @require_POST
 def delete_user(request):
     logger.info("Endpoint delete_user invoked by IP or User")
@@ -458,6 +479,7 @@ def delete_user(request):
 # PASSWORD RESET VIEWS
 # =============================================================================
 
+@ratelimit(key=_get_client_ip, rate='3/h', block=True)
 @csrf_exempt
 @require_POST
 def request_reset(request):
@@ -489,6 +511,8 @@ def request_reset(request):
         user.verification_token_expires = timezone.now() + timedelta(hours=1)
         user.reset_token = None
         user.reset_token_expires = None
+        user.verification_failed_attempts = 0
+        user.verification_lockout_until = None
         user.save()
         logger.info(f"Password reset request successful for user_id: {user.id}")
         return log_and_return_json("request_reset", {'message': 'Reset email sent'})
@@ -497,6 +521,7 @@ def request_reset(request):
         return log_and_return_json("request_reset", {'error': "No user with that username or email"}, status=400)
 
 
+@ratelimit(key=_get_client_ip, rate='10/h', block=True)
 @csrf_exempt
 @require_POST
 def verify_reset(request):
@@ -530,9 +555,24 @@ def verify_reset(request):
         logger.warning("Password reset verification failed: No user with that username or email")
         return log_and_return_json("verify_reset", {'error': "No user with that username or email"}, status=400)
 
+    # Fast-path lockout check before acquiring the row lock
+    if user.verification_lockout_until and timezone.now() < user.verification_lockout_until:
+        logger.warning(f"Password reset verification locked out for user_id: {user.id}")
+        return log_and_return_json("verify_reset", {
+            'error': "Too many failed attempts. Try again later."
+        }, status=429)
+
     try:
         with transaction.atomic():
             user = get_user_model().objects.select_for_update().get(pk=user.pk)
+
+            # Re-check lockout inside the atomic block to guard against races
+            if user.verification_lockout_until and timezone.now() < user.verification_lockout_until:
+                logger.warning(f"Password reset verification locked out for user_id: {user.id}")
+                return log_and_return_json("verify_reset", {
+                    'error': "Too many failed attempts. Try again later."
+                }, status=429)
+
             if (user.verification_token and
                     secrets.compare_digest(user.verification_token, submitted_hash) and
                     user.verification_token_expires is not None and
@@ -542,12 +582,23 @@ def verify_reset(request):
                 user.verification_token_expires = None
                 user.reset_token = hashlib.sha256(reset_token.encode()).hexdigest()
                 user.reset_token_expires = timezone.now() + timedelta(minutes=15)
+                user.verification_failed_attempts = 0
+                user.verification_lockout_until = None
                 user.save()
                 logger.info(f"Password reset verification successful for user_id: {user.id}")
                 response = log_and_return_json("verify_reset", {'message': 'Verification successful', 'reset_token': reset_token})
                 response['Cache-Control'] = 'no-store'
                 return response
             else:
+                user.verification_failed_attempts += 1
+                if user.verification_failed_attempts >= VERIFY_RESET_MAX_ATTEMPTS:
+                    user.verification_lockout_until = timezone.now() + timedelta(minutes=VERIFY_RESET_LOCKOUT_MINUTES)
+                    user.verification_failed_attempts = 0
+                    logger.warning(
+                        f"Password reset verification locked out after {VERIFY_RESET_MAX_ATTEMPTS} "
+                        f"attempts for user_id: {user.id}"
+                    )
+                user.save()
                 logger.warning(f"Password reset verification failed for user_id: {user.id}")
                 return log_and_return_json("verify_reset", {'error': "Invalid or expired verification token"}, status=400)
     except get_user_model().DoesNotExist:
@@ -555,6 +606,7 @@ def verify_reset(request):
         return log_and_return_json("verify_reset", {'error': "No user with that username or email"}, status=400)
 
 
+@ratelimit(key=_get_client_ip, rate='10/h', block=True)
 @csrf_exempt
 @require_POST
 def reset_password(request):
@@ -618,6 +670,7 @@ def reset_password(request):
 
 @csrf_exempt
 @api_login_required
+@ratelimit(key='user', rate='10/h', block=True)
 @require_POST
 def make_post(request):
     logger.info("Endpoint make_post invoked by IP or User")
@@ -665,6 +718,7 @@ def make_post(request):
 
 @csrf_exempt
 @api_login_required
+@ratelimit(key='user', rate='30/h', block=True)
 @require_POST  # Or @require_DELETE if you prefer
 def delete_post(request, post_identifier):
     logger.info("Endpoint delete_post invoked by IP or User")
@@ -684,6 +738,7 @@ def delete_post(request, post_identifier):
 
 @csrf_exempt
 @api_login_required
+@ratelimit(key='user', rate='20/h', block=True)
 @require_POST
 def report_post(request, post_identifier):
     logger.info("Endpoint report_post invoked by IP or User")
@@ -729,6 +784,7 @@ def report_post(request, post_identifier):
 
 @csrf_exempt
 @api_login_required
+@ratelimit(key='user', rate='60/m', block=True)
 @require_POST
 def like_post(request, post_identifier):
     logger.info("Endpoint like_post invoked by IP or User")
@@ -758,6 +814,7 @@ def like_post(request, post_identifier):
 
 @csrf_exempt
 @api_login_required
+@ratelimit(key='user', rate='60/m', block=True)
 @require_POST  # Or @require_DELETE
 def unlike_post(request, post_identifier):
     logger.info("Endpoint unlike_post invoked by IP or User")
@@ -789,6 +846,7 @@ def unlike_post(request, post_identifier):
 # =============================================================================
 
 @api_login_required
+@ratelimit(key='user', rate='60/m', block=True)
 @require_GET
 def get_posts_in_feed(request, batch):
     logger.info("Endpoint get_posts_in_feed invoked by IP or User")
@@ -797,7 +855,7 @@ def get_posts_in_feed(request, batch):
         return log_and_return_json("get_posts_in_feed", {'error': "Invalid batch parameter"}, status=400)
 
     relevant_posts = feed_algorithm_class.get_posts_weighted(request.user, Post)
-    
+
     # Filter out posts from users the current user has blocked or who have blocked the current user
     blocked_users = request.user.blocked.all()
     blocking_users = request.user.blocked_by.all()
@@ -820,6 +878,7 @@ def get_posts_in_feed(request, batch):
 
 
 @api_login_required
+@ratelimit(key='user', rate='60/m', block=True)
 @require_GET
 def get_posts_for_followed_users(request, batch):
     logger.info("Endpoint get_posts_for_followed_users invoked by IP or User")
@@ -828,7 +887,7 @@ def get_posts_for_followed_users(request, batch):
         return log_and_return_json("get_posts_for_followed_users", {'error': "Invalid batch parameter"}, status=400)
 
     followed_users = request.user.following.all()
-    
+
     # Filter out users who are blocked or blocking
     blocked_users = request.user.blocked.all()
     blocking_users = request.user.blocked_by.all()
@@ -854,6 +913,7 @@ def get_posts_for_followed_users(request, batch):
 
 
 @api_login_required
+@ratelimit(key='user', rate='60/m', block=True)
 @require_GET
 def get_posts_for_user(request, username, batch):
     logger.info("Endpoint get_posts_for_user invoked by IP or User")
@@ -891,6 +951,7 @@ def get_posts_for_user(request, username, batch):
         return log_and_return_json("get_posts_for_user", [], safe=False)
 
 
+@ratelimit(key=_get_client_ip, rate='60/m', block=True)
 @require_GET  # Publicly viewable, no @api_login_required
 def get_post_details(request, post_identifier):
     logger.info("Endpoint get_post_details invoked by IP or User")
@@ -919,6 +980,7 @@ def get_post_details(request, post_identifier):
 
 @csrf_exempt
 @api_login_required
+@ratelimit(key='user', rate='20/h', block=True)
 @require_POST
 def comment_on_post(request, post_identifier):
     logger.info("Endpoint comment_on_post invoked by IP or User")
@@ -956,6 +1018,7 @@ def comment_on_post(request, post_identifier):
 
 @csrf_exempt
 @api_login_required
+@ratelimit(key='user', rate='20/h', block=True)
 @require_POST
 def reply_to_comment_thread(request, post_identifier, comment_thread_identifier):
     logger.info("Endpoint reply_to_comment_thread invoked by IP or User")
@@ -995,6 +1058,7 @@ def reply_to_comment_thread(request, post_identifier, comment_thread_identifier)
 
 @csrf_exempt
 @api_login_required
+@ratelimit(key='user', rate='60/m', block=True)
 @require_POST
 def like_comment(request, post_identifier, comment_thread_identifier, comment_identifier):
     logger.info("Endpoint like_comment invoked by IP or User")
@@ -1034,6 +1098,7 @@ def like_comment(request, post_identifier, comment_thread_identifier, comment_id
 
 @csrf_exempt
 @api_login_required
+@ratelimit(key='user', rate='60/m', block=True)
 @require_POST  # Or @require_DELETE
 def unlike_comment(request, post_identifier, comment_thread_identifier, comment_identifier):
     logger.info("Endpoint unlike_comment invoked by IP or User")
@@ -1073,6 +1138,7 @@ def unlike_comment(request, post_identifier, comment_thread_identifier, comment_
 
 @csrf_exempt
 @api_login_required
+@ratelimit(key='user', rate='30/h', block=True)
 @require_POST  # Or @require_DELETE
 def delete_comment(request, post_identifier, comment_thread_identifier, comment_identifier):
     logger.info("Endpoint delete_comment invoked by IP or User")
@@ -1108,6 +1174,7 @@ def delete_comment(request, post_identifier, comment_thread_identifier, comment_
 
 @csrf_exempt
 @api_login_required
+@ratelimit(key='user', rate='20/h', block=True)
 @require_POST
 def report_comment(request, post_identifier, comment_thread_identifier, comment_identifier):
     logger.info("Endpoint report_comment invoked by IP or User")
@@ -1160,6 +1227,7 @@ def report_comment(request, post_identifier, comment_thread_identifier, comment_
 
 
 @api_login_required  # Original had @login_required
+@ratelimit(key='user', rate='60/m', block=True)
 @require_GET
 def get_comments_for_post(request, post_identifier, batch):
     logger.info("Endpoint get_comments_for_post invoked by IP or User")
@@ -1186,6 +1254,7 @@ def get_comments_for_post(request, post_identifier, batch):
 
 
 @api_login_required  # Original had @login_required
+@ratelimit(key='user', rate='60/m', block=True)
 @require_GET
 def get_comments_for_thread(request, comment_thread_identifier, batch):
     logger.info("Endpoint get_comments_for_thread invoked by IP or User")
@@ -1225,6 +1294,7 @@ def get_comments_for_thread(request, comment_thread_identifier, batch):
 # =============================================================================
 
 @api_login_required
+@ratelimit(key='user', rate='30/m', block=True)
 @require_GET
 def get_users_matching_fragment(request, username_fragment):
     logger.info("Endpoint get_users_matching_fragment invoked by IP or User")
@@ -1237,7 +1307,7 @@ def get_users_matching_fragment(request, username_fragment):
     users = PositiveOnlySocialUser.objects.filter(
         username__istartswith=username_fragment
     ).exclude(pk=request.user.pk)
-    
+
     # User B cannot search for User A if User A blocked User B.
     # request.user is B (searcher). We must exclude any user A who has blocked B.
     # We must also exclude users that B has blocked? Spec says: "If user A blocks user B then user A can search for user B"
@@ -1259,6 +1329,7 @@ def get_users_matching_fragment(request, username_fragment):
 
 @csrf_exempt
 @api_login_required
+@ratelimit(key='user', rate='30/m', block=True)
 @require_POST
 def follow_user(request, username_to_follow):
     logger.info("Endpoint follow_user invoked by IP or User")
@@ -1283,6 +1354,7 @@ def follow_user(request, username_to_follow):
 
 @csrf_exempt
 @api_login_required
+@ratelimit(key='user', rate='30/m', block=True)
 @require_POST  # Or @require_DELETE
 def unfollow_user(request, username_to_unfollow):
     logger.info("Endpoint unfollow_user invoked by IP or User")
@@ -1304,6 +1376,7 @@ def unfollow_user(request, username_to_unfollow):
 
 @csrf_exempt
 @api_login_required
+@ratelimit(key='user', rate='30/m', block=True)
 @require_POST
 def toggle_block(request, username_to_toggle_block):
     logger.info("Endpoint toggle_block invoked by IP or User")
@@ -1330,12 +1403,13 @@ def toggle_block(request, username_to_toggle_block):
             request.user.following.remove(user_to_toggle_obj)
         if user_to_toggle_obj.following.filter(pk=request.user.pk).exists():
             user_to_toggle_obj.following.remove(request.user)
-            
+
         logger.info(f"User blocked successful: target_user_id: {user_to_toggle_obj.id} by user_id: {request.user.id}")
         return log_and_return_json("toggle_block", {'message': 'User blocked'})
 
 
 @api_login_required
+@ratelimit(key='user', rate='30/m', block=True)
 @require_GET
 def get_profile_details(request, username):
     logger.info("Endpoint get_profile_details invoked by IP or User")
@@ -1359,16 +1433,16 @@ def get_profile_details(request, username):
 
     is_following = request.user.following.filter(pk=profile_user.pk).exists()
     is_blocked = request.user.blocked.filter(pk=profile_user.pk).exists()
-    
-    # If I am blocked by them, should I see details? 
+
+    # If I am blocked by them, should I see details?
     # Spec: "user B cannot search for user A".
     # Typically profiles are also hidden or return 404.
     # But `get_posts_for_user` will return empty.
     # Let's hide stats if blocked by them.
     is_blocked_by = request.user.blocked_by.filter(pk=profile_user.pk).exists()
-    
+
     if is_blocked_by:
-        # Return limited info or error? 
+        # Return limited info or error?
         # Usually it looks like the user doesn't exist or empty profile.
         # Let's return empty stats.
         post_count = 0

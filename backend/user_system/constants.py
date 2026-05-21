@@ -101,3 +101,7 @@ COMMENT_THREAD_BATCH_SIZE = 10
 # Number of reports before hiding
 MAX_BEFORE_HIDING_POST = 10
 MAX_BEFORE_HIDING_COMMENT = 5
+
+# verify_reset lockout: lock the account after this many consecutive failures
+VERIFY_RESET_MAX_ATTEMPTS = 5
+VERIFY_RESET_LOCKOUT_MINUTES = 15
