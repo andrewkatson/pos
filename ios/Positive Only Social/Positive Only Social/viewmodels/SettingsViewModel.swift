@@ -111,6 +111,7 @@ final class SettingsViewModel: ObservableObject {
                 let newSession = UserSession(
                     sessionToken: userSession.sessionToken,
                     username: userSession.username,
+                    userId: userSession.userId,
                     isIdentityVerified: true
                 )
                 

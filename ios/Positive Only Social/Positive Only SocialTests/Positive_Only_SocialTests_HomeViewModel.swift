@@ -44,7 +44,7 @@ struct Positive_Only_SocialTests_HomeViewModel {
     /// Helper to log in the "testuser" and save their token to the keychain
     private func setupLoggedInUser(username: String) async throws {
         let token = try await registerUserAndGetToken(username: username)
-        let userSession = UserSession(sessionToken: token, username: username, isIdentityVerified: false)
+        let userSession = UserSession(sessionToken: token, username: username, userId: 1, isIdentityVerified: false)
         try keychainHelper.save(userSession, for: testService, account: "\(username)_account")
     }
 
