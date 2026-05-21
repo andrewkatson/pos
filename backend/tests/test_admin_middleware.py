@@ -2,7 +2,6 @@ import pytest
 from unittest.mock import MagicMock, patch
 
 from django.http import Http404
-from django.test import RequestFactory
 
 from pos_backend.middleware import AdminIPAllowlistMiddleware
 
@@ -13,12 +12,14 @@ def make_middleware(get_response=None):
     return AdminIPAllowlistMiddleware(get_response)
 
 
-def make_request(path, remote_addr="1.2.3.4", x_real_ip=None):
-    factory = RequestFactory()
-    request = factory.get(path)
-    request.META["REMOTE_ADDR"] = remote_addr
+def make_request(path, remote_addr="1.2.3.4", x_real_ip=None, xff=None):
+    request = MagicMock()
+    request.path = path
+    request.META = {"REMOTE_ADDR": remote_addr}
     if x_real_ip is not None:
         request.META["HTTP_X_REAL_IP"] = x_real_ip
+    if xff is not None:
+        request.META["HTTP_X_FORWARDED_FOR"] = xff
     return request
 
 
@@ -87,8 +88,7 @@ def test_path_with_admin_prefix_not_matched():
     middleware = make_middleware()
     request = make_request("/admintools/", remote_addr="9.9.9.9")
     with patch.dict("os.environ", {"ADMIN_IP_ALLOWLIST": "10.0.0.1"}):
-        # /admintools/ starts with /admin so it IS caught — this test
-        # documents the current conservative behaviour.
+        # /admintools/ starts with /admin so it IS caught — documents conservative behaviour.
         with pytest.raises(Http404):
             middleware(request)
 
@@ -107,8 +107,7 @@ def test_x_real_ip_takes_precedence_over_remote_addr():
 def test_x_forwarded_for_is_not_trusted():
     """X-Forwarded-For must not grant access — it's client-controlled."""
     middleware = make_middleware()
-    request = make_request("/admin/", remote_addr="9.9.9.9")
-    request.META["HTTP_X_FORWARDED_FOR"] = "10.0.0.1"
+    request = make_request("/admin/", remote_addr="9.9.9.9", xff="10.0.0.1")
     with patch.dict("os.environ", {"ADMIN_IP_ALLOWLIST": "10.0.0.1"}):
         with pytest.raises(Http404):
             middleware(request)
