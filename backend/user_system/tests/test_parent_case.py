@@ -2,7 +2,7 @@ import os
 
 from unittest.mock import patch
 
-from django.test import TestCase, Client
+from django.test import TestCase, Client, override_settings
 from django.urls import reverse
 
 # Note: test_constants are no longer used for FAIL/SUCCESS
@@ -13,6 +13,7 @@ from ..constants import Fields
 from ..models import Post, CommentThread, Comment, Session
 
 
+@override_settings(RATELIMIT_ENABLE=False)
 class PositiveOnlySocialTestCase(TestCase):
     """
     A parent test case for the PositiveOnlySocial app that uses the

@@ -8,3 +8,5 @@ pytest
 gunicorn
 psycopg
 python-dotenv
+django-ratelimit
+redis

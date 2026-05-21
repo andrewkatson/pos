@@ -41,6 +41,8 @@ class PositiveOnlySocialUser(AbstractUser):
     verification_report_status = models.TextField(default=NEVER_RUN)
     identity_is_verified = models.BooleanField(default=False)
     is_adult = models.BooleanField(default=False)
+    verification_failed_attempts = models.IntegerField(default=0)
+    verification_lockout_until = models.DateTimeField(null=True, blank=True, default=None)
 
     creation_time = models.DateTimeField(auto_now_add=True, null=True, blank=True)
     updated_time = models.DateTimeField(auto_now=True, null=True, blank=True)
