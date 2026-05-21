@@ -33,7 +33,7 @@ def test_empty_allowlist_blocks_admin():
             middleware(request)
 
 
-def test_unset_allowlist_blocks_admin():
+def test_empty_string_allowlist_blocks_admin():
     middleware = make_middleware()
     request = make_request("/admin/")
     with patch.dict("os.environ", {"ADMIN_IP_ALLOWLIST": ""}, clear=False):
@@ -83,25 +83,24 @@ def test_non_admin_path_not_affected():
     assert response.status_code == 200
 
 
-def test_path_with_admin_prefix_not_matched():
-    """Paths like /admintools/ should not be gated — only /admin paths."""
+def test_path_with_admin_prefix_not_blocked():
+    """Paths like /admintools/ share the prefix but should not be gated."""
     middleware = make_middleware()
     request = make_request("/admintools/", remote_addr="9.9.9.9")
     with patch.dict("os.environ", {"ADMIN_IP_ALLOWLIST": "10.0.0.1"}):
-        # /admintools/ starts with /admin so it IS caught — documents conservative behaviour.
-        with pytest.raises(Http404):
-            middleware(request)
+        response = middleware(request)
+    assert response.status_code == 200
 
 
 # --- IP source precedence ---
 
-def test_x_real_ip_takes_precedence_over_remote_addr():
+def test_x_real_ip_is_not_trusted():
+    """X-Real-IP is client-controllable if no proxy is present; only REMOTE_ADDR is used."""
     middleware = make_middleware()
-    # REMOTE_ADDR is unlisted, X-Real-IP is listed
     request = make_request("/admin/", remote_addr="9.9.9.9", x_real_ip="10.0.0.1")
     with patch.dict("os.environ", {"ADMIN_IP_ALLOWLIST": "10.0.0.1"}):
-        response = middleware(request)
-    assert response.status_code == 200
+        with pytest.raises(Http404):
+            middleware(request)
 
 
 def test_x_forwarded_for_is_not_trusted():
