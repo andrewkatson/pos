@@ -5,6 +5,7 @@ openai
 Pillow
 django
 pytest
+pytest-django
 gunicorn
 psycopg
 python-dotenv

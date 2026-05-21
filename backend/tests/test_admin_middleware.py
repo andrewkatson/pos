@@ -92,13 +92,13 @@ def test_path_with_admin_prefix_not_blocked():
     assert response.status_code == 200
 
 
-# --- IP source precedence ---
+# --- IP source: direct (no trusted proxy) ---
 
-def test_x_real_ip_is_not_trusted():
-    """X-Real-IP is client-controllable if no proxy is present; only REMOTE_ADDR is used."""
+def test_x_real_ip_ignored_without_trusted_proxy():
+    """X-Real-IP is not used when REMOTE_ADDR is not a trusted proxy."""
     middleware = make_middleware()
     request = make_request("/admin/", remote_addr="9.9.9.9", x_real_ip="10.0.0.1")
-    with patch.dict("os.environ", {"ADMIN_IP_ALLOWLIST": "10.0.0.1"}):
+    with patch.dict("os.environ", {"ADMIN_IP_ALLOWLIST": "10.0.0.1"}, clear=False):
         with pytest.raises(Http404):
             middleware(request)
 
@@ -107,6 +107,48 @@ def test_x_forwarded_for_is_not_trusted():
     """X-Forwarded-For must not grant access — it's client-controlled."""
     middleware = make_middleware()
     request = make_request("/admin/", remote_addr="9.9.9.9", spoofed_xff="10.0.0.1")
-    with patch.dict("os.environ", {"ADMIN_IP_ALLOWLIST": "10.0.0.1"}):
+    with patch.dict("os.environ", {"ADMIN_IP_ALLOWLIST": "10.0.0.1"}, clear=False):
+        with pytest.raises(Http404):
+            middleware(request)
+
+
+# --- IP source: behind trusted proxy (nginx → Gunicorn) ---
+
+def test_x_real_ip_used_when_remote_addr_is_trusted_proxy():
+    """When REMOTE_ADDR is a trusted proxy, X-Real-IP carries the real client IP."""
+    middleware = make_middleware()
+    request = make_request("/admin/", remote_addr="127.0.0.1", x_real_ip="10.0.0.1")
+    env = {"ADMIN_IP_ALLOWLIST": "10.0.0.1", "TRUSTED_PROXY_IPS": "127.0.0.1"}
+    with patch.dict("os.environ", env, clear=False):
+        response = middleware(request)
+    assert response.status_code == 200
+
+
+def test_unlisted_real_ip_blocked_via_trusted_proxy():
+    """Client not in allowlist is blocked even when coming through a trusted proxy."""
+    middleware = make_middleware()
+    request = make_request("/admin/", remote_addr="127.0.0.1", x_real_ip="9.9.9.9")
+    env = {"ADMIN_IP_ALLOWLIST": "10.0.0.1", "TRUSTED_PROXY_IPS": "127.0.0.1"}
+    with patch.dict("os.environ", env, clear=False):
+        with pytest.raises(Http404):
+            middleware(request)
+
+
+def test_trusted_proxy_without_x_real_ip_falls_back_to_remote_addr():
+    """If the trusted proxy didn't set X-Real-IP, fall back to REMOTE_ADDR."""
+    middleware = make_middleware()
+    request = make_request("/admin/", remote_addr="127.0.0.1")
+    env = {"ADMIN_IP_ALLOWLIST": "127.0.0.1", "TRUSTED_PROXY_IPS": "127.0.0.1"}
+    with patch.dict("os.environ", env, clear=False):
+        response = middleware(request)
+    assert response.status_code == 200
+
+
+def test_empty_trusted_proxy_ips_means_no_proxies_trusted():
+    """TRUSTED_PROXY_IPS unset/empty means X-Real-IP is never used."""
+    middleware = make_middleware()
+    request = make_request("/admin/", remote_addr="9.9.9.9", x_real_ip="10.0.0.1")
+    env = {"ADMIN_IP_ALLOWLIST": "10.0.0.1", "TRUSTED_PROXY_IPS": ""}
+    with patch.dict("os.environ", env, clear=False):
         with pytest.raises(Http404):
             middleware(request)

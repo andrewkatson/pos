@@ -8,8 +8,18 @@ def _get_allowlist():
     return {ip.strip() for ip in raw.split(",") if ip.strip()}
 
 
+def _get_trusted_proxies():
+    raw = os.environ.get("TRUSTED_PROXY_IPS", "")
+    return {ip.strip() for ip in raw.split(",") if ip.strip()}
+
+
 def _client_ip(request):
-    return request.META.get("REMOTE_ADDR", "")
+    remote_addr = request.META.get("REMOTE_ADDR", "")
+    if remote_addr in _get_trusted_proxies():
+        # Request arrived through a known proxy (e.g. nginx on the same host).
+        # Trust the X-Real-IP header it set; fall back to REMOTE_ADDR if absent.
+        return request.META.get("HTTP_X_REAL_IP") or remote_addr
+    return remote_addr
 
 
 class AdminIPAllowlistMiddleware:
