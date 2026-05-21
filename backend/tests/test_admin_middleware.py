@@ -12,14 +12,14 @@ def make_middleware(get_response=None):
     return AdminIPAllowlistMiddleware(get_response)
 
 
-def make_request(path, remote_addr="1.2.3.4", x_real_ip=None, xff=None):
+def make_request(path, remote_addr="1.2.3.4", x_real_ip=None, spoofed_xff=None):
     request = MagicMock()
     request.path = path
     request.META = {"REMOTE_ADDR": remote_addr}
     if x_real_ip is not None:
         request.META["HTTP_X_REAL_IP"] = x_real_ip
-    if xff is not None:
-        request.META["HTTP_X_FORWARDED_FOR"] = xff
+    if spoofed_xff is not None:
+        request.META["HTTP_X_FORWARDED_FOR"] = spoofed_xff
     return request
 
 
@@ -106,7 +106,7 @@ def test_x_real_ip_is_not_trusted():
 def test_x_forwarded_for_is_not_trusted():
     """X-Forwarded-For must not grant access — it's client-controlled."""
     middleware = make_middleware()
-    request = make_request("/admin/", remote_addr="9.9.9.9", xff="10.0.0.1")
+    request = make_request("/admin/", remote_addr="9.9.9.9", spoofed_xff="10.0.0.1")
     with patch.dict("os.environ", {"ADMIN_IP_ALLOWLIST": "10.0.0.1"}):
         with pytest.raises(Http404):
             middleware(request)
