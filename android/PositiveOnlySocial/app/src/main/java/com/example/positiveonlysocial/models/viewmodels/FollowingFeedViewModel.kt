@@ -35,7 +35,7 @@ class FollowingFeedViewModel(
         viewModelScope.launch {
             try {
                 val userSession = keychainHelper.load(UserSession::class.java, service, account)
-                    ?: UserSession("123", "testuser", false, null, null)
+                    ?: UserSession("123", "testuser", 0, false, null, null)
 
                 val response = api.getFollowedPosts(userSession.sessionToken, currentPage)
                 if (response.isSuccessful) {
