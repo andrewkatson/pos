@@ -76,7 +76,7 @@ fun WelcomeScreen(
                     if (existingSession == null) {
                         throw Exception("No existing session found for remember-me refresh.")
                     }
-                    if (existingSession.userId == 0) {
+                    if (existingSession.userId.isEmpty()) {
                         throw Exception("Stored session has no valid user ID. Please log in again.")
                     }
                     val userSession = UserSession(

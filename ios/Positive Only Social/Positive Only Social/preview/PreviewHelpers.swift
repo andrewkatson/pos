@@ -51,7 +51,7 @@ struct MockedAPI: Networking {
         let response = LoginResponseFields(
             sessionManagementToken: "mock_session_token",
             username: username,
-            userId: 1,
+            userId: "1",
             seriesIdentifier: "mock_series_id",
             loginCookieToken: "mock_login_cookie"
         )
@@ -62,7 +62,7 @@ struct MockedAPI: Networking {
         let response = LoginResponseFields(
             sessionManagementToken: "mock_session_token",
             username: usernameOrEmail,
-            userId: 1,
+            userId: "1",
             seriesIdentifier: "mock_series_id",
             loginCookieToken: "mock_login_cookie"
         )
@@ -73,7 +73,7 @@ struct MockedAPI: Networking {
         let response = LoginResponseFields(
             sessionManagementToken: "new_mock_session",
             username: "mock_user",
-            userId: 1,
+            userId: "1",
             seriesIdentifier: "mock_series_id",
             loginCookieToken: "new_mock_cookie"
         )
@@ -286,7 +286,7 @@ struct PreviewHelpers {
     
     @MainActor static func loggedInAuthManager() -> AuthenticationManager {
         let manager = AuthenticationManager(shouldAutoLogin: false, keychainHelper: keychainHelper)
-        manager.login(with: UserSession(sessionToken: "mock_token", username: "preview_user", userId: 0, isIdentityVerified: true))
+        manager.login(with: UserSession(sessionToken: "mock_token", username: "preview_user", userId: "", isIdentityVerified: true))
         return manager
     }
 }

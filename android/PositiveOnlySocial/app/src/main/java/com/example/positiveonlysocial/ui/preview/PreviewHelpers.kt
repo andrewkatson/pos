@@ -28,7 +28,7 @@ class MockPositiveOnlySocialAPI : PositiveOnlySocialAPI {
             AuthResponse(
                 sessionToken = "mock_session_token",
                 username = request.usernameOrEmail,
-                userId = 1,
+                userId = "",
                 seriesIdentifier = "mock_series_id",
                 loginCookieToken = "mock_login_cookie"
             )
@@ -49,7 +49,7 @@ class MockPositiveOnlySocialAPI : PositiveOnlySocialAPI {
             AuthResponse(
                 sessionToken = "mock_session_token",
                 username = request.username,
-                userId = 1,
+                userId = "",
                 seriesIdentifier = "mock_series_id",
                 loginCookieToken = "mock_login_cookie"
             )
