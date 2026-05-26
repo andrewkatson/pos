@@ -100,7 +100,7 @@ struct UserSession: Codable, Equatable {
         sessionToken = try c.decode(String.self, forKey: .sessionToken)
         username = try c.decode(String.self, forKey: .username)
         userId = try c.decodeIfPresent(Int.self, forKey: .userId) ?? 0
-        isIdentityVerified = try c.decode(Bool.self, forKey: .isIdentityVerified)
+        isIdentityVerified = try c.decodeIfPresent(Bool.self, forKey: .isIdentityVerified) ?? false
     }
 }
 
