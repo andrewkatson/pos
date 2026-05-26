@@ -286,7 +286,7 @@ struct PreviewHelpers {
     
     @MainActor static func loggedInAuthManager() -> AuthenticationManager {
         let manager = AuthenticationManager(shouldAutoLogin: false, keychainHelper: keychainHelper)
-        manager.login(with: UserSession(sessionToken: "mock_token", username: "preview_user", userId: "", isIdentityVerified: true))
+        manager.login(with: UserSession(sessionToken: "mock_token", username: "preview_user", userId: "00000000-0000-0000-0000-000000000001", isIdentityVerified: true))
         return manager
     }
 }
