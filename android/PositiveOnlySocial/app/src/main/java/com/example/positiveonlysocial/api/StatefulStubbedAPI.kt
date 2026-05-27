@@ -33,9 +33,6 @@ class StatefulStubbedAPI : PositiveOnlySocialAPI {
     // Set this variable before making authenticated calls.
     var simulatedAuthToken: String? = null
 
-    // Auto-incrementing numeric user ID, matching the backend's integer primary key.
-    private var nextUserId = 1
-
     // Constants from backend
     private val POST_BATCH_SIZE = 10
     private val COMMENT_BATCH_SIZE = 10
@@ -47,7 +44,6 @@ class StatefulStubbedAPI : PositiveOnlySocialAPI {
 
     private data class UserMock(
         val id: String = UUID.randomUUID().toString(),
-        val numericId: Int,
         val username: String,
         val email: String,
         var passwordHash: String, // Storing plain text for stub simplicity, or simple hash
@@ -135,7 +131,6 @@ class StatefulStubbedAPI : PositiveOnlySocialAPI {
 
         // Create User
         val newUser = UserMock(
-            numericId = nextUserId++,
             username = request.username,
             email = request.email,
             passwordHash = request.password // Stub: Plain text
@@ -155,7 +150,7 @@ class StatefulStubbedAPI : PositiveOnlySocialAPI {
             loginCookies.add(LoginCookieMock(seriesId, cookieToken, newUser.id))
         }
 
-        return Response.success(AuthResponse(sessionToken, newUser.username, newUser.numericId, seriesId, cookieToken))
+        return Response.success(AuthResponse(sessionToken, newUser.username, newUser.id, seriesId, cookieToken))
     }
 
     override suspend fun loginUser(request: LoginRequest): Response<AuthResponse> {
@@ -182,7 +177,7 @@ class StatefulStubbedAPI : PositiveOnlySocialAPI {
         // Auto-set the token for convenience in this stateful stub
         simulatedAuthToken = sessionToken
 
-        return Response.success(AuthResponse(sessionToken, user.username, user.numericId, seriesId, cookieToken))
+        return Response.success(AuthResponse(sessionToken, user.username, user.id, seriesId, cookieToken))
     }
 
     override suspend fun loginUserWithRememberMe(request: TokenRefreshRequest): Response<TokenRefreshResponse> {

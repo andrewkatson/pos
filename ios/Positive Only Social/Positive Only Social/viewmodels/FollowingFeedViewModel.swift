@@ -34,7 +34,7 @@ final class FollowingFeedViewModel: ObservableObject {
         
         Task {
             do {
-                let userSession = try keychainHelper.load(UserSession.self, from: "positive-only-social.Positive-Only-Social", account: account) ?? UserSession(sessionToken: "123", username: "test", userId: 0, isIdentityVerified: false)
+                let userSession = try keychainHelper.load(UserSession.self, from: "positive-only-social.Positive-Only-Social", account: account) ?? UserSession(sessionToken: "123", username: "test", userId: "", isIdentityVerified: false)
                 
                 
                 // --- KEY CHANGE ---

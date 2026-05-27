@@ -49,7 +49,7 @@ struct Positive_Only_SocialTests_FeedViewModel {
         
         // Given: A user is logged in
         let userAToken = try await registerUserAndGetToken(username: "userA")
-        let userSession = UserSession(sessionToken: userAToken, username: "userA", userId: 1, isIdentityVerified: false)
+        let userSession = UserSession(sessionToken: userAToken, username: "userA", userId: "1", isIdentityVerified: false)
         try keychainHelper.save(userSession, for: testService, account: "fetchFeedApiThrowsError")
         
         // And: *No one* has made any posts. The API stub will throw a 400 error.
@@ -72,7 +72,7 @@ struct Positive_Only_SocialTests_FeedViewModel {
         
         // Given: A user is logged in
         let userAToken = try await registerUserAndGetToken(username: "userA")
-        let userSession = UserSession(sessionToken: userAToken, username: "userA", userId: 1, isIdentityVerified: false)
+        let userSession = UserSession(sessionToken: userAToken, username: "userA", userId: "1", isIdentityVerified: false)
         try keychainHelper.save(userSession, for: testService, account: "fetchFeedWhileAlreadyLoading")
         
         // And: The viewmodel is *already* loading
@@ -110,7 +110,7 @@ struct Positive_Only_SocialTests_FeedViewModel {
         
         let userAToken = try await registerUserAndGetToken(username: "userA")
         let userBToken = try await registerUserAndGetToken(username: "userB")
-        let userSession = UserSession(sessionToken: userAToken, username: "userA", userId: 1, isIdentityVerified: false)
+        let userSession = UserSession(sessionToken: userAToken, username: "userA", userId: "1", isIdentityVerified: false)
         try keychainHelper.save(userSession, for: testService, account: "fetchFeedPagination")
 
         // And: User B creates 3 posts (which will be on 2 pages)

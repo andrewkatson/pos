@@ -159,7 +159,7 @@ fun NewPostScreen(
                                     return@launch
                                 }
 
-                                if (session.userId == 0) {
+                                if (session.userId.isEmpty()) {
                                     failureMessage = "Session is invalid. Please log in again."
                                     showFailureAlert = true
                                     return@launch
