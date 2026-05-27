@@ -1,5 +1,6 @@
 package com.example.positiveonlysocial.ui.auth
 
+import android.util.Log
 import androidx.compose.foundation.layout.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -20,6 +21,8 @@ import com.example.positiveonlysocial.ui.navigation.Screen
 import com.example.positiveonlysocial.ui.preview.PreviewHelpers
 import com.example.positiveonlysocial.ui.theme.PositiveOnlySocialTheme
 import kotlinx.coroutines.launch
+
+private const val TAG = "WelcomeScreen"
 
 private enum class AuthState {
     Checking, NeedsAuth, Authenticated
@@ -49,7 +52,7 @@ fun WelcomeScreen(
             val tokens = try {
                 keychainHelper.load(RememberMeTokens::class.java, keychainService, rememberMeAccount)
             } catch (e: Exception) {
-                println("No remember me tokens found: ${e.message}")
+                Log.w(TAG, "No remember me tokens found: ${e.message}")
                 null
             }
 
@@ -100,19 +103,19 @@ fun WelcomeScreen(
                     throw Exception("Login failed with status: ${response.code()}")
                 }
             } catch (e: Exception) {
-                println("Auto-login failed: ${e.message}")
+                Log.e(TAG, "Auto-login failed: ${e.message}")
                 errorMessage = e.message
                 // Clear old data and show manual login
                 try {
                     keychainHelper.delete(keychainService, rememberMeAccount)
                     keychainHelper.delete(keychainService, sessionAccount)
                 } catch (ignore: Exception) {
-                    println("Failed to clear keychain: ${ignore.message}")
+                    Log.w(TAG, "Failed to clear keychain: ${ignore.message}")
                 }
                 authState = AuthState.NeedsAuth
             }
         } catch (e: Exception) {
-            println("LaunchedEffect error: ${e.message}")
+            Log.e(TAG, "LaunchedEffect error: ${e.message}")
             errorMessage = e.message
             authState = AuthState.NeedsAuth
         }

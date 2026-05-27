@@ -67,7 +67,7 @@ class ProfileViewModel: ObservableObject {
                     batch += 1
                 }
             } catch {
-                print("Error fetching user posts for \(user.username): \(error)")
+                NSLog("%@", "Error fetching user posts for \(user.username): \(error)")
                 // Optionally set an @Published error property to show an alert
             }
             
@@ -91,7 +91,7 @@ class ProfileViewModel: ObservableObject {
                 self.isFollowing = details.isFollowing // Set initial follow state
                 self.isBlocked = details.isBlocked // Set initial block state
             } catch {
-                print("Error fetching profile details: \(error)")
+                NSLog("%@", "Error fetching profile details: \(error)")
                 // Handle error (e.g., show alert)
             }
             isLoadingProfile = false
@@ -128,7 +128,7 @@ class ProfileViewModel: ObservableObject {
                     }
                 }
             } catch {
-                print("Error toggling follow: \(error)")
+                NSLog("%@", "Error toggling follow: \(error)")
                 // Handle error (e.g., show alert)
                 // Since we update the UI *after* the await, we don't need to
                 // manually roll back the change if the API call fails.
@@ -164,7 +164,7 @@ class ProfileViewModel: ObservableObject {
                 
                 // Success, state already updated.
             } catch {
-                print("Error toggling block: \(error)")
+                NSLog("%@", "Error toggling block: \(error)")
                 // Revert on error
                 isBlocked = previousBlockState
             }

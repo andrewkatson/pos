@@ -1,5 +1,6 @@
 package com.example.positiveonlysocial.models.viewmodels
 
+import android.util.Log
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.example.positiveonlysocial.api.PositiveOnlySocialAPI
@@ -11,6 +12,8 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
+
+private const val TAG = "ProfileViewModel"
 
 class ProfileViewModel(
     private val api: PositiveOnlySocialAPI,
@@ -87,7 +90,7 @@ class ProfileViewModel(
 
             } catch (e: Exception) {
                 _errorMessage.value = "Error: ${e.localizedMessage}"
-                println(e)
+                Log.e(TAG, "Error fetching profile", e)
             } finally {
                 _isLoading.value = false
             }
@@ -118,10 +121,10 @@ class ProfileViewModel(
                         currentPage += 1
                     }
                 } else {
-                    println("Failed to fetch more posts: ${response.errorBody()?.string()}")
+                    Log.e(TAG, "Failed to fetch more posts: ${response.errorBody()?.string()}")
                 }
             } catch (e: Exception) {
-                println("Error fetching more posts: ${e.localizedMessage}")
+                Log.e(TAG, "Error fetching more posts", e)
             } finally {
                 _isLoading.value = false
             }

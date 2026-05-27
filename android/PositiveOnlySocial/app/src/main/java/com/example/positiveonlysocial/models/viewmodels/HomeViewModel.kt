@@ -1,5 +1,6 @@
 package com.example.positiveonlysocial.models.viewmodels
 
+import android.util.Log
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.example.positiveonlysocial.api.PositiveOnlySocialAPI
@@ -16,6 +17,8 @@ import kotlinx.coroutines.flow.debounce
 import kotlinx.coroutines.launch
 
 @OptIn(FlowPreview::class)
+private const val TAG = "HomeViewModel"
+
 class HomeViewModel(
     private val api: PositiveOnlySocialAPI,
     private val keychainHelper: KeychainHelperProtocol,
@@ -84,7 +87,7 @@ class HomeViewModel(
                 }
             } catch (e: Exception) {
                 _errorMessage.value = e.localizedMessage
-                println(e)
+                Log.e(TAG, "Error fetching my posts", e)
             } finally {
                 _isLoadingNextPage.value = false
             }
@@ -109,7 +112,7 @@ class HomeViewModel(
             }
         } catch (e: Exception) {
             _errorMessage.value = e.localizedMessage
-            println(e)
+            Log.e(TAG, "Error performing search", e)
         }
     }
 }

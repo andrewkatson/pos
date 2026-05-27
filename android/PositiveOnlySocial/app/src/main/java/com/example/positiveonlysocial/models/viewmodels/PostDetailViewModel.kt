@@ -1,5 +1,6 @@
 package com.example.positiveonlysocial.models.viewmodels
 
+import android.util.Log
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.example.positiveonlysocial.api.PositiveOnlySocialAPI
@@ -13,6 +14,8 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import java.util.Date
+
+private const val TAG = "PostDetailViewModel"
 
 class PostDetailViewModel(
     private val postIdentifier: String,
@@ -130,7 +133,7 @@ class PostDetailViewModel(
                 // .sortedBy { it.comments.firstOrNull()?.createdDate } 
 
             } catch (e: Exception) {
-                println("Error loading post details: $e")
+                Log.e(TAG, "Error loading post details", e)
                 _alertMessage.value = "Failed to load post: ${e.localizedMessage}"
             } finally {
                 _isLoading.value = false
@@ -151,7 +154,7 @@ class PostDetailViewModel(
                     _alertMessage.value = "Failed to like post: ${response.message()}"
                 }
             } catch (e: Exception) {
-                println("Failed to like post: $e")
+                Log.e(TAG, "Failed to like post", e)
                 _alertMessage.value = "Error: ${e.localizedMessage}"
             }
         }
@@ -169,7 +172,7 @@ class PostDetailViewModel(
                     _alertMessage.value = "Failed to unlike post: ${response.message()}"
                 }
             } catch (e: Exception) {
-                println("Failed to unlike post: $e")
+                Log.e(TAG, "Failed to unlike post", e)
                 _alertMessage.value = "Error: ${e.localizedMessage}"
             }
         }
@@ -187,7 +190,7 @@ class PostDetailViewModel(
                     _alertMessage.value = "Failed to report post: ${response.message()}"
                 }
             } catch (e: Exception) {
-                println("Failed to report post: $e")
+                Log.e(TAG, "Failed to report post", e)
                 _alertMessage.value = "Error: ${e.localizedMessage}"
             }
         }
@@ -205,7 +208,7 @@ class PostDetailViewModel(
                     _alertMessage.value = "Failed to like comment: ${response.message()}"
                 }
             } catch (e: Exception) {
-                println("Failed to like comment: $e")
+                Log.e(TAG, "Failed to like comment", e)
                 _alertMessage.value = "Error: ${e.localizedMessage}"
             }
         }
@@ -223,7 +226,7 @@ class PostDetailViewModel(
                     _alertMessage.value = "Failed to unlike comment: ${response.message()}"
                 }
             } catch (e: Exception) {
-                println("Failed to unlike comment: $e")
+                Log.e(TAG, "Failed to unlike comment", e)
                 _alertMessage.value = "Error: ${e.localizedMessage}"
             }
         }
@@ -241,7 +244,7 @@ class PostDetailViewModel(
                     _alertMessage.value = "Failed to report comment: ${response.message()}"
                 }
             } catch (e: Exception) {
-                println("Failed to report comment: $e")
+                Log.e(TAG, "Failed to report comment", e)
                 _alertMessage.value = "Error: ${e.localizedMessage}"
             }
         }

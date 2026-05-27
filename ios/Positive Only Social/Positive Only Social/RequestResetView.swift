@@ -68,7 +68,7 @@ struct RequestResetView: View {
         do {
             let _ = try await api.requestPasswordReset(usernameOrEmail: usernameOrEmail)
 
-            print("✅ Reset request successful.")
+            NSLog("%@", "✅ Reset request successful.")
             
             // Handle success
             isLoading = false
@@ -77,7 +77,7 @@ struct RequestResetView: View {
         } catch {
             errorMessage = (error as? LocalizedError)?.errorDescription ?? "An unknown error occurred."
             showingErrorAlert = true
-            print("🔴 Request reset failed: \(error)")
+            NSLog("%@", "🔴 Request reset failed: \(error)")
             isLoading = false
         }
     }

@@ -165,7 +165,7 @@ struct RegisterView: View {
                 // Securely save the new session token to the Keychain
                 authManager.login(with: UserSession(sessionToken: loginDetails.sessionManagementToken, username: username, userId: userId, isIdentityVerified: false))
 
-                print("✅ Registration successful. Session token stored.")
+                NSLog("%@", "✅ Registration successful. Session token stored.")
 
                 // Navigate to Home, replacing the stack so the user can't go back.
                 path = NavigationPath(["HomeView"])
@@ -177,11 +177,11 @@ struct RegisterView: View {
                     errorMessage = "This username or email may already be taken. Please try again."
                 }
                 showingErrorAlert = true
-                print("🔴 Registration failed: \(error)")
+                NSLog("%@", "🔴 Registration failed: \(error)")
             } catch {
                 errorMessage = "This username or email may already be taken. Please try again."
                 showingErrorAlert = true
-                print("🔴 Registration failed: \(error)")
+                NSLog("%@", "🔴 Registration failed: \(error)")
             }
             isLoading = false
         }

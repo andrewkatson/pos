@@ -86,7 +86,7 @@ struct VerifyResetView: View {
                 return
             }
 
-            print("✅ Verification successful.")
+            NSLog("%@", "✅ Verification successful.")
 
             resetToken = token
             isLoading = false
@@ -95,7 +95,7 @@ struct VerifyResetView: View {
         } catch {
             errorMessage = (error as? LocalizedError)?.errorDescription ?? "Invalid token or an unknown error occurred."
             showingErrorAlert = true
-            print("🔴 Verification failed: \(error)")
+            NSLog("%@", "🔴 Verification failed: \(error)")
             isLoading = false
         }
     }
