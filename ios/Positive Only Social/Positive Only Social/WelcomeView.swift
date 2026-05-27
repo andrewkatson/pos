@@ -97,7 +97,7 @@ struct WelcomeView: View {
                 guard let existingSession = existingSession else {
                     throw NSError(domain: "AutoLoginError", code: 0, userInfo: [NSLocalizedDescriptionKey: "No existing session found for remember-me refresh."])
                 }
-                guard existingSession.userId != 0 else {
+                guard !existingSession.userId.isEmpty else {
                     throw NSError(domain: "AutoLoginError", code: 0, userInfo: [NSLocalizedDescriptionKey: "Stored session has no valid user ID. Please log in again."])
                 }
                 let userSession = UserSession(sessionToken: loginDetails.sessionManagementToken, username: existingSession.username, userId: existingSession.userId, isIdentityVerified: existingSession.isIdentityVerified)

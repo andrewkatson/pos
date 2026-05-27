@@ -14,7 +14,7 @@ import Foundation
 struct LoginResponseFields: Codable {
     let sessionManagementToken: String
     let username: String?
-    let userId: Int?
+    let userId: String?
     let seriesIdentifier: String?
     let loginCookieToken: String?
 
@@ -84,10 +84,10 @@ struct ProfileDetailsResponse: Codable, Identifiable, Hashable {
 struct UserSession: Codable, Equatable {
     let sessionToken: String
     let username: String
-    let userId: Int
+    let userId: String
     let isIdentityVerified: Bool
 
-    init(sessionToken: String, username: String, userId: Int, isIdentityVerified: Bool) {
+    init(sessionToken: String, username: String, userId: String, isIdentityVerified: Bool) {
         self.sessionToken = sessionToken
         self.username = username
         self.userId = userId
@@ -99,7 +99,7 @@ struct UserSession: Codable, Equatable {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         sessionToken = try c.decode(String.self, forKey: .sessionToken)
         username = try c.decode(String.self, forKey: .username)
-        userId = try c.decodeIfPresent(Int.self, forKey: .userId) ?? 0
+        userId = try c.decodeIfPresent(String.self, forKey: .userId) ?? ""
         isIdentityVerified = try c.decodeIfPresent(Bool.self, forKey: .isIdentityVerified) ?? false
     }
 }

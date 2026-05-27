@@ -65,7 +65,7 @@ class HomeViewModel(
         viewModelScope.launch {
             try {
                 val userSession = keychainHelper.load(UserSession::class.java, service, account)
-                    ?: UserSession("123", "testuser", 0, false, null, null)
+                    ?: UserSession("123", "testuser", "", false, null, null)
 
                 // Now we have the username in the session!
                 val username = userSession.username
@@ -99,7 +99,7 @@ class HomeViewModel(
 
         try {
             val userSession = keychainHelper.load(UserSession::class.java, service, account)
-                ?: UserSession("123", "testuser", 0, false, null, null)
+                ?: UserSession("123", "testuser", "", false, null, null)
 
             val response = api.searchUsers(userSession.sessionToken, query)
             if (response.isSuccessful) {
