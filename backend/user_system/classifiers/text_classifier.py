@@ -10,7 +10,8 @@ logger = logging.getLogger(__name__)
 
 
 def is_text_positive(text):
-    logger.debug("is_text_positive called — text length=%d preview=%r", len(text), text[:80])
+    text = str(text)
+    logger.debug("is_text_positive called — text length=%d", len(text))
     testing = os.environ.get("TESTING", False)
     testing = testing if isinstance(testing, bool) else convert_to_bool(testing)
 

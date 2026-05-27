@@ -14,14 +14,15 @@ logger = logging.getLogger(__name__)
 
 
 def is_image_positive(image_url):
-    logger.debug("is_image_positive called with URL: %s", image_url)
+    _p = urlparse(image_url)
+    logger.debug("is_image_positive called with URL: %s", _p._replace(query='', fragment='').geturl())
     testing = os.environ.get("TESTING", False)
     testing = testing if isinstance(testing, bool) else convert_to_bool(testing)
 
     if testing:
         parsed_url = urlparse(image_url)
         result = parsed_url.path.endswith(POSITIVE_IMAGE_FILENAME)
-        logger.debug("Testing mode — path=%s endswith %s → %s", parsed_url.path, POSITIVE_IMAGE_FILENAME, result)
+        logger.debug("Testing mode - path=%s endswith %s -> %s", parsed_url.path, POSITIVE_IMAGE_FILENAME, result)
         return result
 
     logger.debug("Checking available AI APIs for image classification")
@@ -62,7 +63,18 @@ def is_image_positive(image_url):
             logger.debug("s3:// URL — bucket=%s key=%s", bucket_name, key)
         elif parsed.scheme in ['http', 'https'] and 's3' in parsed.netloc:
             parts = parsed.netloc.split('.')
-            if parts[0] != 's3':
+            if parts[0] == 's3' or parts[0].startswith('s3-'):
+                # Path-style: s3[.region].amazonaws.com/bucket/key
+                # or dashed-region: s3-region.amazonaws.com/bucket/key
+                path_parts = parsed.path.lstrip('/').split('/', 1)
+                if not bucket_name and len(path_parts) >= 2:
+                    bucket_name = path_parts[0]
+                    key = path_parts[1]
+                    logger.debug("Derived bucket/key from path-style URL — bucket=%s key=%s", bucket_name, key)
+                elif len(path_parts) >= 2:
+                    key = path_parts[1]
+                    logger.debug("Using env-var bucket; extracted key from path-style URL: %s", key)
+            else:
                 # Virtual-hosted-style: bucket.s3[.region].amazonaws.com/key
                 if not bucket_name:
                     bucket_name = parts[0]
@@ -72,16 +84,6 @@ def is_image_positive(image_url):
                 # Always extract key from path for virtual-hosted-style URLs
                 key = parsed.path.lstrip('/')
                 logger.debug("Extracted key from path: %s", key)
-            else:
-                # Path-style: s3[.region].amazonaws.com/bucket/key
-                path_parts = parsed.path.lstrip('/').split('/', 1)
-                if not bucket_name and len(path_parts) >= 2:
-                    bucket_name = path_parts[0]
-                    key = path_parts[1]
-                    logger.debug("Derived bucket/key from path-style URL — bucket=%s key=%s", bucket_name, key)
-                elif len(path_parts) >= 2:
-                    key = path_parts[1]
-                    logger.debug("Using env-var bucket; extracted key from path-style URL: %s", key)
         else:
             logger.warning("Unrecognized URL scheme or non-S3 host — scheme=%s netloc=%s; will use key=%s as-is", parsed.scheme, parsed.netloc, key)
 
