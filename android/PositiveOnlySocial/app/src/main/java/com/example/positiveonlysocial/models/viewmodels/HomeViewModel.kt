@@ -16,9 +16,9 @@ import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.debounce
 import kotlinx.coroutines.launch
 
-@OptIn(FlowPreview::class)
 private const val TAG = "HomeViewModel"
 
+@OptIn(FlowPreview::class)
 class HomeViewModel(
     private val api: PositiveOnlySocialAPI,
     private val keychainHelper: KeychainHelperProtocol,

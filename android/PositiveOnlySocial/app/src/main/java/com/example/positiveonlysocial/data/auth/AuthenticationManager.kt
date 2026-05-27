@@ -9,6 +9,8 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 
+private const val TAG = "AuthenticationManager"
+
 /**
  * Manages the user's authentication state and session data.
  *
@@ -22,7 +24,6 @@ import kotlinx.coroutines.sync.withLock
  * @param shouldAutoLogin If true, the manager will try to load a session from
  * storage immediately upon creation.
  */
-private const val TAG = "AuthenticationManager"
 
 class AuthenticationManager(
     private val keychainHelper: KeychainHelperProtocol,

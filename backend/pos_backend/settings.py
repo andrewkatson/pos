@@ -219,6 +219,7 @@ LOGGING = {
         'console': {
             'level': 'DEBUG',
             'class': 'logging.StreamHandler',
+            'stream': 'ext://sys.stdout',
             'formatter': 'verbose',
         },
         'file': {

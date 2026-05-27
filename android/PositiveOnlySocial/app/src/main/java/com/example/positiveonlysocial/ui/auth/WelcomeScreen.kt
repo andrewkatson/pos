@@ -103,7 +103,7 @@ fun WelcomeScreen(
                     throw Exception("Login failed with status: ${response.code()}")
                 }
             } catch (e: Exception) {
-                Log.e(TAG, "Auto-login failed: ${e.message}")
+                Log.e(TAG, "Auto-login failed", e)
                 errorMessage = e.message
                 // Clear old data and show manual login
                 try {
@@ -115,7 +115,7 @@ fun WelcomeScreen(
                 authState = AuthState.NeedsAuth
             }
         } catch (e: Exception) {
-            Log.e(TAG, "LaunchedEffect error: ${e.message}")
+            Log.e(TAG, "LaunchedEffect error", e)
             errorMessage = e.message
             authState = AuthState.NeedsAuth
         }
