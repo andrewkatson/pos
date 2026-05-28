@@ -86,7 +86,7 @@ struct ResetPasswordView: View {
                 resetToken: resetToken
             )
             
-            print("✅ Password reset successful. Attempting auto-login...")
+            NSLog("%@", "✅ Password reset successful. Attempting auto-login...")
 
             // 2. IMMEDIATELY Log in with the new password
             let loginData = try await api.loginUser(
@@ -118,11 +118,11 @@ struct ResetPasswordView: View {
                 isLoading = false
             }
             
-            print("✅ Auto-login successful. View should swap now.")
+            NSLog("%@", "✅ Auto-login successful. View should swap now.")
         } catch {
             errorMessage = (error as? LocalizedError)?.errorDescription ?? "An unknown error occurred."
             showingErrorAlert = true
-            print("🔴 Password reset failed: \(error)")
+            NSLog("%@", "🔴 Password reset failed: \(error)")
             isLoading = false
         }
     }

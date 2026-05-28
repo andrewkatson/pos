@@ -51,11 +51,11 @@ final class SettingsViewModel: ObservableObject {
                 // 2. Call the backend to invalidate the session
                 _ = try await api.logoutUser(sessionManagementToken: userSession.sessionToken)
                 
-                print("✅ Backend logout successful.")
+                NSLog("%@", "✅ Backend logout successful.")
                 
             } catch {
                 // Even if the backend call fails, we should still log out locally.
-                print("🔴 Backend logout failed: \(error.localizedDescription). Proceeding with local logout.")
+                NSLog("%@", "🔴 Backend logout failed: \(error.localizedDescription). Proceeding with local logout.")
             }
             
             // 3. Trigger the local logout via the AuthenticationManager
@@ -78,7 +78,7 @@ final class SettingsViewModel: ObservableObject {
                 // 2. Call the backend to delete the user's account
                 _ = try await api.deleteUser(sessionManagementToken: userSession.sessionToken)
                 
-                print("✅ Account deletion successful.")
+                NSLog("%@", "✅ Account deletion successful.")
                 
                 // 3. Log out locally by clearing all tokens and updating the auth state.
                 authManager.logout()
@@ -86,7 +86,7 @@ final class SettingsViewModel: ObservableObject {
             } catch {
                 errorMessage = "Failed to delete account. Please try again."
                 showingErrorAlert = true
-                print("🔴 Account deletion failed: \(error.localizedDescription)")
+                NSLog("%@", "🔴 Account deletion failed: \(error.localizedDescription)")
             }
         }
     }

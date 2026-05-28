@@ -109,7 +109,7 @@ struct WelcomeView: View {
                     try keychainHelper.save(newTokens, for: keychainService, account: rememberMeAccount)
                 }
                 
-                print("✅ Remember Me login successful!")
+                NSLog("%@", "✅ Remember Me login successful!")
                 // 6. Update state to trigger navigation
                 authState = .authenticated
                 path.append("HomeView")
@@ -117,7 +117,7 @@ struct WelcomeView: View {
             } catch {
                 // If anything fails (no tokens, invalid tokens, network error),
                 // clear old data and show the manual login screen.
-                print("🔴 Remember Me login failed: \(error.localizedDescription)")
+                NSLog("%@", "🔴 Remember Me login failed: \(error.localizedDescription)")
                 try? keychainHelper.delete(service: keychainService, account: rememberMeAccount)
                 try? keychainHelper.delete(service: keychainService, account: sessionAccount)
                 authState = .needsAuth

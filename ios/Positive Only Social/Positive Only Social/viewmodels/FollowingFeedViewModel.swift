@@ -52,7 +52,7 @@ final class FollowingFeedViewModel: ObservableObject {
                     currentPage += 1
                 }
             } catch {
-                print("Failed to fetch following feed: \(error)")
+                NSLog("%@", "Failed to fetch following feed: \(error)")
             }
             isLoadingNextPage = false
         }

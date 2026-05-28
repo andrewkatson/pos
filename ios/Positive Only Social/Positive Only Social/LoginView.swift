@@ -63,7 +63,7 @@ struct LoginView: View {
                 // MARK: - Securely Store Token in Keychain
                 authManager.login(with: UserSession(sessionToken: loginDetails.sessionManagementToken, username: loginDetails.username ?? usernameOrEmail, userId: userId, isIdentityVerified: false))
                 
-                print("✅ Session token securely saved to Keychain.")
+                NSLog("%@", "✅ Session token securely saved to Keychain.")
                 
                 // Store "Remember Me" tokens if they exist and toggle is on
                 if rememberMe, let seriesId = loginDetails.seriesIdentifier, let cookieToken = loginDetails.loginCookieToken {
@@ -71,7 +71,7 @@ struct LoginView: View {
                     struct RememberMeTokens: Codable { let seriesId: String; let cookieToken: String }
                     let tokens = RememberMeTokens(seriesId: seriesId, cookieToken: cookieToken)
                     try keychainHelper.save(tokens, for: keychainService, account: rememberMeAccount)
-                    print("🔑 Remember Me tokens saved to Keychain.")
+                    NSLog("%@", "🔑 Remember Me tokens saved to Keychain.")
                 } else {
                     // If "Remember Me" is off, ensure any old tokens are deleted.
                     try keychainHelper.delete(service: keychainService, account: rememberMeAccount)
@@ -84,11 +84,11 @@ struct LoginView: View {
                     errorMessage = "Login failed. Please check your credentials and try again."
                 }
                 showingErrorAlert = true
-                print("🔴 Login failed with error: \(error)")
+                NSLog("%@", "🔴 Login failed with error: \(error)")
             } catch {
                 errorMessage = "Login failed. Please check your credentials and try again."
                 showingErrorAlert = true
-                print("🔴 Login failed with error: \(error)")
+                NSLog("%@", "🔴 Login failed with error: \(error)")
             }
             isLoading = false
         }

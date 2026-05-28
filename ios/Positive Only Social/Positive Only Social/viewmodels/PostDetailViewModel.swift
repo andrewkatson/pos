@@ -121,7 +121,7 @@ final class PostDetailViewModel: ObservableObject {
                 }
                 
             } catch {
-                print("Error loading post details: \(error)")
+                NSLog("%@", "Error loading post details: \(error)")
                 self.alertMessage = "Failed to load post: \(error.localizedDescription)"
             }
             
@@ -132,7 +132,7 @@ final class PostDetailViewModel: ObservableObject {
     // MARK: - User Actions
     
     func likePost() {
-        print("ACTION: Like post \(postIdentifier)")
+        NSLog("%@", "ACTION: Like post \(postIdentifier)")
         // Stub: Increment like count locally for instant feedback
         if var post = postDetail {
             post = PostDisplayData(
@@ -151,7 +151,7 @@ final class PostDetailViewModel: ObservableObject {
                 let token = userSession.sessionToken
                 _ = try await api.likePost(sessionManagementToken: token, postIdentifier: postIdentifier)
             } catch {
-                print("Failed to like post: \(error)")
+                NSLog("%@", "Failed to like post: \(error)")
                 await MainActor.run {
                     self.alertMessage = "Failed to like post: \(error.localizedDescription)"
                 }
@@ -160,7 +160,7 @@ final class PostDetailViewModel: ObservableObject {
     }
     
     func unlikePost() {
-        print("ACTION: Unliking post \(postIdentifier)")
+        NSLog("%@", "ACTION: Unliking post \(postIdentifier)")
         // Stub: Decrement like count locally for instant feedback
         if var post = postDetail {
             post = PostDisplayData(
@@ -179,7 +179,7 @@ final class PostDetailViewModel: ObservableObject {
                 let token = userSession.sessionToken
                 _ = try await api.unlikePost(sessionManagementToken: token, postIdentifier: postIdentifier)
             } catch {
-                print("Failed to unlike post: \(error)")
+                NSLog("%@", "Failed to unlike post: \(error)")
                 await MainActor.run {
                     self.alertMessage = "Failed to unlike post: \(error.localizedDescription)"
                 }
@@ -188,7 +188,7 @@ final class PostDetailViewModel: ObservableObject {
     }
     
     func reportPost(reason: String) {
-        print("ACTION: Report post \(postIdentifier) for reason: \(reason)")
+        NSLog("%@", "ACTION: Report post \(postIdentifier) for reason: \(reason)")
         Task {
             do {
                 let userSession = try keychainHelper.load(UserSession.self, from: "positive-only-social.Positive-Only-Social", account: account) ?? UserSession(sessionToken: "123", username: "test", userId: "", isIdentityVerified: false)
@@ -198,7 +198,7 @@ final class PostDetailViewModel: ObservableObject {
                     isPostReported = true
                 }
             } catch {
-                print("Failed to report post: \(error)")
+                NSLog("%@", "Failed to report post: \(error)")
                 await MainActor.run {
                     self.alertMessage = "Failed to report post: \(error.localizedDescription)"
                 }
@@ -207,18 +207,18 @@ final class PostDetailViewModel: ObservableObject {
     }
     
     func likeComment(_ comment: CommentViewData) {
-        print("ACTION: Like comment \(comment.id)")
+        NSLog("%@", "ACTION: Like comment \(comment.id)")
         
         // --- ⬇️ ADDED OPTIMISTIC UPDATE ⬇️ ---
         // Find the index of the thread
         guard let threadIndex = commentThreads.firstIndex(where: { $0.id == comment.threadId }) else {
-            print("Error: Could not find thread for optimistic update.")
+            NSLog("%@", "Error: Could not find thread for optimistic update.")
             return
         }
-        
+
         // Find the index of the comment within that thread
         guard let commentIndex = commentThreads[threadIndex].comments.firstIndex(where: { $0.id == comment.id }) else {
-            print("Error: Could not find comment for optimistic update.")
+            NSLog("%@", "Error: Could not find comment for optimistic update.")
             return
         }
         
@@ -245,7 +245,7 @@ final class PostDetailViewModel: ObservableObject {
                 let token = userSession.sessionToken
                 _ = try await api.likeComment(sessionManagementToken: token, postIdentifier: postIdentifier, commentThreadIdentifier: comment.threadId, commentIdentifier: comment.id)
             } catch {
-                print("Failed to like comment: \(error)")
+                NSLog("%@", "Failed to like comment: \(error)")
                 await MainActor.run {
                     self.alertMessage = "Failed to like comment: \(error.localizedDescription)"
                 }
@@ -254,15 +254,15 @@ final class PostDetailViewModel: ObservableObject {
     }
     
     func unlikeComment(_ comment: CommentViewData) {
-        print("ACTION: unliking comment \(comment.id)")
+        NSLog("%@", "ACTION: unliking comment \(comment.id)")
         
         // --- ⬇️ ADDED OPTIMISTIC UPDATE ⬇️ ---
         guard let threadIndex = commentThreads.firstIndex(where: { $0.id == comment.threadId }) else {
-            print("Error: Could not find thread for optimistic update.")
+            NSLog("%@", "Error: Could not find thread for optimistic update.")
             return
         }
         guard let commentIndex = commentThreads[threadIndex].comments.firstIndex(where: { $0.id == comment.id }) else {
-            print("Error: Could not find comment for optimistic update.")
+            NSLog("%@", "Error: Could not find comment for optimistic update.")
             return
         }
         
@@ -289,7 +289,7 @@ final class PostDetailViewModel: ObservableObject {
                 let token = userSession.sessionToken
                 _ = try await api.unlikeComment(sessionManagementToken: token, postIdentifier: postIdentifier, commentThreadIdentifier: comment.threadId, commentIdentifier: comment.id)
             } catch {
-                print("Failed to unlike comment: \(error)")
+                NSLog("%@", "Failed to unlike comment: \(error)")
                 await MainActor.run {
                     self.alertMessage = "Failed to unlike comment: \(error.localizedDescription)"
                 }
@@ -298,7 +298,7 @@ final class PostDetailViewModel: ObservableObject {
     }
     
     func reportComment(_ comment: CommentViewData, reason: String) {
-        print("ACTION: Report comment \(comment.id) for reason: \(reason)")
+        NSLog("%@", "ACTION: Report comment \(comment.id) for reason: \(reason)")
         Task {
             do {
                 let userSession = try keychainHelper.load(UserSession.self, from: "positive-only-social.Positive-Only-Social", account: account) ?? UserSession(sessionToken: "123", username: "test", userId: "", isIdentityVerified: false)
@@ -309,7 +309,7 @@ final class PostDetailViewModel: ObservableObject {
                     _ = reportedCommentIds.insert(comment.id)
                 }
             } catch {
-                print("Failed to report comment: \(error)")
+                NSLog("%@", "Failed to report comment: \(error)")
                 await MainActor.run {
                     self.alertMessage = "Failed to report comment: \(error.localizedDescription)"
                 }
@@ -320,7 +320,7 @@ final class PostDetailViewModel: ObservableObject {
     func commentOnPost(commentText: String) {
         guard !commentText.isEmpty else { return }
         
-        print("ACTION: Commenting on post \(postIdentifier)")
+        NSLog("%@", "ACTION: Commenting on post \(postIdentifier)")
         Task {
             do {
                 let userSession = try keychainHelper.load(UserSession.self, from: "positive-only-social.Positive-Only-Social", account: account) ?? UserSession(sessionToken: "123", username: "test", userId: "", isIdentityVerified: false)
@@ -346,7 +346,7 @@ final class PostDetailViewModel: ObservableObject {
     func replyToCommentThread(thread: CommentThreadViewData, commentText: String) {
         guard !commentText.isEmpty else { return }
         
-        print("ACTION: Replying to thread \(thread.id)")
+        NSLog("%@", "ACTION: Replying to thread \(thread.id)")
         Task {
             do {
                 let userSession = try keychainHelper.load(UserSession.self, from: "positive-only-social.Positive-Only-Social", account: account) ?? UserSession(sessionToken: "123", username: "test", userId: "", isIdentityVerified: false)
