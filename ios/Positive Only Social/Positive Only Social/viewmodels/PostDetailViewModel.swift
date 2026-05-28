@@ -148,7 +148,8 @@ final class PostDetailViewModel: ObservableObject {
         Task {
             do {
                 guard let userSession = try keychainHelper.load(UserSession.self, from: "positive-only-social.Positive-Only-Social", account: account) else {
-                    NSLog("%@", "No active session — cannot perform action")
+                    NSLog("%@", "No active session — cannot like post")
+                    self.alertMessage = "Session not found."
                     return
                 }
                 let token = userSession.sessionToken
@@ -179,7 +180,8 @@ final class PostDetailViewModel: ObservableObject {
         Task {
             do {
                 guard let userSession = try keychainHelper.load(UserSession.self, from: "positive-only-social.Positive-Only-Social", account: account) else {
-                    NSLog("%@", "No active session — cannot perform action")
+                    NSLog("%@", "No active session — cannot unlike post")
+                    self.alertMessage = "Session not found."
                     return
                 }
                 let token = userSession.sessionToken
@@ -198,7 +200,8 @@ final class PostDetailViewModel: ObservableObject {
         Task {
             do {
                 guard let userSession = try keychainHelper.load(UserSession.self, from: "positive-only-social.Positive-Only-Social", account: account) else {
-                    NSLog("%@", "No active session — cannot perform action")
+                    NSLog("%@", "No active session — cannot report post")
+                    self.alertMessage = "Session not found."
                     return
                 }
                 let token = userSession.sessionToken
@@ -251,7 +254,8 @@ final class PostDetailViewModel: ObservableObject {
         Task {
             do {
                 guard let userSession = try keychainHelper.load(UserSession.self, from: "positive-only-social.Positive-Only-Social", account: account) else {
-                    NSLog("%@", "No active session — cannot perform action")
+                    NSLog("%@", "No active session — cannot like comment")
+                    self.alertMessage = "Session not found."
                     return
                 }
                 let token = userSession.sessionToken
@@ -298,7 +302,8 @@ final class PostDetailViewModel: ObservableObject {
         Task {
             do {
                 guard let userSession = try keychainHelper.load(UserSession.self, from: "positive-only-social.Positive-Only-Social", account: account) else {
-                    NSLog("%@", "No active session — cannot perform action")
+                    NSLog("%@", "No active session — cannot unlike comment")
+                    self.alertMessage = "Session not found."
                     return
                 }
                 let token = userSession.sessionToken
@@ -317,7 +322,8 @@ final class PostDetailViewModel: ObservableObject {
         Task {
             do {
                 guard let userSession = try keychainHelper.load(UserSession.self, from: "positive-only-social.Positive-Only-Social", account: account) else {
-                    NSLog("%@", "No active session — cannot perform action")
+                    NSLog("%@", "No active session — cannot report comment")
+                    self.alertMessage = "Session not found."
                     return
                 }
                 let token = userSession.sessionToken
@@ -342,11 +348,12 @@ final class PostDetailViewModel: ObservableObject {
         Task {
             do {
                 guard let userSession = try keychainHelper.load(UserSession.self, from: "positive-only-social.Positive-Only-Social", account: account) else {
-                    NSLog("%@", "No active session — cannot perform action")
+                    NSLog("%@", "No active session — cannot comment on post")
+                    self.alertMessage = "Session not found."
                     return
                 }
                 let token = userSession.sessionToken
-                
+
                 _ = try await api.commentOnPost(
                     sessionManagementToken: token,
                     postIdentifier: postIdentifier,
@@ -371,11 +378,12 @@ final class PostDetailViewModel: ObservableObject {
         Task {
             do {
                 guard let userSession = try keychainHelper.load(UserSession.self, from: "positive-only-social.Positive-Only-Social", account: account) else {
-                    NSLog("%@", "No active session — cannot perform action")
+                    NSLog("%@", "No active session — cannot reply to comment thread")
+                    self.alertMessage = "Session not found."
                     return
                 }
                 let token = userSession.sessionToken
-                
+
                 _ = try await api.replyToCommentThread(
                     sessionManagementToken: token,
                     postIdentifier: postIdentifier,
