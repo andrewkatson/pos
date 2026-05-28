@@ -58,7 +58,10 @@ class ProfileViewModel(
         viewModelScope.launch {
             try {
                 val userSession = keychainHelper.load(UserSession::class.java, service, account)
-                    ?: UserSession("123", "testuser", "", false, null, null)
+                if (userSession == null) {
+                    Log.e(TAG, "No active session found — cannot fetch profile")
+                    return@launch
+                }
 
                 // Fetch Profile Details
                 val profileResponse = api.getProfileDetails(userSession.sessionToken, username)
@@ -106,7 +109,10 @@ class ProfileViewModel(
         viewModelScope.launch {
             try {
                 val userSession = keychainHelper.load(UserSession::class.java, service, account)
-                    ?: UserSession("123", "testuser", "", false, null, null)
+                if (userSession == null) {
+                    Log.e(TAG, "No active session found — cannot fetch posts")
+                    return@launch
+                }
 
                 val response = api.getPostsForUser(userSession.sessionToken, username, currentPage)
 
@@ -144,7 +150,11 @@ class ProfileViewModel(
         viewModelScope.launch {
             try {
                 val userSession = keychainHelper.load(UserSession::class.java, service, account)
-                    ?: UserSession("123", "testuser", "", false, null, null)
+                if (userSession == null) {
+                    Log.e(TAG, "No active session found — cannot toggle follow")
+                    _errorMessage.value = "Not logged in."
+                    return@launch
+                }
 
                 val response = if (isFollowing) {
                     api.unfollowUser(userSession.sessionToken, username)
@@ -180,7 +190,11 @@ class ProfileViewModel(
         viewModelScope.launch {
             try {
                 val userSession = keychainHelper.load(UserSession::class.java, service, account)
-                    ?: UserSession("123", "testuser", "", false, null, null)
+                if (userSession == null) {
+                    Log.e(TAG, "No active session found — cannot toggle block")
+                    _errorMessage.value = "Not logged in."
+                    return@launch
+                }
 
                 val response = api.toggleBlock(userSession.sessionToken, username)
 

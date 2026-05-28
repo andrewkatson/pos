@@ -59,7 +59,11 @@ final class HomeViewModel: ObservableObject {
         
         Task {
             do {
-                let user = try keychainHelper.load(UserSession.self, from: "positive-only-social.Positive-Only-Social", account: account) ?? UserSession(sessionToken: "123", username: "test", userId: "", isIdentityVerified: false)
+                guard let user = try keychainHelper.load(UserSession.self, from: "positive-only-social.Positive-Only-Social", account: account) else {
+                    NSLog("%@", "No active session found — cannot fetch posts")
+                    isLoadingNextPage = false
+                    return
+                }
 
                 // Call the API
                 let newPosts = try await fetchPosts(for: user.username, token: user.sessionToken, page: currentPage)
@@ -93,7 +97,10 @@ final class HomeViewModel: ObservableObject {
 
         Task {
             do {
-                let userSession = try keychainHelper.load(UserSession.self, from: "positive-only-social.Positive-Only-Social", account: account) ?? UserSession(sessionToken: "123", username: "test", userId: "", isIdentityVerified: false)
+                guard let userSession = try keychainHelper.load(UserSession.self, from: "positive-only-social.Positive-Only-Social", account: account) else {
+                    NSLog("%@", "No active session found — cannot search users")
+                    return
+                }
 
                 self.searchedUsers = try await searchForUsers(fragment: query, token: userSession.sessionToken)
             } catch {
