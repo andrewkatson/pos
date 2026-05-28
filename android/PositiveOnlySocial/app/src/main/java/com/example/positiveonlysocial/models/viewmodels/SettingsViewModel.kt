@@ -1,5 +1,6 @@
 package com.example.positiveonlysocial.models.viewmodels
 
+import android.util.Log
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.example.positiveonlysocial.api.PositiveOnlySocialAPI
@@ -11,6 +12,8 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
+
+private const val TAG = "SettingsViewModel"
 
 class SettingsViewModel(
     private val api: PositiveOnlySocialAPI,
@@ -60,7 +63,7 @@ class SettingsViewModel(
                     // Call API to invalidate token on server
                     val response = api.logout(userSession.sessionToken)
                     if (!response.isSuccessful) {
-                        println("Backend logout failed: ${response.message()}")
+                        Log.w(TAG, "Backend logout failed: ${response.message()}")
                     }
                 }
                 

@@ -18,6 +18,10 @@ _AWS_KEYS = {
     "AWS_SECRET_ACCESS_KEY": "fake_aws_secret",
     "AWS_STORAGE_BUCKET_NAME": "fake_bucket",
 }
+_AWS_KEYS_NO_BUCKET = {
+    "AWS_ACCESS_KEY_ID": "fake_aws_key",
+    "AWS_SECRET_ACCESS_KEY": "fake_aws_secret",
+}
 
 _TEXT_DISPATCH = "user_system.classifiers.classifier_utils.TEXT_API_DISPATCH"
 _IMAGE_DISPATCH = "user_system.classifiers.classifier_utils.IMAGE_API_DISPATCH"
@@ -263,6 +267,58 @@ class TestClassifiers(PositiveOnlySocialTestCase):
         with patch.dict(_IMAGE_DISPATCH, {API_GEMINI: mock_gemini, API_CLAUDE: mock_claude, API_OPENAI: mock_openai}):
             self.assertFalse(is_image_positive("img.png"))
         mock_openai.assert_called_once()
+
+    # ------------------------------------------------------------------ #
+    # Image classifier – S3 URL parsing                                    #
+    # ------------------------------------------------------------------ #
+
+    def _make_mock_s3(self, mock_boto3):
+        mock_s3 = MagicMock()
+        mock_boto3.client.return_value = mock_s3
+        mock_body = MagicMock()
+        mock_body.read.return_value = _make_fake_image_bytes()
+        mock_s3.get_object.return_value = {'Body': mock_body}
+        return mock_s3
+
+    @patch.dict(os.environ, {"GEMINI_API_KEY": "fake_key", **_AWS_KEYS}, clear=True)
+    @patch("user_system.classifiers.image_classifier.boto3")
+    def test_url_parsing_virtual_hosted_with_bucket_env_var(self, mock_boto3):
+        """When AWS_STORAGE_BUCKET_NAME is set, virtual-hosted URL key is still extracted from path."""
+        mock_s3 = self._make_mock_s3(mock_boto3)
+        url = "https://goodvibesonly-images.s3.us-east-2.amazonaws.com/folder/image.jpg"
+        with patch.dict(_IMAGE_DISPATCH, {API_GEMINI: MagicMock(return_value=True)}):
+            is_image_positive(url)
+        mock_s3.get_object.assert_called_with(Bucket="fake_bucket", Key="folder/image.jpg")
+
+    @patch.dict(os.environ, {"GEMINI_API_KEY": "fake_key", **_AWS_KEYS_NO_BUCKET}, clear=True)
+    @patch("user_system.classifiers.image_classifier.boto3")
+    def test_url_parsing_virtual_hosted_without_bucket_env_var(self, mock_boto3):
+        """When AWS_STORAGE_BUCKET_NAME is unset, bucket is derived from virtual-hosted URL hostname."""
+        mock_s3 = self._make_mock_s3(mock_boto3)
+        url = "https://goodvibesonly-images.s3.us-east-2.amazonaws.com/folder/image.jpg"
+        with patch.dict(_IMAGE_DISPATCH, {API_GEMINI: MagicMock(return_value=True)}):
+            is_image_positive(url)
+        mock_s3.get_object.assert_called_with(Bucket="goodvibesonly-images", Key="folder/image.jpg")
+
+    @patch.dict(os.environ, {"GEMINI_API_KEY": "fake_key", **_AWS_KEYS_NO_BUCKET}, clear=True)
+    @patch("user_system.classifiers.image_classifier.boto3")
+    def test_url_parsing_path_style(self, mock_boto3):
+        """Path-style URL (s3.amazonaws.com/bucket/key) correctly splits bucket and key."""
+        mock_s3 = self._make_mock_s3(mock_boto3)
+        url = "https://s3.amazonaws.com/mybucket/path/to/image.jpg"
+        with patch.dict(_IMAGE_DISPATCH, {API_GEMINI: MagicMock(return_value=True)}):
+            is_image_positive(url)
+        mock_s3.get_object.assert_called_with(Bucket="mybucket", Key="path/to/image.jpg")
+
+    @patch.dict(os.environ, {"GEMINI_API_KEY": "fake_key", **_AWS_KEYS_NO_BUCKET}, clear=True)
+    @patch("user_system.classifiers.image_classifier.boto3")
+    def test_url_parsing_path_style_dashed_region(self, mock_boto3):
+        """Dashed-region path-style URL (s3-region.amazonaws.com/bucket/key) is not misread as virtual-hosted."""
+        mock_s3 = self._make_mock_s3(mock_boto3)
+        url = "https://s3-us-west-2.amazonaws.com/mybucket/path/to/image.jpg"
+        with patch.dict(_IMAGE_DISPATCH, {API_GEMINI: MagicMock(return_value=True)}):
+            is_image_positive(url)
+        mock_s3.get_object.assert_called_with(Bucket="mybucket", Key="path/to/image.jpg")
 
     # ------------------------------------------------------------------ #
     # Prompt content                                                       #

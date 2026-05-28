@@ -87,7 +87,7 @@ final class AuthenticationManager: ObservableObject {
             self.isLoggedIn = true
             
         } catch {
-            print("Failed to save session: \(error)")
+            NSLog("%@", "Failed to save session: \(error)")
             // Handle error (e.g., show an alert)
         }
     }

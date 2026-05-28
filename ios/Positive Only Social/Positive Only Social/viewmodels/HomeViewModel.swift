@@ -74,15 +74,15 @@ final class HomeViewModel: ObservableObject {
                 
             } catch {
                 self.errorMessage = error.localizedDescription
-                print(error)
+                NSLog("%@", "Error fetching my posts: \(error)")
             }
-            
+
             self.isLoadingNextPage = false
         }
     }
 
     // MARK: - Private Helpers
-    
+
     /// Called automatically by the search text subscriber.
     private func performSearch(for query: String) {
         // Only search if query is 3+ characters
@@ -90,15 +90,15 @@ final class HomeViewModel: ObservableObject {
             searchedUsers = []
             return
         }
-        
+
         Task {
             do {
                 let userSession = try keychainHelper.load(UserSession.self, from: "positive-only-social.Positive-Only-Social", account: account) ?? UserSession(sessionToken: "123", username: "test", userId: "", isIdentityVerified: false)
-                
+
                 self.searchedUsers = try await searchForUsers(fragment: query, token: userSession.sessionToken)
             } catch {
                 self.errorMessage = error.localizedDescription
-                print(error)
+                NSLog("%@", "Error performing search: \(error)")
             }
         }
     }

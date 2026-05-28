@@ -233,7 +233,7 @@ final class StatefulStubbedAPI: Networking {
         guard let userIndex = users.firstIndex(where: { $0.username == usernameOrEmail || $0.email == usernameOrEmail }) else { throw APIError.badServerResponse(statusCode: 400) }
         let stubToken = "stub_verification_token_\(users[userIndex].username)"
         users[userIndex].verificationToken = stubToken
-        print("Password reset verification token for \(users[userIndex].username) is: \(stubToken)")
+        NSLog("%@", "Password reset verification token for \(users[userIndex].username) is: \(stubToken)")
         return try createEmptySuccessResponse()
     }
 

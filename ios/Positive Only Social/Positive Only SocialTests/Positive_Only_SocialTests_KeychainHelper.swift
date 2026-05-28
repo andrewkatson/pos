@@ -43,7 +43,7 @@ struct Positive_Only_SocialTests_KeyChainHelper {
         } catch {
             // We can ignore errors here, as the item might not exist,
             // which is the state we want anyway.
-            print("Cleanup: No pre-existing keychain item to delete, which is normal.")
+            NSLog("%@", "Cleanup: No pre-existing keychain item to delete, which is normal.")
         }
     }
 

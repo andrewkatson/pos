@@ -46,7 +46,7 @@ final class FeedViewModel: ObservableObject {
                     currentPage += 1
                 }
             } catch {
-                print("Failed to fetch feed: \(error)")
+                NSLog("%@", "Failed to fetch feed: \(error)")
             }
             isLoadingNextPage = false
         }

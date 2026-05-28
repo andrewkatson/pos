@@ -1,5 +1,6 @@
 package com.example.positiveonlysocial.models.viewmodels
 
+import android.util.Log
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.example.positiveonlysocial.api.PositiveOnlySocialAPI
@@ -11,6 +12,8 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import kotlin.collections.emptyList
+
+private const val TAG = "FeedViewModel"
 
 class FeedViewModel(
     private val api: PositiveOnlySocialAPI,
@@ -48,10 +51,10 @@ class FeedViewModel(
                         currentPage += 1
                     }
                 } else {
-                    println("Failed to fetch feed: ${response.errorBody()?.string()}")
+                    Log.e(TAG, "Failed to fetch feed: ${response.errorBody()?.string()}")
                 }
             } catch (e: Exception) {
-                println("Failed to fetch feed: $e")
+                Log.e(TAG, "Failed to fetch feed", e)
             } finally {
                 _isLoadingNextPage.value = false
             }

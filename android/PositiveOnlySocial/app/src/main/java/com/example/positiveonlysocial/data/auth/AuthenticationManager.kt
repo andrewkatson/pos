@@ -1,5 +1,6 @@
 package com.example.positiveonlysocial.data.auth
 
+import android.util.Log
 import com.example.positiveonlysocial.data.model.UserSession
 import com.example.positiveonlysocial.data.security.KeychainHelperProtocol
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -7,6 +8,8 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
+
+private const val TAG = "AuthenticationManager"
 
 /**
  * Manages the user's authentication state and session data.
@@ -21,6 +24,7 @@ import kotlinx.coroutines.sync.withLock
  * @param shouldAutoLogin If true, the manager will try to load a session from
  * storage immediately upon creation.
  */
+
 class AuthenticationManager(
     private val keychainHelper: KeychainHelperProtocol,
     shouldAutoLogin: Boolean = false
@@ -92,7 +96,7 @@ class AuthenticationManager(
             }
         } catch (e: Exception) {
             // Handle errors (e.g., decryption failure, I/O error)
-            println("Failed to load initial state: $e")
+            Log.e(TAG, "Failed to load initial state", e)
             _session.value = null
             _isLoggedIn.value = false
         }
@@ -120,7 +124,7 @@ class AuthenticationManager(
                 _isLoggedIn.value = true
 
             } catch (e: Exception) {
-                println("Failed to save session: $e")
+                Log.e(TAG, "Failed to save session", e)
                 // Here you might want to propagate the error
             }
         }
@@ -139,7 +143,7 @@ class AuthenticationManager(
                 // Delete the session from secure storage
                 keychainHelper.delete(keychainService, sessionAccount)
             } catch (e: Exception) {
-                println("Failed to delete session: $e")
+                Log.e(TAG, "Failed to delete session", e)
                 // Even if delete fails, we log out from the app's state
             }
 
