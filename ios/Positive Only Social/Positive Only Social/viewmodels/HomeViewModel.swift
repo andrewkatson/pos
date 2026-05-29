@@ -14,6 +14,7 @@ final class HomeViewModel: ObservableObject {
     private let api: Networking
     private let keychainHelper: KeychainHelperProtocol
     private let account: String
+    private let keychainService = "positive-only-social.Positive-Only-Social"
     
     // Data for the view
     @Published var userPosts: [Post] = []
@@ -59,7 +60,7 @@ final class HomeViewModel: ObservableObject {
         
         Task {
             do {
-                guard let user = try keychainHelper.load(UserSession.self, from: "positive-only-social.Positive-Only-Social", account: account) else {
+                guard let user = try keychainHelper.load(UserSession.self, from: keychainService, account: account) else {
                     NSLog("%@", "No active session found — cannot fetch posts")
                     isLoadingNextPage = false
                     return
@@ -97,7 +98,7 @@ final class HomeViewModel: ObservableObject {
 
         Task {
             do {
-                guard let userSession = try keychainHelper.load(UserSession.self, from: "positive-only-social.Positive-Only-Social", account: account) else {
+                guard let userSession = try keychainHelper.load(UserSession.self, from: keychainService, account: account) else {
                     NSLog("%@", "No active session found — cannot search users")
                     return
                 }

@@ -25,6 +25,7 @@ class ProfileViewModel: ObservableObject {
     private let api: Networking
     private let keychainHelper: KeychainHelperProtocol
     private let account: String
+    private let keychainService = "positive-only-social.Positive-Only-Social"
     
     let user: User // The user this profile is for
 
@@ -48,7 +49,7 @@ class ProfileViewModel: ObservableObject {
         
         Task {
             do {
-                guard let userSession = try keychainHelper.load(UserSession.self, from: "positive-only-social.Positive-Only-Social", account: account) else {
+                guard let userSession = try keychainHelper.load(UserSession.self, from: keychainService, account: account) else {
                     NSLog("%@", "No active session — cannot fetch posts")
                     isLoading = false
                     return
@@ -86,7 +87,7 @@ class ProfileViewModel: ObservableObject {
         
         Task {
             do {
-                guard let userSession = try keychainHelper.load(UserSession.self, from: "positive-only-social.Positive-Only-Social", account: account) else {
+                guard let userSession = try keychainHelper.load(UserSession.self, from: keychainService, account: account) else {
                     NSLog("%@", "No active session — cannot fetch profile")
                     isLoadingProfile = false
                     return
@@ -112,7 +113,7 @@ class ProfileViewModel: ObservableObject {
             
         Task {
             do {
-                guard let userSession = try keychainHelper.load(UserSession.self, from: "positive-only-social.Positive-Only-Social", account: account) else {
+                guard let userSession = try keychainHelper.load(UserSession.self, from: keychainService, account: account) else {
                     NSLog("%@", "No active session — cannot toggle follow")
                     isLoadingProfile = false
                     return
@@ -169,7 +170,7 @@ class ProfileViewModel: ObservableObject {
         
         Task {
             do {
-                guard let userSession = try keychainHelper.load(UserSession.self, from: "positive-only-social.Positive-Only-Social", account: account) else {
+                guard let userSession = try keychainHelper.load(UserSession.self, from: keychainService, account: account) else {
                     NSLog("%@", "No active session — cannot toggle block")
                     isLoadingProfile = false
                     return

@@ -13,6 +13,7 @@ final class FollowingFeedViewModel: ObservableObject {
     private let api: Networking
     private let keychainHelper: KeychainHelperProtocol
     private let account: String
+    private let keychainService = "positive-only-social.Positive-Only-Social"
     @Published var followingPosts: [Post] = []
     @Published var isLoadingNextPage = false
     private var canLoadMore = true
@@ -34,7 +35,7 @@ final class FollowingFeedViewModel: ObservableObject {
         
         Task {
             do {
-                guard let userSession = try keychainHelper.load(UserSession.self, from: "positive-only-social.Positive-Only-Social", account: account) else {
+                guard let userSession = try keychainHelper.load(UserSession.self, from: keychainService, account: account) else {
                     NSLog("%@", "No active session — cannot fetch following feed")
                     isLoadingNextPage = false
                     return
