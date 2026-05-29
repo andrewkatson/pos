@@ -68,11 +68,13 @@ class HomeViewModel(
         viewModelScope.launch {
             try {
                 val userSession = keychainHelper.load(UserSession::class.java, service, account)
-                    ?: UserSession("123", "testuser", "", false, null, null)
+                if (userSession == null) {
+                    Log.e(TAG, "No active session found — cannot fetch posts")
+                    return@launch
+                }
 
-                // Now we have the username in the session!
                 val username = userSession.username
-                
+
                 val response = api.getPostsForUser(userSession.sessionToken, username, currentPage)
                 if (response.isSuccessful) {
                     val newPosts = response.body() ?: emptyList()
@@ -102,7 +104,10 @@ class HomeViewModel(
 
         try {
             val userSession = keychainHelper.load(UserSession::class.java, service, account)
-                ?: UserSession("123", "testuser", "", false, null, null)
+            if (userSession == null) {
+                Log.e(TAG, "No active session found — cannot search users")
+                return
+            }
 
             val response = api.searchUsers(userSession.sessionToken, query)
             if (response.isSuccessful) {

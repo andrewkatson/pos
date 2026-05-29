@@ -1,6 +1,7 @@
 package com.example.positiveonlysocial.api
 
 import android.os.Build
+import okhttp3.OkHttpClient
 import retrofit2.Retrofit
 import retrofit2.converter.gson.GsonConverterFactory
 import com.example.positiveonlysocial.data.constants.Constants
@@ -50,8 +51,23 @@ object APIProvider {
     }
 
     private fun createRetrofitService(url: String): PositiveOnlySocialAPI {
+        val client = OkHttpClient.Builder()
+            .addInterceptor { chain ->
+                val original = chain.request()
+                val authHeader = original.header("Authorization")
+                val request = if (authHeader != null && !authHeader.startsWith("Bearer ")) {
+                    original.newBuilder()
+                        .header("Authorization", "Bearer $authHeader")
+                        .build()
+                } else {
+                    original
+                }
+                chain.proceed(request)
+            }
+            .build()
         return Retrofit.Builder()
             .baseUrl(url)
+            .client(client)
             .addConverterFactory(GsonConverterFactory.create())
             .build()
             .create(PositiveOnlySocialAPI::class.java)

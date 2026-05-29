@@ -38,7 +38,10 @@ class FollowingFeedViewModel(
         viewModelScope.launch {
             try {
                 val userSession = keychainHelper.load(UserSession::class.java, service, account)
-                    ?: UserSession("123", "testuser", "", false, null, null)
+                if (userSession == null) {
+                    Log.e(TAG, "No active session found — cannot fetch following feed")
+                    return@launch
+                }
 
                 val response = api.getFollowedPosts(userSession.sessionToken, currentPage)
                 if (response.isSuccessful) {

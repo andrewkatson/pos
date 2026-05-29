@@ -181,7 +181,8 @@ def api_login_required(view_func):
         except Ratelimited:
             raise
         except Exception as e:
-            return JsonResponse({'error': str(e)}, status=401)
+            logger.exception("Unhandled exception in view %s", view_func.__name__)
+            return JsonResponse({'error': 'Internal server error'}, status=500)
 
     return _wrapped_view
 

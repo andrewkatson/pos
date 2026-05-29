@@ -17,7 +17,6 @@ struct Positive_Only_SocialTests_FeedViewModel {
     var keychainHelper: KeychainHelperProtocol!
     
     // --- Keychain Test Fixtures ---
-    let testService = "positive-only-social.Positive-Only-Social"
     let testToken = "dummy-test-token-123"
 
     // --- Test Setup ---
@@ -50,7 +49,7 @@ struct Positive_Only_SocialTests_FeedViewModel {
         // Given: A user is logged in
         let userAToken = try await registerUserAndGetToken(username: "userA")
         let userSession = UserSession(sessionToken: userAToken, username: "userA", userId: "1", isIdentityVerified: false)
-        try keychainHelper.save(userSession, for: testService, account: "fetchFeedApiThrowsError")
+        try keychainHelper.save(userSession, for: AppConstants.keychainService, account: "fetchFeedApiThrowsError")
         
         // And: *No one* has made any posts. The API stub will throw a 400 error.
         
@@ -73,7 +72,7 @@ struct Positive_Only_SocialTests_FeedViewModel {
         // Given: A user is logged in
         let userAToken = try await registerUserAndGetToken(username: "userA")
         let userSession = UserSession(sessionToken: userAToken, username: "userA", userId: "1", isIdentityVerified: false)
-        try keychainHelper.save(userSession, for: testService, account: "fetchFeedWhileAlreadyLoading")
+        try keychainHelper.save(userSession, for: AppConstants.keychainService, account: "fetchFeedWhileAlreadyLoading")
         
         // And: The viewmodel is *already* loading
         sut.isLoadingNextPage = true
@@ -111,7 +110,7 @@ struct Positive_Only_SocialTests_FeedViewModel {
         let userAToken = try await registerUserAndGetToken(username: "userA")
         let userBToken = try await registerUserAndGetToken(username: "userB")
         let userSession = UserSession(sessionToken: userAToken, username: "userA", userId: "1", isIdentityVerified: false)
-        try keychainHelper.save(userSession, for: testService, account: "fetchFeedPagination")
+        try keychainHelper.save(userSession, for: AppConstants.keychainService, account: "fetchFeedPagination")
 
         // And: User B creates 3 posts (which will be on 2 pages)
         _ = try await stubAPI.makePost(sessionManagementToken: userBToken, imageURL: "image.url/1", caption: "Post 1")

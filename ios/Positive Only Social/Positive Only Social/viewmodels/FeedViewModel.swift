@@ -13,6 +13,7 @@ final class FeedViewModel: ObservableObject {
     private let api: Networking
     private let keychainHelper: KeychainHelperProtocol
     private let account: String
+    private let keychainService = AppConstants.keychainService
     @Published var feedPosts: [Post] = []
     @Published var isLoadingNextPage = false
     private var canLoadMore = true
@@ -34,8 +35,12 @@ final class FeedViewModel: ObservableObject {
         
         Task {
             do {
-                let userSession = try keychainHelper.load(UserSession.self, from: "positive-only-social.Positive-Only-Social", account: account) ?? UserSession(sessionToken: "123", username: "test", userId: "", isIdentityVerified: false)
-                
+                guard let userSession = try keychainHelper.load(UserSession.self, from: keychainService, account: account) else {
+                    NSLog("%@", "No active session found — cannot fetch feed")
+                    isLoadingNextPage = false
+                    return
+                }
+
                 let responseData = try await api.getPostsInFeed(sessionManagementToken: userSession.sessionToken, batch: currentPage)
                 let newPosts = try JSONDecoder().decode([Post].self, from: responseData)
                 
