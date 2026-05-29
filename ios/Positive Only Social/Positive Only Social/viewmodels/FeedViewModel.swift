@@ -13,7 +13,7 @@ final class FeedViewModel: ObservableObject {
     private let api: Networking
     private let keychainHelper: KeychainHelperProtocol
     private let account: String
-    private let keychainService = "positive-only-social.Positive-Only-Social"
+    private let keychainService = AppConstants.keychainService
     @Published var feedPosts: [Post] = []
     @Published var isLoadingNextPage = false
     private var canLoadMore = true

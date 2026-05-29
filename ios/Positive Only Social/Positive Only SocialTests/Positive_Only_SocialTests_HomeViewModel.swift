@@ -17,7 +17,6 @@ struct Positive_Only_SocialTests_HomeViewModel {
     var keychainHelper: KeychainHelperProtocol!
     
     // --- Keychain Test Fixtures ---
-    let testService = "positive-only-social.Positive-Only-Social"
     
     // --- Test Setup ---
     init() {
@@ -45,7 +44,7 @@ struct Positive_Only_SocialTests_HomeViewModel {
     private func setupLoggedInUser(username: String) async throws {
         let token = try await registerUserAndGetToken(username: username)
         let userSession = UserSession(sessionToken: token, username: username, userId: "1", isIdentityVerified: false)
-        try keychainHelper.save(userSession, for: testService, account: "\(username)_account")
+        try keychainHelper.save(userSession, for: AppConstants.keychainService, account: "\(username)_account")
     }
 
     // --- Post Fetching Tests ---
@@ -58,7 +57,7 @@ struct Positive_Only_SocialTests_HomeViewModel {
 
         // 1. Tell the 'load' function what type you're expecting.
         //    Swift can now infer the generic type 'T' is 'UserSession'.
-        let session = try keychainHelper.load(UserSession.self, from: testService, account: "fetchMyPostsUser_account")
+        let session = try keychainHelper.load(UserSession.self, from: AppConstants.keychainService, account: "fetchMyPostsUser_account")
 
         // 2. Now you can safely unwrap and access the property.
         let token = session!.sessionToken

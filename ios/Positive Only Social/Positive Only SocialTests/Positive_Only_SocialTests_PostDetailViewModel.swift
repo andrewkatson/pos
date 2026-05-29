@@ -24,7 +24,6 @@ struct Positive_Only_SocialTests_PostDetailViewModel {
     var keychainHelper: KeychainHelperProtocol!
     
     // --- Keychain Test Fixtures ---
-    let testService = "positive-only-social.Positive-Only-Social"
 
     // --- Test Setup ---
     init() {
@@ -51,7 +50,7 @@ struct Positive_Only_SocialTests_PostDetailViewModel {
     private func setupLoggedInUser(username: String, account: String) async throws -> String {
         let token = try await registerUserAndGetToken(username: username)
         let userSession = UserSession(sessionToken: token, username: username, userId: "1", isIdentityVerified: false)
-        try keychainHelper.save(userSession, for: testService, account: account)
+        try keychainHelper.save(userSession, for: AppConstants.keychainService, account: account)
         return token
     }
     

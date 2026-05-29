@@ -14,7 +14,7 @@ final class HomeViewModel: ObservableObject {
     private let api: Networking
     private let keychainHelper: KeychainHelperProtocol
     private let account: String
-    private let keychainService = "positive-only-social.Positive-Only-Social"
+    private let keychainService = AppConstants.keychainService
     
     // Data for the view
     @Published var userPosts: [Post] = []

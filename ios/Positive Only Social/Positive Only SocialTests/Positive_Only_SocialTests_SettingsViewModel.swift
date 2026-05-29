@@ -17,7 +17,6 @@ struct Positive_Only_SocialTests_SettingsViewModel {
     var keychainHelper: KeychainHelperProtocol!
     
     // --- Keychain Test Fixtures ---
-    let testService = "positive-only-social.Positive-Only-Social"
     
     // --- Test Setup ---
     init() {
@@ -45,7 +44,7 @@ struct Positive_Only_SocialTests_SettingsViewModel {
         let token = try await registerUserAndGetToken(username: username)
         let userSession = UserSession(sessionToken: token, username: username, userId: "1", isIdentityVerified: false)
         // Use the testAccount that the ViewModel will also use
-        try keychainHelper.save(userSession, for: testService, account: "\(username)_account")
+        try keychainHelper.save(userSession, for: AppConstants.keychainService, account: "\(username)_account")
         return token
     }
     
