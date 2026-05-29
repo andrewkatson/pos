@@ -25,6 +25,7 @@ class ProfileViewModel: ObservableObject {
     private let api: Networking
     private let keychainHelper: KeychainHelperProtocol
     private let account: String
+    private let keychainService = AppConstants.keychainService
     
     let user: User // The user this profile is for
 
@@ -48,8 +49,12 @@ class ProfileViewModel: ObservableObject {
         
         Task {
             do {
-                let userSession = try keychainHelper.load(UserSession.self, from: "positive-only-social.Positive-Only-Social", account: account) ?? UserSession(sessionToken: "123", username: "test", userId: "", isIdentityVerified: false)
-                
+                guard let userSession = try keychainHelper.load(UserSession.self, from: keychainService, account: account) else {
+                    NSLog("%@", "No active session — cannot fetch posts")
+                    isLoading = false
+                    return
+                }
+
                 // Call the API endpoint we defined in the Django views
                 let responseData = try await api.getPostsForUser(
                     sessionManagementToken: userSession.sessionToken,
@@ -82,8 +87,12 @@ class ProfileViewModel: ObservableObject {
         
         Task {
             do {
-                let userSession = try keychainHelper.load(UserSession.self, from: "positive-only-social.Positive-Only-Social", account: account) ?? UserSession(sessionToken: "123", username: "test", userId: "", isIdentityVerified: false)
-                
+                guard let userSession = try keychainHelper.load(UserSession.self, from: keychainService, account: account) else {
+                    NSLog("%@", "No active session — cannot fetch profile")
+                    isLoadingProfile = false
+                    return
+                }
+
                 let responseData = try await api.getProfileDetails(sessionManagementToken: userSession.sessionToken, username: user.username)
                 let details = try JSONDecoder().decode(ProfileDetailsResponse.self, from: responseData)
                 
@@ -104,9 +113,13 @@ class ProfileViewModel: ObservableObject {
             
         Task {
             do {
-                let userSession = try keychainHelper.load(UserSession.self, from: "positive-only-social.Positive-Only-Social", account: account) ?? UserSession(sessionToken: "123", username: "test", userId: "", isIdentityVerified: false)
+                guard let userSession = try keychainHelper.load(UserSession.self, from: keychainService, account: account) else {
+                    NSLog("%@", "No active session — cannot toggle follow")
+                    isLoadingProfile = false
+                    return
+                }
                 let token = userSession.sessionToken
-                
+
                 if isFollowing {
                     // --- Unfollow Logic ---
                     let _ = try await api.unfollowUser(sessionManagementToken: token, username: user.username)
@@ -157,9 +170,13 @@ class ProfileViewModel: ObservableObject {
         
         Task {
             do {
-                let userSession = try keychainHelper.load(UserSession.self, from: "positive-only-social.Positive-Only-Social", account: account) ?? UserSession(sessionToken: "123", username: "test", userId: "", isIdentityVerified: false)
+                guard let userSession = try keychainHelper.load(UserSession.self, from: keychainService, account: account) else {
+                    NSLog("%@", "No active session — cannot toggle block")
+                    isLoadingProfile = false
+                    return
+                }
                 let token = userSession.sessionToken
-                
+
                 let _ = try await api.toggleBlock(sessionManagementToken: token, username: user.username)
                 
                 // Success, state already updated.

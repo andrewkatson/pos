@@ -145,7 +145,11 @@ class PostDetailViewModel(
         viewModelScope.launch {
             try {
                 val userSession = keychainHelper.load(UserSession::class.java, service, account)
-                    ?: UserSession("123", "testuser", "", false, null, null)
+                if (userSession == null) {
+                    Log.e(TAG, "No active session found — cannot perform action")
+                    _alertMessage.value = "Not logged in."
+                    return@launch
+                }
                 val response = api.likePost(userSession.sessionToken, postIdentifier)
                 if (response.isSuccessful) {
                     // Reload data to get fresh counts
@@ -164,7 +168,11 @@ class PostDetailViewModel(
         viewModelScope.launch {
             try {
                 val userSession = keychainHelper.load(UserSession::class.java, service, account)
-                    ?: UserSession("123", "testuser", "", false, null, null)
+                if (userSession == null) {
+                    Log.e(TAG, "No active session found — cannot perform action")
+                    _alertMessage.value = "Not logged in."
+                    return@launch
+                }
                 val response = api.unlikePost(userSession.sessionToken, postIdentifier)
                 if (response.isSuccessful) {
                     loadAllData()
@@ -182,7 +190,11 @@ class PostDetailViewModel(
         viewModelScope.launch {
             try {
                 val userSession = keychainHelper.load(UserSession::class.java, service, account)
-                    ?: UserSession("123", "testuser", "", false, null, null)
+                if (userSession == null) {
+                    Log.e(TAG, "No active session found — cannot perform action")
+                    _alertMessage.value = "Not logged in."
+                    return@launch
+                }
                 val response = api.reportPost(userSession.sessionToken, postIdentifier, ReportRequest(reason))
                 if (response.isSuccessful) {
                     _alertMessage.value = "Post reported successfully."
@@ -200,7 +212,11 @@ class PostDetailViewModel(
         viewModelScope.launch {
             try {
                 val userSession = keychainHelper.load(UserSession::class.java, service, account)
-                    ?: UserSession("123", "testuser", "", false, null, null)
+                if (userSession == null) {
+                    Log.e(TAG, "No active session found — cannot perform action")
+                    _alertMessage.value = "Not logged in."
+                    return@launch
+                }
                 val response = api.likeComment(userSession.sessionToken, postIdentifier, threadId, comment.id)
                 if (response.isSuccessful) {
                     loadAllData()
@@ -218,7 +234,11 @@ class PostDetailViewModel(
         viewModelScope.launch {
             try {
                 val userSession = keychainHelper.load(UserSession::class.java, service, account)
-                    ?: UserSession("123", "testuser", "", false, null, null)
+                if (userSession == null) {
+                    Log.e(TAG, "No active session found — cannot perform action")
+                    _alertMessage.value = "Not logged in."
+                    return@launch
+                }
                 val response = api.unlikeComment(userSession.sessionToken, postIdentifier, threadId, comment.id)
                 if (response.isSuccessful) {
                     loadAllData()
@@ -236,7 +256,11 @@ class PostDetailViewModel(
         viewModelScope.launch {
             try {
                 val userSession = keychainHelper.load(UserSession::class.java, service, account)
-                    ?: UserSession("123", "testuser", "", false, null, null)
+                if (userSession == null) {
+                    Log.e(TAG, "No active session found — cannot perform action")
+                    _alertMessage.value = "Not logged in."
+                    return@launch
+                }
                 val response = api.reportComment(userSession.sessionToken, postIdentifier, threadId, comment.id, ReportRequest(reason))
                 if (response.isSuccessful) {
                     _alertMessage.value = "Comment reported successfully."
@@ -256,7 +280,11 @@ class PostDetailViewModel(
         viewModelScope.launch {
             try {
                 val userSession = keychainHelper.load(UserSession::class.java, service, account)
-                    ?: UserSession("123", "testuser", "", false, null, null)
+                if (userSession == null) {
+                    Log.e(TAG, "No active session found — cannot perform action")
+                    _alertMessage.value = "Not logged in."
+                    return@launch
+                }
                 
                 val response = api.commentOnPost(
                     userSession.sessionToken,
@@ -288,7 +316,11 @@ class PostDetailViewModel(
         viewModelScope.launch {
             try {
                 val userSession = keychainHelper.load(UserSession::class.java, service, account)
-                    ?: UserSession("123", "testuser", "", false, null, null)
+                if (userSession == null) {
+                    Log.e(TAG, "No active session found — cannot perform action")
+                    _alertMessage.value = "Not logged in."
+                    return@launch
+                }
                 
                 val response = api.replyToThread(
                     userSession.sessionToken,

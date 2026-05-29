@@ -32,7 +32,7 @@ struct RegisterView: View {
     @State private var showingPrivacyPolicy = false
     
     // Unique identifiers for Keychain
-    private let keychainService = "positive-only-social.Positive-Only-Social" // CHANGE to your app's bundle ID
+    private let keychainService = AppConstants.keychainService
     private let sessionAccount = "userSessionToken"
 
     // MARK: - Computed Properties for Validation

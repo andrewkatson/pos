@@ -13,6 +13,7 @@ final class FollowingFeedViewModel: ObservableObject {
     private let api: Networking
     private let keychainHelper: KeychainHelperProtocol
     private let account: String
+    private let keychainService = AppConstants.keychainService
     @Published var followingPosts: [Post] = []
     @Published var isLoadingNextPage = false
     private var canLoadMore = true
@@ -34,9 +35,12 @@ final class FollowingFeedViewModel: ObservableObject {
         
         Task {
             do {
-                let userSession = try keychainHelper.load(UserSession.self, from: "positive-only-social.Positive-Only-Social", account: account) ?? UserSession(sessionToken: "123", username: "test", userId: "", isIdentityVerified: false)
-                
-                
+                guard let userSession = try keychainHelper.load(UserSession.self, from: keychainService, account: account) else {
+                    NSLog("%@", "No active session — cannot fetch following feed")
+                    isLoadingNextPage = false
+                    return
+                }
+
                 // --- KEY CHANGE ---
                 // Call the API endpoint for followed users
                 let responseData = try await api.getPostsForFollowedUsers(sessionManagementToken: userSession.sessionToken, batch: currentPage)

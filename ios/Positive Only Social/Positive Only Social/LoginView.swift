@@ -17,7 +17,7 @@ struct LoginView: View {
 
     
     // Unique identifiers for Keychain items
-    private let keychainService = "positive-only-social.Positive-Only-Social"
+    private let keychainService = AppConstants.keychainService
     private let sessionAccount = "userSessionToken"
     private let rememberMeAccount = "userRememberMeTokens"
 
