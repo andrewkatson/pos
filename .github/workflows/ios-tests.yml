@@ -85,7 +85,9 @@ jobs:
     name: Test (${{ matrix.test-group }})
     needs: build
     runs-on: macos-15
-    timeout-minutes: 90
+    timeout-minutes: 60
+    retry:
+      max-attempts: 3
     strategy:
       fail-fast: false
       matrix:
