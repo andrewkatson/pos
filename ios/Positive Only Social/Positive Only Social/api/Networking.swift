@@ -100,10 +100,10 @@ protocol Networking {
     func reportComment(sessionManagementToken: String, postIdentifier: String, commentThreadIdentifier: String, commentIdentifier: String, reason: String) async throws -> Data
 
     /// Gets a batch of comments for a post.
-    func getCommentsForPost(postIdentifier: String, batch: Int) async throws -> Data
+    func getCommentsForPost(sessionManagementToken: String, postIdentifier: String, batch: Int) async throws -> Data
 
     /// Gets a batch of comments for a specific comment thread (i.e., replies to a comment).
-    func getCommentsForThread(commentThreadIdentifier: String, batch: Int) async throws -> Data
+    func getCommentsForThread(sessionManagementToken: String, commentThreadIdentifier: String, batch: Int) async throws -> Data
 
     /// Replies to a comment thread.
     func replyToCommentThread(sessionManagementToken: String, postIdentifier: String, commentThreadIdentifier: String, commentText: String) async throws -> Data

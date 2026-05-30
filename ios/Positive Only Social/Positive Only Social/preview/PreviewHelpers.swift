@@ -202,7 +202,7 @@ struct MockedAPI: Networking {
         return try encodeGenericSuccess()
     }
 
-    func getCommentsForPost(postIdentifier: String, batch: Int) async throws -> Data {
+    func getCommentsForPost(sessionManagementToken: String, postIdentifier: String, batch: Int) async throws -> Data {
         // Matches PostDetailViewModel.ThreadIDFields
         struct ThreadIDResponse: Codable {
             let comment_thread_identifier: String
@@ -215,7 +215,7 @@ struct MockedAPI: Networking {
         return try encode(threads)
     }
 
-    func getCommentsForThread(commentThreadIdentifier: String, batch: Int) async throws -> Data {
+    func getCommentsForThread(sessionManagementToken: String, commentThreadIdentifier: String, batch: Int) async throws -> Data {
         // Matches PostDetailViewModel.CommentFields
         struct CommentResponse: Codable {
             let comment_identifier: String
