@@ -85,9 +85,6 @@ jobs:
     name: Test (${{ matrix.test-group }})
     needs: build
     runs-on: macos-15
-    timeout-minutes: 60
-    retry:
-      max-attempts: 3
     strategy:
       fail-fast: false
       matrix:
@@ -121,70 +118,75 @@ jobs:
           find build/Build/Products -name "*.xctestrun"
 
       - name: Run Tests
-        working-directory: "ios/Positive Only Social"
-        run: |
-          case "${{ matrix.test-group }}" in
-            Unit_Tests)
-              TESTS=(
-                "Positive Only SocialTests"
-              )
-              # "Positive Only Social Unit Tests" plan covers unit tests only
-              XCTESTRUN=$(find build/Build/Products -name "*.xctestrun" | grep "Unit Tests" | head -1)
-              ;;
-            UI_Tests_Alpha)
-              TESTS=(
-                "Positive Only SocialUITests/Positive_Only_SocialUITests/testAutomaticLoginAfterRememberMe"
-                "Positive Only SocialUITests/Positive_Only_SocialUITests/testDeleteAccount"
-                "Positive Only SocialUITests/Positive_Only_SocialUITests/testResetPassword"
-              )
-              # "Positive Only Social" (default) plan covers both unit and UI tests
-              XCTESTRUN=$(find build/Build/Products -name "*.xctestrun" | grep -v "Unit Tests" | head -1)
-              ;;
-            UI_Tests_Beta)
-              TESTS=(
-                "Positive Only SocialUITests/Positive_Only_SocialUITests/testFollowAndUnfollowFromSearch"
-                "Positive Only SocialUITests/Positive_Only_SocialUITests/testFollowAndUnfollowFromPost"
-                "Positive Only SocialUITests/Positive_Only_SocialUITests/testLikeAndUnlikePost"
-              )
-              # "Positive Only Social" (default) plan covers both unit and UI tests
-              XCTESTRUN=$(find build/Build/Products -name "*.xctestrun" | grep -v "Unit Tests" | head -1)
-              ;;
-            UI_Tests_Gamma)
-              TESTS=(
-                "Positive Only SocialUITests/Positive_Only_SocialUITests/testVerifyIdentity"
-                "Positive Only SocialUITests/Positive_Only_SocialUITests/testLikeAndUnlikeCommentOnPostAndThread"
-                "Positive Only SocialUITests/Positive_Only_SocialUITests/testReportPost"
-              )
-              # "Positive Only Social" (default) plan covers both unit and UI tests
-              XCTESTRUN=$(find build/Build/Products -name "*.xctestrun" | grep -v "Unit Tests" | head -1)
-              ;;
-            UI_Tests_Delta)
-              TESTS=(
-                "Positive Only SocialUITests/Positive_Only_SocialUITests/testReportComment"
-                "Positive Only SocialUITests/Positive_Only_SocialUITests/testLaunchPerformance"
-                "Positive Only SocialUITests/Positive_Only_SocialUITests/testBlockAndUnblockUser"
-              )
-              # "Positive Only Social" (default) plan covers both unit and UI tests
-              XCTESTRUN=$(find build/Build/Products -name "*.xctestrun" | grep -v "Unit Tests" | head -1)
-              ;;
-          esac
+        uses: nick-fields/retry@v3
+        with:
+          timeout_minutes: 60
+          max_attempts: 3
+          shell: bash
+          command: |
+            cd "ios/Positive Only Social"
+            case "${{ matrix.test-group }}" in
+              Unit_Tests)
+                TESTS=(
+                  "Positive Only SocialTests"
+                )
+                # "Positive Only Social Unit Tests" plan covers unit tests only
+                XCTESTRUN=$(find build/Build/Products -name "*.xctestrun" | grep "Unit Tests" | head -1)
+                ;;
+              UI_Tests_Alpha)
+                TESTS=(
+                  "Positive Only SocialUITests/Positive_Only_SocialUITests/testAutomaticLoginAfterRememberMe"
+                  "Positive Only SocialUITests/Positive_Only_SocialUITests/testDeleteAccount"
+                  "Positive Only SocialUITests/Positive_Only_SocialUITests/testResetPassword"
+                )
+                # "Positive Only Social" (default) plan covers both unit and UI tests
+                XCTESTRUN=$(find build/Build/Products -name "*.xctestrun" | grep -v "Unit Tests" | head -1)
+                ;;
+              UI_Tests_Beta)
+                TESTS=(
+                  "Positive Only SocialUITests/Positive_Only_SocialUITests/testFollowAndUnfollowFromSearch"
+                  "Positive Only SocialUITests/Positive_Only_SocialUITests/testFollowAndUnfollowFromPost"
+                  "Positive Only SocialUITests/Positive_Only_SocialUITests/testLikeAndUnlikePost"
+                )
+                # "Positive Only Social" (default) plan covers both unit and UI tests
+                XCTESTRUN=$(find build/Build/Products -name "*.xctestrun" | grep -v "Unit Tests" | head -1)
+                ;;
+              UI_Tests_Gamma)
+                TESTS=(
+                  "Positive Only SocialUITests/Positive_Only_SocialUITests/testVerifyIdentity"
+                  "Positive Only SocialUITests/Positive_Only_SocialUITests/testLikeAndUnlikeCommentOnPostAndThread"
+                  "Positive Only SocialUITests/Positive_Only_SocialUITests/testReportPost"
+                )
+                # "Positive Only Social" (default) plan covers both unit and UI tests
+                XCTESTRUN=$(find build/Build/Products -name "*.xctestrun" | grep -v "Unit Tests" | head -1)
+                ;;
+              UI_Tests_Delta)
+                TESTS=(
+                  "Positive Only SocialUITests/Positive_Only_SocialUITests/testReportComment"
+                  "Positive Only SocialUITests/Positive_Only_SocialUITests/testLaunchPerformance"
+                  "Positive Only SocialUITests/Positive_Only_SocialUITests/testBlockAndUnblockUser"
+                )
+                # "Positive Only Social" (default) plan covers both unit and UI tests
+                XCTESTRUN=$(find build/Build/Products -name "*.xctestrun" | grep -v "Unit Tests" | head -1)
+                ;;
+            esac
 
-          # Fallback: if the pattern found nothing, take the first available file
-          XCTESTRUN=${XCTESTRUN:-$(find build/Build/Products -name "*.xctestrun" | head -1)}
-          echo "Using xctestrun: $XCTESTRUN"
+            # Fallback: if the pattern found nothing, take the first available file
+            XCTESTRUN=${XCTESTRUN:-$(find build/Build/Products -name "*.xctestrun" | head -1)}
+            echo "Using xctestrun: $XCTESTRUN"
 
-          ONLY_TESTING_ARGS=()
-          for t in "${TESTS[@]}"; do
-            ONLY_TESTING_ARGS+=("-only-testing:$t")
-          done
+            ONLY_TESTING_ARGS=()
+            for t in "${TESTS[@]}"; do
+              ONLY_TESTING_ARGS+=("-only-testing:$t")
+            done
 
-          xcodebuild test-without-building \
-            -xctestrun "$XCTESTRUN" \
-            -destination "platform=iOS Simulator,name=iPhone 16,OS=26.2" \
-            -resultBundlePath TestResults.xcresult \
-            "${ONLY_TESTING_ARGS[@]}" \
-          | tee xcodebuild.log | xcpretty
-          exit ${PIPESTATUS[0]}
+            xcodebuild test-without-building \
+              -xctestrun "$XCTESTRUN" \
+              -destination "platform=iOS Simulator,name=iPhone 16,OS=26.2" \
+              -resultBundlePath TestResults.xcresult \
+              "${ONLY_TESTING_ARGS[@]}" \
+            | tee xcodebuild.log | xcpretty
+            exit ${PIPESTATUS[0]}
 
       - name: Show failed tests
         if: failure()
