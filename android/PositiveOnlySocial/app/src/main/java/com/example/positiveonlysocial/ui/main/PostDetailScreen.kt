@@ -134,7 +134,7 @@ fun PostDetailScreen(
                         
                         Column(modifier = Modifier.padding(16.dp)) {
                             Row(verticalAlignment = Alignment.CenterVertically) {
-                                Icon(if (isPostLiked) Icons.Default.Favorite else Icons.Default.FavoriteBorder, contentDescription = "Like", tint = Color.Red)
+                                Icon(if (isPostLiked) Icons.Default.Favorite else Icons.Default.FavoriteBorder, contentDescription = if (isPostLiked) "Liked" else "Like", tint = Color.Red)
                                 Spacer(modifier = Modifier.width(4.dp))
                                 Text("${post.likeCount} likes", fontWeight = FontWeight.Bold)
                                 Spacer(modifier = Modifier.weight(1f))
@@ -270,7 +270,7 @@ fun CommentRow(
                 Spacer(modifier = Modifier.width(8.dp))
                 Icon(
                     if (isLiked) Icons.Default.Favorite else Icons.Default.FavoriteBorder,
-                    contentDescription = "Like",
+                    contentDescription = if (isLiked) "Liked" else "Like",
                     tint = Color.Red,
                     modifier = Modifier.size(12.dp)
                 )

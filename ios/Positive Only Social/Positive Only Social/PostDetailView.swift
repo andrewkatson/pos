@@ -69,6 +69,7 @@ struct PostDetailView: View {
                         HStack {
                             Image(systemName: isPostLiked ? "heart.fill" : "heart")
                                 .foregroundColor(.red)
+                                .accessibilityLabel(isPostLiked ? "Liked" : "Like")
                             Text("\(post.likeCount) likes")
                                 .font(.headline)
                                 .accessibilityIdentifier("PostLikesText")
@@ -220,6 +221,7 @@ struct PostDetailView: View {
                         Image(systemName: isLiked ? "heart.fill" : "heart")
                             .foregroundColor(.red)
                             .font(.caption)
+                            .accessibilityLabel(isLiked ? "Liked" : "Like")
 
                         Text("\(comment.likeCount) likes")
                             .font(.caption)
