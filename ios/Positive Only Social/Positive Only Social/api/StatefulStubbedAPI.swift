@@ -599,7 +599,7 @@ final class StatefulStubbedAPI: Networking {
         return try createEmptySuccessResponse()
     }
 
-    func getCommentsForPost(postIdentifier: String, batch: Int) async throws -> Data {
+    func getCommentsForPost(sessionManagementToken: String, postIdentifier: String, batch: Int) async throws -> Data {
         await simulateNetwork()
         let relevantThreads = commentThreads.filter { $0.postId == postIdentifier }
         
@@ -613,7 +613,7 @@ final class StatefulStubbedAPI: Networking {
         return try createSerializedListResponse(fieldsList: fieldObjects)
     }
 
-    func getCommentsForThread(commentThreadIdentifier: String, batch: Int) async throws -> Data {
+    func getCommentsForThread(sessionManagementToken: String, commentThreadIdentifier: String, batch: Int) async throws -> Data {
         await simulateNetwork()
         let relevantComments = comments.filter { $0.threadId == commentThreadIdentifier && !$0.isHidden }.sorted { $0.createdDate < $1.createdDate }
         

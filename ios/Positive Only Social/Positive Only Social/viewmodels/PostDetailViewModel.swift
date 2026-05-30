@@ -64,10 +64,18 @@ final class PostDetailViewModel: ObservableObject {
         
         Task {
             do {
+                guard let userSession = try keychainHelper.load(UserSession.self, from: keychainService, account: account) else {
+                    NSLog("%@", "No active session — cannot load post details")
+                    self.alertMessage = "Session not found."
+                    self.isLoading = false
+                    return
+                }
+                let token = userSession.sessionToken
+
                 // 1. Fetch the main post details
                 let postData = try await api.getPostDetails(postIdentifier: postIdentifier)
                 let postFields = try self.decodeSingle(from: postData, type: PostDetailsFields.self)
-                
+
                 self.postDetail = PostDisplayData(
                     id: postFields.post_identifier,
                     imageURL: postFields.image_url,
@@ -75,19 +83,19 @@ final class PostDetailViewModel: ObservableObject {
                     likeCount: postFields.post_likes,
                     authorUsername: postFields.author_username
                 )
-                
+
                 // 2. Fetch the list of comment thread IDs for this post
-                let threadListData = try await api.getCommentsForPost(postIdentifier: postIdentifier, batch: 0)
+                let threadListData = try await api.getCommentsForPost(sessionManagementToken: token, postIdentifier: postIdentifier, batch: 0)
                 let threadIDFields = try self.decodeList(from: threadListData, type: ThreadIDFields.self)
                 let threadIdentifiers = threadIDFields.map { $0.comment_thread_identifier }
-                
+
                 // 3. Fetch all comments for *each* thread in parallel
                 var loadedThreads: [CommentThreadViewData] = []
-                
+
                 try await withThrowingTaskGroup(of: [CommentViewData].self) { group in
                     for threadId in threadIdentifiers {
                         group.addTask {
-                            let commentsData = try await self.api.getCommentsForThread(commentThreadIdentifier: threadId, batch: 0)
+                            let commentsData = try await self.api.getCommentsForThread(sessionManagementToken: token, commentThreadIdentifier: threadId, batch: 0)
                             
                             // *** FIXED: Removed 'await' here, as decodeList is not async ***
                             let commentFields = try await self.decodeList(from: commentsData, type: CommentFields.self)
