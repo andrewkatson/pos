@@ -67,8 +67,7 @@ struct PostDetailView: View {
                     // --- POST DETAILS (CAPTION, LIKES) ---
                     VStack(alignment: .leading, spacing: 8) {
                         HStack {
-                            // You could add a like button here
-                            Image(systemName: "heart.fill")
+                            Image(systemName: isPostLiked ? "heart.fill" : "heart")
                                 .foregroundColor(.red)
                             Text("\(post.likeCount) likes")
                                 .font(.headline)
@@ -217,7 +216,11 @@ struct PostDetailView: View {
                         Text(comment.createdDate, style: .relative)
                             .font(.caption)
                             .foregroundColor(.secondary)
-                        
+
+                        Image(systemName: isLiked ? "heart.fill" : "heart")
+                            .foregroundColor(.red)
+                            .font(.caption)
+
                         Text("\(comment.likeCount) likes")
                             .font(.caption)
                             .foregroundColor(.secondary)

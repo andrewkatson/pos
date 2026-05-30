@@ -719,13 +719,13 @@ def make_post(request):
         logger.warning(f"Make post failed: Invalid fields {invalid_fields} for user_id: {request.user.id}")
         return log_and_return_json("make_post", {'error': f"Invalid fields {invalid_fields}"}, status=400)
 
-    if not image_classifier_class.is_image_positive(image_url):
-        logger.warning(f"Make post failed: Image not positive for user_id: {request.user.id}")
-        return log_and_return_json("make_post", {'error': "Image is not positive"}, status=400)
-
     if not text_classifier_class.is_text_positive(caption):
         logger.warning(f"Make post failed: Caption not positive for user_id: {request.user.id}")
         return log_and_return_json("make_post", {'error': "Text is not positive"}, status=400)
+
+    if not image_classifier_class.is_image_positive(image_url):
+        logger.warning(f"Make post failed: Image not positive for user_id: {request.user.id}")
+        return log_and_return_json("make_post", {'error': "Image is not positive"}, status=400)
 
     new_post = request.user.post_set.create(image_url=image_url, caption=caption)
     logger.info(f"Post created successfully: post_id: {new_post.post_identifier} for user_id: {request.user.id}")
