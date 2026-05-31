@@ -17,11 +17,9 @@ struct FeedView: View {
     @StateObject private var forYouViewModel: FeedViewModel
     @StateObject private var followingViewModel: FollowingFeedViewModel
     
-    // --- ADDED ---
     // Store api and keychainHelper to pass to navigation destinations
     let api: Networking
     let keychainHelper: KeychainHelperProtocol
-    // --- END ADDED ---
     
     // State to track the selected top tab
     @State private var selectedFeed: FeedType = .forYou
@@ -30,7 +28,7 @@ struct FeedView: View {
         _forYouViewModel = StateObject(wrappedValue: FeedViewModel(api: api, keychainHelper: keychainHelper))
         _followingViewModel = StateObject(wrappedValue: FollowingFeedViewModel(api: api, keychainHelper: keychainHelper))
         
-        // --- ADDED ---
+       
         self.api = api
         self.keychainHelper = keychainHelper
         // --- END ADDED ---
@@ -59,7 +57,7 @@ struct FeedView: View {
             }
             .navigationTitle("Feed")
             
-            // --- ADDED NAVIGATION DESTINATIONS ---
+           
             // Handles navigation when a User object is passed
             .navigationDestination(for: User.self) { user in
                 ProfileView(user: user, api: api, keychainHelper: keychainHelper)
@@ -69,7 +67,7 @@ struct FeedView: View {
             .navigationDestination(for: Post.self) { post in
                 PostDetailView(postIdentifier: post.id, api: api, keychainHelper: keychainHelper)
             }
-            // --- END ADDED ---
+          
             .onChange(of: selectedFeed) { oldValue, newValue in
                  // Fetch fresh data whenever the tab changes
                  switch newValue {
@@ -96,7 +94,7 @@ struct ForYouFeedView: View {
                 ForEach(viewModel.feedPosts) { post in
                     VStack(alignment: .leading, spacing: 10) {
                         
-                        // --- UPDATED ---
+                      
                         // Wrap text in a NavigationLink to go to the profile
                         NavigationLink(value: User(username: post.authorUsername, identityIsVerified: false)) {
                             Text(post.authorUsername)
@@ -106,9 +104,8 @@ struct ForYouFeedView: View {
                         }
                         .buttonStyle(.plain) // Keeps the text style
                         .accessibilityIdentifier("PostAuthor")
-                        // --- END UPDATED ---
+                   
                         
-                        // --- UPDATED ---
                         // Wrap image in a NavigationLink to go to post details
                         NavigationLink(value: post) {
                             AsyncImage(url: URL(string: post.imageUrl)) { image in
@@ -127,7 +124,6 @@ struct ForYouFeedView: View {
                             }
                         }
                         .accessibilityIdentifier("ForYouPostImage")
-                        // --- END UPDATED ---
                     }
                 }
                 // Loading indicator at the bottom of the list
@@ -166,9 +162,7 @@ struct FollowingFeedView: View {
                                 .padding(.horizontal)
                         }
                         .buttonStyle(.plain) // Keeps the text style
-                        // --- END UPDATED ---
-                        
-                        // --- UPDATED ---
+                   
                         // Wrap image in a NavigationLink to go to post details
                         NavigationLink(value: post) {
                             AsyncImage(url: URL(string: post.imageUrl)) { image in

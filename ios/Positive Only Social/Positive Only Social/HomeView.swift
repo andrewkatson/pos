@@ -25,6 +25,7 @@ struct HomeView: View {
         self.keychainHelper = keychainHelper
     }
     
+    //TabView Menu
     var body: some View {
         TabView(selection: $currentTab){
             // Tab 1: User's personal post grid
@@ -97,7 +98,6 @@ struct MyPostsGridView: View {
         LazyVGrid(columns: columns, spacing: 2) {
             ForEach(viewModel.userPosts) { post in
                 
-                // --- THIS IS THE FIX ---
                 // Wrap your image in a NavigationLink and pass the post as the value.
                 NavigationLink(value: post) {
                     // Display the post image
@@ -108,19 +108,17 @@ struct MyPostsGridView: View {
                     }
                     .aspectRatio(1, contentMode: .fill)
                     .clipped()
+                    .frame(width: 100,height: 100)
                 }
-                // --- END FIX ---
-                
+               
                 // This is the trigger for infinite scrolling
                 .onAppear {
                     // If this post is the last one in the list, fetch the next page
+                    print("the view")
                     if post.id == viewModel.userPosts.last?.id {
                         viewModel.fetchMyPosts()
                     }
                 }
-                // --- REMOVED ---
-                // The .navigationDestination modifier was here, but it's
-                // more efficient to place it on the parent container (see above).
             }
         }
     }
