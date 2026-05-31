@@ -78,11 +78,15 @@ fun RequestResetScreen(
                             try {
                                 val request = ResetRequest(usernameOrEmail = usernameOrEmail)
                                 api.requestReset(request = request)
-                                // On success, navigate to VerifyResetScreen
                                 navController.navigate(Screen.VerifyReset.createRoute(usernameOrEmail))
                             } catch (e: Exception) {
-                                errorMessage = e.localizedMessage ?: "An unknown error occurred."
-                                showingErrorAlert = true
+                                // Treat "account not found" as success to prevent user enumeration.
+                                if (e.localizedMessage == "No user with that username or email") {
+                                    navController.navigate(Screen.VerifyReset.createRoute(usernameOrEmail))
+                                } else {
+                                    errorMessage = e.localizedMessage ?: "An unknown error occurred."
+                                    showingErrorAlert = true
+                                }
                             } finally {
                                 isLoading = false
                             }

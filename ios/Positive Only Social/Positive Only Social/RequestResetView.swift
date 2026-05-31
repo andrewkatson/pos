@@ -74,8 +74,19 @@ struct RequestResetView: View {
             isLoading = false
             didRequestSuccessfully = true // This triggers the NavigationLink
             
+        } catch let error as APIError {
+            // Treat "account not found" as success to prevent user enumeration.
+            if case .serverError(_, let message) = error, message == "No user with that username or email" {
+                isLoading = false
+                didRequestSuccessfully = true
+            } else {
+                errorMessage = error.errorDescription ?? "An unknown error occurred."
+                showingErrorAlert = true
+                NSLog("%@", "🔴 Request reset failed: \(error)")
+                isLoading = false
+            }
         } catch {
-            errorMessage = (error as? LocalizedError)?.errorDescription ?? "An unknown error occurred."
+            errorMessage = error.localizedDescription
             showingErrorAlert = true
             NSLog("%@", "🔴 Request reset failed: \(error)")
             isLoading = false

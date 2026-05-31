@@ -1,19 +1,25 @@
+import { useNavigate } from 'react-router-dom'
 import Logo from '../components/Logo'
 import './LandingPage.css'
 
-/**
- * Public landing page: a plain black background with a large "Good Vibes Only"
- * title card and the smiley logo, plus Login / Sign up buttons in the top-right.
- * The auth buttons are intentionally inert for now.
- */
 function LandingPage() {
+  const navigate = useNavigate()
+
   return (
     <div className="landing">
       <nav className="landing__nav">
-        <button type="button" className="landing__nav-button landing__nav-button--login">
+        <button
+          type="button"
+          className="landing__nav-button landing__nav-button--login"
+          onClick={() => navigate('/login')}
+        >
           Login
         </button>
-        <button type="button" className="landing__nav-button landing__nav-button--signup">
+        <button
+          type="button"
+          className="landing__nav-button landing__nav-button--signup"
+          onClick={() => navigate('/register')}
+        >
           Sign up
         </button>
       </nav>
