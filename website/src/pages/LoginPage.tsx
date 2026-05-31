@@ -5,9 +5,6 @@ import { apiClient } from '../api/client'
 import type { ApiError } from '../api/client'
 import './LoginPage.css'
 
-const PRIVACY_POLICY_TEXT =
-  'We collect your username and password for authentication. We do not store your date of birth or any other personal information. We store your posts, comments, and related metadata such as like counts and reports. We also track follower/following relationships and blocked users to maintain the social environment.'
-
 function LoginPage() {
   const navigate = useNavigate()
   const [usernameOrEmail, setUsernameOrEmail] = useState('')
@@ -148,6 +145,3 @@ function LoginPage() {
 }
 
 export default LoginPage
-
-// Keep the privacy policy text accessible for tests / storybook.
-export { PRIVACY_POLICY_TEXT }
