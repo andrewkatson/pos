@@ -55,7 +55,6 @@ interface UserMock {
 interface SessionMock {
   managementToken: string
   userId: string
-  ip: string
 }
 
 interface LoginCookieMock {
@@ -215,7 +214,7 @@ export class StatefulStubbedAPI implements PositiveOnlySocialAPI {
     this.users.push(user)
 
     const sessionToken = newId()
-    this.sessions.push({ managementToken: sessionToken, userId: user.id, ip: body.ip })
+    this.sessions.push({ managementToken: sessionToken, userId: user.id })
 
     let seriesIdentifier: string | undefined
     let loginCookieToken: string | undefined
@@ -244,7 +243,7 @@ export class StatefulStubbedAPI implements PositiveOnlySocialAPI {
     }
 
     const sessionToken = newId()
-    this.sessions.push({ managementToken: sessionToken, userId: user.id, ip: body.ip })
+    this.sessions.push({ managementToken: sessionToken, userId: user.id })
 
     let seriesIdentifier: string | undefined
     let loginCookieToken: string | undefined
@@ -283,7 +282,7 @@ export class StatefulStubbedAPI implements PositiveOnlySocialAPI {
     )
     const userId = oldSession ? oldSession.userId : cookie.userId
     const newSessionToken = newId()
-    this.sessions.push({ managementToken: newSessionToken, userId, ip: body.ip })
+    this.sessions.push({ managementToken: newSessionToken, userId })
 
     this.setToken(newSessionToken)
     return {

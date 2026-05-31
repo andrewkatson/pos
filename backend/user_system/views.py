@@ -205,7 +205,7 @@ def register(request):
     email = data.get(Fields.email)
     password = data.get(Fields.password)
     remember_me_str = data.get(Fields.remember_me)
-    ip = data.get(Fields.ip)
+    ip = _get_client_ip(None, request)
     date_of_birth_str = data.get('date_of_birth')
 
     invalid_fields = []
@@ -213,8 +213,6 @@ def register(request):
         invalid_fields.append(Params.username)
     if not email or not is_valid_pattern(email, Patterns.email):
         invalid_fields.append(Params.email)
-    if not ip or (not is_valid_pattern(ip, Patterns.ipv4) and not is_valid_pattern(ip, Patterns.ipv6)):
-        invalid_fields.append(Params.ip)
     if not password or not is_valid_pattern(password, Patterns.password):
         invalid_fields.append(Params.password)
 
@@ -331,15 +329,13 @@ def login_user(request):
     username_or_email = data.get(Fields.username_or_email)
     password = data.get(Fields.password)
     remember_me_str = data.get(Fields.remember_me)
-    ip = data.get(Fields.ip)
+    ip = _get_client_ip(None, request)
 
     invalid_fields = []
     if not username_or_email or (
             not is_valid_pattern(username_or_email, Patterns.alphanumeric) and not is_valid_pattern(username_or_email,
                                                                                                     Patterns.email)):
         invalid_fields.append(Params.username_or_email)
-    if not ip or (not is_valid_pattern(ip, Patterns.ipv4) and not is_valid_pattern(ip, Patterns.ipv6)):
-        invalid_fields.append(Params.ip)
     if not password or not is_valid_pattern(password, Patterns.password):
         invalid_fields.append(Params.password)
 
@@ -396,7 +392,7 @@ def login_user_with_remember_me(request):
     session_management_token = data.get(Fields.session_management_token)
     series_identifier = data.get(Fields.series_identifier)
     login_cookie_token = data.get(Fields.login_cookie_token)
-    ip = data.get(Fields.ip)
+    ip = _get_client_ip(None, request)
 
     invalid_fields = []
     if not session_management_token or not is_valid_pattern(session_management_token, Patterns.alphanumeric):
@@ -405,8 +401,6 @@ def login_user_with_remember_me(request):
         invalid_fields.append(Params.series_identifier)
     if not login_cookie_token or not is_valid_pattern(login_cookie_token, Patterns.alphanumeric):
         invalid_fields.append(Params.login_cookie_token)
-    if not ip or (not is_valid_pattern(ip, Patterns.ipv4) and not is_valid_pattern(ip, Patterns.ipv6)):
-        invalid_fields.append(Params.ip)
 
     if len(invalid_fields) > 0:
         return log_and_return_json("login_user_with_remember_me", {'error': f"Invalid fields {invalid_fields}"}, status=400)

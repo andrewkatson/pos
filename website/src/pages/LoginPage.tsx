@@ -26,9 +26,6 @@ function LoginPage() {
       const response = await apiClient.login({
         username_or_email: usernameOrEmail.trim(),
         password,
-        // Browser JS cannot read the client's public IP; send a placeholder.
-        // The backend should ideally derive the IP from request headers instead.
-        ip: '127.0.0.1',
         remember_me: rememberMe,
       })
       localStorage.setItem('session_token', response.session_management_token)
