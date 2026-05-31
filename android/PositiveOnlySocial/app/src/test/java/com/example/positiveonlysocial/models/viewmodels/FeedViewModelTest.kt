@@ -73,9 +73,62 @@ class FeedViewModelTest {
         viewModel.fetchFeed()
 
         assertTrue(viewModel.feedPosts.value.isEmpty())
-        
+
         // Try fetching again, should not call API because canLoadMore is false
         viewModel.fetchFeed()
         verify(api).getPostsInFeed("token123", 0) // Verified called once
+    }
+
+    @Test
+    fun `refreshFeed replaces feedPosts with fresh data`() = runTest {
+        val initialPosts = listOf(Post("1", "url1", "caption1", "user1", 0))
+        whenever(api.getPostsInFeed("token123", 0)).thenReturn(Response.success(initialPosts))
+
+        viewModel.fetchFeed()
+        assertEquals(initialPosts, viewModel.feedPosts.value)
+
+        val refreshedPosts = listOf(
+            Post("2", "url2", "caption2", "user2", 0),
+            Post("3", "url3", "caption3", "user3", 0)
+        )
+        whenever(api.getPostsInFeed("token123", 0)).thenReturn(Response.success(refreshedPosts))
+
+        viewModel.refreshFeed()
+
+        assertEquals(refreshedPosts, viewModel.feedPosts.value)
+        assertFalse(viewModel.isRefreshing.value)
+    }
+
+    @Test
+    fun `refreshFeed resets pagination after it was exhausted`() = runTest {
+        // Exhaust pagination so canLoadMore becomes false.
+        whenever(api.getPostsInFeed("token123", 0)).thenReturn(Response.success(emptyList()))
+        viewModel.fetchFeed()
+        assertTrue(viewModel.feedPosts.value.isEmpty())
+
+        // Backend now has posts again; refresh should pull them in.
+        val refreshedPosts = listOf(Post("1", "url1", "caption1", "user1", 0))
+        whenever(api.getPostsInFeed("token123", 0)).thenReturn(Response.success(refreshedPosts))
+        viewModel.refreshFeed()
+        assertEquals(refreshedPosts, viewModel.feedPosts.value)
+
+        // And the next page can be fetched again (page 1).
+        val nextPage = listOf(Post("2", "url2", "caption2", "user2", 0))
+        whenever(api.getPostsInFeed("token123", 1)).thenReturn(Response.success(nextPage))
+        viewModel.fetchFeed()
+        assertEquals(refreshedPosts + nextPage, viewModel.feedPosts.value)
+    }
+
+    @Test
+    fun `refreshFeed failure keeps existing posts`() = runTest {
+        val initialPosts = listOf(Post("1", "url1", "caption1", "user1", 0))
+        whenever(api.getPostsInFeed("token123", 0)).thenReturn(Response.success(initialPosts))
+        viewModel.fetchFeed()
+
+        whenever(api.getPostsInFeed("token123", 0)).thenReturn(Response.error(400, "error".toResponseBody()))
+        viewModel.refreshFeed()
+
+        assertEquals(initialPosts, viewModel.feedPosts.value)
+        assertFalse(viewModel.isRefreshing.value)
     }
 }

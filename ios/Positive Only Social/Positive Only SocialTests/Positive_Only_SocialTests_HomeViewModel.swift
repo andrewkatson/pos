@@ -110,6 +110,70 @@ struct Positive_Only_SocialTests_HomeViewModel {
         #expect(sut.userPosts.isEmpty == true)
     }
 
+    @Test func testRefreshMyPosts_PullsNewestPostsAndReplacesList() async throws {
+        stubAPI.pageSize = 2
+
+        try await setupLoggedInUser(username: "refreshMyPostsPullsNewest")
+        let sut = HomeViewModel(api: stubAPI, keychainHelper: keychainHelper, account: "refreshMyPostsPullsNewest_account")
+
+        let session = try keychainHelper.load(UserSession.self, from: AppConstants.keychainService, account: "refreshMyPostsPullsNewest_account")
+        let token = session!.sessionToken
+
+        // Given: One post exists and the grid has loaded once
+        _ = try await stubAPI.makePost(sessionManagementToken: token, imageURL: "my.image/1", caption: "Post 1")
+        sut.fetchMyPosts()
+        await yield()
+        #expect(sut.userPosts.count == 1)
+        #expect(stubAPI.getPostsForUserCallCount == 1)
+
+        // When: Two more posts are made and we pull-to-refresh
+        _ = try await stubAPI.makePost(sessionManagementToken: token, imageURL: "my.image/2", caption: "Post 2")
+        _ = try await stubAPI.makePost(sessionManagementToken: token, imageURL: "my.image/3", caption: "Post 3")
+        await sut.refreshMyPosts()
+
+        // Then: The list is replaced with the freshest first page (newest first)
+        #expect(sut.isLoadingNextPage == false)
+        #expect(sut.userPosts.count == 2)
+        #expect(sut.userPosts.first?.imageUrl == "my.image/3")
+        #expect(sut.userPosts.last?.imageUrl == "my.image/2")
+        #expect(stubAPI.getPostsForUserCallCount == 2)
+    }
+
+    @Test func testRefreshMyPosts_ResetsPaginationAfterEndReached() async throws {
+        stubAPI.pageSize = 2
+
+        try await setupLoggedInUser(username: "refreshMyPostsResetsPagination")
+        let sut = HomeViewModel(api: stubAPI, keychainHelper: keychainHelper, account: "refreshMyPostsResetsPagination_account")
+
+        let session = try keychainHelper.load(UserSession.self, from: AppConstants.keychainService, account: "refreshMyPostsResetsPagination_account")
+        let token = session!.sessionToken
+
+        _ = try await stubAPI.makePost(sessionManagementToken: token, imageURL: "my.image/1", caption: "Post 1")
+
+        // Given: We have paged to the end (canLoadMorePosts becomes false)
+        sut.fetchMyPosts()
+        await yield()
+        sut.fetchMyPosts() // empty page 1 -> canLoadMorePosts = false
+        await yield()
+        #expect(sut.userPosts.count == 1)
+        #expect(stubAPI.getPostsForUserCallCount == 2)
+
+        // And: Two more posts now exist on the backend (3 total = 2 pages)
+        _ = try await stubAPI.makePost(sessionManagementToken: token, imageURL: "my.image/2", caption: "Post 2")
+        _ = try await stubAPI.makePost(sessionManagementToken: token, imageURL: "my.image/3", caption: "Post 3")
+
+        // When: We refresh
+        await sut.refreshMyPosts()
+
+        // Then: The freshest first page replaces the list...
+        #expect(sut.userPosts.count == 2)
+
+        // ...and pagination is reset, so a subsequent fetch loads page 1 again.
+        sut.fetchMyPosts()
+        await yield()
+        #expect(sut.userPosts.count == 3)
+    }
+
     // --- Search Tests ---
 
     @Test func testSearch_Debouncer_Success() async throws {

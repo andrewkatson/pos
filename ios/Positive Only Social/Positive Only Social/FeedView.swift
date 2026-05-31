@@ -74,9 +74,9 @@ struct FeedView: View {
                  // Fetch fresh data whenever the tab changes
                  switch newValue {
                  case .forYou:
-                     forYouViewModel.refreshFeed()
+                     Task { await forYouViewModel.refreshFeed() }
                  case .following:
-                     followingViewModel.refreshFeed()
+                     Task { await followingViewModel.refreshFeed() }
                  }
              }
         }
@@ -137,6 +137,10 @@ struct ForYouFeedView: View {
             }
             .padding(.top)
         }
+        .refreshable {
+            // Pull-to-refresh: reload the newest posts from the backend.
+            await viewModel.refreshFeed()
+        }
         .onAppear {
             if viewModel.feedPosts.isEmpty {
                 viewModel.fetchFeed()
@@ -196,6 +200,10 @@ struct FollowingFeedView: View {
                 }
             }
             .padding(.top)
+        }
+        .refreshable {
+            // Pull-to-refresh: reload the newest posts from the backend.
+            await viewModel.refreshFeed()
         }
         // Add .onAppear to trigger the *initial* fetch
         .onAppear {

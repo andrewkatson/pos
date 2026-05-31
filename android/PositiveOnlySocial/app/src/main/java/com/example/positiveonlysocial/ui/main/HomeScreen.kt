@@ -10,6 +10,7 @@ import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material3.*
+import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.layout.ContentScale
@@ -43,6 +44,7 @@ fun HomeScreen(
         val userPosts by viewModel.userPosts.collectAsState()
         val searchedUsers by viewModel.searchedUsers.collectAsState()
         val searchText by viewModel.searchText.collectAsState()
+        val isRefreshing by viewModel.isRefreshing.collectAsState()
         
         // Trigger initial fetch
         LaunchedEffect(Unit) {
@@ -112,28 +114,35 @@ fun HomeScreen(
                 }
             } else {
                 // User Posts Grid
-                LazyVerticalGrid(
-                    columns = GridCells.Fixed(3),
-                    contentPadding = PaddingValues(2.dp),
-                    horizontalArrangement = Arrangement.spacedBy(2.dp),
-                    verticalArrangement = Arrangement.spacedBy(2.dp)
+                PullToRefreshBox(
+                    isRefreshing = isRefreshing,
+                    onRefresh = { viewModel.refreshMyPosts() },
+                    modifier = Modifier.fillMaxSize()
                 ) {
-                    items(userPosts) { post ->
-                        AsyncImage(
-                            model = post.imageUrl,
-                            contentDescription = "Post Image",
-                            modifier = Modifier
-                                .aspectRatio(1f)
-                                .clickable {
-                                    navController.navigate(Screen.PostDetail.createRoute(post.postIdentifier))
-                                },
-                            contentScale = ContentScale.Crop
-                        )
-                        
-                        // Infinite scroll trigger
-                        if (post == userPosts.lastOrNull()) {
-                            LaunchedEffect(Unit) {
-                                viewModel.fetchMyPosts()
+                    LazyVerticalGrid(
+                        columns = GridCells.Fixed(3),
+                        modifier = Modifier.fillMaxSize(),
+                        contentPadding = PaddingValues(2.dp),
+                        horizontalArrangement = Arrangement.spacedBy(2.dp),
+                        verticalArrangement = Arrangement.spacedBy(2.dp)
+                    ) {
+                        items(userPosts) { post ->
+                            AsyncImage(
+                                model = post.imageUrl,
+                                contentDescription = "Post Image",
+                                modifier = Modifier
+                                    .aspectRatio(1f)
+                                    .clickable {
+                                        navController.navigate(Screen.PostDetail.createRoute(post.postIdentifier))
+                                    },
+                                contentScale = ContentScale.Crop
+                            )
+
+                            // Infinite scroll trigger
+                            if (post == userPosts.lastOrNull()) {
+                                LaunchedEffect(Unit) {
+                                    viewModel.fetchMyPosts()
+                                }
                             }
                         }
                     }

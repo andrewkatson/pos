@@ -55,35 +55,61 @@ final class HomeViewModel: ObservableObject {
     func fetchMyPosts() {
         // Prevent multiple fetches at the same time or fetching beyond the end
         guard !isLoadingNextPage && canLoadMorePosts else { return }
-        
+
         isLoadingNextPage = true
-        
+
         Task {
-            do {
-                guard let user = try keychainHelper.load(UserSession.self, from: keychainService, account: account) else {
-                    NSLog("%@", "No active session found — cannot fetch posts")
-                    isLoadingNextPage = false
-                    return
-                }
+            await loadNextPage()
+        }
+    }
 
-                // Call the API
-                let newPosts = try await fetchPosts(for: user.username, token: user.sessionToken, page: currentPage)
+    /// Resets pagination and reloads the user's posts from the first page.
+    ///
+    /// This is `async` so SwiftUI's `.refreshable` keeps the pull-to-refresh
+    /// spinner visible until the fresh posts have actually been loaded.
+    func refreshMyPosts() async {
+        // Avoid stomping on an in-flight page load.
+        guard !isLoadingNextPage else { return }
 
-                if newPosts.isEmpty {
-                    // No more posts to load
-                    self.canLoadMorePosts = false
-                } else {
-                    self.userPosts.append(contentsOf: newPosts)
-                    self.currentPage += 1
-                }
-                
-            } catch {
-                self.errorMessage = error.localizedDescription
-                NSLog("%@", "Error fetching my posts: \(error)")
+        currentPage = 0
+        canLoadMorePosts = true
+        isLoadingNextPage = true
+        await loadNextPage(replacingExisting: true)
+    }
+
+    /// Fetches the current page of the user's posts. When `replacingExisting`
+    /// is true the freshly fetched posts replace the existing list (used by
+    /// pull-to-refresh); otherwise they are appended (used by infinite scrolling).
+    private func loadNextPage(replacingExisting: Bool = false) async {
+        do {
+            guard let user = try keychainHelper.load(UserSession.self, from: keychainService, account: account) else {
+                NSLog("%@", "No active session found — cannot fetch posts")
+                isLoadingNextPage = false
+                return
             }
 
-            self.isLoadingNextPage = false
+            // Call the API
+            let newPosts = try await fetchPosts(for: user.username, token: user.sessionToken, page: currentPage)
+
+            if newPosts.isEmpty {
+                // No more posts to load
+                if replacingExisting { self.userPosts = [] }
+                self.canLoadMorePosts = false
+            } else {
+                if replacingExisting {
+                    self.userPosts = newPosts
+                } else {
+                    self.userPosts.append(contentsOf: newPosts)
+                }
+                self.currentPage += 1
+            }
+
+        } catch {
+            self.errorMessage = error.localizedDescription
+            NSLog("%@", "Error fetching my posts: \(error)")
         }
+
+        self.isLoadingNextPage = false
     }
 
     // MARK: - Private Helpers

@@ -161,5 +161,69 @@ struct Positive_Only_SocialTests_FeedViewModel {
         #expect(sut.feedPosts.count == 3)
         #expect(stubAPI.getPostsInFeedCallCount == 3)
     }
+
+    @Test func testRefreshFeed_PullsNewestPostsAndReplacesList() async throws {
+        stubAPI.pageSize = 2
+        let sut = FeedViewModel(api: stubAPI, keychainHelper: keychainHelper, account: "refreshFeedPullsNewest")
+
+        // Given: A logged-in user and another user with one post
+        let userAToken = try await registerUserAndGetToken(username: "userA")
+        let userBToken = try await registerUserAndGetToken(username: "userB")
+        let userSession = UserSession(sessionToken: userAToken, username: "userA", userId: "1", isIdentityVerified: false)
+        try keychainHelper.save(userSession, for: AppConstants.keychainService, account: "refreshFeedPullsNewest")
+        _ = try await stubAPI.makePost(sessionManagementToken: userBToken, imageURL: "image.url/1", caption: "Post 1")
+
+        // And: The feed has been loaded once
+        sut.fetchFeed()
+        await yield()
+        #expect(sut.feedPosts.count == 1)
+        #expect(stubAPI.getPostsInFeedCallCount == 1)
+
+        // When: New posts appear on the backend and we pull-to-refresh
+        _ = try await stubAPI.makePost(sessionManagementToken: userBToken, imageURL: "image.url/2", caption: "Post 2")
+        _ = try await stubAPI.makePost(sessionManagementToken: userBToken, imageURL: "image.url/3", caption: "Post 3")
+        await sut.refreshFeed()
+
+        // Then: The list is replaced with the freshest first page (newest first)
+        #expect(sut.isLoadingNextPage == false)
+        #expect(sut.feedPosts.count == 2)
+        #expect(sut.feedPosts.first?.imageUrl == "image.url/3")
+        #expect(sut.feedPosts.last?.imageUrl == "image.url/2")
+        #expect(stubAPI.getPostsInFeedCallCount == 2)
+    }
+
+    @Test func testRefreshFeed_ResetsPaginationAfterEndReached() async throws {
+        stubAPI.pageSize = 2
+        let sut = FeedViewModel(api: stubAPI, keychainHelper: keychainHelper, account: "refreshFeedResetsPagination")
+
+        let userAToken = try await registerUserAndGetToken(username: "userA")
+        let userBToken = try await registerUserAndGetToken(username: "userB")
+        let userSession = UserSession(sessionToken: userAToken, username: "userA", userId: "1", isIdentityVerified: false)
+        try keychainHelper.save(userSession, for: AppConstants.keychainService, account: "refreshFeedResetsPagination")
+        _ = try await stubAPI.makePost(sessionManagementToken: userBToken, imageURL: "image.url/1", caption: "Post 1")
+
+        // Given: We have paged to the end (canLoadMore becomes false)
+        sut.fetchFeed()
+        await yield()
+        sut.fetchFeed() // empty page 1 -> canLoadMore = false
+        await yield()
+        #expect(sut.feedPosts.count == 1)
+        #expect(stubAPI.getPostsInFeedCallCount == 2)
+
+        // And: Two more posts now exist on the backend (3 total = 2 pages)
+        _ = try await stubAPI.makePost(sessionManagementToken: userBToken, imageURL: "image.url/2", caption: "Post 2")
+        _ = try await stubAPI.makePost(sessionManagementToken: userBToken, imageURL: "image.url/3", caption: "Post 3")
+
+        // When: We refresh
+        await sut.refreshFeed()
+
+        // Then: The freshest first page (2 newest) replaces the list...
+        #expect(sut.feedPosts.count == 2)
+
+        // ...and pagination is reset, so a subsequent fetch loads page 1 again.
+        sut.fetchFeed()
+        await yield()
+        #expect(sut.feedPosts.count == 3)
+    }
 }
 

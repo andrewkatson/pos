@@ -5,6 +5,7 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.*
+import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.layout.ContentScale
@@ -54,6 +55,7 @@ fun FeedScreen(
     }
 }
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ForYouFeed(
     navController: NavController,
@@ -65,6 +67,7 @@ fun ForYouFeed(
     )
     val posts by viewModel.feedPosts.collectAsState()
     val isLoadingNextPage by viewModel.isLoadingNextPage.collectAsState()
+    val isRefreshing by viewModel.isRefreshing.collectAsState()
 
     LaunchedEffect(Unit) {
         if (posts.isEmpty()) {
@@ -72,30 +75,38 @@ fun ForYouFeed(
         }
     }
 
-    LazyColumn(
-        contentPadding = PaddingValues(16.dp),
-        verticalArrangement = Arrangement.spacedBy(24.dp)
+    PullToRefreshBox(
+        isRefreshing = isRefreshing,
+        onRefresh = { viewModel.refreshFeed() },
+        modifier = Modifier.fillMaxSize()
     ) {
-        items(posts) { post ->
-            PostItem(post = post, navController = navController)
-            
-            if (post == posts.lastOrNull()) {
-                LaunchedEffect(Unit) {
-                    viewModel.fetchFeed()
+        LazyColumn(
+            modifier = Modifier.fillMaxSize(),
+            contentPadding = PaddingValues(16.dp),
+            verticalArrangement = Arrangement.spacedBy(24.dp)
+        ) {
+            items(posts) { post ->
+                PostItem(post = post, navController = navController)
+
+                if (post == posts.lastOrNull()) {
+                    LaunchedEffect(Unit) {
+                        viewModel.fetchFeed()
+                    }
                 }
             }
-        }
-        
-        if (isLoadingNextPage) {
-            item {
-                Box(modifier = Modifier.fillMaxWidth(), contentAlignment = androidx.compose.ui.Alignment.Center) {
-                    CircularProgressIndicator()
+
+            if (isLoadingNextPage) {
+                item {
+                    Box(modifier = Modifier.fillMaxWidth(), contentAlignment = androidx.compose.ui.Alignment.Center) {
+                        CircularProgressIndicator()
+                    }
                 }
             }
         }
     }
 }
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun FollowingFeed(
     navController: NavController,
@@ -107,6 +118,7 @@ fun FollowingFeed(
     )
     val posts by viewModel.followingPosts.collectAsState()
     val isLoadingNextPage by viewModel.isLoadingNextPage.collectAsState()
+    val isRefreshing by viewModel.isRefreshing.collectAsState()
 
     LaunchedEffect(Unit) {
         if (posts.isEmpty()) {
@@ -114,24 +126,31 @@ fun FollowingFeed(
         }
     }
 
-    LazyColumn(
-        contentPadding = PaddingValues(16.dp),
-        verticalArrangement = Arrangement.spacedBy(24.dp)
+    PullToRefreshBox(
+        isRefreshing = isRefreshing,
+        onRefresh = { viewModel.refreshFollowingFeed() },
+        modifier = Modifier.fillMaxSize()
     ) {
-        items(posts) { post ->
-            PostItem(post = post, navController = navController)
+        LazyColumn(
+            modifier = Modifier.fillMaxSize(),
+            contentPadding = PaddingValues(16.dp),
+            verticalArrangement = Arrangement.spacedBy(24.dp)
+        ) {
+            items(posts) { post ->
+                PostItem(post = post, navController = navController)
 
-            if (post == posts.lastOrNull()) {
-                LaunchedEffect(Unit) {
-                    viewModel.fetchFollowingFeed()
+                if (post == posts.lastOrNull()) {
+                    LaunchedEffect(Unit) {
+                        viewModel.fetchFollowingFeed()
+                    }
                 }
             }
-        }
 
-        if (isLoadingNextPage) {
-            item {
-                Box(modifier = Modifier.fillMaxWidth(), contentAlignment = androidx.compose.ui.Alignment.Center) {
-                    CircularProgressIndicator()
+            if (isLoadingNextPage) {
+                item {
+                    Box(modifier = Modifier.fillMaxWidth(), contentAlignment = androidx.compose.ui.Alignment.Center) {
+                        CircularProgressIndicator()
+                    }
                 }
             }
         }

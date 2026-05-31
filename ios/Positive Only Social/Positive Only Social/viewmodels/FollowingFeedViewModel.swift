@@ -32,45 +32,56 @@ final class FollowingFeedViewModel: ObservableObject {
     func fetchFollowingFeed() {
         guard !isLoadingNextPage && canLoadMore else { return }
         isLoadingNextPage = true
-        
+
         Task {
-            do {
-                guard let userSession = try keychainHelper.load(UserSession.self, from: keychainService, account: account) else {
-                    NSLog("%@", "No active session — cannot fetch following feed")
-                    isLoadingNextPage = false
-                    return
-                }
-
-                // --- KEY CHANGE ---
-                // Call the API endpoint for followed users
-                let responseData = try await api.getPostsForFollowedUsers(sessionManagementToken: userSession.sessionToken, batch: currentPage)
-                // --- END KEY CHANGE ---
-
-                let newPosts = try JSONDecoder().decode([Post].self, from: responseData)
-                
-                if newPosts.isEmpty {
-                    canLoadMore = false
-                } else {
-                    // Add new posts to the followingPosts array
-                    followingPosts.append(contentsOf: newPosts)
-                    currentPage += 1
-                }
-            } catch {
-                NSLog("%@", "Failed to fetch following feed: \(error)")
-            }
-            isLoadingNextPage = false
+            await loadNextPage()
         }
     }
-    
-    func refreshFeed() {
-        // 1. Reset pagination state
+
+    /// Resets pagination and reloads the following feed from the first page.
+    ///
+    /// This is `async` so SwiftUI's `.refreshable` keeps the pull-to-refresh
+    /// spinner visible until the fresh posts have actually been loaded.
+    func refreshFeed() async {
+        // Avoid stomping on an in-flight page load.
+        guard !isLoadingNextPage else { return }
+
         currentPage = 0
         canLoadMore = true
-        
-        // 2. Clear existing posts (optional: remove this if you want to keep data while loading)
-        followingPosts.removeAll()
-        
-        // 3. Fetch fresh data
-        fetchFollowingFeed()
+        isLoadingNextPage = true
+        await loadNextPage(replacingExisting: true)
+    }
+
+    /// Fetches the current page of posts. When `replacingExisting` is true the
+    /// freshly fetched posts replace the existing list (used by pull-to-refresh);
+    /// otherwise they are appended (used by infinite scrolling).
+    private func loadNextPage(replacingExisting: Bool = false) async {
+        do {
+            guard let userSession = try keychainHelper.load(UserSession.self, from: keychainService, account: account) else {
+                NSLog("%@", "No active session — cannot fetch following feed")
+                isLoadingNextPage = false
+                return
+            }
+
+            // Call the API endpoint for followed users
+            let responseData = try await api.getPostsForFollowedUsers(sessionManagementToken: userSession.sessionToken, batch: currentPage)
+
+            let newPosts = try JSONDecoder().decode([Post].self, from: responseData)
+
+            if newPosts.isEmpty {
+                if replacingExisting { followingPosts = [] }
+                canLoadMore = false
+            } else {
+                if replacingExisting {
+                    followingPosts = newPosts
+                } else {
+                    followingPosts.append(contentsOf: newPosts)
+                }
+                currentPage += 1
+            }
+        } catch {
+            NSLog("%@", "Failed to fetch following feed: \(error)")
+        }
+        isLoadingNextPage = false
     }
 }
