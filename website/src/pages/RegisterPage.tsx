@@ -28,6 +28,7 @@ function RegisterPage() {
     password === confirmPassword
 
   async function handleRegister() {
+    if (!isFormValid) return
     setShowPrivacyPolicy(false)
     setIsLoading(true)
     try {
@@ -35,7 +36,6 @@ function RegisterPage() {
         username: username.trim(),
         email: email.trim(),
         password,
-        ip: '127.0.0.1',
         remember_me: false,
         date_of_birth: dateOfBirth,
       })
@@ -54,12 +54,18 @@ function RegisterPage() {
   return (
     <div className="auth-page">
       {showPrivacyPolicy && (
-        <div className="modal-overlay" role="dialog" aria-modal="true" aria-labelledby="pp-title">
-          <div className="modal">
+        <div className="modal-overlay">
+          <div
+            className="modal"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="pp-title"
+            aria-describedby="pp-body"
+          >
             <h2 className="modal__title" id="pp-title">
               Privacy Policy
             </h2>
-            <p className="modal__body">{PRIVACY_POLICY_TEXT}</p>
+            <p className="modal__body" id="pp-body">{PRIVACY_POLICY_TEXT}</p>
             <div className="modal__actions">
               <button
                 type="button"
@@ -98,6 +104,7 @@ function RegisterPage() {
             <button
               type="button"
               className="auth-error__dismiss"
+              aria-label="Dismiss error"
               onClick={() => setErrorMessage(null)}
             >
               ✕

@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, type FormEvent } from 'react'
 import { useNavigate } from 'react-router-dom'
 import Logo from '../components/Logo'
 import { apiClient } from '../api/client'
@@ -18,7 +18,7 @@ function LoginPage() {
 
   const isFormValid = usernameOrEmail.trim().length > 0 && password.length > 0
 
-  async function handleLogin(e: React.FormEvent) {
+  async function handleLogin(e: FormEvent) {
     e.preventDefault()
     if (!isFormValid) return
     setIsLoading(true)
@@ -26,7 +26,6 @@ function LoginPage() {
       const response = await apiClient.login({
         username_or_email: usernameOrEmail.trim(),
         password,
-        ip: '127.0.0.1',
         remember_me: rememberMe,
       })
       localStorage.setItem('session_token', response.session_management_token)
@@ -67,6 +66,7 @@ function LoginPage() {
             <button
               type="button"
               className="auth-error__dismiss"
+              aria-label="Dismiss error"
               onClick={() => setErrorMessage(null)}
             >
               ✕
@@ -82,7 +82,8 @@ function LoginPage() {
             <input
               id="usernameOrEmail"
               className="auth-input"
-              type="email"
+              type="text"
+              inputMode="email"
               autoComplete="username"
               autoCapitalize="none"
               value={usernameOrEmail}

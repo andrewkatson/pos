@@ -173,6 +173,11 @@
   opacity: 0.5;
 }
 
+.toggle input:focus-visible + .toggle__track {
+  outline: 2px solid #5ba4dc;
+  outline-offset: 3px;
+}
+
 /* ---- Primary button ---- */
 
 .auth-button {

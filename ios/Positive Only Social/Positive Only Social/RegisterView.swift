@@ -152,7 +152,7 @@ struct RegisterView: View {
                     email: email,
                     password: password,
                     rememberMe: "false", // We don't need remember me on registration
-                    ip: "127.0.0.1",
+                    ip: "",
                     dateOfBirth: dateString
                 )
 
