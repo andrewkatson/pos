@@ -22,7 +22,13 @@ function RequestResetPage() {
       setDidSucceed(true)
     } catch (err) {
       const apiErr = err as ApiError
-      setErrorMessage(apiErr.message ?? 'Reset request failed. Please try again.')
+      // Treat "account not found" the same as success to prevent user enumeration.
+      if (apiErr.message === 'No user with that username or email') {
+        setErrorMessage(null)
+        setDidSucceed(true)
+      } else {
+        setErrorMessage(apiErr.message ?? 'Reset request failed. Please try again.')
+      }
     } finally {
       setIsLoading(false)
     }

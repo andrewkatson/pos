@@ -29,7 +29,7 @@ function LoginPage() {
         remember_me: rememberMe,
       })
       localStorage.setItem('session_token', response.session_management_token)
-      localStorage.setItem('user_id', String(response.user_id))
+      localStorage.setItem('user_id', response.user_id)
       if (response.username) {
         localStorage.setItem('username', response.username)
       }

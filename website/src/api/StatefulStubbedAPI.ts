@@ -227,7 +227,7 @@ export class StatefulStubbedAPI implements PositiveOnlySocialAPI {
     this.setToken(sessionToken)
     return {
       session_management_token: sessionToken,
-      user_id: Number.parseInt(user.id.replace(/\D/g, ''), 10) || 0,
+      user_id: user.id,
       username: user.username,
       series_identifier: seriesIdentifier,
       login_cookie_token: loginCookieToken,
@@ -256,7 +256,7 @@ export class StatefulStubbedAPI implements PositiveOnlySocialAPI {
     this.setToken(sessionToken)
     return {
       session_management_token: sessionToken,
-      user_id: Number.parseInt(user.id.replace(/\D/g, ''), 10) || 0,
+      user_id: user.id,
       username: user.username,
       series_identifier: seriesIdentifier,
       login_cookie_token: loginCookieToken,

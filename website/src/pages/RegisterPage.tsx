@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import Logo from '../components/Logo'
 import { apiClient } from '../api/client'
@@ -18,6 +18,15 @@ function RegisterPage() {
   const [isLoading, setIsLoading] = useState(false)
   const [errorMessage, setErrorMessage] = useState<string | null>(null)
   const [showPrivacyPolicy, setShowPrivacyPolicy] = useState(false)
+
+  useEffect(() => {
+    if (!showPrivacyPolicy) return
+    function onKeyDown(e: KeyboardEvent) {
+      if (e.key === 'Escape') setShowPrivacyPolicy(false)
+    }
+    document.addEventListener('keydown', onKeyDown)
+    return () => document.removeEventListener('keydown', onKeyDown)
+  }, [showPrivacyPolicy])
 
   const isPasswordMatching = confirmPassword === '' || password === confirmPassword
   const isFormValid =
@@ -40,7 +49,7 @@ function RegisterPage() {
         date_of_birth: dateOfBirth,
       })
       localStorage.setItem('session_token', response.session_management_token)
-      localStorage.setItem('user_id', String(response.user_id))
+      localStorage.setItem('user_id', response.user_id)
       localStorage.setItem('username', username.trim())
       navigate('/')
     } catch (err) {
@@ -74,7 +83,7 @@ function RegisterPage() {
               >
                 Cancel
               </button>
-              <button type="button" className="modal__confirm" onClick={handleRegister}>
+              <button type="button" className="modal__confirm" onClick={handleRegister} autoFocus>
                 Ok
               </button>
             </div>

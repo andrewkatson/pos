@@ -12,7 +12,8 @@ export interface RegisterRequest {
 
 export interface AuthResponse {
   session_management_token: string
-  user_id: number
+  /** UUID string matching PositiveOnlySocialUser.id (UUIDField on the backend). */
+  user_id: string
   username?: string
   // Only present when remember_me was requested.
   series_identifier?: string
