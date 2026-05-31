@@ -518,7 +518,8 @@ class StatefulStubbedAPI : PositiveOnlySocialAPI {
         return Response.success(GenericResponse("Comment reported", null))
     }
 
-    override suspend fun getCommentsForPost(postId: String, batch: Int): Response<List<CommentThreadDto>> {
+    override suspend fun getCommentsForPost(token: String, postId: String, batch: Int): Response<List<CommentThreadDto>> {
+        getAuthorizedUser(token) ?: return errorGeneric(401, "Unauthorized")
         val threads = commentThreads.filter { it.postId == postId }
         val batched = getBatch(threads, batch, COMMENT_BATCH_SIZE)
         return Response.success(batched.map { CommentThreadDto(it.threadIdentifier) })

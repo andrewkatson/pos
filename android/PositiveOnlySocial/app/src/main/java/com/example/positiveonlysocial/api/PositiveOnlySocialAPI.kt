@@ -162,6 +162,7 @@ interface PositiveOnlySocialAPI {
 
     @GET("posts/{post_id}/comments/{batch}/")
     suspend fun getCommentsForPost(
+        @Header("Authorization") token: String,
         @Path("post_id") postId: String,
         @Path("batch") batch: Int
     ): Response<List<CommentThreadDto>>

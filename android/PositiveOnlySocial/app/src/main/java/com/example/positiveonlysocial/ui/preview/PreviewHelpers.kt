@@ -316,6 +316,7 @@ class MockPositiveOnlySocialAPI : PositiveOnlySocialAPI {
     }
 
     override suspend fun getCommentsForPost(
+        token: String,
         postId: String,
         batch: Int
     ): Response<List<CommentThreadDto>> {

@@ -105,7 +105,7 @@ class PostDetailViewModel(
                 }
 
                 // 2. Fetch the list of comment thread IDs for this post
-                val threadListResponse = api.getCommentsForPost(postIdentifier, 0)
+                val threadListResponse = api.getCommentsForPost(token, postIdentifier, 0)
                 val threadDtos = threadListResponse.body() ?: emptyList()
                 val threadIdentifiers = threadDtos.map { it.threadIdentifier }
 

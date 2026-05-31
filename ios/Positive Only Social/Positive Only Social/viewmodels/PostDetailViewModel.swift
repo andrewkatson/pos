@@ -88,7 +88,7 @@ final class PostDetailViewModel: ObservableObject {
                 )
 
                 // 2. Fetch the list of comment thread IDs for this post
-                let threadListData = try await api.getCommentsForPost(postIdentifier: postIdentifier, batch: 0)
+                let threadListData = try await api.getCommentsForPost(sessionManagementToken: token, postIdentifier: postIdentifier, batch: 0)
                 let threadIDFields = try self.decodeList(from: threadListData, type: ThreadIDFields.self)
                 let threadIdentifiers = threadIDFields.map { $0.comment_thread_identifier }
 

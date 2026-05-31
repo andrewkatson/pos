@@ -600,8 +600,9 @@ final class StatefulStubbedAPI: Networking {
         return try createEmptySuccessResponse()
     }
 
-    func getCommentsForPost(postIdentifier: String, batch: Int) async throws -> Data {
+    func getCommentsForPost(sessionManagementToken: String, postIdentifier: String, batch: Int) async throws -> Data {
         await simulateNetwork()
+        guard findUser(bySessionToken: sessionManagementToken) != nil else { throw APIError.badServerResponse(statusCode: 401) }
         let relevantThreads = commentThreads.filter { $0.postId == postIdentifier }
         
         // If there are no threads return gracefully

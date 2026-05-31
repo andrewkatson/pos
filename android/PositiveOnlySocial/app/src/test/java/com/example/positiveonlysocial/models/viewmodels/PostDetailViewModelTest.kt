@@ -56,7 +56,7 @@ class PostDetailViewModelTest {
                     )
                 )
             )
-            whenever(api.getCommentsForPost(postIdentifier, 0)).thenReturn(
+            whenever(api.getCommentsForPost("token123", postIdentifier, 0)).thenReturn(
                 Response.success(
                     emptyList()
                 )

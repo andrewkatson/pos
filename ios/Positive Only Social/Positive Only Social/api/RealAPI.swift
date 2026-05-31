@@ -497,12 +497,13 @@ final class RealAPI: Networking {
         )
     }
     
-    /// Gets a batch of comments for a post.
-    func getCommentsForPost(postIdentifier: String, batch: Int) async throws -> Data {
-        // This is a GET request, no body, with no auth. ID/Batch are in path.
+    /// Gets a batch of comment threads for a post.
+    func getCommentsForPost(sessionManagementToken: String, postIdentifier: String, batch: Int) async throws -> Data {
+        // Authenticated GET. ID/Batch are in path.
         return try await performRequest(
             pathSegments: ["posts", postIdentifier, "comments", String(batch)],
             method: .get,
+            authToken: sessionManagementToken
         )
     }
     
