@@ -94,3 +94,36 @@ def test_lambda_handler_non_rgb(mock_s3_client, monkeypatch):
     assert put_kwargs['Bucket'] == dest_bucket
     assert put_kwargs['Key'] == source_key
     assert put_kwargs['ContentType'] == 'image/jpeg'
+
+
+def _make_jpeg_with_exif_orientation(width, height, orientation):
+    """Return JPEG bytes for a width x height image with the given EXIF Orientation tag."""
+    img = Image.new('RGB', (width, height), color='blue')
+    exif = img.getexif()
+    exif[0x0112] = orientation  # tag 274 = Orientation
+    buf = io.BytesIO()
+    img.save(buf, format='JPEG', exif=exif.tobytes())
+    return buf.getvalue()
+
+
+def test_lambda_handler_exif_orientation_applied(mock_s3_client, monkeypatch):
+    """Images with EXIF Orientation must be transposed so the stored pixel layout is upright."""
+    source_bucket = 'source-bucket'
+    source_key = 'portrait.jpg'
+    dest_bucket = 'dest-bucket'
+
+    monkeypatch.setenv('DEST_BUCKET', dest_bucket)
+    monkeypatch.setenv('TARGET_SIZE_KB', '500')
+
+    # 10-wide x 20-tall image tagged as "rotate 90 CW" (orientation=8).
+    # After transpose the stored image should be 20-wide x 10-tall.
+    img_data = _make_jpeg_with_exif_orientation(width=10, height=20, orientation=8)
+    mock_s3_client.get_object.return_value = {'Body': io.BytesIO(img_data)}
+
+    result = lambda_handler(make_s3_event(source_bucket, source_key), None)
+
+    assert result['statusCode'] == 200
+    _, put_kwargs = mock_s3_client.put_object.call_args
+    output_img = Image.open(put_kwargs['Body'])
+    assert output_img.width == 20
+    assert output_img.height == 10
