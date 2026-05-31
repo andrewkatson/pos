@@ -12,6 +12,9 @@ on:
       - 'website/**'
       - '.github/workflows/website-tests.yml'
 
+permissions:
+  contents: read
+
 jobs:
   test:
     name: Build and Test
