@@ -69,6 +69,7 @@ interface PositiveOnlySocialAPI {
 
     @GET("posts/{post_id}/details/")
     suspend fun getPostDetails(
+        @Header("Authorization") token: String,
         @Path("post_id") postId: String
     ): Response<Post>
 
@@ -167,6 +168,7 @@ interface PositiveOnlySocialAPI {
 
     @GET("threads/{thread_id}/comments/{batch}/")
     suspend fun getCommentsForThread(
+        @Header("Authorization") token: String,
         @Path("thread_id") threadId: String,
         @Path("batch") batch: Int
     ): Response<List<CommentDto>>

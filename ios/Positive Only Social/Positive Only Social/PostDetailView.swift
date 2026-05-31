@@ -13,10 +13,6 @@ struct PostDetailView: View {
     // Use @StateObject to create and own the ViewModel
     @StateObject private var viewModel: PostDetailViewModel
 
-    // This state tracks the *user's action* (like or unlike)
-    // for the main post.
-    @State private var isPostLiked = false
-    
     // Public init
     init(postIdentifier: String, api: Networking, keychainHelper: KeychainHelperProtocol) {
         _viewModel = StateObject(wrappedValue: PostDetailViewModel(postIdentifier: postIdentifier, api: api, keychainHelper: keychainHelper))
@@ -50,14 +46,11 @@ struct PostDetailView: View {
                     // --- Image Interactions ---
                     // --- UPDATED ---
                     .onTapGesture(count: 2) {
-                        // Toggle the local like state
-                        isPostLiked.toggle()
-                        
-                        // Call the correct view model function
-                        if isPostLiked {
-                            viewModel.likePost()
-                        } else {
+                        // Drive the action from the server-backed like state
+                        if post.isLiked {
                             viewModel.unlikePost()
+                        } else {
+                            viewModel.likePost()
                         }
                     }
                     .onLongPressGesture {
@@ -67,9 +60,9 @@ struct PostDetailView: View {
                     // --- POST DETAILS (CAPTION, LIKES) ---
                     VStack(alignment: .leading, spacing: 8) {
                         HStack {
-                            Image(systemName: isPostLiked ? "heart.fill" : "heart")
+                            Image(systemName: post.isLiked ? "heart.fill" : "heart")
                                 .foregroundColor(Color(UIColor.systemRed))
-                                .accessibilityLabel(isPostLiked ? "Liked" : "Like")
+                                .accessibilityLabel(post.isLiked ? "Liked" : "Like")
                             Text("\(post.likeCount) likes")
                                 .font(.headline)
                                 .accessibilityIdentifier("PostLikesText")
@@ -184,8 +177,6 @@ struct PostDetailView: View {
     struct CommentRowView: View {
         let comment: CommentViewData
 
-        @State private var isLiked = false
-        
         let isReported: Bool
         
         // Actions passed from the parent
@@ -218,10 +209,10 @@ struct PostDetailView: View {
                             .font(.caption)
                             .foregroundColor(.secondary)
 
-                        Image(systemName: isLiked ? "heart.fill" : "heart")
+                        Image(systemName: comment.isLiked ? "heart.fill" : "heart")
                             .foregroundColor(Color(UIColor.systemRed))
                             .font(.caption)
-                            .accessibilityLabel(isLiked ? "Liked" : "Like")
+                            .accessibilityLabel(comment.isLiked ? "Liked" : "Like")
 
                         Text("\(comment.likeCount) likes")
                             .font(.caption)
@@ -243,14 +234,11 @@ struct PostDetailView: View {
             // --- Interactions ---
             // --- UPDATED ---
             .onTapGesture(count: 2) {
-                // Toggle the local like state
-                isLiked.toggle()
-                
-                // Call the correct action
-                if isLiked {
-                    onLike()
-                } else {
+                // Drive the action from the server-backed like state
+                if comment.isLiked {
                     onUnlike()
+                } else {
+                    onLike()
                 }
             }
             .onLongPressGesture {

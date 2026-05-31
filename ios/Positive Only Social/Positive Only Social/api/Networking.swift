@@ -78,8 +78,9 @@ protocol Networking {
     /// Gets a batch of posts for another user.
     func getPostsForUser(sessionManagementToken: String, username: String, batch: Int) async throws -> Data
 
-    /// Gets the details for a single post.
-    func getPostDetails(postIdentifier: String) async throws -> Data
+    /// Gets the details for a single post. Requires auth so the response can
+    /// include whether the current user has liked the post.
+    func getPostDetails(sessionManagementToken: String, postIdentifier: String) async throws -> Data
     
     // MARK: - Comment Management
 
@@ -103,7 +104,8 @@ protocol Networking {
     func getCommentsForPost(postIdentifier: String, batch: Int) async throws -> Data
 
     /// Gets a batch of comments for a specific comment thread (i.e., replies to a comment).
-    func getCommentsForThread(commentThreadIdentifier: String, batch: Int) async throws -> Data
+    /// Requires auth so each comment can include whether the current user has liked it.
+    func getCommentsForThread(sessionManagementToken: String, commentThreadIdentifier: String, batch: Int) async throws -> Data
 
     /// Replies to a comment thread.
     func replyToCommentThread(sessionManagementToken: String, postIdentifier: String, commentThreadIdentifier: String, commentText: String) async throws -> Data

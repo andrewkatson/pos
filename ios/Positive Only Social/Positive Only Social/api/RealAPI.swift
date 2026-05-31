@@ -430,11 +430,12 @@ final class RealAPI: Networking {
     }
     
     /// Gets the details for a single post.
-    func getPostDetails(postIdentifier: String) async throws -> Data {
-        // This is a public GET request, no body, no auth. ID is in path.
+    func getPostDetails(sessionManagementToken: String, postIdentifier: String) async throws -> Data {
+        // Authenticated GET so the response can include the current user's like state. ID is in path.
         return try await performRequest(
             pathSegments: ["posts", postIdentifier, "details"],
-            method: .get
+            method: .get,
+            authToken: sessionManagementToken
         )
     }
     
@@ -506,11 +507,12 @@ final class RealAPI: Networking {
     }
     
     /// Gets a batch of comments for a specific comment thread.
-    func getCommentsForThread(commentThreadIdentifier: String, batch: Int) async throws -> Data {
-        // This is a GET request, no body, with no auth. ID/Batch are in path.
+    func getCommentsForThread(sessionManagementToken: String, commentThreadIdentifier: String, batch: Int) async throws -> Data {
+        // Authenticated GET so each comment can include the current user's like state. ID/Batch are in path.
         return try await performRequest(
             pathSegments: ["threads", commentThreadIdentifier, "comments", String(batch)],
             method: .get,
+            authToken: sessionManagementToken
         )
     }
     

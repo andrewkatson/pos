@@ -967,8 +967,9 @@ def get_posts_for_user(request, username, batch):
         return log_and_return_json("get_posts_for_user", [], safe=False)
 
 
-@ratelimit(key=_get_client_ip, rate='60/m', block=True)
-@require_GET  # Publicly viewable, no @api_login_required
+@api_login_required
+@ratelimit(key='user', rate='60/m', block=True)
+@require_GET
 def get_post_details(request, post_identifier):
     logger.info("Endpoint get_post_details invoked by IP or User")
     if not is_valid_pattern(post_identifier, Patterns.uuid4):
@@ -982,6 +983,7 @@ def get_post_details(request, post_identifier):
             Fields.image_url: get_compressed_image_url(post.image_url),
             Fields.caption: post.caption,
             Fields.post_likes: total_likes,
+            Fields.is_liked: post.postlike_set.filter(user=request.user).exists(),
             Fields.author_username: post.author.username
         }
         return log_and_return_json("get_post_details", post_data)
@@ -1291,6 +1293,13 @@ def get_comments_for_thread(request, comment_thread_identifier, batch):
         return log_and_return_json("get_comments_for_thread", [], safe=False)
 
     batched_comments = get_batch(batch, COMMENT_BATCH_SIZE, relevant_comments)
+    # Single query to find which of these comments the requesting user has liked,
+    # avoiding an N+1 .exists() call per comment.
+    liked_comment_ids = set(
+        request.user.commentlike_set
+        .filter(comment__in=batched_comments)
+        .values_list('comment_id', flat=True)
+    )
     comments_data = [
         {
             Fields.comment_identifier: comment.comment_identifier,
@@ -1298,7 +1307,8 @@ def get_comments_for_thread(request, comment_thread_identifier, batch):
             Fields.author_username: comment.author.username,
             Fields.creation_time: comment.creation_time,
             Fields.updated_time: comment.updated_time,
-            Fields.comment_likes: comment.commentlike_set.count()
+            Fields.comment_likes: comment.commentlike_set.count(),
+            Fields.is_liked: comment.comment_identifier in liked_comment_ids
         }
         for comment in batched_comments
     ]

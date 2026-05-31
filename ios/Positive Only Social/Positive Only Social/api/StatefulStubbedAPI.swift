@@ -515,11 +515,12 @@ final class StatefulStubbedAPI: Networking {
         return try createSerializedListResponse(fieldsList: fieldObjects)
     }
 
-    func getPostDetails(postIdentifier: String) async throws -> Data {
+    func getPostDetails(sessionManagementToken: String, postIdentifier: String) async throws -> Data {
         await simulateNetwork()
+        guard let user = findUser(bySessionToken: sessionManagementToken) else { throw APIError.badServerResponse(statusCode: 401) }
         guard let post = findPost(byIdentifier: postIdentifier) else { throw APIError.badServerResponse(statusCode: 400) }
-        struct Fields: Codable { let post_identifier, image_url, caption: String; let post_likes: Int; let author_username: String }
-        let fields = Fields(post_identifier: post.postIdentifier, image_url: post.imageURL, caption: post.caption, post_likes: post.likes.count, author_username: users.first(where: {$0.id == post.authorId})?.username ?? "Unknown User")
+        struct Fields: Codable { let post_identifier, image_url, caption: String; let post_likes: Int; let is_liked: Bool; let author_username: String }
+        let fields = Fields(post_identifier: post.postIdentifier, image_url: post.imageURL, caption: post.caption, post_likes: post.likes.count, is_liked: post.likes.contains(user.username), author_username: users.first(where: {$0.id == post.authorId})?.username ?? "Unknown User")
         return try createSerializedResponse(fields: fields)
     }
 
@@ -613,10 +614,11 @@ final class StatefulStubbedAPI: Networking {
         return try createSerializedListResponse(fieldsList: fieldObjects)
     }
 
-    func getCommentsForThread(commentThreadIdentifier: String, batch: Int) async throws -> Data {
+    func getCommentsForThread(sessionManagementToken: String, commentThreadIdentifier: String, batch: Int) async throws -> Data {
         await simulateNetwork()
+        guard let user = findUser(bySessionToken: sessionManagementToken) else { throw APIError.badServerResponse(statusCode: 401) }
         let relevantComments = comments.filter { $0.threadId == commentThreadIdentifier && !$0.isHidden }.sorted { $0.createdDate < $1.createdDate }
-        
+
         if relevantComments.isEmpty {
             // If there are no comments return gracefully
             return try createSerializedListResponse(fieldsList: [Fields]())
@@ -626,6 +628,7 @@ final class StatefulStubbedAPI: Networking {
             let comment_identifier, body, author_username: String
             let creation_time, updated_time: String
             let comment_likes: Int
+            let is_liked: Bool
         }
 
         let dateFormatter = ISO8601DateFormatter()
@@ -633,7 +636,8 @@ final class StatefulStubbedAPI: Networking {
             Fields(comment_identifier: comment.commentIdentifier, body: comment.body, author_username: comment.authorUsername,
                    creation_time: dateFormatter.string(from: comment.createdDate),
                    updated_time: dateFormatter.string(from: comment.updatedDate),
-                   comment_likes: comment.likes.count)
+                   comment_likes: comment.likes.count,
+                   is_liked: comment.likes.contains(user.username))
         }
         return try createSerializedListResponse(fieldsList: fieldObjects)
     }

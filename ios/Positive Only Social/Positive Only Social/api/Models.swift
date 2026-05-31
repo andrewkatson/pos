@@ -110,6 +110,7 @@ struct PostDisplayData: Identifiable, Equatable {
     let imageURL: String
     let caption: String
     let likeCount: Int
+    let isLiked: Bool // Whether the current user has liked this post
     let authorUsername: String // Added for context
 }
 
@@ -120,6 +121,7 @@ struct CommentViewData: Identifiable, Equatable {
     let authorUsername: String
     let body: String
     let likeCount: Int
+    let isLiked: Bool // Whether the current user has liked this comment
     let createdDate: Date
 }
 

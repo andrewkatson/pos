@@ -426,7 +426,8 @@ class StatefulStubbedAPI : PositiveOnlySocialAPI {
         return Response.success(dtos)
     }
 
-    override suspend fun getPostDetails(postId: String): Response<Post> {
+    override suspend fun getPostDetails(token: String, postId: String): Response<Post> {
+        val user = getAuthorizedUser(token) ?: return errorGeneric(401, "Unauthorized")
         val post = posts.find { it.postIdentifier == postId }
             ?: return errorGeneric(404, "No post with that identifier")
         val author = users.find { it.id == post.authorId }!!
@@ -436,7 +437,8 @@ class StatefulStubbedAPI : PositiveOnlySocialAPI {
             post.imageUrl,
             post.caption,
             authorUsername = author.username,
-            post.likes.count()
+            likeCount = post.likes.count(),
+            isLiked = post.likes.contains(user.id)
         ))
     }
 
@@ -522,7 +524,8 @@ class StatefulStubbedAPI : PositiveOnlySocialAPI {
         return Response.success(batched.map { CommentThreadDto(it.threadIdentifier) })
     }
 
-    override suspend fun getCommentsForThread(threadId: String, batch: Int): Response<List<CommentDto>> {
+    override suspend fun getCommentsForThread(token: String, threadId: String, batch: Int): Response<List<CommentDto>> {
+        val user = getAuthorizedUser(token) ?: return errorGeneric(401, "Unauthorized")
         val thread = commentThreads.find { it.threadIdentifier == threadId }
             ?: return errorGeneric(404, "Thread not found")
 
@@ -537,7 +540,8 @@ class StatefulStubbedAPI : PositiveOnlySocialAPI {
                 author.username,
                 c.creationTime.toString(),
                 c.creationTime.toString(),
-                c.likes.size
+                c.likes.size,
+                isLiked = c.likes.contains(user.id)
             )
         }
         return Response.success(dtos)

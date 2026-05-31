@@ -18,6 +18,16 @@ class GetPostDetailsTests(PositiveOnlySocialTestCase):
         # Define the valid URL for the test
         self.url = reverse('get_post_details', kwargs={'post_identifier': str(self.post_identifier)})
 
+        # get_post_details now requires authentication
+        self.header = {'HTTP_AUTHORIZATION': f'Bearer {self.session_management_token}'}
+
+    def test_missing_auth_returns_unauthorized(self):
+        """
+        Tests that an unauthenticated request is rejected with 401.
+        """
+        response = self.client.get(self.url)
+        self.assertEqual(response.status_code, 401)
+
     def test_invalid_post_identifier_returns_bad_response(self):
         """
         Tests that a malformed post_identifier in the URL
@@ -41,7 +51,7 @@ class GetPostDetailsTests(PositiveOnlySocialTestCase):
 
         invalid_url = reverse('get_post_details', kwargs={'post_identifier': non_existent_uuid})
 
-        response = self.client.get(invalid_url)
+        response = self.client.get(invalid_url, **self.header)
 
         # Fails at 'get_post_with_identifier'
         self.assertEqual(response.status_code, 400)
@@ -51,7 +61,7 @@ class GetPostDetailsTests(PositiveOnlySocialTestCase):
         Tests that a valid request for an existing post returns
         a 200 OK and the correct post data.
         """
-        response = self.client.get(self.url)
+        response = self.client.get(self.url, **self.header)
 
         self.assertEqual(response.status_code, 200)
 
@@ -66,3 +76,23 @@ class GetPostDetailsTests(PositiveOnlySocialTestCase):
 
         # Check default/calculated values
         self.assertEqual(data[Fields.post_likes], 0)
+        # The author has not liked their own post
+        self.assertFalse(data[Fields.is_liked])
+
+    def test_is_liked_true_when_requesting_user_liked_post(self):
+        """
+        Tests that is_liked is True when the authenticated requester has
+        liked the post.
+        """
+        # A second user likes the post (users cannot like their own post)
+        liker = self.make_user_with_prefix(prefix='liker')
+        liker_header = {'HTTP_AUTHORIZATION': f'Bearer {liker[Fields.session_management_token]}'}
+
+        like_url = reverse('like_post', kwargs={'post_identifier': str(self.post_identifier)})
+        like_response = self.client.post(like_url, **liker_header)
+        self.assertEqual(like_response.status_code, 200)
+
+        # Fetch details as the liker
+        response = self.client.get(self.url, **liker_header)
+        self.assertEqual(response.status_code, 200)
+        self.assertTrue(response.json()[Fields.is_liked])

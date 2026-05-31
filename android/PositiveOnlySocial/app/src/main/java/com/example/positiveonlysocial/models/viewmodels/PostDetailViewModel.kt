@@ -86,8 +86,18 @@ class PostDetailViewModel(
 
         viewModelScope.launch {
             try {
+                // These authenticated GETs need the session token so the backend can
+                // report whether the current user has liked the post / each comment.
+                val userSession = keychainHelper.load(UserSession::class.java, service, account)
+                if (userSession == null) {
+                    Log.e(TAG, "No active session found — cannot load post details")
+                    _alertMessage.value = "Not logged in."
+                    return@launch
+                }
+                val token = userSession.sessionToken
+
                 // 1. Fetch the main post details
-                val postResponse = api.getPostDetails(postIdentifier)
+                val postResponse = api.getPostDetails(token, postIdentifier)
                 if (postResponse.isSuccessful) {
                     _postDetail.value = postResponse.body()
                 } else {
@@ -103,11 +113,11 @@ class PostDetailViewModel(
                 val loadedThreads = coroutineScope {
                     threadIdentifiers.map { threadId ->
                         async {
-                            val commentsResponse = api.getCommentsForThread(threadId, 0)
+                            val commentsResponse = api.getCommentsForThread(token, threadId, 0)
                             val comments = commentsResponse.body() ?: emptyList()
                             // Sort comments by date (oldest first)
                             val sortedComments = comments.sortedBy { it.creationTime }
-                            
+
                             // Convert to CommentViewData
                             val commentViewDataList = sortedComments.map { c ->
                                 CommentViewData(
@@ -116,10 +126,11 @@ class PostDetailViewModel(
                                     authorUsername = c.authorUsername,
                                     body = c.body,
                                     likeCount = c.likeCount,
+                                    isLiked = c.isLiked,
                                     createdDate = Date() // TODO: Parse c.creationTime string to Date
                                 )
                             }
-                            
+
                             CommentThreadViewData(threadId, commentViewDataList)
                         }
                     }.awaitAll()

@@ -69,6 +69,7 @@ class Fields:
     following_count = "following_count"
     follower_count = "follower_count"
     is_following = "is_following"
+    is_liked = "is_liked"
     author_username = "author_username"
     email = "email"
     password = "password"

@@ -167,14 +167,15 @@ class MockPositiveOnlySocialAPI : PositiveOnlySocialAPI {
         )
     }
 
-    override suspend fun getPostDetails(postId: String): Response<Post> {
+    override suspend fun getPostDetails(token: String, postId: String): Response<Post> {
         return Response.success(
             Post(
                 postIdentifier = postId,
                 imageUrl = "https://example.com/detail.jpg",
                 caption = "Detailed view of the post",
                 authorUsername = "mock_author",
-                likeCount = 100
+                likeCount = 100,
+                isLiked = false
             )
         )
     }
@@ -327,6 +328,7 @@ class MockPositiveOnlySocialAPI : PositiveOnlySocialAPI {
     }
 
     override suspend fun getCommentsForThread(
+        token: String,
         threadId: String,
         batch: Int
     ): Response<List<CommentDto>> {
@@ -338,7 +340,8 @@ class MockPositiveOnlySocialAPI : PositiveOnlySocialAPI {
                     authorUsername = "fan_1",
                     creationTime = "2023-01-01T12:00:00Z",
                     updatedTime = "2023-01-01T12:00:00Z",
-                    likeCount = 5
+                    likeCount = 5,
+                    isLiked = false
                 ),
                 CommentDto(
                     commentIdentifier = "c2",
@@ -346,7 +349,8 @@ class MockPositiveOnlySocialAPI : PositiveOnlySocialAPI {
                     authorUsername = "fan_2",
                     creationTime = "2023-01-01T12:05:00Z",
                     updatedTime = "2023-01-01T12:05:00Z",
-                    likeCount = 2
+                    likeCount = 2,
+                    isLiked = true
                 )
             )
         )

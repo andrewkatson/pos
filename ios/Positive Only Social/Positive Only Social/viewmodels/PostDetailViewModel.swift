@@ -64,34 +64,45 @@ final class PostDetailViewModel: ObservableObject {
         
         Task {
             do {
+                // These authenticated GETs need the session token so the backend can
+                // report whether the current user has liked the post / each comment.
+                guard let userSession = try keychainHelper.load(UserSession.self, from: keychainService, account: account) else {
+                    NSLog("%@", "No active session — cannot load post details")
+                    self.alertMessage = "Session not found."
+                    self.isLoading = false
+                    return
+                }
+                let token = userSession.sessionToken
+
                 // 1. Fetch the main post details
-                let postData = try await api.getPostDetails(postIdentifier: postIdentifier)
+                let postData = try await api.getPostDetails(sessionManagementToken: token, postIdentifier: postIdentifier)
                 let postFields = try self.decodeSingle(from: postData, type: PostDetailsFields.self)
-                
+
                 self.postDetail = PostDisplayData(
                     id: postFields.post_identifier,
                     imageURL: postFields.image_url,
                     caption: postFields.caption,
                     likeCount: postFields.post_likes,
+                    isLiked: postFields.is_liked,
                     authorUsername: postFields.author_username
                 )
-                
+
                 // 2. Fetch the list of comment thread IDs for this post
                 let threadListData = try await api.getCommentsForPost(postIdentifier: postIdentifier, batch: 0)
                 let threadIDFields = try self.decodeList(from: threadListData, type: ThreadIDFields.self)
                 let threadIdentifiers = threadIDFields.map { $0.comment_thread_identifier }
-                
+
                 // 3. Fetch all comments for *each* thread in parallel
                 var loadedThreads: [CommentThreadViewData] = []
-                
+
                 try await withThrowingTaskGroup(of: [CommentViewData].self) { group in
                     for threadId in threadIdentifiers {
                         group.addTask {
-                            let commentsData = try await self.api.getCommentsForThread(commentThreadIdentifier: threadId, batch: 0)
-                            
+                            let commentsData = try await self.api.getCommentsForThread(sessionManagementToken: token, commentThreadIdentifier: threadId, batch: 0)
+
                             // *** FIXED: Removed 'await' here, as decodeList is not async ***
                             let commentFields = try await self.decodeList(from: commentsData, type: CommentFields.self)
-                            
+
                             // 4. Convert network models to View Models
                             return commentFields.map { field in
                                 CommentViewData(
@@ -100,6 +111,7 @@ final class PostDetailViewModel: ObservableObject {
                                     authorUsername: field.author_username,
                                     body: field.body,
                                     likeCount: field.comment_likes,
+                                    isLiked: field.is_liked,
                                     createdDate: Self.parseDate(field.creation_time)
                                 )
                             }
@@ -141,6 +153,7 @@ final class PostDetailViewModel: ObservableObject {
                 imageURL: post.imageURL,
                 caption: post.caption,
                 likeCount: post.likeCount + 1, // Optimistic update
+                isLiked: true,
                 authorUsername: post.authorUsername
             )
             self.postDetail = post
@@ -173,6 +186,7 @@ final class PostDetailViewModel: ObservableObject {
                 imageURL: post.imageURL,
                 caption: post.caption,
                 likeCount: max(0, post.likeCount - 1), // Optimistic update
+                isLiked: false,
                 authorUsername: post.authorUsername
             )
             self.postDetail = post
@@ -245,6 +259,7 @@ final class PostDetailViewModel: ObservableObject {
             authorUsername: oldComment.authorUsername,
             body: oldComment.body,
             likeCount: oldComment.likeCount + 1, // The update
+            isLiked: true,
             createdDate: oldComment.createdDate
         )
         
@@ -294,6 +309,7 @@ final class PostDetailViewModel: ObservableObject {
             authorUsername: oldComment.authorUsername,
             body: oldComment.body,
             likeCount: newLikeCount, // The update
+            isLiked: false,
             createdDate: oldComment.createdDate
         )
         
@@ -409,6 +425,7 @@ final class PostDetailViewModel: ObservableObject {
         let image_url: String
         let caption: String
         let post_likes: Int
+        let is_liked: Bool
         let author_username: String
     }
     
@@ -423,6 +440,7 @@ final class PostDetailViewModel: ObservableObject {
         let creation_time: String
         let updated_time: String
         let comment_likes: Int
+        let is_liked: Bool
     }
 
     private func decodeSingle<T: Decodable>(from data: Data, type: T.Type) throws -> T {
