@@ -30,7 +30,7 @@ function LoginPage() {
       if (response.username) {
         localStorage.setItem('username', response.username)
       }
-      navigate('/')
+      navigate('/home')
     } catch (err) {
       const apiErr = err as ApiError
       setErrorMessage(apiErr.message ?? 'Login failed. Please check your credentials.')

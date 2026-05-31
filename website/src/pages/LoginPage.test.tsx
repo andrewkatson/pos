@@ -18,7 +18,7 @@ function renderLoginPage() {
     <MemoryRouter initialEntries={['/login']}>
       <Routes>
         <Route path="/login" element={<LoginPage />} />
-        <Route path="/" element={<div>Home</div>} />
+        <Route path="/home" element={<div>Home</div>} />
         <Route path="/request-reset" element={<div>Reset page</div>} />
       </Routes>
     </MemoryRouter>,

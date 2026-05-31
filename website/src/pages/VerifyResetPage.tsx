@@ -1,31 +1,36 @@
 import { useState, type FormEvent } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useNavigate, useLocation } from 'react-router-dom'
 import Logo from '../components/Logo'
 import { apiClient } from '../api/client'
 import type { ApiError } from '../api/client'
 import './LoginPage.css'
 
-function RequestResetPage() {
+function VerifyResetPage() {
   const navigate = useNavigate()
-  const [usernameOrEmail, setUsernameOrEmail] = useState('')
+  const location = useLocation()
+  const usernameOrEmail =
+    (location.state as { usernameOrEmail?: string } | null)?.usernameOrEmail ?? ''
+
+  const [verificationToken, setVerificationToken] = useState('')
   const [isLoading, setIsLoading] = useState(false)
   const [errorMessage, setErrorMessage] = useState<string | null>(null)
 
   async function handleSubmit(e: FormEvent) {
     e.preventDefault()
-    if (usernameOrEmail.trim().length === 0) return
+    if (verificationToken.trim().length === 0) return
     setIsLoading(true)
     try {
-      await apiClient.requestReset({ username_or_email: usernameOrEmail.trim() })
-      navigate('/verify-reset', { state: { usernameOrEmail: usernameOrEmail.trim() } })
+      const response = await apiClient.verifyReset({
+        username_or_email: usernameOrEmail,
+        verification_token: verificationToken.trim(),
+      })
+      setErrorMessage(null)
+      navigate('/reset-password', {
+        state: { usernameOrEmail, resetToken: response.reset_token },
+      })
     } catch (err) {
       const apiErr = err as ApiError
-      // Treat "account not found" the same as success to prevent user enumeration.
-      if (apiErr.message === 'No user with that username or email') {
-        navigate('/verify-reset', { state: { usernameOrEmail: usernameOrEmail.trim() } })
-      } else {
-        setErrorMessage(apiErr.message ?? 'Reset request failed. Please try again.')
-      }
+      setErrorMessage(apiErr.message ?? 'Invalid token or an unknown error occurred.')
     } finally {
       setIsLoading(false)
     }
@@ -37,8 +42,8 @@ function RequestResetPage() {
         <button
           type="button"
           className="auth-back"
-          onClick={() => navigate('/login')}
-          aria-label="Back to login"
+          onClick={() => navigate('/request-reset')}
+          aria-label="Back to request reset"
         >
           ← Back
         </button>
@@ -47,7 +52,13 @@ function RequestResetPage() {
           <Logo size={80} />
         </div>
 
-        <h1 className="auth-title">Reset Password</h1>
+        <h1 className="auth-title">Enter Verification Token</h1>
+
+        {usernameOrEmail && (
+          <p style={{ color: 'rgba(255,255,255,0.8)', textAlign: 'center', lineHeight: 1.5, margin: 0 }}>
+            Enter the verification token sent to {usernameOrEmail}.
+          </p>
+        )}
 
         {errorMessage && (
           <div className="auth-error" role="alert">
@@ -65,33 +76,32 @@ function RequestResetPage() {
 
         <form className="auth-form" onSubmit={handleSubmit} noValidate>
           <div className="auth-field">
-            <label className="auth-label" htmlFor="usernameOrEmail">
-              Username or Email
+            <label className="auth-label" htmlFor="verificationToken">
+              Verification Token
             </label>
             <input
-              id="usernameOrEmail"
+              id="verificationToken"
               className="auth-input"
               type="text"
-              inputMode="email"
-              autoComplete="username"
+              autoComplete="one-time-code"
               autoCapitalize="none"
-              value={usernameOrEmail}
-              onChange={e => setUsernameOrEmail(e.target.value)}
+              value={verificationToken}
+              onChange={e => setVerificationToken(e.target.value)}
               disabled={isLoading}
             />
           </div>
 
           {isLoading ? (
-            <div className="auth-spinner" aria-label="Submitting…">
+            <div className="auth-spinner" aria-label="Verifying…">
               <span className="spinner" />
             </div>
           ) : (
             <button
               type="submit"
               className="auth-button"
-              disabled={usernameOrEmail.trim().length === 0}
+              disabled={verificationToken.trim().length === 0}
             >
-              Request Reset
+              Verify
             </button>
           )}
         </form>
@@ -100,4 +110,4 @@ function RequestResetPage() {
   )
 }
 
-export default RequestResetPage
+export default VerifyResetPage
