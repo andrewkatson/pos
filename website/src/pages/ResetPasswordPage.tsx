@@ -1,5 +1,5 @@
 import { useState, type FormEvent } from 'react'
-import { useNavigate, useLocation } from 'react-router-dom'
+import { Navigate, useNavigate, useLocation } from 'react-router-dom'
 import Logo from '../components/Logo'
 import { apiClient } from '../api/client'
 import type { ApiError } from '../api/client'
@@ -22,6 +22,10 @@ function ResetPasswordPage() {
   const [isLoading, setIsLoading] = useState(false)
   const [errorMessage, setErrorMessage] = useState<string | null>(null)
 
+  if (!resetToken) {
+    return <Navigate to="/request-reset" replace />
+  }
+
   const isFormValid =
     username.trim().length > 0 && email.trim().length > 0 && newPassword.length > 0
 
@@ -34,7 +38,7 @@ function ResetPasswordPage() {
         username: username.trim(),
         email: email.trim(),
         password: newPassword,
-        reset_token: resetToken,
+        reset_token: resetToken.trim(),
       })
       const response = await apiClient.login({
         username_or_email: username.trim() || email.trim(),

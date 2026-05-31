@@ -91,3 +91,15 @@ test('Back button navigates to /request-reset', async () => {
   await userEvent.click(screen.getByRole('button', { name: 'Back to request reset' }))
   expect(screen.getByText('Request reset page')).toBeInTheDocument()
 })
+
+test('redirects to /request-reset when usernameOrEmail is missing from state', () => {
+  render(
+    <MemoryRouter initialEntries={['/verify-reset']}>
+      <Routes>
+        <Route path="/verify-reset" element={<VerifyResetPage />} />
+        <Route path="/request-reset" element={<div>Request reset page</div>} />
+      </Routes>
+    </MemoryRouter>,
+  )
+  expect(screen.getByText('Request reset page')).toBeInTheDocument()
+})

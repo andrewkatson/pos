@@ -1,5 +1,5 @@
 import { useState, type FormEvent } from 'react'
-import { useNavigate, useLocation } from 'react-router-dom'
+import { Navigate, useNavigate, useLocation } from 'react-router-dom'
 import Logo from '../components/Logo'
 import { apiClient } from '../api/client'
 import type { ApiError } from '../api/client'
@@ -15,18 +15,22 @@ function VerifyResetPage() {
   const [isLoading, setIsLoading] = useState(false)
   const [errorMessage, setErrorMessage] = useState<string | null>(null)
 
+  if (!usernameOrEmail) {
+    return <Navigate to="/request-reset" replace />
+  }
+
   async function handleSubmit(e: FormEvent) {
     e.preventDefault()
     if (verificationToken.trim().length === 0) return
     setIsLoading(true)
     try {
       const response = await apiClient.verifyReset({
-        username_or_email: usernameOrEmail,
+        username_or_email: usernameOrEmail.trim(),
         verification_token: verificationToken.trim(),
       })
       setErrorMessage(null)
       navigate('/reset-password', {
-        state: { usernameOrEmail, resetToken: response.reset_token },
+        state: { usernameOrEmail: usernameOrEmail.trim(), resetToken: response.reset_token },
       })
     } catch (err) {
       const apiErr = err as ApiError
