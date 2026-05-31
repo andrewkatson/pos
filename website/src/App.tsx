@@ -1,9 +1,10 @@
 import { Routes, Route } from 'react-router-dom'
+import LandingPage from './pages/LandingPage'
 
 function App() {
   return (
     <Routes>
-      <Route path="/" element={<div>Positive Only Social</div>} />
+      <Route path="/" element={<LandingPage />} />
     </Routes>
   )
 }

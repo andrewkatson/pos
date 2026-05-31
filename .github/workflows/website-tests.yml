@@ -34,6 +34,10 @@ jobs:
         working-directory: ./website
         run: npm ci
 
+      - name: Lint
+        working-directory: ./website
+        run: npm run lint
+
       - name: Type check
         working-directory: ./website
         run: npx tsc -b --noEmit
