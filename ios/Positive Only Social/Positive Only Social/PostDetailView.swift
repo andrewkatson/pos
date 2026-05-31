@@ -68,7 +68,7 @@ struct PostDetailView: View {
                     VStack(alignment: .leading, spacing: 8) {
                         HStack {
                             Image(systemName: isPostLiked ? "heart.fill" : "heart")
-                                .foregroundColor(.red)
+                                .foregroundColor(Color(UIColor.systemRed))
                                 .accessibilityLabel(isPostLiked ? "Liked" : "Like")
                             Text("\(post.likeCount) likes")
                                 .font(.headline)
@@ -219,7 +219,7 @@ struct PostDetailView: View {
                             .foregroundColor(.secondary)
 
                         Image(systemName: isLiked ? "heart.fill" : "heart")
-                            .foregroundColor(.red)
+                            .foregroundColor(Color(UIColor.systemRed))
                             .font(.caption)
                             .accessibilityLabel(isLiked ? "Liked" : "Like")
 
