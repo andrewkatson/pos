@@ -3,7 +3,7 @@ import boto3
 import io
 import os
 from urllib.parse import unquote_plus
-from PIL import Image
+from PIL import Image, ImageOps
 
 def lambda_handler(event, context):
     try:
@@ -28,6 +28,7 @@ def lambda_handler(event, context):
         image_data = response['Body'].read()
 
         img = Image.open(io.BytesIO(image_data))
+        img = ImageOps.exif_transpose(img)
         if img.mode != 'RGB':
             img = img.convert('RGB')
 
