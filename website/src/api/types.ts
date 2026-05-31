@@ -127,7 +127,3 @@ export interface ProfileDetails {
   identity_is_verified: boolean
   is_adult: boolean
 }
-
-export interface HealthResponse {
-  status: string
-}

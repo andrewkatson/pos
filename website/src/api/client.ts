@@ -1,10 +1,14 @@
-// Typed client for the Positive Only Social backend.
+// Real HTTP client for the Positive Only Social backend.
 //
-// Endpoints and request/response shapes mirror backend/pos_backend/urls.py,
-// backend/user_system/urls.py, and the corresponding views. Authenticated
-// endpoints send `Authorization: Bearer <session_management_token>`, matching
-// the `api_login_required` decorator in backend/user_system/views.py.
+// Endpoints and request/response shapes mirror backend/user_system/urls.py and
+// the corresponding views. Authenticated endpoints send
+// `Authorization: Bearer <session_management_token>`, matching the
+// `api_login_required` decorator in backend/user_system/views.py.
+//
+// The default base URL matches the native clients: iOS RealAPI.swift and
+// Android Constants.kt both target https://api.smiling.social/user_index/.
 
+import type { PositiveOnlySocialAPI } from './PositiveOnlySocialAPI'
 import type {
   AuthResponse,
   Comment,
@@ -13,7 +17,6 @@ import type {
   CreatePostRequest,
   CreatePostResponse,
   FeedPost,
-  HealthResponse,
   LoginRequest,
   LoginWithRememberMeRequest,
   LoginWithRememberMeResponse,
@@ -29,7 +32,7 @@ import type {
   VerifyResetResponse,
 } from './types'
 
-const DEFAULT_BASE_URL = 'http://localhost:8000'
+const DEFAULT_BASE_URL = 'https://api.smiling.social/user_index'
 
 /** Error thrown for any non-2xx response, carrying the backend's error message. */
 export class ApiError extends Error {
@@ -43,7 +46,7 @@ export class ApiError extends Error {
 }
 
 export interface ApiClientOptions {
-  /** Backend origin, e.g. "https://api.example.com". */
+  /** Backend base URL, e.g. "https://api.smiling.social/user_index". */
   baseUrl?: string
   /** Existing session token to start authenticated. */
   token?: string
@@ -51,7 +54,7 @@ export interface ApiClientOptions {
   fetchFn?: typeof fetch
 }
 
-export class ApiClient {
+export class ApiClient implements PositiveOnlySocialAPI {
   private readonly baseUrl: string
   private readonly fetchFn: typeof fetch
   private token: string | null
@@ -123,25 +126,17 @@ export class ApiClient {
   }
 
   // ===========================================================================
-  // HEALTH
-  // ===========================================================================
-
-  health(): Promise<HealthResponse> {
-    return this.request<HealthResponse>('GET', '/health/')
-  }
-
-  // ===========================================================================
   // AUTHENTICATION
   // ===========================================================================
 
   async register(body: RegisterRequest): Promise<AuthResponse> {
-    const result = await this.request<AuthResponse>('POST', '/user_index/register/', { body })
+    const result = await this.request<AuthResponse>('POST', '/register/', { body })
     this.setToken(result.session_management_token)
     return result
   }
 
   async login(body: LoginRequest): Promise<AuthResponse> {
-    const result = await this.request<AuthResponse>('POST', '/user_index/login/', { body })
+    const result = await this.request<AuthResponse>('POST', '/login/', { body })
     this.setToken(result.session_management_token)
     return result
   }
@@ -149,34 +144,28 @@ export class ApiClient {
   async loginWithRememberMe(
     body: LoginWithRememberMeRequest,
   ): Promise<LoginWithRememberMeResponse> {
-    const result = await this.request<LoginWithRememberMeResponse>(
-      'POST',
-      '/user_index/login/remember/',
-      { body },
-    )
+    const result = await this.request<LoginWithRememberMeResponse>('POST', '/login/remember/', {
+      body,
+    })
     this.setToken(result.session_management_token)
     return result
   }
 
   async logout(): Promise<MessageResponse> {
-    const result = await this.request<MessageResponse>('POST', '/user_index/logout/', {
-      auth: true,
-    })
+    const result = await this.request<MessageResponse>('POST', '/logout/', { auth: true })
     this.setToken(null)
     return result
   }
 
   verifyIdentity(dateOfBirth: string): Promise<MessageResponse> {
-    return this.request<MessageResponse>('POST', '/user_index/verify-identity/', {
+    return this.request<MessageResponse>('POST', '/verify-identity/', {
       auth: true,
       body: { date_of_birth: dateOfBirth },
     })
   }
 
   async deleteAccount(): Promise<MessageResponse> {
-    const result = await this.request<MessageResponse>('POST', '/user_index/user/delete/', {
-      auth: true,
-    })
+    const result = await this.request<MessageResponse>('POST', '/user/delete/', { auth: true })
     this.setToken(null)
     return result
   }
@@ -186,17 +175,15 @@ export class ApiClient {
   // ===========================================================================
 
   requestReset(body: RequestResetRequest): Promise<MessageResponse> {
-    return this.request<MessageResponse>('POST', '/user_index/password/request-reset/', { body })
+    return this.request<MessageResponse>('POST', '/password/request-reset/', { body })
   }
 
   verifyReset(body: VerifyResetRequest): Promise<VerifyResetResponse> {
-    return this.request<VerifyResetResponse>('POST', '/user_index/password/verify-reset/', {
-      body,
-    })
+    return this.request<VerifyResetResponse>('POST', '/password/verify-reset/', { body })
   }
 
   resetPassword(body: ResetPasswordRequest): Promise<MessageResponse> {
-    return this.request<MessageResponse>('POST', '/user_index/password/reset/', { body })
+    return this.request<MessageResponse>('POST', '/password/reset/', { body })
   }
 
   // ===========================================================================
@@ -204,33 +191,28 @@ export class ApiClient {
   // ===========================================================================
 
   createPost(body: CreatePostRequest): Promise<CreatePostResponse> {
-    return this.request<CreatePostResponse>('POST', '/user_index/posts/create/', {
-      auth: true,
-      body,
-    })
+    return this.request<CreatePostResponse>('POST', '/posts/create/', { auth: true, body })
   }
 
   deletePost(postIdentifier: string): Promise<MessageResponse> {
-    return this.request<MessageResponse>('POST', `/user_index/posts/${postIdentifier}/delete/`, {
+    return this.request<MessageResponse>('POST', `/posts/${postIdentifier}/delete/`, {
       auth: true,
     })
   }
 
   reportPost(postIdentifier: string, reason: string): Promise<MessageResponse> {
-    return this.request<MessageResponse>('POST', `/user_index/posts/${postIdentifier}/report/`, {
+    return this.request<MessageResponse>('POST', `/posts/${postIdentifier}/report/`, {
       auth: true,
       body: { reason },
     })
   }
 
   likePost(postIdentifier: string): Promise<MessageResponse> {
-    return this.request<MessageResponse>('POST', `/user_index/posts/${postIdentifier}/like/`, {
-      auth: true,
-    })
+    return this.request<MessageResponse>('POST', `/posts/${postIdentifier}/like/`, { auth: true })
   }
 
   unlikePost(postIdentifier: string): Promise<MessageResponse> {
-    return this.request<MessageResponse>('POST', `/user_index/posts/${postIdentifier}/unlike/`, {
+    return this.request<MessageResponse>('POST', `/posts/${postIdentifier}/unlike/`, {
       auth: true,
     })
   }
@@ -240,21 +222,19 @@ export class ApiClient {
   // ===========================================================================
 
   getFeed(batch: number): Promise<FeedPost[]> {
-    return this.request<FeedPost[]>('GET', `/user_index/feed/${batch}/`, { auth: true })
+    return this.request<FeedPost[]>('GET', `/feed/${batch}/`, { auth: true })
   }
 
   getFollowedFeed(batch: number): Promise<FeedPost[]> {
-    return this.request<FeedPost[]>('GET', `/user_index/feed/followed/${batch}/`, { auth: true })
+    return this.request<FeedPost[]>('GET', `/feed/followed/${batch}/`, { auth: true })
   }
 
   getPostsForUser(username: string, batch: number): Promise<FeedPost[]> {
-    return this.request<FeedPost[]>('GET', `/user_index/users/${username}/posts/${batch}/`, {
-      auth: true,
-    })
+    return this.request<FeedPost[]>('GET', `/users/${username}/posts/${batch}/`, { auth: true })
   }
 
   getPostDetails(postIdentifier: string): Promise<PostDetails> {
-    return this.request<PostDetails>('GET', `/user_index/posts/${postIdentifier}/details/`)
+    return this.request<PostDetails>('GET', `/posts/${postIdentifier}/details/`)
   }
 
   // ===========================================================================
@@ -262,11 +242,10 @@ export class ApiClient {
   // ===========================================================================
 
   commentOnPost(postIdentifier: string, commentText: string): Promise<CommentOnPostResponse> {
-    return this.request<CommentOnPostResponse>(
-      'POST',
-      `/user_index/posts/${postIdentifier}/comment/`,
-      { auth: true, body: { comment_text: commentText } },
-    )
+    return this.request<CommentOnPostResponse>('POST', `/posts/${postIdentifier}/comment/`, {
+      auth: true,
+      body: { comment_text: commentText },
+    })
   }
 
   replyToCommentThread(
@@ -276,7 +255,7 @@ export class ApiClient {
   ): Promise<ReplyResponse> {
     return this.request<ReplyResponse>(
       'POST',
-      `/user_index/posts/${postIdentifier}/threads/${commentThreadIdentifier}/reply/`,
+      `/posts/${postIdentifier}/threads/${commentThreadIdentifier}/reply/`,
       { auth: true, body: { comment_text: commentText } },
     )
   }
@@ -284,18 +263,15 @@ export class ApiClient {
   getCommentsForPost(postIdentifier: string, batch: number): Promise<CommentThreadRef[]> {
     return this.request<CommentThreadRef[]>(
       'GET',
-      `/user_index/posts/${postIdentifier}/comments/${batch}/`,
+      `/posts/${postIdentifier}/comments/${batch}/`,
       { auth: true },
     )
   }
 
-  getCommentsForThread(
-    commentThreadIdentifier: string,
-    batch: number,
-  ): Promise<Comment[]> {
+  getCommentsForThread(commentThreadIdentifier: string, batch: number): Promise<Comment[]> {
     return this.request<Comment[]>(
       'GET',
-      `/user_index/threads/${commentThreadIdentifier}/comments/${batch}/`,
+      `/threads/${commentThreadIdentifier}/comments/${batch}/`,
       { auth: true },
     )
   }
@@ -307,7 +283,7 @@ export class ApiClient {
   ): Promise<MessageResponse> {
     return this.request<MessageResponse>(
       'POST',
-      `/user_index/posts/${postIdentifier}/threads/${commentThreadIdentifier}/comments/${commentIdentifier}/like/`,
+      `/posts/${postIdentifier}/threads/${commentThreadIdentifier}/comments/${commentIdentifier}/like/`,
       { auth: true },
     )
   }
@@ -319,7 +295,7 @@ export class ApiClient {
   ): Promise<MessageResponse> {
     return this.request<MessageResponse>(
       'POST',
-      `/user_index/posts/${postIdentifier}/threads/${commentThreadIdentifier}/comments/${commentIdentifier}/unlike/`,
+      `/posts/${postIdentifier}/threads/${commentThreadIdentifier}/comments/${commentIdentifier}/unlike/`,
       { auth: true },
     )
   }
@@ -331,7 +307,7 @@ export class ApiClient {
   ): Promise<MessageResponse> {
     return this.request<MessageResponse>(
       'POST',
-      `/user_index/posts/${postIdentifier}/threads/${commentThreadIdentifier}/comments/${commentIdentifier}/delete/`,
+      `/posts/${postIdentifier}/threads/${commentThreadIdentifier}/comments/${commentIdentifier}/delete/`,
       { auth: true },
     )
   }
@@ -344,7 +320,7 @@ export class ApiClient {
   ): Promise<MessageResponse> {
     return this.request<MessageResponse>(
       'POST',
-      `/user_index/posts/${postIdentifier}/threads/${commentThreadIdentifier}/comments/${commentIdentifier}/report/`,
+      `/posts/${postIdentifier}/threads/${commentThreadIdentifier}/comments/${commentIdentifier}/report/`,
       { auth: true, body: { reason } },
     )
   }
@@ -354,35 +330,25 @@ export class ApiClient {
   // ===========================================================================
 
   searchUsers(usernameFragment: string): Promise<UserSearchResult[]> {
-    return this.request<UserSearchResult[]>(
-      'GET',
-      `/user_index/users/search/${usernameFragment}/`,
-      { auth: true },
-    )
+    return this.request<UserSearchResult[]>('GET', `/users/search/${usernameFragment}/`, {
+      auth: true,
+    })
   }
 
   followUser(username: string): Promise<MessageResponse> {
-    return this.request<MessageResponse>('POST', `/user_index/users/${username}/follow/`, {
-      auth: true,
-    })
+    return this.request<MessageResponse>('POST', `/users/${username}/follow/`, { auth: true })
   }
 
   unfollowUser(username: string): Promise<MessageResponse> {
-    return this.request<MessageResponse>('POST', `/user_index/users/${username}/unfollow/`, {
-      auth: true,
-    })
+    return this.request<MessageResponse>('POST', `/users/${username}/unfollow/`, { auth: true })
   }
 
   toggleBlock(username: string): Promise<MessageResponse> {
-    return this.request<MessageResponse>('POST', `/user_index/users/${username}/block/`, {
-      auth: true,
-    })
+    return this.request<MessageResponse>('POST', `/users/${username}/block/`, { auth: true })
   }
 
   getProfile(username: string): Promise<ProfileDetails> {
-    return this.request<ProfileDetails>('GET', `/user_index/users/${username}/profile/`, {
-      auth: true,
-    })
+    return this.request<ProfileDetails>('GET', `/users/${username}/profile/`, { auth: true })
   }
 }
 
