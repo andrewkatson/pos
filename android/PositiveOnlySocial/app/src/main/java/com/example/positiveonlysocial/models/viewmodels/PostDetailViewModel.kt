@@ -39,6 +39,9 @@ class PostDetailViewModel(
     private val _isLoading = MutableStateFlow(true)
     val isLoading: StateFlow<Boolean> = _isLoading.asStateFlow()
 
+    private val _isRefreshing = MutableStateFlow(false)
+    val isRefreshing: StateFlow<Boolean> = _isRefreshing.asStateFlow()
+
     private val _alertMessage = MutableStateFlow<String?>(null)
     val alertMessage: StateFlow<String?> = _alertMessage.asStateFlow()
 
@@ -86,69 +89,93 @@ class PostDetailViewModel(
 
         viewModelScope.launch {
             try {
-                // These authenticated GETs need the session token so the backend can
-                // report whether the current user has liked the post / each comment.
-                val userSession = keychainHelper.load(UserSession::class.java, service, account)
-                if (userSession == null) {
-                    Log.e(TAG, "No active session found — cannot load post details")
-                    _alertMessage.value = "Not logged in."
-                    return@launch
-                }
-                val token = userSession.sessionToken
-
-                // 1. Fetch the main post details
-                val postResponse = api.getPostDetails(token, postIdentifier)
-                if (postResponse.isSuccessful) {
-                    _postDetail.value = postResponse.body()
-                } else {
-                    throw Exception("Failed to load post details")
-                }
-
-                // 2. Fetch the list of comment thread IDs for this post
-                val threadListResponse = api.getCommentsForPost(token, postIdentifier, 0)
-                val threadDtos = threadListResponse.body() ?: emptyList()
-                val threadIdentifiers = threadDtos.map { it.threadIdentifier }
-
-                // 3. Fetch all comments for *each* thread in parallel
-                val loadedThreads = coroutineScope {
-                    threadIdentifiers.map { threadId ->
-                        async {
-                            val commentsResponse = api.getCommentsForThread(token, threadId, 0)
-                            val comments = commentsResponse.body() ?: emptyList()
-                            // Sort comments by date (oldest first)
-                            val sortedComments = comments.sortedBy { it.creationTime }
-
-                            // Convert to CommentViewData
-                            val commentViewDataList = sortedComments.map { c ->
-                                CommentViewData(
-                                    id = c.commentIdentifier,
-                                    threadId = threadId,
-                                    authorUsername = c.authorUsername,
-                                    body = c.body,
-                                    likeCount = c.likeCount,
-                                    isLiked = c.isLiked,
-                                    createdDate = Date() // TODO: Parse c.creationTime string to Date
-                                )
-                            }
-
-                            CommentThreadViewData(threadId, commentViewDataList)
-                        }
-                    }.awaitAll()
-                }
-
-                // Filter out empty threads if needed, or keep them
-                val nonEmptyThreads = loadedThreads.filter { it.comments.isNotEmpty() }
-
-                // Sort threads by their first comment's date (using dummy date for now as parsing is TODO)
-                _commentThreads.value = nonEmptyThreads
-                // .sortedBy { it.comments.firstOrNull()?.createdDate } 
-
-            } catch (e: Exception) {
-                Log.e(TAG, "Error loading post details", e)
-                _alertMessage.value = "Failed to load post: ${e.localizedMessage}"
+                loadAllDataInternal()
             } finally {
                 _isLoading.value = false
             }
+        }
+    }
+
+    /**
+     * Pull-to-refresh: reloads the post details and comments from the backend.
+     * Uses a separate [isRefreshing] flag so the pull-to-refresh indicator is
+     * shown instead of the initial full-screen loading spinner.
+     */
+    fun refresh() {
+        if (_isRefreshing.value) return
+        _isRefreshing.value = true
+
+        viewModelScope.launch {
+            try {
+                loadAllDataInternal()
+            } finally {
+                _isRefreshing.value = false
+            }
+        }
+    }
+
+    private suspend fun loadAllDataInternal() {
+        try {
+            // These authenticated GETs need the session token so the backend can
+            // report whether the current user has liked the post / each comment.
+            val userSession = keychainHelper.load(UserSession::class.java, service, account)
+            if (userSession == null) {
+                Log.e(TAG, "No active session found — cannot load post details")
+                _alertMessage.value = "Not logged in."
+                return
+            }
+            val token = userSession.sessionToken
+
+            // 1. Fetch the main post details
+            val postResponse = api.getPostDetails(token, postIdentifier)
+            if (postResponse.isSuccessful) {
+                _postDetail.value = postResponse.body()
+            } else {
+                throw Exception("Failed to load post details")
+            }
+
+            // 2. Fetch the list of comment thread IDs for this post
+            val threadListResponse = api.getCommentsForPost(token, postIdentifier, 0)
+            val threadDtos = threadListResponse.body() ?: emptyList()
+            val threadIdentifiers = threadDtos.map { it.threadIdentifier }
+
+            // 3. Fetch all comments for *each* thread in parallel
+            val loadedThreads = coroutineScope {
+                threadIdentifiers.map { threadId ->
+                    async {
+                        val commentsResponse = api.getCommentsForThread(token, threadId, 0)
+                        val comments = commentsResponse.body() ?: emptyList()
+                        // Sort comments by date (oldest first)
+                        val sortedComments = comments.sortedBy { it.creationTime }
+
+                        // Convert to CommentViewData
+                        val commentViewDataList = sortedComments.map { c ->
+                            CommentViewData(
+                                id = c.commentIdentifier,
+                                threadId = threadId,
+                                authorUsername = c.authorUsername,
+                                body = c.body,
+                                likeCount = c.likeCount,
+                                isLiked = c.isLiked,
+                                createdDate = Date() // TODO: Parse c.creationTime string to Date
+                            )
+                        }
+
+                        CommentThreadViewData(threadId, commentViewDataList)
+                    }
+                }.awaitAll()
+            }
+
+            // Filter out empty threads if needed, or keep them
+            val nonEmptyThreads = loadedThreads.filter { it.comments.isNotEmpty() }
+
+            // Sort threads by their first comment's date (using dummy date for now as parsing is TODO)
+            _commentThreads.value = nonEmptyThreads
+            // .sortedBy { it.comments.firstOrNull()?.createdDate }
+
+        } catch (e: Exception) {
+            Log.e(TAG, "Error loading post details", e)
+            _alertMessage.value = "Failed to load post: ${e.localizedMessage}"
         }
     }
 

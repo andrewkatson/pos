@@ -115,6 +115,10 @@ struct PostDetailView: View {
         }
         .navigationTitle("Post")
         .navigationBarTitleDisplayMode(.inline)
+        .refreshable {
+            // Pull-to-refresh: reload the post details and comments from the backend.
+            await viewModel.refresh()
+        }
         // --- Modals and Sheets ---
         .sheet(isPresented: $viewModel.showReportSheetForPost) {
             ReportView { reason in

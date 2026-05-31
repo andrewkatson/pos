@@ -142,6 +142,23 @@ struct Positive_Only_SocialTests_PostDetailViewModel {
         #expect(secondComment?.authorUsername == "postOwner")
     }
 
+    @Test func testRefresh_PullsLatestCommentsFromBackend() async throws {
+        // Given: A fully loaded SUT with one comment thread
+        let (sut, postID, _, _) = try await setupTestEnvironment(account: "refresh_account")
+        #expect(sut.commentThreads.count == 1, "Pre-condition: Should have 1 thread")
+
+        // And: Another user adds a brand new comment thread on the backend
+        let otherCommenterToken = try await registerUserAndGetToken(username: "commenter2")
+        _ = try await commentOnPostAndGetIDs(token: otherCommenterToken, postID: postID, body: "Fresh comment")
+
+        // When: We pull-to-refresh
+        await sut.refresh()
+
+        // Then: The newest data is pulled in and loading is finished
+        #expect(sut.isLoading == false)
+        #expect(sut.commentThreads.count == 2, "Refreshed feed should include the new thread")
+    }
+
     // --- Post Action Tests ---
 
     @Test func testLikePost_OptimisticUpdate_IncrementsCount() async throws {
