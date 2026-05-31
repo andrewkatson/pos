@@ -108,7 +108,6 @@ struct MyPostsGridView: View {
                     }
                     .aspectRatio(1, contentMode: .fill)
                     .clipped()
-                    .frame(width: 100,height: 100)
                 }
                
                 // This is the trigger for infinite scrolling
