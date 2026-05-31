@@ -12,7 +12,8 @@ def calculate_weights(qs, like_field, G=1.8, user=None):
     )
 
     # 2. Annotate the age of the post in hours as a pure float.
-    #    Extract('epoch') returns seconds as a float, avoiding interval arithmetic.
+    #    Extract('epoch') returns seconds since the Unix epoch; subtracting the
+    #    two epoch values gives elapsed seconds as a float, avoiding interval arithmetic.
     qs = qs.annotate(
         age_in_hours=ExpressionWrapper(
             (Extract(Now(), 'epoch') - Extract('creation_time', 'epoch')) / 3600.0,
