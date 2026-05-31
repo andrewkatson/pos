@@ -28,7 +28,10 @@ import type {
   VerifyResetResponse,
 } from './types'
 
-// Constants from the backend.
+// Stub-specific tuning values, matching the iOS/Android StatefulStubbedAPI
+// stubs. These intentionally differ from backend/user_system/constants.py
+// (which uses larger batches and report thresholds); the stub favors small,
+// test-friendly numbers and is not the source of truth for the real backend.
 const POST_BATCH_SIZE = 10
 const COMMENT_BATCH_SIZE = 10
 const MAX_BEFORE_HIDING_POST = 5
@@ -93,6 +96,21 @@ function newId(): string {
   // Deterministic ids keep tests readable; crypto.randomUUID would also work.
   uuidCounter += 1
   return `stub-${uuidCounter}`
+}
+
+/** Whole years from a YYYY-MM-DD date of birth to today, or null if malformed. */
+function ageFromDateOfBirth(dateOfBirth: string): number | null {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(dateOfBirth)) {
+    return null
+  }
+  const birth = new Date(dateOfBirth)
+  const now = new Date()
+  let age = now.getFullYear() - birth.getFullYear()
+  const monthDelta = now.getMonth() - birth.getMonth()
+  if (monthDelta < 0 || (monthDelta === 0 && now.getDate() < birth.getDate())) {
+    age -= 1
+  }
+  return age
 }
 
 export class StatefulStubbedAPI implements PositiveOnlySocialAPI {
@@ -177,6 +195,9 @@ export class StatefulStubbedAPI implements PositiveOnlySocialAPI {
       throw new ApiError(400, 'User already exists')
     }
 
+    // When a DOB is supplied, the backend marks the account identity-verified
+    // and derives is_adult from the age (backend/user_system/views.py).
+    const age = body.date_of_birth ? ageFromDateOfBirth(body.date_of_birth) : null
     const user: UserMock = {
       id: newId(),
       username: body.username,
@@ -187,7 +208,7 @@ export class StatefulStubbedAPI implements PositiveOnlySocialAPI {
       following: new Set(),
       followers: new Set(),
       isVerified: Boolean(body.date_of_birth),
-      isAdult: false,
+      isAdult: age !== null && age >= 18,
       blocked: new Set(),
       blockedBy: new Set(),
     }
@@ -280,16 +301,9 @@ export class StatefulStubbedAPI implements PositiveOnlySocialAPI {
 
   async verifyIdentity(dateOfBirth: string): Promise<MessageResponse> {
     const user = this.requireUser()
-    const parsed = /^\d{4}-\d{2}-\d{2}$/.exec(dateOfBirth)
-    if (!parsed) {
+    const age = ageFromDateOfBirth(dateOfBirth)
+    if (age === null) {
       throw new ApiError(400, 'Invalid date format, expected YYYY-MM-DD')
-    }
-    const birth = new Date(dateOfBirth)
-    const now = new Date()
-    let age = now.getFullYear() - birth.getFullYear()
-    const monthDelta = now.getMonth() - birth.getMonth()
-    if (monthDelta < 0 || (monthDelta === 0 && now.getDate() < birth.getDate())) {
-      age -= 1
     }
     user.isVerified = true
     user.isAdult = age >= 18

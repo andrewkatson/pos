@@ -22,6 +22,39 @@ test('register authenticates the new user', async () => {
   expect(api.getToken()).toBe(result.session_management_token)
 })
 
+test('registering with an adult date of birth marks the profile verified and adult', async () => {
+  const api = new StatefulStubbedAPI()
+
+  await api.register({
+    username: 'grace',
+    email: 'grace@example.com',
+    password: 'password123',
+    ip: '127.0.0.1',
+    date_of_birth: '1990-01-01',
+  })
+
+  const profile = await api.getProfile('grace')
+  expect(profile.identity_is_verified).toBe(true)
+  expect(profile.is_adult).toBe(true)
+})
+
+test('registering with a minor date of birth verifies identity but is not adult', async () => {
+  const api = new StatefulStubbedAPI()
+  const thisYear = new Date().getFullYear()
+
+  await api.register({
+    username: 'kid',
+    email: 'kid@example.com',
+    password: 'password123',
+    ip: '127.0.0.1',
+    date_of_birth: `${thisYear - 10}-01-01`,
+  })
+
+  const profile = await api.getProfile('kid')
+  expect(profile.identity_is_verified).toBe(true)
+  expect(profile.is_adult).toBe(false)
+})
+
 test('register rejects duplicate usernames', async () => {
   const api = new StatefulStubbedAPI()
   await register(api, 'ada')
