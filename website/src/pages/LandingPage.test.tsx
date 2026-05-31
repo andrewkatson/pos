@@ -1,8 +1,13 @@
 import { render, screen } from '@testing-library/react'
+import { MemoryRouter } from 'react-router-dom'
 import LandingPage from './LandingPage'
 
 test('shows the title, logo, and auth buttons', () => {
-  render(<LandingPage />)
+  render(
+    <MemoryRouter>
+      <LandingPage />
+    </MemoryRouter>,
+  )
 
   expect(screen.getByRole('heading', { name: 'Good Vibes Only' })).toBeInTheDocument()
   expect(screen.getByRole('img', { name: /smiley logo/i })).toBeInTheDocument()
