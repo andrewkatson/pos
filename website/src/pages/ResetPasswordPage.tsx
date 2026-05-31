@@ -1,4 +1,4 @@
-import { useState, useEffect, type FormEvent } from 'react'
+import { useState, type FormEvent } from 'react'
 import { useNavigate, useLocation } from 'react-router-dom'
 import Logo from '../components/Logo'
 import { apiClient } from '../api/client'
@@ -12,19 +12,15 @@ function ResetPasswordPage() {
   const usernameOrEmail = state?.usernameOrEmail ?? ''
   const resetToken = state?.resetToken ?? ''
 
-  const [username, setUsername] = useState('')
-  const [email, setEmail] = useState('')
+  const [username, setUsername] = useState(
+    usernameOrEmail && !usernameOrEmail.includes('@') ? usernameOrEmail : '',
+  )
+  const [email, setEmail] = useState(
+    usernameOrEmail.includes('@') ? usernameOrEmail : '',
+  )
   const [newPassword, setNewPassword] = useState('')
   const [isLoading, setIsLoading] = useState(false)
   const [errorMessage, setErrorMessage] = useState<string | null>(null)
-
-  useEffect(() => {
-    if (usernameOrEmail.includes('@')) {
-      setEmail(usernameOrEmail)
-    } else if (usernameOrEmail) {
-      setUsername(usernameOrEmail)
-    }
-  }, [usernameOrEmail])
 
   const isFormValid =
     username.trim().length > 0 && email.trim().length > 0 && newPassword.length > 0
