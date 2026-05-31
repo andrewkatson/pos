@@ -13,6 +13,7 @@ class DurationToSeconds(Func):
     to get a numeric value.  SQLite stores durations as microseconds (integer),
     so a plain division suffices.
     """
+    arity = 1
     output_field = FloatField()
 
     def as_postgresql(self, compiler, connection, **extra_context):
