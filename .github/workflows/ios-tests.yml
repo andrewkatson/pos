@@ -125,6 +125,7 @@ jobs:
           shell: bash
           command: |
             cd "ios/Positive Only Social"
+            rm -rf TestResults.xcresult xcodebuild.log
             case "${{ matrix.test-group }}" in
               Unit_Tests)
                 TESTS=(
