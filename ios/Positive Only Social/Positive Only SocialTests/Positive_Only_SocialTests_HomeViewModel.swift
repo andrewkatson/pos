@@ -174,6 +174,43 @@ struct Positive_Only_SocialTests_HomeViewModel {
         #expect(sut.userPosts.count == 3)
     }
 
+    @Test func testRefreshMyPosts_Failure_PreservesPaginationCursor() async throws {
+        stubAPI.pageSize = 2
+        let account = "refreshMyPostsFailurePreservesCursor_account"
+        try await setupLoggedInUser(username: "refreshMyPostsFailurePreservesCursor")
+        let sut = HomeViewModel(api: stubAPI, keychainHelper: keychainHelper, account: account)
+
+        let session = try keychainHelper.load(UserSession.self, from: AppConstants.keychainService, account: account)
+        let userSession = session!
+        let token = userSession.sessionToken
+
+        // Given: 3 posts exist and we've loaded the first page (cursor at page 1)
+        _ = try await stubAPI.makePost(sessionManagementToken: token, imageURL: "my.image/1", caption: "Post 1")
+        _ = try await stubAPI.makePost(sessionManagementToken: token, imageURL: "my.image/2", caption: "Post 2")
+        _ = try await stubAPI.makePost(sessionManagementToken: token, imageURL: "my.image/3", caption: "Post 3")
+        sut.fetchMyPosts()
+        await yield()
+        #expect(sut.userPosts.count == 2)
+        #expect(sut.userPosts.first?.imageUrl == "my.image/3")
+
+        // When: A refresh fails (session is unavailable for the duration of the refresh)
+        try keychainHelper.delete(service: AppConstants.keychainService, account: account)
+        await sut.refreshMyPosts()
+        try keychainHelper.save(userSession, for: AppConstants.keychainService, account: account)
+
+        // Then: The existing posts are untouched and the loading flag is reset
+        #expect(sut.isLoadingNextPage == false)
+        #expect(sut.userPosts.count == 2)
+
+        // And: The cursor was NOT reset, so the next fetch loads page 1 (not page 0
+        // again), appending the third post without duplicating the first page.
+        sut.fetchMyPosts()
+        await yield()
+        #expect(sut.userPosts.count == 3)
+        #expect(sut.userPosts.last?.imageUrl == "my.image/1")
+        #expect(sut.userPosts.filter { $0.imageUrl == "my.image/3" }.count == 1)
+    }
+
     // --- Search Tests ---
 
     @Test func testSearch_Debouncer_Success() async throws {

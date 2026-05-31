@@ -34,28 +34,31 @@ final class FeedViewModel: ObservableObject {
         isLoadingNextPage = true
 
         Task {
-            await loadNextPage()
+            await loadPage(currentPage, replacingExisting: false)
         }
     }
 
-    /// Resets pagination and reloads the feed from the first page.
+    /// Reloads the feed from the first page.
     ///
     /// This is `async` so SwiftUI's `.refreshable` keeps the pull-to-refresh
-    /// spinner visible until the fresh posts have actually been loaded.
+    /// spinner visible until the fresh posts have actually been loaded. The
+    /// pagination cursor is only reset once the first page successfully loads,
+    /// so a failed refresh leaves the existing cursor (and posts) intact and
+    /// can't cause the next infinite-scroll fetch to duplicate page 0.
     func refreshFeed() async {
         // Avoid stomping on an in-flight page load.
         guard !isLoadingNextPage else { return }
 
-        currentPage = 0
-        canLoadMore = true
         isLoadingNextPage = true
-        await loadNextPage(replacingExisting: true)
+        await loadPage(0, replacingExisting: true)
     }
 
-    /// Fetches the current page of posts. When `replacingExisting` is true the
-    /// freshly fetched posts replace the existing list (used by pull-to-refresh);
-    /// otherwise they are appended (used by infinite scrolling).
-    private func loadNextPage(replacingExisting: Bool = false) async {
+    /// Fetches the given page of posts. When `replacingExisting` is true the
+    /// freshly fetched posts replace the existing list and the pagination cursor
+    /// is reset (used by pull-to-refresh); otherwise they are appended (used by
+    /// infinite scrolling). Pagination state is only mutated on a successful
+    /// response so failures don't corrupt the cursor.
+    private func loadPage(_ page: Int, replacingExisting: Bool) async {
         do {
             guard let userSession = try keychainHelper.load(UserSession.self, from: keychainService, account: account) else {
                 NSLog("%@", "No active session found — cannot fetch feed")
@@ -63,18 +66,17 @@ final class FeedViewModel: ObservableObject {
                 return
             }
 
-            let responseData = try await api.getPostsInFeed(sessionManagementToken: userSession.sessionToken, batch: currentPage)
+            let responseData = try await api.getPostsInFeed(sessionManagementToken: userSession.sessionToken, batch: page)
             let newPosts = try JSONDecoder().decode([Post].self, from: responseData)
 
-            if newPosts.isEmpty {
-                if replacingExisting { feedPosts = [] }
+            if replacingExisting {
+                feedPosts = newPosts
+                canLoadMore = !newPosts.isEmpty
+                currentPage = newPosts.isEmpty ? 0 : 1
+            } else if newPosts.isEmpty {
                 canLoadMore = false
             } else {
-                if replacingExisting {
-                    feedPosts = newPosts
-                } else {
-                    feedPosts.append(contentsOf: newPosts)
-                }
+                feedPosts.append(contentsOf: newPosts)
                 currentPage += 1
             }
         } catch {

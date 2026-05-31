@@ -59,28 +59,31 @@ final class HomeViewModel: ObservableObject {
         isLoadingNextPage = true
 
         Task {
-            await loadNextPage()
+            await loadPage(currentPage, replacingExisting: false)
         }
     }
 
-    /// Resets pagination and reloads the user's posts from the first page.
+    /// Reloads the user's posts from the first page.
     ///
     /// This is `async` so SwiftUI's `.refreshable` keeps the pull-to-refresh
-    /// spinner visible until the fresh posts have actually been loaded.
+    /// spinner visible until the fresh posts have actually been loaded. The
+    /// pagination cursor is only reset once the first page successfully loads,
+    /// so a failed refresh leaves the existing cursor (and posts) intact and
+    /// can't cause the next infinite-scroll fetch to duplicate page 0.
     func refreshMyPosts() async {
         // Avoid stomping on an in-flight page load.
         guard !isLoadingNextPage else { return }
 
-        currentPage = 0
-        canLoadMorePosts = true
         isLoadingNextPage = true
-        await loadNextPage(replacingExisting: true)
+        await loadPage(0, replacingExisting: true)
     }
 
-    /// Fetches the current page of the user's posts. When `replacingExisting`
-    /// is true the freshly fetched posts replace the existing list (used by
-    /// pull-to-refresh); otherwise they are appended (used by infinite scrolling).
-    private func loadNextPage(replacingExisting: Bool = false) async {
+    /// Fetches the given page of the user's posts. When `replacingExisting` is
+    /// true the freshly fetched posts replace the existing list and the
+    /// pagination cursor is reset (used by pull-to-refresh); otherwise they are
+    /// appended (used by infinite scrolling). Pagination state is only mutated
+    /// on a successful response so failures don't corrupt the cursor.
+    private func loadPage(_ page: Int, replacingExisting: Bool) async {
         do {
             guard let user = try keychainHelper.load(UserSession.self, from: keychainService, account: account) else {
                 NSLog("%@", "No active session found — cannot fetch posts")
@@ -89,18 +92,17 @@ final class HomeViewModel: ObservableObject {
             }
 
             // Call the API
-            let newPosts = try await fetchPosts(for: user.username, token: user.sessionToken, page: currentPage)
+            let newPosts = try await fetchPosts(for: user.username, token: user.sessionToken, page: page)
 
-            if newPosts.isEmpty {
+            if replacingExisting {
+                self.userPosts = newPosts
+                self.canLoadMorePosts = !newPosts.isEmpty
+                self.currentPage = newPosts.isEmpty ? 0 : 1
+            } else if newPosts.isEmpty {
                 // No more posts to load
-                if replacingExisting { self.userPosts = [] }
                 self.canLoadMorePosts = false
             } else {
-                if replacingExisting {
-                    self.userPosts = newPosts
-                } else {
-                    self.userPosts.append(contentsOf: newPosts)
-                }
+                self.userPosts.append(contentsOf: newPosts)
                 self.currentPage += 1
             }
 

@@ -221,6 +221,44 @@ struct Positive_Only_SocialTests_FollowingFeedViewModel {
         await yield()
         #expect(sut.followingPosts.count == 3)
     }
+
+    @Test func testRefreshFeed_Failure_PreservesPaginationCursor() async throws {
+        stubAPI.pageSize = 2
+        let account = "refreshFollowingFailurePreservesCursor"
+        let sut = FollowingFeedViewModel(api: stubAPI, keychainHelper: keychainHelper, account: account)
+
+        let userAToken = try await registerUserAndGetToken(username: "userA")
+        let userBToken = try await registerUserAndGetToken(username: "userB")
+        let userSession = UserSession(sessionToken: userAToken, username: "userA", userId: "1", isIdentityVerified: false)
+        try keychainHelper.save(userSession, for: AppConstants.keychainService, account: account)
+        _ = try await stubAPI.followUser(sessionManagementToken: userAToken, username: "userB")
+
+        // Given: 3 posts exist and we've loaded the first page (cursor at page 1)
+        _ = try await stubAPI.makePost(sessionManagementToken: userBToken, imageURL: "image.url/1", caption: "Post 1")
+        _ = try await stubAPI.makePost(sessionManagementToken: userBToken, imageURL: "image.url/2", caption: "Post 2")
+        _ = try await stubAPI.makePost(sessionManagementToken: userBToken, imageURL: "image.url/3", caption: "Post 3")
+        sut.fetchFollowingFeed()
+        await yield()
+        #expect(sut.followingPosts.count == 2)
+        #expect(sut.followingPosts.first?.imageUrl == "image.url/3")
+
+        // When: A refresh fails (session is unavailable for the duration of the refresh)
+        try keychainHelper.delete(service: AppConstants.keychainService, account: account)
+        await sut.refreshFeed()
+        try keychainHelper.save(userSession, for: AppConstants.keychainService, account: account)
+
+        // Then: The existing posts are untouched and the loading flag is reset
+        #expect(sut.isLoadingNextPage == false)
+        #expect(sut.followingPosts.count == 2)
+
+        // And: The cursor was NOT reset, so the next fetch loads page 1 (not page 0
+        // again), appending the third post without duplicating the first page.
+        sut.fetchFollowingFeed()
+        await yield()
+        #expect(sut.followingPosts.count == 3)
+        #expect(sut.followingPosts.last?.imageUrl == "image.url/1")
+        #expect(sut.followingPosts.filter { $0.imageUrl == "image.url/3" }.count == 1)
+    }
 }
 
 
