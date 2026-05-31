@@ -506,7 +506,7 @@ final class RealAPI: Networking {
             authToken: sessionManagementToken
         )
     }
-    
+
     /// Gets a batch of comments for a specific comment thread.
     func getCommentsForThread(sessionManagementToken: String, commentThreadIdentifier: String, batch: Int) async throws -> Data {
         // Authenticated GET so each comment can include the current user's like state. ID/Batch are in path.

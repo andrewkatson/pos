@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" role="img" aria-label="Good Vibes Only smiley logo">
+  <rect x="4" y="4" width="92" height="92" rx="22" fill="#5BA4DC"/>
+  <circle cx="50" cy="50" r="33" fill="none" stroke="#FFFFFF" stroke-width="3"/>
+  <ellipse cx="38" cy="42" rx="4" ry="7" fill="#FFFFFF"/>
+  <ellipse cx="62" cy="42" rx="4" ry="7" fill="#FFFFFF"/>
+  <path d="M34 58 Q50 73 66 58" fill="none" stroke="#FFFFFF" stroke-width="3" stroke-linecap="round"/>
+</svg>
