@@ -90,7 +90,9 @@ data class Post(
     @SerializedName("image_url") val imageUrl: String,
     val caption: String,
     @SerializedName("author_username") val authorUsername: String,
-    val likeCount: Int? = 0,
+    // Only the post-details endpoint returns the like count (as "post_likes");
+    // feed endpoints omit it, so it defaults to 0.
+    @SerializedName("post_likes") val likeCount: Int? = 0,
     // Whether the current user has liked this post. Only the post-details endpoint
     // populates this; feed endpoints omit it, so it defaults to false.
     @SerializedName("is_liked") val isLiked: Boolean = false
