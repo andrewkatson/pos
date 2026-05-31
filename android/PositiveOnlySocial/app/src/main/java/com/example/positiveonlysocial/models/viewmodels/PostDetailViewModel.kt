@@ -102,7 +102,12 @@ class PostDetailViewModel(
      * shown instead of the initial full-screen loading spinner.
      */
     fun refresh() {
-        if (_isRefreshing.value) return
+        // Don't start a refresh while another load is already in flight (the
+        // initial loadAllData() from init or an action-triggered reload). Two
+        // concurrent loadAllDataInternal() calls both write _postDetail and
+        // _commentThreads, so an older response could otherwise overwrite the
+        // fresher refreshed data.
+        if (_isRefreshing.value || _isLoading.value) return
         _isRefreshing.value = true
 
         viewModelScope.launch {
