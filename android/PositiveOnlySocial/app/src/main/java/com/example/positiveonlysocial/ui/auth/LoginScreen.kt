@@ -114,7 +114,7 @@ fun LoginScreen(
                                     usernameOrEmail = usernameOrEmail,
                                     password = password,
                                     rememberMe = rememberMe.toString(),
-                                    ip = ""
+                                    ip = "127.0.0.1"
                                 )
 
                                 val response = api.loginUser(

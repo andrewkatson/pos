@@ -52,7 +52,7 @@ struct LoginView: View {
         Task {
             isLoading = true
             do {
-                let responseData = try await api.loginUser(usernameOrEmail: usernameOrEmail, password: password, rememberMe: String(rememberMe), ip: "")
+                let responseData = try await api.loginUser(usernameOrEmail: usernameOrEmail, password: password, rememberMe: String(rememberMe), ip: "127.0.0.1")
 
                 let loginDetails = try JSONDecoder().decode(LoginResponseFields.self, from: responseData)
 

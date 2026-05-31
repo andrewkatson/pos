@@ -5,8 +5,7 @@ export interface RegisterRequest {
   username: string
   email: string
   password: string
-  /** Omit to let the server derive the IP from request headers. */
-  ip?: string
+  ip: string
   remember_me?: boolean
   /** YYYY-MM-DD. When provided, the account is identity-verified on creation. */
   date_of_birth?: string
@@ -24,8 +23,7 @@ export interface AuthResponse {
 export interface LoginRequest {
   username_or_email: string
   password: string
-  /** Omit to let the server derive the IP from request headers. */
-  ip?: string
+  ip: string
   remember_me?: boolean
 }
 

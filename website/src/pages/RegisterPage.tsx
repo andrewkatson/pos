@@ -36,6 +36,9 @@ function RegisterPage() {
         username: username.trim(),
         email: email.trim(),
         password,
+        // Browser JS cannot read the client's public IP; send a placeholder.
+        // The backend should ideally derive the IP from request headers instead.
+        ip: '127.0.0.1',
         remember_me: false,
         date_of_birth: dateOfBirth,
       })

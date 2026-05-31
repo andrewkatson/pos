@@ -18,6 +18,7 @@ function RequestResetPage() {
     setIsLoading(true)
     try {
       await apiClient.requestReset({ username_or_email: usernameOrEmail.trim() })
+      setErrorMessage(null)
       setDidSucceed(true)
     } catch (err) {
       const apiErr = err as ApiError

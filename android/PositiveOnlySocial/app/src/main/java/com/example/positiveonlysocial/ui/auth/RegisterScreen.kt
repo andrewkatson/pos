@@ -67,7 +67,7 @@ fun RegisterScreen(
                                     email = email,
                                     password = password,
                                     rememberMe = "false",
-                                    ip = "",
+                                    ip = "127.0.0.1",
                                     dateOfBirth = dateOfBirth
                                 )
 
