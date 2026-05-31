@@ -90,7 +90,12 @@ data class Post(
     @SerializedName("image_url") val imageUrl: String,
     val caption: String,
     @SerializedName("author_username") val authorUsername: String,
-    val likeCount: Int? = 0
+    // Only the post-details endpoint returns the like count (as "post_likes");
+    // feed endpoints omit it, so it defaults to 0.
+    @SerializedName("post_likes") val likeCount: Int? = 0,
+    // Whether the current user has liked this post. Only the post-details endpoint
+    // populates this; feed endpoints omit it, so it defaults to false.
+    @SerializedName("is_liked") val isLiked: Boolean = false
 )
 
 // --- Comment DTOs ---
@@ -114,7 +119,8 @@ data class CommentDto(
     @SerializedName("author_username") val authorUsername: String,
     @SerializedName("creation_time") val creationTime: String,
     @SerializedName("updated_time") val updatedTime: String,
-    @SerializedName("comment_likes") val likeCount: Int
+    @SerializedName("comment_likes") val likeCount: Int,
+    @SerializedName("is_liked") val isLiked: Boolean = false
 )
 
 // --- User/Profile DTOs ---
@@ -173,6 +179,7 @@ data class CommentViewData(
     val authorUsername: String,
     val body: String,
     val likeCount: Int,
+    val isLiked: Boolean, // Whether the current user has liked this comment
     val createdDate: Date // Using Date for now, might need conversion from String
 )
 

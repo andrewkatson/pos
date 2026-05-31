@@ -123,10 +123,14 @@ struct Positive_Only_SocialTests_PostDetailViewModel {
         #expect(sut.postDetail?.id == postID)
         #expect(sut.postDetail?.caption == "Test Post 1")
         #expect(sut.postDetail?.authorUsername == "postOwner")
-        
+        // And: The current user has not liked the post, so it seeds as not-liked
+        #expect(sut.postDetail?.isLiked == false)
+
         // And: The comment threads should be loaded
         #expect(sut.commentThreads.count == 1, "Should be 1 comment thread")
         #expect(sut.commentThreads.first?.comments.count == 2, "Thread should have 2 comments")
+        // And: Comments seed as not-liked for a user who hasn't liked them
+        #expect(sut.commentThreads.first?.comments.first?.isLiked == false)
         
         // And: Comments should be sorted by creation date (oldest first)
         let firstComment = sut.commentThreads.first?.comments.first
@@ -151,7 +155,9 @@ struct Positive_Only_SocialTests_PostDetailViewModel {
         
         // Then: The like count is optimistically updated immediately
         #expect(sut.postDetail?.likeCount == 1, "Like count should immediately increment")
-        
+        // And: The heart reflects the liked state
+        #expect(sut.postDetail?.isLiked == true, "Post should be marked liked")
+
         // And: After the network call finishes, the count remains 1
         await yield()
         #expect(sut.postDetail?.likeCount == 1)
@@ -169,7 +175,9 @@ struct Positive_Only_SocialTests_PostDetailViewModel {
         
         // Then: The like count is optimistically updated immediately
         #expect(sut.postDetail?.likeCount == 0, "Like count should immediately decrement")
-        
+        // And: The heart reflects the not-liked state
+        #expect(sut.postDetail?.isLiked == false, "Post should be marked not liked")
+
         // And: After the network call finishes, the count remains 0
         await yield()
         #expect(sut.postDetail?.likeCount == 0)
@@ -204,7 +212,9 @@ struct Positive_Only_SocialTests_PostDetailViewModel {
         // Then: The like count is optimistically updated immediately
         let updatedComment = sut.commentThreads.first?.comments.first(where: { $0.id == commentID })
         #expect(updatedComment?.likeCount == 1, "Like count should immediately increment")
-        
+        // And: The heart reflects the liked state
+        #expect(updatedComment?.isLiked == true, "Comment should be marked liked")
+
         // And: After the network call finishes, the count remains 1
         await yield()
         #expect(sut.commentThreads.first?.comments.first?.likeCount == 1)
@@ -232,7 +242,9 @@ struct Positive_Only_SocialTests_PostDetailViewModel {
         // Then: The like count is optimistically updated immediately
         let unlikedComment = sut.commentThreads.first?.comments.first(where: { $0.id == commentID })
         #expect(unlikedComment?.likeCount == 0, "Like count should immediately decrement")
-        
+        // And: The heart reflects the not-liked state
+        #expect(unlikedComment?.isLiked == false, "Comment should be marked not liked")
+
         // And: After the network call finishes, the count remains 0
         await yield()
         #expect(sut.commentThreads.first?.comments.first?.likeCount == 0)

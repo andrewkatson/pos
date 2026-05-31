@@ -1,6 +1,7 @@
 from django.urls import reverse
 
 from .test_parent_case import PositiveOnlySocialTestCase
+from ..constants import Fields
 
 invalid_comment_thread_identifier = '?'
 invalid_batch = -1
@@ -96,6 +97,54 @@ class GetCommentsForThreadTests(PositiveOnlySocialTestCase):
         responses = response.json()
         # Assumes COMMENT_BATCH_SIZE is 30
         self.assertEqual(len(responses), 30)
+
+    def test_comments_include_is_liked_defaulting_false(self):
+        """
+        Tests that every comment includes an is_liked field, which is False
+        for a requester who has not liked any of them.
+        """
+        url = reverse('get_comments_for_thread', kwargs={
+            'comment_thread_identifier': str(self.comment_thread_identifier),
+            'batch': 0
+        })
+
+        response = self.client.get(url, **self.valid_header)
+
+        self.assertEqual(response.status_code, 200)
+        comments = response.json()
+        self.assertTrue(len(comments) > 0)
+        for comment in comments:
+            self.assertIn(Fields.is_liked, comment)
+            self.assertFalse(comment[Fields.is_liked])
+
+    def test_is_liked_true_for_comment_liked_by_requester(self):
+        """
+        Tests that is_liked is True only for the comment the requester liked.
+        """
+        url = reverse('get_comments_for_thread', kwargs={
+            'comment_thread_identifier': str(self.comment_thread_identifier),
+            'batch': 0
+        })
+
+        # The local user (a fresh user who authored none of the comments) likes one.
+        comments = self.client.get(url, **self.valid_header).json()
+        target_id = comments[0][Fields.comment_identifier]
+
+        like_url = reverse('like_comment', kwargs={
+            'post_identifier': str(self.post_identifier),
+            'comment_thread_identifier': str(self.comment_thread_identifier),
+            'comment_identifier': target_id
+        })
+        like_response = self.client.post(like_url, **self.valid_header)
+        self.assertEqual(like_response.status_code, 200)
+
+        # Re-fetch and verify only the liked comment is marked is_liked.
+        comments_after = self.client.get(url, **self.valid_header).json()
+        for comment in comments_after:
+            if comment[Fields.comment_identifier] == target_id:
+                self.assertTrue(comment[Fields.is_liked])
+            else:
+                self.assertFalse(comment[Fields.is_liked])
 
     def test_last_batch_returns_good_response(self):
         """

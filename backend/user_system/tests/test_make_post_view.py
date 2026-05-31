@@ -149,6 +149,27 @@ class MakePostTests(PositiveOnlySocialTestCase):
         self.assertEqual(post.caption, POSITIVE_TEXT)
         self.assertEqual(post.image_url, self.valid_data['image_url'])
 
+    @patch.dict(os.environ, {"TESTING": "True"}, clear=True)
+    def test_image_classifier_not_called_when_caption_fails(self):
+        """
+        When the caption fails the text classifier, the image classifier must not be invoked.
+        This guards the ordering: text check runs before the more expensive image check.
+        """
+        data = self.valid_data.copy()
+        data['caption'] = NEGATIVE_TEXT
+
+        with patch('user_system.views.image_classifier_class.is_image_positive') as mock_image:
+            response = self.client.post(
+                self.url,
+                data=data,
+                content_type='application/json',
+                **self.valid_header
+            )
+
+        self.assertEqual(response.status_code, 400)
+        self.assertIn("Text is not positive", response.json().get('error', ''))
+        mock_image.assert_not_called()
+
     def test_image_url_with_wrong_user_prefix_returns_bad_response(self):
         """
         A valid S3 URL whose key is prefixed with a different user's ID must be rejected.

@@ -45,7 +45,7 @@ class PostDetailViewModelTest {
 
         runBlocking {
             // Mock API calls for loadAllData which is called in init
-            whenever(api.getPostDetails(postIdentifier)).thenReturn(
+            whenever(api.getPostDetails("token123", postIdentifier)).thenReturn(
                 Response.success(
                     Post(
                         postIdentifier,
@@ -56,7 +56,7 @@ class PostDetailViewModelTest {
                     )
                 )
             )
-            whenever(api.getCommentsForPost(postIdentifier, 0)).thenReturn(
+            whenever(api.getCommentsForPost("token123", postIdentifier, 0)).thenReturn(
                 Response.success(
                     emptyList()
                 )
@@ -82,7 +82,7 @@ class PostDetailViewModelTest {
 
         verify(api).likePost("token123", postIdentifier)
         // Verify loadAllData is called again (getPostDetails called twice: once in init, once after like)
-        verify(api, org.mockito.kotlin.times(2)).getPostDetails(postIdentifier)
+        verify(api, org.mockito.kotlin.times(2)).getPostDetails("token123", postIdentifier)
     }
 
     @Test
@@ -93,6 +93,6 @@ class PostDetailViewModelTest {
         viewModel.commentOnPost("Nice post!")
 
         assertEquals("", viewModel.newCommentText.value)
-        verify(api, org.mockito.kotlin.times(2)).getPostDetails(postIdentifier)
+        verify(api, org.mockito.kotlin.times(2)).getPostDetails("token123", postIdentifier)
     }
 }

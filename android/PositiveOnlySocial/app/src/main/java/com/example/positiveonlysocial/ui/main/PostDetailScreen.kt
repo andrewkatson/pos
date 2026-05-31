@@ -8,6 +8,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Favorite
+import androidx.compose.material.icons.filled.FavoriteBorder
 import androidx.compose.material.icons.filled.Flag
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -52,7 +53,6 @@ fun PostDetailScreen(
         val alertMessage by viewModel.alertMessage.collectAsState()
         
         // Local state for interactions
-        var isPostLiked by remember { mutableStateOf(false) }
         var isPostReported by remember { mutableStateOf(false) }
         
         // Sheets
@@ -120,8 +120,8 @@ fun PostDetailScreen(
                                 .aspectRatio(1f)
                                 .combinedClickable(
                                     onDoubleClick = {
-                                        isPostLiked = !isPostLiked
-                                        if (isPostLiked) viewModel.likePost() else viewModel.unlikePost()
+                                        // Drive the action from the server-backed like state
+                                        if (post.isLiked) viewModel.unlikePost() else viewModel.likePost()
                                     },
                                     onLongClick = {
                                        viewModel.setShowReportSheetForPost(true)
@@ -133,7 +133,7 @@ fun PostDetailScreen(
                         
                         Column(modifier = Modifier.padding(16.dp)) {
                             Row(verticalAlignment = Alignment.CenterVertically) {
-                                Icon(Icons.Default.Favorite, contentDescription = "Like", tint = Color.Red)
+                                Icon(if (post.isLiked) Icons.Default.Favorite else Icons.Default.FavoriteBorder, contentDescription = if (post.isLiked) "Liked" else "Like", tint = Color.Red)
                                 Spacer(modifier = Modifier.width(4.dp))
                                 Text("${post.likeCount} likes", fontWeight = FontWeight.Bold)
                                 Spacer(modifier = Modifier.weight(1f))
@@ -228,17 +228,16 @@ fun CommentRow(
     onUnlike: () -> Unit,
     onReport: () -> Unit
 ) {
-    var isLiked by remember { mutableStateOf(false) }
     var isReported by remember { mutableStateOf(false) }
-    
+
     Row(
         modifier = Modifier
             .fillMaxWidth()
             .padding(vertical = 4.dp)
             .combinedClickable(
                 onDoubleClick = {
-                    isLiked = !isLiked
-                    if (isLiked) onLike() else onUnlike()
+                    // Drive the action from the server-backed like state
+                    if (comment.isLiked) onUnlike() else onLike()
                 },
                 onLongClick = {
                     isReported = true
@@ -267,6 +266,13 @@ fun CommentRow(
                 // TODO Date placeholder - needs formatting logic
                 Text("Just now", fontSize = 12.sp, color = Color.Gray)
                 Spacer(modifier = Modifier.width(8.dp))
+                Icon(
+                    if (comment.isLiked) Icons.Default.Favorite else Icons.Default.FavoriteBorder,
+                    contentDescription = if (comment.isLiked) "Liked" else "Like",
+                    tint = Color.Red,
+                    modifier = Modifier.size(12.dp)
+                )
+                Spacer(modifier = Modifier.width(4.dp))
                 Text("${comment.likeCount} likes", fontSize = 12.sp, color = Color.Gray)
                 Spacer(modifier = Modifier.width(8.dp))
                 if (isReported) {

@@ -719,13 +719,13 @@ def make_post(request):
         logger.warning(f"Make post failed: Invalid fields {invalid_fields} for user_id: {request.user.id}")
         return log_and_return_json("make_post", {'error': f"Invalid fields {invalid_fields}"}, status=400)
 
-    if not image_classifier_class.is_image_positive(image_url):
-        logger.warning(f"Make post failed: Image not positive for user_id: {request.user.id}")
-        return log_and_return_json("make_post", {'error': "Image is not positive"}, status=400)
-
     if not text_classifier_class.is_text_positive(caption):
         logger.warning(f"Make post failed: Caption not positive for user_id: {request.user.id}")
         return log_and_return_json("make_post", {'error': "Text is not positive"}, status=400)
+
+    if not image_classifier_class.is_image_positive(image_url):
+        logger.warning(f"Make post failed: Image not positive for user_id: {request.user.id}")
+        return log_and_return_json("make_post", {'error': "Image is not positive"}, status=400)
 
     new_post = request.user.post_set.create(image_url=image_url, caption=caption)
     logger.info(f"Post created successfully: post_id: {new_post.post_identifier} for user_id: {request.user.id}")
@@ -967,8 +967,9 @@ def get_posts_for_user(request, username, batch):
         return log_and_return_json("get_posts_for_user", [], safe=False)
 
 
-@ratelimit(key=_get_client_ip, rate='60/m', block=True)
-@require_GET  # Publicly viewable, no @api_login_required
+@api_login_required
+@ratelimit(key='user', rate='60/m', block=True)
+@require_GET
 def get_post_details(request, post_identifier):
     logger.info("Endpoint get_post_details invoked by IP or User")
     if not is_valid_pattern(post_identifier, Patterns.uuid4):
@@ -982,6 +983,7 @@ def get_post_details(request, post_identifier):
             Fields.image_url: get_compressed_image_url(post.image_url),
             Fields.caption: post.caption,
             Fields.post_likes: total_likes,
+            Fields.is_liked: post.postlike_set.filter(user=request.user).exists(),
             Fields.author_username: post.author.username
         }
         return log_and_return_json("get_post_details", post_data)
@@ -1291,6 +1293,13 @@ def get_comments_for_thread(request, comment_thread_identifier, batch):
         return log_and_return_json("get_comments_for_thread", [], safe=False)
 
     batched_comments = get_batch(batch, COMMENT_BATCH_SIZE, relevant_comments)
+    # Single query to find which of these comments the requesting user has liked,
+    # avoiding an N+1 .exists() call per comment.
+    liked_comment_ids = set(
+        request.user.commentlike_set
+        .filter(comment__in=batched_comments)
+        .values_list('comment_id', flat=True)
+    )
     comments_data = [
         {
             Fields.comment_identifier: comment.comment_identifier,
@@ -1298,7 +1307,8 @@ def get_comments_for_thread(request, comment_thread_identifier, batch):
             Fields.author_username: comment.author.username,
             Fields.creation_time: comment.creation_time,
             Fields.updated_time: comment.updated_time,
-            Fields.comment_likes: comment.commentlike_set.count()
+            Fields.comment_likes: comment.commentlike_set.count(),
+            Fields.is_liked: comment.comment_identifier in liked_comment_ids
         }
         for comment in batched_comments
     ]
