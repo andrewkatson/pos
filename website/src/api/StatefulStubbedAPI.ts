@@ -215,7 +215,7 @@ export class StatefulStubbedAPI implements PositiveOnlySocialAPI {
     this.users.push(user)
 
     const sessionToken = newId()
-    this.sessions.push({ managementToken: sessionToken, userId: user.id, ip: body.ip })
+    this.sessions.push({ managementToken: sessionToken, userId: user.id, ip: body.ip ?? '' })
 
     let seriesIdentifier: string | undefined
     let loginCookieToken: string | undefined
@@ -244,7 +244,7 @@ export class StatefulStubbedAPI implements PositiveOnlySocialAPI {
     }
 
     const sessionToken = newId()
-    this.sessions.push({ managementToken: sessionToken, userId: user.id, ip: body.ip })
+    this.sessions.push({ managementToken: sessionToken, userId: user.id, ip: body.ip ?? '' })
 
     let seriesIdentifier: string | undefined
     let loginCookieToken: string | undefined
