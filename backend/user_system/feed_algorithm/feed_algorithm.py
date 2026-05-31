@@ -1,5 +1,5 @@
-from django.db.models import Q, Count, F, ExpressionWrapper, FloatField, DurationField
-from django.db.models.functions import Power, Now
+from django.db.models import Q, Count, F, ExpressionWrapper, FloatField
+from django.db.models.functions import Power, Now, Extract
 import logging
 
 logger = logging.getLogger(__name__)
@@ -11,19 +11,11 @@ def calculate_weights(qs, like_field, G=1.8, user=None):
         like_count=Count(like_field)
     )
 
-    # 2. Annotate the age of the post in hours
+    # 2. Annotate the age of the post in hours as a pure float.
+    #    Extract('epoch') returns seconds as a float, avoiding interval arithmetic.
     qs = qs.annotate(
-        # 1. Calculate the duration between now and the creation time.
-        #    This creates an 'interval' type in SQL.
-        duration=ExpressionWrapper(
-            Now() - F('creation_time'),
-            output_field=DurationField()
-        )
-    ).annotate(
-        # 2. Convert the duration (which is in microseconds) to hours.
-        #    1 hour = 3,600,000,000 microseconds (3600 * 1,000,000)
         age_in_hours=ExpressionWrapper(
-            F('duration') / 3600000000.0,
+            (Extract(Now(), 'epoch') - Extract('creation_time', 'epoch')) / 3600.0,
             output_field=FloatField()
         )
     )
@@ -31,7 +23,7 @@ def calculate_weights(qs, like_field, G=1.8, user=None):
     # 3. Annotate the final score using the hot rank formula
     qs = qs.annotate(
         score=ExpressionWrapper(
-            (F('like_count') + 1) / Power(F('age_in_hours') + 2, G),
+            (F('like_count') + 1) / Power(F('age_in_hours') + 2.0, G),
             output_field=FloatField()
         )
     )
