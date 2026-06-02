@@ -11,6 +11,7 @@ import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material.icons.filled.FavoriteBorder
 import androidx.compose.material.icons.filled.Flag
 import androidx.compose.material3.*
+import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -34,7 +35,7 @@ import androidx.navigation.compose.rememberNavController
 import com.example.positiveonlysocial.ui.preview.PreviewHelpers
 import com.example.positiveonlysocial.ui.theme.PositiveOnlySocialTheme
 
-@OptIn(ExperimentalFoundationApi::class)
+@OptIn(ExperimentalFoundationApi::class, ExperimentalMaterial3Api::class)
 @Composable
 fun PostDetailScreen(
     navController: NavController,
@@ -50,6 +51,7 @@ fun PostDetailScreen(
         val postDetail by viewModel.postDetail.collectAsState()
         val commentThreads by viewModel.commentThreads.collectAsState()
         val isLoading by viewModel.isLoading.collectAsState()
+        val isRefreshing by viewModel.isRefreshing.collectAsState()
         val alertMessage by viewModel.alertMessage.collectAsState()
         
         // Local state for interactions
@@ -98,6 +100,11 @@ fun PostDetailScreen(
             )
         }
 
+        PullToRefreshBox(
+            isRefreshing = isRefreshing,
+            onRefresh = { viewModel.refresh() },
+            modifier = Modifier.fillMaxSize()
+        ) {
         LazyColumn(
             modifier = Modifier.fillMaxSize(),
             contentPadding = PaddingValues(bottom = 16.dp)
@@ -182,6 +189,7 @@ fun PostDetailScreen(
                     Text("Post not found.", modifier = Modifier.padding(16.dp))
                 }
             }
+        }
         }
     }
 }

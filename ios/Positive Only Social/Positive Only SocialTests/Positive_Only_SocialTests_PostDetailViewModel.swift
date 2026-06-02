@@ -142,6 +142,43 @@ struct Positive_Only_SocialTests_PostDetailViewModel {
         #expect(secondComment?.authorUsername == "postOwner")
     }
 
+    @Test func testRefresh_PullsLatestCommentsFromBackend() async throws {
+        // Given: A fully loaded SUT with one comment thread
+        let (sut, postID, _, _) = try await setupTestEnvironment(account: "refresh_account")
+        #expect(sut.commentThreads.count == 1, "Pre-condition: Should have 1 thread")
+
+        // And: Another user adds a brand new comment thread on the backend
+        let otherCommenterToken = try await registerUserAndGetToken(username: "commenter2")
+        _ = try await commentOnPostAndGetIDs(token: otherCommenterToken, postID: postID, body: "Fresh comment")
+
+        // When: We pull-to-refresh
+        await sut.refresh()
+
+        // Then: The newest data is pulled in and loading is finished
+        #expect(sut.isLoading == false)
+        #expect(sut.commentThreads.count == 2, "Refreshed feed should include the new thread")
+    }
+
+    @Test func testRefresh_WhileAlreadyLoading_DoesNotReload() async throws {
+        // Given: A fully loaded SUT with one comment thread
+        let (sut, postID, _, _) = try await setupTestEnvironment(account: "refreshWhileLoading_account")
+        #expect(sut.commentThreads.count == 1, "Pre-condition: Should have 1 thread")
+
+        // And: A new comment thread appears on the backend
+        let otherCommenterToken = try await registerUserAndGetToken(username: "commenter2")
+        _ = try await commentOnPostAndGetIDs(token: otherCommenterToken, postID: postID, body: "Fresh comment")
+
+        // And: A load is already in flight
+        sut.isLoading = true
+
+        // When: We pull-to-refresh
+        await sut.refresh()
+
+        // Then: The refresh is skipped (so a stale in-flight load can't be
+        // raced), and the new thread is NOT pulled in.
+        #expect(sut.commentThreads.count == 1, "Refresh should be a no-op while a load is already in flight")
+    }
+
     // --- Post Action Tests ---
 
     @Test func testLikePost_OptimisticUpdate_IncrementsCount() async throws {

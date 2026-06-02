@@ -61,8 +61,25 @@ final class PostDetailViewModel: ObservableObject {
     
     func loadAllData() {
         isLoading = true
-        
+
         Task {
+            await performLoad()
+        }
+    }
+
+    /// Pull-to-refresh entry point. Awaitable so SwiftUI's `.refreshable`
+    /// keeps the spinner visible until the post and comments have reloaded.
+    func refresh() async {
+        // Don't start a refresh while another load is already in flight (the
+        // initial `loadAllData()` or an action-triggered reload). Two concurrent
+        // loads both write `postDetail`/`commentThreads`, so an older response
+        // could otherwise overwrite the fresher refreshed data.
+        guard !isLoading else { return }
+        isLoading = true
+        await performLoad()
+    }
+
+    private func performLoad() async {
             do {
                 // These authenticated GETs need the session token so the backend can
                 // report whether the current user has liked the post / each comment.
@@ -137,11 +154,10 @@ final class PostDetailViewModel: ObservableObject {
                 NSLog("%@", "Error loading post details: \(error)")
                 self.alertMessage = "Failed to load post: \(error.localizedDescription)"
             }
-            
+
             self.isLoading = false
-        }
     }
-    
+
     // MARK: - User Actions
     
     func likePost() {

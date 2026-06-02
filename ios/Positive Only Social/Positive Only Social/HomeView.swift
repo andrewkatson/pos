@@ -77,6 +77,10 @@ struct MyPostsGridView: View {
             .navigationTitle("Your Posts")
             // The searchable modifier provides the search bar UI and manages its state.
             .searchable(text: $viewModel.searchText, prompt: "Search for Users")
+            .refreshable {
+                // Pull-to-refresh: reload the newest posts from the backend.
+                await viewModel.refreshMyPosts()
+            }
             .onAppear {
                 // Fetch initial posts only if the list is empty
                 if viewModel.userPosts.isEmpty {

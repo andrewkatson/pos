@@ -68,6 +68,57 @@ class HomeViewModelTest {
     }
 
     @Test
+    fun `refreshMyPosts replaces userPosts with fresh data`() = runTest {
+        val initialPosts = listOf(Post("1", "url1", "caption1", "testuser", 1))
+        whenever(api.getPostsForUser("token123", "testuser", 0)).thenReturn(Response.success(initialPosts))
+
+        viewModel.fetchMyPosts()
+        assertEquals(initialPosts, viewModel.userPosts.value)
+
+        val refreshedPosts = listOf(
+            Post("2", "url2", "caption2", "testuser", 1),
+            Post("3", "url3", "caption3", "testuser", 1)
+        )
+        whenever(api.getPostsForUser("token123", "testuser", 0)).thenReturn(Response.success(refreshedPosts))
+
+        viewModel.refreshMyPosts()
+
+        assertEquals(refreshedPosts, viewModel.userPosts.value)
+        assertFalse(viewModel.isRefreshing.value)
+    }
+
+    @Test
+    fun `refreshMyPosts resets pagination after it was exhausted`() = runTest {
+        whenever(api.getPostsForUser("token123", "testuser", 0)).thenReturn(Response.success(emptyList()))
+        viewModel.fetchMyPosts()
+        assertTrue(viewModel.userPosts.value.isEmpty())
+
+        val refreshedPosts = listOf(Post("1", "url1", "caption1", "testuser", 1))
+        whenever(api.getPostsForUser("token123", "testuser", 0)).thenReturn(Response.success(refreshedPosts))
+        viewModel.refreshMyPosts()
+        assertEquals(refreshedPosts, viewModel.userPosts.value)
+
+        val nextPage = listOf(Post("2", "url2", "caption2", "testuser", 1))
+        whenever(api.getPostsForUser("token123", "testuser", 1)).thenReturn(Response.success(nextPage))
+        viewModel.fetchMyPosts()
+        assertEquals(refreshedPosts + nextPage, viewModel.userPosts.value)
+    }
+
+    @Test
+    fun `refreshMyPosts failure keeps existing posts and sets errorMessage`() = runTest {
+        val initialPosts = listOf(Post("1", "url1", "caption1", "testuser", 1))
+        whenever(api.getPostsForUser("token123", "testuser", 0)).thenReturn(Response.success(initialPosts))
+        viewModel.fetchMyPosts()
+
+        whenever(api.getPostsForUser("token123", "testuser", 0)).thenReturn(Response.error(400, "error".toResponseBody()))
+        viewModel.refreshMyPosts()
+
+        assertEquals(initialPosts, viewModel.userPosts.value)
+        assertEquals("error", viewModel.errorMessage.value)
+        assertFalse(viewModel.isRefreshing.value)
+    }
+
+    @Test
     fun `performSearch with valid query updates searchedUsers`() = runTest {
         val mockUsers = listOf(User("user1", true))
         whenever(api.searchUsers("token123", "query")).thenReturn(Response.success(mockUsers))

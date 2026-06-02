@@ -86,6 +86,17 @@ class PostDetailViewModelTest {
     }
 
     @Test
+    fun `refresh reloads post details and comments`() = runTest {
+        // loadAllData already ran once in init.
+        viewModel.refresh()
+
+        // getPostDetails is called again on refresh (once in init, once here).
+        verify(api, org.mockito.kotlin.times(2)).getPostDetails("token123", postIdentifier)
+        assertNotNull(viewModel.postDetail.value)
+        assertFalse(viewModel.isRefreshing.value)
+    }
+
+    @Test
     fun `commentOnPost success clears newCommentText and reloads`() = runTest {
         viewModel.updateNewCommentText("Nice post!")
         whenever(api.commentOnPost(any(), any(), any())).thenReturn(Response.success(mock()))
