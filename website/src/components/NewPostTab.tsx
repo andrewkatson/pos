@@ -1,6 +1,8 @@
-import { useState, type FormEvent } from 'react'
+import { useEffect, useState, type FormEvent } from 'react'
 import { apiClient } from '../api/client'
 import type { ApiError } from '../api/client'
+import { getCurrentUserId } from '../api/session'
+import { uploadImage } from '../api/s3Uploader'
 
 interface NewPostTabProps {
   /** Called after a successful post so the shell can switch back to the Home tab. */
@@ -8,29 +10,52 @@ interface NewPostTabProps {
 }
 
 /**
- * The "Post" tab: create a new post from an image URL and caption. The native
- * apps upload a picked photo to S3 first; the web build has no uploader, so it
- * takes the hosted image URL directly (matching the backend's `image_url`
- * field). Mirrors iOS NewPostView (preview, share button, success/failure).
+ * The "Post" tab: pick a photo and write a caption. The photo is uploaded to S3
+ * (scoped to the signed-in user) and the resulting URL is sent to the backend,
+ * mirroring iOS NewPostView (photo picker, preview, share button, success/
+ * failure handling).
  */
 function NewPostTab({ onPosted }: NewPostTabProps) {
-  const [imageUrl, setImageUrl] = useState('')
+  const [file, setFile] = useState<File | null>(null)
+  const [previewUrl, setPreviewUrl] = useState<string | null>(null)
   const [caption, setCaption] = useState('')
   const [isLoading, setIsLoading] = useState(false)
   const [errorMessage, setErrorMessage] = useState<string | null>(null)
   const [successMessage, setSuccessMessage] = useState<string | null>(null)
 
-  const isFormValid = imageUrl.trim().length > 0 && caption.trim().length > 0
+  // Revoke the preview object URL when it changes or the component unmounts.
+  // (The URL is created in handleFileChange, not here, to avoid a synchronous
+  // setState inside the effect.)
+  useEffect(() => {
+    if (!previewUrl) return
+    return () => URL.revokeObjectURL(previewUrl)
+  }, [previewUrl])
+
+  function handleFileChange(next: File | null) {
+    setFile(next)
+    setPreviewUrl(next ? URL.createObjectURL(next) : null)
+  }
+
+  const isFormValid = file !== null && caption.trim().length > 0
 
   async function handleSubmit(e: FormEvent) {
     e.preventDefault()
-    if (!isFormValid) return
+    if (!isFormValid || !file) return
+
+    const userId = getCurrentUserId()
+    if (!userId) {
+      setErrorMessage('You must be logged in to post.')
+      return
+    }
+
     setIsLoading(true)
     setErrorMessage(null)
     setSuccessMessage(null)
     try {
-      await apiClient.createPost({ image_url: imageUrl.trim(), caption: caption.trim() })
-      setImageUrl('')
+      const imageUrl = await uploadImage(file, userId)
+      await apiClient.createPost({ image_url: imageUrl, caption: caption.trim() })
+      setFile(null)
+      setPreviewUrl(null)
       setCaption('')
       setSuccessMessage('Your post was shared successfully!')
       onPosted()
@@ -65,24 +90,22 @@ function NewPostTab({ onPosted }: NewPostTabProps) {
       )}
 
       <div className="auth-field">
-        <label className="auth-label" htmlFor="imageUrl">
-          Image URL
+        <label className="auth-label" htmlFor="photo">
+          Photo
         </label>
         <input
-          id="imageUrl"
+          id="photo"
           className="search-bar"
-          type="url"
-          inputMode="url"
-          autoCapitalize="none"
-          placeholder="https://example.com/photo.jpg"
-          value={imageUrl}
-          onChange={e => setImageUrl(e.target.value)}
+          type="file"
+          accept="image/*"
+          aria-label="Choose a photo"
+          onChange={e => handleFileChange(e.target.files?.[0] ?? null)}
           disabled={isLoading}
         />
       </div>
 
-      {imageUrl.trim().length > 0 && (
-        <img className="form-section__preview" src={imageUrl} alt="Selected post preview" />
+      {previewUrl && (
+        <img className="form-section__preview" src={previewUrl} alt="Selected post preview" />
       )}
 
       <div className="auth-field">
