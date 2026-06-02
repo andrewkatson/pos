@@ -30,10 +30,17 @@ type ReportTarget = { type: 'post' } | { type: 'comment'; comment: CommentView }
  *
  * The web API doesn't report whether the current user has liked a post/comment,
  * so like state is tracked locally and applied optimistically.
+ *
+ * The inner view is keyed by postId so navigating to a different post fully
+ * resets its state instead of briefly showing the previous post's data.
  */
 function PostDetailPage() {
-  const navigate = useNavigate()
   const { postId = '' } = useParams<{ postId: string }>()
+  return <PostDetailView key={postId} postId={postId} />
+}
+
+function PostDetailView({ postId }: { postId: string }) {
+  const navigate = useNavigate()
 
   const [post, setPost] = useState<PostDetails | null>(null)
   const [postLikeCount, setPostLikeCount] = useState(0)
@@ -50,8 +57,10 @@ function PostDetailPage() {
   const [reportReason, setReportReason] = useState('')
   const [errorMessage, setErrorMessage] = useState<string | null>(null)
 
-  // Local like/report state, keyed by id so it survives a reload (which only
-  // returns server-side counts, never per-user like flags).
+  // Local like/report state, kept in refs so the in-app reload after posting a
+  // comment/reply doesn't drop it (the API only returns server-side counts,
+  // never per-user like flags). This is in-memory only and resets on a full
+  // page reload.
   const likedCommentIds = useRef<Set<string>>(new Set())
   const reportedCommentIds = useRef<Set<string>>(new Set())
 
@@ -67,11 +76,21 @@ function PostDetailPage() {
       isReported: reportedCommentIds.current.has(c.comment_identifier),
     })
 
+    // A failure to load the post itself is the only "not found" case. Comment
+    // loading is handled separately so a transient comments error doesn't hide
+    // a post that loaded fine.
+    let details: PostDetails
     try {
-      const details = await apiClient.getPostDetails(postId)
-      setPost(details)
-      setPostLikeCount(details.post_likes)
+      details = await apiClient.getPostDetails(postId)
+    } catch {
+      setNotFound(true)
+      setIsLoading(false)
+      return
+    }
+    setPost(details)
+    setPostLikeCount(details.post_likes)
 
+    try {
       const refs = await apiClient.getCommentsForPost(postId, 0)
       const threadLists = await Promise.all(
         refs.map(async ref => {
@@ -97,7 +116,7 @@ function PostDetailPage() {
         )
       setThreads(built)
     } catch {
-      setNotFound(true)
+      setErrorMessage('Failed to load comments.')
     } finally {
       setIsLoading(false)
     }

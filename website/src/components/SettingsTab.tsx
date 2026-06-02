@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, type ReactNode } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { apiClient } from '../api/client'
 import { clearSession } from '../api/session'
@@ -182,7 +182,7 @@ function SettingsTab() {
 interface ModalProps {
   title: string
   body?: string
-  children: React.ReactNode
+  children: ReactNode
 }
 
 function Modal({ title, body, children }: ModalProps) {

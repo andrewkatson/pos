@@ -102,3 +102,12 @@ test('shows not-found when the post fails to load', async () => {
   renderDetail()
   expect(await screen.findByText('Post not found.')).toBeInTheDocument()
 })
+
+test('still shows the post when only the comments fail to load', async () => {
+  mockGetThreadRefs.mockRejectedValue(new Error('network'))
+  renderDetail()
+  // The post itself loaded, so it renders rather than the not-found state.
+  expect(await screen.findByText('sunshine')).toBeInTheDocument()
+  expect(screen.queryByText('Post not found.')).not.toBeInTheDocument()
+  expect(await screen.findByText('Failed to load comments.')).toBeInTheDocument()
+})

@@ -7,10 +7,17 @@ import './MainApp.css'
 /**
  * A user's profile: stats, follow/block actions, and their post grid. Mirrors
  * iOS ProfileView / ProfileViewModel (optimistic follow/block, paginated grid).
+ *
+ * The inner view is keyed by username so navigating between profiles fully
+ * resets its state instead of briefly showing the previous user's data.
  */
 function ProfilePage() {
-  const navigate = useNavigate()
   const { username = '' } = useParams<{ username: string }>()
+  return <ProfileView key={username} username={username} />
+}
+
+function ProfileView({ username }: { username: string }) {
+  const navigate = useNavigate()
 
   const [profile, setProfile] = useState<ProfileDetails | null>(null)
   const [isFollowing, setIsFollowing] = useState(false)
@@ -86,7 +93,7 @@ function ProfilePage() {
         setProfile(p => (p ? { ...p, follower_count: p.follower_count + 1 } : p))
       }
     } catch {
-      /* leave state unchanged on failure */
+      /* state is only updated after a successful call, so nothing to revert */
     } finally {
       setIsBusy(false)
     }
@@ -95,14 +102,19 @@ function ProfilePage() {
   async function toggleBlock() {
     if (isBusy) return
     setIsBusy(true)
-    const previous = isBlocked
-    // Optimistic update; blocking also severs the follow relationship.
-    setIsBlocked(!previous)
-    if (!previous) setIsFollowing(false)
+    const wasFollowing = isFollowing
     try {
       await apiClient.toggleBlock(username)
+      const nowBlocked = !isBlocked
+      setIsBlocked(nowBlocked)
+      // Blocking severs the follow relationship on the backend; reflect that in
+      // the follow button and the follower count so the stats stay consistent.
+      if (nowBlocked && wasFollowing) {
+        setIsFollowing(false)
+        setProfile(p => (p ? { ...p, follower_count: Math.max(0, p.follower_count - 1) } : p))
+      }
     } catch {
-      setIsBlocked(previous)
+      /* state is only updated after a successful call, so nothing to revert */
     } finally {
       setIsBusy(false)
     }
