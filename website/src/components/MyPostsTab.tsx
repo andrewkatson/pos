@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { apiClient } from '../api/client'
 import { getCurrentUsername } from '../api/session'
@@ -12,6 +12,16 @@ import type { FeedPost, UserSearchResult } from '../api/types'
 function MyPostsTab() {
   const navigate = useNavigate()
   const username = getCurrentUsername()
+
+  // Track mount state so async loads that resolve after the tab is switched
+  // away (HomePage unmounts inactive tabs) don't set state on an unmounted view.
+  const isMounted = useRef(true)
+  useEffect(() => {
+    isMounted.current = true
+    return () => {
+      isMounted.current = false
+    }
+  }, [])
 
   const [posts, setPosts] = useState<FeedPost[]>([])
   const [page, setPage] = useState(0)
@@ -28,6 +38,7 @@ function MyPostsTab() {
       if (!username) return
       try {
         const newPosts = await apiClient.getPostsForUser(username, pageToLoad)
+        if (!isMounted.current) return
         if (replace) {
           setPosts(newPosts)
           setCanLoadMore(newPosts.length > 0)
@@ -39,9 +50,9 @@ function MyPostsTab() {
           setPage(prev => prev + 1)
         }
       } catch {
-        setCanLoadMore(false)
+        if (isMounted.current) setCanLoadMore(false)
       } finally {
-        setIsLoading(false)
+        if (isMounted.current) setIsLoading(false)
       }
     },
     [username],
@@ -61,9 +72,10 @@ function MyPostsTab() {
     if (query.length < 3) return
     const id = setTimeout(async () => {
       try {
-        setSearchResults(await apiClient.searchUsers(query))
+        const results = await apiClient.searchUsers(query)
+        if (isMounted.current) setSearchResults(results)
       } catch {
-        setSearchResults([])
+        if (isMounted.current) setSearchResults([])
       }
     }, 500)
     return () => clearTimeout(id)

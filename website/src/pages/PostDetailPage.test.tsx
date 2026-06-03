@@ -7,6 +7,7 @@ import type { Comment, PostDetails } from '../api/types'
 
 vi.mock('../api/client', () => ({
   apiClient: {
+    isAuthenticated: vi.fn(() => true),
     getPostDetails: vi.fn(),
     getCommentsForPost: vi.fn(),
     getCommentsForThread: vi.fn(),
@@ -110,4 +111,17 @@ test('still shows the post when only the comments fail to load', async () => {
   expect(await screen.findByText('sunshine')).toBeInTheDocument()
   expect(screen.queryByText('Post not found.')).not.toBeInTheDocument()
   expect(await screen.findByText('Failed to load comments.')).toBeInTheDocument()
+})
+
+test('redirects to login when unauthenticated', () => {
+  vi.mocked(apiClient.isAuthenticated).mockReturnValueOnce(false)
+  render(
+    <MemoryRouter initialEntries={['/post/p1']}>
+      <Routes>
+        <Route path="/post/:postId" element={<PostDetailPage />} />
+        <Route path="/login" element={<div>Login page</div>} />
+      </Routes>
+    </MemoryRouter>,
+  )
+  expect(screen.getByText('Login page')).toBeInTheDocument()
 })

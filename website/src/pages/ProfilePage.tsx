@@ -1,5 +1,5 @@
-import { useCallback, useEffect, useState } from 'react'
-import { useNavigate, useParams } from 'react-router-dom'
+import { useCallback, useEffect, useRef, useState } from 'react'
+import { Navigate, useNavigate, useParams } from 'react-router-dom'
 import { apiClient } from '../api/client'
 import type { FeedPost, ProfileDetails } from '../api/types'
 import './MainApp.css'
@@ -13,13 +13,28 @@ import './MainApp.css'
  */
 function ProfilePage() {
   const { username = '' } = useParams<{ username: string }>()
+  // This view hits authenticated endpoints, so require a session like HomePage.
+  if (!apiClient.isAuthenticated()) {
+    return <Navigate to="/login" replace />
+  }
   return <ProfileView key={username} username={username} />
 }
 
 function ProfileView({ username }: { username: string }) {
   const navigate = useNavigate()
 
+  // Track mount state so async loads that resolve after navigating away don't
+  // set state on an unmounted view.
+  const isMounted = useRef(true)
+  useEffect(() => {
+    isMounted.current = true
+    return () => {
+      isMounted.current = false
+    }
+  }, [])
+
   const [profile, setProfile] = useState<ProfileDetails | null>(null)
+  const [notFound, setNotFound] = useState(false)
   const [isFollowing, setIsFollowing] = useState(false)
   const [isBlocked, setIsBlocked] = useState(false)
   const [isBusy, setIsBusy] = useState(false)
@@ -42,7 +57,8 @@ function ProfileView({ username }: { username: string }) {
         setIsBlocked(details.is_blocked)
       })
       .catch(() => {
-        /* leave profile null → "not found" message */
+        // Couldn't load the profile (e.g. user not found) — show a message.
+        if (!cancelled) setNotFound(true)
       })
     return () => {
       cancelled = true
@@ -53,6 +69,7 @@ function ProfileView({ username }: { username: string }) {
     async (pageToLoad: number, replace: boolean) => {
       try {
         const newPosts = await apiClient.getPostsForUser(username, pageToLoad)
+        if (!isMounted.current) return
         if (replace) {
           setPosts(newPosts)
           setCanLoadMore(newPosts.length > 0)
@@ -64,9 +81,9 @@ function ProfileView({ username }: { username: string }) {
           setPage(prev => prev + 1)
         }
       } catch {
-        setCanLoadMore(false)
+        if (isMounted.current) setCanLoadMore(false)
       } finally {
-        setIsLoadingPosts(false)
+        if (isMounted.current) setIsLoadingPosts(false)
       }
     },
     [username],
@@ -129,6 +146,11 @@ function ProfileView({ username }: { username: string }) {
         <h1 className="app-bar__title">{username}</h1>
       </header>
 
+      {notFound ? (
+        <main className="app-content">
+          <p className="muted">User not found.</p>
+        </main>
+      ) : (
       <main className="app-content">
         <div className="profile-header">
           <div className="profile-stats">
@@ -202,6 +224,7 @@ function ProfileView({ username }: { username: string }) {
           </button>
         )}
       </main>
+      )}
     </div>
   )
 }

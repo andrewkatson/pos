@@ -7,6 +7,7 @@ import type { ProfileDetails } from '../api/types'
 
 vi.mock('../api/client', () => ({
   apiClient: {
+    isAuthenticated: vi.fn(() => true),
     getProfile: vi.fn(),
     getPostsForUser: vi.fn(),
     followUser: vi.fn(),
@@ -77,4 +78,23 @@ test('renders the post grid and opens a post', async () => {
   renderProfile()
   await userEvent.click(await screen.findByRole('button', { name: 'Post by bob' }))
   expect(screen.getByText('Post page')).toBeInTheDocument()
+})
+
+test('shows "User not found" when the profile fails to load', async () => {
+  mockGetProfile.mockRejectedValue(new Error('404'))
+  renderProfile()
+  expect(await screen.findByText('User not found.')).toBeInTheDocument()
+})
+
+test('redirects to login when unauthenticated', () => {
+  vi.mocked(apiClient.isAuthenticated).mockReturnValueOnce(false)
+  render(
+    <MemoryRouter initialEntries={['/profile/bob']}>
+      <Routes>
+        <Route path="/profile/:username" element={<ProfilePage />} />
+        <Route path="/login" element={<div>Login page</div>} />
+      </Routes>
+    </MemoryRouter>,
+  )
+  expect(screen.getByText('Login page')).toBeInTheDocument()
 })

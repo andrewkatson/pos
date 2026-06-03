@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { useNavigate, useParams } from 'react-router-dom'
+import { Navigate, useNavigate, useParams } from 'react-router-dom'
 import { apiClient } from '../api/client'
 import type { Comment, PostDetails } from '../api/types'
 import './MainApp.css'
@@ -36,11 +36,25 @@ type ReportTarget = { type: 'post' } | { type: 'comment'; comment: CommentView }
  */
 function PostDetailPage() {
   const { postId = '' } = useParams<{ postId: string }>()
+  // Comments/likes/reports require a session, so require one like HomePage.
+  if (!apiClient.isAuthenticated()) {
+    return <Navigate to="/login" replace />
+  }
   return <PostDetailView key={postId} postId={postId} />
 }
 
 function PostDetailView({ postId }: { postId: string }) {
   const navigate = useNavigate()
+
+  // Track mount state so async loads that resolve after navigating away don't
+  // set state on an unmounted view.
+  const isMounted = useRef(true)
+  useEffect(() => {
+    isMounted.current = true
+    return () => {
+      isMounted.current = false
+    }
+  }, [])
 
   const [post, setPost] = useState<PostDetails | null>(null)
   const [postLikeCount, setPostLikeCount] = useState(0)
@@ -83,10 +97,13 @@ function PostDetailView({ postId }: { postId: string }) {
     try {
       details = await apiClient.getPostDetails(postId)
     } catch {
-      setNotFound(true)
-      setIsLoading(false)
+      if (isMounted.current) {
+        setNotFound(true)
+        setIsLoading(false)
+      }
       return
     }
+    if (!isMounted.current) return
     setPost(details)
     setPostLikeCount(details.post_likes)
 
@@ -101,6 +118,7 @@ function PostDetailView({ postId }: { postId: string }) {
           return { threadId: ref.comment_thread_identifier, comments }
         }),
       )
+      if (!isMounted.current) return
 
       const built: ThreadView[] = threadLists
         .filter(t => t.comments.length > 0)
@@ -115,10 +133,12 @@ function PostDetailView({ postId }: { postId: string }) {
           (a.comments[0]?.createdTime ?? '').localeCompare(b.comments[0]?.createdTime ?? ''),
         )
       setThreads(built)
+      // Clear any stale "failed to load comments" message from a prior attempt.
+      setErrorMessage(null)
     } catch {
-      setErrorMessage('Failed to load comments.')
+      if (isMounted.current) setErrorMessage('Failed to load comments.')
     } finally {
-      setIsLoading(false)
+      if (isMounted.current) setIsLoading(false)
     }
   }, [postId])
 

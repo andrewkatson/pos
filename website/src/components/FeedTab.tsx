@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { apiClient } from '../api/client'
 import type { FeedPost } from '../api/types'
@@ -13,6 +13,16 @@ type FeedType = 'forYou' | 'following'
 function FeedTab() {
   const navigate = useNavigate()
   const [selected, setSelected] = useState<FeedType>('forYou')
+
+  // Track mount state so async loads that resolve after the tab is switched
+  // away (HomePage unmounts inactive tabs) don't set state on an unmounted view.
+  const isMounted = useRef(true)
+  useEffect(() => {
+    isMounted.current = true
+    return () => {
+      isMounted.current = false
+    }
+  }, [])
 
   const [posts, setPosts] = useState<FeedPost[]>([])
   const [page, setPage] = useState(0)
@@ -31,6 +41,7 @@ function FeedTab() {
     async (pageToLoad: number, replace: boolean) => {
       try {
         const newPosts = await fetcher(pageToLoad)
+        if (!isMounted.current) return
         if (replace) {
           setPosts(newPosts)
           setCanLoadMore(newPosts.length > 0)
@@ -42,9 +53,9 @@ function FeedTab() {
           setPage(prev => prev + 1)
         }
       } catch {
-        setCanLoadMore(false)
+        if (isMounted.current) setCanLoadMore(false)
       } finally {
-        setIsLoading(false)
+        if (isMounted.current) setIsLoading(false)
       }
     },
     [fetcher],
