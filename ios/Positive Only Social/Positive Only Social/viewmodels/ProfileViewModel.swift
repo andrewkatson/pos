@@ -156,18 +156,21 @@ class ProfileViewModel: ObservableObject {
         isLoadingProfile = true
         
         let previousBlockState = isBlocked
+        let previousFollowState = isFollowing
         // Optimistic update
         isBlocked.toggle()
-        
-        // Blocking also unfollows in our backend logic
-        if isBlocked { 
-             isFollowing = false 
-             if self.profileDetails != nil {
-                 // self.profileDetails?.followerCount -= 1 // Maybe? Only if we were following. 
-                 // It's safer to just let the profile refresh or ignore count for now.
-             }
+
+        // Blocking also unfollows in our backend logic, so mirror that here.
+        // Only decrement the follower count if we were actually following,
+        // otherwise the count drifts (e.g. follow -> block -> follow would
+        // count the same follow twice).
+        if isBlocked && isFollowing {
+            isFollowing = false
+            if self.profileDetails != nil {
+                self.profileDetails?.followerCount -= 1
+            }
         }
-        
+
         Task {
             do {
                 guard let userSession = try keychainHelper.load(UserSession.self, from: keychainService, account: account) else {
@@ -182,7 +185,13 @@ class ProfileViewModel: ObservableObject {
                 // Success, state already updated.
             } catch {
                 NSLog("%@", "Error toggling block: \(error)")
-                // Revert on error
+                // Revert on error, including the optimistic unfollow side-effect.
+                if isBlocked && !previousBlockState && previousFollowState {
+                    isFollowing = previousFollowState
+                    if self.profileDetails != nil {
+                        self.profileDetails?.followerCount += 1
+                    }
+                }
                 isBlocked = previousBlockState
             }
             isLoadingProfile = false
