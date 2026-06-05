@@ -6,6 +6,8 @@ import RequestResetPage from './pages/RequestResetPage'
 import VerifyResetPage from './pages/VerifyResetPage'
 import ResetPasswordPage from './pages/ResetPasswordPage'
 import HomePage from './pages/HomePage'
+import PostDetailPage from './pages/PostDetailPage'
+import ProfilePage from './pages/ProfilePage'
 
 function App() {
   return (
@@ -17,6 +19,8 @@ function App() {
       <Route path="/verify-reset" element={<VerifyResetPage />} />
       <Route path="/reset-password" element={<ResetPasswordPage />} />
       <Route path="/home" element={<HomePage />} />
+      <Route path="/post/:postId" element={<PostDetailPage />} />
+      <Route path="/profile/:username" element={<ProfilePage />} />
     </Routes>
   )
 }
