@@ -1,7 +1,6 @@
 package com.example.positiveonlysocial.ui.main
 
 import androidx.compose.foundation.ExperimentalFoundationApi
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
@@ -148,15 +147,15 @@ fun PostDetailScreen(
                         Column(modifier = Modifier.padding(16.dp)) {
                             Row(verticalAlignment = Alignment.CenterVertically) {
                                 if (!isOwnPost) {
-                                    Icon(
-                                        if (post.isLiked) Icons.Default.Favorite else Icons.Default.FavoriteBorder,
-                                        contentDescription = if (post.isLiked) "Unlike post" else "Like post",
-                                        tint = Color.Red,
-                                        modifier = Modifier.clickable {
-                                            if (post.isLiked) viewModel.unlikePost() else viewModel.likePost()
-                                        }
-                                    )
-                                    Spacer(modifier = Modifier.width(4.dp))
+                                    IconButton(onClick = {
+                                        if (post.isLiked) viewModel.unlikePost() else viewModel.likePost()
+                                    }) {
+                                        Icon(
+                                            if (post.isLiked) Icons.Default.Favorite else Icons.Default.FavoriteBorder,
+                                            contentDescription = if (post.isLiked) "Unlike post" else "Like post",
+                                            tint = Color.Red
+                                        )
+                                    }
                                 }
                                 Text("${post.likeCount} likes", fontWeight = FontWeight.Bold)
                                 Spacer(modifier = Modifier.weight(1f))
@@ -297,14 +296,19 @@ fun CommentRow(
                 Text("Just now", fontSize = 12.sp, color = Color.Gray)
                 Spacer(modifier = Modifier.width(8.dp))
                 if (!isOwn) {
-                    Icon(
-                        if (comment.isLiked) Icons.Default.Favorite else Icons.Default.FavoriteBorder,
-                        contentDescription = if (comment.isLiked) "Unlike comment" else "Like comment",
-                        tint = Color.Red,
-                        modifier = Modifier
-                            .size(12.dp)
-                            .clickable { if (comment.isLiked) onUnlike() else onLike() }
-                    )
+                    IconButton(
+                        onClick = { if (comment.isLiked) onUnlike() else onLike() },
+                        // IconButton enforces a minimum 48dp touch target while
+                        // keeping the visible icon small.
+                        modifier = Modifier.size(36.dp)
+                    ) {
+                        Icon(
+                            if (comment.isLiked) Icons.Default.Favorite else Icons.Default.FavoriteBorder,
+                            contentDescription = if (comment.isLiked) "Unlike comment" else "Like comment",
+                            tint = Color.Red,
+                            modifier = Modifier.size(12.dp)
+                        )
+                    }
                     Spacer(modifier = Modifier.width(4.dp))
                 }
                 Text("${comment.likeCount} likes", fontSize = 12.sp, color = Color.Gray)
