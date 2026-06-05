@@ -53,6 +53,9 @@ fun PostDetailScreen(
         val isLoading by viewModel.isLoading.collectAsState()
         val isRefreshing by viewModel.isRefreshing.collectAsState()
         val alertMessage by viewModel.alertMessage.collectAsState()
+        // The signed-in user; used to hide the like control on their own
+        // post/comments since the backend rejects liking your own content.
+        val currentUsername by viewModel.currentUsername.collectAsState()
         
         // Local state for interactions
         var isPostReported by remember { mutableStateOf(false) }
@@ -117,6 +120,9 @@ fun PostDetailScreen(
                 }
             } else if (postDetail != null) {
                 val post = postDetail!!
+                // The backend rejects liking your own post, so the like control
+                // is hidden and double-tap-to-like is a no-op on it.
+                val isOwnPost = post.authorUsername == currentUsername
                 item {
                     Column(modifier = Modifier.fillMaxWidth()) {
                         AsyncImage(
@@ -127,6 +133,7 @@ fun PostDetailScreen(
                                 .aspectRatio(1f)
                                 .combinedClickable(
                                     onDoubleClick = {
+                                        if (isOwnPost) return@combinedClickable
                                         // Drive the action from the server-backed like state
                                         if (post.isLiked) viewModel.unlikePost() else viewModel.likePost()
                                     },
@@ -137,11 +144,13 @@ fun PostDetailScreen(
                                 ),
                             contentScale = ContentScale.Crop
                         )
-                        
+
                         Column(modifier = Modifier.padding(16.dp)) {
                             Row(verticalAlignment = Alignment.CenterVertically) {
-                                Icon(if (post.isLiked) Icons.Default.Favorite else Icons.Default.FavoriteBorder, contentDescription = if (post.isLiked) "Liked" else "Like", tint = Color.Red)
-                                Spacer(modifier = Modifier.width(4.dp))
+                                if (!isOwnPost) {
+                                    Icon(if (post.isLiked) Icons.Default.Favorite else Icons.Default.FavoriteBorder, contentDescription = if (post.isLiked) "Liked" else "Like", tint = Color.Red)
+                                    Spacer(modifier = Modifier.width(4.dp))
+                                }
                                 Text("${post.likeCount} likes", fontWeight = FontWeight.Bold)
                                 Spacer(modifier = Modifier.weight(1f))
                                 if (isPostReported) {
@@ -182,7 +191,7 @@ fun PostDetailScreen(
                 }
                 
                 items(commentThreads) { thread ->
-                    CommentThreadView(thread = thread, viewModel = viewModel)
+                    CommentThreadView(thread = thread, viewModel = viewModel, currentUsername = currentUsername)
                 }
             } else {
                 item {
@@ -195,11 +204,12 @@ fun PostDetailScreen(
 }
 
 @Composable
-fun CommentThreadView(thread: CommentThreadViewData, viewModel: PostDetailViewModel) {
+fun CommentThreadView(thread: CommentThreadViewData, viewModel: PostDetailViewModel, currentUsername: String?) {
     Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)) {
         thread.comments.firstOrNull()?.let { rootComment ->
             CommentRow(
                 comment = rootComment,
+                isOwn = rootComment.authorUsername == currentUsername,
                 onLike = { viewModel.likeComment(rootComment, rootComment.threadId) },
                 onUnlike = { viewModel.unlikeComment(rootComment, rootComment.threadId) },
                 onReport = { viewModel.setCommentToReport(rootComment) }
@@ -218,6 +228,7 @@ fun CommentThreadView(thread: CommentThreadViewData, viewModel: PostDetailViewMo
                 thread.comments.drop(1).forEach { reply ->
                     CommentRow(
                         comment = reply,
+                        isOwn = reply.authorUsername == currentUsername,
                         onLike = { viewModel.likeComment(reply, reply.threadId) },
                         onUnlike = { viewModel.unlikeComment(reply, reply.threadId) },
                         onReport = { viewModel.setCommentToReport(reply) }
@@ -232,6 +243,7 @@ fun CommentThreadView(thread: CommentThreadViewData, viewModel: PostDetailViewMo
 @Composable
 fun CommentRow(
     comment: CommentViewData,
+    isOwn: Boolean,
     onLike: () -> Unit,
     onUnlike: () -> Unit,
     onReport: () -> Unit
@@ -244,6 +256,9 @@ fun CommentRow(
             .padding(vertical = 4.dp)
             .combinedClickable(
                 onDoubleClick = {
+                    // The backend rejects liking your own comment, so double-tap
+                    // is a no-op on it.
+                    if (isOwn) return@combinedClickable
                     // Drive the action from the server-backed like state
                     if (comment.isLiked) onUnlike() else onLike()
                 },
@@ -274,13 +289,15 @@ fun CommentRow(
                 // TODO Date placeholder - needs formatting logic
                 Text("Just now", fontSize = 12.sp, color = Color.Gray)
                 Spacer(modifier = Modifier.width(8.dp))
-                Icon(
-                    if (comment.isLiked) Icons.Default.Favorite else Icons.Default.FavoriteBorder,
-                    contentDescription = if (comment.isLiked) "Liked" else "Like",
-                    tint = Color.Red,
-                    modifier = Modifier.size(12.dp)
-                )
-                Spacer(modifier = Modifier.width(4.dp))
+                if (!isOwn) {
+                    Icon(
+                        if (comment.isLiked) Icons.Default.Favorite else Icons.Default.FavoriteBorder,
+                        contentDescription = if (comment.isLiked) "Liked" else "Like",
+                        tint = Color.Red,
+                        modifier = Modifier.size(12.dp)
+                    )
+                    Spacer(modifier = Modifier.width(4.dp))
+                }
                 Text("${comment.likeCount} likes", fontSize = 12.sp, color = Color.Gray)
                 Spacer(modifier = Modifier.width(8.dp))
                 if (isReported) {

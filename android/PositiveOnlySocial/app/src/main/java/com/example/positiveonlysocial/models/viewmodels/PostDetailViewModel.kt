@@ -58,6 +58,12 @@ class PostDetailViewModel(
     private val _threadToReplyTo = MutableStateFlow<CommentThreadViewData?>(null)
     val threadToReplyTo: StateFlow<CommentThreadViewData?> = _threadToReplyTo.asStateFlow()
 
+    // The signed-in user's username, loaded alongside the post. The backend
+    // rejects liking your own post/comment, so the UI hides the like control
+    // (and the like actions are guarded) for content this user authored.
+    private val _currentUsername = MutableStateFlow<String?>(null)
+    val currentUsername: StateFlow<String?> = _currentUsername.asStateFlow()
+
     private val service = "positive-only-social.Positive-Only-Social"
 
     init {
@@ -82,6 +88,17 @@ class PostDetailViewModel(
 
     fun dismissAlert() {
         _alertMessage.value = null
+    }
+
+    /** Whether the loaded post was authored by the signed-in user. */
+    fun isOwnPost(): Boolean {
+        val username = _currentUsername.value ?: return false
+        return _postDetail.value?.authorUsername == username
+    }
+
+    /** Whether the given comment was authored by the signed-in user. */
+    fun isOwnComment(comment: CommentViewData): Boolean {
+        return comment.authorUsername == _currentUsername.value
     }
 
     fun loadAllData() {
@@ -130,6 +147,7 @@ class PostDetailViewModel(
                 return
             }
             val token = userSession.sessionToken
+            _currentUsername.value = userSession.username
 
             // 1. Fetch the main post details
             val postResponse = api.getPostDetails(token, postIdentifier)
@@ -185,6 +203,8 @@ class PostDetailViewModel(
     }
 
     fun likePost() {
+        // The backend rejects liking your own post; ignore the request.
+        if (isOwnPost()) return
         viewModelScope.launch {
             try {
                 val userSession = keychainHelper.load(UserSession::class.java, service, account)
@@ -252,6 +272,8 @@ class PostDetailViewModel(
     }
 
     fun likeComment(comment: CommentViewData, threadId: String) {
+        // The backend rejects liking your own comment; ignore the request.
+        if (isOwnComment(comment)) return
         viewModelScope.launch {
             try {
                 val userSession = keychainHelper.load(UserSession::class.java, service, account)

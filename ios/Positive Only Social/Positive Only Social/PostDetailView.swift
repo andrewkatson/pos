@@ -46,6 +46,9 @@ struct PostDetailView: View {
                     // --- Image Interactions ---
                     // --- UPDATED ---
                     .onTapGesture(count: 2) {
+                        // The backend rejects liking your own post, so double-tap
+                        // is a no-op on the current user's own post.
+                        guard !viewModel.isOwnPost else { return }
                         // Drive the action from the server-backed like state
                         if post.isLiked {
                             viewModel.unlikePost()
@@ -56,13 +59,17 @@ struct PostDetailView: View {
                     .onLongPressGesture {
                         viewModel.showReportSheetForPost = true
                     }
-                    
+
                     // --- POST DETAILS (CAPTION, LIKES) ---
                     VStack(alignment: .leading, spacing: 8) {
                         HStack {
-                            Image(systemName: post.isLiked ? "heart.fill" : "heart")
-                                .foregroundColor(Color(UIColor.systemRed))
-                                .accessibilityLabel(post.isLiked ? "Liked" : "Like")
+                            // Hide the like heart on the current user's own post;
+                            // they can't like it.
+                            if !viewModel.isOwnPost {
+                                Image(systemName: post.isLiked ? "heart.fill" : "heart")
+                                    .foregroundColor(Color(UIColor.systemRed))
+                                    .accessibilityLabel(post.isLiked ? "Liked" : "Like")
+                            }
                             Text("\(post.likeCount) likes")
                                 .font(.headline)
                                 .accessibilityIdentifier("PostLikesText")
@@ -182,7 +189,12 @@ struct PostDetailView: View {
         let comment: CommentViewData
 
         let isReported: Bool
-        
+
+        /// Whether this comment was authored by the signed-in user. The backend
+        /// rejects liking your own comment, so the like heart is hidden and the
+        /// double-tap-to-like gesture is a no-op when true.
+        let isOwn: Bool
+
         // Actions passed from the parent
         let onLike: () -> Void
         let onUnlike: () -> Void
@@ -213,10 +225,12 @@ struct PostDetailView: View {
                             .font(.caption)
                             .foregroundColor(.secondary)
 
-                        Image(systemName: comment.isLiked ? "heart.fill" : "heart")
-                            .foregroundColor(Color(UIColor.systemRed))
-                            .font(.caption)
-                            .accessibilityLabel(comment.isLiked ? "Liked" : "Like")
+                        if !isOwn {
+                            Image(systemName: comment.isLiked ? "heart.fill" : "heart")
+                                .foregroundColor(Color(UIColor.systemRed))
+                                .font(.caption)
+                                .accessibilityLabel(comment.isLiked ? "Liked" : "Like")
+                        }
 
                         Text("\(comment.likeCount) likes")
                             .font(.caption)
@@ -238,6 +252,9 @@ struct PostDetailView: View {
             // --- Interactions ---
             // --- UPDATED ---
             .onTapGesture(count: 2) {
+                // The backend rejects liking your own comment, so double-tap is
+                // a no-op on the current user's own comment.
+                guard !isOwn else { return }
                 // Drive the action from the server-backed like state
                 if comment.isLiked {
                     onUnlike()
@@ -264,6 +281,7 @@ struct PostDetailView: View {
                     // Show the root comment
                     CommentRowView(comment: rootComment,
                                    isReported: viewModel.reportedCommentIds.contains(rootComment.id),
+                                   isOwn: viewModel.isOwnComment(rootComment),
                                    onLike: {
                                        viewModel.likeComment(rootComment)
                                    },
@@ -299,6 +317,7 @@ struct PostDetailView: View {
                             // --- UPDATED ---
                             CommentRowView(comment: reply,
                                            isReported: viewModel.reportedCommentIds.contains(reply.id),
+                                           isOwn: viewModel.isOwnComment(reply),
                                            onLike: {
                                                viewModel.likeComment(reply)
                                            },
