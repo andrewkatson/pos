@@ -66,9 +66,13 @@ struct PostDetailView: View {
                             // Hide the like heart on the current user's own post;
                             // they can't like it.
                             if !viewModel.isOwnPost {
-                                Image(systemName: post.isLiked ? "heart.fill" : "heart")
-                                    .foregroundColor(Color(UIColor.systemRed))
-                                    .accessibilityLabel(post.isLiked ? "Liked" : "Like")
+                                Button {
+                                    if post.isLiked { viewModel.unlikePost() } else { viewModel.likePost() }
+                                } label: {
+                                    Image(systemName: post.isLiked ? "heart.fill" : "heart")
+                                        .foregroundColor(Color(UIColor.systemRed))
+                                }
+                                .accessibilityLabel(post.isLiked ? "Unlike post" : "Like post")
                             }
                             Text("\(post.likeCount) likes")
                                 .font(.headline)
@@ -226,10 +230,14 @@ struct PostDetailView: View {
                             .foregroundColor(.secondary)
 
                         if !isOwn {
-                            Image(systemName: comment.isLiked ? "heart.fill" : "heart")
-                                .foregroundColor(Color(UIColor.systemRed))
-                                .font(.caption)
-                                .accessibilityLabel(comment.isLiked ? "Liked" : "Like")
+                            Button {
+                                if comment.isLiked { onUnlike() } else { onLike() }
+                            } label: {
+                                Image(systemName: comment.isLiked ? "heart.fill" : "heart")
+                                    .foregroundColor(Color(UIColor.systemRed))
+                                    .font(.caption)
+                            }
+                            .accessibilityLabel(comment.isLiked ? "Unlike comment" : "Like comment")
                         }
 
                         Text("\(comment.likeCount) likes")

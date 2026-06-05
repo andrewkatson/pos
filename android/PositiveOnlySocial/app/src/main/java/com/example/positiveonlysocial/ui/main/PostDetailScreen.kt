@@ -148,7 +148,14 @@ fun PostDetailScreen(
                         Column(modifier = Modifier.padding(16.dp)) {
                             Row(verticalAlignment = Alignment.CenterVertically) {
                                 if (!isOwnPost) {
-                                    Icon(if (post.isLiked) Icons.Default.Favorite else Icons.Default.FavoriteBorder, contentDescription = if (post.isLiked) "Liked" else "Like", tint = Color.Red)
+                                    Icon(
+                                        if (post.isLiked) Icons.Default.Favorite else Icons.Default.FavoriteBorder,
+                                        contentDescription = if (post.isLiked) "Unlike post" else "Like post",
+                                        tint = Color.Red,
+                                        modifier = Modifier.clickable {
+                                            if (post.isLiked) viewModel.unlikePost() else viewModel.likePost()
+                                        }
+                                    )
                                     Spacer(modifier = Modifier.width(4.dp))
                                 }
                                 Text("${post.likeCount} likes", fontWeight = FontWeight.Bold)
@@ -292,9 +299,11 @@ fun CommentRow(
                 if (!isOwn) {
                     Icon(
                         if (comment.isLiked) Icons.Default.Favorite else Icons.Default.FavoriteBorder,
-                        contentDescription = if (comment.isLiked) "Liked" else "Like",
+                        contentDescription = if (comment.isLiked) "Unlike comment" else "Like comment",
                         tint = Color.Red,
-                        modifier = Modifier.size(12.dp)
+                        modifier = Modifier
+                            .size(12.dp)
+                            .clickable { if (comment.isLiked) onUnlike() else onLike() }
                     )
                     Spacer(modifier = Modifier.width(4.dp))
                 }
