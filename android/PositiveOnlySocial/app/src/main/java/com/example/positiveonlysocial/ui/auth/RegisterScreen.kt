@@ -159,6 +159,13 @@ fun RegisterScreen(
                 singleLine = true
             )
 
+            if (username.isNotEmpty()) {
+                Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                    PasswordHintRow("At least 10 characters", username.length >= 10)
+                    PasswordHintRow("Letters, numbers, and underscores only", username.all { it.isLetterOrDigit() || it == '_' })
+                }
+            }
+
             TextField(
                 value = email,
                 onValueChange = { email = it },

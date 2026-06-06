@@ -143,6 +143,16 @@ function RegisterPage() {
               onChange={e => setUsername(e.target.value)}
               disabled={isLoading}
             />
+            {username.length > 0 && (
+              <ul className="auth-hints" aria-label="Username requirements">
+                <li className={`auth-hint ${username.trim().length >= 10 ? 'auth-hint--met' : 'auth-hint--unmet'}`}>
+                  At least 10 characters
+                </li>
+                <li className={`auth-hint ${/^\w+$/.test(username.trim()) ? 'auth-hint--met' : 'auth-hint--unmet'}`}>
+                  Letters, numbers, and underscores only
+                </li>
+              </ul>
+            )}
           </div>
 
           <div className="auth-field">

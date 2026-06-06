@@ -63,6 +63,14 @@ struct RegisterView: View {
                 .textContentType(.username)
                 .autocapitalization(.none)
                 .accessibilityIdentifier("UsernameTextField")
+            if !username.isEmpty {
+                VStack(alignment: .leading, spacing: 3) {
+                    passwordHint("At least 10 characters", met: username.count >= 10)
+                    passwordHint("Letters, numbers, and underscores only", met: username.range(of: "^\\w+$", options: .regularExpression) != nil)
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.horizontal, 4)
+            }
 
             TextField("Email", text: $email)
                 .padding()
