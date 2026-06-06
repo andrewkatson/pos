@@ -224,7 +224,7 @@ struct Positive_Only_SocialTests_ProfileViewModel {
         let (requestingUserToken, requestingUser) = try await registerUser(username: "mainRecounter")
         let (_, profileUser) = try await registerUser(username: "profileToRecount")
 
-        let account = "mainRecounter_account"
+        let account = "mainRecounterAccount"
         try await setupLoggedInUser(user: requestingUser, token: requestingUserToken, account: account)
 
         let sut = ProfileViewModel(user: profileUser, api: stubAPI, keychainHelper: keychainHelper, account: account)
