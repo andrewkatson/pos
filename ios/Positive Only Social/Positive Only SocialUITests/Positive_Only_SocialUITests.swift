@@ -444,6 +444,16 @@ final class Positive_Only_SocialUITests: XCTestCase {
         assertOnPostDetailView(app: app)
     }
     
+    /// Waits for an element's accessibility label to equal the expected value. Like/unlike updates
+    /// are applied optimistically on the SwiftUI run loop, and XCUITest reads the accessibility label
+    /// from a separate process, so a plain `XCTAssertEqual` can race the re-render. Waiting on a
+    /// predicate makes the check robust, matching how the rest of this file handles async values.
+    private func waitForLabel(_ element: XCUIElement, toEqual expected: String) {
+        let predicate = NSPredicate(format: "label == %@", expected)
+        expectation(for: predicate, evaluatedWith: element, handler: nil)
+        waitForExpectations(timeout: TestConstants.timeout, handler: nil)
+    }
+
     // MARK: Tests
     @MainActor
     func testAutomaticLoginAfterRememberMe() throws {
@@ -981,12 +991,12 @@ final class Positive_Only_SocialUITests: XCTestCase {
         
         let postCommentLikesTextQuery = app.staticTexts.matching(identifier: "CommentLikesCount")
         let postCommentLikesText = postCommentLikesTextQuery.element(boundBy: 0)
-        XCTAssertEqual(postCommentLikesText.label, "1 likes")
-        
+        waitForLabel(postCommentLikesText, toEqual: "1 likes")
+
         XCTAssertTrue(postCommentStack.waitForExistence(timeout: TestConstants.shortTimeout))
         postCommentStack.doubleTap()
-        
-        XCTAssertEqual(postCommentLikesText.label, "0 likes")
+
+        waitForLabel(postCommentLikesText, toEqual: "0 likes")
         
         // Then we like and unlike the comment thread comment
         let postCommentStackQuery2 = app.buttons.matching(identifier: "CommentStack")
@@ -996,12 +1006,12 @@ final class Positive_Only_SocialUITests: XCTestCase {
         
         let postCommentLikesTextQuery2 = app.staticTexts.matching(identifier: "CommentLikesCount")
         let postCommentLikesText2 = postCommentLikesTextQuery2.element(boundBy: 1)
-        XCTAssertEqual(postCommentLikesText2.label, "1 likes")
-        
+        waitForLabel(postCommentLikesText2, toEqual: "1 likes")
+
         XCTAssertTrue(postCommentStack2.waitForExistence(timeout: TestConstants.shortTimeout))
         postCommentStack2.doubleTap()
-        
-        XCTAssertEqual(postCommentLikesText2.label, "0 likes")
+
+        waitForLabel(postCommentLikesText2, toEqual: "0 likes")
         
         let backButton = app.navigationBars.firstMatch.buttons.element(boundBy: 0)
         XCTAssertTrue(backButton.waitForExistence(timeout: TestConstants.shortTimeout))
