@@ -276,9 +276,9 @@ class PositiveOnlySocialIntegrationTests {
             .onNodeWithTag("tag_Followers", true)
             .assert(hasAnyDescendant(hasText("0")))
 
-        // Follow
-        composeTestRule.onNodeWithText("Follow").performClick()
-        composeTestRule.onNodeWithText("Following").assertExists()
+        // Follow (disambiguate the clickable button from the "Following" stat label)
+        composeTestRule.onNode(hasText("Follow") and hasClickAction()).performClick()
+        composeTestRule.onNode(hasText("Following") and hasClickAction()).assertExists()
 
         // Verify Followers count is 1
         composeTestRule
@@ -286,9 +286,9 @@ class PositiveOnlySocialIntegrationTests {
             .assert(hasAnyDescendant(hasText("1")))
 
 
-        // Unfollow
-        composeTestRule.onNodeWithText("Following").performClick()
-        composeTestRule.onNodeWithText("Follow").assertExists()
+        // Unfollow (target the button, not the "Following" stat label)
+        composeTestRule.onNode(hasText("Following") and hasClickAction()).performClick()
+        composeTestRule.onNode(hasText("Follow") and hasClickAction()).assertExists()
     }
     @Test
     fun testLikeAndUnlikePost() {

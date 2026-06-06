@@ -115,6 +115,34 @@ class ProfileViewModelTest {
     }
 
     @Test
+    fun `follow then block then follow does not double-count followers`() = runTest {
+        val userId = "user1"
+        val mockProfile = ProfileDetailsResponse(userId, 1, 0, 3, isFollowing = false, isBlocked = false)
+        whenever(api.getProfileDetails("token123", userId)).thenReturn(Response.success(mockProfile))
+        whenever(api.getPostsForUser("token123", userId, 0)).thenReturn(Response.success(emptyList()))
+        whenever(api.followUser("token123", userId)).thenReturn(Response.success(GenericResponse("Success", "None")))
+        whenever(api.toggleBlock(any(), any())).thenReturn(Response.success(GenericResponse("Success", "None")))
+
+        viewModel.fetchProfile(userId)
+
+        // Follow -> count goes from 0 to 1
+        viewModel.toggleFollow(userId)
+        assertEquals(1, viewModel.profileDetails.value!!.followerCount)
+        assertTrue(viewModel.isFollowing.value)
+
+        // Block -> backend unfollows, so the count must drop back to 0
+        viewModel.toggleBlock(userId)
+        assertEquals(0, viewModel.profileDetails.value!!.followerCount)
+        assertFalse(viewModel.isFollowing.value)
+
+        // Unblock then follow again -> count is 1, not 2
+        viewModel.toggleBlock(userId)
+        viewModel.toggleFollow(userId)
+        assertEquals(1, viewModel.profileDetails.value!!.followerCount)
+        assertTrue(viewModel.isFollowing.value)
+    }
+
+    @Test
     fun testFetchProfileWithBlockedStatus() = runTest {
         // Arrange
         val userId = "testUser"
