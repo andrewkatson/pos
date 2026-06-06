@@ -186,6 +186,10 @@ fun RegisterScreen(
                 keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password)
             )
 
+            if (password.isNotEmpty()) {
+                PasswordHints(password)
+            }
+
             TextField(
                 value = confirmPassword,
                 onValueChange = { confirmPassword = it },
@@ -222,6 +226,26 @@ fun RegisterScreen(
             }
         }
     }
+}
+
+@Composable
+private fun PasswordHints(password: String) {
+    Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+        PasswordHintRow("At least 8 characters", password.length >= 8)
+        PasswordHintRow("At least one number", password.any { it.isDigit() })
+        PasswordHintRow("At least one lowercase letter", password.any { it.isLowerCase() })
+        PasswordHintRow("At least one uppercase letter", password.any { it.isUpperCase() })
+        PasswordHintRow("At least one special character (@#\$%^&+=_)", password.any { it in "@#\$%^&+=_" })
+    }
+}
+
+@Composable
+private fun PasswordHintRow(text: String, met: Boolean) {
+    Text(
+        text = "${if (met) "✓" else "✗"} $text",
+        color = if (met) Color(0xFF4CAF50) else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.4f),
+        style = MaterialTheme.typography.bodySmall
+    )
 }
 
 @Preview(showBackground = true)

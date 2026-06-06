@@ -79,6 +79,11 @@ struct RegisterView: View {
                 .cornerRadius(10)
                 .textContentType(.newPassword)
                 .accessibilityIdentifier("PasswordSecureField")
+            if !password.isEmpty {
+                passwordHints(for: password)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.horizontal, 4)
+            }
             SecureField("Confirm Password", text: $confirmPassword)
                 .padding()
                 .background(Color(.systemGray6))
@@ -136,6 +141,25 @@ struct RegisterView: View {
         } message: {
             Text("We collect your username and password for authentication. We do not store your date of birth or any other personal information. We store your posts, comments, and related metadata such as like counts and reports. We also track follower/following relationships and blocked users to maintain the social environment.")
         }
+    }
+
+    // MARK: - Password Hints
+
+    @ViewBuilder
+    private func passwordHints(for pwd: String) -> some View {
+        VStack(alignment: .leading, spacing: 3) {
+            passwordHint("At least 8 characters", met: pwd.count >= 8)
+            passwordHint("At least one number", met: pwd.range(of: "[0-9]", options: .regularExpression) != nil)
+            passwordHint("At least one lowercase letter", met: pwd.range(of: "[a-z]", options: .regularExpression) != nil)
+            passwordHint("At least one uppercase letter", met: pwd.range(of: "[A-Z]", options: .regularExpression) != nil)
+            passwordHint("At least one special character (@#$%^&+=_)", met: pwd.range(of: "[@#$%^&+=_]", options: .regularExpression) != nil)
+        }
+    }
+
+    private func passwordHint(_ text: String, met: Bool) -> some View {
+        Label(text, systemImage: met ? "checkmark.circle.fill" : "xmark.circle")
+            .foregroundColor(met ? .green : .secondary)
+            .font(.caption)
     }
 
     // MARK: - Registration Action

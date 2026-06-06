@@ -571,17 +571,23 @@ final class Positive_Only_SocialUITests: XCTestCase {
         XCTAssertTrue(app.textFields["UsernameTextField"].waitForExistence(timeout: TestConstants.shortTimeout), "Username text field should exist")
         XCTAssertTrue(app.textFields["EmailTextField"].waitForExistence(timeout: TestConstants.shortTimeout), "Email text field should exist")
         XCTAssertTrue(app.secureTextFields["NewPasswordSecureField"].waitForExistence(timeout: TestConstants.shortTimeout), "New password text field should exist")
-        
+        XCTAssertTrue(app.secureTextFields["ConfirmNewPasswordSecureField"].waitForExistence(timeout: TestConstants.shortTimeout), "Confirm new password text field should exist")
+
         let emailTextField = app.textFields["EmailTextField"]
         XCTAssertTrue(emailTextField.waitForExistence(timeout: TestConstants.shortTimeout))
         emailTextField.tap()
         typeText(element: emailTextField, text: "\(testUsername)@test.com")
-        
+
         let passwordTextField = app.secureTextFields["NewPasswordSecureField"]
         XCTAssertTrue(passwordTextField.waitForExistence(timeout: TestConstants.shortTimeout))
         passwordTextField.tap()
         typeText(element: passwordTextField, text: newStrongPassword)
-        
+
+        let confirmNewPasswordTextField = app.secureTextFields["ConfirmNewPasswordSecureField"]
+        XCTAssertTrue(confirmNewPasswordTextField.waitForExistence(timeout: TestConstants.shortTimeout))
+        confirmNewPasswordTextField.tap()
+        typeText(element: confirmNewPasswordTextField, text: newStrongPassword)
+
         let resetPasswordAndLoginButton = app.buttons["ResetPasswordAndLoginButton"]
         XCTAssertTrue(resetPasswordAndLoginButton.waitForExistence(timeout: TestConstants.shortTimeout))
         resetPasswordAndLoginButton.tap()

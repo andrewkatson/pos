@@ -18,7 +18,8 @@ struct ResetPasswordView: View {
     @State private var username: String = ""
     @State private var email: String = ""
     @State private var newPassword: String = ""
-    
+    @State private var confirmPassword: String = ""
+
     // State matching your template
     @State private var isLoading: Bool = false
     @State private var errorMessage: String = ""
@@ -44,14 +45,24 @@ struct ResetPasswordView: View {
                 Section(header: Text("Set New Password")) {
                     SecureField("New Password", text: $newPassword)
                         .accessibilityIdentifier("NewPasswordSecureField")
+                    if !newPassword.isEmpty {
+                        passwordHints(for: newPassword)
+                    }
+                    SecureField("Confirm Password", text: $confirmPassword)
+                        .accessibilityIdentifier("ConfirmNewPasswordSecureField")
+                    if !confirmPassword.isEmpty && newPassword != confirmPassword {
+                        Text("Passwords do not match.")
+                            .font(.caption)
+                            .foregroundColor(.red)
+                    }
                 }
-                
+
                 Button("Reset Password and Login") {
                     Task {
                         await performReset()
                     }
                 }
-                .disabled(username.isEmpty || email.isEmpty || newPassword.isEmpty || isLoading)
+                .disabled(username.isEmpty || email.isEmpty || newPassword.isEmpty || newPassword != confirmPassword || isLoading)
                 .accessibilityIdentifier("ResetPasswordAndLoginButton")
             }
             .navigationTitle("Set New Password")
@@ -74,6 +85,25 @@ struct ResetPasswordView: View {
         }
     }
     
+    // MARK: - Password Hints
+
+    @ViewBuilder
+    private func passwordHints(for pwd: String) -> some View {
+        VStack(alignment: .leading, spacing: 3) {
+            passwordHint("At least 8 characters", met: pwd.count >= 8)
+            passwordHint("At least one number", met: pwd.range(of: "[0-9]", options: .regularExpression) != nil)
+            passwordHint("At least one lowercase letter", met: pwd.range(of: "[a-z]", options: .regularExpression) != nil)
+            passwordHint("At least one uppercase letter", met: pwd.range(of: "[A-Z]", options: .regularExpression) != nil)
+            passwordHint("At least one special character (@#$%^&+=_)", met: pwd.range(of: "[@#$%^&+=_]", options: .regularExpression) != nil)
+        }
+    }
+
+    private func passwordHint(_ text: String, met: Bool) -> some View {
+        Label(text, systemImage: met ? "checkmark.circle.fill" : "xmark.circle")
+            .foregroundColor(met ? .green : .secondary)
+            .font(.caption)
+    }
+
     // --- API Call (Refactored) ---
     private func performReset() async {
         isLoading = true
