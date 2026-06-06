@@ -213,7 +213,11 @@ final class Positive_Only_SocialUITests: XCTestCase {
         XCTAssertTrue(confirmPasswordField.waitForExistence(timeout: TestConstants.shortTimeout))
         confirmPasswordField.tap()
         typeText(element: confirmPasswordField, text: password)
-        
+
+        // The keyboard can obscure the "Register" button at the bottom of the
+        // screen, so dismiss it before trying to tap the button.
+        dismissKeyboardIfPresent(app)
+
         let otherRegisterButton = app.buttons["RegisterButton"]
         XCTAssertTrue(otherRegisterButton.waitForExistence(timeout: TestConstants.shortTimeout))
         otherRegisterButton.tap()
@@ -588,6 +592,10 @@ final class Positive_Only_SocialUITests: XCTestCase {
         XCTAssertTrue(confirmNewPasswordTextField.waitForExistence(timeout: TestConstants.shortTimeout))
         confirmNewPasswordTextField.tap()
         typeText(element: confirmNewPasswordTextField, text: newStrongPassword)
+
+        // The keyboard can obscure the "Reset Password and Login" button at the
+        // bottom of the screen, so dismiss it before trying to tap the button.
+        dismissKeyboardIfPresent(app)
 
         let resetPasswordAndLoginButton = app.buttons["ResetPasswordAndLoginButton"]
         XCTAssertTrue(resetPasswordAndLoginButton.waitForExistence(timeout: TestConstants.shortTimeout))
