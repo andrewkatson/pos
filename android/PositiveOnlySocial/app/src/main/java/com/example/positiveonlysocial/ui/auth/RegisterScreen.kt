@@ -45,8 +45,14 @@ fun RegisterScreen(
 
         val scope = rememberCoroutineScope()
 
+        val usernameRequirements = AuthRequirements.username(username)
+        val passwordRequirements = AuthRequirements.password(password)
         val isPasswordMatching = confirmPassword.isEmpty() || password == confirmPassword
-        val isFormValid = username.isNotEmpty() && email.isNotEmpty() && password.isNotEmpty() && password == confirmPassword && dateOfBirth.isNotEmpty()
+        val isFormValid = AuthRequirements.allMet(usernameRequirements) &&
+            email.isNotEmpty() &&
+            AuthRequirements.allMet(passwordRequirements) &&
+            password == confirmPassword &&
+            dateOfBirth.isNotEmpty()
 
         if (showingPrivacyPolicy) {
             AlertDialog(
@@ -160,10 +166,7 @@ fun RegisterScreen(
             )
 
             if (username.isNotEmpty()) {
-                Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                    PasswordHintRow("At least 10 characters", username.length >= 10)
-                    PasswordHintRow("Letters, numbers, and underscores only", username.all { it.isLetterOrDigit() || it == '_' })
-                }
+                RequirementHints(usernameRequirements)
             }
 
             TextField(
@@ -194,7 +197,7 @@ fun RegisterScreen(
             )
 
             if (password.isNotEmpty()) {
-                PasswordHints(password)
+                RequirementHints(passwordRequirements)
             }
 
             TextField(
@@ -233,26 +236,6 @@ fun RegisterScreen(
             }
         }
     }
-}
-
-@Composable
-private fun PasswordHints(password: String) {
-    Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
-        PasswordHintRow("At least 8 characters", password.length >= 8)
-        PasswordHintRow("At least one number", password.any { it.isDigit() })
-        PasswordHintRow("At least one lowercase letter", password.any { it.isLowerCase() })
-        PasswordHintRow("At least one uppercase letter", password.any { it.isUpperCase() })
-        PasswordHintRow("At least one special character (@#\$%^&+=_)", password.any { it in "@#\$%^&+=_" })
-    }
-}
-
-@Composable
-private fun PasswordHintRow(text: String, met: Boolean) {
-    Text(
-        text = "${if (met) "✓" else "✗"} $text",
-        color = if (met) Color(0xFF4CAF50) else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.4f),
-        style = MaterialTheme.typography.bodySmall
-    )
 }
 
 @Preview(showBackground = true)

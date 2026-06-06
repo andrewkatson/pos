@@ -3,6 +3,8 @@ import { useNavigate } from 'react-router-dom'
 import Logo from '../components/Logo'
 import { apiClient } from '../api/client'
 import type { ApiError } from '../api/client'
+import RequirementHints from '../auth/RequirementHints'
+import { getPasswordRequirements, getUsernameRequirements, allMet } from '../auth/requirements'
 import './LoginPage.css'
 
 const PRIVACY_POLICY_TEXT =
@@ -28,12 +30,14 @@ function RegisterPage() {
     return () => document.removeEventListener('keydown', onKeyDown)
   }, [showPrivacyPolicy])
 
+  const usernameRequirements = getUsernameRequirements(username)
+  const passwordRequirements = getPasswordRequirements(password)
   const isPasswordMatching = confirmPassword === '' || password === confirmPassword
   const isFormValid =
-    username.trim().length > 0 &&
+    allMet(usernameRequirements) &&
     email.trim().length > 0 &&
     dateOfBirth.length > 0 &&
-    password.length > 0 &&
+    allMet(passwordRequirements) &&
     password === confirmPassword
 
   async function handleRegister() {
@@ -144,14 +148,7 @@ function RegisterPage() {
               disabled={isLoading}
             />
             {username.length > 0 && (
-              <ul className="auth-hints" aria-label="Username requirements">
-                <li className={`auth-hint ${username.trim().length >= 10 ? 'auth-hint--met' : 'auth-hint--unmet'}`}>
-                  At least 10 characters
-                </li>
-                <li className={`auth-hint ${/^\w+$/.test(username.trim()) ? 'auth-hint--met' : 'auth-hint--unmet'}`}>
-                  Letters, numbers, and underscores only
-                </li>
-              </ul>
+              <RequirementHints requirements={usernameRequirements} label="Username requirements" />
             )}
           </div>
 
@@ -199,23 +196,7 @@ function RegisterPage() {
               disabled={isLoading}
             />
             {password.length > 0 && (
-              <ul className="auth-hints" aria-label="Password requirements">
-                <li className={`auth-hint ${password.length >= 8 ? 'auth-hint--met' : 'auth-hint--unmet'}`}>
-                  At least 8 characters
-                </li>
-                <li className={`auth-hint ${/[0-9]/.test(password) ? 'auth-hint--met' : 'auth-hint--unmet'}`}>
-                  At least one number
-                </li>
-                <li className={`auth-hint ${/[a-z]/.test(password) ? 'auth-hint--met' : 'auth-hint--unmet'}`}>
-                  At least one lowercase letter
-                </li>
-                <li className={`auth-hint ${/[A-Z]/.test(password) ? 'auth-hint--met' : 'auth-hint--unmet'}`}>
-                  At least one uppercase letter
-                </li>
-                <li className={`auth-hint ${/[@#$%^&+=_]/.test(password) ? 'auth-hint--met' : 'auth-hint--unmet'}`}>
-                  At least one special character (@#$%^&+=_)
-                </li>
-              </ul>
+              <RequirementHints requirements={passwordRequirements} label="Password requirements" />
             )}
           </div>
 

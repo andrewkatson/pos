@@ -3,6 +3,8 @@ import { Navigate, useNavigate, useLocation } from 'react-router-dom'
 import Logo from '../components/Logo'
 import { apiClient } from '../api/client'
 import type { ApiError } from '../api/client'
+import RequirementHints from '../auth/RequirementHints'
+import { getPasswordRequirements, allMet } from '../auth/requirements'
 import './LoginPage.css'
 
 function ResetPasswordPage() {
@@ -27,11 +29,12 @@ function ResetPasswordPage() {
     return <Navigate to="/request-reset" replace />
   }
 
+  const passwordRequirements = getPasswordRequirements(newPassword)
   const isPasswordMatching = confirmPassword === '' || newPassword === confirmPassword
   const isFormValid =
     username.trim().length > 0 &&
     email.trim().length > 0 &&
-    newPassword.length > 0 &&
+    allMet(passwordRequirements) &&
     newPassword === confirmPassword
 
   async function handleSubmit(e: FormEvent) {
@@ -142,23 +145,7 @@ function ResetPasswordPage() {
               disabled={isLoading}
             />
             {newPassword.length > 0 && (
-              <ul className="auth-hints" aria-label="Password requirements">
-                <li className={`auth-hint ${newPassword.length >= 8 ? 'auth-hint--met' : 'auth-hint--unmet'}`}>
-                  At least 8 characters
-                </li>
-                <li className={`auth-hint ${/[0-9]/.test(newPassword) ? 'auth-hint--met' : 'auth-hint--unmet'}`}>
-                  At least one number
-                </li>
-                <li className={`auth-hint ${/[a-z]/.test(newPassword) ? 'auth-hint--met' : 'auth-hint--unmet'}`}>
-                  At least one lowercase letter
-                </li>
-                <li className={`auth-hint ${/[A-Z]/.test(newPassword) ? 'auth-hint--met' : 'auth-hint--unmet'}`}>
-                  At least one uppercase letter
-                </li>
-                <li className={`auth-hint ${/[@#$%^&+=_]/.test(newPassword) ? 'auth-hint--met' : 'auth-hint--unmet'}`}>
-                  At least one special character (@#$%^&+=_)
-                </li>
-              </ul>
+              <RequirementHints requirements={passwordRequirements} label="Password requirements" />
             )}
           </div>
 

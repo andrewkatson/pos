@@ -43,9 +43,12 @@ struct RegisterView: View {
         }
         return password == confirmPassword
     }
-    
+
     private var isFormValid: Bool {
-        !username.isEmpty && !email.isEmpty && !password.isEmpty && password == confirmPassword
+        AuthRequirements.allMet(AuthRequirements.username(username))
+            && !email.isEmpty
+            && AuthRequirements.allMet(AuthRequirements.password(password))
+            && password == confirmPassword
     }
 
     // MARK: - View Body
@@ -64,12 +67,9 @@ struct RegisterView: View {
                 .autocapitalization(.none)
                 .accessibilityIdentifier("UsernameTextField")
             if !username.isEmpty {
-                VStack(alignment: .leading, spacing: 3) {
-                    passwordHint("At least 10 characters", met: username.count >= 10)
-                    passwordHint("Letters, numbers, and underscores only", met: username.range(of: "^\\w+$", options: .regularExpression) != nil)
-                }
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(.horizontal, 4)
+                requirementHints(AuthRequirements.username(username))
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.horizontal, 4)
             }
 
             TextField("Email", text: $email)
@@ -88,7 +88,7 @@ struct RegisterView: View {
                 .textContentType(.newPassword)
                 .accessibilityIdentifier("PasswordSecureField")
             if !password.isEmpty {
-                passwordHints(for: password)
+                requirementHints(AuthRequirements.password(password))
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .padding(.horizontal, 4)
             }
@@ -151,23 +151,22 @@ struct RegisterView: View {
         }
     }
 
-    // MARK: - Password Hints
+    // MARK: - Requirement Hints
 
     @ViewBuilder
-    private func passwordHints(for pwd: String) -> some View {
+    private func requirementHints(_ requirements: [AuthRequirements.Requirement]) -> some View {
         VStack(alignment: .leading, spacing: 3) {
-            passwordHint("At least 8 characters", met: pwd.count >= 8)
-            passwordHint("At least one number", met: pwd.range(of: "[0-9]", options: .regularExpression) != nil)
-            passwordHint("At least one lowercase letter", met: pwd.range(of: "[a-z]", options: .regularExpression) != nil)
-            passwordHint("At least one uppercase letter", met: pwd.range(of: "[A-Z]", options: .regularExpression) != nil)
-            passwordHint("At least one special character (@#$%^&+=_)", met: pwd.range(of: "[@#$%^&+=_]", options: .regularExpression) != nil)
+            ForEach(requirements) { requirement in
+                requirementHint(requirement.label, met: requirement.met)
+            }
         }
     }
 
-    private func passwordHint(_ text: String, met: Bool) -> some View {
+    private func requirementHint(_ text: String, met: Bool) -> some View {
         Label(text, systemImage: met ? "checkmark.circle.fill" : "xmark.circle")
             .foregroundColor(met ? .green : .secondary)
             .font(.caption)
+            .accessibilityLabel("\(text): \(met ? "met" : "not met")")
     }
 
     // MARK: - Registration Action

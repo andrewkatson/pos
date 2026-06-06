@@ -6,7 +6,6 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
@@ -42,8 +41,12 @@ fun ResetPasswordScreen(
 
         val scope = rememberCoroutineScope()
 
+        val passwordRequirements = AuthRequirements.password(newPassword)
         val isPasswordMatching = confirmPassword.isEmpty() || newPassword == confirmPassword
-        val isFormValid = username.isNotEmpty() && email.isNotEmpty() && newPassword.isNotEmpty() && newPassword == confirmPassword
+        val isFormValid = username.isNotEmpty() &&
+            email.isNotEmpty() &&
+            AuthRequirements.allMet(passwordRequirements) &&
+            newPassword == confirmPassword
 
         if (showingErrorAlert) {
             AlertDialog(
@@ -108,7 +111,7 @@ fun ResetPasswordScreen(
             )
 
             if (newPassword.isNotEmpty()) {
-                PasswordHints(newPassword)
+                RequirementHints(passwordRequirements)
             }
 
             TextField(
@@ -173,26 +176,6 @@ fun ResetPasswordScreen(
             }
         }
     }
-}
-
-@Composable
-private fun PasswordHints(password: String) {
-    Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
-        PasswordHintRow("At least 8 characters", password.length >= 8)
-        PasswordHintRow("At least one number", password.any { it.isDigit() })
-        PasswordHintRow("At least one lowercase letter", password.any { it.isLowerCase() })
-        PasswordHintRow("At least one uppercase letter", password.any { it.isUpperCase() })
-        PasswordHintRow("At least one special character (@#\$%^&+=_)", password.any { it in "@#\$%^&+=_" })
-    }
-}
-
-@Composable
-private fun PasswordHintRow(text: String, met: Boolean) {
-    Text(
-        text = "${if (met) "✓" else "✗"} $text",
-        color = if (met) Color(0xFF4CAF50) else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.4f),
-        style = MaterialTheme.typography.bodySmall
-    )
 }
 
 @Preview(showBackground = true)
