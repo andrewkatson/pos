@@ -13,8 +13,8 @@ final class Positive_Only_SocialUITests: XCTestCase {
     var testUsername: String = ""
     var otherTestUsername: String = ""
     var newTestUsername: String = ""
-    let strongPassword: String = "StrongPassword123!"
-    let newStrongPassword: String = "NewStrongPassword456!"
+    let strongPassword: String = "StrongPassword123@"
+    let newStrongPassword: String = "NewStrongPassword456@"
 
     override func setUpWithError() throws {
         try super.setUpWithError()
@@ -26,11 +26,12 @@ final class Positive_Only_SocialUITests: XCTestCase {
         
         app = XCUIApplication()
         app.launchArguments.append("--ui_testing")
-        // get the name and remove the opening
+        // get the name and remove the opening bracket and closing bracket,
+        // then replace spaces (between class name and method name) with underscores
+        // so the resulting username contains only word characters.
         var baseName = self.name.replacingOccurrences(of: "-[", with: "")
-
-        // And then you'll need to remove the closing square bracket at the end of the test name
         baseName = baseName.replacingOccurrences(of: "]", with: "")
+        baseName = baseName.replacingOccurrences(of: " ", with: "_")
         
         app.launchEnvironment["test-name"] = baseName
         app.launch()

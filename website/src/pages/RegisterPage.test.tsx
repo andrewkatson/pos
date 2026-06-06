@@ -46,6 +46,31 @@ test('register button is disabled when form is incomplete', () => {
   expect(screen.getByRole('button', { name: 'Register' })).toBeDisabled()
 })
 
+test('username hints appear when username is typed', async () => {
+  renderRegisterPage()
+  await userEvent.type(screen.getByLabelText('Username'), 'ab')
+  expect(screen.getByText('At least 10 characters')).toBeInTheDocument()
+  expect(screen.getByText('Letters, numbers, and underscores only')).toBeInTheDocument()
+})
+
+test('username hint marks length as met when username is long enough', async () => {
+  renderRegisterPage()
+  await userEvent.type(screen.getByLabelText('Username'), 'validusername')
+  const hints = screen.getAllByRole('listitem')
+  const lengthHint = hints.find(h => h.textContent?.includes('At least 10 characters'))
+  expect(lengthHint).toHaveClass('auth-hint--met')
+})
+
+test('password hints appear when password is typed', async () => {
+  renderRegisterPage()
+  await userEvent.type(screen.getByLabelText('Password'), 'p')
+  expect(screen.getByText('At least 8 characters')).toBeInTheDocument()
+  expect(screen.getByText('At least one number')).toBeInTheDocument()
+  expect(screen.getByText('At least one lowercase letter')).toBeInTheDocument()
+  expect(screen.getByText('At least one uppercase letter')).toBeInTheDocument()
+  expect(screen.getByText('At least one special character (@#$%^&+=_)')).toBeInTheDocument()
+})
+
 test('shows password mismatch warning in real time', async () => {
   renderRegisterPage()
   await userEvent.type(screen.getByLabelText('Password'), 'pass1')
