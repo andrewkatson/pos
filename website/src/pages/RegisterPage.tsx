@@ -188,6 +188,25 @@ function RegisterPage() {
               onChange={e => setPassword(e.target.value)}
               disabled={isLoading}
             />
+            {password.length > 0 && (
+              <ul className="auth-hints" aria-label="Password requirements">
+                <li className={`auth-hint ${password.length >= 8 ? 'auth-hint--met' : 'auth-hint--unmet'}`}>
+                  At least 8 characters
+                </li>
+                <li className={`auth-hint ${/[0-9]/.test(password) ? 'auth-hint--met' : 'auth-hint--unmet'}`}>
+                  At least one number
+                </li>
+                <li className={`auth-hint ${/[a-z]/.test(password) ? 'auth-hint--met' : 'auth-hint--unmet'}`}>
+                  At least one lowercase letter
+                </li>
+                <li className={`auth-hint ${/[A-Z]/.test(password) ? 'auth-hint--met' : 'auth-hint--unmet'}`}>
+                  At least one uppercase letter
+                </li>
+                <li className={`auth-hint ${/[@#$%^&+=_]/.test(password) ? 'auth-hint--met' : 'auth-hint--unmet'}`}>
+                  At least one special character (@#$%^&+=_)
+                </li>
+              </ul>
+            )}
           </div>
 
           <div className="auth-field">

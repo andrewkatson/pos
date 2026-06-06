@@ -19,6 +19,7 @@ function ResetPasswordPage() {
     usernameOrEmail.includes('@') ? usernameOrEmail : '',
   )
   const [newPassword, setNewPassword] = useState('')
+  const [confirmPassword, setConfirmPassword] = useState('')
   const [isLoading, setIsLoading] = useState(false)
   const [errorMessage, setErrorMessage] = useState<string | null>(null)
 
@@ -26,8 +27,12 @@ function ResetPasswordPage() {
     return <Navigate to="/request-reset" replace />
   }
 
+  const isPasswordMatching = confirmPassword === '' || newPassword === confirmPassword
   const isFormValid =
-    username.trim().length > 0 && email.trim().length > 0 && newPassword.length > 0
+    username.trim().length > 0 &&
+    email.trim().length > 0 &&
+    newPassword.length > 0 &&
+    newPassword === confirmPassword
 
   async function handleSubmit(e: FormEvent) {
     e.preventDefault()
@@ -136,7 +141,47 @@ function ResetPasswordPage() {
               onChange={e => setNewPassword(e.target.value)}
               disabled={isLoading}
             />
+            {newPassword.length > 0 && (
+              <ul className="auth-hints" aria-label="Password requirements">
+                <li className={`auth-hint ${newPassword.length >= 8 ? 'auth-hint--met' : 'auth-hint--unmet'}`}>
+                  At least 8 characters
+                </li>
+                <li className={`auth-hint ${/[0-9]/.test(newPassword) ? 'auth-hint--met' : 'auth-hint--unmet'}`}>
+                  At least one number
+                </li>
+                <li className={`auth-hint ${/[a-z]/.test(newPassword) ? 'auth-hint--met' : 'auth-hint--unmet'}`}>
+                  At least one lowercase letter
+                </li>
+                <li className={`auth-hint ${/[A-Z]/.test(newPassword) ? 'auth-hint--met' : 'auth-hint--unmet'}`}>
+                  At least one uppercase letter
+                </li>
+                <li className={`auth-hint ${/[@#$%^&+=_]/.test(newPassword) ? 'auth-hint--met' : 'auth-hint--unmet'}`}>
+                  At least one special character (@#$%^&+=_)
+                </li>
+              </ul>
+            )}
           </div>
+
+          <div className="auth-field">
+            <label className="auth-label" htmlFor="confirmPassword">
+              Confirm Password
+            </label>
+            <input
+              id="confirmPassword"
+              className="auth-input"
+              type="password"
+              autoComplete="new-password"
+              value={confirmPassword}
+              onChange={e => setConfirmPassword(e.target.value)}
+              disabled={isLoading}
+            />
+          </div>
+
+          {!isPasswordMatching && (
+            <p className="auth-mismatch" role="alert">
+              Passwords do not match.
+            </p>
+          )}
 
           {isLoading ? (
             <div className="auth-spinner" aria-label="Resetting password…">
