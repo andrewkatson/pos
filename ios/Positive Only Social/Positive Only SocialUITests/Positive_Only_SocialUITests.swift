@@ -863,21 +863,21 @@ final class Positive_Only_SocialUITests: XCTestCase {
         let likePostButton = app.buttons["Like post"]
         XCTAssertTrue(likePostButton.waitForExistence(timeout: TestConstants.shortTimeout))
         likePostButton.tap()
-        XCTAssertEqual(postLikesText.label, "1 likes")
+        waitForLabel(postLikesText, toEqual: "1 likes")
 
         let unlikePostButton = app.buttons["Unlike post"]
         XCTAssertTrue(unlikePostButton.waitForExistence(timeout: TestConstants.shortTimeout))
         unlikePostButton.tap()
-        XCTAssertEqual(postLikesText.label, "0 likes")
+        waitForLabel(postLikesText, toEqual: "0 likes")
 
         // --- Old method: double-tap the post image ---
         XCTAssertTrue(postImage.waitForExistence(timeout: TestConstants.shortTimeout))
         postImage.doubleTap()
-        XCTAssertEqual(postLikesText.label, "1 likes")
+        waitForLabel(postLikesText, toEqual: "1 likes")
 
         XCTAssertTrue(postImage.waitForExistence(timeout: TestConstants.shortTimeout))
         postImage.doubleTap()
-        XCTAssertEqual(postLikesText.label, "0 likes")
+        waitForLabel(postLikesText, toEqual: "0 likes")
 
         let backButton = app.navigationBars.firstMatch.buttons.element(boundBy: 0)
         XCTAssertTrue(backButton.waitForExistence(timeout: TestConstants.shortTimeout))
