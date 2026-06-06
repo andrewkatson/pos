@@ -28,7 +28,10 @@ export function getPasswordRequirements(password: string): Requirement[] {
 export function getUsernameRequirements(username: string): Requirement[] {
   const trimmed = username.trim()
   return [
-    { label: 'At least 10 characters', met: trimmed.length >= 10 },
+    {
+      label: 'Between 10 and 500 characters',
+      met: trimmed.length >= 10 && trimmed.length <= 500,
+    },
     { label: 'Letters, numbers, and underscores only', met: /^\w+$/.test(trimmed) },
   ]
 }

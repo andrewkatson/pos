@@ -46,7 +46,7 @@ struct ResetPasswordView: View {
                     SecureField("New Password", text: $newPassword)
                         .accessibilityIdentifier("NewPasswordSecureField")
                     if !newPassword.isEmpty {
-                        requirementHints(AuthRequirements.password(newPassword))
+                        RequirementHints(requirements: AuthRequirements.password(newPassword))
                     }
                     SecureField("Confirm Password", text: $confirmPassword)
                         .accessibilityIdentifier("ConfirmNewPasswordSecureField")
@@ -85,24 +85,6 @@ struct ResetPasswordView: View {
         }
     }
     
-    // MARK: - Requirement Hints
-
-    @ViewBuilder
-    private func requirementHints(_ requirements: [AuthRequirements.Requirement]) -> some View {
-        VStack(alignment: .leading, spacing: 3) {
-            ForEach(requirements) { requirement in
-                requirementHint(requirement.label, met: requirement.met)
-            }
-        }
-    }
-
-    private func requirementHint(_ text: String, met: Bool) -> some View {
-        Label(text, systemImage: met ? "checkmark.circle.fill" : "xmark.circle")
-            .foregroundColor(met ? .green : .secondary)
-            .font(.caption)
-            .accessibilityLabel("\(text): \(met ? "met" : "not met")")
-    }
-
     // --- API Call (Refactored) ---
     private func performReset() async {
         isLoading = true

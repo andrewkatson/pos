@@ -35,7 +35,7 @@ object AuthRequirements {
     )
 
     fun username(username: String): List<Requirement> = listOf(
-        Requirement("At least 10 characters", username.length >= 10),
+        Requirement("Between 10 and 500 characters", username.length in 10..500),
         Requirement(
             "Letters, numbers, and underscores only",
             username.isNotEmpty() && username.all { it.isLetterOrDigit() || it == '_' },

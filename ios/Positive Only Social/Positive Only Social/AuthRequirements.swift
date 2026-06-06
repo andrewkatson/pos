@@ -12,6 +12,7 @@
 //
 
 import Foundation
+import SwiftUI
 
 enum AuthRequirements {
     /// A single labelled validation rule and whether the current input satisfies it.
@@ -38,12 +39,34 @@ enum AuthRequirements {
 
     static func username(_ name: String) -> [Requirement] {
         [
-            Requirement(label: "At least 10 characters", met: name.count >= 10),
+            Requirement(label: "Between 10 and 500 characters", met: name.count >= 10 && name.count <= 500),
             Requirement(label: "Letters, numbers, and underscores only", met: matches(name, "^\\w+$")),
         ]
     }
 
     static func allMet(_ requirements: [Requirement]) -> Bool {
         requirements.allSatisfy { $0.met }
+    }
+}
+
+/// Renders a checklist of validation requirements. The met/unmet state is shown
+/// with color + an SF Symbol, and conveyed to assistive tech via a per-row
+/// accessibility label. Shared across the auth screens so the labels, colors,
+/// and accessibility behavior can't drift.
+struct RequirementHints: View {
+    let requirements: [AuthRequirements.Requirement]
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 3) {
+            ForEach(requirements) { requirement in
+                Label(
+                    requirement.label,
+                    systemImage: requirement.met ? "checkmark.circle.fill" : "xmark.circle"
+                )
+                .foregroundColor(requirement.met ? .green : .secondary)
+                .font(.caption)
+                .accessibilityLabel("\(requirement.label): \(requirement.met ? "met" : "not met")")
+            }
+        }
     }
 }

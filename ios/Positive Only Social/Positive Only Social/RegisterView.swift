@@ -67,7 +67,7 @@ struct RegisterView: View {
                 .autocapitalization(.none)
                 .accessibilityIdentifier("UsernameTextField")
             if !username.isEmpty {
-                requirementHints(AuthRequirements.username(username))
+                RequirementHints(requirements: AuthRequirements.username(username))
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .padding(.horizontal, 4)
             }
@@ -88,7 +88,7 @@ struct RegisterView: View {
                 .textContentType(.newPassword)
                 .accessibilityIdentifier("PasswordSecureField")
             if !password.isEmpty {
-                requirementHints(AuthRequirements.password(password))
+                RequirementHints(requirements: AuthRequirements.password(password))
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .padding(.horizontal, 4)
             }
@@ -149,24 +149,6 @@ struct RegisterView: View {
         } message: {
             Text("We collect your username and password for authentication. We do not store your date of birth or any other personal information. We store your posts, comments, and related metadata such as like counts and reports. We also track follower/following relationships and blocked users to maintain the social environment.")
         }
-    }
-
-    // MARK: - Requirement Hints
-
-    @ViewBuilder
-    private func requirementHints(_ requirements: [AuthRequirements.Requirement]) -> some View {
-        VStack(alignment: .leading, spacing: 3) {
-            ForEach(requirements) { requirement in
-                requirementHint(requirement.label, met: requirement.met)
-            }
-        }
-    }
-
-    private func requirementHint(_ text: String, met: Bool) -> some View {
-        Label(text, systemImage: met ? "checkmark.circle.fill" : "xmark.circle")
-            .foregroundColor(met ? .green : .secondary)
-            .font(.caption)
-            .accessibilityLabel("\(text): \(met ? "met" : "not met")")
     }
 
     // MARK: - Registration Action
