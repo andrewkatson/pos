@@ -9,6 +9,7 @@ import Foundation
 
 // MARK: - API Error Definition
 /// Defines specific errors that can occur during an API call.
+///
 enum APIError: Error, LocalizedError {
     case invalidURL
     case badServerResponse(statusCode: Int)
@@ -156,13 +157,13 @@ final class RealAPI: Networking {
         
         // 3. Add Headers
         if let authToken = authToken {
-            request.setValue("Bearer \(authToken)", forHTTPHeaderField: "Authorization")
+            request.setValue(POSAppConstants.bearer+(authToken), forHTTPHeaderField: POSAppConstants.authHeaderField)
         }
         
         // 4. Add Body
         if let body = body {
             request.httpBody = body
-            request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+            request.setValue(POSAppConstants.requestType, forHTTPHeaderField: POSAppConstants.httpHeaderField)
         }
         
         // 5. Perform the network call
@@ -201,7 +202,7 @@ final class RealAPI: Networking {
         let requestBody = try encode(body)
         
         return try await performRequest(
-            pathSegments: ["register"],
+            pathSegments: [POSAppConstants.pathSegmentRegister],
             method: .post,
             body: requestBody
         )
@@ -213,7 +214,7 @@ final class RealAPI: Networking {
         let requestBody = try encode(body)
         
         return try await performRequest(
-            pathSegments: ["login"],
+            pathSegments: [POSAppConstants.pathSegmentLogin],
             method: .post,
             body: requestBody
         )
@@ -230,7 +231,7 @@ final class RealAPI: Networking {
         let requestBody = try encode(body)
         
         return try await performRequest(
-            pathSegments: ["login", "remember"],
+            pathSegments: [POSAppConstants.pathSegmentLogin, POSAppConstants.pathSegmentRemember],
             method: .post,
             body: requestBody
         )
@@ -242,7 +243,7 @@ final class RealAPI: Networking {
         let requestBody = try encode(body)
         
         return try await performRequest(
-            pathSegments: ["password", "reset"],
+            pathSegments: [POSAppConstants.pathSegmentPassword, POSAppConstants.pathSegmentReset],
             method: .post,
             body: requestBody
         )
@@ -254,7 +255,7 @@ final class RealAPI: Networking {
         let requestBody = try encode(body)
         
         return try await performRequest(
-            pathSegments: ["password", "request-reset"],
+            pathSegments: [POSAppConstants.pathSegmentPassword, POSAppConstants.pathSegmentRequestReset],
             method: .post,
             body: requestBody
         )
@@ -265,7 +266,7 @@ final class RealAPI: Networking {
         let body = VerifyResetBody(username_or_email: usernameOrEmail, verification_token: verificationToken)
         let requestBody = try encode(body)
         return try await performRequest(
-            pathSegments: ["password", "verify-reset"],
+            pathSegments: [POSAppConstants.pathSegmentPassword, POSAppConstants.pathSegmentVerifyReset],
             method: .post,
             body: requestBody
         )
@@ -275,7 +276,7 @@ final class RealAPI: Networking {
     func logoutUser(sessionManagementToken: String) async throws -> Data {
         // This is a POST request, no body, with auth.
         return try await performRequest(
-            pathSegments: ["logout"],
+            pathSegments: [POSAppConstants.pathSegmentLogout],
             method: .post,
             authToken: sessionManagementToken
         )
@@ -285,7 +286,7 @@ final class RealAPI: Networking {
     func deleteUser(sessionManagementToken: String) async throws -> Data {
         // This is a POST request, no body, with auth.
         return try await performRequest(
-            pathSegments: ["user", "delete"],
+            pathSegments: [POSAppConstants.pathSegmentUser, POSAppConstants.pathSegmentDelete],
             method: .post,
             authToken: sessionManagementToken
         )
@@ -298,7 +299,7 @@ final class RealAPI: Networking {
         let requestBody = try encode(body)
         
         return try await performRequest(
-            pathSegments: ["verify-identity"],
+            pathSegments: [POSAppConstants.pathSegmentVerifyIdentity],
             method: .post,
             body: requestBody,
             authToken: sessionManagementToken
@@ -309,7 +310,7 @@ final class RealAPI: Networking {
     func followUser(sessionManagementToken: String, username: String) async throws -> Data {
         // This is a POST request, no body, with auth. Username is in path.
         return try await performRequest(
-            pathSegments: ["users", username, "follow"],
+            pathSegments: [POSAppConstants.pathSegmentUser, username, POSAppConstants.pathSegmentFollow],
             method: .post,
             authToken: sessionManagementToken
         )
@@ -319,7 +320,7 @@ final class RealAPI: Networking {
     func unfollowUser(sessionManagementToken: String, username: String) async throws -> Data {
         // This is a POST request, no body, with auth. Username is in path.
         return try await performRequest(
-            pathSegments: ["users", username, "unfollow"],
+            pathSegments: [POSAppConstants.pathSegmentUsers, username, POSAppConstants.pathSegmentUnfollow],
             method: .post,
             authToken: sessionManagementToken
         )
@@ -334,7 +335,7 @@ final class RealAPI: Networking {
         // But `toggle_block` view URL was added as: `path('users/<str:username_to_toggle_block>/block/', views.toggle_block, name='toggle_block')`
         // So the path segments should be ["users", username, "block"]
         return try await performRequest(
-            pathSegments: ["users", username, "block"],
+            pathSegments: [POSAppConstants.pathSegmentUsers, username, POSAppConstants.pathSegmentBlock],
             method: .post,
             authToken: sessionManagementToken
         )

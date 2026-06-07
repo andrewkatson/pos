@@ -13,7 +13,7 @@ final class FollowingFeedViewModel: ObservableObject {
     private let api: Networking
     private let keychainHelper: KeychainHelperProtocol
     private let account: String
-    private let keychainService = AppConstants.keychainService
+    private let keychainService = POSAppConstants.keychainService
     @Published var followingPosts: [Post] = []
     @Published var isLoadingNextPage = false
     private var canLoadMore = true

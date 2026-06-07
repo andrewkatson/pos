@@ -24,7 +24,7 @@ struct WelcomeView: View {
     @State private var path = NavigationPath()
     
     // Unique identifiers for Keychain items
-    private let keychainService = AppConstants.keychainService
+    private let keychainService = POSAppConstants.keychainService
     private let sessionAccount = "userSessionToken"
     private let rememberMeAccount = "userRememberMeTokens"
 
