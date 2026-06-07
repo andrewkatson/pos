@@ -44,11 +44,16 @@ struct ResetPasswordView: View {
                 
                 Section(header: Text("Set New Password")) {
                     SecureField("New Password", text: $newPassword)
+                        // Disable the automatic "Use Strong Password" AutoFill prompt
+                        // during UI tests, where it would block interaction. Real users
+                        // still get the new-password content type.
+                        .textContentType(isUITesting() ? nil : .newPassword)
                         .accessibilityIdentifier("NewPasswordSecureField")
                     if !newPassword.isEmpty {
                         RequirementHints(requirements: AuthRequirements.password(newPassword))
                     }
                     SecureField("Confirm Password", text: $confirmPassword)
+                        .textContentType(isUITesting() ? nil : .newPassword)
                         .accessibilityIdentifier("ConfirmNewPasswordSecureField")
                     if !confirmPassword.isEmpty && newPassword != confirmPassword {
                         Text("Passwords do not match.")
