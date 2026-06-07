@@ -88,12 +88,17 @@ final class Positive_Only_SocialUITests: XCTestCase {
     /// Dismisses the iOS "Use Strong Password" AutoFill panel/sheet if it is showing.
     /// In newer iOS the suggestion appears as a floating panel above the keyboard with
     /// an "xmark" close button (SF Symbol); older iOS uses an action sheet with text
-    /// buttons. We try both styles.  The short timeouts (0.5 s each) keep overall
-    /// overhead low when the panel does not appear.
-    private func dismissStrongPasswordIfPresent() {
+    /// buttons. We try both styles.
+    ///
+    /// - Parameter shouldWait: Pass `true` for password fields where the panel takes a
+    ///   couple of seconds to appear (adds ~2 s to the first probe); pass `false` for
+    ///   regular text fields where the panel never shows (stays at 0.5 s so tests stay fast).
+    private func dismissStrongPasswordIfPresent(shouldWait: Bool) {
+        let firstProbeTimeout: TimeInterval = shouldWait ? 2.0 : 0.5
         // Newer iOS (17+): floating AutoFill panel has an X / xmark close button.
-        for title in ["xmark", "Close", "close"] {
-            if app.buttons[title].waitForExistence(timeout: 0.5) {
+        for (index, title) in ["xmark", "Close", "close"].enumerated() {
+            let timeout = index == 0 ? firstProbeTimeout : 0.5
+            if app.buttons[title].waitForExistence(timeout: timeout) {
                 app.buttons[title].tap()
                 return
             }
@@ -116,7 +121,9 @@ final class Positive_Only_SocialUITests: XCTestCase {
         // The "Use Strong Password" AutoFill panel appears immediately on the
         // first tap and prevents the field from ever gaining focus.  Dismiss it
         // right here — before the focus-check loop — so the loop can succeed.
-        dismissStrongPasswordIfPresent()
+        // Only password (secure) fields trigger the panel, so we only wait for
+        // it on those fields; plain text fields use a fast 0.5 s probe.
+        dismissStrongPasswordIfPresent(shouldWait: element.elementType == .secureTextField)
 
         while (!element.hasFocus || app.keyboards.count == 0) && attempt < maxAttempts {
             element.tap()
