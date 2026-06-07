@@ -45,8 +45,14 @@ fun RegisterScreen(
 
         val scope = rememberCoroutineScope()
 
+        val usernameRequirements = AuthRequirements.username(username)
+        val passwordRequirements = AuthRequirements.password(password)
         val isPasswordMatching = confirmPassword.isEmpty() || password == confirmPassword
-        val isFormValid = username.isNotEmpty() && email.isNotEmpty() && password.isNotEmpty() && password == confirmPassword && dateOfBirth.isNotEmpty()
+        val isFormValid = AuthRequirements.allMet(usernameRequirements) &&
+            email.isNotEmpty() &&
+            AuthRequirements.allMet(passwordRequirements) &&
+            password == confirmPassword &&
+            dateOfBirth.isNotEmpty()
 
         if (showingPrivacyPolicy) {
             AlertDialog(
@@ -159,6 +165,10 @@ fun RegisterScreen(
                 singleLine = true
             )
 
+            if (username.isNotEmpty()) {
+                RequirementHints(usernameRequirements)
+            }
+
             TextField(
                 value = email,
                 onValueChange = { email = it },
@@ -185,6 +195,10 @@ fun RegisterScreen(
                 visualTransformation = PasswordVisualTransformation(),
                 keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password)
             )
+
+            if (password.isNotEmpty()) {
+                RequirementHints(passwordRequirements)
+            }
 
             TextField(
                 value = confirmPassword,

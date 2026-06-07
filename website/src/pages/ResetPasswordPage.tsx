@@ -3,6 +3,8 @@ import { Navigate, useNavigate, useLocation } from 'react-router-dom'
 import Logo from '../components/Logo'
 import { apiClient } from '../api/client'
 import type { ApiError } from '../api/client'
+import RequirementHints from '../auth/RequirementHints'
+import { getPasswordRequirements, allMet } from '../auth/requirements'
 import './LoginPage.css'
 
 function ResetPasswordPage() {
@@ -19,6 +21,7 @@ function ResetPasswordPage() {
     usernameOrEmail.includes('@') ? usernameOrEmail : '',
   )
   const [newPassword, setNewPassword] = useState('')
+  const [confirmPassword, setConfirmPassword] = useState('')
   const [isLoading, setIsLoading] = useState(false)
   const [errorMessage, setErrorMessage] = useState<string | null>(null)
 
@@ -26,8 +29,13 @@ function ResetPasswordPage() {
     return <Navigate to="/request-reset" replace />
   }
 
+  const passwordRequirements = getPasswordRequirements(newPassword)
+  const isPasswordMatching = confirmPassword === '' || newPassword === confirmPassword
   const isFormValid =
-    username.trim().length > 0 && email.trim().length > 0 && newPassword.length > 0
+    username.trim().length > 0 &&
+    email.trim().length > 0 &&
+    allMet(passwordRequirements) &&
+    newPassword === confirmPassword
 
   async function handleSubmit(e: FormEvent) {
     e.preventDefault()
@@ -136,7 +144,31 @@ function ResetPasswordPage() {
               onChange={e => setNewPassword(e.target.value)}
               disabled={isLoading}
             />
+            {newPassword.length > 0 && (
+              <RequirementHints requirements={passwordRequirements} label="Password requirements" />
+            )}
           </div>
+
+          <div className="auth-field">
+            <label className="auth-label" htmlFor="confirmPassword">
+              Confirm Password
+            </label>
+            <input
+              id="confirmPassword"
+              className="auth-input"
+              type="password"
+              autoComplete="new-password"
+              value={confirmPassword}
+              onChange={e => setConfirmPassword(e.target.value)}
+              disabled={isLoading}
+            />
+          </div>
+
+          {!isPasswordMatching && (
+            <p className="auth-mismatch" role="alert">
+              Passwords do not match.
+            </p>
+          )}
 
           {isLoading ? (
             <div className="auth-spinner" aria-label="Resetting password…">

@@ -13,8 +13,8 @@ final class Positive_Only_SocialUITests: XCTestCase {
     var testUsername: String = ""
     var otherTestUsername: String = ""
     var newTestUsername: String = ""
-    let strongPassword: String = "StrongPassword123!"
-    let newStrongPassword: String = "NewStrongPassword456!"
+    let strongPassword: String = "StrongPassword123@"
+    let newStrongPassword: String = "NewStrongPassword456@"
 
     override func setUpWithError() throws {
         try super.setUpWithError()
@@ -26,11 +26,12 @@ final class Positive_Only_SocialUITests: XCTestCase {
         
         app = XCUIApplication()
         app.launchArguments.append("--ui_testing")
-        // get the name and remove the opening
+        // get the name and remove the opening bracket and closing bracket,
+        // then replace spaces (between class name and method name) with underscores
+        // so the resulting username contains only word characters.
         var baseName = self.name.replacingOccurrences(of: "-[", with: "")
-
-        // And then you'll need to remove the closing square bracket at the end of the test name
         baseName = baseName.replacingOccurrences(of: "]", with: "")
+        baseName = baseName.replacingOccurrences(of: " ", with: "_")
         
         app.launchEnvironment["test-name"] = baseName
         app.launch()
@@ -44,8 +45,11 @@ final class Positive_Only_SocialUITests: XCTestCase {
         // dialogs (presented by SpringBoard, not the app) that would otherwise
         // block interactions. The monitor fires the next time the test tries to
         // interact with a UI element while the system dialog is in front.
-        addUIInterruptionMonitor(withDescription: "Save Password dialog") { alert -> Bool in
-            for title in ["Not Now", "Never for This Website", "Cancel"] {
+        // "Choose My Own Password" / "Don't Use" cover the Strong Password variant
+        // when iOS surfaces it as a system-level interrupt rather than an in-app sheet.
+        addUIInterruptionMonitor(withDescription: "Password dialog") { alert -> Bool in
+            for title in ["Not Now", "Never for This Website", "Cancel",
+                          "Choose My Own Password", "Choose My Own…", "Don't Use"] {
                 if alert.buttons[title].exists {
                     alert.buttons[title].tap()
                     return true
@@ -81,11 +85,45 @@ final class Positive_Only_SocialUITests: XCTestCase {
         }
     }
 
+    /// Dismisses the iOS "Use Strong Password" AutoFill panel/sheet if it is showing.
+    /// In newer iOS the suggestion appears as a floating panel above the keyboard with
+    /// an "xmark" close button (SF Symbol); older iOS uses an action sheet with text
+    /// buttons. We try both styles.
+    ///
+    /// - Parameter shouldWait: Pass `true` for password fields where the panel takes a
+    ///   couple of seconds to appear (adds ~2 s to the first probe); pass `false` for
+    ///   regular text fields where the panel never shows (stays at 0.5 s so tests stay fast).
+    private func dismissStrongPasswordIfPresent(shouldWait: Bool) {
+        let firstProbeTimeout: TimeInterval = shouldWait ? 2.0 : 0.5
+        // Newer iOS (17+): floating AutoFill panel has an X / xmark close button.
+        for (index, title) in ["xmark", "Close", "close"].enumerated() {
+            let timeout = index == 0 ? firstProbeTimeout : 0.5
+            if app.buttons[title].waitForExistence(timeout: timeout) {
+                app.buttons[title].tap()
+                return
+            }
+        }
+        // Older iOS / action-sheet style: text buttons on a sheet.
+        for title in ["Choose My Own Password", "Choose My Own…", "Don't Use"] {
+            if app.buttons[title].waitForExistence(timeout: 0.5) {
+                app.buttons[title].tap()
+                return
+            }
+        }
+    }
+
     private func typeText(element: XCUIElement, text: String) {
         let maxAttempts = 5
         var attempt = 0
 
         element.tap()
+
+        // The "Use Strong Password" AutoFill panel appears immediately on the
+        // first tap and prevents the field from ever gaining focus.  Dismiss it
+        // right here — before the focus-check loop — so the loop can succeed.
+        // Only password (secure) fields trigger the panel, so we only wait for
+        // it on those fields; plain text fields use a fast 0.5 s probe.
+        dismissStrongPasswordIfPresent(shouldWait: element.elementType == .secureTextField)
 
         while (!element.hasFocus || app.keyboards.count == 0) && attempt < maxAttempts {
             element.tap()
@@ -212,7 +250,11 @@ final class Positive_Only_SocialUITests: XCTestCase {
         XCTAssertTrue(confirmPasswordField.waitForExistence(timeout: TestConstants.shortTimeout))
         confirmPasswordField.tap()
         typeText(element: confirmPasswordField, text: password)
-        
+
+        // The keyboard can obscure the "Register" button at the bottom of the
+        // screen, so dismiss it before trying to tap the button.
+        dismissKeyboardIfPresent(app)
+
         let otherRegisterButton = app.buttons["RegisterButton"]
         XCTAssertTrue(otherRegisterButton.waitForExistence(timeout: TestConstants.shortTimeout))
         otherRegisterButton.tap()
@@ -571,17 +613,27 @@ final class Positive_Only_SocialUITests: XCTestCase {
         XCTAssertTrue(app.textFields["UsernameTextField"].waitForExistence(timeout: TestConstants.shortTimeout), "Username text field should exist")
         XCTAssertTrue(app.textFields["EmailTextField"].waitForExistence(timeout: TestConstants.shortTimeout), "Email text field should exist")
         XCTAssertTrue(app.secureTextFields["NewPasswordSecureField"].waitForExistence(timeout: TestConstants.shortTimeout), "New password text field should exist")
-        
+        XCTAssertTrue(app.secureTextFields["ConfirmNewPasswordSecureField"].waitForExistence(timeout: TestConstants.shortTimeout), "Confirm new password text field should exist")
+
         let emailTextField = app.textFields["EmailTextField"]
         XCTAssertTrue(emailTextField.waitForExistence(timeout: TestConstants.shortTimeout))
         emailTextField.tap()
         typeText(element: emailTextField, text: "\(testUsername)@test.com")
-        
+
         let passwordTextField = app.secureTextFields["NewPasswordSecureField"]
         XCTAssertTrue(passwordTextField.waitForExistence(timeout: TestConstants.shortTimeout))
         passwordTextField.tap()
         typeText(element: passwordTextField, text: newStrongPassword)
-        
+
+        let confirmNewPasswordTextField = app.secureTextFields["ConfirmNewPasswordSecureField"]
+        XCTAssertTrue(confirmNewPasswordTextField.waitForExistence(timeout: TestConstants.shortTimeout))
+        confirmNewPasswordTextField.tap()
+        typeText(element: confirmNewPasswordTextField, text: newStrongPassword)
+
+        // The keyboard can obscure the "Reset Password and Login" button at the
+        // bottom of the screen, so dismiss it before trying to tap the button.
+        dismissKeyboardIfPresent(app)
+
         let resetPasswordAndLoginButton = app.buttons["ResetPasswordAndLoginButton"]
         XCTAssertTrue(resetPasswordAndLoginButton.waitForExistence(timeout: TestConstants.shortTimeout))
         resetPasswordAndLoginButton.tap()
