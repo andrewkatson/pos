@@ -113,6 +113,11 @@ final class Positive_Only_SocialUITests: XCTestCase {
 
         element.tap()
 
+        // The "Use Strong Password" AutoFill panel appears immediately on the
+        // first tap and prevents the field from ever gaining focus.  Dismiss it
+        // right here — before the focus-check loop — so the loop can succeed.
+        dismissStrongPasswordIfPresent()
+
         while (!element.hasFocus || app.keyboards.count == 0) && attempt < maxAttempts {
             element.tap()
             RunLoop.current.run(until: NSDate(timeIntervalSinceNow: 1.0) as Date)
@@ -120,10 +125,6 @@ final class Positive_Only_SocialUITests: XCTestCase {
         }
 
         XCTAssertTrue(element.hasFocus || app.keyboards.count > 0, "Element did not gain keyboard focus.")
-
-        // If iOS showed a "Use Strong Password" sheet when the field gained
-        // focus, dismiss it now so we can type our own text.
-        dismissStrongPasswordIfPresent()
 
         // Clear any pre-existing content so that a retry never appends to
         // stale text.  Triple-tap selects all text in a field on iOS; the
