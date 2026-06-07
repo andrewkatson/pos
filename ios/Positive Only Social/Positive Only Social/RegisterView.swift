@@ -85,7 +85,10 @@ struct RegisterView: View {
                 .padding()
                 .background(Color(.systemGray6))
                 .cornerRadius(10)
-                .textContentType(.newPassword)
+                // Disable the automatic "Use Strong Password" AutoFill prompt
+                // during UI tests, where it would block interaction. Real users
+                // still get the new-password content type.
+                .textContentType(isUITesting() ? nil : .newPassword)
                 .accessibilityIdentifier("PasswordSecureField")
             if !password.isEmpty {
                 RequirementHints(requirements: AuthRequirements.password(password))
@@ -96,7 +99,7 @@ struct RegisterView: View {
                 .padding()
                 .background(Color(.systemGray6))
                 .cornerRadius(10)
-                .textContentType(.newPassword)
+                .textContentType(isUITesting() ? nil : .newPassword)
                 .accessibilityIdentifier("ConfirmPasswordSecureField")
             
             DatePicker("Date of Birth", selection: $dateOfBirth, displayedComponents: .date)
