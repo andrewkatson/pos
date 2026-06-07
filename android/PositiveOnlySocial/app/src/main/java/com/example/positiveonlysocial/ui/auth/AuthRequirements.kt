@@ -20,7 +20,7 @@ import androidx.compose.ui.unit.dp
  *   password     = ^(?=.*[0-9])(?=.*[a-z])(?=.*[A-Z])(?=.*[@#$%^&+=_])(?=\S+$).{8,}$
  *   alphanumeric = ^\w{10,500}$   (used for usernames)
  */
-data class Requirement(val label: String, val met: Boolean)
+data class Requirement(val label: String, val didMeetRequirement: Boolean)
 
 object AuthRequirements {
     private const val SPECIAL_CHARS = "@#\$%^&+=_"
@@ -42,7 +42,7 @@ object AuthRequirements {
         ),
     )
 
-    fun allMet(requirements: List<Requirement>): Boolean = requirements.all { it.met }
+    fun allMet(requirements: List<Requirement>): Boolean = requirements.all { it.didMeetRequirement }
 }
 
 /**
@@ -55,13 +55,13 @@ fun RequirementHints(requirements: List<Requirement>) {
     Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
         requirements.forEach { requirement ->
             Text(
-                text = "${if (requirement.met) "✓" else "✗"} ${requirement.label}",
-                color = if (requirement.met) Color(0xFF4CAF50)
+                text = "${if (requirement.didMeetRequirement) "✓" else "✗"} ${requirement.label}",
+                color = if (requirement.didMeetRequirement) Color(0xFF4CAF50)
                         else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.4f),
                 style = MaterialTheme.typography.bodySmall,
                 modifier = Modifier.semantics {
                     contentDescription =
-                        "${requirement.label}: ${if (requirement.met) "met" else "not met"}"
+                        "${requirement.label}: ${if (requirement.didMeetRequirement) "met" else "not met"}"
                 },
             )
         }

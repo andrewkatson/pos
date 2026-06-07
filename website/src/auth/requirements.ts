@@ -8,20 +8,20 @@
 
 export interface Requirement {
   label: string
-  met: boolean
+  didMeetRequirement: boolean
 }
 
 export function getPasswordRequirements(password: string): Requirement[] {
   return [
-    { label: 'At least 8 characters', met: password.length >= 8 },
-    { label: 'At least one number', met: /[0-9]/.test(password) },
-    { label: 'At least one lowercase letter', met: /[a-z]/.test(password) },
-    { label: 'At least one uppercase letter', met: /[A-Z]/.test(password) },
+    { label: 'At least 8 characters', didMeetRequirement: password.length >= 8 },
+    { label: 'At least one number', didMeetRequirement: /[0-9]/.test(password) },
+    { label: 'At least one lowercase letter', didMeetRequirement: /[a-z]/.test(password) },
+    { label: 'At least one uppercase letter', didMeetRequirement: /[A-Z]/.test(password) },
     {
       label: 'At least one special character (@#$%^&+=_)',
-      met: /[@#$%^&+=_]/.test(password),
+      didMeetRequirement: /[@#$%^&+=_]/.test(password),
     },
-    { label: 'No spaces', met: password.length > 0 && !/\s/.test(password) },
+    { label: 'No spaces', didMeetRequirement: password.length > 0 && !/\s/.test(password) },
   ]
 }
 
@@ -30,12 +30,17 @@ export function getUsernameRequirements(username: string): Requirement[] {
   return [
     {
       label: 'Between 10 and 500 characters',
-      met: trimmed.length >= 10 && trimmed.length <= 500,
+      didMeetRequirement: trimmed.length >= 10 && trimmed.length <= 500,
     },
-    { label: 'Letters, numbers, and underscores only', met: /^\w+$/.test(trimmed) },
+    {
+      label: 'Letters, numbers, and underscores only',
+      // Unicode-aware to mirror Python's \w (which matches Unicode word
+      // characters for str patterns), unlike JavaScript's ASCII-only \w.
+      didMeetRequirement: /^[\p{L}\p{N}_]+$/u.test(trimmed),
+    },
   ]
 }
 
 export function allMet(requirements: Requirement[]): boolean {
-  return requirements.every(r => r.met)
+  return requirements.every(r => r.didMeetRequirement)
 }

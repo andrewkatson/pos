@@ -18,7 +18,7 @@ enum AuthRequirements {
     /// A single labelled validation rule and whether the current input satisfies it.
     struct Requirement: Identifiable {
         let label: String
-        let met: Bool
+        let didMeetRequirement: Bool
         var id: String { label }
     }
 
@@ -28,24 +28,24 @@ enum AuthRequirements {
 
     static func password(_ pwd: String) -> [Requirement] {
         [
-            Requirement(label: "At least 8 characters", met: pwd.count >= 8),
-            Requirement(label: "At least one number", met: matches(pwd, "[0-9]")),
-            Requirement(label: "At least one lowercase letter", met: matches(pwd, "[a-z]")),
-            Requirement(label: "At least one uppercase letter", met: matches(pwd, "[A-Z]")),
-            Requirement(label: "At least one special character (@#$%^&+=_)", met: matches(pwd, "[@#$%^&+=_]")),
-            Requirement(label: "No spaces", met: !pwd.isEmpty && !matches(pwd, "\\s")),
+            Requirement(label: "At least 8 characters", didMeetRequirement: pwd.count >= 8),
+            Requirement(label: "At least one number", didMeetRequirement: matches(pwd, "[0-9]")),
+            Requirement(label: "At least one lowercase letter", didMeetRequirement: matches(pwd, "[a-z]")),
+            Requirement(label: "At least one uppercase letter", didMeetRequirement: matches(pwd, "[A-Z]")),
+            Requirement(label: "At least one special character (@#$%^&+=_)", didMeetRequirement: matches(pwd, "[@#$%^&+=_]")),
+            Requirement(label: "No spaces", didMeetRequirement: !pwd.isEmpty && !matches(pwd, "\\s")),
         ]
     }
 
     static func username(_ name: String) -> [Requirement] {
         [
-            Requirement(label: "Between 10 and 500 characters", met: name.count >= 10 && name.count <= 500),
-            Requirement(label: "Letters, numbers, and underscores only", met: matches(name, "^\\w+$")),
+            Requirement(label: "Between 10 and 500 characters", didMeetRequirement: name.count >= 10 && name.count <= 500),
+            Requirement(label: "Letters, numbers, and underscores only", didMeetRequirement: matches(name, "^\\w+$")),
         ]
     }
 
     static func allMet(_ requirements: [Requirement]) -> Bool {
-        requirements.allSatisfy { $0.met }
+        requirements.allSatisfy { $0.didMeetRequirement }
     }
 }
 
@@ -61,11 +61,11 @@ struct RequirementHints: View {
             ForEach(requirements) { requirement in
                 Label(
                     requirement.label,
-                    systemImage: requirement.met ? "checkmark.circle.fill" : "xmark.circle"
+                    systemImage: requirement.didMeetRequirement ? "checkmark.circle.fill" : "xmark.circle"
                 )
-                .foregroundColor(requirement.met ? .green : .secondary)
+                .foregroundColor(requirement.didMeetRequirement ? .green : .secondary)
                 .font(.caption)
-                .accessibilityLabel("\(requirement.label): \(requirement.met ? "met" : "not met")")
+                .accessibilityLabel("\(requirement.label): \(requirement.didMeetRequirement ? "met" : "not met")")
             }
         }
     }

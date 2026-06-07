@@ -14,8 +14,8 @@ function RequirementHints({ requirements, label }: RequirementHintsProps) {
       {requirements.map(r => (
         <li
           key={r.label}
-          className={`auth-hint ${r.met ? 'auth-hint--met' : 'auth-hint--unmet'}`}
-          aria-label={`${r.label}: ${r.met ? 'met' : 'not met'}`}
+          className={`auth-hint ${r.didMeetRequirement ? 'auth-hint--met' : 'auth-hint--unmet'}`}
+          aria-label={`${r.label}: ${r.didMeetRequirement ? 'met' : 'not met'}`}
         >
           {r.label}
         </li>
