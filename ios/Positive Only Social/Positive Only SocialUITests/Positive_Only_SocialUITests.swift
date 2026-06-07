@@ -85,13 +85,20 @@ final class Positive_Only_SocialUITests: XCTestCase {
         }
     }
 
-    /// Dismisses the iOS "Use Strong Password" AutoFill sheet if it is showing.
-    /// iOS can present this as an in-app action sheet (not a SpringBoard alert)
-    /// when a password field gains focus, so the interruption monitor alone is
-    /// not enough — we need to look inside the app's own view hierarchy.
-    /// Using a short timeout (0.5 s) means negligible overhead when the sheet
-    /// does not appear.
+    /// Dismisses the iOS "Use Strong Password" AutoFill panel/sheet if it is showing.
+    /// In newer iOS the suggestion appears as a floating panel above the keyboard with
+    /// an "xmark" close button (SF Symbol); older iOS uses an action sheet with text
+    /// buttons. We try both styles.  The short timeouts (0.5 s each) keep overall
+    /// overhead low when the panel does not appear.
     private func dismissStrongPasswordIfPresent() {
+        // Newer iOS (17+): floating AutoFill panel has an X / xmark close button.
+        for title in ["xmark", "Close", "close"] {
+            if app.buttons[title].waitForExistence(timeout: 0.5) {
+                app.buttons[title].tap()
+                return
+            }
+        }
+        // Older iOS / action-sheet style: text buttons on a sheet.
         for title in ["Choose My Own Password", "Choose My Own…", "Don't Use"] {
             if app.buttons[title].waitForExistence(timeout: 0.5) {
                 app.buttons[title].tap()
