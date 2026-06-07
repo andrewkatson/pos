@@ -45,8 +45,11 @@ final class Positive_Only_SocialUITests: XCTestCase {
         // dialogs (presented by SpringBoard, not the app) that would otherwise
         // block interactions. The monitor fires the next time the test tries to
         // interact with a UI element while the system dialog is in front.
-        addUIInterruptionMonitor(withDescription: "Save Password dialog") { alert -> Bool in
-            for title in ["Not Now", "Never for This Website", "Cancel"] {
+        // "Choose My Own Password" / "Don't Use" cover the Strong Password variant
+        // when iOS surfaces it as a system-level interrupt rather than an in-app sheet.
+        addUIInterruptionMonitor(withDescription: "Password dialog") { alert -> Bool in
+            for title in ["Not Now", "Never for This Website", "Cancel",
+                          "Choose My Own Password", "Choose My Own…", "Don't Use"] {
                 if alert.buttons[title].exists {
                     alert.buttons[title].tap()
                     return true
@@ -82,6 +85,21 @@ final class Positive_Only_SocialUITests: XCTestCase {
         }
     }
 
+    /// Dismisses the iOS "Use Strong Password" AutoFill sheet if it is showing.
+    /// iOS can present this as an in-app action sheet (not a SpringBoard alert)
+    /// when a password field gains focus, so the interruption monitor alone is
+    /// not enough — we need to look inside the app's own view hierarchy.
+    /// Using a short timeout (0.5 s) means negligible overhead when the sheet
+    /// does not appear.
+    private func dismissStrongPasswordIfPresent() {
+        for title in ["Choose My Own Password", "Choose My Own…", "Don't Use"] {
+            if app.buttons[title].waitForExistence(timeout: 0.5) {
+                app.buttons[title].tap()
+                return
+            }
+        }
+    }
+
     private func typeText(element: XCUIElement, text: String) {
         let maxAttempts = 5
         var attempt = 0
@@ -95,6 +113,10 @@ final class Positive_Only_SocialUITests: XCTestCase {
         }
 
         XCTAssertTrue(element.hasFocus || app.keyboards.count > 0, "Element did not gain keyboard focus.")
+
+        // If iOS showed a "Use Strong Password" sheet when the field gained
+        // focus, dismiss it now so we can type our own text.
+        dismissStrongPasswordIfPresent()
 
         // Clear any pre-existing content so that a retry never appends to
         // stale text.  Triple-tap selects all text in a field on iOS; the
