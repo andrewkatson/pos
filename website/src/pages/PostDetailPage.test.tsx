@@ -1,7 +1,7 @@
 import { render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { MemoryRouter, Routes, Route } from 'react-router-dom'
-import { vi, beforeEach, test, expect } from 'vitest'
+import { vi, beforeEach, afterEach, test, expect } from 'vitest'
 import PostDetailPage from './PostDetailPage'
 import type { Comment, PostDetails } from '../api/types'
 
@@ -57,7 +57,17 @@ function renderDetail() {
   )
 }
 
+// In-memory localStorage so getCurrentUsername() can be controlled per test.
+const store = new Map<string, string>()
+
 beforeEach(() => {
+  store.clear()
+  vi.stubGlobal('localStorage', {
+    getItem: (key: string) => store.get(key) ?? null,
+    setItem: (key: string, value: string) => store.set(key, value),
+    removeItem: (key: string) => store.delete(key),
+    clear: () => store.clear(),
+  })
   mockGetDetails.mockReset().mockResolvedValue(post)
   mockGetThreadRefs.mockReset().mockResolvedValue([])
   mockGetThreadComments.mockReset().mockResolvedValue([])
@@ -66,6 +76,10 @@ beforeEach(() => {
     comment_thread_identifier: 't1',
     comment_identifier: 'c9',
   })
+})
+
+afterEach(() => {
+  vi.unstubAllGlobals()
 })
 
 test('renders the post caption and like count', async () => {
@@ -80,6 +94,26 @@ test('liking the post calls the API and bumps the count optimistically', async (
   await userEvent.click(screen.getByRole('button', { name: 'Like post' }))
   expect(screen.getByText('4 likes')).toBeInTheDocument()
   await waitFor(() => expect(mockLikePost).toHaveBeenCalledWith('p1'))
+})
+
+test('hides the like control on the current user’s own post', async () => {
+  // The signed-in user authored the post, so the backend would reject a like.
+  localStorage.setItem('username', 'ada')
+  renderDetail()
+  await screen.findByText('sunshine')
+  expect(screen.queryByRole('button', { name: 'Like post' })).not.toBeInTheDocument()
+  // The like count is still shown.
+  expect(screen.getByText('3 likes')).toBeInTheDocument()
+})
+
+test('hides the like control on the current user’s own comment', async () => {
+  // The signed-in user authored the comment, so the backend would reject a like.
+  localStorage.setItem('username', 'bob')
+  mockGetThreadRefs.mockResolvedValue([{ comment_thread_identifier: 't1' }])
+  mockGetThreadComments.mockResolvedValue([comment])
+  renderDetail()
+  await screen.findByText('love this')
+  expect(screen.queryByRole('button', { name: 'Like comment' })).not.toBeInTheDocument()
 })
 
 test('renders comment threads', async () => {

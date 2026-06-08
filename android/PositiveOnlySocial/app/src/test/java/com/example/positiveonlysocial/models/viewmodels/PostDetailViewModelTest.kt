@@ -7,6 +7,7 @@ import com.example.positiveonlysocial.data.model.CommentThreadViewData
 import com.example.positiveonlysocial.data.model.GenericResponse
 import com.example.positiveonlysocial.data.model.Post
 import com.example.positiveonlysocial.data.model.UserSession
+import java.util.Date
 import com.example.positiveonlysocial.data.security.KeychainHelperProtocol
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.runBlocking
@@ -19,6 +20,7 @@ import org.junit.Rule
 import org.junit.Test
 import org.mockito.kotlin.any
 import org.mockito.kotlin.mock
+import org.mockito.kotlin.never
 import org.mockito.kotlin.verify
 import org.mockito.kotlin.whenever
 import retrofit2.Response
@@ -83,6 +85,41 @@ class PostDetailViewModelTest {
         verify(api).likePost("token123", postIdentifier)
         // Verify loadAllData is called again (getPostDetails called twice: once in init, once after like)
         verify(api, org.mockito.kotlin.times(2)).getPostDetails("token123", postIdentifier)
+    }
+
+    @Test
+    fun `likePost does nothing on the user's own post`() = runTest {
+        // A post authored by the signed-in user ("testuser").
+        whenever(api.getPostDetails("token123", postIdentifier)).thenReturn(
+            Response.success(Post(postIdentifier, "url", "caption", "testuser", 1))
+        )
+        val ownViewModel = PostDetailViewModel(postIdentifier, api, keychainHelper)
+
+        ownViewModel.likePost()
+
+        // The like request is never sent for the user's own post.
+        verify(api, never()).likePost(any(), any())
+    }
+
+    @Test
+    fun `likeComment does nothing on the user's own comment`() = runTest {
+        val ownComment = CommentViewData("c1", "t1", "testuser", "body", 0, false, Date())
+
+        viewModel.likeComment(ownComment, "t1")
+
+        verify(api, never()).likeComment(any(), any(), any(), any())
+    }
+
+    @Test
+    fun `likeComment calls api on another user's comment`() = runTest {
+        whenever(api.likeComment(any(), any(), any(), any())).thenReturn(
+            Response.success(GenericResponse("ok", null))
+        )
+        val otherComment = CommentViewData("c1", "t1", "someoneelse", "body", 0, false, Date())
+
+        viewModel.likeComment(otherComment, "t1")
+
+        verify(api).likeComment("token123", postIdentifier, "t1", "c1")
     }
 
     @Test

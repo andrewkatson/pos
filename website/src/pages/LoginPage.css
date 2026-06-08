@@ -255,6 +255,40 @@
   margin: -0.5rem 0 0;
 }
 
+/* ---- Password requirement hints ---- */
+
+.auth-hints {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+}
+
+.auth-hint {
+  font-size: 0.78rem;
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+}
+
+.auth-hint--met {
+  color: #4caf50;
+}
+
+.auth-hint--unmet {
+  color: rgba(255, 255, 255, 0.4);
+}
+
+.auth-hint--met::before {
+  content: '✓';
+}
+
+.auth-hint--unmet::before {
+  content: '✗';
+}
+
 /* ---- Modal overlay ---- */
 
 .modal-overlay {
