@@ -81,7 +81,6 @@ struct ProfileView: View {
             }
             .padding(.top)
             
-            // --- THE NEW FOLLOW BUTTON ---
             Button(action: viewModel.toggleFollow) {
                 Text(viewModel.isFollowing ? "Following" : "Follow")
                     .fontWeight(.semibold)
@@ -99,7 +98,6 @@ struct ProfileView: View {
             .padding(.vertical)
             .accessibilityIdentifier("FollowButton")
             
-            // --- BLOCK BUTTON ---
             Button(action: viewModel.toggleBlock) {
                 Text(viewModel.isBlocked ? "Unblock" : "Block")
                     .fontWeight(.medium)
