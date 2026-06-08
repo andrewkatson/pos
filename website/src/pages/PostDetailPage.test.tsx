@@ -144,7 +144,7 @@ test('refresh reloads the post and comments', async () => {
   expect(mockGetDetails).toHaveBeenCalledTimes(2)
 })
 
-test('refresh does not start a second concurrent load while one is in flight', async () => {
+test('refresh during an in-flight load is coalesced into one follow-up load', async () => {
   // 1st (initial) load resolves; 2nd load (the post-comment reload) is parked so
   // it stays in flight while we click Refresh.
   let resolveParked!: (v: PostDetails) => void
@@ -155,7 +155,7 @@ test('refresh does not start a second concurrent load while one is in flight', a
     .mockReset()
     .mockResolvedValueOnce(post) // initial load
     .mockReturnValueOnce(parked) // reload after posting a comment (parked)
-    .mockResolvedValue(post)
+    .mockResolvedValue(post) // coalesced follow-up run
   mockGetThreadRefs.mockResolvedValue([])
 
   renderDetail()
@@ -166,15 +166,16 @@ test('refresh does not start a second concurrent load while one is in flight', a
   await userEvent.click(screen.getByRole('button', { name: 'Post' }))
   await waitFor(() => expect(mockGetDetails).toHaveBeenCalledTimes(2))
 
-  // Click Refresh while that reload is still in flight — the shared guard must
-  // drop it rather than firing a third concurrent load.
+  // Click Refresh while that reload is still in flight: it must NOT start a
+  // concurrent load (still 2 calls)...
   await userEvent.click(screen.getByRole('button', { name: 'Refresh comments' }))
   await new Promise(r => setTimeout(r, 0))
   expect(mockGetDetails).toHaveBeenCalledTimes(2)
 
-  // Let the parked load finish; still no extra call.
+  // ...but once the in-flight load finishes, the requested reload runs exactly
+  // once (coalesced), so it isn't silently dropped.
   resolveParked(post)
-  await waitFor(() => expect(mockGetDetails).toHaveBeenCalledTimes(2))
+  await waitFor(() => expect(mockGetDetails).toHaveBeenCalledTimes(3))
 })
 
 test('shows not-found when the post fails to load', async () => {

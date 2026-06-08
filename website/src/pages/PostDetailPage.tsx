@@ -89,13 +89,23 @@ function PostDetailView({ postId }: { postId: string }) {
 
   // Single in-flight guard shared by every loadAll() caller (initial load,
   // pull-to-refresh, and the post-comment/reply reloads) so two loads can't
-  // overlap and clobber each other's state or duplicate API requests.
+  // overlap and clobber each other's state or duplicate API requests. A request
+  // that arrives mid-load isn't dropped — it sets pendingReloadRef so the load
+  // re-runs once afterward, ensuring the freshest state (e.g. a just-posted
+  // comment) is always reflected.
   const isLoadingRef = useRef(false)
+  const pendingReloadRef = useRef(false)
 
   const loadAll = useCallback(async () => {
-    if (isLoadingRef.current) return
+    // A load is already running: request a follow-up run instead of dropping
+    // this call, then let the in-flight load pick it up when it finishes.
+    if (isLoadingRef.current) {
+      pendingReloadRef.current = true
+      return
+    }
     isLoadingRef.current = true
-    try {
+
+    const performLoad = async () => {
       const toView = (c: Comment, threadId: string): CommentView => ({
         id: c.comment_identifier,
         threadId,
@@ -158,6 +168,15 @@ function PostDetailView({ postId }: { postId: string }) {
       } finally {
         if (isMounted.current) setIsLoading(false)
       }
+    }
+
+    try {
+      // Re-run while another load was requested mid-flight (and we're still
+      // mounted), so a coalesced refresh/post-comment reload isn't lost.
+      do {
+        pendingReloadRef.current = false
+        await performLoad()
+      } while (pendingReloadRef.current && isMounted.current)
     } finally {
       isLoadingRef.current = false
     }
