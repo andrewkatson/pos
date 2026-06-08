@@ -130,12 +130,14 @@ fun ProfileScreen(
                     onRefresh = { viewModel.refreshProfile(username) },
                     modifier = Modifier.fillMaxSize()
                 ) {
-                    // Black backing shows through the 1dp gaps as thin borders between posts.
+                    // Black backing shows through the 1dp gaps as thin borders between
+                    // posts; the 1dp contentPadding extends that border around the outer edge.
                     LazyVerticalGrid(
                         columns = GridCells.Fixed(3),
                         modifier = Modifier
                             .fillMaxSize()
                             .background(Color.Black),
+                        contentPadding = PaddingValues(1.dp),
                         horizontalArrangement = Arrangement.spacedBy(1.dp),
                         verticalArrangement = Arrangement.spacedBy(1.dp)
                     ) {

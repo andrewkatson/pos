@@ -87,11 +87,12 @@ class ProfileViewModel: ObservableObject {
     func refreshUserPosts() async {
         guard !isLoading else { return }
         isLoading = true
+        // Reset the loading flag on every exit path so it can't be left stuck on.
+        defer { isLoading = false }
 
         do {
             guard let userSession = try keychainHelper.load(UserSession.self, from: keychainService, account: account) else {
                 NSLog("%@", "No active session — cannot refresh posts")
-                isLoading = false
                 return
             }
 
@@ -110,8 +111,6 @@ class ProfileViewModel: ObservableObject {
         } catch {
             NSLog("%@", "Error refreshing user posts for \(user.username): \(error)")
         }
-
-        isLoading = false
     }
 
     /// Fetches the user's profile stats and follow status.
