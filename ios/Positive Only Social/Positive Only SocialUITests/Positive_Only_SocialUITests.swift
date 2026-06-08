@@ -486,6 +486,16 @@ final class Positive_Only_SocialUITests: XCTestCase {
         assertOnPostDetailView(app: app)
     }
     
+    /// Waits for an element's accessibility label to equal the expected value. Like/unlike updates
+    /// are applied optimistically on the SwiftUI run loop, and XCUITest reads the accessibility label
+    /// from a separate process, so a plain `XCTAssertEqual` can race the re-render. Waiting on a
+    /// predicate makes the check robust, matching how the rest of this file handles async values.
+    private func waitForLabel(_ element: XCUIElement, toEqual expected: String) {
+        let predicate = NSPredicate(format: "label == %@", expected)
+        expectation(for: predicate, evaluatedWith: element, handler: nil)
+        waitForExpectations(timeout: TestConstants.timeout, handler: nil)
+    }
+
     // MARK: Tests
     @MainActor
     func testAutomaticLoginAfterRememberMe() throws {
@@ -895,29 +905,42 @@ final class Positive_Only_SocialUITests: XCTestCase {
         firstPostElement.tap()
 
         assertOnPostDetailView(app: app)
-        
+
         let postImage = app.buttons["PostImage"]
         XCTAssertTrue(postImage.waitForExistence(timeout: TestConstants.shortTimeout))
-        postImage.doubleTap()
-        
+
         let postLikesText = app.staticTexts["PostLikesText"]
-        XCTAssertEqual(postLikesText.label, "1 likes")
-        
+
+        // --- New method: tap the heart button ---
+        let likePostButton = app.buttons["Like post"]
+        XCTAssertTrue(likePostButton.waitForExistence(timeout: TestConstants.shortTimeout))
+        likePostButton.tap()
+        waitForLabel(postLikesText, toEqual: "1 likes")
+
+        let unlikePostButton = app.buttons["Unlike post"]
+        XCTAssertTrue(unlikePostButton.waitForExistence(timeout: TestConstants.shortTimeout))
+        unlikePostButton.tap()
+        waitForLabel(postLikesText, toEqual: "0 likes")
+
+        // --- Old method: double-tap the post image ---
         XCTAssertTrue(postImage.waitForExistence(timeout: TestConstants.shortTimeout))
         postImage.doubleTap()
-        
-        XCTAssertEqual(postLikesText.label, "0 likes")
-        
+        waitForLabel(postLikesText, toEqual: "1 likes")
+
+        XCTAssertTrue(postImage.waitForExistence(timeout: TestConstants.shortTimeout))
+        postImage.doubleTap()
+        waitForLabel(postLikesText, toEqual: "0 likes")
+
         let backButton = app.navigationBars.firstMatch.buttons.element(boundBy: 0)
         XCTAssertTrue(backButton.waitForExistence(timeout: TestConstants.shortTimeout))
         backButton.tap()
-        
+
         let homeButton = app.buttons["Home"]
         if homeButton.exists {
             XCTAssertTrue(homeButton.waitForExistence(timeout: TestConstants.shortTimeout))
             homeButton.tap()
         }
-        
+
         assertOnHomeView(app: app)
     }
     
@@ -1151,35 +1174,63 @@ final class Positive_Only_SocialUITests: XCTestCase {
 
         assertOnPostDetailView(app: app)
         
-        // First we like and unlike the comment post comment
+        // --- Root comment ---
         let postCommentStackQuery = app.buttons.matching(identifier: "CommentStack")
         let postCommentStack = postCommentStackQuery.element(boundBy: 0)
         XCTAssertTrue(postCommentStack.waitForExistence(timeout: TestConstants.shortTimeout))
-        postCommentStack.doubleTap()
-        
+
         let postCommentLikesTextQuery = app.staticTexts.matching(identifier: "CommentLikesCount")
         let postCommentLikesText = postCommentLikesTextQuery.element(boundBy: 0)
-        XCTAssertEqual(postCommentLikesText.label, "1 likes")
-        
+
+        // New method: tap the heart button
+        let firstLikeCommentButton = app.buttons.matching(NSPredicate(format: "label == 'Like comment'")).element(boundBy: 0)
+        XCTAssertTrue(firstLikeCommentButton.waitForExistence(timeout: TestConstants.shortTimeout))
+        firstLikeCommentButton.tap()
+        waitForLabel(postCommentLikesText, toEqual: "1 likes")
+
+        let firstUnlikeCommentButton = app.buttons.matching(NSPredicate(format: "label == 'Unlike comment'")).element(boundBy: 0)
+        XCTAssertTrue(firstUnlikeCommentButton.waitForExistence(timeout: TestConstants.shortTimeout))
+        firstUnlikeCommentButton.tap()
+        waitForLabel(postCommentLikesText, toEqual: "0 likes")
+
+        // Old method: double-tap the comment row
         XCTAssertTrue(postCommentStack.waitForExistence(timeout: TestConstants.shortTimeout))
         postCommentStack.doubleTap()
-        
-        XCTAssertEqual(postCommentLikesText.label, "0 likes")
-        
-        // Then we like and unlike the comment thread comment
+        waitForLabel(postCommentLikesText, toEqual: "1 likes")
+
+        XCTAssertTrue(postCommentStack.waitForExistence(timeout: TestConstants.shortTimeout))
+        postCommentStack.doubleTap()
+        waitForLabel(postCommentLikesText, toEqual: "0 likes")
+
+        // --- Thread reply ---
         let postCommentStackQuery2 = app.buttons.matching(identifier: "CommentStack")
         let postCommentStack2 = postCommentStackQuery2.element(boundBy: 1)
         XCTAssertTrue(postCommentStack2.waitForExistence(timeout: TestConstants.shortTimeout))
-        postCommentStack2.doubleTap()
-        
+
         let postCommentLikesTextQuery2 = app.staticTexts.matching(identifier: "CommentLikesCount")
         let postCommentLikesText2 = postCommentLikesTextQuery2.element(boundBy: 1)
-        XCTAssertEqual(postCommentLikesText2.label, "1 likes")
-        
+
+        // New method: tap the heart button on the reply
+        // boundBy: 1 because root comment's heart is still at index 0 (not liked)
+        let secondLikeCommentButton = app.buttons.matching(NSPredicate(format: "label == 'Like comment'")).element(boundBy: 1)
+        XCTAssertTrue(secondLikeCommentButton.waitForExistence(timeout: TestConstants.shortTimeout))
+        secondLikeCommentButton.tap()
+        waitForLabel(postCommentLikesText2, toEqual: "1 likes")
+
+        // After liking the reply, it becomes the only "Unlike comment" button
+        let secondUnlikeCommentButton = app.buttons.matching(NSPredicate(format: "label == 'Unlike comment'")).element(boundBy: 0)
+        XCTAssertTrue(secondUnlikeCommentButton.waitForExistence(timeout: TestConstants.shortTimeout))
+        secondUnlikeCommentButton.tap()
+        waitForLabel(postCommentLikesText2, toEqual: "0 likes")
+
+        // Old method: double-tap the reply row
         XCTAssertTrue(postCommentStack2.waitForExistence(timeout: TestConstants.shortTimeout))
         postCommentStack2.doubleTap()
-        
-        XCTAssertEqual(postCommentLikesText2.label, "0 likes")
+        waitForLabel(postCommentLikesText2, toEqual: "1 likes")
+
+        XCTAssertTrue(postCommentStack2.waitForExistence(timeout: TestConstants.shortTimeout))
+        postCommentStack2.doubleTap()
+        waitForLabel(postCommentLikesText2, toEqual: "0 likes")
         
         let backButton = app.navigationBars.firstMatch.buttons.element(boundBy: 0)
         XCTAssertTrue(backButton.waitForExistence(timeout: TestConstants.shortTimeout))

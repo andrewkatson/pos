@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { Navigate, useNavigate, useParams } from 'react-router-dom'
 import { apiClient } from '../api/client'
+import { getCurrentUsername } from '../api/session'
 import type { Comment, PostDetails } from '../api/types'
 import './MainApp.css'
 
@@ -14,6 +15,9 @@ interface CommentView {
   likeCount: number
   isLiked: boolean
   isReported: boolean
+  // The backend rejects liking your own comment, so the UI hides the like
+  // control for comments the current user authored.
+  isOwn: boolean
 }
 
 interface ThreadView {
@@ -45,6 +49,10 @@ function PostDetailPage() {
 
 function PostDetailView({ postId }: { postId: string }) {
   const navigate = useNavigate()
+
+  // The signed-in user, read once. Used to hide the like control on the user's
+  // own post/comments since the backend rejects liking your own content.
+  const [currentUsername] = useState(() => getCurrentUsername())
 
   // Track mount state so async loads that resolve after navigating away don't
   // set state on an unmounted view.
@@ -97,6 +105,7 @@ function PostDetailView({ postId }: { postId: string }) {
         likeCount: c.comment_likes,
         isLiked: likedCommentIds.current.has(c.comment_identifier),
         isReported: reportedCommentIds.current.has(c.comment_identifier),
+        isOwn: c.author_username === currentUsername,
       })
 
       // A failure to load the post itself is the only "not found" case. Comment
@@ -152,7 +161,7 @@ function PostDetailView({ postId }: { postId: string }) {
     } finally {
       isLoadingRef.current = false
     }
-  }, [postId])
+  }, [postId, currentUsername])
 
   // Kick the initial load off a microtask so the fetch's setState calls don't
   // run synchronously inside the effect (React flags that as cascading renders).
@@ -174,7 +183,11 @@ function PostDetailView({ postId }: { postId: string }) {
 
   // ---- Post actions ----
 
+  // The backend rejects liking your own post, so don't optimistically like it.
+  const isOwnPost = post?.author_username === currentUsername
+
   async function togglePostLike() {
+    if (isOwnPost) return
     const liking = !postLiked
     setPostLiked(liking)
     setPostLikeCount(n => (liking ? n + 1 : Math.max(0, n - 1)))
@@ -201,6 +214,7 @@ function PostDetailView({ postId }: { postId: string }) {
   }
 
   async function toggleCommentLike(comment: CommentView) {
+    if (comment.isOwn) return
     const liking = !comment.isLiked
     if (liking) likedCommentIds.current.add(comment.id)
     else likedCommentIds.current.delete(comment.id)
@@ -323,19 +337,21 @@ function PostDetailView({ postId }: { postId: string }) {
           className="detail-image"
           src={post.image_url}
           alt={post.caption}
-          onDoubleClick={togglePostLike}
+          onDoubleClick={isOwnPost ? undefined : togglePostLike}
         />
 
         <div className="detail-meta">
-          <button
-            type="button"
-            className="heart"
-            aria-label={postLiked ? 'Unlike post' : 'Like post'}
-            aria-pressed={postLiked}
-            onClick={togglePostLike}
-          >
-            {postLiked ? '♥' : '♡'}
-          </button>
+          {!isOwnPost && (
+            <button
+              type="button"
+              className="heart"
+              aria-label={postLiked ? 'Unlike post' : 'Like post'}
+              aria-pressed={postLiked}
+              onClick={togglePostLike}
+            >
+              {postLiked ? '♥' : '♡'}
+            </button>
+          )}
           <span className="detail-likes">{postLikeCount} likes</span>
           {postReported && (
             <span className="flag-icon" aria-label="Reported">
@@ -566,15 +582,17 @@ function CommentRow({ comment, onToggleLike, onReport, onNavigate }: CommentRowP
           <span className="comment-row__body">{comment.body}</span>
         </span>
         <div className="comment-row__info">
-          <button
-            type="button"
-            className="heart"
-            aria-label={comment.isLiked ? 'Unlike comment' : 'Like comment'}
-            aria-pressed={comment.isLiked}
-            onClick={onToggleLike}
-          >
-            {comment.isLiked ? '♥' : '♡'}
-          </button>
+          {!comment.isOwn && (
+            <button
+              type="button"
+              className="heart"
+              aria-label={comment.isLiked ? 'Unlike comment' : 'Like comment'}
+              aria-pressed={comment.isLiked}
+              onClick={onToggleLike}
+            >
+              {comment.isLiked ? '♥' : '♡'}
+            </button>
+          )}
           <span>{comment.likeCount} likes</span>
           <button type="button" className="comment-reply-btn" style={{ padding: 0 }} onClick={onReport}>
             Report
