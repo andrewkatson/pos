@@ -43,9 +43,12 @@ struct RegisterView: View {
         }
         return password == confirmPassword
     }
-    
+
     private var isFormValid: Bool {
-        !username.isEmpty && !email.isEmpty && !password.isEmpty && password == confirmPassword
+        AuthRequirements.allMet(AuthRequirements.username(username))
+            && !email.isEmpty
+            && AuthRequirements.allMet(AuthRequirements.password(password))
+            && password == confirmPassword
     }
 
     // MARK: - View Body
@@ -63,6 +66,11 @@ struct RegisterView: View {
                 .textContentType(.username)
                 .autocapitalization(.none)
                 .accessibilityIdentifier("UsernameTextField")
+            if !username.isEmpty {
+                RequirementHints(requirements: AuthRequirements.username(username))
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.horizontal, 4)
+            }
 
             TextField("Email", text: $email)
                 .padding()
@@ -77,13 +85,21 @@ struct RegisterView: View {
                 .padding()
                 .background(Color(.systemGray6))
                 .cornerRadius(10)
-                .textContentType(.newPassword)
+                // Disable the automatic "Use Strong Password" AutoFill prompt
+                // during UI tests, where it would block interaction. Real users
+                // still get the new-password content type.
+                .textContentType(isUITesting() ? nil : .newPassword)
                 .accessibilityIdentifier("PasswordSecureField")
+            if !password.isEmpty {
+                RequirementHints(requirements: AuthRequirements.password(password))
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.horizontal, 4)
+            }
             SecureField("Confirm Password", text: $confirmPassword)
                 .padding()
                 .background(Color(.systemGray6))
                 .cornerRadius(10)
-                .textContentType(.newPassword)
+                .textContentType(isUITesting() ? nil : .newPassword)
                 .accessibilityIdentifier("ConfirmPasswordSecureField")
             
             DatePicker("Date of Birth", selection: $dateOfBirth, displayedComponents: .date)

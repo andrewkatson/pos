@@ -50,6 +50,7 @@ test('renders the form with all fields', () => {
   expect(screen.getByLabelText('Username')).toBeInTheDocument()
   expect(screen.getByLabelText('Email')).toBeInTheDocument()
   expect(screen.getByLabelText('New Password')).toBeInTheDocument()
+  expect(screen.getByLabelText('Confirm Password')).toBeInTheDocument()
 })
 
 test('pre-fills username when usernameOrEmail has no @', () => {
@@ -72,8 +73,44 @@ test('submit button is disabled when fields are incomplete', () => {
 test('submit button is enabled when all fields are filled', async () => {
   renderPage('ada')
   await userEvent.type(screen.getByLabelText('Email'), 'ada@example.com')
-  await userEvent.type(screen.getByLabelText('New Password'), 'newpass')
+  await userEvent.type(screen.getByLabelText('New Password'), 'NewStrongPass1@')
+  await userEvent.type(screen.getByLabelText('Confirm Password'), 'NewStrongPass1@')
   expect(screen.getByRole('button', { name: 'Reset Password and Login' })).toBeEnabled()
+})
+
+test('submit button stays disabled when passwords do not match', async () => {
+  renderPage('ada')
+  await userEvent.type(screen.getByLabelText('Email'), 'ada@example.com')
+  await userEvent.type(screen.getByLabelText('New Password'), 'NewStrongPass1@')
+  await userEvent.type(screen.getByLabelText('Confirm Password'), 'different')
+  expect(screen.getByRole('button', { name: 'Reset Password and Login' })).toBeDisabled()
+})
+
+test('shows mismatch warning when passwords differ', async () => {
+  renderPage('ada')
+  await userEvent.type(screen.getByLabelText('New Password'), 'abc')
+  await userEvent.type(screen.getByLabelText('Confirm Password'), 'xyz')
+  expect(screen.getByText('Passwords do not match.')).toBeInTheDocument()
+})
+
+test('password hints appear when new password is typed', async () => {
+  renderPage('ada')
+  await userEvent.type(screen.getByLabelText('New Password'), 'pass')
+  expect(screen.getByText('At least 8 characters')).toBeInTheDocument()
+  expect(screen.getByText('At least one number')).toBeInTheDocument()
+  expect(screen.getByText('At least one lowercase letter')).toBeInTheDocument()
+  expect(screen.getByText('At least one uppercase letter')).toBeInTheDocument()
+  expect(screen.getByText('At least one special character (@#$%^&+=_)')).toBeInTheDocument()
+  expect(screen.getByText('No spaces')).toBeInTheDocument()
+})
+
+test('submit button stays disabled when password fails requirements', async () => {
+  renderPage('ada')
+  await userEvent.type(screen.getByLabelText('Email'), 'ada@example.com')
+  // weak password: no uppercase/number/special
+  await userEvent.type(screen.getByLabelText('New Password'), 'lowercase')
+  await userEvent.type(screen.getByLabelText('Confirm Password'), 'lowercase')
+  expect(screen.getByRole('button', { name: 'Reset Password and Login' })).toBeDisabled()
 })
 
 test('navigates to /home on successful reset and login', async () => {
@@ -85,7 +122,8 @@ test('navigates to /home on successful reset and login', async () => {
   })
   renderPage('ada')
   await userEvent.type(screen.getByLabelText('Email'), 'ada@example.com')
-  await userEvent.type(screen.getByLabelText('New Password'), 'newpass')
+  await userEvent.type(screen.getByLabelText('New Password'), 'NewStrongPass1@')
+  await userEvent.type(screen.getByLabelText('Confirm Password'), 'NewStrongPass1@')
   await userEvent.click(screen.getByRole('button', { name: 'Reset Password and Login' }))
   expect(await screen.findByText('Home page')).toBeInTheDocument()
 })
@@ -99,7 +137,8 @@ test('stores session token and user_id in localStorage on success', async () => 
   })
   renderPage('ada')
   await userEvent.type(screen.getByLabelText('Email'), 'ada@example.com')
-  await userEvent.type(screen.getByLabelText('New Password'), 'newpass')
+  await userEvent.type(screen.getByLabelText('New Password'), 'NewStrongPass1@')
+  await userEvent.type(screen.getByLabelText('Confirm Password'), 'NewStrongPass1@')
   await userEvent.click(screen.getByRole('button', { name: 'Reset Password and Login' }))
   await screen.findByText('Home page')
   expect(mockSetItem).toHaveBeenCalledWith('session_token', 'my-token')
@@ -110,7 +149,8 @@ test('shows error banner when reset fails', async () => {
   mockResetPassword.mockRejectedValueOnce({ message: 'Invalid reset token' })
   renderPage('ada')
   await userEvent.type(screen.getByLabelText('Email'), 'ada@example.com')
-  await userEvent.type(screen.getByLabelText('New Password'), 'newpass')
+  await userEvent.type(screen.getByLabelText('New Password'), 'NewStrongPass1@')
+  await userEvent.type(screen.getByLabelText('Confirm Password'), 'NewStrongPass1@')
   await userEvent.click(screen.getByRole('button', { name: 'Reset Password and Login' }))
   expect(await screen.findByRole('alert')).toHaveTextContent('Invalid reset token')
 })
@@ -120,7 +160,8 @@ test('shows error banner when auto-login fails after reset', async () => {
   mockLogin.mockRejectedValueOnce({ message: 'Invalid username or password' })
   renderPage('ada')
   await userEvent.type(screen.getByLabelText('Email'), 'ada@example.com')
-  await userEvent.type(screen.getByLabelText('New Password'), 'newpass')
+  await userEvent.type(screen.getByLabelText('New Password'), 'NewStrongPass1@')
+  await userEvent.type(screen.getByLabelText('Confirm Password'), 'NewStrongPass1@')
   await userEvent.click(screen.getByRole('button', { name: 'Reset Password and Login' }))
   expect(await screen.findByRole('alert')).toHaveTextContent('Invalid username or password')
 })
@@ -129,7 +170,8 @@ test('error banner can be dismissed', async () => {
   mockResetPassword.mockRejectedValueOnce({ message: 'Invalid reset token' })
   renderPage('ada')
   await userEvent.type(screen.getByLabelText('Email'), 'ada@example.com')
-  await userEvent.type(screen.getByLabelText('New Password'), 'newpass')
+  await userEvent.type(screen.getByLabelText('New Password'), 'NewStrongPass1@')
+  await userEvent.type(screen.getByLabelText('Confirm Password'), 'NewStrongPass1@')
   await userEvent.click(screen.getByRole('button', { name: 'Reset Password and Login' }))
   await screen.findByRole('alert')
   await userEvent.click(screen.getByRole('button', { name: 'Dismiss error' }))

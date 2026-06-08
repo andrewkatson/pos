@@ -3,6 +3,8 @@ import { useNavigate } from 'react-router-dom'
 import Logo from '../components/Logo'
 import { apiClient } from '../api/client'
 import type { ApiError } from '../api/client'
+import RequirementHints from '../auth/RequirementHints'
+import { getPasswordRequirements, getUsernameRequirements, allMet } from '../auth/requirements'
 import './LoginPage.css'
 
 const PRIVACY_POLICY_TEXT =
@@ -28,12 +30,14 @@ function RegisterPage() {
     return () => document.removeEventListener('keydown', onKeyDown)
   }, [showPrivacyPolicy])
 
+  const usernameRequirements = getUsernameRequirements(username)
+  const passwordRequirements = getPasswordRequirements(password)
   const isPasswordMatching = confirmPassword === '' || password === confirmPassword
   const isFormValid =
-    username.trim().length > 0 &&
+    allMet(usernameRequirements) &&
     email.trim().length > 0 &&
     dateOfBirth.length > 0 &&
-    password.length > 0 &&
+    allMet(passwordRequirements) &&
     password === confirmPassword
 
   async function handleRegister() {
@@ -143,6 +147,9 @@ function RegisterPage() {
               onChange={e => setUsername(e.target.value)}
               disabled={isLoading}
             />
+            {username.length > 0 && (
+              <RequirementHints requirements={usernameRequirements} label="Username requirements" />
+            )}
           </div>
 
           <div className="auth-field">
@@ -188,6 +195,9 @@ function RegisterPage() {
               onChange={e => setPassword(e.target.value)}
               disabled={isLoading}
             />
+            {password.length > 0 && (
+              <RequirementHints requirements={passwordRequirements} label="Password requirements" />
+            )}
           </div>
 
           <div className="auth-field">

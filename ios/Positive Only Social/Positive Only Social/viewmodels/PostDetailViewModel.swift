@@ -32,6 +32,22 @@ final class PostDetailViewModel: ObservableObject {
     
     @Published var isPostReported = false
     @Published var reportedCommentIds: Set<String> = []
+
+    /// The signed-in user's username, loaded alongside the post. The backend
+    /// rejects liking your own post/comment, so the UI hides the like control
+    /// (and the like actions are guarded) for content this user authored.
+    @Published private(set) var currentUsername: String?
+
+    /// Whether the loaded post was authored by the signed-in user.
+    var isOwnPost: Bool {
+        guard let post = postDetail, let username = currentUsername else { return false }
+        return post.authorUsername == username
+    }
+
+    /// Whether the given comment was authored by the signed-in user.
+    func isOwnComment(_ comment: CommentViewData) -> Bool {
+        comment.authorUsername == currentUsername
+    }
     
     // MARK: - Private Properties
     private let postIdentifier: String
@@ -90,6 +106,7 @@ final class PostDetailViewModel: ObservableObject {
                     return
                 }
                 let token = userSession.sessionToken
+                self.currentUsername = userSession.username
 
                 // 1. Fetch the main post details
                 let postData = try await api.getPostDetails(sessionManagementToken: token, postIdentifier: postIdentifier)
@@ -161,6 +178,8 @@ final class PostDetailViewModel: ObservableObject {
     // MARK: - User Actions
     
     func likePost() {
+        // The backend rejects liking your own post; don't optimistically like it.
+        guard !isOwnPost else { return }
         NSLog("%@", "ACTION: Like post \(postIdentifier)")
         // Stub: Increment like count locally for instant feedback
         if var post = postDetail {
@@ -250,8 +269,10 @@ final class PostDetailViewModel: ObservableObject {
     }
     
     func likeComment(_ comment: CommentViewData) {
+        // The backend rejects liking your own comment; don't optimistically like it.
+        guard !isOwnComment(comment) else { return }
         NSLog("%@", "ACTION: Like comment \(comment.id)")
-        
+
         // --- ⬇️ ADDED OPTIMISTIC UPDATE ⬇️ ---
         // Find the index of the thread
         guard let threadIndex = commentThreads.firstIndex(where: { $0.id == comment.threadId }) else {

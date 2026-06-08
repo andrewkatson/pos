@@ -18,8 +18,8 @@ class PositiveOnlySocialIntegrationTests {
     private val testUsername = "test_user_${UUID.randomUUID().toString().take(5)}"
     private val otherTestUsername = "other_user_${UUID.randomUUID().toString().take(5)}"
     private val newTestUsername = "new_user_${UUID.randomUUID().toString().take(5)}"
-    private val strongPassword = "StrongPassword123!"
-    private val newStrongPassword = "NewStrongPassword456!"
+    private val strongPassword = "StrongPassword123@"
+    private val newStrongPassword = "NewStrongPassword456@"
 
     // MARK: Helpers
 
@@ -308,17 +308,19 @@ class PositiveOnlySocialIntegrationTests {
         composeTestRule.onAllNodesWithContentDescription("Post Image").onFirst().performClick()
         
         assertOnPostDetailView()
-        
-        // Double tap to like
-        composeTestRule.onNodeWithContentDescription("Post Image").performTouchInput { doubleClick() }
-        
-        // Verify like count
+
+        // --- New method: tap the heart icon ---
+        composeTestRule.onNodeWithContentDescription("Like post").performClick()
         composeTestRule.onNodeWithText("1 likes").assertExists()
-        
-        // Double tap to unlike
+
+        composeTestRule.onNodeWithContentDescription("Unlike post").performClick()
+        composeTestRule.onNodeWithText("0 likes").assertExists()
+
+        // --- Old method: double-tap the post image ---
         composeTestRule.onNodeWithContentDescription("Post Image").performTouchInput { doubleClick() }
-        
-        // Verify like count
+        composeTestRule.onNodeWithText("1 likes").assertExists()
+
+        composeTestRule.onNodeWithContentDescription("Post Image").performTouchInput { doubleClick() }
         composeTestRule.onNodeWithText("0 likes").assertExists()
     }
 
@@ -361,31 +363,43 @@ class PositiveOnlySocialIntegrationTests {
         composeTestRule.onNodeWithText("Feed").performClick()
         composeTestRule.onAllNodesWithContentDescription("Post Image").onFirst().performClick()
         
-        // Like comment (double tap on comment row)
-        composeTestRule.onNodeWithText("Comment On a Post").performTouchInput { doubleClick() }
-
-        // Verify like count
-        composeTestRule.onNodeWithText("1 likes").assertExists()
-        
-        // Unlike comment
-        composeTestRule.onNodeWithText("Comment On a Post").performTouchInput { doubleClick() }
-        
-        // Verify like count
-        composeTestRule
-            .onAllNodesWithText("0 likes")
-            .assertCountEquals(3)
-        
-        // Verify reply appears
+        // Verify both comments are visible before starting
+        composeTestRule.onNodeWithText("Comment On a Post").assertExists()
         composeTestRule.onNodeWithText("Comment On a Thread").assertExists()
-        
-        // Like reply
+
+        // ======= Root comment =======
+
+        // New method: tap the heart icon on the root comment
+        composeTestRule.onAllNodesWithContentDescription("Like comment").onFirst().performClick()
+        composeTestRule.onNodeWithText("1 likes").assertExists()
+
+        // Tap "Unlike comment" — root comment is now the only liked one
+        composeTestRule.onAllNodesWithContentDescription("Unlike comment").onFirst().performClick()
+        composeTestRule.onAllNodesWithText("0 likes").assertCountEquals(3)
+
+        // Old method: double-tap the root comment row
+        composeTestRule.onNodeWithText("Comment On a Post").performTouchInput { doubleClick() }
+        composeTestRule.onNodeWithText("1 likes").assertExists()
+
+        composeTestRule.onNodeWithText("Comment On a Post").performTouchInput { doubleClick() }
+        composeTestRule.onAllNodesWithText("0 likes").assertCountEquals(3)
+
+        // ======= Thread reply =======
+
+        // New method: tap the heart icon on the reply (last "Like comment" node)
+        composeTestRule.onAllNodesWithContentDescription("Like comment").onLast().performClick()
+        composeTestRule.onAllNodesWithText("1 likes").onLast().assertExists()
+
+        // Tap "Unlike comment" — reply is now the only liked one
+        composeTestRule.onAllNodesWithContentDescription("Unlike comment").onFirst().performClick()
+        composeTestRule.onAllNodesWithText("0 likes").assertCountEquals(3)
+
+        // Old method: double-tap the reply row
         composeTestRule.onNodeWithText("Comment On a Thread").performTouchInput { doubleClick() }
         composeTestRule.onAllNodesWithText("1 likes").onLast().assertExists()
 
         composeTestRule.onNodeWithText("Comment On a Thread").performTouchInput { doubleClick() }
-        composeTestRule
-            .onAllNodesWithText("0 likes")
-            .assertCountEquals(3)
+        composeTestRule.onAllNodesWithText("0 likes").assertCountEquals(3)
     }
 
     @Test

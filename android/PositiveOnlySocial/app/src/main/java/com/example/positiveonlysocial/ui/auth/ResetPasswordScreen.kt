@@ -41,8 +41,12 @@ fun ResetPasswordScreen(
 
         val scope = rememberCoroutineScope()
 
+        val passwordRequirements = AuthRequirements.password(newPassword)
         val isPasswordMatching = confirmPassword.isEmpty() || newPassword == confirmPassword
-        val isFormValid = username.isNotEmpty() && email.isNotEmpty() && newPassword.isNotEmpty() && newPassword == confirmPassword
+        val isFormValid = username.isNotEmpty() &&
+            email.isNotEmpty() &&
+            AuthRequirements.allMet(passwordRequirements) &&
+            newPassword == confirmPassword
 
         if (showingErrorAlert) {
             AlertDialog(
@@ -105,6 +109,10 @@ fun ResetPasswordScreen(
                 visualTransformation = PasswordVisualTransformation(),
                 keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password)
             )
+
+            if (newPassword.isNotEmpty()) {
+                RequirementHints(passwordRequirements)
+            }
 
             TextField(
                 value = confirmPassword,
