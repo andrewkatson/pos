@@ -58,6 +58,25 @@ test('shows empty state when the user has no posts', async () => {
   expect(await screen.findByText("You haven't posted anything yet.")).toBeInTheDocument()
 })
 
+test('refresh does not get stuck loading when there is no signed-in user', async () => {
+  vi.stubGlobal('localStorage', {
+    getItem: vi.fn(() => null),
+    setItem: vi.fn(),
+    removeItem: vi.fn(),
+    clear: vi.fn(),
+  })
+  mockGetPosts.mockResolvedValue([])
+  renderTab()
+
+  const refresh = await screen.findByRole('button', { name: 'Refresh' })
+  await userEvent.click(refresh)
+
+  // loadPosts early-returns with no user; the button must reset rather than
+  // stay disabled with the spinner stuck on.
+  await waitFor(() => expect(screen.getByRole('button', { name: 'Refresh' })).toBeEnabled())
+  expect(mockGetPosts).not.toHaveBeenCalled()
+})
+
 test('refresh reloads the user posts from the first page', async () => {
   mockGetPosts.mockResolvedValue([
     { post_identifier: 'p1', image_url: 'http://img/1.jpg', author_username: 'ada', caption: 'hi' },

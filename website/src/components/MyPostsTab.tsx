@@ -35,7 +35,12 @@ function MyPostsTab() {
 
   const loadPosts = useCallback(
     async (pageToLoad: number, replace: boolean) => {
-      if (!username) return
+      if (!username) {
+        // Clear the loading flag so a Refresh click (which sets it true) can't
+        // leave the button disabled and the spinner stuck when there's no user.
+        if (isMounted.current) setIsLoading(false)
+        return
+      }
       try {
         const newPosts = await apiClient.getPostsForUser(username, pageToLoad)
         if (!isMounted.current) return
