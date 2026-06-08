@@ -125,6 +125,7 @@ struct MyPostsGridView: View {
                         viewModel.fetchMyPosts()
                     }
                 }
+                .accessibilityIdentifier("MyPostImage")
             }
         }
         // Black backing shows through the 1pt gaps as thin borders between posts.

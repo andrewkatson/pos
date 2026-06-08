@@ -154,6 +154,7 @@ struct ProfileView: View {
                             viewModel.fetchUserPosts()
                         }
                     }
+                    .accessibilityIdentifier("ProfilePostImage")
                 }.navigationDestination(for: Post.self) { post in
                     PostDetailView(postIdentifier: post.id, api: api, keychainHelper: keychainHelper)
                 }
