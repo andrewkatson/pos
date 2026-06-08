@@ -188,6 +188,19 @@ function ProfileView({ username }: { username: string }) {
           </div>
         </div>
 
+        <button
+          type="button"
+          className="refresh-button"
+          aria-label="Refresh"
+          disabled={isLoadingPosts}
+          onClick={() => {
+            setIsLoadingPosts(true)
+            void loadPosts(0, true)
+          }}
+        >
+          <span aria-hidden="true">↻</span> Refresh
+        </button>
+
         {posts.length === 0 && !isLoadingPosts ? (
           <p className="muted">{username} hasn't posted anything yet.</p>
         ) : (

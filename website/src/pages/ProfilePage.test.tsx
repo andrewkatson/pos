@@ -80,6 +80,19 @@ test('renders the post grid and opens a post', async () => {
   expect(screen.getByText('Post page')).toBeInTheDocument()
 })
 
+test('refresh reloads the profile posts from the first page', async () => {
+  mockGetPosts.mockResolvedValue([
+    { post_identifier: 'p1', image_url: 'http://img/1.jpg', author_username: 'bob', caption: 'hi' },
+  ])
+  renderProfile()
+  await screen.findByRole('button', { name: 'Post by bob' })
+  expect(mockGetPosts).toHaveBeenCalledTimes(1)
+
+  await userEvent.click(screen.getByRole('button', { name: 'Refresh' }))
+  await waitFor(() => expect(mockGetPosts).toHaveBeenCalledTimes(2))
+  expect(mockGetPosts).toHaveBeenLastCalledWith('bob', 0)
+})
+
 test('shows "User not found" when the profile fails to load', async () => {
   mockGetProfile.mockRejectedValue(new Error('404'))
   renderProfile()

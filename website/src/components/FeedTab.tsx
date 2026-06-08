@@ -97,6 +97,19 @@ function FeedTab() {
         </button>
       </div>
 
+      <button
+        type="button"
+        className="refresh-button"
+        aria-label="Refresh"
+        disabled={isLoading}
+        onClick={() => {
+          setIsLoading(true)
+          void loadFeed(0, true)
+        }}
+      >
+        <span aria-hidden="true">↻</span> Refresh
+      </button>
+
       {posts.length === 0 && !isLoading ? (
         <p className="muted">No posts here yet.</p>
       ) : (

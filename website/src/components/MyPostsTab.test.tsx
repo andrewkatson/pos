@@ -58,6 +58,19 @@ test('shows empty state when the user has no posts', async () => {
   expect(await screen.findByText("You haven't posted anything yet.")).toBeInTheDocument()
 })
 
+test('refresh reloads the user posts from the first page', async () => {
+  mockGetPosts.mockResolvedValue([
+    { post_identifier: 'p1', image_url: 'http://img/1.jpg', author_username: 'ada', caption: 'hi' },
+  ])
+  renderTab()
+  await screen.findByRole('button', { name: 'Post by ada' })
+  expect(mockGetPosts).toHaveBeenCalledTimes(1)
+
+  await userEvent.click(screen.getByRole('button', { name: 'Refresh' }))
+  await waitFor(() => expect(mockGetPosts).toHaveBeenCalledTimes(2))
+  expect(mockGetPosts).toHaveBeenLastCalledWith('ada', 0)
+})
+
 test('searches users after typing 3+ characters and navigates to a profile', async () => {
   mockGetPosts.mockResolvedValue([])
   mockSearch.mockResolvedValue([{ username: 'bob', identity_is_verified: true }])

@@ -276,6 +276,29 @@
   color: #ffffff;
 }
 
+/* Top-of-list refresh control — the web equivalent of mobile pull-to-refresh. */
+.refresh-button {
+  margin: 0 0 0.75rem auto;
+  display: block;
+  background: none;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  border-radius: 8px;
+  color: rgba(255, 255, 255, 0.8);
+  padding: 0.4rem 1rem;
+  font-size: 0.85rem;
+  cursor: pointer;
+}
+
+.refresh-button:hover {
+  border-color: #5ba4dc;
+  color: #ffffff;
+}
+
+.refresh-button:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
 .center-spinner {
   display: flex;
   justify-content: center;
