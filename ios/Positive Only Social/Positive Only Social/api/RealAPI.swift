@@ -349,7 +349,7 @@ final class RealAPI: Networking {
         let requestBody = try encode(body)
         
         return try await performRequest(
-            pathSegments: ["posts", "create"],
+            pathSegments: [POSAppConstants.pathSegmentPosts, POSAppConstants.pathSegmentCreate],
             method: .post,
             body: requestBody,
             authToken: sessionManagementToken
@@ -360,7 +360,7 @@ final class RealAPI: Networking {
     func deletePost(sessionManagementToken: String, postIdentifier: String) async throws -> Data {
         // This is a POST request, no body, with auth. ID is in path.
         return try await performRequest(
-            pathSegments: ["posts", postIdentifier, "delete"],
+            pathSegments: [POSAppConstants.pathSegmentPosts, postIdentifier, POSAppConstants.pathSegmentDelete],
             method: .post,
             authToken: sessionManagementToken
         )
@@ -372,7 +372,7 @@ final class RealAPI: Networking {
         let requestBody = try encode(body)
         
         return try await performRequest(
-            pathSegments: ["posts", postIdentifier, "report"],
+            pathSegments: [POSAppConstants.pathSegmentPosts, postIdentifier, POSAppConstants.pathSegmentReport],
             method: .post,
             body: requestBody,
             authToken: sessionManagementToken
@@ -383,7 +383,7 @@ final class RealAPI: Networking {
     func likePost(sessionManagementToken: String, postIdentifier: String) async throws -> Data {
         // This is a POST request, no body, with auth. ID is in path.
         return try await performRequest(
-            pathSegments: ["posts", postIdentifier, "like"],
+            pathSegments: [POSAppConstants.pathSegmentPosts, postIdentifier, POSAppConstants.pathSegmentLike],
             method: .post,
             authToken: sessionManagementToken
         )
@@ -393,7 +393,7 @@ final class RealAPI: Networking {
     func unlikePost(sessionManagementToken: String, postIdentifier: String) async throws -> Data {
         // This is a POST request, no body, with auth. ID is in path.
         return try await performRequest(
-            pathSegments: ["posts", postIdentifier, "unlike"],
+            pathSegments: [POSAppConstants.pathSegmentPosts, postIdentifier,  POSAppConstants.pathSegmentUnlike],
             method: .post,
             authToken: sessionManagementToken
         )
@@ -403,7 +403,7 @@ final class RealAPI: Networking {
     func getPostsInFeed(sessionManagementToken: String, batch: Int) async throws -> Data {
         // This is a GET request, no body, with auth. Batch is in path.
         return try await performRequest(
-            pathSegments: ["feed", String(batch)],
+            pathSegments: [POSAppConstants.pathSregmenFeed, String(batch)],
             method: .get,
             authToken: sessionManagementToken
         )
@@ -413,7 +413,7 @@ final class RealAPI: Networking {
     func getPostsForFollowedUsers(sessionManagementToken: String, batch: Int) async throws -> Data {
         // This is a GET request, no body, with auth. Batch is in path.
         return try await performRequest(
-            pathSegments: ["feed", "followed", String(batch)],
+            pathSegments: [ POSAppConstants.pathSregmenFeed, POSAppConstants.pathSegmentFollowed, String(batch)],
             method: .get,
             authToken: sessionManagementToken
         )
@@ -424,7 +424,7 @@ final class RealAPI: Networking {
     func getPostsForUser(sessionManagementToken: String, username: String, batch: Int) async throws -> Data {
         // This is a GET request, no body, with auth. Username/Batch are in path.
         return try await performRequest(
-            pathSegments: ["users", username, "posts", String(batch)],
+            pathSegments: [POSAppConstants.pathSegmentUsers, username, POSAppConstants.pathSegmentPosts, String(batch)],
             method: .get,
             authToken: sessionManagementToken
         )
@@ -434,7 +434,7 @@ final class RealAPI: Networking {
     func getPostDetails(sessionManagementToken: String, postIdentifier: String) async throws -> Data {
         // Authenticated GET so the response can include the current user's like state. ID is in path.
         return try await performRequest(
-            pathSegments: ["posts", postIdentifier, "details"],
+            pathSegments: [POSAppConstants.pathSegmentPosts, postIdentifier, POSAppConstants.pathSegmentDetails],
             method: .get,
             authToken: sessionManagementToken
         )
@@ -448,7 +448,7 @@ final class RealAPI: Networking {
         let requestBody = try encode(body)
         
         return try await performRequest(
-            pathSegments: ["posts", postIdentifier, "comment"],
+            pathSegments: [POSAppConstants.pathSegmentPosts, postIdentifier, POSAppConstants.pathSegmentComments],
             method: .post,
             body: requestBody,
             authToken: sessionManagementToken
@@ -459,7 +459,7 @@ final class RealAPI: Networking {
     func likeComment(sessionManagementToken: String, postIdentifier: String, commentThreadIdentifier: String, commentIdentifier: String) async throws -> Data {
         // This is a POST request, no body, with auth. IDs are in path.
         return try await performRequest(
-            pathSegments: ["posts", postIdentifier, "threads", commentThreadIdentifier, "comments", commentIdentifier, "like"],
+            pathSegments: [POSAppConstants.pathSegmentPosts, postIdentifier, POSAppConstants.pathSegmentThreads, commentThreadIdentifier, POSAppConstants.pathSegmentComments, commentIdentifier, POSAppConstants.pathSegmentLike],
             method: .post,
             authToken: sessionManagementToken
         )
@@ -469,7 +469,7 @@ final class RealAPI: Networking {
     func unlikeComment(sessionManagementToken: String, postIdentifier: String, commentThreadIdentifier: String, commentIdentifier: String) async throws -> Data {
         // This is a POST request, no body, with auth. IDs are in path.
         return try await performRequest(
-            pathSegments: ["posts", postIdentifier, "threads", commentThreadIdentifier, "comments", commentIdentifier, "unlike"],
+            pathSegments: [POSAppConstants.pathSegmentPosts, postIdentifier, POSAppConstants.pathSegmentThreads, commentThreadIdentifier, POSAppConstants.pathSegmentComments, commentIdentifier, POSAppConstants.pathSegmentUnlike],
             method: .post,
             authToken: sessionManagementToken
         )
@@ -479,7 +479,7 @@ final class RealAPI: Networking {
     func deleteComment(sessionManagementToken: String, postIdentifier: String, commentThreadIdentifier: String, commentIdentifier: String) async throws -> Data {
         // This is a POST request, no body, with auth. IDs are in path.
         return try await performRequest(
-            pathSegments: ["posts", postIdentifier, "threads", commentThreadIdentifier, "comments", commentIdentifier, "delete"],
+            pathSegments: [POSAppConstants.pathSegmentPosts, postIdentifier, POSAppConstants.pathSegmentThreads, commentThreadIdentifier, POSAppConstants.pathSegmentComments, commentIdentifier, POSAppConstants.pathSegmentDelete],
             method: .post,
             authToken: sessionManagementToken
         )
@@ -491,7 +491,7 @@ final class RealAPI: Networking {
         let requestBody = try encode(body)
         
         return try await performRequest(
-            pathSegments: ["posts", postIdentifier, "threads", commentThreadIdentifier, "comments", commentIdentifier, "report"],
+            pathSegments: [POSAppConstants.pathSegmentPosts, postIdentifier, POSAppConstants.pathSegmentThreads, commentThreadIdentifier, POSAppConstants.pathSegmentComments, commentIdentifier, POSAppConstants.pathSegmentReport],
             method: .post,
             body: requestBody,
             authToken: sessionManagementToken
@@ -502,7 +502,7 @@ final class RealAPI: Networking {
     func getCommentsForPost(sessionManagementToken: String, postIdentifier: String, batch: Int) async throws -> Data {
         // Authenticated GET. ID/Batch are in path.
         return try await performRequest(
-            pathSegments: ["posts", postIdentifier, "comments", String(batch)],
+            pathSegments: [POSAppConstants.pathSegmentPosts, postIdentifier, POSAppConstants.pathSegmentComments, String(batch)],
             method: .get,
             authToken: sessionManagementToken
         )
@@ -512,7 +512,7 @@ final class RealAPI: Networking {
     func getCommentsForThread(sessionManagementToken: String, commentThreadIdentifier: String, batch: Int) async throws -> Data {
         // Authenticated GET so each comment can include the current user's like state. ID/Batch are in path.
         return try await performRequest(
-            pathSegments: ["threads", commentThreadIdentifier, "comments", String(batch)],
+            pathSegments: [POSAppConstants.pathSegmentThreads, commentThreadIdentifier, POSAppConstants.pathSegmentComments, String(batch)],
             method: .get,
             authToken: sessionManagementToken
         )
@@ -524,7 +524,7 @@ final class RealAPI: Networking {
         let requestBody = try encode(body)
         
         return try await performRequest(
-            pathSegments: ["posts", postIdentifier, "threads", commentThreadIdentifier, "reply"],
+            pathSegments: [POSAppConstants.pathSegmentPosts, postIdentifier, POSAppConstants.pathSegmentThreads, commentThreadIdentifier, POSAppConstants.pathSegmentReply],
             method: .post,
             body: requestBody,
             authToken: sessionManagementToken
@@ -537,7 +537,7 @@ final class RealAPI: Networking {
     func getUsersMatchingFragment(sessionManagementToken: String, usernameFragment: String) async throws -> Data {
         // This is a GET request, no body, with auth. Fragment is in path.
         return try await performRequest(
-            pathSegments: ["users", "search", usernameFragment],
+            pathSegments: [POSAppConstants.pathSegmentUsers, POSAppConstants.pathSegmenSearch, usernameFragment],
             method: .get,
             authToken: sessionManagementToken
         )
@@ -547,7 +547,7 @@ final class RealAPI: Networking {
     func getProfileDetails(sessionManagementToken: String, username: String) async throws -> Data {
         // This is a GET request, no body, with auth. Username is in path.
         return try await performRequest(
-            pathSegments: ["users", username, "profile"],
+            pathSegments: [POSAppConstants.pathSegmentUsers, username, POSAppConstants.pathSegmenProfile],
             method: .get,
             authToken: sessionManagementToken
         )
