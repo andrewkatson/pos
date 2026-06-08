@@ -134,24 +134,28 @@ struct ProfileView: View {
         } else {
             LazyVGrid(columns: columns, spacing: 1) {
                 ForEach(viewModel.userPosts) { post in
-                    // Force every post into an identical square, cropping to fill
-                    // so images no longer keep their original dimensions.
-                    Color(.systemGray4)
-                        .aspectRatio(1, contentMode: .fit)
-                        .overlay {
-                            AsyncImage(url: URL(string: post.imageUrl)) { image in
-                                image.resizable().scaledToFill()
-                            } placeholder: {
-                                Color(.systemGray4)
+                    // Wrap each cell in a NavigationLink so tapping a post opens
+                    // its detail view (matches Home/Feed and the destination below).
+                    NavigationLink(value: post) {
+                        // Force every post into an identical square, cropping to fill
+                        // so images no longer keep their original dimensions.
+                        Color(.systemGray4)
+                            .aspectRatio(1, contentMode: .fit)
+                            .overlay {
+                                AsyncImage(url: URL(string: post.imageUrl)) { image in
+                                    image.resizable().scaledToFill()
+                                } placeholder: {
+                                    Color(.systemGray4)
+                                }
                             }
+                            .clipped()
+                    }
+                    .onAppear {
+                        // Trigger for infinite scrolling
+                        if post.id == viewModel.userPosts.last?.id {
+                            viewModel.fetchUserPosts()
                         }
-                        .clipped()
-                        .onAppear {
-                            // Trigger for infinite scrolling
-                            if post.id == viewModel.userPosts.last?.id {
-                                viewModel.fetchUserPosts()
-                            }
-                        }
+                    }
                 }.navigationDestination(for: Post.self) { post in
                     PostDetailView(postIdentifier: post.id, api: api, keychainHelper: keychainHelper)
                 }

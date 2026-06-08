@@ -231,6 +231,8 @@
 
 .feed-post__image {
   width: 100%;
+  /* Keep the 1px border inside the 100% width so it can't cause overflow. */
+  box-sizing: border-box;
   /* Standard square so feed posts no longer keep their original dimensions. */
   aspect-ratio: 1 / 1;
   border: 1px solid #000;
