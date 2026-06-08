@@ -16,7 +16,7 @@ final class AuthenticationManager: ObservableObject {
     @Published var session: UserSession?
     
     // Unique identifiers for Keychain
-    private let keychainService = POSAppConstants.keychainService
+    private let keychainService = GVOAppConstants.keychainService
     private var sessionAccount: String {
         let base = "userSessionToken"
         guard isUITesting(), let testName = ProcessInfo.processInfo.environment["test-name"] else {

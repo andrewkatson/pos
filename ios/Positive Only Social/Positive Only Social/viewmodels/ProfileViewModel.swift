@@ -25,7 +25,7 @@ class ProfileViewModel: ObservableObject {
     private let api: Networking
     private let keychainHelper: KeychainHelperProtocol
     private let account: String
-    private let keychainService = POSAppConstants.keychainService
+    private let keychainService = GVOAppConstants.keychainService
     
     let user: User // The user this profile is for
 

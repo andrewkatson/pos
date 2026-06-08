@@ -14,7 +14,7 @@ final class HomeViewModel: ObservableObject {
     private let api: Networking
     private let keychainHelper: KeychainHelperProtocol
     private let account: String
-    private let keychainService = POSAppConstants.keychainService
+    private let keychainService = GVOAppConstants.keychainService
     
     // Data for the view
     @Published var userPosts: [Post] = []

@@ -1,5 +1,5 @@
 //
-//  POSAppConstants.swift
+//  GVOAppConstants.swift
 //  Positive Only Social
 //
 
@@ -9,7 +9,7 @@ import Foundation
 //This ensusres interoperabilty with Kotlin
 //So we can declare consnants here and expode then to Android.
 
-@objc class POSAppConstants : NSObject {
+@objc class GVOAppConstants : NSObject {
     
     static let authHeaderField = "Authorization"
     static let badServerResponse = "The server returned an unsuccessful status code: "
