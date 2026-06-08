@@ -98,6 +98,18 @@ test('posting a comment calls the API and reloads', async () => {
   await waitFor(() => expect(mockCommentOnPost).toHaveBeenCalledWith('p1', 'nice!'))
 })
 
+test('refresh reloads the post and comments', async () => {
+  mockGetThreadRefs.mockResolvedValue([{ comment_thread_identifier: 't1' }])
+  mockGetThreadComments.mockResolvedValue([comment])
+  renderDetail()
+  await screen.findByText('love this')
+  expect(mockGetThreadRefs).toHaveBeenCalledTimes(1)
+
+  await userEvent.click(screen.getByRole('button', { name: 'Refresh comments' }))
+  await waitFor(() => expect(mockGetThreadRefs).toHaveBeenCalledTimes(2))
+  expect(mockGetDetails).toHaveBeenCalledTimes(2)
+})
+
 test('shows not-found when the post fails to load', async () => {
   mockGetDetails.mockRejectedValue(new Error('404'))
   renderDetail()

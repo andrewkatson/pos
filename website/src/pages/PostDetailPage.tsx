@@ -62,6 +62,7 @@ function PostDetailView({ postId }: { postId: string }) {
   const [postReported, setPostReported] = useState(false)
   const [threads, setThreads] = useState<ThreadView[]>([])
   const [isLoading, setIsLoading] = useState(true)
+  const [isRefreshing, setIsRefreshing] = useState(false)
   const [notFound, setNotFound] = useState(false)
 
   const [newComment, setNewComment] = useState('')
@@ -147,6 +148,18 @@ function PostDetailView({ postId }: { postId: string }) {
   useEffect(() => {
     void Promise.resolve().then(loadAll)
   }, [loadAll])
+
+  // Manual refresh — the web equivalent of the iOS/Android pull-to-refresh — so
+  // comments added by others can be pulled in without a full page reload.
+  async function refreshComments() {
+    if (isRefreshing) return
+    setIsRefreshing(true)
+    try {
+      await loadAll()
+    } finally {
+      if (isMounted.current) setIsRefreshing(false)
+    }
+  }
 
   // ---- Post actions ----
 
@@ -364,6 +377,16 @@ function PostDetailView({ postId }: { postId: string }) {
         <h2 className="app-bar__title" style={{ fontSize: '1rem' }}>
           Comments
         </h2>
+
+        <button
+          type="button"
+          className="refresh-button"
+          aria-label="Refresh comments"
+          disabled={isRefreshing}
+          onClick={refreshComments}
+        >
+          <span aria-hidden="true">↻</span> Refresh
+        </button>
 
         {threads.length === 0 ? (
           <p className="muted">No comments yet. Be the first!</p>
