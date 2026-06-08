@@ -31,8 +31,9 @@ struct ProfileView: View {
     // This view has its own ViewModel to manage its own state
     @StateObject private var viewModel: ProfileViewModel
     
-    // Grid layout, same as in HomeView
-    private let columns: [GridItem] = Array(repeating: .init(.flexible()), count: 3)
+    // Grid layout, same as in HomeView: 3 columns with a 1pt gap that shows the
+    // black grid background as a thin border between posts.
+    private let columns: [GridItem] = Array(repeating: GridItem(.flexible(), spacing: 1), count: 3)
     
     private let api: Networking
     private let keychainHelper: KeychainHelperProtocol
@@ -131,25 +132,32 @@ struct ProfileView: View {
                 .padding(.top, 50)
             // Display the post grid
         } else {
-            LazyVGrid(columns: columns, spacing: 2) {
+            LazyVGrid(columns: columns, spacing: 1) {
                 ForEach(viewModel.userPosts) { post in
-                    AsyncImage(url: URL(string: post.imageUrl)) { image in
-                        image.resizable().scaledToFill()
-                    } placeholder: {
-                        Color(.systemGray4)
-                    }
-                    .aspectRatio(1, contentMode: .fill)
-                    .clipped()
-                    .onAppear {
-                        // Trigger for infinite scrolling
-                        if post.id == viewModel.userPosts.last?.id {
-                            viewModel.fetchUserPosts()
+                    // Force every post into an identical square, cropping to fill
+                    // so images no longer keep their original dimensions.
+                    Color(.systemGray4)
+                        .aspectRatio(1, contentMode: .fit)
+                        .overlay {
+                            AsyncImage(url: URL(string: post.imageUrl)) { image in
+                                image.resizable().scaledToFill()
+                            } placeholder: {
+                                Color(.systemGray4)
+                            }
                         }
-                    }
+                        .clipped()
+                        .onAppear {
+                            // Trigger for infinite scrolling
+                            if post.id == viewModel.userPosts.last?.id {
+                                viewModel.fetchUserPosts()
+                            }
+                        }
                 }.navigationDestination(for: Post.self) { post in
                     PostDetailView(postIdentifier: post.id, api: api, keychainHelper: keychainHelper)
                 }
             }
+            // Black backing shows through the 1pt gaps as thin borders between posts.
+            .background(Color.black)
         }
     }
 }

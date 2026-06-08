@@ -1,5 +1,6 @@
 package com.example.positiveonlysocial.ui.main
 
+import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.grid.GridCells
@@ -9,6 +10,7 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
@@ -119,11 +121,12 @@ fun ProfileScreen(
                     Text("$username hasn't posted anything yet.")
                 }
             } else {
+                // Black backing shows through the 1dp gaps as thin borders between posts.
                 LazyVerticalGrid(
                     columns = GridCells.Fixed(3),
-                    contentPadding = PaddingValues(2.dp),
-                    horizontalArrangement = Arrangement.spacedBy(2.dp),
-                    verticalArrangement = Arrangement.spacedBy(2.dp)
+                    modifier = Modifier.background(Color.Black),
+                    horizontalArrangement = Arrangement.spacedBy(1.dp),
+                    verticalArrangement = Arrangement.spacedBy(1.dp)
                 ) {
                     items(userPosts) { post ->
                         AsyncImage(

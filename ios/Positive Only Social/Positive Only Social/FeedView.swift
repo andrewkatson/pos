@@ -109,16 +109,21 @@ struct ForYouFeedView: View {
                         // --- END UPDATED ---
                         
                         // --- UPDATED ---
-                        // Wrap image in a NavigationLink to go to post details
+                        // Wrap image in a NavigationLink to go to post details.
+                        // Force every post into an identical square, cropping to
+                        // fill so images no longer keep their original dimensions.
                         NavigationLink(value: post) {
-                            AsyncImage(url: URL(string: post.imageUrl)) { image in
-                                image.resizable().scaledToFit()
-                            } placeholder: {
-                                // A placeholder while the image loads
-                                Rectangle()
-                                    .foregroundColor(Color(.systemGray5))
-                                    .aspectRatio(1, contentMode: .fit)
-                            }
+                            Color(.systemGray5)
+                                .aspectRatio(1, contentMode: .fit)
+                                .overlay {
+                                    AsyncImage(url: URL(string: post.imageUrl)) { image in
+                                        image.resizable().scaledToFill()
+                                    } placeholder: {
+                                        Color(.systemGray5)
+                                    }
+                                }
+                                .clipped()
+                                .border(Color.black, width: 1)
                         }
                         .onAppear {
                             // Trigger for infinite scrolling
@@ -173,15 +178,21 @@ struct FollowingFeedView: View {
                         // --- END UPDATED ---
                         
                         // --- UPDATED ---
-                        // Wrap image in a NavigationLink to go to post details
+                        // Wrap image in a NavigationLink to go to post details.
+                        // Force every post into an identical square, cropping to
+                        // fill so images no longer keep their original dimensions.
                         NavigationLink(value: post) {
-                            AsyncImage(url: URL(string: post.imageUrl)) { image in
-                                image.resizable().scaledToFit()
-                            } placeholder: {
-                                Rectangle()
-                                    .foregroundColor(Color(.systemGray5))
-                                    .aspectRatio(1, contentMode: .fit)
-                            }
+                            Color(.systemGray5)
+                                .aspectRatio(1, contentMode: .fit)
+                                .overlay {
+                                    AsyncImage(url: URL(string: post.imageUrl)) { image in
+                                        image.resizable().scaledToFill()
+                                    } placeholder: {
+                                        Color(.systemGray5)
+                                    }
+                                }
+                                .clipped()
+                                .border(Color.black, width: 1)
                         }
                         .onAppear {
                             // Trigger for infinite scrolling
