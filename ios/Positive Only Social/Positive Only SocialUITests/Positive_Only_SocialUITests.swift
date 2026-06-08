@@ -957,7 +957,10 @@ final class Positive_Only_SocialUITests: XCTestCase {
 
         // Dismiss the success alert, which returns to the Home tab. The grid is
         // refreshed as part of creating the post, so it appears live.
-        let okButton = app.buttons["OkButtonSuccess"]
+        // SwiftUI exposes the alert button as a nested Button with the same
+        // identifier, so scope to the alert and take firstMatch to avoid an
+        // ambiguous "multiple matching elements" failure.
+        let okButton = app.alerts.buttons["OkButtonSuccess"].firstMatch
         if okButton.waitForExistence(timeout: TestConstants.shortTimeout) {
             okButton.tap()
         }
