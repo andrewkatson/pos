@@ -157,7 +157,7 @@ final class RealAPI: Networking {
         
         // 3. Add Headers
         if let authToken = authToken {
-            request.setValue(GVOAppConstants.bearer+(authToken), forHTTPHeaderField: GVOAppConstants.authHeaderField)
+            request.setValue("\(GVOAppConstants.bearer) \(authToken)", forHTTPHeaderField: GVOAppConstants.authHeaderField)
         }
         
         // 4. Add Body
