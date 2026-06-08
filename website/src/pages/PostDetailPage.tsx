@@ -79,67 +79,78 @@ function PostDetailView({ postId }: { postId: string }) {
   const likedCommentIds = useRef<Set<string>>(new Set())
   const reportedCommentIds = useRef<Set<string>>(new Set())
 
+  // Single in-flight guard shared by every loadAll() caller (initial load,
+  // pull-to-refresh, and the post-comment/reply reloads) so two loads can't
+  // overlap and clobber each other's state or duplicate API requests.
+  const isLoadingRef = useRef(false)
+
   const loadAll = useCallback(async () => {
-    const toView = (c: Comment, threadId: string): CommentView => ({
-      id: c.comment_identifier,
-      threadId,
-      authorUsername: c.author_username,
-      body: c.body,
-      createdTime: c.creation_time,
-      likeCount: c.comment_likes,
-      isLiked: likedCommentIds.current.has(c.comment_identifier),
-      isReported: reportedCommentIds.current.has(c.comment_identifier),
-    })
-
-    // A failure to load the post itself is the only "not found" case. Comment
-    // loading is handled separately so a transient comments error doesn't hide
-    // a post that loaded fine.
-    let details: PostDetails
+    if (isLoadingRef.current) return
+    isLoadingRef.current = true
     try {
-      details = await apiClient.getPostDetails(postId)
-    } catch {
-      if (isMounted.current) {
-        setNotFound(true)
-        setIsLoading(false)
+      const toView = (c: Comment, threadId: string): CommentView => ({
+        id: c.comment_identifier,
+        threadId,
+        authorUsername: c.author_username,
+        body: c.body,
+        createdTime: c.creation_time,
+        likeCount: c.comment_likes,
+        isLiked: likedCommentIds.current.has(c.comment_identifier),
+        isReported: reportedCommentIds.current.has(c.comment_identifier),
+      })
+
+      // A failure to load the post itself is the only "not found" case. Comment
+      // loading is handled separately so a transient comments error doesn't hide
+      // a post that loaded fine.
+      let details: PostDetails
+      try {
+        details = await apiClient.getPostDetails(postId)
+      } catch {
+        if (isMounted.current) {
+          setNotFound(true)
+          setIsLoading(false)
+        }
+        return
       }
-      return
-    }
-    if (!isMounted.current) return
-    setPost(details)
-    setPostLikeCount(details.post_likes)
-
-    try {
-      const refs = await apiClient.getCommentsForPost(postId, 0)
-      const threadLists = await Promise.all(
-        refs.map(async ref => {
-          const comments = await apiClient.getCommentsForThread(
-            ref.comment_thread_identifier,
-            0,
-          )
-          return { threadId: ref.comment_thread_identifier, comments }
-        }),
-      )
       if (!isMounted.current) return
+      setPost(details)
+      setPostLikeCount(details.post_likes)
 
-      const built: ThreadView[] = threadLists
-        .filter(t => t.comments.length > 0)
-        .map(t => ({
-          threadId: t.threadId,
-          comments: t.comments
-            .slice()
-            .sort((a, b) => a.creation_time.localeCompare(b.creation_time))
-            .map(c => toView(c, t.threadId)),
-        }))
-        .sort((a, b) =>
-          (a.comments[0]?.createdTime ?? '').localeCompare(b.comments[0]?.createdTime ?? ''),
+      try {
+        const refs = await apiClient.getCommentsForPost(postId, 0)
+        const threadLists = await Promise.all(
+          refs.map(async ref => {
+            const comments = await apiClient.getCommentsForThread(
+              ref.comment_thread_identifier,
+              0,
+            )
+            return { threadId: ref.comment_thread_identifier, comments }
+          }),
         )
-      setThreads(built)
-      // Clear any stale "failed to load comments" message from a prior attempt.
-      setErrorMessage(null)
-    } catch {
-      if (isMounted.current) setErrorMessage('Failed to load comments.')
+        if (!isMounted.current) return
+
+        const built: ThreadView[] = threadLists
+          .filter(t => t.comments.length > 0)
+          .map(t => ({
+            threadId: t.threadId,
+            comments: t.comments
+              .slice()
+              .sort((a, b) => a.creation_time.localeCompare(b.creation_time))
+              .map(c => toView(c, t.threadId)),
+          }))
+          .sort((a, b) =>
+            (a.comments[0]?.createdTime ?? '').localeCompare(b.comments[0]?.createdTime ?? ''),
+          )
+        setThreads(built)
+        // Clear any stale "failed to load comments" message from a prior attempt.
+        setErrorMessage(null)
+      } catch {
+        if (isMounted.current) setErrorMessage('Failed to load comments.')
+      } finally {
+        if (isMounted.current) setIsLoading(false)
+      }
     } finally {
-      if (isMounted.current) setIsLoading(false)
+      isLoadingRef.current = false
     }
   }, [postId])
 
