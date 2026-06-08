@@ -109,7 +109,9 @@ class ProfileViewModel(
      * posts from the backend.
      */
     fun refreshProfile(username: String) {
-        if (_isRefreshing.value) return
+        // Don't refresh while a paginated fetch is in flight; they share
+        // _userPosts/currentPage/canLoadMore and would otherwise race.
+        if (_isRefreshing.value || _isLoading.value) return
 
         _isRefreshing.value = true
 
@@ -148,8 +150,9 @@ class ProfileViewModel(
     }
 
     fun fetchUserPosts(username: String) {
-        // Guard against multiple fetches or if end is reached
-        if (_isLoading.value || !canLoadMore) return
+        // Guard against multiple fetches, reaching the end, or racing a
+        // pull-to-refresh (which resets the pagination cursor).
+        if (_isLoading.value || _isRefreshing.value || !canLoadMore) return
 
         _isLoading.value = true
 

@@ -7,7 +7,9 @@ import com.example.positiveonlysocial.data.model.Post
 import com.example.positiveonlysocial.data.model.ProfileDetailsResponse
 import com.example.positiveonlysocial.data.model.UserSession
 import com.example.positiveonlysocial.data.security.KeychainHelperProtocol
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -16,8 +18,12 @@ import org.junit.Before
 import org.junit.Rule
 import org.junit.Test
 import org.mockito.kotlin.any
+import org.mockito.kotlin.doSuspendableAnswer
 import org.mockito.kotlin.eq
 import org.mockito.kotlin.mock
+import org.mockito.kotlin.never
+import org.mockito.kotlin.stub
+import org.mockito.kotlin.times
 import org.mockito.kotlin.verify
 import org.mockito.kotlin.whenever
 import retrofit2.Response
@@ -140,6 +146,38 @@ class ProfileViewModelTest {
         viewModel.toggleFollow(userId)
         assertEquals(1, viewModel.profileDetails.value!!.followerCount)
         assertTrue(viewModel.isFollowing.value)
+    }
+
+    @Test
+    fun `fetchUserPosts is a no-op while a refresh is in progress`() = runTest {
+        val mockProfile = ProfileDetailsResponse("user1", 1, 1, 2, true)
+        val page0 = listOf(Post("1", "url", "caption", "user1", 1))
+
+        // Park the refresh inside its first API call so _isRefreshing stays true
+        // while we attempt to paginate.
+        val gate = CompletableDeferred<Unit>()
+        api.stub {
+            onBlocking { getProfileDetails("token123", "user1") } doSuspendableAnswer {
+                gate.await()
+                Response.success(mockProfile)
+            }
+        }
+        whenever(api.getPostsForUser("token123", "user1", 0)).thenReturn(Response.success(page0))
+
+        // Start a refresh (suspends at the gate), then try to paginate concurrently.
+        viewModel.refreshProfile("user1")
+        viewModel.fetchUserPosts("user1")
+
+        // Let the refresh complete.
+        gate.complete(Unit)
+        advanceUntilIdle()
+
+        // Pagination must have short-circuited: only the refresh's page-0 load
+        // ran, and no page-1 fetch raced it.
+        verify(api, times(1)).getPostsForUser("token123", "user1", 0)
+        verify(api, never()).getPostsForUser("token123", "user1", 1)
+        assertEquals(page0, viewModel.userPosts.value)
+        assertFalse(viewModel.isRefreshing.value)
     }
 
     @Test
