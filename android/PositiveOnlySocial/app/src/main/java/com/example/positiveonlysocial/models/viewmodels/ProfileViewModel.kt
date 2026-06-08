@@ -114,6 +114,7 @@ class ProfileViewModel(
         if (_isRefreshing.value || _isLoading.value) return
 
         _isRefreshing.value = true
+        _errorMessage.value = null
 
         viewModelScope.launch {
             try {
@@ -129,6 +130,10 @@ class ProfileViewModel(
                     _profileDetails.value = profile
                     _isFollowing.value = profile?.isFollowing ?: false
                     _isBlocked.value = profile?.isBlocked ?: false
+                } else {
+                    // Surface the failure instead of silently leaving follow/block
+                    // state stale (mirrors fetchProfile()).
+                    _errorMessage.value = "Failed to load profile: ${profileResponse.errorBody()?.string()}"
                 }
 
                 val postsResponse = api.getPostsForUser(userSession.sessionToken, username, 0)
@@ -137,7 +142,7 @@ class ProfileViewModel(
                     _userPosts.value = newPosts
                     canLoadMore = newPosts.isNotEmpty()
                     currentPage = if (newPosts.isEmpty()) 0 else 1
-                } else {
+                } else if (_errorMessage.value == null) {
                     _errorMessage.value = "Failed to load posts: ${postsResponse.errorBody()?.string()}"
                 }
             } catch (e: Exception) {

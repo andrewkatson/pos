@@ -54,8 +54,10 @@ struct ProfileView: View {
         }
         .navigationTitle(viewModel.user.username) // Set title to the user's name
         .refreshable {
-            // Pull-to-refresh: reload the newest posts from the backend.
+            // Pull-to-refresh: reload the newest posts and the profile stats /
+            // follow-block status so neither goes stale.
             await viewModel.refreshUserPosts()
+            await viewModel.refreshProfileDetails()
         }
         .onAppear {
             // Fetch posts when the view appears for the first time

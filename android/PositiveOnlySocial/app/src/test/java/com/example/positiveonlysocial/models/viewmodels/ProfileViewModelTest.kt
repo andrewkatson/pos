@@ -11,8 +11,10 @@ import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.runTest
+import okhttp3.ResponseBody.Companion.toResponseBody
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Rule
@@ -177,6 +179,21 @@ class ProfileViewModelTest {
         verify(api, times(1)).getPostsForUser("token123", "user1", 0)
         verify(api, never()).getPostsForUser("token123", "user1", 1)
         assertEquals(page0, viewModel.userPosts.value)
+        assertFalse(viewModel.isRefreshing.value)
+    }
+
+    @Test
+    fun `refreshProfile surfaces an error when profile details fail to load`() = runTest {
+        // Profile details fail, posts succeed. The failure must be surfaced
+        // rather than silently leaving follow/block state stale.
+        whenever(api.getProfileDetails("token123", "user1"))
+            .thenReturn(Response.error(500, "error".toResponseBody()))
+        whenever(api.getPostsForUser("token123", "user1", 0))
+            .thenReturn(Response.success(emptyList()))
+
+        viewModel.refreshProfile("user1")
+
+        assertNotNull(viewModel.errorMessage.value)
         assertFalse(viewModel.isRefreshing.value)
     }
 

@@ -95,6 +95,25 @@ function ProfileView({ username }: { username: string }) {
     void Promise.resolve().then(() => loadPosts(0, true))
   }, [loadPosts])
 
+  // Manual refresh reloads both the posts and the profile details
+  // (follow/block/counts) so the whole view stays in sync — not just the grid.
+  function refresh() {
+    setIsLoadingPosts(true)
+    apiClient
+      .getProfile(username)
+      .then(details => {
+        if (!isMounted.current) return
+        setProfile(details)
+        setIsFollowing(details.is_following)
+        setIsBlocked(details.is_blocked)
+      })
+      .catch(() => {
+        // Keep the already-loaded details on a transient refresh failure rather
+        // than blanking the profile or flipping to "not found".
+      })
+    void loadPosts(0, true)
+  }
+
   async function toggleFollow() {
     if (isBusy) return
     setIsBusy(true)
@@ -193,10 +212,7 @@ function ProfileView({ username }: { username: string }) {
           className="refresh-button"
           aria-label="Refresh"
           disabled={isLoadingPosts}
-          onClick={() => {
-            setIsLoadingPosts(true)
-            void loadPosts(0, true)
-          }}
+          onClick={refresh}
         >
           <span aria-hidden="true">↻</span> Refresh
         </button>
