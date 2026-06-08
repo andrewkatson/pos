@@ -53,6 +53,10 @@ struct ProfileView: View {
             postGrid
         }
         .navigationTitle(viewModel.user.username) // Set title to the user's name
+        .refreshable {
+            // Pull-to-refresh: reload the newest posts from the backend.
+            await viewModel.refreshUserPosts()
+        }
         .onAppear {
             // Fetch posts when the view appears for the first time
             if viewModel.userPosts.isEmpty {

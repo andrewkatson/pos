@@ -921,7 +921,8 @@ final class Positive_Only_SocialUITests: XCTestCase {
         assertOnHomeView(app: app)
     }
     
-    /// Tapping a post in the Home (My Posts) grid opens the post detail view.
+    /// A newly created post shows up in the Home grid in real time (without a
+    /// manual refresh), and tapping it opens the post detail view.
     @MainActor
     func testOpenPostDetailFromHomeGrid() throws {
 
@@ -931,10 +932,12 @@ final class Positive_Only_SocialUITests: XCTestCase {
 
         try makePost(app: app, postText: "Home Grid Post")
 
-        // The My Posts grid only fetches page 0 on first appear, so re-login to
-        // get a fresh grid that includes the just-created post.
-        try logoutUserFromHome(app: app)
-        try loginUser(app: app, username: testUsername, password: strongPassword, rememberMe: false)
+        // Dismiss the success alert, which returns to the Home tab. The grid is
+        // refreshed as part of creating the post, so it appears live.
+        let okButton = app.buttons["OkButtonSuccess"]
+        if okButton.waitForExistence(timeout: TestConstants.shortTimeout) {
+            okButton.tap()
+        }
 
         assertOnHomeView(app: app)
 

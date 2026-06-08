@@ -80,6 +80,40 @@ class ProfileViewModel: ObservableObject {
         }
     }
     
+    /// Pull-to-refresh: resets pagination and reloads the user's posts from the
+    /// first page, replacing the existing list with the freshest posts from the
+    /// backend. `async` so SwiftUI's `.refreshable` keeps the spinner visible
+    /// until the new posts have actually loaded.
+    func refreshUserPosts() async {
+        guard !isLoading else { return }
+        isLoading = true
+
+        do {
+            guard let userSession = try keychainHelper.load(UserSession.self, from: keychainService, account: account) else {
+                NSLog("%@", "No active session — cannot refresh posts")
+                isLoading = false
+                return
+            }
+
+            let responseData = try await api.getPostsForUser(
+                sessionManagementToken: userSession.sessionToken,
+                username: user.username,
+                batch: 0
+            )
+            let newPosts = try JSONDecoder().decode([Post].self, from: responseData)
+
+            // Replace the list and reset pagination so the next infinite-scroll
+            // fetch continues from page 1.
+            self.userPosts = newPosts
+            self.canLoadMore = !newPosts.isEmpty
+            self.batch = newPosts.isEmpty ? 0 : 1
+        } catch {
+            NSLog("%@", "Error refreshing user posts for \(user.username): \(error)")
+        }
+
+        isLoading = false
+    }
+
     /// Fetches the user's profile stats and follow status.
     func fetchProfileDetails() {
         guard !isLoadingProfile else { return }

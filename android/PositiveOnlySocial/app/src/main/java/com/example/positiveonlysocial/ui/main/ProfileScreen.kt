@@ -7,6 +7,7 @@ import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.material3.*
+import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -28,6 +29,7 @@ import androidx.compose.ui.tooling.preview.Preview
 import androidx.navigation.compose.rememberNavController
 import com.example.positiveonlysocial.ui.preview.PreviewHelpers
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ProfileScreen(
     navController: NavController,
@@ -44,6 +46,7 @@ fun ProfileScreen(
         val profileDetails by viewModel.profileDetails.collectAsState()
         val isFollowing by viewModel.isFollowing.collectAsState()
         val isLoading by viewModel.isLoading.collectAsState()
+        val isRefreshing by viewModel.isRefreshing.collectAsState()
 
         LaunchedEffect(Unit) {
             if (userPosts.isEmpty()) {
@@ -121,28 +124,37 @@ fun ProfileScreen(
                     Text("$username hasn't posted anything yet.")
                 }
             } else {
-                // Black backing shows through the 1dp gaps as thin borders between posts.
-                LazyVerticalGrid(
-                    columns = GridCells.Fixed(3),
-                    modifier = Modifier.background(Color.Black),
-                    horizontalArrangement = Arrangement.spacedBy(1.dp),
-                    verticalArrangement = Arrangement.spacedBy(1.dp)
+                // Pull-to-refresh reloads the newest posts from the backend.
+                PullToRefreshBox(
+                    isRefreshing = isRefreshing,
+                    onRefresh = { viewModel.refreshProfile(username) },
+                    modifier = Modifier.fillMaxSize()
                 ) {
-                    items(userPosts) { post ->
-                        AsyncImage(
-                            model = post.imageUrl,
-                            contentDescription = "Post Image",
-                            modifier = Modifier
-                                .aspectRatio(1f)
-                                .clickable {
-                                    navController.navigate(Screen.PostDetail.createRoute(post.postIdentifier))
-                                },
-                            contentScale = ContentScale.Crop
-                        )
-                        
-                        if (post == userPosts.lastOrNull()) {
-                            LaunchedEffect(Unit) {
-                                viewModel.fetchUserPosts(username)
+                    // Black backing shows through the 1dp gaps as thin borders between posts.
+                    LazyVerticalGrid(
+                        columns = GridCells.Fixed(3),
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .background(Color.Black),
+                        horizontalArrangement = Arrangement.spacedBy(1.dp),
+                        verticalArrangement = Arrangement.spacedBy(1.dp)
+                    ) {
+                        items(userPosts) { post ->
+                            AsyncImage(
+                                model = post.imageUrl,
+                                contentDescription = "Post Image",
+                                modifier = Modifier
+                                    .aspectRatio(1f)
+                                    .clickable {
+                                        navController.navigate(Screen.PostDetail.createRoute(post.postIdentifier))
+                                    },
+                                contentScale = ContentScale.Crop
+                            )
+
+                            if (post == userPosts.lastOrNull()) {
+                                LaunchedEffect(Unit) {
+                                    viewModel.fetchUserPosts(username)
+                                }
                             }
                         }
                     }

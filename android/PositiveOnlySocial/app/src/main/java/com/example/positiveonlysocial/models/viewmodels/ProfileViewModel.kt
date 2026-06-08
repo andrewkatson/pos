@@ -40,6 +40,9 @@ class ProfileViewModel(
     private val _errorMessage = MutableStateFlow<String?>(null)
     val errorMessage: StateFlow<String?> = _errorMessage.asStateFlow()
 
+    private val _isRefreshing = MutableStateFlow(false)
+    val isRefreshing: StateFlow<Boolean> = _isRefreshing.asStateFlow()
+
     private val service = "positive-only-social.Positive-Only-Social"
 
     // Pagination state
@@ -96,6 +99,50 @@ class ProfileViewModel(
                 Log.e(TAG, "Error fetching profile", e)
             } finally {
                 _isLoading.value = false
+            }
+        }
+    }
+
+    /**
+     * Pull-to-refresh: resets pagination and reloads the profile's details and
+     * posts from the first page, replacing the existing list with the freshest
+     * posts from the backend.
+     */
+    fun refreshProfile(username: String) {
+        if (_isRefreshing.value) return
+
+        _isRefreshing.value = true
+
+        viewModelScope.launch {
+            try {
+                val userSession = keychainHelper.load(UserSession::class.java, service, account)
+                if (userSession == null) {
+                    Log.e(TAG, "No active session found — cannot refresh profile")
+                    return@launch
+                }
+
+                val profileResponse = api.getProfileDetails(userSession.sessionToken, username)
+                if (profileResponse.isSuccessful) {
+                    val profile = profileResponse.body()
+                    _profileDetails.value = profile
+                    _isFollowing.value = profile?.isFollowing ?: false
+                    _isBlocked.value = profile?.isBlocked ?: false
+                }
+
+                val postsResponse = api.getPostsForUser(userSession.sessionToken, username, 0)
+                if (postsResponse.isSuccessful) {
+                    val newPosts = postsResponse.body() ?: emptyList()
+                    _userPosts.value = newPosts
+                    canLoadMore = newPosts.isNotEmpty()
+                    currentPage = if (newPosts.isEmpty()) 0 else 1
+                } else {
+                    _errorMessage.value = "Failed to load posts: ${postsResponse.errorBody()?.string()}"
+                }
+            } catch (e: Exception) {
+                _errorMessage.value = "Error: ${e.localizedMessage}"
+                Log.e(TAG, "Error refreshing profile", e)
+            } finally {
+                _isRefreshing.value = false
             }
         }
     }
