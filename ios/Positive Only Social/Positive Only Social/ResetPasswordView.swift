@@ -67,7 +67,7 @@ struct ResetPasswordView: View {
                         await performReset()
                     }
                 }
-                .disabled(username.isEmpty || email.isEmpty || !AuthRequirements.allMet(AuthRequirements.password(newPassword)) || newPassword != confirmPassword || isLoading)
+                .disabled(username.isEmpty || email.isEmpty || !AuthRequirements.allMet( AuthRequirements.password(newPassword)) || newPassword != confirmPassword || isLoading)
                 .accessibilityIdentifier("ResetPasswordAndLoginButton")
             }
             .navigationTitle("Set New Password")
