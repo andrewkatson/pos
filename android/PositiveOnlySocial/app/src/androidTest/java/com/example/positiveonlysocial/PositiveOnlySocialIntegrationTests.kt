@@ -325,6 +325,84 @@ class PositiveOnlySocialIntegrationTests {
     }
 
     @Test
+    fun testOpenPostDetailFromHomeGrid() {
+        // Setup: a user with one post.
+        registerUserViaApi(testUsername, strongPassword)
+        makePostViaApi(testUsername, strongPassword, "Home Grid Post")
+
+        // Login as that user; the Home grid loads their posts.
+        loginUser(testUsername, strongPassword, rememberMe = false)
+        assertOnHomeView()
+
+        // Tap the first post in the Home grid -> post detail.
+        composeTestRule.waitUntil(timeoutMillis = 5000) {
+            composeTestRule.onAllNodesWithContentDescription("Post Image").fetchSemanticsNodes().isNotEmpty()
+        }
+        composeTestRule.onAllNodesWithContentDescription("Post Image").onFirst().performClick()
+
+        assertOnPostDetailView()
+    }
+
+    @Test
+    fun testOpenPostDetailFromProfileGrid() {
+        // Setup: an author with one post.
+        registerUserViaApi(testUsername, strongPassword)
+        makePostViaApi(testUsername, strongPassword, "Profile Grid Post")
+
+        // Login as a different user and open the author's profile.
+        loginUser(otherTestUsername, strongPassword, rememberMe = false, registerToo = true)
+
+        composeTestRule.onNodeWithText("Search for Users").performTextInput(testUsername)
+        composeTestRule.waitUntil(timeoutMillis = 5000) {
+            composeTestRule.onNodeWithTag(testUsername, useUnmergedTree = true).isDisplayed()
+        }
+        composeTestRule.onNodeWithTag(testUsername, useUnmergedTree = true).performClick()
+        assertOnProfileView()
+
+        // Tap the first post in the Profile grid -> post detail.
+        composeTestRule.waitUntil(timeoutMillis = 5000) {
+            composeTestRule.onAllNodesWithContentDescription("Post Image").fetchSemanticsNodes().isNotEmpty()
+        }
+        composeTestRule.onAllNodesWithContentDescription("Post Image").onFirst().performClick()
+
+        assertOnPostDetailView()
+    }
+
+    @Test
+    fun testOpenPostDetailFromFollowingFeed() {
+        // Setup: an author with one post.
+        registerUserViaApi(testUsername, strongPassword)
+        makePostViaApi(testUsername, strongPassword, "Following Feed Post")
+
+        // Login as a different user and follow the author.
+        loginUser(otherTestUsername, strongPassword, rememberMe = false, registerToo = true)
+
+        composeTestRule.onNodeWithText("Search for Users").performTextInput(testUsername)
+        composeTestRule.waitUntil(timeoutMillis = 5000) {
+            composeTestRule.onNodeWithTag(testUsername, useUnmergedTree = true).isDisplayed()
+        }
+        composeTestRule.onNodeWithTag(testUsername, useUnmergedTree = true).performClick()
+        assertOnProfileView()
+
+        composeTestRule.onNode(hasText("Follow") and hasClickAction()).performClick()
+        composeTestRule.onNode(hasText("Following") and hasClickAction()).assertExists()
+
+        // Back to Home, then open the Following feed.
+        Espresso.pressBack()
+        composeTestRule.onNodeWithText("Feed").performClick()
+        assertOnFeedView()
+        composeTestRule.onNodeWithText("Following").performClick()
+
+        // Tap the first post in the Following feed -> post detail.
+        composeTestRule.waitUntil(timeoutMillis = 5000) {
+            composeTestRule.onAllNodesWithContentDescription("Post Image").fetchSemanticsNodes().isNotEmpty()
+        }
+        composeTestRule.onAllNodesWithContentDescription("Post Image").onFirst().performClick()
+
+        assertOnPostDetailView()
+    }
+
+    @Test
     fun testLikeAndUnlikeCommentOnPostAndThread() {
         // Setup
         registerUserViaApi(testUsername, strongPassword)

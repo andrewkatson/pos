@@ -88,7 +88,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        test-group: [Unit_Tests, UI_Tests_Alpha, UI_Tests_Beta, UI_Tests_Gamma, UI_Tests_Delta]
+        test-group: [Unit_Tests, UI_Tests_Alpha, UI_Tests_Beta, UI_Tests_Gamma, UI_Tests_Delta, UI_Tests_Epsilon]
 
     steps:
       - name: Checkout repository
@@ -166,6 +166,15 @@ jobs:
                   "Positive Only SocialUITests/Positive_Only_SocialUITests/testReportComment"
                   "Positive Only SocialUITests/Positive_Only_SocialUITests/testLaunchPerformance"
                   "Positive Only SocialUITests/Positive_Only_SocialUITests/testBlockAndUnblockUser"
+                )
+                # "Positive Only Social" (default) plan covers both unit and UI tests
+                XCTESTRUN=$(find build/Build/Products -name "*.xctestrun" | grep -v "Unit Tests" | head -1)
+                ;;
+              UI_Tests_Epsilon)
+                TESTS=(
+                  "Positive Only SocialUITests/Positive_Only_SocialUITests/testOpenPostDetailFromHomeGrid"
+                  "Positive Only SocialUITests/Positive_Only_SocialUITests/testOpenPostDetailFromProfileGrid"
+                  "Positive Only SocialUITests/Positive_Only_SocialUITests/testOpenPostDetailFromFollowingFeed"
                 )
                 # "Positive Only Social" (default) plan covers both unit and UI tests
                 XCTESTRUN=$(find build/Build/Products -name "*.xctestrun" | grep -v "Unit Tests" | head -1)

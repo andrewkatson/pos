@@ -31,8 +31,9 @@ struct ProfileView: View {
     // This view has its own ViewModel to manage its own state
     @StateObject private var viewModel: ProfileViewModel
     
-    // Grid layout, same as in HomeView
-    private let columns: [GridItem] = Array(repeating: .init(.flexible()), count: 3)
+    // Grid layout, same as in HomeView: 3 columns with a 1pt gap that shows the
+    // black grid background as a thin border between posts.
+    private let columns: [GridItem] = Array(repeating: GridItem(.flexible(), spacing: 1), count: 3)
     
     private let api: Networking
     private let keychainHelper: KeychainHelperProtocol
@@ -52,6 +53,12 @@ struct ProfileView: View {
             postGrid
         }
         .navigationTitle(viewModel.user.username) // Set title to the user's name
+        .refreshable {
+            // Pull-to-refresh: reload the newest posts and the profile stats /
+            // follow-block status so neither goes stale.
+            await viewModel.refreshUserPosts()
+            await viewModel.refreshProfileDetails()
+        }
         .onAppear {
             // Fetch posts when the view appears for the first time
             if viewModel.userPosts.isEmpty {
@@ -80,7 +87,6 @@ struct ProfileView: View {
             }
             .padding(.top)
             
-            // --- THE NEW FOLLOW BUTTON ---
             Button(action: viewModel.toggleFollow) {
                 Text(viewModel.isFollowing ? "Following" : "Follow")
                     .fontWeight(.semibold)
@@ -98,7 +104,6 @@ struct ProfileView: View {
             .padding(.vertical)
             .accessibilityIdentifier("FollowButton")
             
-            // --- BLOCK BUTTON ---
             Button(action: viewModel.toggleBlock) {
                 Text(viewModel.isBlocked ? "Unblock" : "Block")
                     .fontWeight(.medium)
@@ -131,25 +136,37 @@ struct ProfileView: View {
                 .padding(.top, 50)
             // Display the post grid
         } else {
-            LazyVGrid(columns: columns, spacing: 2) {
+            LazyVGrid(columns: columns, spacing: 1) {
                 ForEach(viewModel.userPosts) { post in
-                    AsyncImage(url: URL(string: post.imageUrl)) { image in
-                        image.resizable().scaledToFill()
-                    } placeholder: {
+                    // Wrap each cell in a NavigationLink so tapping a post opens
+                    // its detail view (matches Home/Feed and the destination below).
+                    NavigationLink(value: post) {
+                        // Force every post into an identical square, cropping to fill
+                        // so images no longer keep their original dimensions.
                         Color(.systemGray4)
+                            .aspectRatio(1, contentMode: .fit)
+                            .overlay {
+                                AsyncImage(url: URL(string: post.imageUrl)) { image in
+                                    image.resizable().scaledToFill()
+                                } placeholder: {
+                                    Color(.systemGray4)
+                                }
+                            }
+                            .clipped()
                     }
-                    .aspectRatio(1, contentMode: .fill)
-                    .clipped()
                     .onAppear {
                         // Trigger for infinite scrolling
                         if post.id == viewModel.userPosts.last?.id {
                             viewModel.fetchUserPosts()
                         }
                     }
+                    .accessibilityIdentifier("ProfilePostImage")
                 }.navigationDestination(for: Post.self) { post in
                     PostDetailView(postIdentifier: post.id, api: api, keychainHelper: keychainHelper)
                 }
             }
+            // Black backing shows through the 1pt gaps as thin borders between posts.
+            .background(Color.black)
         }
     }
 }

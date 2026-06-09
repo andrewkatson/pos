@@ -80,6 +80,24 @@ test('renders the post grid and opens a post', async () => {
   expect(screen.getByText('Post page')).toBeInTheDocument()
 })
 
+test('refresh reloads both the profile details and the posts', async () => {
+  mockGetPosts.mockResolvedValue([
+    { post_identifier: 'p1', image_url: 'http://img/1.jpg', author_username: 'bob', caption: 'hi' },
+  ])
+  renderProfile()
+  await screen.findByRole('button', { name: 'Post by bob' })
+  expect(mockGetPosts).toHaveBeenCalledTimes(1)
+  expect(mockGetProfile).toHaveBeenCalledTimes(1)
+
+  await userEvent.click(screen.getByRole('button', { name: 'Refresh' }))
+  // Both the posts and the profile details (follow/block/counts) reload, so the
+  // follow state can't go stale on refresh.
+  await waitFor(() => expect(mockGetPosts).toHaveBeenCalledTimes(2))
+  await waitFor(() => expect(mockGetProfile).toHaveBeenCalledTimes(2))
+  expect(mockGetPosts).toHaveBeenLastCalledWith('bob', 0)
+  expect(mockGetProfile).toHaveBeenLastCalledWith('bob')
+})
+
 test('shows "User not found" when the profile fails to load', async () => {
   mockGetProfile.mockRejectedValue(new Error('404'))
   renderProfile()

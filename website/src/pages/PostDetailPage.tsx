@@ -70,6 +70,7 @@ function PostDetailView({ postId }: { postId: string }) {
   const [postReported, setPostReported] = useState(false)
   const [threads, setThreads] = useState<ThreadView[]>([])
   const [isLoading, setIsLoading] = useState(true)
+  const [isRefreshing, setIsRefreshing] = useState(false)
   const [notFound, setNotFound] = useState(false)
 
   const [newComment, setNewComment] = useState('')
@@ -86,68 +87,98 @@ function PostDetailView({ postId }: { postId: string }) {
   const likedCommentIds = useRef<Set<string>>(new Set())
   const reportedCommentIds = useRef<Set<string>>(new Set())
 
-  const loadAll = useCallback(async () => {
-    const toView = (c: Comment, threadId: string): CommentView => ({
-      id: c.comment_identifier,
-      threadId,
-      authorUsername: c.author_username,
-      body: c.body,
-      createdTime: c.creation_time,
-      likeCount: c.comment_likes,
-      isLiked: likedCommentIds.current.has(c.comment_identifier),
-      isReported: reportedCommentIds.current.has(c.comment_identifier),
-      isOwn: c.author_username === currentUsername,
-    })
+  // Single in-flight guard shared by every loadAll() caller (initial load,
+  // pull-to-refresh, and the post-comment/reply reloads) so two loads can't
+  // overlap and clobber each other's state or duplicate API requests. A request
+  // that arrives mid-load isn't dropped — it sets pendingReloadRef so the load
+  // re-runs once afterward, ensuring the freshest state (e.g. a just-posted
+  // comment) is always reflected.
+  const isLoadingRef = useRef(false)
+  const pendingReloadRef = useRef(false)
 
-    // A failure to load the post itself is the only "not found" case. Comment
-    // loading is handled separately so a transient comments error doesn't hide
-    // a post that loaded fine.
-    let details: PostDetails
-    try {
-      details = await apiClient.getPostDetails(postId)
-    } catch {
-      if (isMounted.current) {
-        setNotFound(true)
-        setIsLoading(false)
-      }
+  const loadAll = useCallback(async () => {
+    // A load is already running: request a follow-up run instead of dropping
+    // this call, then let the in-flight load pick it up when it finishes.
+    if (isLoadingRef.current) {
+      pendingReloadRef.current = true
       return
     }
-    if (!isMounted.current) return
-    setPost(details)
-    setPostLikeCount(details.post_likes)
+    isLoadingRef.current = true
+
+    const performLoad = async () => {
+      const toView = (c: Comment, threadId: string): CommentView => ({
+        id: c.comment_identifier,
+        threadId,
+        authorUsername: c.author_username,
+        body: c.body,
+        createdTime: c.creation_time,
+        likeCount: c.comment_likes,
+        isLiked: likedCommentIds.current.has(c.comment_identifier),
+        isReported: reportedCommentIds.current.has(c.comment_identifier),
+        isOwn: c.author_username === currentUsername,
+      })
+
+      // A failure to load the post itself is the only "not found" case. Comment
+      // loading is handled separately so a transient comments error doesn't hide
+      // a post that loaded fine.
+      let details: PostDetails
+      try {
+        details = await apiClient.getPostDetails(postId)
+      } catch {
+        if (isMounted.current) {
+          setNotFound(true)
+          setIsLoading(false)
+        }
+        return
+      }
+      if (!isMounted.current) return
+      setPost(details)
+      setPostLikeCount(details.post_likes)
+
+      try {
+        const refs = await apiClient.getCommentsForPost(postId, 0)
+        const threadLists = await Promise.all(
+          refs.map(async ref => {
+            const comments = await apiClient.getCommentsForThread(
+              ref.comment_thread_identifier,
+              0,
+            )
+            return { threadId: ref.comment_thread_identifier, comments }
+          }),
+        )
+        if (!isMounted.current) return
+
+        const built: ThreadView[] = threadLists
+          .filter(t => t.comments.length > 0)
+          .map(t => ({
+            threadId: t.threadId,
+            comments: t.comments
+              .slice()
+              .sort((a, b) => a.creation_time.localeCompare(b.creation_time))
+              .map(c => toView(c, t.threadId)),
+          }))
+          .sort((a, b) =>
+            (a.comments[0]?.createdTime ?? '').localeCompare(b.comments[0]?.createdTime ?? ''),
+          )
+        setThreads(built)
+        // Clear any stale "failed to load comments" message from a prior attempt.
+        setErrorMessage(null)
+      } catch {
+        if (isMounted.current) setErrorMessage('Failed to load comments.')
+      } finally {
+        if (isMounted.current) setIsLoading(false)
+      }
+    }
 
     try {
-      const refs = await apiClient.getCommentsForPost(postId, 0)
-      const threadLists = await Promise.all(
-        refs.map(async ref => {
-          const comments = await apiClient.getCommentsForThread(
-            ref.comment_thread_identifier,
-            0,
-          )
-          return { threadId: ref.comment_thread_identifier, comments }
-        }),
-      )
-      if (!isMounted.current) return
-
-      const built: ThreadView[] = threadLists
-        .filter(t => t.comments.length > 0)
-        .map(t => ({
-          threadId: t.threadId,
-          comments: t.comments
-            .slice()
-            .sort((a, b) => a.creation_time.localeCompare(b.creation_time))
-            .map(c => toView(c, t.threadId)),
-        }))
-        .sort((a, b) =>
-          (a.comments[0]?.createdTime ?? '').localeCompare(b.comments[0]?.createdTime ?? ''),
-        )
-      setThreads(built)
-      // Clear any stale "failed to load comments" message from a prior attempt.
-      setErrorMessage(null)
-    } catch {
-      if (isMounted.current) setErrorMessage('Failed to load comments.')
+      // Re-run while another load was requested mid-flight (and we're still
+      // mounted), so a coalesced refresh/post-comment reload isn't lost.
+      do {
+        pendingReloadRef.current = false
+        await performLoad()
+      } while (pendingReloadRef.current && isMounted.current)
     } finally {
-      if (isMounted.current) setIsLoading(false)
+      isLoadingRef.current = false
     }
   }, [postId, currentUsername])
 
@@ -156,6 +187,18 @@ function PostDetailView({ postId }: { postId: string }) {
   useEffect(() => {
     void Promise.resolve().then(loadAll)
   }, [loadAll])
+
+  // Manual refresh — the web equivalent of the iOS/Android pull-to-refresh — so
+  // comments added by others can be pulled in without a full page reload.
+  async function refreshComments() {
+    if (isRefreshing) return
+    setIsRefreshing(true)
+    try {
+      await loadAll()
+    } finally {
+      if (isMounted.current) setIsRefreshing(false)
+    }
+  }
 
   // ---- Post actions ----
 
@@ -380,6 +423,16 @@ function PostDetailView({ postId }: { postId: string }) {
         <h2 className="app-bar__title" style={{ fontSize: '1rem' }}>
           Comments
         </h2>
+
+        <button
+          type="button"
+          className="refresh-button"
+          aria-label="Refresh comments"
+          disabled={isRefreshing}
+          onClick={refreshComments}
+        >
+          <span aria-hidden="true">↻</span> Refresh
+        </button>
 
         {threads.length === 0 ? (
           <p className="muted">No comments yet. Be the first!</p>

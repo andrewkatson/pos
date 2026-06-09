@@ -1,5 +1,6 @@
 package com.example.positiveonlysocial.ui.main
 
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
@@ -8,6 +9,7 @@ import androidx.compose.material3.*
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -174,12 +176,15 @@ fun PostItem(
             }
         )
 
+        // Square, cropped to fill so images keep a standard size, with a thin
+        // black border to match the grid views.
         AsyncImage(
             model = post.imageUrl,
             contentDescription = "Post Image",
             modifier = Modifier
                 .fillMaxWidth()
                 .aspectRatio(1f)
+                .border(1.dp, Color.Black)
                 .clickable {
                     navController.navigate(Screen.PostDetail.createRoute(post.postIdentifier))
                 },

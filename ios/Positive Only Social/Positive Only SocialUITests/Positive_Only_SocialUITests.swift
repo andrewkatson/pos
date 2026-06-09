@@ -944,13 +944,142 @@ final class Positive_Only_SocialUITests: XCTestCase {
         assertOnHomeView(app: app)
     }
     
+    /// A newly created post shows up in the Home grid in real time (without a
+    /// manual refresh), and tapping it opens the post detail view.
+    @MainActor
+    func testOpenPostDetailFromHomeGrid() throws {
+
+        try ifOnHomeDeleteAccount(app: app)
+
+        try loginUser(app: app, username: testUsername, password: strongPassword, rememberMe: false)
+
+        try makePost(app: app, postText: "Home Grid Post")
+
+        // Dismiss the success alert, which returns to the Home tab. The grid is
+        // refreshed as part of creating the post, so it appears live.
+        // SwiftUI exposes the alert button as a nested Button with the same
+        // identifier, so scope to the alert and take firstMatch to avoid an
+        // ambiguous "multiple matching elements" failure.
+        let okButton = app.alerts.buttons["OkButtonSuccess"].firstMatch
+        if okButton.waitForExistence(timeout: TestConstants.shortTimeout) {
+            okButton.tap()
+        }
+
+        assertOnHomeView(app: app)
+
+        let myPosts = app.buttons.matching(identifier: "MyPostImage")
+        expectation(for: NSPredicate(format: "count >= 1"), evaluatedWith: myPosts, handler: nil)
+        waitForExpectations(timeout: TestConstants.timeout, handler: nil)
+
+        let firstPost = myPosts.element(boundBy: 0)
+        XCTAssertTrue(firstPost.waitForExistence(timeout: TestConstants.shortTimeout))
+        firstPost.tap()
+
+        assertOnPostDetailView(app: app)
+    }
+
+    /// Tapping a post in another user's Profile grid opens the post detail view.
+    @MainActor
+    func testOpenPostDetailFromProfileGrid() throws {
+
+        try ifOnHomeDeleteAccount(app: app)
+
+        try loginUser(app: app, username: testUsername, password: strongPassword, rememberMe: false)
+        try makePost(app: app, postText: "Profile Grid Post")
+        try logoutUserFromHome(app: app)
+
+        try loginUser(app: app, username: otherTestUsername, password: strongPassword, rememberMe: false)
+
+        // Search for the author and open their profile.
+        let userSearchField = app.searchFields["Search for Users"]
+        XCTAssertTrue(userSearchField.waitForExistence(timeout: TestConstants.shortTimeout))
+        userSearchField.tap()
+        typeText(element: userSearchField, text: testUsername)
+
+        let userLink = app.buttons[testUsername]
+        XCTAssertTrue(userLink.waitForExistence(timeout: TestConstants.shortTimeout))
+        userLink.tap()
+
+        assertOnProfileView(app: app)
+
+        let profilePosts = app.buttons.matching(identifier: "ProfilePostImage")
+        expectation(for: NSPredicate(format: "count >= 1"), evaluatedWith: profilePosts, handler: nil)
+        waitForExpectations(timeout: TestConstants.timeout, handler: nil)
+
+        let firstPost = profilePosts.element(boundBy: 0)
+        XCTAssertTrue(firstPost.waitForExistence(timeout: TestConstants.shortTimeout))
+        firstPost.tap()
+
+        assertOnPostDetailView(app: app)
+    }
+
+    /// Tapping a post in the Following feed opens the post detail view.
+    @MainActor
+    func testOpenPostDetailFromFollowingFeed() throws {
+
+        try ifOnHomeDeleteAccount(app: app)
+
+        try loginUser(app: app, username: testUsername, password: strongPassword, rememberMe: false)
+        try makePost(app: app, postText: "Following Feed Post")
+        try logoutUserFromHome(app: app)
+
+        try loginUser(app: app, username: otherTestUsername, password: strongPassword, rememberMe: false)
+
+        // Follow the author so their post shows up in the Following feed.
+        let userSearchField = app.searchFields["Search for Users"]
+        XCTAssertTrue(userSearchField.waitForExistence(timeout: TestConstants.shortTimeout))
+        userSearchField.tap()
+        typeText(element: userSearchField, text: testUsername)
+
+        let userLink = app.buttons[testUsername]
+        XCTAssertTrue(userLink.waitForExistence(timeout: TestConstants.shortTimeout))
+        userLink.tap()
+
+        assertOnProfileView(app: app)
+
+        let followButton = app.buttons["FollowButton"]
+        XCTAssertTrue(followButton.waitForExistence(timeout: TestConstants.shortTimeout))
+        followButton.tap()
+
+        let followersLabel = app.staticTexts["FollowersCount"]
+        expectation(for: NSPredicate(format: "label == '1'"), evaluatedWith: followersLabel, handler: nil)
+        waitForExpectations(timeout: TestConstants.timeout, handler: nil)
+
+        // Go back to the feed and switch to the Following tab.
+        let backButton = app.navigationBars.firstMatch.buttons.element(boundBy: 0)
+        XCTAssertTrue(backButton.waitForExistence(timeout: TestConstants.shortTimeout))
+        backButton.tap()
+
+        let feedTab = app.buttons["Feed"]
+        XCTAssertTrue(feedTab.waitForExistence(timeout: TestConstants.shortTimeout))
+        feedTab.tap()
+
+        assertOnFeedView(app: app)
+
+        let feedPicker = app.segmentedControls["FeedTypePicker"]
+        XCTAssertTrue(feedPicker.waitForExistence(timeout: TestConstants.shortTimeout))
+        let followingSegment = feedPicker.buttons["Following"]
+        XCTAssertTrue(followingSegment.waitForExistence(timeout: TestConstants.shortTimeout))
+        followingSegment.tap()
+
+        let followingPosts = app.buttons.matching(identifier: "FollowingPostImage")
+        expectation(for: NSPredicate(format: "count == 1"), evaluatedWith: followingPosts, handler: nil)
+        waitForExpectations(timeout: TestConstants.timeout, handler: nil)
+
+        let firstPost = followingPosts.element(boundBy: 0)
+        XCTAssertTrue(firstPost.waitForExistence(timeout: TestConstants.shortTimeout))
+        firstPost.tap()
+
+        assertOnPostDetailView(app: app)
+    }
+
     @MainActor
     func testVerifyIdentity() throws {
-        
+
         try ifOnHomeDeleteAccount(app: app)
-        
+
         try loginUser(app: app, username: testUsername, password: strongPassword, rememberMe: false)
-        
+
         let settingsTab = app.buttons["Settings"]
         XCTAssertTrue(settingsTab.waitForExistence(timeout: TestConstants.shortTimeout))
         settingsTab.tap()

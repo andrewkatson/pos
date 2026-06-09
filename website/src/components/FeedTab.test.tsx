@@ -65,3 +65,18 @@ test('navigates to an author profile from the feed', async () => {
   await userEvent.click(await screen.findByRole('button', { name: 'ada' }))
   expect(screen.getByText('Profile page')).toBeInTheDocument()
 })
+
+test('refresh reloads the feed from the first page', async () => {
+  mockGetFeed.mockResolvedValue([
+    { post_identifier: 'p1', image_url: 'http://img/1.jpg', author_username: 'ada', caption: 'hi' },
+  ])
+  mockGetFollowed.mockResolvedValue([])
+  renderTab()
+
+  await screen.findByRole('button', { name: 'Open post by ada' })
+  expect(mockGetFeed).toHaveBeenCalledTimes(1)
+
+  await userEvent.click(screen.getByRole('button', { name: 'Refresh' }))
+  await waitFor(() => expect(mockGetFeed).toHaveBeenCalledTimes(2))
+  expect(mockGetFeed).toHaveBeenLastCalledWith(0)
+})

@@ -101,7 +101,9 @@ class HomeViewModel(
     }
 
     fun fetchMyPosts() {
-        if (_isLoadingNextPage.value || !canLoadMorePosts) return
+        // Also short-circuit during a pull-to-refresh so pagination can't race
+        // the refresh's reset of _userPosts/currentPage/canLoadMorePosts.
+        if (_isLoadingNextPage.value || _isRefreshing.value || !canLoadMorePosts) return
 
         _isLoadingNextPage.value = true
 

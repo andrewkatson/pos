@@ -13,6 +13,10 @@ struct NewPostView: View {
     let keychainHelper: KeychainHelperProtocol
     // Create an instance of the S3Uploader
     private let s3Uploader = S3Uploader()
+
+    // Shared with the rest of HomeView so a new post shows up in the Home grid
+    // in real time (without waiting for a manual pull-to-refresh).
+    @EnvironmentObject private var homeViewModel: HomeViewModel
     
     @State private var selectedItem: PhotosPickerItem?
     @State private var selectedImageData: Data?
@@ -143,7 +147,10 @@ struct NewPostView: View {
                     imageURL: imageURL.absoluteString,
                     caption: caption
                 )
-                
+
+                // Reload the Home grid so the new post appears there immediately.
+                await homeViewModel.refreshMyPosts()
+
                 // --- SUCCESS ---
                 // Reset the form and show the success alert
                 isLoading = false
@@ -166,4 +173,5 @@ struct NewPostView: View {
 
 #Preview {
     NewPostView(api: PreviewHelpers.api, keychainHelper: PreviewHelpers.keychainHelper, tabSelection: .constant(2))
+        .environmentObject(HomeViewModel(api: PreviewHelpers.api, keychainHelper: PreviewHelpers.keychainHelper))
 }
