@@ -376,7 +376,9 @@ fun ActionSheetDialog(
     AlertDialog(
         onDismissRequest = onDismiss,
         title = { Text(itemLabel) },
-        text = {
+        // The primary action lives in the confirmButton slot so it's laid out and
+        // announced as the dialog's main action; more options can be added later.
+        confirmButton = {
             if (isOwn) {
                 TextButton(onClick = { onDelete(); onDismiss() }) {
                     Text("Delete $itemLabel")
@@ -387,7 +389,6 @@ fun ActionSheetDialog(
                 }
             }
         },
-        confirmButton = {},
         dismissButton = {
             TextButton(onClick = onDismiss) {
                 Text("Cancel")

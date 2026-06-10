@@ -1302,12 +1302,12 @@ final class Positive_Only_SocialUITests: XCTestCase {
         XCTAssertTrue(postImage.waitForExistence(timeout: TestConstants.shortTimeout))
         postImage.press(forDuration: 2)
 
-        // The long-press now opens an action menu; choose "Report Post" (this
+        // The long-press now opens an action menu; choose Report Post (this
         // post belongs to another user, so the menu offers Report, not Delete).
-        // SwiftUI exposes the dialog button as a nested duplicate with the same
-        // label, so take firstMatch to avoid an ambiguous "multiple matching
-        // elements" failure on tap().
-        let reportPostAction = app.buttons["Report Post"].firstMatch
+        // Query by accessibilityIdentifier; SwiftUI exposes the dialog button as
+        // a nested duplicate with the same identifier, so take firstMatch to
+        // avoid an ambiguous "multiple matching elements" failure on tap().
+        let reportPostAction = app.buttons["ReportPostActionButton"].firstMatch
         XCTAssertTrue(reportPostAction.waitForExistence(timeout: TestConstants.shortTimeout))
         reportPostAction.tap()
 
@@ -1364,10 +1364,10 @@ final class Positive_Only_SocialUITests: XCTestCase {
         postImage.press(forDuration: 2)
 
         // It's the user's own post, so the action menu offers Delete, not Report.
-        XCTAssertFalse(app.buttons["Report Post"].exists, "Should not be able to report your own post")
+        XCTAssertFalse(app.buttons["ReportPostActionButton"].exists, "Should not be able to report your own post")
         // firstMatch: the dialog button is exposed as a nested duplicate with the
-        // same label, so a bare query matches multiple and tap() is ambiguous.
-        let deletePostAction = app.buttons["Delete Post"].firstMatch
+        // same identifier, so a bare query matches multiple and tap() is ambiguous.
+        let deletePostAction = app.buttons["DeletePostActionButton"].firstMatch
         XCTAssertTrue(deletePostAction.waitForExistence(timeout: TestConstants.shortTimeout))
         deletePostAction.tap()
 
@@ -1401,10 +1401,10 @@ final class Positive_Only_SocialUITests: XCTestCase {
         commentStack.press(forDuration: 2)
 
         // It's the user's own comment, so the menu offers Delete, not Report.
-        XCTAssertFalse(app.buttons["Report Comment"].exists, "Should not be able to report your own comment")
+        XCTAssertFalse(app.buttons["ReportCommentActionButton"].exists, "Should not be able to report your own comment")
         // firstMatch: the dialog button is exposed as a nested duplicate with the
-        // same label, so a bare query matches multiple and tap() is ambiguous.
-        let deleteCommentAction = app.buttons["Delete Comment"].firstMatch
+        // same identifier, so a bare query matches multiple and tap() is ambiguous.
+        let deleteCommentAction = app.buttons["DeleteCommentActionButton"].firstMatch
         XCTAssertTrue(deleteCommentAction.waitForExistence(timeout: TestConstants.shortTimeout))
         deleteCommentAction.tap()
 
@@ -1489,11 +1489,11 @@ final class Positive_Only_SocialUITests: XCTestCase {
         XCTAssertTrue(commentStack.waitForExistence(timeout: TestConstants.shortTimeout))
         commentStack.press(forDuration: 2)
 
-        // The long-press opens an action menu; choose "Report Comment" (this
+        // The long-press opens an action menu; choose Report Comment (this
         // comment belongs to another user, so the menu offers Report).
         // firstMatch: the dialog button is exposed as a nested duplicate with the
-        // same label, so a bare query matches multiple and tap() is ambiguous.
-        let reportCommentAction = app.buttons["Report Comment"].firstMatch
+        // same identifier, so a bare query matches multiple and tap() is ambiguous.
+        let reportCommentAction = app.buttons["ReportCommentActionButton"].firstMatch
         XCTAssertTrue(reportCommentAction.waitForExistence(timeout: TestConstants.shortTimeout))
         reportCommentAction.tap()
 
@@ -1516,7 +1516,7 @@ final class Positive_Only_SocialUITests: XCTestCase {
         XCTAssertTrue(commentStack2.waitForExistence(timeout: TestConstants.shortTimeout))
         commentStack2.press(forDuration: 2)
 
-        let reportCommentAction2 = app.buttons["Report Comment"].firstMatch
+        let reportCommentAction2 = app.buttons["ReportCommentActionButton"].firstMatch
         XCTAssertTrue(reportCommentAction2.waitForExistence(timeout: TestConstants.shortTimeout))
         reportCommentAction2.tap()
 
