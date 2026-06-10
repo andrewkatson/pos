@@ -131,7 +131,6 @@ struct PostDetailView: View {
         .navigationTitle("Post")
         .navigationBarTitleDisplayMode(.inline)
         .scrollDismissesKeyboard(.immediately)
-        .onSubmit { hideKeyboard() }
         .refreshable {
             // Pull-to-refresh: reload the post details and comments from the backend.
             await viewModel.refresh()
@@ -233,7 +232,6 @@ struct PostDetailView: View {
                 }
                 .navigationTitle("Report Item")
                 .scrollDismissesKeyboard(.immediately)
-                .onSubmit { hideKeyboard() }
                 .navigationBarItems(leading: Button("Cancel") {
                     dismiss()
                 })

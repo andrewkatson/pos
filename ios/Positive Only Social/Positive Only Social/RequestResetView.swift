@@ -44,7 +44,6 @@ struct RequestResetView: View {
             }
             .navigationTitle("Reset Password")
             .scrollDismissesKeyboard(.immediately)
-            .onSubmit { hideKeyboard() }
 
             if isLoading {
                 ProgressView()

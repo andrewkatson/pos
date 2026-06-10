@@ -58,7 +58,6 @@ struct VerifyResetView: View {
             }
             .navigationTitle("Enter Verification Token")
             .scrollDismissesKeyboard(.immediately)
-            .onSubmit { hideKeyboard() }
 
             if isLoading {
                 ProgressView().progressViewStyle(.circular).scaleEffect(2)

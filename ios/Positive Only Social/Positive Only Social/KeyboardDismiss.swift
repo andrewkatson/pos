@@ -2,36 +2,26 @@
 //  KeyboardDismiss.swift
 //  Positive Only Social
 //
-//  Shared helpers for dismissing the software keyboard so the user can reach
+//  Shared helper for dismissing the software keyboard so the user can reach
 //  the buttons (Login, Register, Share Post, …) that the keyboard would
 //  otherwise cover. See issue #205.
+//
+//  Dismissal must go through SwiftUI's focus system: resigning the first
+//  responder behind SwiftUI's back doesn't stick — its focus system
+//  immediately re-presents the keyboard (observed on iOS 26). So screens
+//  clear an `@FocusState` binding instead. Pressing return/Done on a
+//  single-line field already ends editing through that same system, so no
+//  extra handling is needed for the return key; scrollable screens
+//  additionally use `.scrollDismissesKeyboard` for drag-to-dismiss.
 //
 
 import SwiftUI
 
-#if canImport(UIKit)
-import UIKit
-
 extension View {
-    /// Dismisses the software keyboard by resigning the first responder.
-    ///
-    /// Use this only where SwiftUI is already ending editing anyway (e.g. an
-    /// `.onSubmit` handler, where the return key is closing the keyboard).
-    /// Do NOT use it to force-dismiss while a field is still focused: SwiftUI's
-    /// focus system doesn't know about the resignation and immediately
-    /// re-presents the keyboard (observed on iOS 26). To force-dismiss, clear
-    /// the screen's `@FocusState` instead — see `dismissKeyboardOnTap(perform:)`.
-    func hideKeyboard() {
-        UIApplication.shared.sendAction(
-            #selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil)
-    }
-
     /// Adds a tap gesture across the receiver's bounds that lets the user tap
     /// outside a text field to put the keyboard away. The caller's action must
-    /// clear the screen's `@FocusState` (e.g. `{ focusedField = nil }`) — that
-    /// is the SwiftUI-sanctioned dismissal; resigning the first responder
-    /// behind SwiftUI's back gets undone by its focus system re-presenting the
-    /// keyboard (observed on iOS 26).
+    /// clear the screen's `@FocusState` (e.g. `{ focusedField = nil }`) — the
+    /// SwiftUI-sanctioned dismissal; see the note at the top of this file.
     ///
     /// The gesture lives on the container, so it never interferes with focusing
     /// a text field or tapping a button — interactive controls consume their
@@ -47,4 +37,3 @@ extension View {
             .onTapGesture(perform: dismiss)
     }
 }
-#endif
