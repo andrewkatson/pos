@@ -323,7 +323,7 @@ function PostDetailView({ postId }: { postId: string }) {
         await apiClient.deletePost(postId)
         // The post no longer exists; leave the detail view for the feed.
         // (the finally block clears deleteTarget)
-        navigate('/')
+        navigate('/home')
         return
       }
       await apiClient.deleteComment(postId, target.comment.threadId, target.comment.id)

@@ -56,6 +56,7 @@ function renderDetail() {
       <Routes>
         <Route path="/post/:postId" element={<PostDetailPage />} />
         <Route path="/profile/:username" element={<div>Profile page</div>} />
+        <Route path="/home" element={<div>Feed page</div>} />
       </Routes>
     </MemoryRouter>,
   )
@@ -212,6 +213,8 @@ test('own post shows Delete instead of Report, and deleting navigates away', asy
   const deleteDialog = screen.getByRole('dialog', { name: 'Delete item' })
   await userEvent.click(within(deleteDialog).getByRole('button', { name: 'Delete' }))
   await waitFor(() => expect(mockDeletePost).toHaveBeenCalledWith('p1'))
+  // ...and we land on the feed, not the landing page.
+  expect(await screen.findByText('Feed page')).toBeInTheDocument()
 })
 
 test('other users’ post still shows Report, not Delete', async () => {
