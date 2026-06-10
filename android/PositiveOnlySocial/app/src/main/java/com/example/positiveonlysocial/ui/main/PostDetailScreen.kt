@@ -71,6 +71,18 @@ fun PostDetailScreen(
 
         val focusManager = LocalFocusManager.current
 
+        // Long-press action menus (Report vs Delete, depending on ownership).
+        val showActionSheetForPost by viewModel.showActionSheetForPost.collectAsState()
+        val commentForAction by viewModel.commentForAction.collectAsState()
+        val postWasDeleted by viewModel.postWasDeleted.collectAsState()
+
+        // The post was deleted out from under this screen; pop back to the feed.
+        LaunchedEffect(postWasDeleted) {
+            if (postWasDeleted) {
+                navController.popBackStack()
+            }
+        }
+
         if (alertMessage != null) {
             AlertDialog(
                 onDismissRequest = { viewModel.dismissAlert() },
@@ -81,6 +93,31 @@ fun PostDetailScreen(
                         Text("OK")
                     }
                 }
+            )
+        }
+
+        // The post's long-press action menu: Delete on the user's own post,
+        // Report on everyone else's — so you can never report your own post.
+        if (showActionSheetForPost) {
+            val isOwnPost = postDetail?.authorUsername == currentUsername
+            ActionSheetDialog(
+                isOwn = isOwnPost,
+                itemLabel = "Post",
+                onDismiss = { viewModel.setShowActionSheetForPost(false) },
+                onReport = { viewModel.setShowReportSheetForPost(true) },
+                onDelete = { viewModel.deletePost() }
+            )
+        }
+
+        // The comment's long-press action menu mirrors the post's.
+        commentForAction?.let { comment ->
+            val isOwnComment = comment.authorUsername == currentUsername
+            ActionSheetDialog(
+                isOwn = isOwnComment,
+                itemLabel = "Comment",
+                onDismiss = { viewModel.setCommentForAction(null) },
+                onReport = { viewModel.setCommentToReport(comment) },
+                onDelete = { viewModel.deleteComment(comment, comment.threadId) }
             )
         }
 
@@ -144,7 +181,7 @@ fun PostDetailScreen(
                                         if (post.isLiked) viewModel.unlikePost() else viewModel.likePost()
                                     },
                                     onLongClick = {
-                                       viewModel.setShowReportSheetForPost(true)
+                                       viewModel.setShowActionSheetForPost(true)
                                     },
                                     onClick = {}
                                 ),
@@ -222,14 +259,16 @@ fun PostDetailScreen(
 
 @Composable
 fun CommentThreadView(thread: CommentThreadViewData, viewModel: PostDetailViewModel, currentUsername: String?) {
+    val reportedCommentIds by viewModel.reportedCommentIds.collectAsState()
     Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)) {
         thread.comments.firstOrNull()?.let { rootComment ->
             CommentRow(
                 comment = rootComment,
                 isOwn = rootComment.authorUsername == currentUsername,
+                isReported = reportedCommentIds.contains(rootComment.id),
                 onLike = { viewModel.likeComment(rootComment, rootComment.threadId) },
                 onUnlike = { viewModel.unlikeComment(rootComment, rootComment.threadId) },
-                onReport = { viewModel.setCommentToReport(rootComment) }
+                onLongPress = { viewModel.setCommentForAction(rootComment) }
             )
             
             // Reply Input for Thread
@@ -246,9 +285,10 @@ fun CommentThreadView(thread: CommentThreadViewData, viewModel: PostDetailViewMo
                     CommentRow(
                         comment = reply,
                         isOwn = reply.authorUsername == currentUsername,
+                        isReported = reportedCommentIds.contains(reply.id),
                         onLike = { viewModel.likeComment(reply, reply.threadId) },
                         onUnlike = { viewModel.unlikeComment(reply, reply.threadId) },
-                        onReport = { viewModel.setCommentToReport(reply) }
+                        onLongPress = { viewModel.setCommentForAction(reply) }
                     )
                 }
             }
@@ -261,12 +301,11 @@ fun CommentThreadView(thread: CommentThreadViewData, viewModel: PostDetailViewMo
 fun CommentRow(
     comment: CommentViewData,
     isOwn: Boolean,
+    isReported: Boolean,
     onLike: () -> Unit,
     onUnlike: () -> Unit,
-    onReport: () -> Unit
+    onLongPress: () -> Unit
 ) {
-    var isReported by remember { mutableStateOf(false) }
-
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -280,8 +319,8 @@ fun CommentRow(
                     if (comment.isLiked) onUnlike() else onLike()
                 },
                 onLongClick = {
-                    isReported = true
-                    onReport()
+                    // Open the action menu (Report or Delete, by ownership).
+                    onLongPress()
                 },
                 onClick = {}
             ),
@@ -330,6 +369,43 @@ fun CommentRow(
             }
         }
     }
+}
+
+/**
+ * The mini action menu shown on long-press. Offers a single action — Delete for
+ * the user's own content, Report for everyone else's — so you can never report
+ * your own post or comment. More options can be added here later.
+ */
+@Composable
+fun ActionSheetDialog(
+    isOwn: Boolean,
+    itemLabel: String,
+    onDismiss: () -> Unit,
+    onReport: () -> Unit,
+    onDelete: () -> Unit
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text(itemLabel) },
+        // The primary action lives in the confirmButton slot so it's laid out and
+        // announced as the dialog's main action; more options can be added later.
+        confirmButton = {
+            if (isOwn) {
+                TextButton(onClick = { onDelete(); onDismiss() }) {
+                    Text("Delete $itemLabel")
+                }
+            } else {
+                TextButton(onClick = { onReport(); onDismiss() }) {
+                    Text("Report $itemLabel")
+                }
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) {
+                Text("Cancel")
+            }
+        }
+    )
 }
 
 @Composable

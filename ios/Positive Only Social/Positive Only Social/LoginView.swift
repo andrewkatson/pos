@@ -23,7 +23,7 @@ struct LoginView: View {
 
     
     // Unique identifiers for Keychain items
-    private let keychainService = AppConstants.keychainService
+    private let keychainService = GVOAppConstants.keychainService
     private let sessionAccount = "userSessionToken"
     private let rememberMeAccount = "userRememberMeTokens"
 

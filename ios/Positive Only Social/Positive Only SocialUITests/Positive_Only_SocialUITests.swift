@@ -1340,7 +1340,16 @@ final class Positive_Only_SocialUITests: XCTestCase {
         // 2 second press
         XCTAssertTrue(postImage.waitForExistence(timeout: TestConstants.shortTimeout))
         postImage.press(forDuration: 2)
-        
+
+        // The long-press now opens an action menu; choose Report Post (this
+        // post belongs to another user, so the menu offers Report, not Delete).
+        // Query by accessibilityIdentifier; SwiftUI exposes the dialog button as
+        // a nested duplicate with the same identifier, so take firstMatch to
+        // avoid an ambiguous "multiple matching elements" failure on tap().
+        let reportPostAction = app.buttons["ReportPostActionButton"].firstMatch
+        XCTAssertTrue(reportPostAction.waitForExistence(timeout: TestConstants.shortTimeout))
+        reportPostAction.tap()
+
         let reasonTextField = app.textFields["ProvideAReasonTextField"]
         XCTAssertTrue(reasonTextField.waitForExistence(timeout: TestConstants.shortTimeout))
         reasonTextField.tap()
@@ -1365,7 +1374,97 @@ final class Positive_Only_SocialUITests: XCTestCase {
         
         assertOnHomeView(app: app)
     }
-    
+
+    /// Long-pressing your own post offers Delete (not Report); deleting it pops
+    /// back to the feed and the post is gone.
+    @MainActor
+    func testDeleteOwnPost() throws {
+
+        try ifOnHomeDeleteAccount(app: app)
+
+        try loginUser(app: app, username: testUsername, password: strongPassword, rememberMe: false)
+
+        try makePost(app: app, postText: "Post To Delete")
+
+        let feedTab = app.buttons["Feed"]
+        XCTAssertTrue(feedTab.waitForExistence(timeout: TestConstants.shortTimeout))
+        feedTab.tap()
+
+        assertOnFeedView(app: app)
+
+        let firstPostElement = app.buttons.matching(identifier: "ForYouPostImage").element(boundBy: 0)
+        XCTAssertTrue(firstPostElement.waitForExistence(timeout: TestConstants.shortTimeout))
+        firstPostElement.tap()
+
+        assertOnPostDetailView(app: app)
+
+        let postImage = app.buttons["PostImage"]
+        XCTAssertTrue(postImage.waitForExistence(timeout: TestConstants.shortTimeout))
+        postImage.press(forDuration: 2)
+
+        // It's the user's own post, so the action menu offers Delete, not Report.
+        XCTAssertFalse(app.buttons["ReportPostActionButton"].exists, "Should not be able to report your own post")
+        // firstMatch: the dialog button is exposed as a nested duplicate with the
+        // same identifier, so a bare query matches multiple and tap() is ambiguous.
+        let deletePostAction = app.buttons["DeletePostActionButton"].firstMatch
+        XCTAssertTrue(deletePostAction.waitForExistence(timeout: TestConstants.shortTimeout))
+        deletePostAction.tap()
+
+        // Deleting pops the Post Detail view back to the feed.
+        assertOnFeedView(app: app)
+        XCTAssertFalse(app.textFields["AddACommentTextFieldToPost"].exists, "Post Detail view should have been dismissed after deleting the post")
+
+        let homeButton = app.buttons["Home"]
+        XCTAssertTrue(homeButton.waitForExistence(timeout: TestConstants.shortTimeout))
+        homeButton.tap()
+
+        assertOnHomeView(app: app)
+    }
+
+    /// Long-pressing your own comment offers Delete (not Report); deleting it
+    /// removes it from the thread.
+    @MainActor
+    func testDeleteOwnComment() throws {
+
+        try ifOnHomeDeleteAccount(app: app)
+
+        try loginUser(app: app, username: testUsername, password: strongPassword, rememberMe: false)
+
+        try makePost(app: app, postText: "Some Post Caption")
+
+        // Comment on the user's own post, ending on the Post Detail view.
+        makeCommentOnPost(app: app, commentText: "Comment To Delete")
+
+        let commentStack = app.buttons.matching(identifier: "CommentStack").element(boundBy: 0)
+        XCTAssertTrue(commentStack.waitForExistence(timeout: TestConstants.shortTimeout))
+        commentStack.press(forDuration: 2)
+
+        // It's the user's own comment, so the menu offers Delete, not Report.
+        XCTAssertFalse(app.buttons["ReportCommentActionButton"].exists, "Should not be able to report your own comment")
+        // firstMatch: the dialog button is exposed as a nested duplicate with the
+        // same identifier, so a bare query matches multiple and tap() is ambiguous.
+        let deleteCommentAction = app.buttons["DeleteCommentActionButton"].firstMatch
+        XCTAssertTrue(deleteCommentAction.waitForExistence(timeout: TestConstants.shortTimeout))
+        deleteCommentAction.tap()
+
+        // The comment is removed from the thread.
+        let commentElements = app.staticTexts.matching(identifier: "CommentText")
+        expectation(for: NSPredicate(format: "count == 0"), evaluatedWith: commentElements, handler: nil)
+        waitForExpectations(timeout: TestConstants.timeout, handler: nil)
+        XCTAssertEqual(commentElements.count, 0, "Expected the deleted comment to be gone")
+
+        let backButton = app.navigationBars.firstMatch.buttons.element(boundBy: 0)
+        XCTAssertTrue(backButton.waitForExistence(timeout: TestConstants.shortTimeout))
+        backButton.tap()
+
+        let homeButton = app.buttons["Home"]
+        if homeButton.exists {
+            homeButton.tap()
+        }
+
+        assertOnHomeView(app: app)
+    }
+
     @MainActor
     func testReportComment() throws {
         
@@ -1428,7 +1527,15 @@ final class Positive_Only_SocialUITests: XCTestCase {
         // 2 second press
         XCTAssertTrue(commentStack.waitForExistence(timeout: TestConstants.shortTimeout))
         commentStack.press(forDuration: 2)
-        
+
+        // The long-press opens an action menu; choose Report Comment (this
+        // comment belongs to another user, so the menu offers Report).
+        // firstMatch: the dialog button is exposed as a nested duplicate with the
+        // same identifier, so a bare query matches multiple and tap() is ambiguous.
+        let reportCommentAction = app.buttons["ReportCommentActionButton"].firstMatch
+        XCTAssertTrue(reportCommentAction.waitForExistence(timeout: TestConstants.shortTimeout))
+        reportCommentAction.tap()
+
         let reasonTextField = app.textFields["ProvideAReasonTextField"]
         XCTAssertTrue(reasonTextField.waitForExistence(timeout: TestConstants.shortTimeout))
         reasonTextField.tap()
@@ -1447,7 +1554,11 @@ final class Positive_Only_SocialUITests: XCTestCase {
         // 2 second press
         XCTAssertTrue(commentStack2.waitForExistence(timeout: TestConstants.shortTimeout))
         commentStack2.press(forDuration: 2)
-        
+
+        let reportCommentAction2 = app.buttons["ReportCommentActionButton"].firstMatch
+        XCTAssertTrue(reportCommentAction2.waitForExistence(timeout: TestConstants.shortTimeout))
+        reportCommentAction2.tap()
+
         let reasonTextField2 = app.textFields["ProvideAReasonTextField"]
         XCTAssertTrue(reasonTextField2.waitForExistence(timeout: TestConstants.shortTimeout))
         reasonTextField2.tap()

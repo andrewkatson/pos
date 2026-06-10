@@ -158,6 +158,7 @@ jobs:
                   "Positive Only SocialUITests/Positive_Only_SocialUITests/testVerifyIdentity"
                   "Positive Only SocialUITests/Positive_Only_SocialUITests/testLikeAndUnlikeCommentOnPostAndThread"
                   "Positive Only SocialUITests/Positive_Only_SocialUITests/testReportPost"
+                  "Positive Only SocialUITests/Positive_Only_SocialUITests/testDeleteOwnPost"
                 )
                 # "Positive Only Social" (default) plan covers both unit and UI tests
                 XCTESTRUN=$(find build/Build/Products -name "*.xctestrun" | grep -v "Unit Tests" | head -1)
@@ -165,6 +166,7 @@ jobs:
               UI_Tests_Delta)
                 TESTS=(
                   "Positive Only SocialUITests/Positive_Only_SocialUITests/testReportComment"
+                  "Positive Only SocialUITests/Positive_Only_SocialUITests/testDeleteOwnComment"
                   "Positive Only SocialUITests/Positive_Only_SocialUITests/testLaunchPerformance"
                   "Positive Only SocialUITests/Positive_Only_SocialUITests/testBlockAndUnblockUser"
                 )

@@ -38,7 +38,7 @@ struct RegisterView: View {
     @FocusState private var focusedField: Field?
     
     // Unique identifiers for Keychain
-    private let keychainService = AppConstants.keychainService
+    private let keychainService = GVOAppConstants.keychainService
     private let sessionAccount = "userSessionToken"
 
     // MARK: - Computed Properties for Validation

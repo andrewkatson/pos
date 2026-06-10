@@ -49,7 +49,7 @@ struct Positive_Only_SocialTests_FeedViewModel {
         // Given: A user is logged in
         let userAToken = try await registerUserAndGetToken(username: "userA")
         let userSession = UserSession(sessionToken: userAToken, username: "userA", userId: "1", isIdentityVerified: false)
-        try keychainHelper.save(userSession, for: AppConstants.keychainService, account: "fetchFeedApiThrowsError")
+        try keychainHelper.save(userSession, for: GVOAppConstants.keychainService, account: "fetchFeedApiThrowsError")
         
         // And: *No one* has made any posts. The API stub will throw a 400 error.
         
@@ -72,7 +72,7 @@ struct Positive_Only_SocialTests_FeedViewModel {
         // Given: A user is logged in
         let userAToken = try await registerUserAndGetToken(username: "userA")
         let userSession = UserSession(sessionToken: userAToken, username: "userA", userId: "1", isIdentityVerified: false)
-        try keychainHelper.save(userSession, for: AppConstants.keychainService, account: "fetchFeedWhileAlreadyLoading")
+        try keychainHelper.save(userSession, for: GVOAppConstants.keychainService, account: "fetchFeedWhileAlreadyLoading")
         
         // And: The viewmodel is *already* loading
         sut.isLoadingNextPage = true
@@ -110,7 +110,7 @@ struct Positive_Only_SocialTests_FeedViewModel {
         let userAToken = try await registerUserAndGetToken(username: "userA")
         let userBToken = try await registerUserAndGetToken(username: "userB")
         let userSession = UserSession(sessionToken: userAToken, username: "userA", userId: "1", isIdentityVerified: false)
-        try keychainHelper.save(userSession, for: AppConstants.keychainService, account: "fetchFeedPagination")
+        try keychainHelper.save(userSession, for: GVOAppConstants.keychainService, account: "fetchFeedPagination")
 
         // And: User B creates 3 posts (which will be on 2 pages)
         _ = try await stubAPI.makePost(sessionManagementToken: userBToken, imageURL: "image.url/1", caption: "Post 1")
@@ -170,7 +170,7 @@ struct Positive_Only_SocialTests_FeedViewModel {
         let userAToken = try await registerUserAndGetToken(username: "userA")
         let userBToken = try await registerUserAndGetToken(username: "userB")
         let userSession = UserSession(sessionToken: userAToken, username: "userA", userId: "1", isIdentityVerified: false)
-        try keychainHelper.save(userSession, for: AppConstants.keychainService, account: "refreshFeedPullsNewest")
+        try keychainHelper.save(userSession, for: GVOAppConstants.keychainService, account: "refreshFeedPullsNewest")
         _ = try await stubAPI.makePost(sessionManagementToken: userBToken, imageURL: "image.url/1", caption: "Post 1")
 
         // And: The feed has been loaded once
@@ -199,7 +199,7 @@ struct Positive_Only_SocialTests_FeedViewModel {
         let userAToken = try await registerUserAndGetToken(username: "userA")
         let userBToken = try await registerUserAndGetToken(username: "userB")
         let userSession = UserSession(sessionToken: userAToken, username: "userA", userId: "1", isIdentityVerified: false)
-        try keychainHelper.save(userSession, for: AppConstants.keychainService, account: "refreshFeedResetsPagination")
+        try keychainHelper.save(userSession, for: GVOAppConstants.keychainService, account: "refreshFeedResetsPagination")
         _ = try await stubAPI.makePost(sessionManagementToken: userBToken, imageURL: "image.url/1", caption: "Post 1")
 
         // Given: We have paged to the end (canLoadMore becomes false)
@@ -234,7 +234,7 @@ struct Positive_Only_SocialTests_FeedViewModel {
         let userAToken = try await registerUserAndGetToken(username: "userA")
         let userBToken = try await registerUserAndGetToken(username: "userB")
         let userSession = UserSession(sessionToken: userAToken, username: "userA", userId: "1", isIdentityVerified: false)
-        try keychainHelper.save(userSession, for: AppConstants.keychainService, account: account)
+        try keychainHelper.save(userSession, for: GVOAppConstants.keychainService, account: account)
 
         // Given: 3 posts exist and we've loaded the first page (cursor at page 1)
         _ = try await stubAPI.makePost(sessionManagementToken: userBToken, imageURL: "image.url/1", caption: "Post 1")
@@ -246,9 +246,9 @@ struct Positive_Only_SocialTests_FeedViewModel {
         #expect(sut.feedPosts.first?.imageUrl == "image.url/3")
 
         // When: A refresh fails (session is unavailable for the duration of the refresh)
-        try keychainHelper.delete(service: AppConstants.keychainService, account: account)
+        try keychainHelper.delete(service: GVOAppConstants.keychainService, account: account)
         await sut.refreshFeed()
-        try keychainHelper.save(userSession, for: AppConstants.keychainService, account: account)
+        try keychainHelper.save(userSession, for: GVOAppConstants.keychainService, account: account)
 
         // Then: The existing posts are untouched and the loading flag is reset
         #expect(sut.isLoadingNextPage == false)
