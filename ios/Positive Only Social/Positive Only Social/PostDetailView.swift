@@ -13,6 +13,9 @@ struct PostDetailView: View {
     // Use @StateObject to create and own the ViewModel
     @StateObject private var viewModel: PostDetailViewModel
 
+    // Used to pop this view once the user deletes the post being shown.
+    @Environment(\.dismiss) private var dismiss
+
     // Public init
     init(postIdentifier: String, api: Networking, keychainHelper: KeychainHelperProtocol) {
         _viewModel = StateObject(wrappedValue: PostDetailViewModel(postIdentifier: postIdentifier, api: api, keychainHelper: keychainHelper))
@@ -57,7 +60,7 @@ struct PostDetailView: View {
                         }
                     }
                     .onLongPressGesture {
-                        viewModel.showReportSheetForPost = true
+                        viewModel.showActionSheetForPost = true
                     }
 
                     // --- POST DETAILS (CAPTION, LIKES) ---
@@ -130,6 +133,45 @@ struct PostDetailView: View {
             // Pull-to-refresh: reload the post details and comments from the backend.
             await viewModel.refresh()
         }
+        // --- Action menus (long-press) ---
+        // The post's menu offers Delete on the user's own post and Report on
+        // everyone else's — so you can never report your own post.
+        .confirmationDialog("Post", isPresented: $viewModel.showActionSheetForPost, titleVisibility: .hidden) {
+            if viewModel.isOwnPost {
+                Button("Delete Post", role: .destructive) {
+                    viewModel.deletePost()
+                }
+                .accessibilityIdentifier("DeletePostActionButton")
+            } else {
+                Button("Report Post") {
+                    viewModel.showReportSheetForPost = true
+                }
+                .accessibilityIdentifier("ReportPostActionButton")
+            }
+        }
+        // The comment menu mirrors the post menu: Delete for the user's own
+        // comments, Report for everyone else's.
+        .confirmationDialog(
+            "Comment",
+            isPresented: Binding(
+                get: { viewModel.commentForAction != nil },
+                set: { if !$0 { viewModel.commentForAction = nil } }
+            ),
+            titleVisibility: .hidden,
+            presenting: viewModel.commentForAction
+        ) { comment in
+            if viewModel.isOwnComment(comment) {
+                Button("Delete Comment", role: .destructive) {
+                    viewModel.deleteComment(comment)
+                }
+                .accessibilityIdentifier("DeleteCommentActionButton")
+            } else {
+                Button("Report Comment") {
+                    viewModel.commentToReport = comment
+                }
+                .accessibilityIdentifier("ReportCommentActionButton")
+            }
+        }
         // --- Modals and Sheets ---
         .sheet(isPresented: $viewModel.showReportSheetForPost) {
             ReportView { reason in
@@ -156,6 +198,10 @@ struct PostDetailView: View {
                 }
             )
         })
+        .onChange(of: viewModel.postWasDeleted) { wasDeleted in
+            // The post was deleted out from under this view; pop back to the feed.
+            if wasDeleted { dismiss() }
+        }
         .environmentObject(viewModel) // Pass VM to subviews
     }
 
@@ -202,8 +248,8 @@ struct PostDetailView: View {
         // Actions passed from the parent
         let onLike: () -> Void
         let onUnlike: () -> Void
-        let onReport: () -> Void
-        
+        let onLongPress: () -> Void
+
         var body: some View {
             HStack(alignment: .top, spacing: 10) {
                 // Placeholder for profile picture
@@ -271,7 +317,7 @@ struct PostDetailView: View {
                 }
             }
             .onLongPressGesture {
-                onReport()
+                onLongPress()
             }
             .accessibilityElement(children: .contain)
             .accessibilityIdentifier("CommentStack")
@@ -296,8 +342,8 @@ struct PostDetailView: View {
                                    onUnlike: { // --- ADDED ---
                                        viewModel.unlikeComment(rootComment)
                                    },
-                                   onReport: {
-                                       viewModel.commentToReport = rootComment
+                                   onLongPress: {
+                                       viewModel.commentForAction = rootComment
                                    })
                     Section {
                         HStack {
@@ -332,8 +378,8 @@ struct PostDetailView: View {
                                            onUnlike: { // --- ADDED ---
                                                viewModel.unlikeComment(reply)
                                            },
-                                           onReport: {
-                                               viewModel.commentToReport = reply
+                                           onLongPress: {
+                                               viewModel.commentForAction = reply
                                            })
                         }
                     }

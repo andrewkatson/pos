@@ -23,6 +23,19 @@ final class PostDetailViewModel: ObservableObject {
     // State for presentation
     @Published var showReportSheetForPost = false
     @Published var commentToReport: CommentViewData? // Use item-based sheet
+
+    /// Drives the long-press action menu for the post. The menu offers either
+    /// "Report" (others' posts) or "Delete" (the user's own post) — never both,
+    /// so you can't report your own content.
+    @Published var showActionSheetForPost = false
+
+    /// The comment whose long-press action menu is showing, if any. Like the
+    /// post action menu, it offers "Report" or "Delete" depending on ownership.
+    @Published var commentForAction: CommentViewData?
+
+    /// Set once the post has been deleted so the view can pop back — the post no
+    /// longer exists to display.
+    @Published var postWasDeleted = false
     
     /// The text for creating a brand new comment thread
     @Published var newCommentText: String = ""
@@ -268,6 +281,54 @@ final class PostDetailViewModel: ObservableObject {
         }
     }
     
+    /// Deletes the user's own post, then signals the view to pop back since the
+    /// post no longer exists. Only reachable from the action menu on an own post.
+    func deletePost() {
+        NSLog("%@", "ACTION: Delete post \(postIdentifier)")
+        Task {
+            do {
+                guard let userSession = try keychainHelper.load(UserSession.self, from: keychainService, account: account) else {
+                    NSLog("%@", "No active session — cannot delete post")
+                    self.alertMessage = "Session not found."
+                    return
+                }
+                let token = userSession.sessionToken
+                _ = try await api.deletePost(sessionManagementToken: token, postIdentifier: postIdentifier)
+                await MainActor.run {
+                    self.postWasDeleted = true
+                }
+            } catch {
+                NSLog("%@", "Failed to delete post: \(error)")
+                await MainActor.run {
+                    self.alertMessage = "Failed to delete post: \(error.localizedDescription)"
+                }
+            }
+        }
+    }
+
+    /// Deletes one of the user's own comments, then reloads so it disappears from
+    /// the thread. Only reachable from the action menu on an own comment.
+    func deleteComment(_ comment: CommentViewData) {
+        NSLog("%@", "ACTION: Delete comment \(comment.id)")
+        Task {
+            do {
+                guard let userSession = try keychainHelper.load(UserSession.self, from: keychainService, account: account) else {
+                    NSLog("%@", "No active session — cannot delete comment")
+                    self.alertMessage = "Session not found."
+                    return
+                }
+                let token = userSession.sessionToken
+                _ = try await api.deleteComment(sessionManagementToken: token, postIdentifier: postIdentifier, commentThreadIdentifier: comment.threadId, commentIdentifier: comment.id)
+                self.loadAllData()
+            } catch {
+                NSLog("%@", "Failed to delete comment: \(error)")
+                await MainActor.run {
+                    self.alertMessage = "Failed to delete comment: \(error.localizedDescription)"
+                }
+            }
+        }
+    }
+
     func likeComment(_ comment: CommentViewData) {
         // The backend rejects liking your own comment; don't optimistically like it.
         guard !isOwnComment(comment) else { return }
