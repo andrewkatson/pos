@@ -50,7 +50,7 @@ struct Positive_Only_SocialTests_PostDetailViewModel {
     private func setupLoggedInUser(username: String, account: String) async throws -> String {
         let token = try await registerUserAndGetToken(username: username)
         let userSession = UserSession(sessionToken: token, username: username, userId: "1", isIdentityVerified: false)
-        try keychainHelper.save(userSession, for: AppConstants.keychainService, account: account)
+        try keychainHelper.save(userSession, for: GVOAppConstants.keychainService, account: account)
         return token
     }
     

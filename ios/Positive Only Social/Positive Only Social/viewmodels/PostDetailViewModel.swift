@@ -54,7 +54,7 @@ final class PostDetailViewModel: ObservableObject {
     private let api: Networking
     private let keychainHelper: KeychainHelperProtocol
     private let account: String
-    private let keychainService = AppConstants.keychainService
+    private let keychainService = GVOAppConstants.keychainService
     
     // Helper to keep track of requests
     private var cancellables = Set<AnyCancellable>()

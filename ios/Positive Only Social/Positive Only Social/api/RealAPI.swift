@@ -9,6 +9,7 @@ import Foundation
 
 // MARK: - API Error Definition
 /// Defines specific errors that can occur during an API call.
+///
 enum APIError: Error, LocalizedError {
     case invalidURL
     case badServerResponse(statusCode: Int)
@@ -156,13 +157,13 @@ final class RealAPI: Networking {
         
         // 3. Add Headers
         if let authToken = authToken {
-            request.setValue("Bearer \(authToken)", forHTTPHeaderField: "Authorization")
+            request.setValue("\(GVOAppConstants.bearer) \(authToken)", forHTTPHeaderField: GVOAppConstants.authHeaderField)
         }
         
         // 4. Add Body
         if let body = body {
             request.httpBody = body
-            request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+            request.setValue(GVOAppConstants.requestType, forHTTPHeaderField: GVOAppConstants.httpHeaderField)
         }
         
         // 5. Perform the network call
@@ -201,7 +202,7 @@ final class RealAPI: Networking {
         let requestBody = try encode(body)
         
         return try await performRequest(
-            pathSegments: ["register"],
+            pathSegments: [GVOAppConstants.pathSegmentRegister],
             method: .post,
             body: requestBody
         )
@@ -213,7 +214,7 @@ final class RealAPI: Networking {
         let requestBody = try encode(body)
         
         return try await performRequest(
-            pathSegments: ["login"],
+            pathSegments: [GVOAppConstants.pathSegmentLogin],
             method: .post,
             body: requestBody
         )
@@ -230,7 +231,7 @@ final class RealAPI: Networking {
         let requestBody = try encode(body)
         
         return try await performRequest(
-            pathSegments: ["login", "remember"],
+            pathSegments: [GVOAppConstants.pathSegmentLogin, GVOAppConstants.pathSegmentRemember],
             method: .post,
             body: requestBody
         )
@@ -242,7 +243,7 @@ final class RealAPI: Networking {
         let requestBody = try encode(body)
         
         return try await performRequest(
-            pathSegments: ["password", "reset"],
+            pathSegments: [GVOAppConstants.pathSegmentPassword, GVOAppConstants.pathSegmentReset],
             method: .post,
             body: requestBody
         )
@@ -254,7 +255,7 @@ final class RealAPI: Networking {
         let requestBody = try encode(body)
         
         return try await performRequest(
-            pathSegments: ["password", "request-reset"],
+            pathSegments: [GVOAppConstants.pathSegmentPassword, GVOAppConstants.pathSegmentRequestReset],
             method: .post,
             body: requestBody
         )
@@ -265,7 +266,7 @@ final class RealAPI: Networking {
         let body = VerifyResetBody(username_or_email: usernameOrEmail, verification_token: verificationToken)
         let requestBody = try encode(body)
         return try await performRequest(
-            pathSegments: ["password", "verify-reset"],
+            pathSegments: [GVOAppConstants.pathSegmentPassword, GVOAppConstants.pathSegmentVerifyReset],
             method: .post,
             body: requestBody
         )
@@ -275,7 +276,7 @@ final class RealAPI: Networking {
     func logoutUser(sessionManagementToken: String) async throws -> Data {
         // This is a POST request, no body, with auth.
         return try await performRequest(
-            pathSegments: ["logout"],
+            pathSegments: [GVOAppConstants.pathSegmentLogout],
             method: .post,
             authToken: sessionManagementToken
         )
@@ -285,7 +286,7 @@ final class RealAPI: Networking {
     func deleteUser(sessionManagementToken: String) async throws -> Data {
         // This is a POST request, no body, with auth.
         return try await performRequest(
-            pathSegments: ["user", "delete"],
+            pathSegments: [GVOAppConstants.pathSegmentUser, GVOAppConstants.pathSegmentDelete],
             method: .post,
             authToken: sessionManagementToken
         )
@@ -298,7 +299,7 @@ final class RealAPI: Networking {
         let requestBody = try encode(body)
         
         return try await performRequest(
-            pathSegments: ["verify-identity"],
+            pathSegments: [GVOAppConstants.pathSegmentVerifyIdentity],
             method: .post,
             body: requestBody,
             authToken: sessionManagementToken
@@ -309,7 +310,7 @@ final class RealAPI: Networking {
     func followUser(sessionManagementToken: String, username: String) async throws -> Data {
         // This is a POST request, no body, with auth. Username is in path.
         return try await performRequest(
-            pathSegments: ["users", username, "follow"],
+            pathSegments: [GVOAppConstants.pathSegmentUser, username, GVOAppConstants.pathSegmentFollow],
             method: .post,
             authToken: sessionManagementToken
         )
@@ -319,7 +320,7 @@ final class RealAPI: Networking {
     func unfollowUser(sessionManagementToken: String, username: String) async throws -> Data {
         // This is a POST request, no body, with auth. Username is in path.
         return try await performRequest(
-            pathSegments: ["users", username, "unfollow"],
+            pathSegments: [GVOAppConstants.pathSegmentUsers, username, GVOAppConstants.pathSegmentUnfollow],
             method: .post,
             authToken: sessionManagementToken
         )
@@ -334,7 +335,7 @@ final class RealAPI: Networking {
         // But `toggle_block` view URL was added as: `path('users/<str:username_to_toggle_block>/block/', views.toggle_block, name='toggle_block')`
         // So the path segments should be ["users", username, "block"]
         return try await performRequest(
-            pathSegments: ["users", username, "block"],
+            pathSegments: [GVOAppConstants.pathSegmentUsers, username, GVOAppConstants.pathSegmentBlock],
             method: .post,
             authToken: sessionManagementToken
         )
@@ -348,7 +349,7 @@ final class RealAPI: Networking {
         let requestBody = try encode(body)
         
         return try await performRequest(
-            pathSegments: ["posts", "create"],
+            pathSegments: [GVOAppConstants.pathSegmentPosts, GVOAppConstants.pathSegmentCreate],
             method: .post,
             body: requestBody,
             authToken: sessionManagementToken
@@ -359,7 +360,7 @@ final class RealAPI: Networking {
     func deletePost(sessionManagementToken: String, postIdentifier: String) async throws -> Data {
         // This is a POST request, no body, with auth. ID is in path.
         return try await performRequest(
-            pathSegments: ["posts", postIdentifier, "delete"],
+            pathSegments: [GVOAppConstants.pathSegmentPosts, postIdentifier, GVOAppConstants.pathSegmentDelete],
             method: .post,
             authToken: sessionManagementToken
         )
@@ -371,7 +372,7 @@ final class RealAPI: Networking {
         let requestBody = try encode(body)
         
         return try await performRequest(
-            pathSegments: ["posts", postIdentifier, "report"],
+            pathSegments: [GVOAppConstants.pathSegmentPosts, postIdentifier, GVOAppConstants.pathSegmentReport],
             method: .post,
             body: requestBody,
             authToken: sessionManagementToken
@@ -382,7 +383,7 @@ final class RealAPI: Networking {
     func likePost(sessionManagementToken: String, postIdentifier: String) async throws -> Data {
         // This is a POST request, no body, with auth. ID is in path.
         return try await performRequest(
-            pathSegments: ["posts", postIdentifier, "like"],
+            pathSegments: [GVOAppConstants.pathSegmentPosts, postIdentifier, GVOAppConstants.pathSegmentLike],
             method: .post,
             authToken: sessionManagementToken
         )
@@ -392,7 +393,7 @@ final class RealAPI: Networking {
     func unlikePost(sessionManagementToken: String, postIdentifier: String) async throws -> Data {
         // This is a POST request, no body, with auth. ID is in path.
         return try await performRequest(
-            pathSegments: ["posts", postIdentifier, "unlike"],
+            pathSegments: [GVOAppConstants.pathSegmentPosts, postIdentifier,  GVOAppConstants.pathSegmentUnlike],
             method: .post,
             authToken: sessionManagementToken
         )
@@ -402,7 +403,7 @@ final class RealAPI: Networking {
     func getPostsInFeed(sessionManagementToken: String, batch: Int) async throws -> Data {
         // This is a GET request, no body, with auth. Batch is in path.
         return try await performRequest(
-            pathSegments: ["feed", String(batch)],
+            pathSegments: [GVOAppConstants.pathSregmenFeed, String(batch)],
             method: .get,
             authToken: sessionManagementToken
         )
@@ -412,7 +413,7 @@ final class RealAPI: Networking {
     func getPostsForFollowedUsers(sessionManagementToken: String, batch: Int) async throws -> Data {
         // This is a GET request, no body, with auth. Batch is in path.
         return try await performRequest(
-            pathSegments: ["feed", "followed", String(batch)],
+            pathSegments: [ GVOAppConstants.pathSregmenFeed, GVOAppConstants.pathSegmentFollowed, String(batch)],
             method: .get,
             authToken: sessionManagementToken
         )
@@ -423,7 +424,7 @@ final class RealAPI: Networking {
     func getPostsForUser(sessionManagementToken: String, username: String, batch: Int) async throws -> Data {
         // This is a GET request, no body, with auth. Username/Batch are in path.
         return try await performRequest(
-            pathSegments: ["users", username, "posts", String(batch)],
+            pathSegments: [GVOAppConstants.pathSegmentUsers, username, GVOAppConstants.pathSegmentPosts, String(batch)],
             method: .get,
             authToken: sessionManagementToken
         )
@@ -433,7 +434,7 @@ final class RealAPI: Networking {
     func getPostDetails(sessionManagementToken: String, postIdentifier: String) async throws -> Data {
         // Authenticated GET so the response can include the current user's like state. ID is in path.
         return try await performRequest(
-            pathSegments: ["posts", postIdentifier, "details"],
+            pathSegments: [GVOAppConstants.pathSegmentPosts, postIdentifier, GVOAppConstants.pathSegmentDetails],
             method: .get,
             authToken: sessionManagementToken
         )
@@ -447,7 +448,7 @@ final class RealAPI: Networking {
         let requestBody = try encode(body)
         
         return try await performRequest(
-            pathSegments: ["posts", postIdentifier, "comment"],
+            pathSegments: [GVOAppConstants.pathSegmentPosts, postIdentifier, GVOAppConstants.pathSegmentComments],
             method: .post,
             body: requestBody,
             authToken: sessionManagementToken
@@ -458,7 +459,7 @@ final class RealAPI: Networking {
     func likeComment(sessionManagementToken: String, postIdentifier: String, commentThreadIdentifier: String, commentIdentifier: String) async throws -> Data {
         // This is a POST request, no body, with auth. IDs are in path.
         return try await performRequest(
-            pathSegments: ["posts", postIdentifier, "threads", commentThreadIdentifier, "comments", commentIdentifier, "like"],
+            pathSegments: [GVOAppConstants.pathSegmentPosts, postIdentifier, GVOAppConstants.pathSegmentThreads, commentThreadIdentifier, GVOAppConstants.pathSegmentComments, commentIdentifier, GVOAppConstants.pathSegmentLike],
             method: .post,
             authToken: sessionManagementToken
         )
@@ -468,7 +469,7 @@ final class RealAPI: Networking {
     func unlikeComment(sessionManagementToken: String, postIdentifier: String, commentThreadIdentifier: String, commentIdentifier: String) async throws -> Data {
         // This is a POST request, no body, with auth. IDs are in path.
         return try await performRequest(
-            pathSegments: ["posts", postIdentifier, "threads", commentThreadIdentifier, "comments", commentIdentifier, "unlike"],
+            pathSegments: [GVOAppConstants.pathSegmentPosts, postIdentifier, GVOAppConstants.pathSegmentThreads, commentThreadIdentifier, GVOAppConstants.pathSegmentComments, commentIdentifier, GVOAppConstants.pathSegmentUnlike],
             method: .post,
             authToken: sessionManagementToken
         )
@@ -478,7 +479,7 @@ final class RealAPI: Networking {
     func deleteComment(sessionManagementToken: String, postIdentifier: String, commentThreadIdentifier: String, commentIdentifier: String) async throws -> Data {
         // This is a POST request, no body, with auth. IDs are in path.
         return try await performRequest(
-            pathSegments: ["posts", postIdentifier, "threads", commentThreadIdentifier, "comments", commentIdentifier, "delete"],
+            pathSegments: [GVOAppConstants.pathSegmentPosts, postIdentifier, GVOAppConstants.pathSegmentThreads, commentThreadIdentifier, GVOAppConstants.pathSegmentComments, commentIdentifier, GVOAppConstants.pathSegmentDelete],
             method: .post,
             authToken: sessionManagementToken
         )
@@ -490,7 +491,7 @@ final class RealAPI: Networking {
         let requestBody = try encode(body)
         
         return try await performRequest(
-            pathSegments: ["posts", postIdentifier, "threads", commentThreadIdentifier, "comments", commentIdentifier, "report"],
+            pathSegments: [GVOAppConstants.pathSegmentPosts, postIdentifier, GVOAppConstants.pathSegmentThreads, commentThreadIdentifier, GVOAppConstants.pathSegmentComments, commentIdentifier, GVOAppConstants.pathSegmentReport],
             method: .post,
             body: requestBody,
             authToken: sessionManagementToken
@@ -501,7 +502,7 @@ final class RealAPI: Networking {
     func getCommentsForPost(sessionManagementToken: String, postIdentifier: String, batch: Int) async throws -> Data {
         // Authenticated GET. ID/Batch are in path.
         return try await performRequest(
-            pathSegments: ["posts", postIdentifier, "comments", String(batch)],
+            pathSegments: [GVOAppConstants.pathSegmentPosts, postIdentifier, GVOAppConstants.pathSegmentComments, String(batch)],
             method: .get,
             authToken: sessionManagementToken
         )
@@ -511,7 +512,7 @@ final class RealAPI: Networking {
     func getCommentsForThread(sessionManagementToken: String, commentThreadIdentifier: String, batch: Int) async throws -> Data {
         // Authenticated GET so each comment can include the current user's like state. ID/Batch are in path.
         return try await performRequest(
-            pathSegments: ["threads", commentThreadIdentifier, "comments", String(batch)],
+            pathSegments: [GVOAppConstants.pathSegmentThreads, commentThreadIdentifier, GVOAppConstants.pathSegmentComments, String(batch)],
             method: .get,
             authToken: sessionManagementToken
         )
@@ -523,7 +524,7 @@ final class RealAPI: Networking {
         let requestBody = try encode(body)
         
         return try await performRequest(
-            pathSegments: ["posts", postIdentifier, "threads", commentThreadIdentifier, "reply"],
+            pathSegments: [GVOAppConstants.pathSegmentPosts, postIdentifier, GVOAppConstants.pathSegmentThreads, commentThreadIdentifier, GVOAppConstants.pathSegmentReply],
             method: .post,
             body: requestBody,
             authToken: sessionManagementToken
@@ -536,7 +537,7 @@ final class RealAPI: Networking {
     func getUsersMatchingFragment(sessionManagementToken: String, usernameFragment: String) async throws -> Data {
         // This is a GET request, no body, with auth. Fragment is in path.
         return try await performRequest(
-            pathSegments: ["users", "search", usernameFragment],
+            pathSegments: [GVOAppConstants.pathSegmentUsers, GVOAppConstants.pathSegmenSearch, usernameFragment],
             method: .get,
             authToken: sessionManagementToken
         )
@@ -546,7 +547,7 @@ final class RealAPI: Networking {
     func getProfileDetails(sessionManagementToken: String, username: String) async throws -> Data {
         // This is a GET request, no body, with auth. Username is in path.
         return try await performRequest(
-            pathSegments: ["users", username, "profile"],
+            pathSegments: [GVOAppConstants.pathSegmentUsers, username, GVOAppConstants.pathSegmenProfile],
             method: .get,
             authToken: sessionManagementToken
         )
