@@ -181,9 +181,10 @@ fun PostDetailScreen(
                             Divider(modifier = Modifier.padding(vertical = 16.dp))
                             
                             // Add Comment Section
+                            val newCommentText by viewModel.newCommentText.collectAsState()
                             Row(verticalAlignment = Alignment.CenterVertically) {
                                 TextField(
-                                    value = viewModel.newCommentText.collectAsState().value,
+                                    value = newCommentText,
                                     onValueChange = { viewModel.updateNewCommentText(it) },
                                     placeholder = { Text("Add a comment...") },
                                     modifier = Modifier.weight(1f),
@@ -192,8 +193,8 @@ fun PostDetailScreen(
                                     keyboardActions = KeyboardActions(onDone = { focusManager.clearFocus() })
                                 )
                                 Button(
-                                    onClick = { viewModel.commentOnPost(viewModel.newCommentText.value) },
-                                    enabled = viewModel.newCommentText.collectAsState().value.isNotEmpty(),
+                                    onClick = { viewModel.commentOnPost(newCommentText) },
+                                    enabled = newCommentText.isNotEmpty(),
                                     modifier = Modifier.padding(start = 8.dp)
                                 ) {
                                     Text("Post")
@@ -369,18 +370,17 @@ fun ReportDialog(onDismiss: () -> Unit, onSubmit: (String) -> Unit) {
 @Composable
 fun ReplyDialog(thread: CommentThreadViewData, onDismiss: () -> Unit, onSubmit: (String) -> Unit) {
     var text by remember { mutableStateOf("") }
-    val focusManager = LocalFocusManager.current
     AlertDialog(
         onDismissRequest = onDismiss,
         title = { Text("Reply to ${thread.comments.firstOrNull()?.authorUsername ?: "Comment"}") },
         text = {
+            // A reply can span multiple lines, so this stays multiline (Enter
+            // inserts a newline). The dialog's Send/Cancel buttons remain
+            // reachable above the keyboard, so no Done-to-dismiss is needed.
             TextField(
                 value = text,
                 onValueChange = { text = it },
-                placeholder = { Text("Your reply...") },
-                singleLine = true,
-                keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
-                keyboardActions = KeyboardActions(onDone = { focusManager.clearFocus() })
+                placeholder = { Text("Your reply...") }
             )
         },
         confirmButton = {
