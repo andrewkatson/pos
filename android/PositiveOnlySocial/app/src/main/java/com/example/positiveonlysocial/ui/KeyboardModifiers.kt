@@ -21,7 +21,9 @@ import androidx.compose.ui.platform.LocalFocusManager
 @Composable
 fun Modifier.dismissKeyboardOnTap(): Modifier {
     val focusManager = LocalFocusManager.current
-    return this.pointerInput(Unit) {
+    // Key on focusManager so the gesture block restarts with the current
+    // instance if the composition's LocalFocusManager ever changes.
+    return this.pointerInput(focusManager) {
         detectTapGestures(onTap = { focusManager.clearFocus() })
     }
 }

@@ -12,14 +12,21 @@ import SwiftUI
 #if canImport(UIKit)
 import UIKit
 
+/// Resigns the current first responder, putting the software keyboard away.
+/// Single source of truth for the dismissal so the tap and submit paths can't
+/// diverge.
+private func resignFirstResponder() {
+    UIApplication.shared.sendAction(
+        #selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil)
+}
+
 extension View {
-    /// Resigns the current first responder, putting the software keyboard away.
+    /// Dismisses the software keyboard.
     ///
     /// Handy from an `.onSubmit { hideKeyboard() }` handler so that pressing the
     /// keyboard's return/Done key finishes editing.
     func hideKeyboard() {
-        UIApplication.shared.sendAction(
-            #selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil)
+        resignFirstResponder()
     }
 
     /// Adds a tap gesture across the receiver's bounds that dismisses the
@@ -32,10 +39,7 @@ extension View {
     /// `.onSubmit { hideKeyboard() }` with `.scrollDismissesKeyboard` instead.
     func dismissKeyboardOnTap() -> some View {
         contentShape(Rectangle())
-            .onTapGesture {
-                UIApplication.shared.sendAction(
-                    #selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil)
-            }
+            .onTapGesture { resignFirstResponder() }
     }
 }
 #endif

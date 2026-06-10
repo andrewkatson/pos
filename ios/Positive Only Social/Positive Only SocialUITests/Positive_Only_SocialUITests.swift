@@ -500,7 +500,9 @@ final class Positive_Only_SocialUITests: XCTestCase {
 
     /// Issue #205: tapping anywhere outside a text field should dismiss the
     /// keyboard so the buttons it was covering (Register, Login, …) become
-    /// reachable again. Exercised on the Register screen, which needs no backend.
+    /// reachable again. Exercised on the Register screen; the dismissal itself
+    /// is purely a UI behavior, though the test first clears any signed-in
+    /// state via `ifOnHomeDeleteAccount` to reach the Welcome → Register flow.
     @MainActor
     func testTappingOutsideFieldDismissesKeyboard() throws {
         try ifOnHomeDeleteAccount(app: app)
