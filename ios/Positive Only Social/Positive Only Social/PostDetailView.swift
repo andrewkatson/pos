@@ -97,8 +97,9 @@ struct PostDetailView: View {
                     
                     Section {
                         HStack {
-                            TextField("Add a comment...", text: $viewModel.newCommentText).accessibilityIdentifier("AddACommentTextFieldToPost")
-                            
+                            TextField("Add a comment...", text: $viewModel.newCommentText)
+                                .accessibilityIdentifier("AddACommentTextFieldToPost")
+
                             Button("Post") {
                                 viewModel.commentOnPost(commentText: viewModel.newCommentText)
                             }
@@ -126,6 +127,8 @@ struct PostDetailView: View {
         }
         .navigationTitle("Post")
         .navigationBarTitleDisplayMode(.inline)
+        .scrollDismissesKeyboard(.immediately)
+        .onSubmit { hideKeyboard() }
         .refreshable {
             // Pull-to-refresh: reload the post details and comments from the backend.
             await viewModel.refresh()
@@ -169,9 +172,10 @@ struct PostDetailView: View {
             NavigationView {
                 Form {
                     Section(header: Text("Provide a Reason")) {
-                        TextField("Reason for reporting...", text: $reason).accessibilityIdentifier("ProvideAReasonTextField")
+                        TextField("Reason for reporting...", text: $reason)
+                            .accessibilityIdentifier("ProvideAReasonTextField")
                     }
-                    
+
                     Button("Submit Report") {
                         if !reason.isEmpty {
                             onSubmit(reason)
@@ -182,6 +186,8 @@ struct PostDetailView: View {
                     .accessibilityIdentifier("SubmitReportButton")
                 }
                 .navigationTitle("Report Item")
+                .scrollDismissesKeyboard(.immediately)
+                .onSubmit { hideKeyboard() }
                 .navigationBarItems(leading: Button("Cancel") {
                     dismiss()
                 })
@@ -301,8 +307,9 @@ struct PostDetailView: View {
                                    })
                     Section {
                         HStack {
-                            TextField("Add a comment...", text: $viewModel.newCommentText).accessibilityIdentifier("AddACommentTextFieldToThread")
-                            
+                            TextField("Add a comment...", text: $viewModel.newCommentText)
+                                .accessibilityIdentifier("AddACommentTextFieldToThread")
+
                             Button("Reply") {
                                 // This sets the @Published var, triggering the sheet
                                 viewModel.threadToReplyTo = thread
@@ -366,6 +373,7 @@ struct PostDetailView: View {
                 }
                 .navigationTitle("Post Reply")
                 .navigationBarTitleDisplayMode(.inline)
+                .scrollDismissesKeyboard(.immediately)
                 .toolbar {
                     ToolbarItem(placement: .cancellationAction) {
                         Button("Cancel") {

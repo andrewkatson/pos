@@ -33,7 +33,7 @@ struct RequestResetView: View {
                         .disableAutocorrection(true)
                         .accessibilityIdentifier("UsernameOrEmailTextField")
                 }
-                
+
                 Button("Request Reset") {
                     Task {
                         await performRequestReset()
@@ -43,7 +43,9 @@ struct RequestResetView: View {
                 .accessibilityIdentifier("RequestResetButton")
             }
             .navigationTitle("Reset Password")
-            
+            .scrollDismissesKeyboard(.immediately)
+            .onSubmit { hideKeyboard() }
+
             if isLoading {
                 ProgressView()
                     .progressViewStyle(.circular)

@@ -497,6 +497,41 @@ final class Positive_Only_SocialUITests: XCTestCase {
     }
 
     // MARK: Tests
+
+    /// Issue #205: tapping anywhere outside a text field should dismiss the
+    /// keyboard so the buttons it was covering (Register, Login, …) become
+    /// reachable again. Exercised on the Register screen, which needs no backend.
+    @MainActor
+    func testTappingOutsideFieldDismissesKeyboard() throws {
+        try ifOnHomeDeleteAccount(app: app)
+
+        // Navigate to the Register screen.
+        let welcomeText = app.staticTexts["Welcome! 👋"]
+        XCTAssertTrue(welcomeText.waitForExistence(timeout: TestConstants.shortTimeout),
+                      "Welcome view did not appear")
+        let registerButton = app.buttons["RegisterText"]
+        XCTAssertTrue(registerButton.waitForExistence(timeout: TestConstants.shortTimeout))
+        registerButton.tap()
+        assertOnRegisterView(app: app)
+
+        // Focus a field so the keyboard appears.
+        let usernameField = app.textFields["UsernameTextField"]
+        XCTAssertTrue(usernameField.waitForExistence(timeout: TestConstants.shortTimeout))
+        usernameField.tap()
+        XCTAssertTrue(app.keyboards.firstMatch.waitForExistence(timeout: TestConstants.shortTimeout),
+                      "Keyboard should appear when a text field is focused")
+
+        // Tap a non-interactive area outside any field (the screen title, which
+        // sits inside the tappable container). The keyboard should dismiss.
+        let title = app.staticTexts["Create Account"]
+        XCTAssertTrue(title.waitForExistence(timeout: TestConstants.shortTimeout))
+        title.tap()
+
+        let keyboardGone = NSPredicate(format: "count == 0")
+        expectation(for: keyboardGone, evaluatedWith: app.keyboards, handler: nil)
+        waitForExpectations(timeout: TestConstants.timeout, handler: nil)
+    }
+
     @MainActor
     func testAutomaticLoginAfterRememberMe() throws {
         

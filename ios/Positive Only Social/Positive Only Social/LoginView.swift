@@ -42,6 +42,8 @@ struct LoginView: View {
             Spacer()
         }
         .padding()
+        .dismissKeyboardOnTap()
+        .onSubmit { hideKeyboard() }
         .navigationTitle("Login")
         .navigationDestination(for: String.self) { routeName in if routeName == "RequestResetView" { RequestResetView(api: api, keychainHelper: keychainHelper) } }
         .alert("Login Failed", isPresented: $showingErrorAlert) { Button("OK") {}.accessibilityIdentifier("LoginFailedOkButton") } message: { Text(errorMessage ?? "An unknown error occurred.") }

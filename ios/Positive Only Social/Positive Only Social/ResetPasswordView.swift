@@ -71,6 +71,8 @@ struct ResetPasswordView: View {
                 .accessibilityIdentifier("ResetPasswordAndLoginButton")
             }
             .navigationTitle("Set New Password")
+            .scrollDismissesKeyboard(.immediately)
+            .onSubmit { hideKeyboard() }
             .onAppear {
                 if usernameOrEmail.contains("@") {
                     self.email = usernameOrEmail

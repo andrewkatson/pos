@@ -137,6 +137,8 @@ struct RegisterView: View {
             }
         }
         .padding()
+        .dismissKeyboardOnTap()
+        .onSubmit { hideKeyboard() }
         .navigationTitle("Register")
         .navigationBarTitleDisplayMode(.inline)
         .alert("Registration Failed", isPresented: $showingErrorAlert) {
