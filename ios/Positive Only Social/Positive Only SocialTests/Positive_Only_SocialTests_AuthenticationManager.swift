@@ -17,7 +17,7 @@ struct Positive_Only_SocialTests_AuthenticationManager {
     // --- Test Fixtures ---
     
     // Use the same constants as the SUT to interact with the same keychain items
-    private let keychainService = AppConstants.keychainService
+    private let keychainService = GVOAppConstants.keychainService
     private let userSessionAccount = "userSessionToken"
     
     // A helper to access the keychain for setup/teardown

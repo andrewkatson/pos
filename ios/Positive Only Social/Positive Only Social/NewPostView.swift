@@ -119,9 +119,9 @@ struct NewPostView: View {
                 // 1. LOAD SESSION (needed for the scoped S3 key)
                 let userSession: UserSession
                 if isTesting() {
-                    userSession = try keychainHelper.load(UserSession.self, from: AppConstants.keychainService, account: "userSessionToken") ?? UserSession(sessionToken: "123", username: "test", userId: "", isIdentityVerified: false)
+                    userSession = try keychainHelper.load(UserSession.self, from: GVOAppConstants.keychainService, account: "userSessionToken") ?? UserSession(sessionToken: "123", username: "test", userId: "", isIdentityVerified: false)
                 } else {
-                    guard let loaded = try keychainHelper.load(UserSession.self, from: AppConstants.keychainService, account: "userSessionToken") else {
+                    guard let loaded = try keychainHelper.load(UserSession.self, from: GVOAppConstants.keychainService, account: "userSessionToken") else {
                         failureAlertMessage = "You must be logged in to post."
                         isLoading = false
                         showFailureAlert = true
