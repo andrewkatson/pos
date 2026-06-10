@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from '@testing-library/react'
+import { render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { MemoryRouter, Routes, Route } from 'react-router-dom'
 import { vi, beforeEach, afterEach, test, expect } from 'vitest'
@@ -14,11 +14,13 @@ vi.mock('../api/client', () => ({
     likePost: vi.fn(),
     unlikePost: vi.fn(),
     reportPost: vi.fn(),
+    deletePost: vi.fn(),
     commentOnPost: vi.fn(),
     replyToCommentThread: vi.fn(),
     likeComment: vi.fn(),
     unlikeComment: vi.fn(),
     reportComment: vi.fn(),
+    deleteComment: vi.fn(),
   },
 }))
 
@@ -28,6 +30,8 @@ const mockGetThreadRefs = vi.mocked(apiClient.getCommentsForPost)
 const mockGetThreadComments = vi.mocked(apiClient.getCommentsForThread)
 const mockLikePost = vi.mocked(apiClient.likePost)
 const mockCommentOnPost = vi.mocked(apiClient.commentOnPost)
+const mockDeletePost = vi.mocked(apiClient.deletePost)
+const mockDeleteComment = vi.mocked(apiClient.deleteComment)
 
 const post: PostDetails = {
   post_identifier: 'p1',
@@ -76,6 +80,8 @@ beforeEach(() => {
     comment_thread_identifier: 't1',
     comment_identifier: 'c9',
   })
+  mockDeletePost.mockReset().mockResolvedValue({ message: 'ok' })
+  mockDeleteComment.mockReset().mockResolvedValue({ message: 'ok' })
 })
 
 afterEach(() => {
@@ -191,6 +197,48 @@ test('still shows the post when only the comments fail to load', async () => {
   expect(await screen.findByText('sunshine')).toBeInTheDocument()
   expect(screen.queryByText('Post not found.')).not.toBeInTheDocument()
   expect(await screen.findByText('Failed to load comments.')).toBeInTheDocument()
+})
+
+test('own post shows Delete instead of Report, and deleting navigates away', async () => {
+  // The signed-in user authored the post, so they can't report it.
+  localStorage.setItem('username', 'ada')
+  renderDetail()
+  await screen.findByText('sunshine')
+  // No Report control on your own post (issue: can't report your own post).
+  expect(screen.queryByRole('button', { name: 'Report' })).not.toBeInTheDocument()
+
+  await userEvent.click(screen.getByRole('button', { name: 'Delete' }))
+  // Confirm in the modal.
+  await userEvent.click(screen.getByRole('dialog', { name: 'Delete item' }).querySelector('.modal__confirm')!)
+  await waitFor(() => expect(mockDeletePost).toHaveBeenCalledWith('p1'))
+})
+
+test('other users’ post still shows Report, not Delete', async () => {
+  // The post is by 'ada'; the signed-in user is someone else.
+  localStorage.setItem('username', 'someone-else')
+  renderDetail()
+  await screen.findByText('sunshine')
+  expect(screen.getByRole('button', { name: 'Report' })).toBeInTheDocument()
+  expect(screen.queryByRole('button', { name: 'Delete' })).not.toBeInTheDocument()
+})
+
+test('own comment shows Delete instead of Report, and deleting reloads', async () => {
+  // The signed-in user authored the comment (bob), so they can't report it.
+  // The post is by 'ada', so it keeps its own Report control.
+  localStorage.setItem('username', 'bob')
+  mockGetThreadRefs.mockResolvedValue([{ comment_thread_identifier: 't1' }])
+  mockGetThreadComments.mockResolvedValue([comment])
+  renderDetail()
+  await screen.findByText('love this')
+
+  // Scope to the comment row: it offers Delete, not Report.
+  const commentRow = screen.getByText('love this').closest('.comment-row') as HTMLElement
+  expect(within(commentRow).getByRole('button', { name: 'Delete' })).toBeInTheDocument()
+  expect(within(commentRow).queryByRole('button', { name: 'Report' })).not.toBeInTheDocument()
+
+  await userEvent.click(within(commentRow).getByRole('button', { name: 'Delete' }))
+  await userEvent.click(screen.getByRole('dialog', { name: 'Delete item' }).querySelector('.modal__confirm')!)
+  await waitFor(() => expect(mockDeleteComment).toHaveBeenCalledWith('p1', 't1', 'c1'))
 })
 
 test('redirects to login when unauthenticated', () => {

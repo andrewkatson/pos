@@ -26,6 +26,7 @@ interface ThreadView {
 }
 
 type ReportTarget = { type: 'post' } | { type: 'comment'; comment: CommentView }
+type DeleteTarget = { type: 'post' } | { type: 'comment'; comment: CommentView }
 
 /**
  * Full post view: image, like count, caption, and threaded comments with
@@ -78,6 +79,7 @@ function PostDetailView({ postId }: { postId: string }) {
   const [replyTarget, setReplyTarget] = useState<ThreadView | null>(null)
   const [reportTarget, setReportTarget] = useState<ReportTarget | null>(null)
   const [reportReason, setReportReason] = useState('')
+  const [deleteTarget, setDeleteTarget] = useState<DeleteTarget | null>(null)
   const [errorMessage, setErrorMessage] = useState<string | null>(null)
 
   // Local like/report state, kept in refs so the in-app reload after posting a
@@ -311,6 +313,29 @@ function PostDetailView({ postId }: { postId: string }) {
     }
   }
 
+  // ---- Deleting (own content only) ----
+
+  async function submitDelete() {
+    const target = deleteTarget
+    if (!target) return
+    try {
+      if (target.type === 'post') {
+        await apiClient.deletePost(postId)
+        // The post no longer exists; leave the detail view for the feed.
+        setDeleteTarget(null)
+        navigate('/')
+        return
+      }
+      await apiClient.deleteComment(postId, target.comment.threadId, target.comment.id)
+      // Reload so the deleted comment disappears from its thread.
+      await loadAll()
+    } catch (err) {
+      setErrorMessage((err as Error).message ?? 'Failed to delete.')
+    } finally {
+      setDeleteTarget(null)
+    }
+  }
+
   if (isLoading && !post) {
     return (
       <div className="app-shell">
@@ -377,17 +402,29 @@ function PostDetailView({ postId }: { postId: string }) {
               ⚑
             </span>
           )}
-          <button
-            type="button"
-            className="app-bar__back"
-            style={{ marginLeft: 'auto' }}
-            onClick={() => {
-              setReportReason('')
-              setReportTarget({ type: 'post' })
-            }}
-          >
-            Report
-          </button>
+          {/* You can't report your own post — own posts offer Delete instead. */}
+          {isOwnPost ? (
+            <button
+              type="button"
+              className="app-bar__back"
+              style={{ marginLeft: 'auto' }}
+              onClick={() => setDeleteTarget({ type: 'post' })}
+            >
+              Delete
+            </button>
+          ) : (
+            <button
+              type="button"
+              className="app-bar__back"
+              style={{ marginLeft: 'auto' }}
+              onClick={() => {
+                setReportReason('')
+                setReportTarget({ type: 'post' })
+              }}
+            >
+              Report
+            </button>
+          )}
         </div>
 
         <p className="detail-caption">
@@ -449,6 +486,7 @@ function PostDetailView({ postId }: { postId: string }) {
                       setReportReason('')
                       setReportTarget({ type: 'comment', comment: root })
                     }}
+                    onDelete={() => setDeleteTarget({ type: 'comment', comment: root })}
                     onNavigate={() =>
                       navigate(`/profile/${encodeURIComponent(root.authorUsername)}`)
                     }
@@ -475,6 +513,7 @@ function PostDetailView({ postId }: { postId: string }) {
                           setReportReason('')
                           setReportTarget({ type: 'comment', comment: reply })
                         }}
+                        onDelete={() => setDeleteTarget({ type: 'comment', comment: reply })}
                         onNavigate={() =>
                           navigate(`/profile/${encodeURIComponent(reply.authorUsername)}`)
                         }
@@ -560,6 +599,29 @@ function PostDetailView({ postId }: { postId: string }) {
           </div>
         </div>
       )}
+
+      {deleteTarget && (
+        <div className="modal-overlay">
+          <div className="modal" role="dialog" aria-modal="true" aria-label="Delete item">
+            <h2 className="modal__title">
+              Delete {deleteTarget.type === 'post' ? 'Post' : 'Comment'}?
+            </h2>
+            <p className="muted">This can’t be undone.</p>
+            <div className="modal__actions">
+              <button
+                type="button"
+                className="modal__cancel"
+                onClick={() => setDeleteTarget(null)}
+              >
+                Cancel
+              </button>
+              <button type="button" className="modal__confirm" onClick={submitDelete}>
+                Delete
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }
@@ -579,10 +641,11 @@ interface CommentRowProps {
   comment: CommentView
   onToggleLike: () => void
   onReport: () => void
+  onDelete: () => void
   onNavigate: () => void
 }
 
-function CommentRow({ comment, onToggleLike, onReport, onNavigate }: CommentRowProps) {
+function CommentRow({ comment, onToggleLike, onReport, onDelete, onNavigate }: CommentRowProps) {
   return (
     <div className="comment-row">
       <span className="comment-row__avatar" aria-hidden="true">
@@ -613,9 +676,16 @@ function CommentRow({ comment, onToggleLike, onReport, onNavigate }: CommentRowP
             </button>
           )}
           <span>{comment.likeCount} likes</span>
-          <button type="button" className="comment-reply-btn" style={{ padding: 0 }} onClick={onReport}>
-            Report
-          </button>
+          {/* You can't report your own comment — own comments offer Delete. */}
+          {comment.isOwn ? (
+            <button type="button" className="comment-reply-btn" style={{ padding: 0 }} onClick={onDelete}>
+              Delete
+            </button>
+          ) : (
+            <button type="button" className="comment-reply-btn" style={{ padding: 0 }} onClick={onReport}>
+              Report
+            </button>
+          )}
           {comment.isReported && (
             <span className="flag-icon" aria-label="Reported">
               ⚑

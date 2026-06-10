@@ -52,6 +52,26 @@ class PostDetailViewModel(
     private val _commentToReport = MutableStateFlow<CommentViewData?>(null)
     val commentToReport: StateFlow<CommentViewData?> = _commentToReport.asStateFlow()
 
+    // Drives the long-press action menu for the post. The menu offers either
+    // "Report" (others' posts) or "Delete" (the user's own post) — never both,
+    // so you can't report your own content.
+    private val _showActionSheetForPost = MutableStateFlow(false)
+    val showActionSheetForPost: StateFlow<Boolean> = _showActionSheetForPost.asStateFlow()
+
+    // The comment whose long-press action menu is showing, if any.
+    private val _commentForAction = MutableStateFlow<CommentViewData?>(null)
+    val commentForAction: StateFlow<CommentViewData?> = _commentForAction.asStateFlow()
+
+    // Set once the post has been deleted so the screen can pop back — the post
+    // no longer exists to display.
+    private val _postWasDeleted = MutableStateFlow(false)
+    val postWasDeleted: StateFlow<Boolean> = _postWasDeleted.asStateFlow()
+
+    // Ids of comments the user has reported this session, so the reported flag
+    // stays shown after a successful report (the backend doesn't echo it back).
+    private val _reportedCommentIds = MutableStateFlow<Set<String>>(emptySet())
+    val reportedCommentIds: StateFlow<Set<String>> = _reportedCommentIds.asStateFlow()
+
     private val _newCommentText = MutableStateFlow("")
     val newCommentText: StateFlow<String> = _newCommentText.asStateFlow()
 
@@ -84,6 +104,14 @@ class PostDetailViewModel(
 
     fun setCommentToReport(comment: CommentViewData?) {
         _commentToReport.value = comment
+    }
+
+    fun setShowActionSheetForPost(show: Boolean) {
+        _showActionSheetForPost.value = show
+    }
+
+    fun setCommentForAction(comment: CommentViewData?) {
+        _commentForAction.value = comment
     }
 
     fun dismissAlert() {
@@ -271,6 +299,58 @@ class PostDetailViewModel(
         }
     }
 
+    /**
+     * Deletes the user's own post, then signals the screen to pop back since the
+     * post no longer exists. Only reachable from the action menu on an own post.
+     */
+    fun deletePost() {
+        viewModelScope.launch {
+            try {
+                val userSession = keychainHelper.load(UserSession::class.java, service, account)
+                if (userSession == null) {
+                    Log.e(TAG, "No active session found — cannot perform action")
+                    _alertMessage.value = "Not logged in."
+                    return@launch
+                }
+                val response = api.deletePost(userSession.sessionToken, postIdentifier)
+                if (response.isSuccessful) {
+                    _postWasDeleted.value = true
+                } else {
+                    _alertMessage.value = "Failed to delete post: ${response.message()}"
+                }
+            } catch (e: Exception) {
+                Log.e(TAG, "Failed to delete post", e)
+                _alertMessage.value = "Error: ${e.localizedMessage}"
+            }
+        }
+    }
+
+    /**
+     * Deletes one of the user's own comments, then reloads so it disappears from
+     * the thread. Only reachable from the action menu on an own comment.
+     */
+    fun deleteComment(comment: CommentViewData, threadId: String) {
+        viewModelScope.launch {
+            try {
+                val userSession = keychainHelper.load(UserSession::class.java, service, account)
+                if (userSession == null) {
+                    Log.e(TAG, "No active session found — cannot perform action")
+                    _alertMessage.value = "Not logged in."
+                    return@launch
+                }
+                val response = api.deleteComment(userSession.sessionToken, postIdentifier, threadId, comment.id)
+                if (response.isSuccessful) {
+                    loadAllData()
+                } else {
+                    _alertMessage.value = "Failed to delete comment: ${response.message()}"
+                }
+            } catch (e: Exception) {
+                Log.e(TAG, "Failed to delete comment", e)
+                _alertMessage.value = "Error: ${e.localizedMessage}"
+            }
+        }
+    }
+
     fun likeComment(comment: CommentViewData, threadId: String) {
         // The backend rejects liking your own comment; ignore the request.
         if (isOwnComment(comment)) return
@@ -328,6 +408,7 @@ class PostDetailViewModel(
                 }
                 val response = api.reportComment(userSession.sessionToken, postIdentifier, threadId, comment.id, ReportRequest(reason))
                 if (response.isSuccessful) {
+                    _reportedCommentIds.value = _reportedCommentIds.value + comment.id
                     _alertMessage.value = "Comment reported successfully."
                 } else {
                     _alertMessage.value = "Failed to report comment: ${response.message()}"
