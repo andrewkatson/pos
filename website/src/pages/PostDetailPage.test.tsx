@@ -209,7 +209,8 @@ test('own post shows Delete instead of Report, and deleting navigates away', asy
 
   await userEvent.click(screen.getByRole('button', { name: 'Delete' }))
   // Confirm in the modal.
-  await userEvent.click(screen.getByRole('dialog', { name: 'Delete item' }).querySelector('.modal__confirm')!)
+  const deleteDialog = screen.getByRole('dialog', { name: 'Delete item' })
+  await userEvent.click(within(deleteDialog).getByRole('button', { name: 'Delete' }))
   await waitFor(() => expect(mockDeletePost).toHaveBeenCalledWith('p1'))
 })
 
@@ -237,7 +238,8 @@ test('own comment shows Delete instead of Report, and deleting reloads', async (
   expect(within(commentRow).queryByRole('button', { name: 'Report' })).not.toBeInTheDocument()
 
   await userEvent.click(within(commentRow).getByRole('button', { name: 'Delete' }))
-  await userEvent.click(screen.getByRole('dialog', { name: 'Delete item' }).querySelector('.modal__confirm')!)
+  const deleteDialog = screen.getByRole('dialog', { name: 'Delete item' })
+  await userEvent.click(within(deleteDialog).getByRole('button', { name: 'Delete' }))
   await waitFor(() => expect(mockDeleteComment).toHaveBeenCalledWith('p1', 't1', 'c1'))
 })
 

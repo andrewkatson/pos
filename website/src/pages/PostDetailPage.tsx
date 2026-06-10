@@ -322,7 +322,7 @@ function PostDetailView({ postId }: { postId: string }) {
       if (target.type === 'post') {
         await apiClient.deletePost(postId)
         // The post no longer exists; leave the detail view for the feed.
-        setDeleteTarget(null)
+        // (the finally block clears deleteTarget)
         navigate('/')
         return
       }
