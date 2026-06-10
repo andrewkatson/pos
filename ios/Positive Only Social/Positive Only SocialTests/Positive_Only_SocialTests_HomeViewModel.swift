@@ -116,7 +116,7 @@ struct Positive_Only_SocialTests_HomeViewModel {
         try await setupLoggedInUser(username: "refreshMyPostsPullsNewest")
         let sut = HomeViewModel(api: stubAPI, keychainHelper: keychainHelper, account: "refreshMyPostsPullsNewest_account")
 
-        let session = try keychainHelper.load(UserSession.self, from: AppConstants.keychainService, account: "refreshMyPostsPullsNewest_account")
+        let session = try keychainHelper.load(UserSession.self, from: GVOAppConstants.keychainService, account: "refreshMyPostsPullsNewest_account")
         let token = session!.sessionToken
 
         // Given: One post exists and the grid has loaded once
