@@ -516,10 +516,15 @@ final class Positive_Only_SocialUITests: XCTestCase {
         registerButton.tap()
         assertOnRegisterView(app: app)
 
-        // Focus a field so the keyboard appears.
+        // Focus a field so the keyboard appears. The simulator occasionally
+        // fails to present the software keyboard on the first focus, so retry
+        // the tap once before treating it as a failure.
         let usernameField = app.textFields["UsernameTextField"]
         XCTAssertTrue(usernameField.waitForExistence(timeout: TestConstants.shortTimeout))
         usernameField.tap()
+        if !app.keyboards.firstMatch.waitForExistence(timeout: TestConstants.shortTimeout) {
+            usernameField.tap()
+        }
         XCTAssertTrue(app.keyboards.firstMatch.waitForExistence(timeout: TestConstants.shortTimeout),
                       "Keyboard should appear when a text field is focused")
 
