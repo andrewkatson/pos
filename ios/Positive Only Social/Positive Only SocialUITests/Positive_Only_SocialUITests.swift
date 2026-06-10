@@ -523,11 +523,13 @@ final class Positive_Only_SocialUITests: XCTestCase {
         XCTAssertTrue(app.keyboards.firstMatch.waitForExistence(timeout: TestConstants.shortTimeout),
                       "Keyboard should appear when a text field is focused")
 
-        // Tap a non-interactive area outside any field (the screen title, which
-        // sits inside the tappable container). The keyboard should dismiss.
-        let title = app.staticTexts["Create Account"]
-        XCTAssertTrue(title.waitForExistence(timeout: TestConstants.shortTimeout))
-        title.tap()
+        // Tap empty space outside any field — the gap just above the username
+        // field. A coordinate (resolved relative to the field at tap time) is
+        // used instead of a static element because the AutoFill accessory bar
+        // can appear asynchronously and grow the keyboard, shifting the whole
+        // layout up; a fixed element like the screen title can end up under
+        // the navigation bar where taps no longer reach the screen's content.
+        usernameField.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: -0.3)).tap()
 
         let keyboardGone = NSPredicate(format: "count == 0")
         expectation(for: keyboardGone, evaluatedWith: app.keyboards, handler: nil)
