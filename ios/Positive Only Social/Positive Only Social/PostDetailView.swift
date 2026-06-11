@@ -272,18 +272,19 @@ struct PostDetailView: View {
                 VStack(alignment: .leading, spacing: 4) {
                     // Comment body with author. Tap the author's name to open
                     // their profile, same as the post author above.
-                    NavigationLink(value: User(username: comment.authorUsername, identityIsVerified: false)) {
-                        Text(comment.authorUsername)
-                            .fontWeight(.bold)
+                    HStack(alignment: .firstTextBaseline, spacing: 4) {
+                        NavigationLink(value: User(username: comment.authorUsername, identityIsVerified: false)) {
+                            Text(comment.authorUsername)
+                                .fontWeight(.bold)
+                                .font(.subheadline)
+                        }
+                        .buttonStyle(.plain) // Keeps the text style
+                        .accessibilityIdentifier("CommentAuthor")
+                        Text(comment.body)
                             .font(.subheadline)
+                            .accessibilityIdentifier("CommentText")
+                            .accessibilityLabel(comment.body)
                     }
-                    .buttonStyle(.plain) // Keeps the text style
-                    .accessibilityIdentifier("CommentAuthor")
-                    Text(" ") 
-                    Text(comment.body)
-                        .font(.subheadline)
-                        .accessibilityIdentifier("CommentText")
-                        .accessibilityLabel(comment.body)
                     
                     // Info row
                     HStack(spacing: 16) {
