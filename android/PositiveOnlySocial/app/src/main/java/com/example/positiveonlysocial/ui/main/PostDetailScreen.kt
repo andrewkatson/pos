@@ -1,6 +1,7 @@
 package com.example.positiveonlysocial.ui.main
 
 import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
@@ -32,6 +33,7 @@ import com.example.positiveonlysocial.data.model.CommentViewData
 import com.example.positiveonlysocial.data.security.KeychainHelperProtocol
 import com.example.positiveonlysocial.models.viewmodels.PostDetailViewModel
 import com.example.positiveonlysocial.models.viewmodels.PostDetailViewModelFactory
+import com.example.positiveonlysocial.ui.navigation.Screen
 import androidx.compose.runtime.collectAsState
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.navigation.compose.rememberNavController
@@ -210,10 +212,23 @@ fun PostDetailScreen(
                             
                             Spacer(modifier = Modifier.height(8.dp))
                             
-                            Text(
-                                text = "${post.authorUsername} ${post.caption}",
-                                style = MaterialTheme.typography.bodyMedium
-                            )
+                            Row {
+                                // Tap the author's name to open their profile,
+                                // same as in the feed.
+                                Text(
+                                    text = post.authorUsername,
+                                    fontWeight = FontWeight.Bold,
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    modifier = Modifier.clickable {
+                                        navController.navigate(Screen.Profile.createRoute(post.authorUsername))
+                                    }
+                                )
+                                Spacer(modifier = Modifier.width(4.dp))
+                                Text(
+                                    text = post.caption,
+                                    style = MaterialTheme.typography.bodyMedium
+                                )
+                            }
                             
                             Divider(modifier = Modifier.padding(vertical = 16.dp))
                             
@@ -245,7 +260,14 @@ fun PostDetailScreen(
                 }
                 
                 items(commentThreads) { thread ->
-                    CommentThreadView(thread = thread, viewModel = viewModel, currentUsername = currentUsername)
+                    CommentThreadView(
+                        thread = thread,
+                        viewModel = viewModel,
+                        currentUsername = currentUsername,
+                        onAuthorClick = { username ->
+                            navController.navigate(Screen.Profile.createRoute(username))
+                        }
+                    )
                 }
             } else {
                 item {
@@ -258,7 +280,12 @@ fun PostDetailScreen(
 }
 
 @Composable
-fun CommentThreadView(thread: CommentThreadViewData, viewModel: PostDetailViewModel, currentUsername: String?) {
+fun CommentThreadView(
+    thread: CommentThreadViewData,
+    viewModel: PostDetailViewModel,
+    currentUsername: String?,
+    onAuthorClick: (String) -> Unit
+) {
     val reportedCommentIds by viewModel.reportedCommentIds.collectAsState()
     Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)) {
         thread.comments.firstOrNull()?.let { rootComment ->
@@ -268,7 +295,8 @@ fun CommentThreadView(thread: CommentThreadViewData, viewModel: PostDetailViewMo
                 isReported = reportedCommentIds.contains(rootComment.id),
                 onLike = { viewModel.likeComment(rootComment, rootComment.threadId) },
                 onUnlike = { viewModel.unlikeComment(rootComment, rootComment.threadId) },
-                onLongPress = { viewModel.setCommentForAction(rootComment) }
+                onLongPress = { viewModel.setCommentForAction(rootComment) },
+                onAuthorClick = onAuthorClick
             )
             
             // Reply Input for Thread
@@ -288,7 +316,8 @@ fun CommentThreadView(thread: CommentThreadViewData, viewModel: PostDetailViewMo
                         isReported = reportedCommentIds.contains(reply.id),
                         onLike = { viewModel.likeComment(reply, reply.threadId) },
                         onUnlike = { viewModel.unlikeComment(reply, reply.threadId) },
-                        onLongPress = { viewModel.setCommentForAction(reply) }
+                        onLongPress = { viewModel.setCommentForAction(reply) },
+                        onAuthorClick = onAuthorClick
                     )
                 }
             }
@@ -304,7 +333,8 @@ fun CommentRow(
     isReported: Boolean,
     onLike: () -> Unit,
     onUnlike: () -> Unit,
-    onLongPress: () -> Unit
+    onLongPress: () -> Unit,
+    onAuthorClick: (String) -> Unit
 ) {
     Row(
         modifier = Modifier
@@ -337,7 +367,14 @@ fun CommentRow(
         
         Column {
             Row {
-                Text(comment.authorUsername, fontWeight = FontWeight.Bold, fontSize = 14.sp)
+                // Tap the author's name to open their profile, same as the
+                // post author above.
+                Text(
+                    comment.authorUsername,
+                    fontWeight = FontWeight.Bold,
+                    fontSize = 14.sp,
+                    modifier = Modifier.clickable { onAuthorClick(comment.authorUsername) }
+                )
                 Spacer(modifier = Modifier.width(4.dp))
                 Text(comment.body, fontSize = 14.sp)
             }

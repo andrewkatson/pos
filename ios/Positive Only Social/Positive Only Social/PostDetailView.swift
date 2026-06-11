@@ -89,10 +89,18 @@ struct PostDetailView: View {
                             }
                         }
                         
-                        Text(post.authorUsername)
-                            .fontWeight(.bold)
-                        + Text(" ") +
-                        Text(post.caption)
+                        HStack(alignment: .firstTextBaseline, spacing: 4) {
+                            // Tap the author's name to open their profile, same
+                            // as in the feed. The User destination is registered
+                            // on the parent NavigationStack.
+                            NavigationLink(value: User(username: post.authorUsername, identityIsVerified: false)) {
+                                Text(post.authorUsername)
+                                    .fontWeight(.bold)
+                            }
+                            .buttonStyle(.plain) // Keeps the text style
+                            .accessibilityIdentifier("PostAuthor")
+                            Text(post.caption)
+                        }
                     }
                     .padding(.horizontal)
 
@@ -262,11 +270,15 @@ struct PostDetailView: View {
                     .foregroundColor(.secondary)
                 
                 VStack(alignment: .leading, spacing: 4) {
-                    // Comment body with author
-                    Text(comment.authorUsername)
-                        .fontWeight(.bold)
-                        .font(.subheadline)
-                        .accessibilityIdentifier("CommentAuthor")
+                    // Comment body with author. Tap the author's name to open
+                    // their profile, same as the post author above.
+                    NavigationLink(value: User(username: comment.authorUsername, identityIsVerified: false)) {
+                        Text(comment.authorUsername)
+                            .fontWeight(.bold)
+                            .font(.subheadline)
+                    }
+                    .buttonStyle(.plain) // Keeps the text style
+                    .accessibilityIdentifier("CommentAuthor")
                     Text(" ") 
                     Text(comment.body)
                         .font(.subheadline)
