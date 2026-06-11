@@ -5,6 +5,8 @@ import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material.icons.filled.FavoriteBorder
@@ -16,7 +18,9 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.viewmodel.compose.viewModel
@@ -31,6 +35,7 @@ import com.example.positiveonlysocial.models.viewmodels.PostDetailViewModelFacto
 import androidx.compose.runtime.collectAsState
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.navigation.compose.rememberNavController
+import com.example.positiveonlysocial.ui.dismissKeyboardOnTap
 import com.example.positiveonlysocial.ui.preview.PreviewHelpers
 import com.example.positiveonlysocial.ui.theme.PositiveOnlySocialTheme
 
@@ -63,6 +68,8 @@ fun PostDetailScreen(
         val showReportSheetForPost by viewModel.showReportSheetForPost.collectAsState()
         val commentToReport by viewModel.commentToReport.collectAsState()
         val threadToReplyTo by viewModel.threadToReplyTo.collectAsState()
+
+        val focusManager = LocalFocusManager.current
 
         // Long-press action menus (Report vs Delete, depending on ownership).
         val showActionSheetForPost by viewModel.showActionSheetForPost.collectAsState()
@@ -145,7 +152,7 @@ fun PostDetailScreen(
             modifier = Modifier.fillMaxSize()
         ) {
         LazyColumn(
-            modifier = Modifier.fillMaxSize(),
+            modifier = Modifier.fillMaxSize().dismissKeyboardOnTap(),
             contentPadding = PaddingValues(bottom = 16.dp)
         ) {
             if (isLoading && postDetail == null) {
@@ -211,16 +218,20 @@ fun PostDetailScreen(
                             Divider(modifier = Modifier.padding(vertical = 16.dp))
                             
                             // Add Comment Section
+                            val newCommentText by viewModel.newCommentText.collectAsState()
                             Row(verticalAlignment = Alignment.CenterVertically) {
                                 TextField(
-                                    value = viewModel.newCommentText.collectAsState().value,
+                                    value = newCommentText,
                                     onValueChange = { viewModel.updateNewCommentText(it) },
                                     placeholder = { Text("Add a comment...") },
-                                    modifier = Modifier.weight(1f)
+                                    modifier = Modifier.weight(1f),
+                                    singleLine = true,
+                                    keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
+                                    keyboardActions = KeyboardActions(onDone = { focusManager.clearFocus() })
                                 )
                                 Button(
-                                    onClick = { viewModel.commentOnPost(viewModel.newCommentText.value) },
-                                    enabled = viewModel.newCommentText.collectAsState().value.isNotEmpty(),
+                                    onClick = { viewModel.commentOnPost(newCommentText) },
+                                    enabled = newCommentText.isNotEmpty(),
                                     modifier = Modifier.padding(start = 8.dp)
                                 ) {
                                     Text("Post")
@@ -400,6 +411,7 @@ fun ActionSheetDialog(
 @Composable
 fun ReportDialog(onDismiss: () -> Unit, onSubmit: (String) -> Unit) {
     var reason by remember { mutableStateOf("") }
+    val focusManager = LocalFocusManager.current
     AlertDialog(
         onDismissRequest = onDismiss,
         title = { Text("Report") },
@@ -407,7 +419,10 @@ fun ReportDialog(onDismiss: () -> Unit, onSubmit: (String) -> Unit) {
             TextField(
                 value = reason,
                 onValueChange = { reason = it },
-                placeholder = { Text("Reason for reporting...") }
+                placeholder = { Text("Reason for reporting...") },
+                singleLine = true,
+                keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
+                keyboardActions = KeyboardActions(onDone = { focusManager.clearFocus() })
             )
         },
         confirmButton = {
@@ -435,6 +450,9 @@ fun ReplyDialog(thread: CommentThreadViewData, onDismiss: () -> Unit, onSubmit: 
         onDismissRequest = onDismiss,
         title = { Text("Reply to ${thread.comments.firstOrNull()?.authorUsername ?: "Comment"}") },
         text = {
+            // A reply can span multiple lines, so this stays multiline (Enter
+            // inserts a newline). The dialog's Send/Cancel buttons remain
+            // reachable above the keyboard, so no Done-to-dismiss is needed.
             TextField(
                 value = text,
                 onValueChange = { text = it },

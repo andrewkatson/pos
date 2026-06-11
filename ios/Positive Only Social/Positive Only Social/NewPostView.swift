@@ -79,6 +79,7 @@ struct NewPostView: View {
                 }
             }
             .navigationTitle("Create Post")
+            .scrollDismissesKeyboard(.immediately)
             // Alert for SUCCESS
             .alert("Success!", isPresented: $showSuccessAlert) {
                 Button("OK") {
