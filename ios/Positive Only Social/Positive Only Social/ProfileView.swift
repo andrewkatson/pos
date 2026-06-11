@@ -56,8 +56,12 @@ struct ProfileView: View {
         .refreshable {
             // Pull-to-refresh: reload the newest posts and the profile stats /
             // follow-block status so neither goes stale.
-            await viewModel.refreshUserPosts()
-            await viewModel.refreshProfileDetails()
+            // Run the reloads in an unstructured Task so SwiftUI cancelling
+            // the refreshable task on a re-render can't cancel the requests.
+            await Task {
+                await viewModel.refreshUserPosts()
+                await viewModel.refreshProfileDetails()
+            }.value
         }
         .onAppear {
             // Fetch posts when the view appears for the first time

@@ -134,7 +134,9 @@ struct ForYouFeedView: View {
         }
         .refreshable {
             // Pull-to-refresh: reload the newest posts from the backend.
-            await viewModel.refreshFeed()
+            // Run the reload in an unstructured Task so SwiftUI cancelling
+            // the refreshable task on a re-render can't cancel the request.
+            await Task { await viewModel.refreshFeed() }.value
         }
         .onAppear {
             if viewModel.feedPosts.isEmpty {
@@ -200,7 +202,9 @@ struct FollowingFeedView: View {
         }
         .refreshable {
             // Pull-to-refresh: reload the newest posts from the backend.
-            await viewModel.refreshFeed()
+            // Run the reload in an unstructured Task so SwiftUI cancelling
+            // the refreshable task on a re-render can't cancel the request.
+            await Task { await viewModel.refreshFeed() }.value
         }
         // Add .onAppear to trigger the *initial* fetch
         .onAppear {

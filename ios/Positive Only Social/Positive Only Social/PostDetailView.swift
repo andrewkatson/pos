@@ -133,7 +133,10 @@ struct PostDetailView: View {
         .scrollDismissesKeyboard(.immediately)
         .refreshable {
             // Pull-to-refresh: reload the post details and comments from the backend.
-            await viewModel.refresh()
+            // Run the reload in an unstructured Task so SwiftUI cancelling the
+            // refreshable task on a state-driven re-render (isLoading flips as the
+            // refresh starts) can't cancel the in-flight network requests.
+            await Task { await viewModel.refresh() }.value
         }
         // --- Action menus (long-press) ---
         // The post's menu offers Delete on the user's own post and Report on

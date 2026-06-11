@@ -107,7 +107,11 @@ final class HomeViewModel: ObservableObject {
             }
 
         } catch {
-            self.errorMessage = error.localizedDescription
+            // A cancelled load (e.g. SwiftUI tearing down a pull-to-refresh
+            // task) is not a real failure — keep the existing data and stay quiet.
+            if !error.isCancellation {
+                self.errorMessage = error.localizedDescription
+            }
             NSLog("%@", "Error fetching my posts: \(error)")
         }
 
@@ -133,7 +137,11 @@ final class HomeViewModel: ObservableObject {
 
                 self.searchedUsers = try await searchForUsers(fragment: query, token: userSession.sessionToken)
             } catch {
-                self.errorMessage = error.localizedDescription
+                // Cancelled searches (e.g. superseded by newer keystrokes) are
+                // routine, not failures worth alerting about.
+                if !error.isCancellation {
+                    self.errorMessage = error.localizedDescription
+                }
                 NSLog("%@", "Error performing search: \(error)")
             }
         }
