@@ -15,7 +15,9 @@ jobs:
   build:
     name: Build for Testing
     runs-on: macos-15
-    timeout-minutes: 30
+    # Resolving Swift package dependencies (AWS SDK et al.) can be slow on
+    # fresh runners, so give the build a full hour.
+    timeout-minutes: 60
 
     steps:
       - name: Checkout repository
@@ -139,6 +141,7 @@ jobs:
                   "Positive Only SocialUITests/Positive_Only_SocialUITests/testAutomaticLoginAfterRememberMe"
                   "Positive Only SocialUITests/Positive_Only_SocialUITests/testDeleteAccount"
                   "Positive Only SocialUITests/Positive_Only_SocialUITests/testResetPassword"
+                  "Positive Only SocialUITests/Positive_Only_SocialUITests/testTappingOutsideFieldDismissesKeyboard"
                 )
                 # "Positive Only Social" (default) plan covers both unit and UI tests
                 XCTESTRUN=$(find build/Build/Products -name "*.xctestrun" | grep -v "Unit Tests" | head -1)

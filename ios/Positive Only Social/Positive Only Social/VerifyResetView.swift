@@ -57,6 +57,7 @@ struct VerifyResetView: View {
                 .accessibilityIdentifier("VerifyButton")
             }
             .navigationTitle("Enter Verification Token")
+            .scrollDismissesKeyboard(.immediately)
 
             if isLoading {
                 ProgressView().progressViewStyle(.circular).scaleEffect(2)

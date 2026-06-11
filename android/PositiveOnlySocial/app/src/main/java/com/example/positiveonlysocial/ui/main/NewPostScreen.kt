@@ -21,6 +21,7 @@ import com.example.positiveonlysocial.data.uploader.S3Uploader
 import java.util.UUID
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.navigation.compose.rememberNavController
+import com.example.positiveonlysocial.ui.dismissKeyboardOnTap
 import com.example.positiveonlysocial.ui.preview.PreviewHelpers
 import kotlinx.coroutines.launch
 import com.example.positiveonlysocial.ui.theme.PositiveOnlySocialTheme
@@ -85,6 +86,7 @@ fun NewPostScreen(
         Column(
             modifier = Modifier
                 .fillMaxSize()
+                .dismissKeyboardOnTap()
                 .padding(16.dp),
             verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
