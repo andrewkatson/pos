@@ -303,8 +303,14 @@ struct PostDetailView: View {
                         Text(comment.authorUsername)
                             .fontWeight(.bold)
                             .font(.subheadline)
-                            .accessibilityIdentifier("CommentAuthor")
+                            .contentShape(Rectangle())
                             .onTapGesture { onAuthorTap() }
+                            // The tap gesture isn't visible to VoiceOver on a
+                            // plain Text, so announce this as a button that
+                            // opens the author's profile.
+                            .accessibilityAddTraits(.isButton)
+                            .accessibilityHint("Opens \(comment.authorUsername)'s profile")
+                            .accessibilityIdentifier("CommentAuthor")
                         Text(comment.body)
                             .font(.subheadline)
                             .accessibilityIdentifier("CommentText")

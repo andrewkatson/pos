@@ -368,12 +368,22 @@ fun CommentRow(
         Column {
             Row {
                 // Tap the author's name to open their profile, same as the
-                // post author above.
+                // post author above. combinedClickable (not clickable) so the
+                // row's double-tap (like) and long-press (report/delete)
+                // gestures keep working over the username instead of being
+                // consumed by this inner handler.
                 Text(
                     comment.authorUsername,
                     fontWeight = FontWeight.Bold,
                     fontSize = 14.sp,
-                    modifier = Modifier.clickable { onAuthorClick(comment.authorUsername) }
+                    modifier = Modifier.combinedClickable(
+                        onDoubleClick = {
+                            if (isOwn) return@combinedClickable
+                            if (comment.isLiked) onUnlike() else onLike()
+                        },
+                        onLongClick = { onLongPress() },
+                        onClick = { onAuthorClick(comment.authorUsername) }
+                    )
                 )
                 Spacer(modifier = Modifier.width(4.dp))
                 Text(comment.body, fontSize = 14.sp)
