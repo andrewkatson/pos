@@ -16,9 +16,21 @@ struct PostDetailView: View {
     // Used to pop this view once the user deletes the post being shown.
     @Environment(\.dismiss) private var dismiss
 
+    // Kept to build the ProfileView pushed when an author's name is tapped.
+    private let api: Networking
+    private let keychainHelper: KeychainHelperProtocol
+
+    // Set when a comment author's name is tapped to push their profile.
+    // Comment rows navigate programmatically (rather than via NavigationLink)
+    // so the row's long-press (report/delete menu) and double-tap (like)
+    // gestures aren't swallowed by a Button in the row.
+    @State private var profileUser: User? = nil
+
     // Public init
     init(postIdentifier: String, api: Networking, keychainHelper: KeychainHelperProtocol) {
         _viewModel = StateObject(wrappedValue: PostDetailViewModel(postIdentifier: postIdentifier, api: api, keychainHelper: keychainHelper))
+        self.api = api
+        self.keychainHelper = keychainHelper
     }
     
     var body: some View {
@@ -89,10 +101,18 @@ struct PostDetailView: View {
                             }
                         }
                         
-                        Text(post.authorUsername)
-                            .fontWeight(.bold)
-                        + Text(" ") +
-                        Text(post.caption)
+                        HStack(alignment: .firstTextBaseline, spacing: 4) {
+                            // Tap the author's name to open their profile, same
+                            // as in the feed. The User destination is registered
+                            // on the parent NavigationStack.
+                            NavigationLink(value: User(username: post.authorUsername, identityIsVerified: false)) {
+                                Text(post.authorUsername)
+                                    .fontWeight(.bold)
+                            }
+                            .buttonStyle(.plain) // Keeps the text style
+                            .accessibilityIdentifier("PostAuthor")
+                            Text(post.caption)
+                        }
                     }
                     .padding(.horizontal)
 
@@ -119,8 +139,10 @@ struct PostDetailView: View {
                     
                     LazyVStack(spacing: 16) {
                         ForEach(viewModel.commentThreads) { thread in
-                            CommentThreadView(thread: thread)
-                                .padding(.horizontal)
+                            CommentThreadView(thread: thread, onAuthorTap: { username in
+                                profileUser = User(username: username, identityIsVerified: false)
+                            })
+                            .padding(.horizontal)
                         }
                     }
                 }
@@ -130,6 +152,16 @@ struct PostDetailView: View {
         }
         .navigationTitle("Post")
         .navigationBarTitleDisplayMode(.inline)
+        // Pushes the profile of a tapped comment author. Driven by state
+        // instead of an inline NavigationLink — see the profileUser comment.
+        .navigationDestination(isPresented: Binding(
+            get: { profileUser != nil },
+            set: { if !$0 { profileUser = nil } }
+        )) {
+            if let user = profileUser {
+                ProfileView(user: user, api: api, keychainHelper: keychainHelper)
+            }
+        }
         .scrollDismissesKeyboard(.immediately)
         .refreshable {
             // Pull-to-refresh: reload the post details and comments from the backend.
@@ -253,6 +285,7 @@ struct PostDetailView: View {
         let onLike: () -> Void
         let onUnlike: () -> Void
         let onLongPress: () -> Void
+        let onAuthorTap: () -> Void
 
         var body: some View {
             HStack(alignment: .top, spacing: 10) {
@@ -262,16 +295,27 @@ struct PostDetailView: View {
                     .foregroundColor(.secondary)
                 
                 VStack(alignment: .leading, spacing: 4) {
-                    // Comment body with author
-                    Text(comment.authorUsername)
-                        .fontWeight(.bold)
-                        .font(.subheadline)
-                        .accessibilityIdentifier("CommentAuthor")
-                    Text(" ") 
-                    Text(comment.body)
-                        .font(.subheadline)
-                        .accessibilityIdentifier("CommentText")
-                        .accessibilityLabel(comment.body)
+                    // Comment body with author. Tap the author's name to open
+                    // their profile. A plain tap gesture (not a NavigationLink)
+                    // so the row's long-press (report/delete) and double-tap
+                    // (like) gestures aren't swallowed by a nested Button.
+                    HStack(alignment: .firstTextBaseline, spacing: 4) {
+                        Text(comment.authorUsername)
+                            .fontWeight(.bold)
+                            .font(.subheadline)
+                            .contentShape(Rectangle())
+                            .onTapGesture { onAuthorTap() }
+                            // The tap gesture isn't visible to VoiceOver on a
+                            // plain Text, so announce this as a button that
+                            // opens the author's profile.
+                            .accessibilityAddTraits(.isButton)
+                            .accessibilityHint("Opens \(comment.authorUsername)'s profile")
+                            .accessibilityIdentifier("CommentAuthor")
+                        Text(comment.body)
+                            .font(.subheadline)
+                            .accessibilityIdentifier("CommentText")
+                            .accessibilityLabel(comment.body)
+                    }
                     
                     // Info row
                     HStack(spacing: 16) {
@@ -332,7 +376,8 @@ struct PostDetailView: View {
     struct CommentThreadView: View {
         @EnvironmentObject var viewModel: PostDetailViewModel
         let thread: CommentThreadViewData
-        
+        let onAuthorTap: (String) -> Void
+
         var body: some View {
             VStack(alignment: .leading, spacing: 0) {
                 if let rootComment = thread.comments.first {
@@ -348,6 +393,9 @@ struct PostDetailView: View {
                                    },
                                    onLongPress: {
                                        viewModel.commentForAction = rootComment
+                                   },
+                                   onAuthorTap: {
+                                       onAuthorTap(rootComment.authorUsername)
                                    })
                     Section {
                         HStack {
@@ -385,6 +433,9 @@ struct PostDetailView: View {
                                            },
                                            onLongPress: {
                                                viewModel.commentForAction = reply
+                                           },
+                                           onAuthorTap: {
+                                               onAuthorTap(reply.authorUsername)
                                            })
                         }
                     }
