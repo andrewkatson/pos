@@ -6,6 +6,7 @@
 //
 
 import SwiftUI
+import Kingfisher
 
 // An enum to define our top tabs
 enum FeedType: String, CaseIterable {
@@ -103,17 +104,17 @@ struct ForYouFeedView: View {
                         // Wrap image in a NavigationLink to go to post details.
                         // Force every post into an identical square, cropping to
                         // fill so images no longer keep their original dimensions.
-                        
-                        //TODO: https://github.com/andrewkatson/pos/issues/177
                         NavigationLink(value: post) {
                             Color(.systemGray5)
                                 .aspectRatio(1, contentMode: .fit)
                                 .overlay {
-                                    AsyncImage(url: URL(string: post.imageUrl)) { image in
-                                        image.resizable().scaledToFill()
-                                    } placeholder: {
-                                        Color(.systemGray5)
-                                    }
+                                    // Correct Kingfisher implementation
+                                    KFImage(URL(string: post.imageUrl))
+                                        .placeholder {
+                                            Color(.systemGray5) // Shows while loading
+                                        }
+                                        .resizable()
+                                        .scaledToFill()
                                 }
                                 .clipped()
                                 .border(Color.gray, width: 0.5)
