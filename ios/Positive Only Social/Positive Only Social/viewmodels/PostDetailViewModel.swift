@@ -181,10 +181,13 @@ final class PostDetailViewModel: ObservableObject {
                 }
                 
             } catch {
-                NSLog("%@", "Error loading post details: \(error)")
                 // A cancelled load (e.g. SwiftUI tearing down a pull-to-refresh
-                // task) is not a real failure — keep the existing data and stay quiet.
-                if !error.isCancellation {
+                // task) is not a real failure — keep the existing data and stay
+                // quiet so routine cancellations don't pollute the error logs.
+                if error.isCancellation {
+                    NSLog("%@", "Post details load cancelled")
+                } else {
+                    NSLog("%@", "Error loading post details: \(error)")
                     self.alertMessage = "Failed to load post: \(error.localizedDescription)"
                 }
             }
