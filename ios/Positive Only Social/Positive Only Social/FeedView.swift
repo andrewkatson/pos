@@ -103,6 +103,8 @@ struct ForYouFeedView: View {
                         // Wrap image in a NavigationLink to go to post details.
                         // Force every post into an identical square, cropping to
                         // fill so images no longer keep their original dimensions.
+                        
+                        //TODO: https://github.com/andrewkatson/pos/issues/177
                         NavigationLink(value: post) {
                             Color(.systemGray5)
                                 .aspectRatio(1, contentMode: .fit)
@@ -114,7 +116,9 @@ struct ForYouFeedView: View {
                                     }
                                 }
                                 .clipped()
-                                .border(Color.black, width: 1)
+                                .border(Color.gray, width: 0.5)
+                                .cornerRadius(15)
+                                .shadow(color: Color.black.opacity(0.4), radius: 10, x: 0, y: 0)
                         }
                         .onAppear {
                             // Trigger for infinite scrolling
