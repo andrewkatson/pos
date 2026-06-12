@@ -1,7 +1,8 @@
 from datetime import timedelta
 
 from django.contrib.admin.sites import AdminSite
-from django.contrib.messages.storage.fallback import FallbackStorage
+from django.contrib.messages.middleware import MessageMiddleware
+from django.contrib.sessions.middleware import SessionMiddleware
 from django.test import RequestFactory, TestCase
 from django.utils import timezone
 
@@ -34,9 +35,9 @@ class AdminBanActionTests(TestCase):
         request = self.factory.post('/')
         request.user = user
         # The actions report results via the messages framework, which needs
-        # storage attached to the request.
-        request.session = {}
-        request._messages = FallbackStorage(request)
+        # a real session and message storage attached to the request.
+        SessionMiddleware(lambda r: None).process_request(request)
+        MessageMiddleware(lambda r: None).process_request(request)
         return request
 
     def _target_queryset(self, *users):
