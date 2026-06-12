@@ -30,6 +30,7 @@ from .input_validator import is_valid_pattern
 from .models import LoginCookie, Session, Post, CommentThread, PositiveOnlySocialUser, Comment, UserBlock, UserBan
 from .utils import convert_to_bool, generate_login_cookie_token, generate_management_token, generate_series_identifier, \
     get_batch, get_compressed_image_url
+from .visibility import can_view_post, searchable_users, visible_comment_threads, visible_comments, visible_posts
 
 image_classifier_class = image_classifier
 text_classifier_class = text_classifier
@@ -895,6 +896,8 @@ def get_posts_in_feed(request, batch):
     blocking_users = request.user.blocked_by.all()
     relevant_posts = relevant_posts.exclude(author__in=blocked_users).exclude(author__in=blocking_users)
 
+    relevant_posts = visible_posts(relevant_posts, request.user)
+
     if relevant_posts.count() > 0:
         batched_posts = get_batch(batch, POST_BATCH_SIZE, relevant_posts)
         posts_data = [
@@ -930,7 +933,9 @@ def get_posts_for_followed_users(request, batch):
     if not followed_users.exists():
         return log_and_return_json("get_posts_for_followed_users", [], safe=False)
 
-    posts_queryset = Post.objects.filter(author__in=followed_users).order_by('-creation_time')
+    posts_queryset = visible_posts(
+        Post.objects.filter(author__in=followed_users), request.user
+    ).order_by('-creation_time')
     posts_batch = get_batch(batch, POST_BATCH_SIZE, posts_queryset)
 
     posts_data = [
@@ -967,7 +972,9 @@ def get_posts_for_user(request, username, batch):
         logger.info(f"Get posts for user: Blocking relationship exists for user_id: {request.user.id} and target_user_id: {target_user.id}")
         return log_and_return_json("get_posts_for_user", [], safe=False)
 
-    relevant_posts = feed_algorithm_class.get_posts_weighted_for_user(target_user, Post)
+    relevant_posts = visible_posts(
+        feed_algorithm_class.get_posts_weighted_for_user(target_user, Post), request.user
+    )
 
     if relevant_posts.count() > 0:
         batched_posts = get_batch(batch, POST_BATCH_SIZE, relevant_posts)
@@ -994,7 +1001,7 @@ def get_post_details(request, post_identifier):
         return log_and_return_json("get_post_details", {'error': "Invalid post identifier"}, status=400)
 
     post = get_post_with_identifier(post_identifier)
-    if post is not None:
+    if post is not None and can_view_post(post, request.user):
         total_likes = post.postlike_set.count()
         post_data = {
             Fields.post_identifier: post.post_identifier,
@@ -1273,11 +1280,11 @@ def get_comments_for_post(request, post_identifier, batch):
         return log_and_return_json("get_comments_for_post", {'error': "Invalid batch parameter"}, status=400)
 
     post = get_post_with_identifier(post_identifier)
-    if not post:
-        logger.warning(f"Get comments for post failed: Post {post_identifier} not found")
+    if not post or not can_view_post(post, request.user):
+        logger.warning(f"Get comments for post failed: Post {post_identifier} not found or not visible")
         return log_and_return_json("get_comments_for_post", {'error': "No post with that identifier"}, status=400)
 
-    comment_threads = post.commentthread_set.all()
+    comment_threads = visible_comment_threads(post.commentthread_set.all(), request.user)
 
     relevant_comment_threads = feed_algorithm_class.get_comment_threads_weighted_for_post(comment_threads)
 
@@ -1300,11 +1307,11 @@ def get_comments_for_thread(request, comment_thread_identifier, batch):
         return log_and_return_json("get_comments_for_thread", {'error': "Invalid batch parameter"}, status=400)
 
     comment_thread = get_comment_thread_with_identifier(comment_thread_identifier)
-    if not comment_thread:
-        logger.warning(f"Get comments for thread failed: Thread {comment_thread_identifier} not found")
+    if not comment_thread or not can_view_post(comment_thread.post, request.user):
+        logger.warning(f"Get comments for thread failed: Thread {comment_thread_identifier} not found or not visible")
         return log_and_return_json("get_comments_for_thread", {'error': "No comment thread with that identifier"}, status=400)
 
-    comments = comment_thread.comment_set.all().order_by('creation_time')
+    comments = visible_comments(comment_thread.comment_set.all(), request.user).order_by('creation_time')
     relevant_comments = feed_algorithm_class.get_comments_weighted_for_thread(comments)
 
     if not relevant_comments.count() > 0:
@@ -1358,7 +1365,7 @@ def get_users_matching_fragment(request, username_fragment):
     # So if I blocked someone, I can still search them.
     # But if someone blocked me, I cannot search them.
     users_who_blocked_me = request.user.blocked_by.all()
-    users = users.exclude(pk__in=users_who_blocked_me)[:10]
+    users = searchable_users(users.exclude(pk__in=users_who_blocked_me))[:10]
 
     users_data = [
         {
@@ -1466,7 +1473,9 @@ def get_profile_details(request, username):
         logger.warning(f"Get profile details failed: User with username fragment not found")
         return log_and_return_json("get_profile_details", {'error': "User not found"}, status=400)
 
-    post_count = profile_user.post_set.count()
+    # Count only the posts the requesting user is allowed to see, so a
+    # shadow-banned profile shows no posts to others (but all to its owner).
+    post_count = visible_posts(profile_user.post_set.all(), request.user).count()
 
     # Assuming UserFollow model or a ManyToMany 'followers' field
     # This logic depends heavily on your model structure.
