@@ -431,20 +431,27 @@ def login_user_with_remember_me(request):
         logger.warning(f"Login with remember me failed: Login cookie token does not match for series: {series_identifier}")
         return log_and_return_json("login_user_with_remember_me", {'error': "Login cookie token does not match"}, status=400)
 
-    if has_active_outright_ban(matching_login_cookie.cookie_user):
-        logger.warning(f"Login with remember me failed: Account banned for user_id: {matching_login_cookie.cookie_user.id}")
+    # Get the user with the *old* session management token. This must be
+    # validated (and match the cookie's user) before the ban check and token
+    # rotation, so a cookie for one user cannot be combined with a session
+    # token for another.
+    existing = get_user_with_session_management_token(session_management_token)
+    if existing is None:
+        logger.warning("Login with remember me failed: Original session token is invalid")
+        return log_and_return_json("login_user_with_remember_me", {'error': "Original session token is invalid"}, status=400)
+
+    if existing != matching_login_cookie.cookie_user:
+        logger.warning(f"Login with remember me failed: Session token does not belong to the cookie's user for series: {series_identifier}")
+        return log_and_return_json("login_user_with_remember_me", {'error': "Original session token is invalid"}, status=400)
+
+    if has_active_outright_ban(existing):
+        logger.warning(f"Login with remember me failed: Account banned for user_id: {existing.id}")
         return log_and_return_json("login_user_with_remember_me", {'error': ACCOUNT_BANNED}, status=403)
 
     # Issue a new login cookie token (token rotation)
     new_login_cookie_token = generate_login_cookie_token()
     matching_login_cookie.token = new_login_cookie_token
     matching_login_cookie.save()
-
-    # Get the user with the *old* session management token
-    existing = get_user_with_session_management_token(session_management_token)
-    if existing is None:
-        logger.warning("Login with remember me failed: Original session token is invalid")
-        return log_and_return_json("login_user_with_remember_me", {'error': "Original session token is invalid"}, status=400)
 
     # Issue a new session management token
     new_session_management_token = generate_management_token()

@@ -60,6 +60,16 @@ class UserBanTests(PositiveOnlySocialTestCase):
         self.assertEqual(Session.objects.filter(management_user=self.user).count(), 1)
         self.assertEqual(LoginCookie.objects.filter(cookie_user=self.user).count(), 1)
 
+    def test_expired_outright_ban_keeps_sessions_and_login_cookies(self):
+        """
+        Recording an already-expired (historical) outright ban must not log
+        the user out.
+        """
+        self._ban_user(expires=timezone.now() - timedelta(days=1))
+
+        self.assertEqual(Session.objects.filter(management_user=self.user).count(), 1)
+        self.assertEqual(LoginCookie.objects.filter(cookie_user=self.user).count(), 1)
+
     # =========================================================================
     # LOGIN GATE
     # =========================================================================
@@ -150,6 +160,36 @@ class UserBanTests(PositiveOnlySocialTestCase):
 
         self.assertEqual(response.status_code, 403)
         self.assertEqual(response.json().get('error'), ACCOUNT_BANNED)
+
+    def test_remember_me_with_other_users_session_token_is_rejected(self):
+        """
+        A valid login cookie for one user combined with a session token for a
+        different user must be rejected before any ban check or token
+        rotation, so it can neither leak the cookie user's ban status nor
+        rotate their cookie.
+        """
+        self._ban_user()
+
+        # Recreate the banned user's cookie post-ban (the ban deleted it).
+        login_cookie = LoginCookie.objects.create(cookie_user=self.user, token=generate_login_cookie_token())
+
+        # A second, unbanned user with their own valid session token.
+        other = self.make_user_with_prefix(prefix='mismatch')
+
+        data = {
+            Fields.session_management_token: other[Fields.session_management_token],
+            'series_identifier': str(login_cookie.series_identifier),
+            'login_cookie_token': login_cookie.token,
+        }
+
+        response = self.client.post(self.remember_me_url, data=data, content_type='application/json')
+
+        self.assertEqual(response.status_code, 400)
+        self.assertNotEqual(response.json().get('error'), ACCOUNT_BANNED)
+
+        # The banned user's cookie token must not have been rotated.
+        login_cookie.refresh_from_db()
+        self.assertEqual(login_cookie.token, data['login_cookie_token'])
 
     def test_outright_ban_invalidates_existing_remember_me_credentials(self):
         """

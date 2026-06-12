@@ -99,11 +99,16 @@ class UserBan(models.Model):
     class Meta:
         app_label = 'user_system'
 
+    def is_in_effect(self):
+        return self.expires is None or self.expires > timezone.now()
+
     def save(self, *args, **kwargs):
         super().save(*args, **kwargs)
         # An outright ban must terminate the user's live sessions immediately.
-        # Shadow bans leave sessions alone so the user stays unaware.
-        if self.ban_type == BAN_TYPE_OUTRIGHT:
+        # Shadow bans leave sessions alone so the user stays unaware, and
+        # already-expired bans (e.g. recording a historical ban) must not log
+        # the user out.
+        if self.ban_type == BAN_TYPE_OUTRIGHT and self.is_in_effect():
             Session.objects.filter(management_user=self.user).delete()
             LoginCookie.objects.filter(cookie_user=self.user).delete()
 
