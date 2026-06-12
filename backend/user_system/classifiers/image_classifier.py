@@ -6,7 +6,8 @@ from io import BytesIO
 from urllib.parse import urlparse
 from .classifier_constants import POSITIVE_IMAGE_FILENAME, IMAGE_CLASSIFIER_PROMPT
 from .classifier_utils import (
-    get_available_apis, classify_with_voting, IMAGE_API_DISPATCH,
+    get_available_apis, classify_with_thresholds, ClassificationResult,
+    IMAGE_API_DISPATCH,
 )
 from ..utils import convert_to_bool
 
@@ -21,9 +22,9 @@ def is_image_positive(image_url):
 
     if testing:
         parsed_url = urlparse(image_url)
-        result = parsed_url.path.endswith(POSITIVE_IMAGE_FILENAME)
-        logger.debug("Testing mode - path=%s endswith %s -> %s", parsed_url.path, POSITIVE_IMAGE_FILENAME, result)
-        return result
+        allowed = parsed_url.path.endswith(POSITIVE_IMAGE_FILENAME)
+        logger.debug("Testing mode - path=%s endswith %s -> %s", parsed_url.path, POSITIVE_IMAGE_FILENAME, allowed)
+        return ClassificationResult(allowed=allowed)
 
     logger.debug("Checking available AI APIs for image classification")
     available_apis = get_available_apis()
@@ -31,7 +32,7 @@ def is_image_positive(image_url):
 
     if not available_apis:
         logger.error("No AI API keys available.")
-        return False
+        return ClassificationResult(allowed=False)
 
     aws_access_key = os.environ.get("AWS_ACCESS_KEY_ID")
     aws_secret_key = os.environ.get("AWS_SECRET_ACCESS_KEY")
@@ -39,7 +40,7 @@ def is_image_positive(image_url):
     if not aws_access_key or not aws_secret_key:
         logger.error("Missing AWS credentials — AWS_ACCESS_KEY_ID present=%s, AWS_SECRET_ACCESS_KEY present=%s",
                      bool(aws_access_key), bool(aws_secret_key))
-        return False
+        return ClassificationResult(allowed=False)
 
     try:
         region = os.environ.get("AWS_REGION", "us-east-1")
@@ -89,7 +90,7 @@ def is_image_positive(image_url):
 
         if not bucket_name:
             logger.error("Could not determine S3 bucket name from URL=%s and AWS_STORAGE_BUCKET_NAME is unset", image_url)
-            return False
+            return ClassificationResult(allowed=False)
 
         logger.info("Fetching image from S3 — bucket=%s key=%s", bucket_name, key)
         response = s3.get_object(Bucket=bucket_name, Key=key)
@@ -105,20 +106,20 @@ def is_image_positive(image_url):
                 api_func = IMAGE_API_DISPATCH.get(api_name)
                 if not api_func:
                     logger.error("Unsupported API name: %s", api_name)
-                    return False
+                    return None
                 logger.debug("Calling %s API for image classification", api_name)
-                result = api_func(image, IMAGE_CLASSIFIER_PROMPT)
-                logger.debug("%s API returned: %s", api_name, result)
-                return result
+                score = api_func(image, IMAGE_CLASSIFIER_PROMPT)
+                logger.debug("%s API returned: %s", api_name, score)
+                return score
             except Exception:
                 logger.exception("Error calling %s API for image classification", api_name)
-                return False
+                return None
 
-        logger.info("Starting image classification vote with APIs: %s", available_apis)
-        result = classify_with_voting(available_apis, call_api)
+        logger.info("Starting image classification cascade with APIs: %s", available_apis)
+        result = classify_with_thresholds(available_apis, call_api)
         logger.info("Image classification result for key=%s: %s", key, result)
         return result
 
     except Exception:
         logger.exception("Error in image classifier for URL: %s", image_url)
-        return False
+        return ClassificationResult(allowed=False)
