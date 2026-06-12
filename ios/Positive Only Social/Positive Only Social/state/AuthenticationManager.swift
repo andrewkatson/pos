@@ -30,6 +30,8 @@ final class AuthenticationManager: ObservableObject {
     // A private lock to ensure thread-safe access to the keychain.
     private let lock = NSLock()
     
+    private var cancellables = Set<AnyCancellable>()
+    
     private(set) var logoutCallCount = 0
     
     // Keep a default init
@@ -50,6 +52,14 @@ final class AuthenticationManager: ObservableObject {
             self.session = nil
             self.isLoggedIn = false
         }
+        
+        // A banned account has its sessions revoked server-side; when the API
+        // layer sees the account_banned rejection, drop the local session so
+        // the user lands back on the welcome screen.
+        NotificationCenter.default.publisher(for: .accountBanned)
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] _ in self?.logout() }
+            .store(in: &cancellables)
     }
     
     private func checkInitialState() {

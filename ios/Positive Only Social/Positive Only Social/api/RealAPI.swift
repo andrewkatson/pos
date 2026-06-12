@@ -180,6 +180,11 @@ final class RealAPI: Networking {
                 struct ServerErrorBody: Decodable { let error: String? }
                 if let body = try? JSONDecoder().decode(ServerErrorBody.self, from: data),
                    let message = body.error {
+                    // Only authenticated requests signal a forced logout: a
+                    // banned login attempt is handled by the login screen.
+                    if authToken != nil && message == GVOAppConstants.accountBannedError {
+                        NotificationCenter.default.post(name: .accountBanned, object: nil)
+                    }
                     throw APIError.serverError(statusCode: httpResponse.statusCode, serverMessage: message)
                 }
                 throw APIError.badServerResponse(statusCode: httpResponse.statusCode)

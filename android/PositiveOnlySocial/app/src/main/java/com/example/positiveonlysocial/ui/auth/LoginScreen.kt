@@ -23,6 +23,7 @@ import androidx.navigation.compose.rememberNavController
 import com.example.positiveonlysocial.ui.preview.PreviewHelpers
 import com.example.positiveonlysocial.api.PositiveOnlySocialAPI
 import com.example.positiveonlysocial.data.auth.AuthenticationManager
+import com.example.positiveonlysocial.data.constants.Constants
 import com.example.positiveonlysocial.data.model.LoginRequest
 import com.example.positiveonlysocial.data.model.UserSession
 import com.example.positiveonlysocial.data.security.KeychainHelperProtocol
@@ -154,7 +155,11 @@ fun LoginScreen(
                                     } catch (e: Exception) {
                                         "Login failed. Please check your credentials."
                                     }
-                                    errorMessage = errorMsg
+                                    errorMessage = if (errorMsg == Constants.ACCOUNT_BANNED) {
+                                        Constants.ACCOUNT_SUSPENDED_MESSAGE
+                                    } else {
+                                        errorMsg
+                                    }
                                     showingErrorAlert = true
                                 }
                             } catch (e: Exception) {

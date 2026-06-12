@@ -11,6 +11,8 @@ import Foundation
 
 @objc class GVOAppConstants : NSObject {
     
+    static let accountBannedError = "account_banned"
+    static let accountSuspendedMessage = "Your account has been suspended for violating our community guidelines."
     static let authHeaderField = "Authorization"
     static let badServerResponse = "The server returned an unsuccessful status code: "
     // Maximum lengths for user-authored text, mirroring MAX_CAPTION_LENGTH /

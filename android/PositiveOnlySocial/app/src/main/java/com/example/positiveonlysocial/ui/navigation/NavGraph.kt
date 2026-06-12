@@ -2,6 +2,7 @@ package com.example.positiveonlysocial.ui.navigation
 
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -28,6 +29,18 @@ fun NavGraph(
     // Holds the reset token in memory between VerifyReset and ResetPassword screens.
     // Not passed via the nav route to avoid logging/persisting a bearer credential.
     var pendingResetToken by remember { mutableStateOf("") }
+
+    // When the backend revokes the session (e.g. the account was banned),
+    // send the user back to the welcome screen from wherever they are.
+    val forcedLogout by authManager.forcedLogout.collectAsState()
+    LaunchedEffect(forcedLogout) {
+        if (forcedLogout) {
+            authManager.clearForcedLogout()
+            navController.navigate(Screen.Welcome.route) {
+                popUpTo(0) { inclusive = true }
+            }
+        }
+    }
 
     NavHost(
         navController = navController,
