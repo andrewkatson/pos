@@ -25,6 +25,7 @@ struct HomeView: View {
         self.keychainHelper = keychainHelper
     }
     
+    //TabView Menu
     var body: some View {
         TabView(selection: $currentTab){
             // Tab 1: User's personal post grid
@@ -123,6 +124,7 @@ struct MyPostsGridView: View {
                 // This is the trigger for infinite scrolling
                 .onAppear {
                     // If this post is the last one in the list, fetch the next page
+                    print("the view")
                     if post.id == viewModel.userPosts.last?.id {
                         viewModel.fetchMyPosts()
                     }
