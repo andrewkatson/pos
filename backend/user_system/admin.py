@@ -1,5 +1,6 @@
 from django.contrib import admin, messages
 from django.contrib.auth.admin import UserAdmin
+from django.db.models import Prefetch
 from django.utils import timezone
 
 from .constants import BAN_TYPE_OUTRIGHT, BAN_TYPE_SHADOW
@@ -41,9 +42,18 @@ class PositiveOnlySocialUserAdmin(UserAdmin):
             for name, opts in fieldsets
         ]
 
+    def get_queryset(self, request):
+        # Prefetch active bans in one query so ban_status does not run a
+        # query per row on the changelist.
+        return super().get_queryset(request).prefetch_related(
+            Prefetch('bans', queryset=UserBan.objects.active(), to_attr='active_bans'))
+
     @admin.display(description="Ban status")
     def ban_status(self, user):
-        active_types = sorted(set(user.bans.active().values_list('ban_type', flat=True)))
+        active_bans = getattr(user, 'active_bans', None)
+        if active_bans is None:
+            active_bans = user.bans.active()
+        active_types = sorted({ban.ban_type for ban in active_bans})
         return ", ".join(active_types) if active_types else "—"
 
     def _apply_ban(self, request, queryset, ban_type):
@@ -51,15 +61,19 @@ class PositiveOnlySocialUserAdmin(UserAdmin):
             self.message_user(request, "You do not have permission to issue bans.", messages.ERROR)
             return
 
+        # One query up front instead of an exists() check per selected user.
+        already_banned_ids = set(
+            UserBan.objects.active()
+            .filter(user__in=queryset, ban_type=ban_type)
+            .values_list('user_id', flat=True)
+        )
+
         banned = 0
         skipped = 0
         for user in queryset:
             # An admin must not ban themselves: an outright ban would tear
             # down their own sessions mid-action.
-            if user == request.user:
-                skipped += 1
-                continue
-            if UserBan.objects.active().filter(user=user, ban_type=ban_type).exists():
+            if user == request.user or user.pk in already_banned_ids:
                 skipped += 1
                 continue
             UserBan.objects.create(user=user, ban_type=ban_type, banned_by=request.user,

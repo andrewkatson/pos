@@ -162,3 +162,19 @@ class AdminBanActionTests(TestCase):
 
         self.assertTrue(self.ban_admin.in_effect(active))
         self.assertFalse(self.ban_admin.in_effect(expired))
+
+    def test_changelist_ban_status_uses_prefetched_bans(self):
+        """
+        The changelist queryset prefetches active bans, so rendering
+        ban_status for each row must not issue any further queries.
+        """
+        UserBan.objects.create(user=self.target, ban_type=BAN_TYPE_SHADOW)
+
+        users = list(self.user_admin.get_queryset(self._request(self.admin_user)))
+        statuses = {}
+        with self.assertNumQueries(0):
+            for user in users:
+                statuses[user.username] = self.user_admin.ban_status(user)
+
+        self.assertEqual(statuses['targetuser'], BAN_TYPE_SHADOW)
+        self.assertEqual(statuses['adminuser'], "—")
