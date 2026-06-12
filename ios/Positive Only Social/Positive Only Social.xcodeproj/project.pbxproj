@@ -50,6 +50,7 @@
 			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
 			membershipExceptions = (
 				api/Config.swift,
+				api/ErrorHelpers.swift,
 				api/Models.swift,
 				api/Networking.swift,
 				api/RealAPI.swift,
@@ -85,6 +86,7 @@
 			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
 			membershipExceptions = (
 				api/Config.swift,
+				api/ErrorHelpers.swift,
 				api/Models.swift,
 				api/Networking.swift,
 				api/RealAPI.swift,
