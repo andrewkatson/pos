@@ -54,6 +54,14 @@ class TestClassifiers(PositiveOnlySocialTestCase):
         self.assertEqual(parse_probability("Probability: 0.4"), 0.4)
         self.assertEqual(parse_probability(".75"), 0.75)
 
+    def test_parse_probability_ignores_echoed_range(self):
+        # Models sometimes echo the prompt's "between 0.00 and 1.00" bounds
+        # before answering; the answer (last in-range number) must win.
+        self.assertEqual(parse_probability("On a scale between 0.00 and 1.00, I would say 0.85"), 0.85)
+        self.assertEqual(parse_probability("between 0.00 and 1.00: 0.4"), 0.4)
+        # Out-of-range numbers are ignored in favor of an in-range answer.
+        self.assertEqual(parse_probability("I rate it 0.9 (not 100)"), 0.9)
+
     def test_parse_probability_invalid(self):
         self.assertIsNone(parse_probability("yes"))
         self.assertIsNone(parse_probability(""))

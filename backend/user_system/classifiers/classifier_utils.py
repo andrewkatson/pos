@@ -59,16 +59,18 @@ def get_zone(score):
 
 
 def parse_probability(text):
-    """Extracts a probability in [0, 1] from a model response, or None."""
-    match = re.search(r'\d+(?:\.\d+)?|\.\d+', str(text))
-    if not match:
-        logger.warning("Could not parse probability from model response: %r", text)
+    """Extracts a probability in [0, 1] from a model response, or None.
+
+    Takes the last in-range number so a response that echoes the prompt's
+    "between 0.00 and 1.00" range before giving its answer still parses the
+    answer rather than the echoed bounds.
+    """
+    numbers = [float(m) for m in re.findall(r'\d+(?:\.\d+)?|\.\d+', str(text))]
+    in_range = [n for n in numbers if 0.0 <= n <= 1.0]
+    if not in_range:
+        logger.warning("Could not parse an in-range probability from model response: %r", text)
         return None
-    probability = float(match.group())
-    if not 0.0 <= probability <= 1.0:
-        logger.warning("Parsed probability out of range: %s", probability)
-        return None
-    return probability
+    return in_range[-1]
 
 
 def classify_with_thresholds(available_apis, call_fn):
