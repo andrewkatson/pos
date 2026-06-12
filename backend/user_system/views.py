@@ -23,10 +23,11 @@ from django_ratelimit.exceptions import Ratelimited
 from .classifiers import image_classifier, text_classifier
 from .constants import Patterns, Params, POST_BATCH_SIZE, MAX_BEFORE_HIDING_POST, MAX_BEFORE_HIDING_COMMENT, \
     COMMENT_BATCH_SIZE, Fields, COMMENT_THREAD_BATCH_SIZE, \
-    VERIFY_RESET_MAX_ATTEMPTS, VERIFY_RESET_LOCKOUT_MINUTES
+    VERIFY_RESET_MAX_ATTEMPTS, VERIFY_RESET_LOCKOUT_MINUTES, \
+    ACCOUNT_BANNED, BAN_TYPE_OUTRIGHT
 from .feed_algorithm import feed_algorithm
 from .input_validator import is_valid_pattern
-from .models import LoginCookie, Session, Post, CommentThread, PositiveOnlySocialUser, Comment, UserBlock
+from .models import LoginCookie, Session, Post, CommentThread, PositiveOnlySocialUser, Comment, UserBlock, UserBan
 from .utils import convert_to_bool, generate_login_cookie_token, generate_management_token, generate_series_identifier, \
     get_batch, get_compressed_image_url
 
@@ -121,6 +122,10 @@ def get_user_with_session_management_token(token):
         return None
 
 
+def has_active_outright_ban(user):
+    return UserBan.objects.active().filter(user=user, ban_type=BAN_TYPE_OUTRIGHT).exists()
+
+
 def get_post_with_identifier(identifier):
     try:
         existing_post = Post.objects.get(post_identifier=identifier)
@@ -172,6 +177,10 @@ def api_login_required(view_func):
 
         if user is None:
             return JsonResponse({'error': 'Invalid session token'}, status=401)
+
+        if has_active_outright_ban(user):
+            logger.warning(f"Request rejected: Account banned for user_id: {user.id}")
+            return JsonResponse({'error': ACCOUNT_BANNED}, status=403)
 
         # Attach user and token to the request for the view to use
         request.user = user
@@ -354,6 +363,10 @@ def login_user(request):
             logger.warning(f"Login failed: Password was not correct for user_id: {existing.id}")
             return log_and_return_json("login_user", {'error': "Invalid username or password"}, status=400)
 
+        if has_active_outright_ban(existing):
+            logger.warning(f"Login failed: Account banned for user_id: {existing.id}")
+            return log_and_return_json("login_user", {'error': ACCOUNT_BANNED}, status=403)
+
         login(request, existing)  # Logs into Django's session auth
 
         new_login_cookie = None
@@ -417,6 +430,10 @@ def login_user_with_remember_me(request):
     if matching_login_cookie.token != login_cookie_token:
         logger.warning(f"Login with remember me failed: Login cookie token does not match for series: {series_identifier}")
         return log_and_return_json("login_user_with_remember_me", {'error': "Login cookie token does not match"}, status=400)
+
+    if has_active_outright_ban(matching_login_cookie.cookie_user):
+        logger.warning(f"Login with remember me failed: Account banned for user_id: {matching_login_cookie.cookie_user.id}")
+        return log_and_return_json("login_user_with_remember_me", {'error': ACCOUNT_BANNED}, status=403)
 
     # Issue a new login cookie token (token rotation)
     new_login_cookie_token = generate_login_cookie_token()

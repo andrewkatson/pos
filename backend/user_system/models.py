@@ -2,7 +2,8 @@ import uuid
 from django.conf import settings
 from django.contrib.auth.models import AbstractUser
 from django.db import models
-from .constants import NEVER_RUN
+from django.utils import timezone
+from .constants import NEVER_RUN, BAN_TYPE_OUTRIGHT, BAN_TYPE_SHADOW
 
 
 # The model to explicitly define the "follow" relationship
@@ -68,6 +69,46 @@ class LoginCookie(models.Model):
     series_identifier = models.UUIDField(default=uuid.uuid4, primary_key=True, unique=True, editable=False)
     token = models.TextField(null=True)
     cookie_user = models.ForeignKey(PositiveOnlySocialUser, on_delete=models.CASCADE)
+
+
+class UserBanManager(models.Manager):
+    def active(self):
+        """Bans that are currently in effect (no expiry, or expiry in the future)."""
+        return self.filter(models.Q(expires__isnull=True) | models.Q(expires__gt=timezone.now()))
+
+
+# A ban applied to a user. Kept as a separate record rather than a flag on the
+# user so there is an audit trail and a future appeals system can reference
+# the specific ban.
+class UserBan(models.Model):
+    BAN_TYPE_CHOICES = [
+        (BAN_TYPE_OUTRIGHT, 'Outright'),
+        (BAN_TYPE_SHADOW, 'Shadow'),
+    ]
+
+    user = models.ForeignKey(settings.AUTH_USER_MODEL, related_name='bans', on_delete=models.CASCADE)
+    ban_type = models.TextField(choices=BAN_TYPE_CHOICES, default=BAN_TYPE_OUTRIGHT)
+    reason = models.TextField(null=True, blank=True)
+    created = models.DateTimeField(auto_now_add=True)
+    expires = models.DateTimeField(null=True, blank=True, default=None)
+    banned_by = models.ForeignKey(settings.AUTH_USER_MODEL, related_name='bans_issued', null=True, blank=True,
+                                  on_delete=models.SET_NULL)
+
+    objects = UserBanManager()
+
+    class Meta:
+        app_label = 'user_system'
+
+    def save(self, *args, **kwargs):
+        super().save(*args, **kwargs)
+        # An outright ban must terminate the user's live sessions immediately.
+        # Shadow bans leave sessions alone so the user stays unaware.
+        if self.ban_type == BAN_TYPE_OUTRIGHT:
+            Session.objects.filter(management_user=self.user).delete()
+            LoginCookie.objects.filter(cookie_user=self.user).delete()
+
+    def __str__(self):
+        return f"{self.ban_type} ban on {self.user}"
 
 
 # A post on the website

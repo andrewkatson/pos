@@ -2,6 +2,13 @@
 # for a user
 NEVER_RUN = "never_run"
 
+# Types of bans that can be applied to a user
+BAN_TYPE_OUTRIGHT = "outright"
+BAN_TYPE_SHADOW = "shadow"
+
+# Error code returned when an outright-banned user attempts to authenticate
+ACCOUNT_BANNED = "account_banned"
+
 # Regex Patterns to check against
 class Patterns:
     password = r"^(?=.*[0-9])(?=.*[a-z])(?=.*[A-Z])(?=.*[@#$%^&+=_])(?=\S+$).{8,}$"
