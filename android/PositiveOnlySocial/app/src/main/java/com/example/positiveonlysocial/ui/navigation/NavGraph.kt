@@ -37,7 +37,10 @@ fun NavGraph(
         if (forcedLogout) {
             authManager.clearForcedLogout()
             navController.navigate(Screen.Welcome.route) {
-                popUpTo(0) { inclusive = true }
+                // Welcome is the start destination, so popping to it
+                // inclusively clears every authenticated screen.
+                popUpTo(Screen.Welcome.route) { inclusive = true }
+                launchSingleTop = true
             }
         }
     }
