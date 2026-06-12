@@ -114,7 +114,7 @@ final class HomeViewModel: ObservableObject {
                 NSLog("%@", "My posts load cancelled")
             } else {
                 NSLog("%@", "Error fetching my posts: \(error)")
-                self.errorMessage = error.localizedDescription
+                errorMessage = error.localizedDescription
             }
         }
 
