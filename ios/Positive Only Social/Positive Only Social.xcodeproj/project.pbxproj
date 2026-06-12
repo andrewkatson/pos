@@ -18,6 +18,9 @@
 		24F2F01A2EB57CD600D00D46 /* AWSClientRuntime in Frameworks */ = {isa = PBXBuildFile; productRef = 24F2F0192EB57CD600D00D46 /* AWSClientRuntime */; };
 		24F2F01C2EB57D1000D00D46 /* AWSCognitoIdentityProvider in Frameworks */ = {isa = PBXBuildFile; productRef = 24F2F01B2EB57D1000D00D46 /* AWSCognitoIdentityProvider */; };
 		24F2F01E2EB57D5E00D00D46 /* AWSS3 in Frameworks */ = {isa = PBXBuildFile; productRef = 24F2F01D2EB57D5E00D00D46 /* AWSS3 */; };
+		C25A7D752FDB7AE900528050 /* Kingfisher in Frameworks */ = {isa = PBXBuildFile; productRef = C25A7D742FDB7AE900528050 /* Kingfisher */; };
+		C25A7D772FDB7F3800528050 /* Kingfisher in Frameworks */ = {isa = PBXBuildFile; productRef = C25A7D762FDB7F3800528050 /* Kingfisher */; };
+		C25A7D792FDB7F3F00528050 /* Kingfisher in Frameworks */ = {isa = PBXBuildFile; productRef = C25A7D782FDB7F3F00528050 /* Kingfisher */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -151,6 +154,7 @@
 				244C436E2E9AA12F003D2A61 /* AWSCognitoIdentity in Frameworks */,
 				244C43722E9AA4ED003D2A61 /* AWSCognitoIdentityProvider in Frameworks */,
 				244C43762E9AA587003D2A61 /* AWSBedrockAgentCore in Frameworks */,
+				C25A7D752FDB7AE900528050 /* Kingfisher in Frameworks */,
 				244C43782E9AA587003D2A61 /* AWSBedrockAgentCoreControl in Frameworks */,
 				244C437A2E9AA587003D2A61 /* AWSClientRuntime in Frameworks */,
 				244C43742E9AA587003D2A61 /* AWSBedrockAgent in Frameworks */,
@@ -161,6 +165,7 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				C25A7D772FDB7F3800528050 /* Kingfisher in Frameworks */,
 				24F2F01A2EB57CD600D00D46 /* AWSClientRuntime in Frameworks */,
 				24F2F0182EB57CB200D00D46 /* AWSClientRuntime in Frameworks */,
 			);
@@ -170,6 +175,7 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				C25A7D792FDB7F3F00528050 /* Kingfisher in Frameworks */,
 				24F2F01E2EB57D5E00D00D46 /* AWSS3 in Frameworks */,
 				24F2F01C2EB57D1000D00D46 /* AWSCognitoIdentityProvider in Frameworks */,
 			);
@@ -186,6 +192,7 @@
 				248836D52E6282C3002D47F1 /* Positive Only Social */,
 				248836E32E6282C5002D47F1 /* Positive Only SocialTests */,
 				248836ED2E6282C5002D47F1 /* Positive Only SocialUITests */,
+				C25A7D732FDB7AE900528050 /* Frameworks */,
 				248836D42E6282C3002D47F1 /* Products */,
 			);
 			sourceTree = "<group>";
@@ -198,6 +205,13 @@
 				248836EA2E6282C5002D47F1 /* Positive Only SocialUITests.xctest */,
 			);
 			name = Products;
+			sourceTree = "<group>";
+		};
+		C25A7D732FDB7AE900528050 /* Frameworks */ = {
+			isa = PBXGroup;
+			children = (
+			);
+			name = Frameworks;
 			sourceTree = "<group>";
 		};
 /* End PBXGroup section */
@@ -227,6 +241,7 @@
 				244C43752E9AA587003D2A61 /* AWSBedrockAgentCore */,
 				244C43772E9AA587003D2A61 /* AWSBedrockAgentCoreControl */,
 				244C43792E9AA587003D2A61 /* AWSClientRuntime */,
+				C25A7D742FDB7AE900528050 /* Kingfisher */,
 			);
 			productName = "Positive Only Social";
 			productReference = 248836D32E6282C3002D47F1 /* Positive Only Social.app */;
@@ -252,6 +267,7 @@
 			packageProductDependencies = (
 				24F2F0172EB57CB200D00D46 /* AWSClientRuntime */,
 				24F2F0192EB57CD600D00D46 /* AWSClientRuntime */,
+				C25A7D762FDB7F3800528050 /* Kingfisher */,
 			);
 			productName = "Positive Only SocialTests";
 			productReference = 248836E02E6282C5002D47F1 /* Positive Only SocialTests.xctest */;
@@ -277,6 +293,7 @@
 			packageProductDependencies = (
 				24F2F01B2EB57D1000D00D46 /* AWSCognitoIdentityProvider */,
 				24F2F01D2EB57D5E00D00D46 /* AWSS3 */,
+				C25A7D782FDB7F3F00528050 /* Kingfisher */,
 			);
 			productName = "Positive Only SocialUITests";
 			productReference = 248836EA2E6282C5002D47F1 /* Positive Only SocialUITests.xctest */;
@@ -316,6 +333,7 @@
 			minimizedProjectReferenceProxies = 1;
 			packageReferences = (
 				244C436C2E9AA12F003D2A61 /* XCRemoteSwiftPackageReference "aws-sdk-swift" */,
+				C22AB42F2FDB7A1C00608868 /* XCRemoteSwiftPackageReference "Kingfisher" */,
 			);
 			preferredProjectObjectVersion = 77;
 			productRefGroup = 248836D42E6282C3002D47F1 /* Products */;
@@ -696,6 +714,14 @@
 				minimumVersion = 1.5.61;
 			};
 		};
+		C22AB42F2FDB7A1C00608868 /* XCRemoteSwiftPackageReference "Kingfisher" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/onevcat/Kingfisher.git";
+			requirement = {
+				kind = upToNextMajorVersion;
+				minimumVersion = 8.9.0;
+			};
+		};
 /* End XCRemoteSwiftPackageReference section */
 
 /* Begin XCSwiftPackageProductDependency section */
@@ -749,6 +775,21 @@
 		24F2F01D2EB57D5E00D00D46 /* AWSS3 */ = {
 			isa = XCSwiftPackageProductDependency;
 			productName = AWSS3;
+		};
+		C25A7D742FDB7AE900528050 /* Kingfisher */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = C22AB42F2FDB7A1C00608868 /* XCRemoteSwiftPackageReference "Kingfisher" */;
+			productName = Kingfisher;
+		};
+		C25A7D762FDB7F3800528050 /* Kingfisher */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = C22AB42F2FDB7A1C00608868 /* XCRemoteSwiftPackageReference "Kingfisher" */;
+			productName = Kingfisher;
+		};
+		C25A7D782FDB7F3F00528050 /* Kingfisher */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = C22AB42F2FDB7A1C00608868 /* XCRemoteSwiftPackageReference "Kingfisher" */;
+			productName = Kingfisher;
 		};
 /* End XCSwiftPackageProductDependency section */
 	};
