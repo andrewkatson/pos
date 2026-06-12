@@ -34,8 +34,9 @@ def visible_comment_threads(threads, viewer):
     via a subquery on thread ids rather than joining through comments so the
     like-count annotations applied later are not inflated by duplicate rows.
     """
-    visible_thread_ids = visible_comments(Comment.objects.all(), viewer).values_list(
-        'comment_thread_id', flat=True)
+    visible_thread_ids = visible_comments(
+        Comment.objects.filter(comment_thread__in=threads), viewer
+    ).values_list('comment_thread_id', flat=True).distinct()
     return threads.filter(pk__in=visible_thread_ids)
 
 
