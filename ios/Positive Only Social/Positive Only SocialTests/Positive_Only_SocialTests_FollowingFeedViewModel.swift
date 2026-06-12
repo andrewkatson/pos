@@ -48,7 +48,7 @@ struct Positive_Only_SocialTests_FollowingFeedViewModel {
         // Given: A user is logged in
         let userAToken = try await registerUserAndGetToken(username: "userA")
         let userSession = UserSession(sessionToken: userAToken, username: "userA", userId: "1", isIdentityVerified: false)
-        try keychainHelper.save(userSession, for: AppConstants.keychainService, account: "fetchFollowingFeedUserNotFollowingAnyone")
+        try keychainHelper.save(userSession, for: GVOAppConstants.keychainService, account: "fetchFollowingFeedUserNotFollowingAnyone")
         
         // And: Another user posts, but our user *does not* follow them
         let userBToken = try await registerUserAndGetToken(username: "userB")
@@ -71,7 +71,7 @@ struct Positive_Only_SocialTests_FollowingFeedViewModel {
         // Given: A user is logged in
         let userAToken = try await registerUserAndGetToken(username: "userA")
         let userSession = UserSession(sessionToken: userAToken, username: "userA", userId: "1", isIdentityVerified: false)
-        try keychainHelper.save(userSession, for: AppConstants.keychainService, account: "fetchFollowingFeedWhileAlreadyLoading")
+        try keychainHelper.save(userSession, for: GVOAppConstants.keychainService, account: "fetchFollowingFeedWhileAlreadyLoading")
         
         // And: The viewmodel is *already* loading
         sut.isLoadingNextPage = true
@@ -107,7 +107,7 @@ struct Positive_Only_SocialTests_FollowingFeedViewModel {
         let userAToken = try await registerUserAndGetToken(username: "userA")
         let userBToken = try await registerUserAndGetToken(username: "userB")
         let userSession = UserSession(sessionToken: userAToken, username: "userA", userId: "1", isIdentityVerified: false)
-        try keychainHelper.save(userSession, for: AppConstants.keychainService, account: "fetchFollowingFeedPagination")
+        try keychainHelper.save(userSession, for: GVOAppConstants.keychainService, account: "fetchFollowingFeedPagination")
 
         // And: User A follows User B
         _ = try await stubAPI.followUser(sessionManagementToken: userAToken, username: "userB")
@@ -154,6 +154,110 @@ struct Positive_Only_SocialTests_FollowingFeedViewModel {
         #expect(sut.isLoadingNextPage == false)
         #expect(sut.followingPosts.count == 3)
         #expect(stubAPI.getPostsForFollowedUsersCallCount == 3)
+    }
+
+    @Test func testRefreshFeed_PullsNewestPostsAndReplacesList() async throws {
+        stubAPI.pageSize = 2
+        let sut = FollowingFeedViewModel(api: stubAPI, keychainHelper: keychainHelper, account: "refreshFollowingPullsNewest")
+
+        // Given: A logged-in user following userB, who has one post
+        let userAToken = try await registerUserAndGetToken(username: "userA")
+        let userBToken = try await registerUserAndGetToken(username: "userB")
+        let userSession = UserSession(sessionToken: userAToken, username: "userA", userId: "1", isIdentityVerified: false)
+        try keychainHelper.save(userSession, for: GVOAppConstants.keychainService, account: "refreshFollowingPullsNewest")
+        _ = try await stubAPI.followUser(sessionManagementToken: userAToken, username: "userB")
+        _ = try await stubAPI.makePost(sessionManagementToken: userBToken, imageURL: "image.url/1", caption: "Post 1")
+
+        // And: The feed has been loaded once
+        sut.fetchFollowingFeed()
+        await yield()
+        #expect(sut.followingPosts.count == 1)
+        #expect(stubAPI.getPostsForFollowedUsersCallCount == 1)
+
+        // When: New posts appear and we pull-to-refresh
+        _ = try await stubAPI.makePost(sessionManagementToken: userBToken, imageURL: "image.url/2", caption: "Post 2")
+        _ = try await stubAPI.makePost(sessionManagementToken: userBToken, imageURL: "image.url/3", caption: "Post 3")
+        await sut.refreshFeed()
+
+        // Then: The list is replaced with the freshest first page (newest first)
+        #expect(sut.isLoadingNextPage == false)
+        #expect(sut.followingPosts.count == 2)
+        #expect(sut.followingPosts.first?.imageUrl == "image.url/3")
+        #expect(sut.followingPosts.last?.imageUrl == "image.url/2")
+        #expect(stubAPI.getPostsForFollowedUsersCallCount == 2)
+    }
+
+    @Test func testRefreshFeed_ResetsPaginationAfterEndReached() async throws {
+        stubAPI.pageSize = 2
+        let sut = FollowingFeedViewModel(api: stubAPI, keychainHelper: keychainHelper, account: "refreshFollowingResetsPagination")
+
+        let userAToken = try await registerUserAndGetToken(username: "userA")
+        let userBToken = try await registerUserAndGetToken(username: "userB")
+        let userSession = UserSession(sessionToken: userAToken, username: "userA", userId: "1", isIdentityVerified: false)
+        try keychainHelper.save(userSession, for: GVOAppConstants.keychainService, account: "refreshFollowingResetsPagination")
+        _ = try await stubAPI.followUser(sessionManagementToken: userAToken, username: "userB")
+        _ = try await stubAPI.makePost(sessionManagementToken: userBToken, imageURL: "image.url/1", caption: "Post 1")
+
+        // Given: We have paged to the end (canLoadMore becomes false)
+        sut.fetchFollowingFeed()
+        await yield()
+        sut.fetchFollowingFeed() // empty page 1 -> canLoadMore = false
+        await yield()
+        #expect(sut.followingPosts.count == 1)
+        #expect(stubAPI.getPostsForFollowedUsersCallCount == 2)
+
+        // And: Two more posts now exist on the backend (3 total = 2 pages)
+        _ = try await stubAPI.makePost(sessionManagementToken: userBToken, imageURL: "image.url/2", caption: "Post 2")
+        _ = try await stubAPI.makePost(sessionManagementToken: userBToken, imageURL: "image.url/3", caption: "Post 3")
+
+        // When: We refresh
+        await sut.refreshFeed()
+
+        // Then: The freshest first page replaces the list...
+        #expect(sut.followingPosts.count == 2)
+
+        // ...and pagination is reset, so a subsequent fetch loads page 1 again.
+        sut.fetchFollowingFeed()
+        await yield()
+        #expect(sut.followingPosts.count == 3)
+    }
+
+    @Test func testRefreshFeed_Failure_PreservesPaginationCursor() async throws {
+        stubAPI.pageSize = 2
+        let account = "refreshFollowingFailurePreservesCursor"
+        let sut = FollowingFeedViewModel(api: stubAPI, keychainHelper: keychainHelper, account: account)
+
+        let userAToken = try await registerUserAndGetToken(username: "userA")
+        let userBToken = try await registerUserAndGetToken(username: "userB")
+        let userSession = UserSession(sessionToken: userAToken, username: "userA", userId: "1", isIdentityVerified: false)
+        try keychainHelper.save(userSession, for: GVOAppConstants.keychainService, account: account)
+        _ = try await stubAPI.followUser(sessionManagementToken: userAToken, username: "userB")
+
+        // Given: 3 posts exist and we've loaded the first page (cursor at page 1)
+        _ = try await stubAPI.makePost(sessionManagementToken: userBToken, imageURL: "image.url/1", caption: "Post 1")
+        _ = try await stubAPI.makePost(sessionManagementToken: userBToken, imageURL: "image.url/2", caption: "Post 2")
+        _ = try await stubAPI.makePost(sessionManagementToken: userBToken, imageURL: "image.url/3", caption: "Post 3")
+        sut.fetchFollowingFeed()
+        await yield()
+        #expect(sut.followingPosts.count == 2)
+        #expect(sut.followingPosts.first?.imageUrl == "image.url/3")
+
+        // When: A refresh fails (session is unavailable for the duration of the refresh)
+        try keychainHelper.delete(service: GVOAppConstants.keychainService, account: account)
+        await sut.refreshFeed()
+        try keychainHelper.save(userSession, for: GVOAppConstants.keychainService, account: account)
+
+        // Then: The existing posts are untouched and the loading flag is reset
+        #expect(sut.isLoadingNextPage == false)
+        #expect(sut.followingPosts.count == 2)
+
+        // And: The cursor was NOT reset, so the next fetch loads page 1 (not page 0
+        // again), appending the third post without duplicating the first page.
+        sut.fetchFollowingFeed()
+        await yield()
+        #expect(sut.followingPosts.count == 3)
+        #expect(sut.followingPosts.last?.imageUrl == "image.url/1")
+        #expect(sut.followingPosts.filter { $0.imageUrl == "image.url/3" }.count == 1)
     }
 }
 

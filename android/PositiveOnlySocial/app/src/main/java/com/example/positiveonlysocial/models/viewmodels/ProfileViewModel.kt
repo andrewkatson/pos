@@ -40,6 +40,9 @@ class ProfileViewModel(
     private val _errorMessage = MutableStateFlow<String?>(null)
     val errorMessage: StateFlow<String?> = _errorMessage.asStateFlow()
 
+    private val _isRefreshing = MutableStateFlow(false)
+    val isRefreshing: StateFlow<Boolean> = _isRefreshing.asStateFlow()
+
     private val service = "positive-only-social.Positive-Only-Social"
 
     // Pagination state
@@ -100,9 +103,61 @@ class ProfileViewModel(
         }
     }
 
+    /**
+     * Pull-to-refresh: resets pagination and reloads the profile's details and
+     * posts from the first page, replacing the existing list with the freshest
+     * posts from the backend.
+     */
+    fun refreshProfile(username: String) {
+        // Don't refresh while a paginated fetch is in flight; they share
+        // _userPosts/currentPage/canLoadMore and would otherwise race.
+        if (_isRefreshing.value || _isLoading.value) return
+
+        _isRefreshing.value = true
+        _errorMessage.value = null
+
+        viewModelScope.launch {
+            try {
+                val userSession = keychainHelper.load(UserSession::class.java, service, account)
+                if (userSession == null) {
+                    Log.e(TAG, "No active session found — cannot refresh profile")
+                    return@launch
+                }
+
+                val profileResponse = api.getProfileDetails(userSession.sessionToken, username)
+                if (profileResponse.isSuccessful) {
+                    val profile = profileResponse.body()
+                    _profileDetails.value = profile
+                    _isFollowing.value = profile?.isFollowing ?: false
+                    _isBlocked.value = profile?.isBlocked ?: false
+                } else {
+                    // Surface the failure instead of silently leaving follow/block
+                    // state stale (mirrors fetchProfile()).
+                    _errorMessage.value = "Failed to load profile: ${profileResponse.errorBody()?.string()}"
+                }
+
+                val postsResponse = api.getPostsForUser(userSession.sessionToken, username, 0)
+                if (postsResponse.isSuccessful) {
+                    val newPosts = postsResponse.body() ?: emptyList()
+                    _userPosts.value = newPosts
+                    canLoadMore = newPosts.isNotEmpty()
+                    currentPage = if (newPosts.isEmpty()) 0 else 1
+                } else if (_errorMessage.value == null) {
+                    _errorMessage.value = "Failed to load posts: ${postsResponse.errorBody()?.string()}"
+                }
+            } catch (e: Exception) {
+                _errorMessage.value = "Error: ${e.localizedMessage}"
+                Log.e(TAG, "Error refreshing profile", e)
+            } finally {
+                _isRefreshing.value = false
+            }
+        }
+    }
+
     fun fetchUserPosts(username: String) {
-        // Guard against multiple fetches or if end is reached
-        if (_isLoading.value || !canLoadMore) return
+        // Guard against multiple fetches, reaching the end, or racing a
+        // pull-to-refresh (which resets the pagination cursor).
+        if (_isLoading.value || _isRefreshing.value || !canLoadMore) return
 
         _isLoading.value = true
 
@@ -141,11 +196,13 @@ class ProfileViewModel(
         val currentProfile = _profileDetails.value ?: return
         val isFollowing = currentProfile.isFollowing
 
-        // Optimistic Update
+        // Optimistic Update. Keep _isFollowing in sync with the profile so the
+        // follow button and the follower count never drift apart.
         _profileDetails.value = currentProfile.copy(
             isFollowing = !isFollowing,
             followerCount = if (isFollowing) currentProfile.followerCount - 1 else currentProfile.followerCount + 1
         )
+        _isFollowing.value = !isFollowing
 
         viewModelScope.launch {
             try {
@@ -165,11 +222,13 @@ class ProfileViewModel(
                 if (!response.isSuccessful) {
                     // Revert on failure
                     _profileDetails.value = currentProfile
+                    _isFollowing.value = isFollowing
                     _errorMessage.value = "Failed to update follow status"
                 }
             } catch (e: Exception) {
                 // Revert on error
                 _profileDetails.value = currentProfile
+                _isFollowing.value = isFollowing
                 _errorMessage.value = "Error: ${e.localizedMessage}"
             }
         }
@@ -177,14 +236,20 @@ class ProfileViewModel(
 
     fun toggleBlock(username: String) {
         val currentBlockedStatus = _isBlocked.value
-        
+        val currentProfile = _profileDetails.value
+
         // Optimistic Update
         _isBlocked.value = !currentBlockedStatus
-        
-        // If we allow blocking to unfollow immediately in UI, we should update that too.
-        // Backend handles unfollowing.
-        if (!currentBlockedStatus) { // We are now blocking
-             _isFollowing.value = false
+
+        // Blocking also unfollows on the backend, so mirror that here. Only
+        // decrement the follower count if we were actually following, otherwise
+        // the count drifts (e.g. follow -> block -> follow would count twice).
+        if (!currentBlockedStatus && currentProfile != null && currentProfile.isFollowing) {
+            _profileDetails.value = currentProfile.copy(
+                isFollowing = false,
+                followerCount = currentProfile.followerCount - 1
+            )
+            _isFollowing.value = false
         }
 
         viewModelScope.launch {
@@ -199,15 +264,21 @@ class ProfileViewModel(
                 val response = api.toggleBlock(userSession.sessionToken, username)
 
                 if (!response.isSuccessful) {
-                    // Revert on failure
+                    // Revert on failure, including the optimistic unfollow side-effect.
                     _isBlocked.value = currentBlockedStatus
+                    if (currentProfile != null) {
+                        _profileDetails.value = currentProfile
+                        _isFollowing.value = currentProfile.isFollowing
+                    }
                     _errorMessage.value = "Failed to update block status"
-                    // Potentially revert follow status if we changed it optimistically? 
-                    // Simpler to just fetch profile again on error or success to sync state.
                 }
             } catch (e: Exception) {
-                // Revert on error
+                // Revert on error, including the optimistic unfollow side-effect.
                 _isBlocked.value = currentBlockedStatus
+                if (currentProfile != null) {
+                    _profileDetails.value = currentProfile
+                    _isFollowing.value = currentProfile.isFollowing
+                }
                 _errorMessage.value = "Error: ${e.localizedMessage}"
             }
         }

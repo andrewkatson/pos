@@ -1,11 +1,15 @@
 package com.example.positiveonlysocial.ui.main
 
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.NavController
@@ -60,6 +64,7 @@ fun SettingsScreen(
         var identityVerificationMessage by remember { mutableStateOf<String?>(null) }
         
         val scope = rememberCoroutineScope()
+        val focusManager = LocalFocusManager.current
         // Local processing state for the dialog
         var isVerifying by remember { mutableStateOf(false) }
         
@@ -160,7 +165,9 @@ fun SettingsScreen(
                             value = identityDateOfBirth,
                             onValueChange = { identityDateOfBirth = it },
                             label = { Text("YYYY-MM-DD") },
-                            singleLine = true
+                            singleLine = true,
+                            keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
+                            keyboardActions = KeyboardActions(onDone = { focusManager.clearFocus() })
                         )
                          if (identityVerificationMessage != null) {
                              Spacer(modifier = Modifier.height(8.dp))

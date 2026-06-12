@@ -5,7 +5,6 @@ export interface RegisterRequest {
   username: string
   email: string
   password: string
-  ip: string
   remember_me?: boolean
   /** YYYY-MM-DD. When provided, the account is identity-verified on creation. */
   date_of_birth?: string
@@ -13,7 +12,8 @@ export interface RegisterRequest {
 
 export interface AuthResponse {
   session_management_token: string
-  user_id: number
+  /** UUID string matching PositiveOnlySocialUser.id (UUIDField on the backend). */
+  user_id: string
   username?: string
   // Only present when remember_me was requested.
   series_identifier?: string
@@ -23,7 +23,6 @@ export interface AuthResponse {
 export interface LoginRequest {
   username_or_email: string
   password: string
-  ip: string
   remember_me?: boolean
 }
 
@@ -31,7 +30,6 @@ export interface LoginWithRememberMeRequest {
   session_management_token: string
   series_identifier: string
   login_cookie_token: string
-  ip: string
 }
 
 export interface LoginWithRememberMeResponse {

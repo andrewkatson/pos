@@ -50,7 +50,7 @@ struct Positive_Only_SocialTests_PostDetailViewModel {
     private func setupLoggedInUser(username: String, account: String) async throws -> String {
         let token = try await registerUserAndGetToken(username: username)
         let userSession = UserSession(sessionToken: token, username: username, userId: "1", isIdentityVerified: false)
-        try keychainHelper.save(userSession, for: AppConstants.keychainService, account: account)
+        try keychainHelper.save(userSession, for: GVOAppConstants.keychainService, account: account)
         return token
     }
     
@@ -83,29 +83,34 @@ struct Positive_Only_SocialTests_PostDetailViewModel {
         return try JSONDecoder().decode(ReplyFields.self, from: data).comment_identifier
     }
     
-    /// A master helper to set up a full environment for testing
+    /// A master helper to set up a full environment for testing.
+    ///
+    /// The signed-in user is a "viewer" who authored neither the post nor the
+    /// comment, so the like actions are allowed. Self-like prevention is covered
+    /// by the dedicated own-content tests below.
     private func setupTestEnvironment(account: String) async throws -> (sut: PostDetailViewModel, postID: String, threadID: String, commentID: String) {
-        // 1. Create a user, log them in, and save to keychain
-        let postOwnerToken = try await setupLoggedInUser(username: "postOwner", account: account)
-        
-        // 2. Create a second user for commenting
+        // 1. The signed-in user — a viewer, not the post/comment author.
+        _ = try await setupLoggedInUser(username: "viewer", account: account)
+
+        // 2. Create the post author and a separate commenter.
+        let postOwnerToken = try await registerUserAndGetToken(username: "postOwner")
         let commenterToken = try await registerUserAndGetToken(username: "commenter")
-        
-        // 3. Create a post
+
+        // 3. Create a post (authored by postOwner)
         let postID = try await makePostAndGetID(token: postOwnerToken, caption: "Test Post 1")
-        
-        // 4. Create a comment thread
+
+        // 4. Create a comment thread (authored by commenter)
         let (threadID, commentID) = try await commentOnPostAndGetIDs(token: commenterToken, postID: postID, body: "First comment")
-        
-        // 5. Create a reply in that thread
+
+        // 5. Create a reply in that thread (authored by postOwner)
         _ = try await replyToCommentAndGetID(token: postOwnerToken, postID: postID, threadID: threadID, body: "Reply comment")
-        
+
         // 6. Create the SUT. This triggers `loadAllData()`
         let sut = PostDetailViewModel(postIdentifier: postID, api: stubAPI, keychainHelper: keychainHelper, account: account)
-        
+
         // 7. Wait for all loading to finish
         await yield()
-        
+
         return (sut, postID, threadID, commentID)
     }
 
@@ -140,6 +145,43 @@ struct Positive_Only_SocialTests_PostDetailViewModel {
         #expect(firstComment?.authorUsername == "commenter")
         #expect(secondComment?.body == "Reply comment")
         #expect(secondComment?.authorUsername == "postOwner")
+    }
+
+    @Test func testRefresh_PullsLatestCommentsFromBackend() async throws {
+        // Given: A fully loaded SUT with one comment thread
+        let (sut, postID, _, _) = try await setupTestEnvironment(account: "refresh_account")
+        #expect(sut.commentThreads.count == 1, "Pre-condition: Should have 1 thread")
+
+        // And: Another user adds a brand new comment thread on the backend
+        let otherCommenterToken = try await registerUserAndGetToken(username: "commenter2")
+        _ = try await commentOnPostAndGetIDs(token: otherCommenterToken, postID: postID, body: "Fresh comment")
+
+        // When: We pull-to-refresh
+        await sut.refresh()
+
+        // Then: The newest data is pulled in and loading is finished
+        #expect(sut.isLoading == false)
+        #expect(sut.commentThreads.count == 2, "Refreshed feed should include the new thread")
+    }
+
+    @Test func testRefresh_WhileAlreadyLoading_DoesNotReload() async throws {
+        // Given: A fully loaded SUT with one comment thread
+        let (sut, postID, _, _) = try await setupTestEnvironment(account: "refreshWhileLoading_account")
+        #expect(sut.commentThreads.count == 1, "Pre-condition: Should have 1 thread")
+
+        // And: A new comment thread appears on the backend
+        let otherCommenterToken = try await registerUserAndGetToken(username: "commenter2")
+        _ = try await commentOnPostAndGetIDs(token: otherCommenterToken, postID: postID, body: "Fresh comment")
+
+        // And: A load is already in flight
+        sut.isLoading = true
+
+        // When: We pull-to-refresh
+        await sut.refresh()
+
+        // Then: The refresh is skipped (so a stale in-flight load can't be
+        // raced), and the new thread is NOT pulled in.
+        #expect(sut.commentThreads.count == 1, "Refresh should be a no-op while a load is already in flight")
     }
 
     // --- Post Action Tests ---
@@ -267,6 +309,54 @@ struct Positive_Only_SocialTests_PostDetailViewModel {
         #expect(updatedComment?.likeCount == 0, "Like count should not go below 0")
     }
 
+    // --- Self-Like Prevention Tests ---
+
+    /// Sets up an environment where the signed-in user authored both the post
+    /// and the single comment, so both are "own" content.
+    private func setupOwnContentEnvironment(account: String) async throws -> (sut: PostDetailViewModel, postID: String, commentID: String) {
+        // The signed-in user authors everything here.
+        let authorToken = try await setupLoggedInUser(username: "author", account: account)
+        let postID = try await makePostAndGetID(token: authorToken, caption: "My own post")
+        let (_, commentID) = try await commentOnPostAndGetIDs(token: authorToken, postID: postID, body: "My own comment")
+
+        let sut = PostDetailViewModel(postIdentifier: postID, api: stubAPI, keychainHelper: keychainHelper, account: account)
+        await yield()
+        return (sut, postID, commentID)
+    }
+
+    @Test func testLikePost_OwnPost_DoesNothing() async throws {
+        // Given: The signed-in user is viewing their own post
+        let (sut, _, _) = try await setupOwnContentEnvironment(account: "likeOwnPost_account")
+        #expect(sut.isOwnPost, "Pre-condition: the post should be the user's own")
+        #expect(sut.postDetail?.likeCount == 0, "Pre-condition: Post likes should be 0")
+
+        // When: They attempt to like their own post
+        sut.likePost()
+
+        // Then: Nothing happens — no optimistic like is applied
+        #expect(sut.postDetail?.likeCount == 0, "Own post like count should not change")
+        #expect(sut.postDetail?.isLiked == false, "Own post should not be marked liked")
+    }
+
+    @Test func testLikeComment_OwnComment_DoesNothing() async throws {
+        // Given: The signed-in user is viewing their own comment
+        let (sut, _, commentID) = try await setupOwnContentEnvironment(account: "likeOwnComment_account")
+        guard let comment = sut.commentThreads.first?.comments.first(where: { $0.id == commentID }) else {
+            #expect(Bool(false), "Test setup error: Could not find comment")
+            return
+        }
+        #expect(sut.isOwnComment(comment), "Pre-condition: the comment should be the user's own")
+        #expect(comment.likeCount == 0, "Pre-condition: Comment likes should be 0")
+
+        // When: They attempt to like their own comment
+        sut.likeComment(comment)
+
+        // Then: Nothing happens — no optimistic like is applied
+        let updatedComment = sut.commentThreads.first?.comments.first(where: { $0.id == commentID })
+        #expect(updatedComment?.likeCount == 0, "Own comment like count should not change")
+        #expect(updatedComment?.isLiked == false, "Own comment should not be marked liked")
+    }
+
     @Test func testCommentOnPost_Success_ReloadsData() async throws {
         // Given: A fully loaded SUT
         let (sut, _, _, _) = try await setupTestEnvironment(account: "commentOnPost_account")
@@ -287,13 +377,13 @@ struct Positive_Only_SocialTests_PostDetailViewModel {
         // And: The number of threads should increase
         #expect(sut.commentThreads.count == 2, "Should have 2 threads after commenting")
         
-        // And: We should find the new comment, authored by the SUT's user ("postOwner")
+        // And: We should find the new comment, authored by the SUT's user ("viewer")
         let newThread = sut.commentThreads.first {
             $0.comments.first?.body == newCommentText
         }
         #expect(newThread != nil, "New comment thread was not found")
         #expect(newThread?.comments.count == 1)
-        #expect(newThread?.comments.first?.authorUsername == "postOwner")
+        #expect(newThread?.comments.first?.authorUsername == "viewer")
     }
     
     @Test func testReplyToCommentThread_Success_ReloadsData() async throws {
@@ -323,7 +413,7 @@ struct Positive_Only_SocialTests_PostDetailViewModel {
         // And: The new comment should be the last one (most recent)
         let newReply = sut.commentThreads.first?.comments.last
         #expect(newReply?.body == newReplyText, "New reply text is incorrect")
-        #expect(newReply?.authorUsername == "postOwner", "New reply author is incorrect")
+        #expect(newReply?.authorUsername == "viewer", "New reply author is incorrect")
     }
     
     @Test func testCommentOnPost_EmptyText_DoesNotReload() async throws {

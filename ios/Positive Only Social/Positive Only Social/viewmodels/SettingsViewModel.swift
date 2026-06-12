@@ -24,7 +24,7 @@ final class SettingsViewModel: ObservableObject {
     @Published var showingVerificationInput = false
     
     // Unique identifiers for Keychain
-    private let keychainService = AppConstants.keychainService
+    private let keychainService = GVOAppConstants.keychainService
     private let account: String
     
     convenience init(api: Networking, keychainHelper: KeychainHelperProtocol) {

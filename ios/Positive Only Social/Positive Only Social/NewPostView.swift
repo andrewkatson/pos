@@ -13,6 +13,10 @@ struct NewPostView: View {
     let keychainHelper: KeychainHelperProtocol
     // Create an instance of the S3Uploader
     private let s3Uploader = S3Uploader()
+
+    // Shared with the rest of HomeView so a new post shows up in the Home grid
+    // in real time (without waiting for a manual pull-to-refresh).
+    @EnvironmentObject private var homeViewModel: HomeViewModel
     
     @State private var selectedItem: PhotosPickerItem?
     @State private var selectedImageData: Data?
@@ -75,6 +79,7 @@ struct NewPostView: View {
                 }
             }
             .navigationTitle("Create Post")
+            .scrollDismissesKeyboard(.immediately)
             // Alert for SUCCESS
             .alert("Success!", isPresented: $showSuccessAlert) {
                 Button("OK") {
@@ -115,9 +120,9 @@ struct NewPostView: View {
                 // 1. LOAD SESSION (needed for the scoped S3 key)
                 let userSession: UserSession
                 if isTesting() {
-                    userSession = try keychainHelper.load(UserSession.self, from: AppConstants.keychainService, account: "userSessionToken") ?? UserSession(sessionToken: "123", username: "test", userId: "", isIdentityVerified: false)
+                    userSession = try keychainHelper.load(UserSession.self, from: GVOAppConstants.keychainService, account: "userSessionToken") ?? UserSession(sessionToken: "123", username: "test", userId: "", isIdentityVerified: false)
                 } else {
-                    guard let loaded = try keychainHelper.load(UserSession.self, from: AppConstants.keychainService, account: "userSessionToken") else {
+                    guard let loaded = try keychainHelper.load(UserSession.self, from: GVOAppConstants.keychainService, account: "userSessionToken") else {
                         failureAlertMessage = "You must be logged in to post."
                         isLoading = false
                         showFailureAlert = true
@@ -143,7 +148,10 @@ struct NewPostView: View {
                     imageURL: imageURL.absoluteString,
                     caption: caption
                 )
-                
+
+                // Reload the Home grid so the new post appears there immediately.
+                await homeViewModel.refreshMyPosts()
+
                 // --- SUCCESS ---
                 // Reset the form and show the success alert
                 isLoading = false
@@ -166,4 +174,5 @@ struct NewPostView: View {
 
 #Preview {
     NewPostView(api: PreviewHelpers.api, keychainHelper: PreviewHelpers.keychainHelper, tabSelection: .constant(2))
+        .environmentObject(HomeViewModel(api: PreviewHelpers.api, keychainHelper: PreviewHelpers.keychainHelper))
 }

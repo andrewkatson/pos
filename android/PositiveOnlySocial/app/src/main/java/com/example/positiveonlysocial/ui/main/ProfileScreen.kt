@@ -1,14 +1,19 @@
 package com.example.positiveonlysocial.ui.main
 
+import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.material3.*
+import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
@@ -26,6 +31,7 @@ import androidx.compose.ui.tooling.preview.Preview
 import androidx.navigation.compose.rememberNavController
 import com.example.positiveonlysocial.ui.preview.PreviewHelpers
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ProfileScreen(
     navController: NavController,
@@ -42,6 +48,7 @@ fun ProfileScreen(
         val profileDetails by viewModel.profileDetails.collectAsState()
         val isFollowing by viewModel.isFollowing.collectAsState()
         val isLoading by viewModel.isLoading.collectAsState()
+        val isRefreshing by viewModel.isRefreshing.collectAsState()
 
         LaunchedEffect(Unit) {
             if (userPosts.isEmpty()) {
@@ -114,32 +121,55 @@ fun ProfileScreen(
                 Box(modifier = Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
                     CircularProgressIndicator()
                 }
-            } else if (userPosts.isEmpty()) {
-                Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                    Text("$username hasn't posted anything yet.")
-                }
             } else {
-                LazyVerticalGrid(
-                    columns = GridCells.Fixed(3),
-                    contentPadding = PaddingValues(2.dp),
-                    horizontalArrangement = Arrangement.spacedBy(2.dp),
-                    verticalArrangement = Arrangement.spacedBy(2.dp)
+                // Pull-to-refresh reloads the newest posts/details from the backend.
+                // It wraps both the empty state and the grid so the user can always
+                // pull to retry — even when the profile currently has no posts.
+                PullToRefreshBox(
+                    isRefreshing = isRefreshing,
+                    onRefresh = { viewModel.refreshProfile(username) },
+                    modifier = Modifier.fillMaxSize()
                 ) {
-                    items(userPosts) { post ->
-                        AsyncImage(
-                            model = post.imageUrl,
-                            contentDescription = "Post Image",
+                    if (userPosts.isEmpty()) {
+                        // Scrollable so the pull-to-refresh gesture works with no posts.
+                        Column(
                             modifier = Modifier
-                                .aspectRatio(1f)
-                                .clickable {
-                                    navController.navigate(Screen.PostDetail.createRoute(post.postIdentifier))
-                                },
-                            contentScale = ContentScale.Crop
-                        )
-                        
-                        if (post == userPosts.lastOrNull()) {
-                            LaunchedEffect(Unit) {
-                                viewModel.fetchUserPosts(username)
+                                .fillMaxSize()
+                                .verticalScroll(rememberScrollState()),
+                            horizontalAlignment = Alignment.CenterHorizontally
+                        ) {
+                            Spacer(modifier = Modifier.height(48.dp))
+                            Text("$username hasn't posted anything yet.")
+                        }
+                    } else {
+                        // Black backing shows through the 1dp gaps as thin borders between
+                        // posts; the 1dp contentPadding extends that border around the outer edge.
+                        LazyVerticalGrid(
+                            columns = GridCells.Fixed(3),
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .background(Color.Black),
+                            contentPadding = PaddingValues(1.dp),
+                            horizontalArrangement = Arrangement.spacedBy(1.dp),
+                            verticalArrangement = Arrangement.spacedBy(1.dp)
+                        ) {
+                            items(userPosts) { post ->
+                                AsyncImage(
+                                    model = post.imageUrl,
+                                    contentDescription = "Post Image",
+                                    modifier = Modifier
+                                        .aspectRatio(1f)
+                                        .clickable {
+                                            navController.navigate(Screen.PostDetail.createRoute(post.postIdentifier))
+                                        },
+                                    contentScale = ContentScale.Crop
+                                )
+
+                                if (post == userPosts.lastOrNull()) {
+                                    LaunchedEffect(Unit) {
+                                        viewModel.fetchUserPosts(username)
+                                    }
+                                }
                             }
                         }
                     }

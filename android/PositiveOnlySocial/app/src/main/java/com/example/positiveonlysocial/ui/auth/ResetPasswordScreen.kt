@@ -1,12 +1,15 @@
 package com.example.positiveonlysocial.ui.auth
 
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
@@ -17,6 +20,7 @@ import com.example.positiveonlysocial.ui.preview.PreviewHelpers
 import com.example.positiveonlysocial.api.PositiveOnlySocialAPI
 import com.example.positiveonlysocial.data.model.PasswordResetSubmitRequest
 import com.example.positiveonlysocial.data.security.KeychainHelperProtocol
+import com.example.positiveonlysocial.ui.dismissKeyboardOnTap
 import com.example.positiveonlysocial.ui.navigation.Screen
 import com.example.positiveonlysocial.ui.theme.PositiveOnlySocialTheme
 import kotlinx.coroutines.launch
@@ -40,9 +44,14 @@ fun ResetPasswordScreen(
         var showingErrorAlert by remember { mutableStateOf(false) }
 
         val scope = rememberCoroutineScope()
+        val focusManager = LocalFocusManager.current
 
+        val passwordRequirements = AuthRequirements.password(newPassword)
         val isPasswordMatching = confirmPassword.isEmpty() || newPassword == confirmPassword
-        val isFormValid = username.isNotEmpty() && email.isNotEmpty() && newPassword.isNotEmpty() && newPassword == confirmPassword
+        val isFormValid = username.isNotEmpty() &&
+            email.isNotEmpty() &&
+            AuthRequirements.allMet(passwordRequirements) &&
+            newPassword == confirmPassword
 
         if (showingErrorAlert) {
             AlertDialog(
@@ -60,6 +69,7 @@ fun ResetPasswordScreen(
         Column(
             modifier = Modifier
                 .fillMaxSize()
+                .dismissKeyboardOnTap()
                 .padding(16.dp),
             verticalArrangement = Arrangement.spacedBy(20.dp)
         ) {
@@ -79,7 +89,9 @@ fun ResetPasswordScreen(
                 onValueChange = { username = it },
                 label = { Text("Username") },
                 modifier = Modifier.fillMaxWidth(),
-                singleLine = true
+                singleLine = true,
+                keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
+                keyboardActions = KeyboardActions(onDone = { focusManager.clearFocus() })
             )
 
             TextField(
@@ -88,7 +100,8 @@ fun ResetPasswordScreen(
                 label = { Text("Email") },
                 modifier = Modifier.fillMaxWidth(),
                 singleLine = true,
-                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Email)
+                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Email, imeAction = ImeAction.Done),
+                keyboardActions = KeyboardActions(onDone = { focusManager.clearFocus() })
             )
 
             Text(
@@ -103,8 +116,13 @@ fun ResetPasswordScreen(
                 modifier = Modifier.fillMaxWidth(),
                 singleLine = true,
                 visualTransformation = PasswordVisualTransformation(),
-                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password)
+                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password, imeAction = ImeAction.Done),
+                keyboardActions = KeyboardActions(onDone = { focusManager.clearFocus() })
             )
+
+            if (newPassword.isNotEmpty()) {
+                RequirementHints(passwordRequirements)
+            }
 
             TextField(
                 value = confirmPassword,
@@ -113,7 +131,8 @@ fun ResetPasswordScreen(
                 modifier = Modifier.fillMaxWidth(),
                 singleLine = true,
                 visualTransformation = PasswordVisualTransformation(),
-                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password)
+                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password, imeAction = ImeAction.Done),
+                keyboardActions = KeyboardActions(onDone = { focusManager.clearFocus() })
             )
 
             if (!isPasswordMatching) {

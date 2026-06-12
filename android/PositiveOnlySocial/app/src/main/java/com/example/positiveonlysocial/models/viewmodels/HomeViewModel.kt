@@ -42,6 +42,9 @@ class HomeViewModel(
     private val _errorMessage = MutableStateFlow<String?>(null)
     val errorMessage: StateFlow<String?> = _errorMessage.asStateFlow()
 
+    private val _isRefreshing = MutableStateFlow(false)
+    val isRefreshing: StateFlow<Boolean> = _isRefreshing.asStateFlow()
+
     private var canLoadMorePosts = true
     private var currentPage = 0
     private val service = "positive-only-social.Positive-Only-Social"
@@ -60,8 +63,47 @@ class HomeViewModel(
         _searchText.value = text
     }
 
+    /**
+     * Pull-to-refresh: resets pagination and reloads the user's posts from the
+     * first page, replacing the existing posts with the newest ones from the backend.
+     */
+    fun refreshMyPosts() {
+        if (_isRefreshing.value || _isLoadingNextPage.value) return
+
+        _isRefreshing.value = true
+
+        viewModelScope.launch {
+            try {
+                val userSession = keychainHelper.load(UserSession::class.java, service, account)
+                if (userSession == null) {
+                    Log.e(TAG, "No active session found — cannot refresh posts")
+                    return@launch
+                }
+
+                val username = userSession.username
+
+                val response = api.getPostsForUser(userSession.sessionToken, username, 0)
+                if (response.isSuccessful) {
+                    val newPosts = response.body() ?: emptyList()
+                    _userPosts.value = newPosts
+                    canLoadMorePosts = newPosts.isNotEmpty()
+                    currentPage = if (newPosts.isEmpty()) 0 else 1
+                } else {
+                    _errorMessage.value = response.errorBody()?.string()
+                }
+            } catch (e: Exception) {
+                _errorMessage.value = e.localizedMessage
+                Log.e(TAG, "Error refreshing my posts", e)
+            } finally {
+                _isRefreshing.value = false
+            }
+        }
+    }
+
     fun fetchMyPosts() {
-        if (_isLoadingNextPage.value || !canLoadMorePosts) return
+        // Also short-circuit during a pull-to-refresh so pagination can't race
+        // the refresh's reset of _userPosts/currentPage/canLoadMorePosts.
+        if (_isLoadingNextPage.value || _isRefreshing.value || !canLoadMorePosts) return
 
         _isLoadingNextPage.value = true
 

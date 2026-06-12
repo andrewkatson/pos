@@ -23,10 +23,11 @@ from django_ratelimit.exceptions import Ratelimited
 from .classifiers import image_classifier, text_classifier
 from .constants import Patterns, Params, POST_BATCH_SIZE, MAX_BEFORE_HIDING_POST, MAX_BEFORE_HIDING_COMMENT, \
     COMMENT_BATCH_SIZE, Fields, COMMENT_THREAD_BATCH_SIZE, \
-    VERIFY_RESET_MAX_ATTEMPTS, VERIFY_RESET_LOCKOUT_MINUTES
+    VERIFY_RESET_MAX_ATTEMPTS, VERIFY_RESET_LOCKOUT_MINUTES, \
+    ACCOUNT_BANNED, BAN_TYPE_OUTRIGHT
 from .feed_algorithm import feed_algorithm
 from .input_validator import is_valid_pattern
-from .models import LoginCookie, Session, Post, CommentThread, PositiveOnlySocialUser, Comment, UserBlock
+from .models import LoginCookie, Session, Post, CommentThread, PositiveOnlySocialUser, Comment, UserBlock, UserBan
 from .utils import convert_to_bool, generate_login_cookie_token, generate_management_token, generate_series_identifier, \
     get_batch, get_compressed_image_url
 
@@ -121,6 +122,10 @@ def get_user_with_session_management_token(token):
         return None
 
 
+def has_active_outright_ban(user):
+    return UserBan.objects.active().filter(user=user, ban_type=BAN_TYPE_OUTRIGHT).exists()
+
+
 def get_post_with_identifier(identifier):
     try:
         existing_post = Post.objects.get(post_identifier=identifier)
@@ -173,6 +178,10 @@ def api_login_required(view_func):
         if user is None:
             return JsonResponse({'error': 'Invalid session token'}, status=401)
 
+        if has_active_outright_ban(user):
+            logger.warning(f"Request rejected: Account banned for user_id: {user.id}")
+            return JsonResponse({'error': ACCOUNT_BANNED}, status=403)
+
         # Attach user and token to the request for the view to use
         request.user = user
         request.token = token
@@ -205,7 +214,7 @@ def register(request):
     email = data.get(Fields.email)
     password = data.get(Fields.password)
     remember_me_str = data.get(Fields.remember_me)
-    ip = data.get(Fields.ip)
+    ip = _get_client_ip(None, request)
     date_of_birth_str = data.get('date_of_birth')
 
     invalid_fields = []
@@ -213,8 +222,6 @@ def register(request):
         invalid_fields.append(Params.username)
     if not email or not is_valid_pattern(email, Patterns.email):
         invalid_fields.append(Params.email)
-    if not ip or (not is_valid_pattern(ip, Patterns.ipv4) and not is_valid_pattern(ip, Patterns.ipv6)):
-        invalid_fields.append(Params.ip)
     if not password or not is_valid_pattern(password, Patterns.password):
         invalid_fields.append(Params.password)
 
@@ -331,15 +338,13 @@ def login_user(request):
     username_or_email = data.get(Fields.username_or_email)
     password = data.get(Fields.password)
     remember_me_str = data.get(Fields.remember_me)
-    ip = data.get(Fields.ip)
+    ip = _get_client_ip(None, request)
 
     invalid_fields = []
     if not username_or_email or (
             not is_valid_pattern(username_or_email, Patterns.alphanumeric) and not is_valid_pattern(username_or_email,
                                                                                                     Patterns.email)):
         invalid_fields.append(Params.username_or_email)
-    if not ip or (not is_valid_pattern(ip, Patterns.ipv4) and not is_valid_pattern(ip, Patterns.ipv6)):
-        invalid_fields.append(Params.ip)
     if not password or not is_valid_pattern(password, Patterns.password):
         invalid_fields.append(Params.password)
 
@@ -357,6 +362,10 @@ def login_user(request):
         if not check_password(password, existing.password):
             logger.warning(f"Login failed: Password was not correct for user_id: {existing.id}")
             return log_and_return_json("login_user", {'error': "Invalid username or password"}, status=400)
+
+        if has_active_outright_ban(existing):
+            logger.warning(f"Login failed: Account banned for user_id: {existing.id}")
+            return log_and_return_json("login_user", {'error': ACCOUNT_BANNED}, status=403)
 
         login(request, existing)  # Logs into Django's session auth
 
@@ -396,7 +405,7 @@ def login_user_with_remember_me(request):
     session_management_token = data.get(Fields.session_management_token)
     series_identifier = data.get(Fields.series_identifier)
     login_cookie_token = data.get(Fields.login_cookie_token)
-    ip = data.get(Fields.ip)
+    ip = _get_client_ip(None, request)
 
     invalid_fields = []
     if not session_management_token or not is_valid_pattern(session_management_token, Patterns.alphanumeric):
@@ -405,8 +414,6 @@ def login_user_with_remember_me(request):
         invalid_fields.append(Params.series_identifier)
     if not login_cookie_token or not is_valid_pattern(login_cookie_token, Patterns.alphanumeric):
         invalid_fields.append(Params.login_cookie_token)
-    if not ip or (not is_valid_pattern(ip, Patterns.ipv4) and not is_valid_pattern(ip, Patterns.ipv6)):
-        invalid_fields.append(Params.ip)
 
     if len(invalid_fields) > 0:
         return log_and_return_json("login_user_with_remember_me", {'error': f"Invalid fields {invalid_fields}"}, status=400)
@@ -424,16 +431,27 @@ def login_user_with_remember_me(request):
         logger.warning(f"Login with remember me failed: Login cookie token does not match for series: {series_identifier}")
         return log_and_return_json("login_user_with_remember_me", {'error': "Login cookie token does not match"}, status=400)
 
-    # Issue a new login cookie token (token rotation)
-    new_login_cookie_token = generate_login_cookie_token()
-    matching_login_cookie.token = new_login_cookie_token
-    matching_login_cookie.save()
-
-    # Get the user with the *old* session management token
+    # Get the user with the *old* session management token. This must be
+    # validated (and match the cookie's user) before the ban check and token
+    # rotation, so a cookie for one user cannot be combined with a session
+    # token for another.
     existing = get_user_with_session_management_token(session_management_token)
     if existing is None:
         logger.warning("Login with remember me failed: Original session token is invalid")
         return log_and_return_json("login_user_with_remember_me", {'error': "Original session token is invalid"}, status=400)
+
+    if existing != matching_login_cookie.cookie_user:
+        logger.warning(f"Login with remember me failed: Session token does not belong to the cookie's user for series: {series_identifier}")
+        return log_and_return_json("login_user_with_remember_me", {'error': "Original session token is invalid"}, status=400)
+
+    if has_active_outright_ban(existing):
+        logger.warning(f"Login with remember me failed: Account banned for user_id: {existing.id}")
+        return log_and_return_json("login_user_with_remember_me", {'error': ACCOUNT_BANNED}, status=403)
+
+    # Issue a new login cookie token (token rotation)
+    new_login_cookie_token = generate_login_cookie_token()
+    matching_login_cookie.token = new_login_cookie_token
+    matching_login_cookie.save()
 
     # Issue a new session management token
     new_session_management_token = generate_management_token()

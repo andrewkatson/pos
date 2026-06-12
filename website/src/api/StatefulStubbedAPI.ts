@@ -55,7 +55,6 @@ interface UserMock {
 interface SessionMock {
   managementToken: string
   userId: string
-  ip: string
 }
 
 interface LoginCookieMock {
@@ -215,7 +214,7 @@ export class StatefulStubbedAPI implements PositiveOnlySocialAPI {
     this.users.push(user)
 
     const sessionToken = newId()
-    this.sessions.push({ managementToken: sessionToken, userId: user.id, ip: body.ip })
+    this.sessions.push({ managementToken: sessionToken, userId: user.id })
 
     let seriesIdentifier: string | undefined
     let loginCookieToken: string | undefined
@@ -228,7 +227,7 @@ export class StatefulStubbedAPI implements PositiveOnlySocialAPI {
     this.setToken(sessionToken)
     return {
       session_management_token: sessionToken,
-      user_id: Number.parseInt(user.id.replace(/\D/g, ''), 10) || 0,
+      user_id: user.id,
       username: user.username,
       series_identifier: seriesIdentifier,
       login_cookie_token: loginCookieToken,
@@ -244,7 +243,7 @@ export class StatefulStubbedAPI implements PositiveOnlySocialAPI {
     }
 
     const sessionToken = newId()
-    this.sessions.push({ managementToken: sessionToken, userId: user.id, ip: body.ip })
+    this.sessions.push({ managementToken: sessionToken, userId: user.id })
 
     let seriesIdentifier: string | undefined
     let loginCookieToken: string | undefined
@@ -257,7 +256,7 @@ export class StatefulStubbedAPI implements PositiveOnlySocialAPI {
     this.setToken(sessionToken)
     return {
       session_management_token: sessionToken,
-      user_id: Number.parseInt(user.id.replace(/\D/g, ''), 10) || 0,
+      user_id: user.id,
       username: user.username,
       series_identifier: seriesIdentifier,
       login_cookie_token: loginCookieToken,
@@ -283,7 +282,7 @@ export class StatefulStubbedAPI implements PositiveOnlySocialAPI {
     )
     const userId = oldSession ? oldSession.userId : cookie.userId
     const newSessionToken = newId()
-    this.sessions.push({ managementToken: newSessionToken, userId, ip: body.ip })
+    this.sessions.push({ managementToken: newSessionToken, userId })
 
     this.setToken(newSessionToken)
     return {

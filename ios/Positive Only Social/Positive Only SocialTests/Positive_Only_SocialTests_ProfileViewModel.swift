@@ -45,7 +45,7 @@ struct Positive_Only_SocialTests_ProfileViewModel {
     /// Helper to log in a user and save their token to the keychain
     private func setupLoggedInUser(user: User, token: String, account: String) async throws {
         let userSession = UserSession(sessionToken: token, username: user.username, userId: "1", isIdentityVerified: user.identityIsVerified)
-        try keychainHelper.save(userSession, for: AppConstants.keychainService, account: account)
+        try keychainHelper.save(userSession, for: GVOAppConstants.keychainService, account: account)
     }
 
     // --- Post Fetching Tests ---
@@ -217,6 +217,44 @@ struct Positive_Only_SocialTests_ProfileViewModel {
 
         // Then: The state is updated
         #expect(sut.isBlocked == false, "Should now be unblocked")
+    }
+
+    @Test func testFollowThenBlockThenFollow_DoesNotDoubleCountFollowers() async throws {
+        // Given: A logged-in user and a profile user
+        let (requestingUserToken, requestingUser) = try await registerUser(username: "mainRecounter")
+        let (_, profileUser) = try await registerUser(username: "profileToRecount")
+
+        let account = "mainRecounterAccount"
+        try await setupLoggedInUser(user: requestingUser, token: requestingUserToken, account: account)
+
+        let sut = ProfileViewModel(user: profileUser, api: stubAPI, keychainHelper: keychainHelper, account: account)
+
+        // --- 1. Load Initial State (Not Following, Not Blocked) ---
+        sut.fetchProfileDetails()
+        await yield()
+        #expect(sut.isFollowing == false, "Pre-condition: Not following")
+        #expect(sut.profileDetails?.followerCount == 0, "Pre-condition: 0 followers")
+
+        // --- 2. Follow -> count goes to 1 ---
+        sut.toggleFollow()
+        await yield()
+        #expect(sut.isFollowing == true)
+        #expect(sut.profileDetails?.followerCount == 1, "Follower count should be 1 after follow")
+
+        // --- 3. Block -> backend unfollows, so the count must drop back to 0 ---
+        sut.toggleBlock()
+        await yield()
+        #expect(sut.isBlocked == true)
+        #expect(sut.isFollowing == false, "Blocking should unfollow")
+        #expect(sut.profileDetails?.followerCount == 0, "Follower count should drop to 0 after block")
+
+        // --- 4. Unblock then follow again -> count is 1, not 2 ---
+        sut.toggleBlock()
+        await yield()
+        sut.toggleFollow()
+        await yield()
+        #expect(sut.isFollowing == true)
+        #expect(sut.profileDetails?.followerCount == 1, "Following again should not double-count to 2")
     }
 }
 

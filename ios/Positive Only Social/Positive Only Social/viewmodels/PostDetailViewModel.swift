@@ -23,6 +23,19 @@ final class PostDetailViewModel: ObservableObject {
     // State for presentation
     @Published var showReportSheetForPost = false
     @Published var commentToReport: CommentViewData? // Use item-based sheet
+
+    /// Drives the long-press action menu for the post. The menu offers either
+    /// "Report" (others' posts) or "Delete" (the user's own post) — never both,
+    /// so you can't report your own content.
+    @Published var showActionSheetForPost = false
+
+    /// The comment whose long-press action menu is showing, if any. Like the
+    /// post action menu, it offers "Report" or "Delete" depending on ownership.
+    @Published var commentForAction: CommentViewData?
+
+    /// Set once the post has been deleted so the view can pop back — the post no
+    /// longer exists to display.
+    @Published var postWasDeleted = false
     
     /// The text for creating a brand new comment thread
     @Published var newCommentText: String = ""
@@ -32,13 +45,29 @@ final class PostDetailViewModel: ObservableObject {
     
     @Published var isPostReported = false
     @Published var reportedCommentIds: Set<String> = []
+
+    /// The signed-in user's username, loaded alongside the post. The backend
+    /// rejects liking your own post/comment, so the UI hides the like control
+    /// (and the like actions are guarded) for content this user authored.
+    @Published private(set) var currentUsername: String?
+
+    /// Whether the loaded post was authored by the signed-in user.
+    var isOwnPost: Bool {
+        guard let post = postDetail, let username = currentUsername else { return false }
+        return post.authorUsername == username
+    }
+
+    /// Whether the given comment was authored by the signed-in user.
+    func isOwnComment(_ comment: CommentViewData) -> Bool {
+        comment.authorUsername == currentUsername
+    }
     
     // MARK: - Private Properties
     private let postIdentifier: String
     private let api: Networking
     private let keychainHelper: KeychainHelperProtocol
     private let account: String
-    private let keychainService = AppConstants.keychainService
+    private let keychainService = GVOAppConstants.keychainService
     
     // Helper to keep track of requests
     private var cancellables = Set<AnyCancellable>()
@@ -61,8 +90,25 @@ final class PostDetailViewModel: ObservableObject {
     
     func loadAllData() {
         isLoading = true
-        
+
         Task {
+            await performLoad()
+        }
+    }
+
+    /// Pull-to-refresh entry point. Awaitable so SwiftUI's `.refreshable`
+    /// keeps the spinner visible until the post and comments have reloaded.
+    func refresh() async {
+        // Don't start a refresh while another load is already in flight (the
+        // initial `loadAllData()` or an action-triggered reload). Two concurrent
+        // loads both write `postDetail`/`commentThreads`, so an older response
+        // could otherwise overwrite the fresher refreshed data.
+        guard !isLoading else { return }
+        isLoading = true
+        await performLoad()
+    }
+
+    private func performLoad() async {
             do {
                 // These authenticated GETs need the session token so the backend can
                 // report whether the current user has liked the post / each comment.
@@ -73,6 +119,7 @@ final class PostDetailViewModel: ObservableObject {
                     return
                 }
                 let token = userSession.sessionToken
+                self.currentUsername = userSession.username
 
                 // 1. Fetch the main post details
                 let postData = try await api.getPostDetails(sessionManagementToken: token, postIdentifier: postIdentifier)
@@ -134,17 +181,25 @@ final class PostDetailViewModel: ObservableObject {
                 }
                 
             } catch {
-                NSLog("%@", "Error loading post details: \(error)")
-                self.alertMessage = "Failed to load post: \(error.localizedDescription)"
+                // A cancelled load (e.g. SwiftUI tearing down a pull-to-refresh
+                // task) is not a real failure — keep the existing data and stay
+                // quiet so routine cancellations don't pollute the error logs.
+                if error.isCancellation {
+                    NSLog("%@", "Post details load cancelled")
+                } else {
+                    NSLog("%@", "Error loading post details: \(error)")
+                    self.alertMessage = "Failed to load post: \(error.localizedDescription)"
+                }
             }
-            
+
             self.isLoading = false
-        }
     }
-    
+
     // MARK: - User Actions
     
     func likePost() {
+        // The backend rejects liking your own post; don't optimistically like it.
+        guard !isOwnPost else { return }
         NSLog("%@", "ACTION: Like post \(postIdentifier)")
         // Stub: Increment like count locally for instant feedback
         if var post = postDetail {
@@ -233,9 +288,59 @@ final class PostDetailViewModel: ObservableObject {
         }
     }
     
+    /// Deletes the user's own post, then signals the view to pop back since the
+    /// post no longer exists. Only reachable from the action menu on an own post.
+    func deletePost() {
+        NSLog("%@", "ACTION: Delete post \(postIdentifier)")
+        Task {
+            do {
+                guard let userSession = try keychainHelper.load(UserSession.self, from: keychainService, account: account) else {
+                    NSLog("%@", "No active session — cannot delete post")
+                    self.alertMessage = "Session not found."
+                    return
+                }
+                let token = userSession.sessionToken
+                _ = try await api.deletePost(sessionManagementToken: token, postIdentifier: postIdentifier)
+                await MainActor.run {
+                    self.postWasDeleted = true
+                }
+            } catch {
+                NSLog("%@", "Failed to delete post: \(error)")
+                await MainActor.run {
+                    self.alertMessage = "Failed to delete post: \(error.localizedDescription)"
+                }
+            }
+        }
+    }
+
+    /// Deletes one of the user's own comments, then reloads so it disappears from
+    /// the thread. Only reachable from the action menu on an own comment.
+    func deleteComment(_ comment: CommentViewData) {
+        NSLog("%@", "ACTION: Delete comment \(comment.id)")
+        Task {
+            do {
+                guard let userSession = try keychainHelper.load(UserSession.self, from: keychainService, account: account) else {
+                    NSLog("%@", "No active session — cannot delete comment")
+                    self.alertMessage = "Session not found."
+                    return
+                }
+                let token = userSession.sessionToken
+                _ = try await api.deleteComment(sessionManagementToken: token, postIdentifier: postIdentifier, commentThreadIdentifier: comment.threadId, commentIdentifier: comment.id)
+                self.loadAllData()
+            } catch {
+                NSLog("%@", "Failed to delete comment: \(error)")
+                await MainActor.run {
+                    self.alertMessage = "Failed to delete comment: \(error.localizedDescription)"
+                }
+            }
+        }
+    }
+
     func likeComment(_ comment: CommentViewData) {
+        // The backend rejects liking your own comment; don't optimistically like it.
+        guard !isOwnComment(comment) else { return }
         NSLog("%@", "ACTION: Like comment \(comment.id)")
-        
+
         // --- ⬇️ ADDED OPTIMISTIC UPDATE ⬇️ ---
         // Find the index of the thread
         guard let threadIndex = commentThreads.firstIndex(where: { $0.id == comment.threadId }) else {

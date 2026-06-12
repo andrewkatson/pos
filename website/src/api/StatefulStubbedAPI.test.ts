@@ -7,7 +7,6 @@ function register(api: StatefulStubbedAPI, username: string) {
     username,
     email: `${username}@example.com`,
     password: 'password123',
-    ip: '127.0.0.1',
   }
   return api.register(body)
 }
@@ -29,7 +28,6 @@ test('registering with an adult date of birth marks the profile verified and adu
     username: 'grace',
     email: 'grace@example.com',
     password: 'password123',
-    ip: '127.0.0.1',
     date_of_birth: '1990-01-01',
   })
 
@@ -46,7 +44,6 @@ test('registering with a minor date of birth verifies identity but is not adult'
     username: 'kid',
     email: 'kid@example.com',
     password: 'password123',
-    ip: '127.0.0.1',
     date_of_birth: `${thisYear - 10}-01-01`,
   })
 
@@ -67,7 +64,7 @@ test('login fails with the wrong password', async () => {
   await register(api, 'ada')
 
   await expect(
-    api.login({ username_or_email: 'ada', password: 'wrong', ip: '127.0.0.1' }),
+    api.login({ username_or_email: 'ada', password: 'wrong' }),
   ).rejects.toThrow('Invalid username or password')
 })
 
@@ -198,7 +195,6 @@ test('password reset flow updates the password', async () => {
   const login = await api.login({
     username_or_email: 'ada',
     password: 'newpassword1',
-    ip: '127.0.0.1',
   })
   expect(login.username).toBe('ada')
 })

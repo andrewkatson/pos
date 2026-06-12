@@ -25,7 +25,7 @@ class ProfileViewModel: ObservableObject {
     private let api: Networking
     private let keychainHelper: KeychainHelperProtocol
     private let account: String
-    private let keychainService = AppConstants.keychainService
+    private let keychainService = GVOAppConstants.keychainService
     
     let user: User // The user this profile is for
 
@@ -80,6 +80,60 @@ class ProfileViewModel: ObservableObject {
         }
     }
     
+    /// Pull-to-refresh: resets pagination and reloads the user's posts from the
+    /// first page, replacing the existing list with the freshest posts from the
+    /// backend. `async` so SwiftUI's `.refreshable` keeps the spinner visible
+    /// until the new posts have actually loaded.
+    func refreshUserPosts() async {
+        guard !isLoading else { return }
+        isLoading = true
+        // Reset the loading flag on every exit path so it can't be left stuck on.
+        defer { isLoading = false }
+
+        do {
+            guard let userSession = try keychainHelper.load(UserSession.self, from: keychainService, account: account) else {
+                NSLog("%@", "No active session — cannot refresh posts")
+                return
+            }
+
+            let responseData = try await api.getPostsForUser(
+                sessionManagementToken: userSession.sessionToken,
+                username: user.username,
+                batch: 0
+            )
+            let newPosts = try JSONDecoder().decode([Post].self, from: responseData)
+
+            // Replace the list and reset pagination so the next infinite-scroll
+            // fetch continues from page 1.
+            self.userPosts = newPosts
+            self.canLoadMore = !newPosts.isEmpty
+            self.batch = newPosts.isEmpty ? 0 : 1
+        } catch {
+            NSLog("%@", "Error refreshing user posts for \(user.username): \(error)")
+        }
+    }
+
+    /// Pull-to-refresh companion to `refreshUserPosts()`: reloads the profile
+    /// stats and follow/block status so they don't go stale on refresh. `async`
+    /// so `.refreshable` keeps the spinner up until both posts and details load.
+    func refreshProfileDetails() async {
+        do {
+            guard let userSession = try keychainHelper.load(UserSession.self, from: keychainService, account: account) else {
+                NSLog("%@", "No active session — cannot refresh profile details")
+                return
+            }
+
+            let responseData = try await api.getProfileDetails(sessionManagementToken: userSession.sessionToken, username: user.username)
+            let details = try JSONDecoder().decode(ProfileDetailsResponse.self, from: responseData)
+
+            self.profileDetails = details
+            self.isFollowing = details.isFollowing
+            self.isBlocked = details.isBlocked
+        } catch {
+            NSLog("%@", "Error refreshing profile details for \(user.username): \(error)")
+        }
+    }
+
     /// Fetches the user's profile stats and follow status.
     func fetchProfileDetails() {
         guard !isLoadingProfile else { return }
@@ -156,18 +210,21 @@ class ProfileViewModel: ObservableObject {
         isLoadingProfile = true
         
         let previousBlockState = isBlocked
+        let previousFollowState = isFollowing
         // Optimistic update
         isBlocked.toggle()
-        
-        // Blocking also unfollows in our backend logic
-        if isBlocked { 
-             isFollowing = false 
-             if self.profileDetails != nil {
-                 // self.profileDetails?.followerCount -= 1 // Maybe? Only if we were following. 
-                 // It's safer to just let the profile refresh or ignore count for now.
-             }
+
+        // Blocking also unfollows in our backend logic, so mirror that here.
+        // Only decrement the follower count if we were actually following,
+        // otherwise the count drifts (e.g. follow -> block -> follow would
+        // count the same follow twice).
+        if isBlocked && isFollowing {
+            isFollowing = false
+            if self.profileDetails != nil {
+                self.profileDetails?.followerCount -= 1
+            }
         }
-        
+
         Task {
             do {
                 guard let userSession = try keychainHelper.load(UserSession.self, from: keychainService, account: account) else {
@@ -182,7 +239,13 @@ class ProfileViewModel: ObservableObject {
                 // Success, state already updated.
             } catch {
                 NSLog("%@", "Error toggling block: \(error)")
-                // Revert on error
+                // Revert on error, including the optimistic unfollow side-effect.
+                if isBlocked && !previousBlockState && previousFollowState {
+                    isFollowing = previousFollowState
+                    if self.profileDetails != nil {
+                        self.profileDetails?.followerCount += 1
+                    }
+                }
                 isBlocked = previousBlockState
             }
             isLoadingProfile = false

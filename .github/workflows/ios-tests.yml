@@ -15,7 +15,9 @@ jobs:
   build:
     name: Build for Testing
     runs-on: macos-15
-    timeout-minutes: 30
+    # Resolving Swift package dependencies (AWS SDK et al.) can be slow on
+    # fresh runners, so give the build a full hour.
+    timeout-minutes: 60
 
     steps:
       - name: Checkout repository
@@ -36,12 +38,21 @@ jobs:
       - name: Install xcpretty
         run: gem install xcpretty
 
+      - name: Cache SwiftPM dependencies
+        uses: actions/cache@v4
+        with:
+          path: "ios/Positive Only Social/build/SourcePackages"
+          key: ${{ runner.os }}-spm-${{ hashFiles('ios/Positive Only Social/Positive Only Social.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved') }}
+          restore-keys: |
+            ${{ runner.os }}-spm-
+
       - name: Resolve Package Dependencies
         working-directory: "ios/Positive Only Social"
         run: |
           xcodebuild -resolvePackageDependencies \
             -project "Positive Only Social.xcodeproj" \
             -scheme "Positive Only Social" \
+            -derivedDataPath build \
           | xcpretty
           exit ${PIPESTATUS[0]}
 
@@ -88,7 +99,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        test-group: [Unit_Tests, UI_Tests_Alpha, UI_Tests_Beta, UI_Tests_Gamma, UI_Tests_Delta]
+        test-group: [Unit_Tests, UI_Tests_Alpha, UI_Tests_Beta, UI_Tests_Gamma, UI_Tests_Delta, UI_Tests_Epsilon]
 
     steps:
       - name: Checkout repository
@@ -139,6 +150,7 @@ jobs:
                   "Positive Only SocialUITests/Positive_Only_SocialUITests/testAutomaticLoginAfterRememberMe"
                   "Positive Only SocialUITests/Positive_Only_SocialUITests/testDeleteAccount"
                   "Positive Only SocialUITests/Positive_Only_SocialUITests/testResetPassword"
+                  "Positive Only SocialUITests/Positive_Only_SocialUITests/testTappingOutsideFieldDismissesKeyboard"
                 )
                 # "Positive Only Social" (default) plan covers both unit and UI tests
                 XCTESTRUN=$(find build/Build/Products -name "*.xctestrun" | grep -v "Unit Tests" | head -1)
@@ -157,6 +169,7 @@ jobs:
                   "Positive Only SocialUITests/Positive_Only_SocialUITests/testVerifyIdentity"
                   "Positive Only SocialUITests/Positive_Only_SocialUITests/testLikeAndUnlikeCommentOnPostAndThread"
                   "Positive Only SocialUITests/Positive_Only_SocialUITests/testReportPost"
+                  "Positive Only SocialUITests/Positive_Only_SocialUITests/testDeleteOwnPost"
                 )
                 # "Positive Only Social" (default) plan covers both unit and UI tests
                 XCTESTRUN=$(find build/Build/Products -name "*.xctestrun" | grep -v "Unit Tests" | head -1)
@@ -164,8 +177,18 @@ jobs:
               UI_Tests_Delta)
                 TESTS=(
                   "Positive Only SocialUITests/Positive_Only_SocialUITests/testReportComment"
+                  "Positive Only SocialUITests/Positive_Only_SocialUITests/testDeleteOwnComment"
                   "Positive Only SocialUITests/Positive_Only_SocialUITests/testLaunchPerformance"
                   "Positive Only SocialUITests/Positive_Only_SocialUITests/testBlockAndUnblockUser"
+                )
+                # "Positive Only Social" (default) plan covers both unit and UI tests
+                XCTESTRUN=$(find build/Build/Products -name "*.xctestrun" | grep -v "Unit Tests" | head -1)
+                ;;
+              UI_Tests_Epsilon)
+                TESTS=(
+                  "Positive Only SocialUITests/Positive_Only_SocialUITests/testOpenPostDetailFromHomeGrid"
+                  "Positive Only SocialUITests/Positive_Only_SocialUITests/testOpenPostDetailFromProfileGrid"
+                  "Positive Only SocialUITests/Positive_Only_SocialUITests/testOpenPostDetailFromFollowingFeed"
                 )
                 # "Positive Only Social" (default) plan covers both unit and UI tests
                 XCTESTRUN=$(find build/Build/Products -name "*.xctestrun" | grep -v "Unit Tests" | head -1)

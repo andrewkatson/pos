@@ -15,9 +15,15 @@ struct LoginView: View {
     @State private var errorMessage: String?
     @State private var showingErrorAlert = false
 
+    // Which field currently owns the keyboard. Cleared (set to nil) to dismiss
+    // the keyboard through SwiftUI's focus system — the only dismissal that
+    // sticks; see KeyboardDismiss.swift (issue #205).
+    private enum Field: Hashable { case usernameOrEmail, password }
+    @FocusState private var focusedField: Field?
+
     
     // Unique identifiers for Keychain items
-    private let keychainService = AppConstants.keychainService
+    private let keychainService = GVOAppConstants.keychainService
     private let sessionAccount = "userSessionToken"
     private let rememberMeAccount = "userRememberMeTokens"
 
@@ -25,9 +31,14 @@ struct LoginView: View {
     var body: some View {
         VStack(spacing: 20) {
             Image(systemName: "lock.shield.fill").font(.system(size: 80)).foregroundColor(.blue)
+                // Let taps on this decorative icon fall through to the
+                // container's dismiss-keyboard gesture (issue #205).
+                .allowsHitTesting(false)
             TextField("Username or Email", text: $usernameOrEmail).padding().background(Color(.systemGray6)).cornerRadius(10).textContentType(.username).autocapitalization(.none).keyboardType(.emailAddress)
+                .focused($focusedField, equals: .usernameOrEmail)
                 .accessibilityIdentifier("UsernameOrEmailTextField")
             SecureField("Password", text: $password).padding().background(Color(.systemGray6)).cornerRadius(10).textContentType(.password)
+                .focused($focusedField, equals: .password)
                 .accessibilityIdentifier("PasswordSecureField")
             Toggle("Remember Me", isOn: $rememberMe)
                 .accessibilityIdentifier("RememberMeToggle")
@@ -42,6 +53,8 @@ struct LoginView: View {
             Spacer()
         }
         .padding()
+        .dismissKeyboardOnTap { focusedField = nil }
+        .onSubmit { focusedField = nil }
         .navigationTitle("Login")
         .navigationDestination(for: String.self) { routeName in if routeName == "RequestResetView" { RequestResetView(api: api, keychainHelper: keychainHelper) } }
         .alert("Login Failed", isPresented: $showingErrorAlert) { Button("OK") {}.accessibilityIdentifier("LoginFailedOkButton") } message: { Text(errorMessage ?? "An unknown error occurred.") }
