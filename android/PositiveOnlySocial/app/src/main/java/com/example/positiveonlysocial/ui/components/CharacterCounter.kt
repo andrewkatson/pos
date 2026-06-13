@@ -32,7 +32,7 @@ fun isWithinLength(text: String, max: Int): Boolean = characterCount(text) <= ma
 fun CharacterCounter(text: String, max: Int, modifier: Modifier = Modifier) {
     val count = characterCount(text)
     val isOver = count > max
-    val isNear = !isOver && count >= max * NEAR_LIMIT_FRACTION
+    val isNear = !isOver && count.toDouble() >= max.toDouble() * NEAR_LIMIT_FRACTION
     val color = when {
         isOver -> Color(0xFFE5484D)
         isNear -> Color(0xFFE0A106)
