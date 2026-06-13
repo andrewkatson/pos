@@ -71,6 +71,26 @@ class LoginCookie(models.Model):
     cookie_user = models.ForeignKey(PositiveOnlySocialUser, on_delete=models.CASCADE)
 
 
+# A device (identified by its IP) a user has logged in from. The first time a
+# user logs in from an IP we have not recorded before we email them so they are
+# alerted to the new login. Kept as its own record rather than relying on
+# Session rows because those are deleted on logout/ban, which would make the
+# same device look "new" again.
+class KnownDevice(models.Model):
+    user = models.ForeignKey(PositiveOnlySocialUser, related_name='known_devices', on_delete=models.CASCADE)
+    ip = models.TextField()
+    first_seen = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        app_label = 'user_system'
+        constraints = [
+            models.UniqueConstraint(fields=['user', 'ip'], name='unique_user_device_ip')
+        ]
+
+    def __str__(self):
+        return f"{self.user} @ {self.ip}"
+
+
 class UserBanManager(models.Manager):
     def active(self):
         """Bans that are currently in effect (no expiry, or expiry in the future)."""
