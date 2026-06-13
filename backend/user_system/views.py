@@ -221,8 +221,8 @@ def _record_device_and_maybe_notify(user, ip, notify=True):
             settings.EMAIL_HOST_USER,
             [user.email],
         )
-    except Exception as e:
-        logger.error(f"Failed to send new-device login email for user_id {user.id}: {e}")
+    except Exception:
+        logger.exception(f"Failed to send new-device login email for user_id {user.id}")
 
 
 # =============================================================================
