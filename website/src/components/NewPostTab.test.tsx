@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from '@testing-library/react'
+import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { vi, beforeEach, afterEach, test, expect } from 'vitest'
 import NewPostTab from './NewPostTab'
@@ -50,6 +50,18 @@ test('share button is disabled until a photo and caption are provided', async ()
   expect(button).toBeDisabled()
   await userEvent.type(screen.getByLabelText('Caption'), 'great day')
   expect(button).toBeEnabled()
+})
+
+test('disables the share button and shows the over-limit counter past 125 characters', async () => {
+  render(<NewPostTab onPosted={() => {}} />)
+  const button = screen.getByRole('button', { name: 'Share Post' })
+
+  await userEvent.upload(screen.getByLabelText('Choose a photo'), makeFile())
+  // fireEvent.change sets the value directly, avoiding 126 simulated keystrokes.
+  fireEvent.change(screen.getByLabelText('Caption'), { target: { value: 'a'.repeat(126) } })
+
+  expect(button).toBeDisabled()
+  expect(screen.getByText('1 over the 125 character limit')).toBeInTheDocument()
 })
 
 test('uploads the photo to S3 and creates the post on success', async () => {

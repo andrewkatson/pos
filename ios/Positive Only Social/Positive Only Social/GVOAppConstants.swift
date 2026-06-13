@@ -13,6 +13,10 @@ import Foundation
     
     static let authHeaderField = "Authorization"
     static let badServerResponse = "The server returned an unsuccessful status code: "
+    // Maximum lengths for user-authored text, mirroring MAX_CAPTION_LENGTH /
+    // MAX_COMMENT_LENGTH in backend/user_system/constants.py.
+    static let maxCaptionLength = 125
+    static let maxCommentLength = 500
     static let baseURL = "https://api.smiling.social/user_index/"
     static let bearer = "Bearer"
     static let decodingError = "Failed to decode the server response: "

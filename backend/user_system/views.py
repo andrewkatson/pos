@@ -22,6 +22,7 @@ from django_ratelimit.exceptions import Ratelimited
 
 from .classifiers import image_classifier, text_classifier
 from .constants import Patterns, Params, POST_BATCH_SIZE, MAX_BEFORE_HIDING_POST, MAX_BEFORE_HIDING_COMMENT, \
+    MAX_CAPTION_LENGTH, MAX_COMMENT_LENGTH, \
     COMMENT_BATCH_SIZE, Fields, COMMENT_THREAD_BATCH_SIZE, \
     VERIFY_RESET_MAX_ATTEMPTS, VERIFY_RESET_LOCKOUT_MINUTES, \
     ACCOUNT_BANNED, BAN_TYPE_OUTRIGHT
@@ -738,6 +739,10 @@ def make_post(request):
         logger.warning(f"Make post failed: Invalid fields {invalid_fields} for user_id: {request.user.id}")
         return log_and_return_json("make_post", {'error': f"Invalid fields {invalid_fields}"}, status=400)
 
+    if len(caption) > MAX_CAPTION_LENGTH:
+        logger.warning(f"Make post failed: Caption too long ({len(caption)} chars) for user_id: {request.user.id}")
+        return log_and_return_json("make_post", {'error': f"Caption exceeds maximum length of {MAX_CAPTION_LENGTH} characters"}, status=400)
+
     if not text_classifier_class.is_text_positive(caption):
         logger.warning(f"Make post failed: Caption not positive for user_id: {request.user.id}")
         return log_and_return_json("make_post", {'error': "Text is not positive"}, status=400)
@@ -1038,6 +1043,8 @@ def comment_on_post(request, post_identifier):
         return log_and_return_json("comment_on_post", {'error': "Invalid post_identifier"}, status=400)
     if not comment_text or not is_valid_pattern(comment_text, Patterns.alphanumeric_with_special_chars):
         return log_and_return_json("comment_on_post", {'error': "Invalid comment text"}, status=400)
+    if len(comment_text) > MAX_COMMENT_LENGTH:
+        return log_and_return_json("comment_on_post", {'error': f"Comment exceeds maximum length of {MAX_COMMENT_LENGTH} characters"}, status=400)
 
     if not text_classifier_class.is_text_positive(comment_text):
         return log_and_return_json("comment_on_post", {'error': "Text is not positive"}, status=400)
@@ -1082,6 +1089,9 @@ def reply_to_comment_thread(request, post_identifier, comment_thread_identifier)
 
     if len(invalid_fields) > 0:
         return log_and_return_json("reply_to_comment_thread", {'error': f"Invalid fields {invalid_fields}"}, status=400)
+
+    if len(comment_text) > MAX_COMMENT_LENGTH:
+        return log_and_return_json("reply_to_comment_thread", {'error': f"Comment exceeds maximum length of {MAX_COMMENT_LENGTH} characters"}, status=400)
 
     if not text_classifier_class.is_text_positive(comment_text):
         return log_and_return_json("reply_to_comment_thread", {'error': "Text is not positive"}, status=400)

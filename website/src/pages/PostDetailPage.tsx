@@ -3,6 +3,8 @@ import { Navigate, useNavigate, useParams } from 'react-router-dom'
 import { apiClient } from '../api/client'
 import { getCurrentUsername } from '../api/session'
 import type { Comment, PostDetails } from '../api/types'
+import { isWithinLimit, MAX_COMMENT_LENGTH } from '../auth/requirements'
+import CharacterCounter from '../components/CharacterCounter'
 import './MainApp.css'
 
 /** A comment enriched with the local like/report state the API doesn't return. */
@@ -450,12 +452,15 @@ function PostDetailView({ postId }: { postId: string }) {
           <button
             type="button"
             className="btn btn-primary"
-            disabled={newComment.trim().length === 0}
+            disabled={
+              newComment.trim().length === 0 || !isWithinLimit(newComment, MAX_COMMENT_LENGTH)
+            }
             onClick={submitComment}
           >
             Post
           </button>
         </div>
+        <CharacterCounter value={newComment} max={MAX_COMMENT_LENGTH} />
 
         <h2 className="app-bar__title" style={{ fontSize: '1rem' }}>
           Comments
@@ -540,6 +545,7 @@ function PostDetailView({ postId }: { postId: string }) {
               value={replyText}
               onChange={e => setReplyText(e.target.value)}
             />
+            <CharacterCounter value={replyText} max={MAX_COMMENT_LENGTH} />
             <div className="modal__actions">
               <button
                 type="button"
@@ -554,7 +560,9 @@ function PostDetailView({ postId }: { postId: string }) {
               <button
                 type="button"
                 className="modal__confirm"
-                disabled={replyText.trim().length === 0}
+                disabled={
+                  replyText.trim().length === 0 || !isWithinLimit(replyText, MAX_COMMENT_LENGTH)
+                }
                 onClick={submitReply}
               >
                 Send
