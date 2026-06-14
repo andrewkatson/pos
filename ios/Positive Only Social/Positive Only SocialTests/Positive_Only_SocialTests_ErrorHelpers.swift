@@ -70,8 +70,8 @@ struct Positive_Only_SocialTests_ErrorHelpers {
     }
 
     @Test func testRequestFailedWrappingAccountBanned_IsAccountBanned() {
-        let inner = APIError.serverError(statusCode: 403, serverMessage: GVOAppConstants.accountBannedError)
-        #expect(APIError.requestFailed(inner).isAccountBanned == true)
+        let accountBannedError = APIError.serverError(statusCode: 403, serverMessage: GVOAppConstants.accountBannedError)
+        #expect(APIError.requestFailed(accountBannedError).isAccountBanned == true)
     }
 
     @Test func testServerErrorWithOtherMessage_IsNotAccountBanned() {
