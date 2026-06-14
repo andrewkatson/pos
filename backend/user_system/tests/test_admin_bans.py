@@ -8,7 +8,7 @@ from django.utils import timezone
 
 from ..admin import PositiveOnlySocialUserAdmin, UserBanAdmin
 from ..constants import BAN_TYPE_OUTRIGHT, BAN_TYPE_SHADOW
-from ..models import PositiveOnlySocialUser, Session, UserBan
+from ..models import LoginCookie, PositiveOnlySocialUser, Session, UserBan
 
 
 class AdminBanActionTests(TestCase):
@@ -67,6 +67,25 @@ class AdminBanActionTests(TestCase):
         self.user_admin.apply_outright_ban(self._request(self.admin_user), self._target_queryset())
 
         self.assertEqual(Session.objects.filter(management_user=self.target).count(), 0)
+
+    def test_outright_ban_action_bulk_bans_and_tears_down_all_sessions(self):
+        """
+        Banning several users at once must create every ban and tear down the
+        sessions and login cookies for all of them (bulk_create bypasses
+        UserBan.save(), so the action does this teardown itself).
+        """
+        other = PositiveOnlySocialUser.objects.create_user(
+            username='targetuser2', email='target2@email.com', password='TargetPassword123!')
+        Session.objects.create(management_user=self.target, management_token='t1', ip='1.2.3.4')
+        Session.objects.create(management_user=other, management_token='t2', ip='1.2.3.4')
+        LoginCookie.objects.create(cookie_user=other, token='c2')
+
+        self.user_admin.apply_outright_ban(
+            self._request(self.admin_user), self._target_queryset(self.target, other))
+
+        self.assertEqual(UserBan.objects.active().filter(ban_type=BAN_TYPE_OUTRIGHT).count(), 2)
+        self.assertEqual(Session.objects.filter(management_user__in=[self.target, other]).count(), 0)
+        self.assertEqual(LoginCookie.objects.filter(cookie_user=other).count(), 0)
 
     def test_shadow_ban_action_keeps_sessions(self):
         Session.objects.create(management_user=self.target, management_token='token', ip='1.2.3.4')

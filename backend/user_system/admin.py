@@ -4,7 +4,7 @@ from django.db.models import Prefetch
 from django.utils import timezone
 
 from .constants import BAN_TYPE_OUTRIGHT, BAN_TYPE_SHADOW
-from .models import PositiveOnlySocialUser, UserBan
+from .models import LoginCookie, PositiveOnlySocialUser, Session, UserBan
 
 _SUPERUSER_ONLY_FIELDS = frozenset(("is_staff", "is_superuser", "groups", "user_permissions"))
 _ALWAYS_READONLY_FIELDS = ("verification_token", "verification_token_expires",
@@ -68,17 +68,29 @@ class PositiveOnlySocialUserAdmin(UserAdmin):
             .values_list('user_id', flat=True)
         )
 
-        banned = 0
-        skipped = 0
-        for user in queryset:
-            # An admin must not ban themselves: an outright ban would tear
-            # down their own sessions mid-action.
-            if user == request.user or user.pk in already_banned_ids:
-                skipped += 1
-                continue
-            UserBan.objects.create(user=user, ban_type=ban_type, banned_by=request.user,
-                                   reason="Issued via admin action")
-            banned += 1
+        # An admin must not ban themselves: an outright ban would tear down
+        # their own sessions mid-action. Skip them and anyone already banned
+        # with this type.
+        valid_users = [
+            user for user in queryset
+            if user != request.user and user.pk not in already_banned_ids
+        ]
+        total_selected = queryset.count() if hasattr(queryset, 'count') else len(queryset)
+        banned = len(valid_users)
+        skipped = total_selected - banned
+
+        if valid_users:
+            UserBan.objects.bulk_create([
+                UserBan(user=user, ban_type=ban_type, banned_by=request.user,
+                        reason="Issued via admin action")
+                for user in valid_users
+            ])
+            # bulk_create bypasses UserBan.save(), so the session/login-cookie
+            # teardown that an outright ban normally triggers must be done here.
+            # These freshly created bans have no expiry, so they are in effect.
+            if ban_type == BAN_TYPE_OUTRIGHT:
+                Session.objects.filter(management_user__in=valid_users).delete()
+                LoginCookie.objects.filter(cookie_user__in=valid_users).delete()
 
         message = f"Applied {ban_type} ban to {banned} user(s)."
         if skipped:
