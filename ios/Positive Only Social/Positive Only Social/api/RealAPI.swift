@@ -180,6 +180,15 @@ final class RealAPI: Networking {
                 struct ServerErrorBody: Decodable { let error: String? }
                 if let body = try? JSONDecoder().decode(ServerErrorBody.self, from: data),
                    let message = body.error {
+                    // Only authenticated requests signal a forced logout: a
+                    // banned login attempt is handled by the login screen.
+                    // TODO: NotificationCenter here is a UIKit-era pattern.
+                    // Replace with a more SwiftUI-native signal (e.g. an async
+                    // stream or an injected observable the API holds) so the
+                    // forced-logout path doesn't lean on global broadcast.
+                    if authToken != nil && message == GVOAppConstants.accountBannedError {
+                        NotificationCenter.default.post(name: .accountBanned, object: nil)
+                    }
                     throw APIError.serverError(statusCode: httpResponse.statusCode, serverMessage: message)
                 }
                 throw APIError.badServerResponse(statusCode: httpResponse.statusCode)

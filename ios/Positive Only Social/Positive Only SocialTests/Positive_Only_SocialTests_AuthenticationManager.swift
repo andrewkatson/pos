@@ -122,5 +122,20 @@ struct Positive_Only_SocialTests_AuthenticationManager {
         try await Task.sleep(for: .seconds(TestConstants.shortTimeout))
     }
 
-}
 
+    @Test mutating func testAccountBannedNotification_LogsOut() async throws {
+        // Given: A logged-in manager
+        sut = AuthenticationManager(shouldAutoLogin: false, keychainHelper: keychain)
+        sut.login(with: UserSession(sessionToken: "token", username: "banneduser", userId: "user-id", isIdentityVerified: false))
+        #expect(sut.isLoggedIn == true)
+
+        // When: The API layer reports the account is banned
+        NotificationCenter.default.post(name: .accountBanned, object: nil)
+        try await Task.sleep(for: .seconds(TestConstants.shortTimeout))
+
+        // Then: The session is dropped
+        #expect(sut.isLoggedIn == false, "An account_banned rejection must log the user out")
+        #expect(sut.session == nil)
+        #expect(sut.logoutCallCount == 1)
+    }
+}

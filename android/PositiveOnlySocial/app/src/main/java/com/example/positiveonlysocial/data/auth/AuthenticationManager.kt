@@ -46,6 +46,15 @@ class AuthenticationManager(
      */
     val session: StateFlow<UserSession?> = _session.asStateFlow()
 
+    // Backing property for forcedLogout
+    private val _forcedLogout = MutableStateFlow(false)
+    /**
+     * Set when the session was dropped without the user asking (the backend
+     * revoked it, e.g. an account ban). The navigation layer observes this to
+     * send the user back to the welcome screen from wherever they are.
+     */
+    val forcedLogout: StateFlow<Boolean> = _forcedLogout.asStateFlow()
+
     // --- Private Properties ---
 
     // Identifiers for secure storage
@@ -151,5 +160,21 @@ class AuthenticationManager(
             _session.value = null
             _isLoggedIn.value = false
         }
+    }
+
+    /**
+     * Logs out because the backend revoked the session (e.g. the account was
+     * banned). Raises [forcedLogout] so the UI can navigate away.
+     */
+    suspend fun forceLogout() {
+        logout()
+        _forcedLogout.value = true
+    }
+
+    /**
+     * Call after the UI has reacted to [forcedLogout].
+     */
+    fun clearForcedLogout() {
+        _forcedLogout.value = false
     }
 }

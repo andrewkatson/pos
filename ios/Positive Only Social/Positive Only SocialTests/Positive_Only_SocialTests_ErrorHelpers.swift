@@ -61,4 +61,30 @@ struct Positive_Only_SocialTests_ErrorHelpers {
         let error = NSError(domain: "SomeOtherDomain", code: NSURLErrorCancelled)
         #expect(error.isCancellation == false)
     }
+
+    // --- Account-banned detection ---
+
+    @Test func testServerErrorWithAccountBanned_IsAccountBanned() {
+        let error = APIError.serverError(statusCode: 403, serverMessage: GVOAppConstants.accountBannedError)
+        #expect(error.isAccountBanned == true)
+    }
+
+    @Test func testRequestFailedWrappingAccountBanned_IsAccountBanned() {
+        let accountBannedError = APIError.serverError(statusCode: 403, serverMessage: GVOAppConstants.accountBannedError)
+        #expect(APIError.requestFailed(accountBannedError).isAccountBanned == true)
+    }
+
+    @Test func testServerErrorWithOtherMessage_IsNotAccountBanned() {
+        let error = APIError.serverError(statusCode: 403, serverMessage: "Forbidden")
+        #expect(error.isAccountBanned == false)
+    }
+
+    @Test func testBadServerResponse_IsNotAccountBanned() {
+        #expect(APIError.badServerResponse(statusCode: 403).isAccountBanned == false)
+    }
+
+    @Test func testNonAPIError_IsNotAccountBanned() {
+        let error = NSError(domain: "SomeDomain", code: 403)
+        #expect(error.isAccountBanned == false)
+    }
 }

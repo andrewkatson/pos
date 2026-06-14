@@ -91,7 +91,9 @@ struct LoginView: View {
                 }
                 
             } catch let error as APIError {
-                if case .serverError(_, let message) = error {
+                if error.isAccountBanned {
+                    errorMessage = GVOAppConstants.accountSuspendedMessage
+                } else if case .serverError(_, let message) = error {
                     errorMessage = message
                 } else {
                     errorMessage = "Login failed. Please check your credentials and try again."
