@@ -30,11 +30,13 @@ a future appeals system can reference the specific ban.
 There are two kinds of ban:
 
 - **Outright ban** — the user is told. Login is rejected with an
-  `account_banned` error, and any live sessions are terminated the moment the
-  ban is applied. Used for clear guideline violations: a temporary outright
-  ban (set `expires`) is the standard response to a first or minor offense,
-  and a permanent outright ban (no expiry) is for repeat offenders or severe
-  violations (hate speech, harassment of a specific person, illegal content).
+  `account_banned` error, any live sessions are terminated the moment the
+  ban is applied, and the user is emailed that their account has been
+  suspended (with the reason and, for a temporary ban, when it lifts). Used
+  for clear guideline violations: a temporary outright ban (set `expires`) is
+  the standard response to a first or minor offense, and a permanent outright
+  ban (no expiry) is for repeat offenders or severe violations (hate speech,
+  harassment of a specific person, illegal content).
 - **Shadow ban** — the user is *not* told. They can log in, post, and comment
   normally, but their content is invisible to everyone but themselves. Used
   for suspected spam, bots, and bad-faith actors, where telling the user they
@@ -43,9 +45,10 @@ There are two kinds of ban:
   for confirmed bots.
 
 Whether a ban is temporary or permanent is controlled by the `expires` field
-and is independent of the ban type. Escalation for ordinary users follows
-the ladder: warning (content hidden by reports) → temporary outright ban →
-permanent outright ban.
+and is independent of the ban type. A temporary ban lifts itself once
+`expires` passes — `UserBan.objects.active()` filters it out, so no scheduled
+job is needed. Escalation for ordinary users follows the ladder: warning
+(content hidden by reports) → temporary outright ban → permanent outright ban.
 
 ## New-device login emails
 

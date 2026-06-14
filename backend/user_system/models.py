@@ -1,9 +1,49 @@
+import logging
 import uuid
 from django.conf import settings
 from django.contrib.auth.models import AbstractUser
+from django.core.mail import send_mail
 from django.db import models
 from django.utils import timezone
 from .constants import NEVER_RUN, BAN_TYPE_OUTRIGHT, BAN_TYPE_SHADOW
+
+logger = logging.getLogger(__name__)
+
+
+def notify_user_of_outright_ban(ban):
+    """Email a user that their account has been suspended.
+
+    Only outright bans are announced — shadow bans are intentionally silent so
+    the user stays unaware. A mail failure must never block the ban, so it is
+    logged and swallowed (matching the new-device login email behaviour).
+    """
+    if ban.ban_type != BAN_TYPE_OUTRIGHT or not ban.is_in_effect():
+        return
+    if not ban.user.email:
+        return
+
+    if ban.expires:
+        duration = f"until {ban.expires:%Y-%m-%d %H:%M UTC}"
+    else:
+        duration = "permanently"
+    reason = (ban.reason or "").strip()
+    reason_line = f"\n\nReason: {reason}" if reason else ""
+
+    body = (
+        "Your account has been suspended for violating our community "
+        f"guidelines. The suspension is in effect {duration}.{reason_line}\n\n"
+        "If you believe this was a mistake, you can reply to this email to "
+        "appeal."
+    )
+    try:
+        send_mail(
+            "Your account has been suspended",
+            body,
+            settings.EMAIL_HOST_USER,
+            [ban.user.email],
+        )
+    except Exception:
+        logger.exception(f"Failed to send ban notification email for user_id {ban.user_id}")
 
 
 # The model to explicitly define the "follow" relationship
@@ -123,7 +163,19 @@ class UserBan(models.Model):
         return self.expires is None or self.expires > timezone.now()
 
     def save(self, *args, **kwargs):
+        # Whether this record was already an in-effect outright ban before the
+        # save, so we can email only when it *transitions into* that state
+        # (newly issued, shadow→outright, or expiry extended past now) and not
+        # on ordinary edits like a reason change.
+        was_active_outright = False
+        if not self._state.adding:
+            previous = type(self).objects.filter(pk=self.pk).only('ban_type', 'expires').first()
+            if previous is not None:
+                was_active_outright = (previous.ban_type == BAN_TYPE_OUTRIGHT
+                                       and previous.is_in_effect())
+
         super().save(*args, **kwargs)
+
         # An outright ban must terminate the user's live sessions immediately.
         # Shadow bans leave sessions alone so the user stays unaware, and
         # already-expired bans (e.g. recording a historical ban) must not log
@@ -131,6 +183,8 @@ class UserBan(models.Model):
         if self.ban_type == BAN_TYPE_OUTRIGHT and self.is_in_effect():
             Session.objects.filter(management_user=self.user).delete()
             LoginCookie.objects.filter(cookie_user=self.user).delete()
+            if not was_active_outright:
+                notify_user_of_outright_ban(self)
 
     def __str__(self):
         return f"{self.ban_type} ban on {self.user}"
