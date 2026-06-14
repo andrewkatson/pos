@@ -28,7 +28,10 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.NavController
 import coil.compose.AsyncImage
 import com.example.positiveonlysocial.api.PositiveOnlySocialAPI
+import com.example.positiveonlysocial.data.constants.Constants
 import com.example.positiveonlysocial.data.model.CommentThreadViewData
+import com.example.positiveonlysocial.ui.components.CharacterCounter
+import com.example.positiveonlysocial.ui.components.isWithinLength
 import com.example.positiveonlysocial.data.model.CommentViewData
 import com.example.positiveonlysocial.data.security.KeychainHelperProtocol
 import com.example.positiveonlysocial.models.viewmodels.PostDetailViewModel
@@ -234,23 +237,26 @@ fun PostDetailScreen(
                             
                             // Add Comment Section
                             val newCommentText by viewModel.newCommentText.collectAsState()
-                            Row(verticalAlignment = Alignment.CenterVertically) {
-                                TextField(
-                                    value = newCommentText,
-                                    onValueChange = { viewModel.updateNewCommentText(it) },
-                                    placeholder = { Text("Add a comment...") },
-                                    modifier = Modifier.weight(1f),
-                                    singleLine = true,
-                                    keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
-                                    keyboardActions = KeyboardActions(onDone = { focusManager.clearFocus() })
-                                )
-                                Button(
-                                    onClick = { viewModel.commentOnPost(newCommentText) },
-                                    enabled = newCommentText.isNotEmpty(),
-                                    modifier = Modifier.padding(start = 8.dp)
-                                ) {
-                                    Text("Post")
+                            Column {
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    TextField(
+                                        value = newCommentText,
+                                        onValueChange = { viewModel.updateNewCommentText(it) },
+                                        placeholder = { Text("Add a comment...") },
+                                        modifier = Modifier.weight(1f),
+                                        singleLine = true,
+                                        keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
+                                        keyboardActions = KeyboardActions(onDone = { focusManager.clearFocus() })
+                                    )
+                                    Button(
+                                        onClick = { viewModel.commentOnPost(newCommentText) },
+                                        enabled = newCommentText.isNotEmpty() && isWithinLength(newCommentText, Constants.MAX_COMMENT_LENGTH),
+                                        modifier = Modifier.padding(start = 8.dp)
+                                    ) {
+                                        Text("Post")
+                                    }
                                 }
+                                CharacterCounter(text = newCommentText, max = Constants.MAX_COMMENT_LENGTH)
                             }
                             
                             Spacer(modifier = Modifier.height(16.dp))
@@ -500,19 +506,25 @@ fun ReplyDialog(thread: CommentThreadViewData, onDismiss: () -> Unit, onSubmit: 
             // A reply can span multiple lines, so this stays multiline (Enter
             // inserts a newline). The dialog's Send/Cancel buttons remain
             // reachable above the keyboard, so no Done-to-dismiss is needed.
-            TextField(
-                value = text,
-                onValueChange = { text = it },
-                placeholder = { Text("Your reply...") }
-            )
+            Column {
+                TextField(
+                    value = text,
+                    onValueChange = { text = it },
+                    placeholder = { Text("Your reply...") }
+                )
+                CharacterCounter(text = text, max = Constants.MAX_COMMENT_LENGTH)
+            }
         },
         confirmButton = {
-            Button(onClick = { 
-                if (text.isNotEmpty()) {
-                    onSubmit(text)
-                    onDismiss()
-                }
-            }) {
+            Button(
+                onClick = {
+                    if (text.isNotEmpty()) {
+                        onSubmit(text)
+                        onDismiss()
+                    }
+                },
+                enabled = text.isNotEmpty() && isWithinLength(text, Constants.MAX_COMMENT_LENGTH)
+            ) {
                 Text("Send")
             }
         },

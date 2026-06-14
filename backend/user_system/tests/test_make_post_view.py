@@ -4,7 +4,7 @@ from django.urls import reverse
 
 from .test_parent_case import PositiveOnlySocialTestCase
 from ..classifiers.classifier_constants import POSITIVE_IMAGE_URL, POSITIVE_IMAGE_FILENAME, NEGATIVE_IMAGE_FILENAME, POSITIVE_TEXT, NEGATIVE_TEXT, NEGATIVE_IMAGE_URL
-from ..constants import Fields
+from ..constants import Fields, MAX_CAPTION_LENGTH
 from ..views import get_user_with_username
 
 # --- Constants ---
@@ -201,3 +201,43 @@ class MakePostTests(PositiveOnlySocialTestCase):
         )
 
         self.assertEqual(response.status_code, 400)
+
+    def test_caption_over_max_length_returns_bad_response(self):
+        """
+        A caption longer than MAX_CAPTION_LENGTH characters must be rejected with a
+        message that states the limit.
+        """
+        data = self.valid_data.copy()
+        # Positive text (no "negative" substring) so only the length check can fail it.
+        data['caption'] = 'a' * (MAX_CAPTION_LENGTH + 1)
+
+        response = self.client.post(
+            self.url,
+            data=data,
+            content_type='application/json',
+            **self.valid_header
+        )
+
+        self.assertEqual(response.status_code, 400)
+        self.assertIn(f"maximum length of {MAX_CAPTION_LENGTH}", response.json().get('error', ''))
+
+    @patch.dict(os.environ, {"TESTING": "True"}, clear=True)
+    def test_unicode_caption_at_max_length_returns_good_response(self):
+        """
+        A non-ASCII caption at exactly MAX_CAPTION_LENGTH code points must be accepted,
+        confirming the limit is unicode aware rather than byte/ASCII based.
+        """
+        data = self.valid_data.copy()
+        # 'é' is multi-byte in UTF-8 but a single unicode code point; len() counts code points.
+        data['caption'] = 'é' * MAX_CAPTION_LENGTH
+
+        response = self.client.post(
+            self.url,
+            data=data,
+            content_type='application/json',
+            **self.valid_header
+        )
+
+        self.assertEqual(response.status_code, 201)
+        self.user.refresh_from_db()
+        self.assertEqual(self.user.post_set.first().caption, 'é' * MAX_CAPTION_LENGTH)

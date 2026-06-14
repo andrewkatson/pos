@@ -3,6 +3,8 @@ import { apiClient } from '../api/client'
 import type { ApiError } from '../api/client'
 import { getCurrentUserId } from '../api/session'
 import { uploadImage } from '../api/s3Uploader'
+import { isWithinLimit, MAX_CAPTION_LENGTH } from '../auth/requirements'
+import CharacterCounter from './CharacterCounter'
 
 interface NewPostTabProps {
   /** Called after a successful post so the shell can switch back to the Home tab. */
@@ -36,7 +38,8 @@ function NewPostTab({ onPosted }: NewPostTabProps) {
     setPreviewUrl(next ? URL.createObjectURL(next) : null)
   }
 
-  const isFormValid = file !== null && caption.trim().length > 0
+  const isFormValid =
+    file !== null && caption.trim().length > 0 && isWithinLimit(caption, MAX_CAPTION_LENGTH)
 
   async function handleSubmit(e: FormEvent) {
     e.preventDefault()
@@ -120,6 +123,7 @@ function NewPostTab({ onPosted }: NewPostTabProps) {
           onChange={e => setCaption(e.target.value)}
           disabled={isLoading}
         />
+        <CharacterCounter value={caption} max={MAX_CAPTION_LENGTH} />
       </div>
 
       {isLoading ? (

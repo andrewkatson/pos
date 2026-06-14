@@ -15,7 +15,10 @@ import androidx.navigation.NavController
 import coil.compose.AsyncImage
 import androidx.compose.ui.platform.LocalContext
 import com.example.positiveonlysocial.api.PositiveOnlySocialAPI
+import com.example.positiveonlysocial.data.constants.Constants
 import com.example.positiveonlysocial.data.model.CreatePostRequest
+import com.example.positiveonlysocial.ui.components.CharacterCounter
+import com.example.positiveonlysocial.ui.components.isWithinLength
 import com.example.positiveonlysocial.data.security.KeychainHelperProtocol
 import com.example.positiveonlysocial.data.uploader.S3Uploader
 import java.util.UUID
@@ -126,6 +129,8 @@ fun NewPostScreen(
                     .height(100.dp)
             )
 
+            CharacterCounter(text = caption, max = Constants.MAX_CAPTION_LENGTH)
+
             Spacer(modifier = Modifier.weight(1f))
 
             if (isLoading) {
@@ -191,7 +196,7 @@ fun NewPostScreen(
                         }
                     },
                     modifier = Modifier.fillMaxWidth(),
-                    enabled = selectedImageUri != null && caption.isNotEmpty()
+                    enabled = selectedImageUri != null && caption.isNotEmpty() && isWithinLength(caption, Constants.MAX_CAPTION_LENGTH)
                 ) {
                     Text("Share Post")
                 }

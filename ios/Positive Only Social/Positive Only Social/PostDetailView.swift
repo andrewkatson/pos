@@ -119,15 +119,18 @@ struct PostDetailView: View {
                     Divider()
                     
                     Section {
-                        HStack {
-                            TextField("Add a comment...", text: $viewModel.newCommentText)
-                                .accessibilityIdentifier("AddACommentTextFieldToPost")
+                        VStack(alignment: .leading) {
+                            HStack {
+                                TextField("Add a comment...", text: $viewModel.newCommentText)
+                                    .accessibilityIdentifier("AddACommentTextFieldToPost")
 
-                            Button("Post") {
-                                viewModel.commentOnPost(commentText: viewModel.newCommentText)
+                                Button("Post") {
+                                    viewModel.commentOnPost(commentText: viewModel.newCommentText)
+                                }
+                                .disabled(viewModel.newCommentText.isEmpty || !isWithinLength(viewModel.newCommentText, max: GVOAppConstants.maxCommentLength))
+                                .accessibilityIdentifier("PostCommentButton")
                             }
-                            .disabled(viewModel.newCommentText.isEmpty)
-                            .accessibilityIdentifier("PostCommentButton")
+                            CharacterCounter(text: viewModel.newCommentText, max: GVOAppConstants.maxCommentLength)
                         }
                     }
                     .padding()
@@ -467,6 +470,7 @@ struct PostDetailView: View {
                     Section(header: Text("Replying to \(thread.comments.first?.authorUsername ?? "Comment")")) {
                         TextEditor(text: $replyText)
                             .frame(minHeight: 150)
+                        CharacterCounter(text: replyText, max: GVOAppConstants.maxCommentLength)
                     }
                 }
                 .navigationTitle("Post Reply")
@@ -483,7 +487,7 @@ struct PostDetailView: View {
                             onSubmit(replyText)
                             dismiss()
                         }
-                        .disabled(replyText.isEmpty)
+                        .disabled(replyText.isEmpty || !isWithinLength(replyText, max: GVOAppConstants.maxCommentLength))
                     }
                 }
             }

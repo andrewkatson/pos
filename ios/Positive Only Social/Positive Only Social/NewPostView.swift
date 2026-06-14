@@ -64,6 +64,7 @@ struct NewPostView: View {
                     }
                     
                     TextEditor(text: $caption).frame(height: 100).accessibilityIdentifier("CaptionTextEditor")
+                    CharacterCounter(text: caption, max: GVOAppConstants.maxCaptionLength)
                 }
                 
                 if isLoading {
@@ -74,7 +75,7 @@ struct NewPostView: View {
                     }
                 } else {
                     Button(action: makePost) { Text("Share Post") }
-                        .disabled(selectedImageData == nil || caption.isEmpty)
+                        .disabled(selectedImageData == nil || caption.isEmpty || !isWithinLength(caption, max: GVOAppConstants.maxCaptionLength))
                         .accessibilityIdentifier("SharePostButton")
                 }
             }

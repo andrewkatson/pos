@@ -106,6 +106,12 @@ COMMENT_BATCH_SIZE = 30
 # Size of comment thread batches
 COMMENT_THREAD_BATCH_SIZE = 10
 
+# Maximum lengths for user-authored text, counted as unicode code points
+# (Python's len() on a str is code-point based, so these limits are unicode
+# aware rather than restricted to ASCII bytes).
+MAX_CAPTION_LENGTH = 125
+MAX_COMMENT_LENGTH = 500
+
 # Number of reports before hiding
 MAX_BEFORE_HIDING_POST = 10
 MAX_BEFORE_HIDING_COMMENT = 5
