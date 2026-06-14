@@ -3,6 +3,7 @@ from datetime import timedelta
 from django.contrib.admin.sites import AdminSite
 from django.contrib.messages.middleware import MessageMiddleware
 from django.contrib.sessions.middleware import SessionMiddleware
+from django.core import mail
 from django.test import RequestFactory, TestCase
 from django.urls import ResolverMatch
 from django.utils import timezone
@@ -87,6 +88,21 @@ class AdminBanActionTests(TestCase):
         self.assertEqual(UserBan.objects.active().filter(ban_type=BAN_TYPE_OUTRIGHT).count(), 2)
         self.assertEqual(Session.objects.filter(management_user__in=[self.target, other]).count(), 0)
         self.assertEqual(LoginCookie.objects.filter(cookie_user=other).count(), 0)
+
+    def test_outright_ban_action_emails_each_user(self):
+        other = PositiveOnlySocialUser.objects.create_user(
+            username='targetuser3', email='target3@email.com', password='TargetPassword123!')
+
+        self.user_admin.apply_outright_ban(
+            self._request(self.admin_user), self._target_queryset(self.target, other))
+
+        recipients = {addr for message in mail.outbox for addr in message.to}
+        self.assertEqual(recipients, {'target@email.com', 'target3@email.com'})
+
+    def test_shadow_ban_action_does_not_email(self):
+        self.user_admin.apply_shadow_ban(self._request(self.admin_user), self._target_queryset())
+
+        self.assertEqual(len(mail.outbox), 0)
 
     def test_shadow_ban_action_keeps_sessions(self):
         Session.objects.create(management_user=self.target, management_token='token', ip='1.2.3.4')
