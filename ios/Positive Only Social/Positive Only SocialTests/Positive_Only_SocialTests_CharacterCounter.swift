@@ -19,12 +19,12 @@ struct Positive_Only_SocialTests_CharacterCounter {
         #expect(characterCount(String(repeating: "💚", count: 5)) == 5)
     }
 
-    @Test func withinLimitAtAndBelowMax() {
+    @Test func characterIsWithinLengthAtAndBelowMax() {
         #expect(isWithinLength(String(repeating: "a", count: 125), max: 125))
         #expect(isWithinLength(String(repeating: "a", count: 124), max: 125))
     }
 
-    @Test func notWithinLimitOverMax() {
+    @Test func characterIsNotWithinLengthOverMax() {
         #expect(!isWithinLength(String(repeating: "a", count: 126), max: 125))
     }
 }

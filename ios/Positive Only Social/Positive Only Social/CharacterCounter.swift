@@ -7,7 +7,7 @@ import SwiftUI
 
 /// Fraction of a length limit at which the counter starts warning the user that
 /// they are getting close (mirrored across web and Android).
-private let nearLimitFraction = 0.9
+private let nearLimitFraction: Double = 0.9
 
 /// Counts unicode scalars (code points) rather than grapheme clusters, so the
 /// count matches Python's `len()` on the backend (which is what the server
