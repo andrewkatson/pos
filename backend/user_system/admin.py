@@ -43,9 +43,16 @@ class PositiveOnlySocialUserAdmin(UserAdmin):
         ]
 
     def get_queryset(self, request):
-        # Prefetch active bans in one query so ban_status does not run a
-        # query per row on the changelist.
-        return super().get_queryset(request).prefetch_related(
+        qs = super().get_queryset(request)
+        # ban_status (in list_display) needs each user's active bans, so
+        # prefetch them in one query for the changelist. Skip the prefetch for
+        # the admin autocomplete endpoint, which reuses this get_queryset (via
+        # UserBanAdmin.autocomplete_fields) but never renders ban_status — the
+        # prefetch would just add an unneeded query per lookup.
+        resolver_match = getattr(request, 'resolver_match', None)
+        if resolver_match and resolver_match.url_name == 'autocomplete':
+            return qs
+        return qs.prefetch_related(
             Prefetch('bans', queryset=UserBan.objects.active(), to_attr='active_bans'))
 
     @admin.display(description="Ban status")
@@ -61,10 +68,14 @@ class PositiveOnlySocialUserAdmin(UserAdmin):
             self.message_user(request, "You do not have permission to issue bans.", messages.ERROR)
             return
 
+        # Materialize the selection once so total_selected does not need a
+        # separate count() query.
+        selected = list(queryset)
+
         # One query up front instead of an exists() check per selected user.
         already_banned_ids = set(
             UserBan.objects.active()
-            .filter(user__in=queryset, ban_type=ban_type)
+            .filter(user__in=selected, ban_type=ban_type)
             .values_list('user_id', flat=True)
         )
 
@@ -72,12 +83,11 @@ class PositiveOnlySocialUserAdmin(UserAdmin):
         # their own sessions mid-action. Skip them and anyone already banned
         # with this type.
         valid_users = [
-            user for user in queryset
+            user for user in selected
             if user != request.user and user.pk not in already_banned_ids
         ]
-        total_selected = queryset.count() if hasattr(queryset, 'count') else len(queryset)
         banned = len(valid_users)
-        skipped = total_selected - banned
+        skipped = len(selected) - banned
 
         if valid_users:
             UserBan.objects.bulk_create([

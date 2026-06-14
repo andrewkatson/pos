@@ -4,6 +4,7 @@ from django.contrib.admin.sites import AdminSite
 from django.contrib.messages.middleware import MessageMiddleware
 from django.contrib.sessions.middleware import SessionMiddleware
 from django.test import RequestFactory, TestCase
+from django.urls import ResolverMatch
 from django.utils import timezone
 
 from ..admin import PositiveOnlySocialUserAdmin, UserBanAdmin
@@ -198,3 +199,16 @@ class AdminBanActionTests(TestCase):
 
         self.assertEqual(statuses['targetuser'], BAN_TYPE_SHADOW)
         self.assertEqual(statuses['adminuser'], "—")
+
+    def test_autocomplete_request_skips_ban_prefetch(self):
+        """
+        The user autocomplete endpoint reuses get_queryset but never renders
+        ban_status, so it must not carry the active-bans prefetch.
+        """
+        request = self._request(self.admin_user)
+        request.resolver_match = ResolverMatch(
+            func=lambda r: None, args=(), kwargs={}, url_name='autocomplete')
+
+        qs = self.user_admin.get_queryset(request)
+
+        self.assertEqual(qs._prefetch_related_lookups, ())
