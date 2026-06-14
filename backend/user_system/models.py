@@ -163,8 +163,19 @@ class UserBan(models.Model):
         return self.expires is None or self.expires > timezone.now()
 
     def save(self, *args, **kwargs):
-        is_new = self._state.adding
+        # Whether this record was already an in-effect outright ban before the
+        # save, so we can email only when it *transitions into* that state
+        # (newly issued, shadow→outright, or expiry extended past now) and not
+        # on ordinary edits like a reason change.
+        was_active_outright = False
+        if not self._state.adding:
+            previous = type(self).objects.filter(pk=self.pk).only('ban_type', 'expires').first()
+            if previous is not None:
+                was_active_outright = (previous.ban_type == BAN_TYPE_OUTRIGHT
+                                       and previous.is_in_effect())
+
         super().save(*args, **kwargs)
+
         # An outright ban must terminate the user's live sessions immediately.
         # Shadow bans leave sessions alone so the user stays unaware, and
         # already-expired bans (e.g. recording a historical ban) must not log
@@ -172,9 +183,7 @@ class UserBan(models.Model):
         if self.ban_type == BAN_TYPE_OUTRIGHT and self.is_in_effect():
             Session.objects.filter(management_user=self.user).delete()
             LoginCookie.objects.filter(cookie_user=self.user).delete()
-            # Email only when the ban is first issued, not when an existing ban
-            # is edited, so the user is not re-notified on every admin save.
-            if is_new:
+            if not was_active_outright:
                 notify_user_of_outright_ban(self)
 
     def __str__(self):

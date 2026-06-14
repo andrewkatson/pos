@@ -64,6 +64,28 @@ class BanNotificationEmailTests(TestCase):
         # Still just the original email — no re-notification on edit.
         self.assertEqual(len(mail.outbox), 1)
 
+    def test_editing_shadow_ban_into_outright_emails(self):
+        # A shadow ban is silent; promoting it to outright is an issuance and
+        # must notify the user.
+        ban = UserBan.objects.create(user=self.user, ban_type=BAN_TYPE_SHADOW)
+        self.assertEqual(len(mail.outbox), 0)
+
+        ban.ban_type = BAN_TYPE_OUTRIGHT
+        ban.save()
+
+        self.assertEqual(len(mail.outbox), 1)
+
+    def test_extending_expired_outright_ban_emails(self):
+        # An expired ban did not notify; extending it back into effect must.
+        ban = UserBan.objects.create(user=self.user, ban_type=BAN_TYPE_OUTRIGHT,
+                                     expires=timezone.now() - timedelta(days=1))
+        self.assertEqual(len(mail.outbox), 0)
+
+        ban.expires = timezone.now() + timedelta(days=1)
+        ban.save()
+
+        self.assertEqual(len(mail.outbox), 1)
+
     def test_user_without_email_is_skipped(self):
         self.user.email = ''
         self.user.save()
