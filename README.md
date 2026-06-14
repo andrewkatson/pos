@@ -46,3 +46,16 @@ Whether a ban is temporary or permanent is controlled by the `expires` field
 and is independent of the ban type. Escalation for ordinary users follows
 the ladder: warning (content hidden by reports) → temporary outright ban →
 permanent outright ban.
+
+## New-device login emails
+
+When a user logs in from a device we have not seen before, they get an email
+alerting them to the login. A "device" is identified by its IP address: the
+first time a user authenticates from a given IP, a `KnownDevice` record (see
+`backend/user_system/models.py`) is created for that user/IP pair and the email
+is sent. Subsequent logins from the same IP are silent.
+
+The IP recorded at registration is treated as already-known, so a user's first
+real login from the device they signed up on is not flagged. Both the
+password login and the remember-me login paths perform the check. Sending the
+email is best-effort — a mail failure is logged but never blocks the login.

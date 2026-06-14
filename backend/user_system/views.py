@@ -27,7 +27,8 @@ from .constants import Patterns, Params, POST_BATCH_SIZE, MAX_BEFORE_HIDING_POST
     ACCOUNT_BANNED, BAN_TYPE_OUTRIGHT
 from .feed_algorithm import feed_algorithm
 from .input_validator import is_valid_pattern
-from .models import LoginCookie, Session, Post, CommentThread, PositiveOnlySocialUser, Comment, UserBlock, UserBan
+from .models import LoginCookie, Session, Post, CommentThread, PositiveOnlySocialUser, Comment, UserBlock, UserBan, \
+    KnownDevice
 from .utils import convert_to_bool, generate_login_cookie_token, generate_management_token, generate_series_identifier, \
     get_batch, get_compressed_image_url
 from .visibility import can_view_post, searchable_users, visible_comment_threads, visible_comments, visible_posts
@@ -197,6 +198,33 @@ def api_login_required(view_func):
     return _wrapped_view
 
 
+def _record_device_and_maybe_notify(user, ip, notify=True):
+    """Record that ``user`` has logged in from ``ip``.
+
+    The first time we see an IP for a user (a brand-new device) we email them
+    so they are alerted to the login. ``notify`` is set False for registration,
+    where the user is plainly the one establishing the account and a "new login"
+    alert would only be noise. A failure to send the email must never block the
+    login itself, so it is logged and swallowed.
+    """
+    if not ip:
+        return
+    _, created = KnownDevice.objects.get_or_create(user=user, ip=ip)
+    if not (created and notify):
+        return
+    try:
+        send_mail(
+            "New login to your account",
+            "We noticed a login to your account from a new device "
+            f"(IP address {ip}).\n\nIf this was you, you can ignore this email. "
+            "If you don't recognize this activity, please reset your password right away.",
+            settings.EMAIL_HOST_USER,
+            [user.email],
+        )
+    except Exception:
+        logger.exception(f"Failed to send new-device login email for user_id {user.id}")
+
+
 # =============================================================================
 # AUTHENTICATION VIEWS
 # =============================================================================
@@ -276,6 +304,10 @@ def register(request):
 
     new_session = new_user.session_set.create(management_token=generate_management_token(), ip=ip)
     # .create() already saves
+
+    # Record the registering device as known so the user's first real login
+    # from it is not flagged as new, but don't email them about it.
+    _record_device_and_maybe_notify(new_user, ip, notify=False)
 
     response_data = {
         Fields.session_management_token: new_session.management_token,
@@ -377,6 +409,10 @@ def login_user(request):
 
         new_session = existing.session_set.create(management_token=generate_management_token(), ip=ip)
 
+        # Alert the user by email if this login is from a device (IP) we have
+        # not seen for them before.
+        _record_device_and_maybe_notify(existing, ip)
+
         response_data = {
             Fields.session_management_token: new_session.management_token,
             Fields.username: existing.username,
@@ -457,6 +493,10 @@ def login_user_with_remember_me(request):
     # Issue a new session management token
     new_session_management_token = generate_management_token()
     _ = existing.session_set.create(management_token=new_session_management_token, ip=ip)
+
+    # Alert the user by email if this remember-me login is from a device (IP)
+    # we have not seen for them before.
+    _record_device_and_maybe_notify(existing, ip)
 
     response_data = {
         Fields.login_cookie_token: new_login_cookie_token,
