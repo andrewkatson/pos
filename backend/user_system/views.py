@@ -1113,19 +1113,21 @@ def comment_on_post(request, post_identifier):
     if len(comment_text) > MAX_COMMENT_LENGTH:
         return log_and_return_json("comment_on_post", {'error': f"Comment exceeds maximum length of {MAX_COMMENT_LENGTH} characters"}, status=400)
 
+    # Resolve and visibility-check the post before running the (expensive) AI
+    # classifier, so a leaked/guessed UUID for a missing or hidden post cannot
+    # trigger classifier calls (avoidable cost / billing amplification). Treat a
+    # post the caller cannot see (hidden, or by a shadow-banned author) the same
+    # as a missing one so its existence is not revealed.
+    post = get_post_with_identifier(post_identifier)
+    if post is None or not can_view_post(post, request.user):
+        logger.warning(f"Comment on post failed: Post {post_identifier} not found or not visible")
+        return log_and_return_json("comment_on_post", {'error': "No post with that identifier"}, status=400)
+
     # A final (non-appealable) rejection blocks the comment; an appealable one
     # creates it hidden pending appeal.
     text_result = text_classifier_class.is_text_positive(comment_text)
     if not text_result and not text_result.appealable:
         return log_and_return_json("comment_on_post", {'error': "Text is not positive"}, status=400)
-
-    post = get_post_with_identifier(post_identifier)
-    # Treat a post the caller cannot see (hidden, or by a shadow-banned author)
-    # the same as a missing one, so a leaked/guessed UUID cannot be used to
-    # comment on hidden content or reveal that it exists.
-    if post is None or not can_view_post(post, request.user):
-        logger.warning(f"Comment on post failed: Post {post_identifier} not found or not visible")
-        return log_and_return_json("comment_on_post", {'error': "No post with that identifier"}, status=400)
 
     hidden = not text_result
 
@@ -1177,12 +1179,11 @@ def reply_to_comment_thread(request, post_identifier, comment_thread_identifier)
     if len(comment_text) > MAX_COMMENT_LENGTH:
         return log_and_return_json("reply_to_comment_thread", {'error': f"Comment exceeds maximum length of {MAX_COMMENT_LENGTH} characters"}, status=400)
 
-    # A final (non-appealable) rejection blocks the reply; an appealable one
-    # creates it hidden pending appeal.
-    text_result = text_classifier_class.is_text_positive(comment_text)
-    if not text_result and not text_result.appealable:
-        return log_and_return_json("reply_to_comment_thread", {'error': "Text is not positive"}, status=400)
-
+    # Resolve and visibility-check the thread/parent post before running the
+    # (expensive) AI classifier, so a leaked/guessed UUID for a missing or
+    # hidden thread cannot trigger classifier calls (avoidable cost / billing
+    # amplification). A caller who cannot see the parent post is treated as if
+    # the thread is not there so its existence is not revealed.
     try:
         comment_thread = CommentThread.objects.get(
             comment_thread_identifier=comment_thread_identifier,
@@ -1191,10 +1192,14 @@ def reply_to_comment_thread(request, post_identifier, comment_thread_identifier)
     except CommentThread.DoesNotExist:
         return log_and_return_json("reply_to_comment_thread", {'error': "Comment thread not found for the given post"}, status=400)
 
-    # A caller who cannot see the parent post must not be able to reply to its
-    # threads via a leaked/guessed UUID; treat it as if the thread is not there.
     if not can_view_post(comment_thread.post, request.user):
         return log_and_return_json("reply_to_comment_thread", {'error': "Comment thread not found for the given post"}, status=400)
+
+    # A final (non-appealable) rejection blocks the reply; an appealable one
+    # creates it hidden pending appeal.
+    text_result = text_classifier_class.is_text_positive(comment_text)
+    if not text_result and not text_result.appealable:
+        return log_and_return_json("reply_to_comment_thread", {'error': "Text is not positive"}, status=400)
 
     hidden = not text_result
     new_comment = comment_thread.comment_set.create(

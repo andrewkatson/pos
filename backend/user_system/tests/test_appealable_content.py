@@ -1,3 +1,4 @@
+import uuid
 from unittest.mock import patch
 
 from django.urls import reverse
@@ -199,3 +200,34 @@ class CommentOnHiddenPostVisibilityTests(PositiveOnlySocialTestCase):
 
         self.assertEqual(response.status_code, 400)
         self.assertIn('Comment thread not found', response.json().get('error', ''))
+
+    @patch(TEXT, return_value=ALLOWED)
+    def test_classifier_not_run_for_hidden_post_comment(self, mock_text):
+        """The post is visibility-checked before the classifier, so an
+        unviewable target cannot trigger (billable) classifier calls."""
+        self._comment(self.other_token)
+        mock_text.assert_not_called()
+
+    @patch(TEXT, return_value=ALLOWED)
+    def test_classifier_not_run_for_missing_post_comment(self, mock_text):
+        url = reverse('comment_on_post', kwargs={'post_identifier': str(uuid.uuid4())})
+        header = {'HTTP_AUTHORIZATION': f'Bearer {self.author_token}'}
+        self.client.post(url, data={'comment_text': POSITIVE_TEXT},
+                         content_type='application/json', **header)
+        mock_text.assert_not_called()
+
+    @patch(TEXT, return_value=ALLOWED)
+    def test_classifier_not_run_for_hidden_post_reply(self, mock_text):
+        # The author creates a thread on their own hidden post (this call does
+        # run the classifier); reset, then a non-author reply must not.
+        thread_id = self._comment(self.author_token).json()[Fields.comment_thread_identifier]
+        mock_text.reset_mock()
+
+        url = reverse('reply_to_comment_thread', kwargs={
+            'post_identifier': str(self.post_identifier),
+            'comment_thread_identifier': str(thread_id),
+        })
+        header = {'HTTP_AUTHORIZATION': f'Bearer {self.other_token}'}
+        self.client.post(url, data={'comment_text': POSITIVE_TEXT},
+                         content_type='application/json', **header)
+        mock_text.assert_not_called()
