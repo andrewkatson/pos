@@ -20,9 +20,16 @@ def image_url_to_key(image_url):
         return ''
     parsed = urlparse(image_url)
     key = parsed.path.lstrip('/')
-    first_label = parsed.hostname.split('.')[0] if parsed.hostname else ''
-    if first_label == 's3' or first_label.startswith('s3-'):
-        # Path-style URL: the first path segment is the bucket, not the key.
+    labels = parsed.hostname.split('.') if parsed.hostname else []
+    first_label = labels[0] if labels else ''
+    second_label = labels[1] if len(labels) > 1 else ''
+    # Path-style hosts (s3.amazonaws.com, s3.<region>.amazonaws.com,
+    # s3-<region>.amazonaws.com) carry the bucket as the first path segment, so
+    # strip it. A virtual-hosted bucket whose own name starts with "s3-" (e.g.
+    # s3-my-bucket.s3.amazonaws.com) is NOT path-style — there the second label
+    # is the literal "s3" and the path is already just the key — so exclude it.
+    is_path_style = (first_label == 's3' or first_label.startswith('s3-')) and second_label != 's3'
+    if is_path_style:
         _, _, key = key.partition('/')
     return key
 
