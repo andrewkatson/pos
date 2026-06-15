@@ -11,7 +11,7 @@ import ProfilePage from './pages/ProfilePage'
 
 function App() {
   return (
-    <Routes>
+    <Routes> 
       <Route path="/" element={<LandingPage />} />
       <Route path="/login" element={<LoginPage />} />
       <Route path="/register" element={<RegisterPage />} />

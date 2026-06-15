@@ -55,7 +55,7 @@ function RegisterPage() {
       localStorage.setItem('session_token', response.session_management_token)
       localStorage.setItem('user_id', response.user_id)
       localStorage.setItem('username', username.trim())
-      navigate('/')
+      navigate('/home')
     } catch (err) {
       const apiErr = err as ApiError
       setErrorMessage(apiErr.message ?? 'Registration failed. Username or email may be taken.')
