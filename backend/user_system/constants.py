@@ -6,9 +6,11 @@ NEVER_RUN = "never_run"
 BAN_TYPE_OUTRIGHT = "outright"
 BAN_TYPE_SHADOW = "shadow"
 
-# Why a post or comment is hidden. Empty string means it is not hidden for a
-# moderation reason. "reports" is set when enough users report it; "classifier"
-# is set when the AI classifier rejected it but the rejection is appealable.
+# Why a post or comment is hidden. Empty string means no hide reason is
+# recorded — the content may still be hidden (e.g. report-based hiding that
+# predates this field) but without a recorded cause. "reports" is set when
+# enough users report it; "classifier" is set when the AI classifier rejected
+# it but the rejection is appealable.
 HIDDEN_REASON_NONE = ""
 HIDDEN_REASON_REPORTS = "reports"
 HIDDEN_REASON_CLASSIFIER = "classifier"

@@ -197,10 +197,11 @@ class UserBan(models.Model):
 
 
 # Why a post or comment is hidden, shared by Post and Comment. An empty reason
-# pairs with hidden=False; a non-empty reason records what hid it so the appeal
-# system can tell the author and decide what is appealable.
+# means no cause is recorded — usually paired with hidden=False, but also with
+# already-hidden rows that predate this field. A non-empty reason records what
+# hid it so the appeal system can tell the author and decide what is appealable.
 HIDDEN_REASON_CHOICES = [
-    (HIDDEN_REASON_NONE, 'Not hidden'),
+    (HIDDEN_REASON_NONE, 'Unspecified'),
     (HIDDEN_REASON_REPORTS, 'Reports'),
     (HIDDEN_REASON_CLASSIFIER, 'Classifier'),
 ]
@@ -352,6 +353,16 @@ class Appeal(models.Model):
         targets = [self.post, self.comment, self.ban]
         if sum(t is not None for t in targets) != 1:
             raise ValidationError("An appeal must reference exactly one of a post, comment, or ban.")
+
+    def save(self, *args, **kwargs):
+        # Django does not run clean() on save()/create(), and the DB constraint
+        # only forbids *two* targets (it must allow zero so SET_NULL can clear a
+        # target when its post/comment/ban is deleted). Enforce the exactly-one
+        # rule on insert here so a zero-target appeal can never be created; once
+        # persisted, a later target-clearing delete is allowed.
+        if self._state.adding:
+            self.clean()
+        super().save(*args, **kwargs)
 
     def __str__(self):
         return f"{self.status} appeal by {self.appellant} on {self.target}"
