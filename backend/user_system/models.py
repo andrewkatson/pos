@@ -2,10 +2,16 @@ import logging
 import uuid
 from django.conf import settings
 from django.contrib.auth.models import AbstractUser
+from django.core.exceptions import ValidationError
 from django.core.mail import send_mail
 from django.db import models
+from django.db.models import Q
 from django.utils import timezone
-from .constants import NEVER_RUN, BAN_TYPE_OUTRIGHT, BAN_TYPE_SHADOW
+from .constants import (
+    NEVER_RUN, BAN_TYPE_OUTRIGHT, BAN_TYPE_SHADOW,
+    HIDDEN_REASON_NONE, HIDDEN_REASON_REPORTS, HIDDEN_REASON_CLASSIFIER,
+    APPEAL_STATUS_PENDING, APPEAL_STATUS_APPROVED, APPEAL_STATUS_DENIED,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -190,6 +196,17 @@ class UserBan(models.Model):
         return f"{self.ban_type} ban on {self.user}"
 
 
+# Why a post or comment is hidden, shared by Post and Comment. An empty reason
+# means no cause is recorded — usually paired with hidden=False, but also with
+# already-hidden rows that predate this field. A non-empty reason records what
+# hid it so the appeal system can tell the author and decide what is appealable.
+HIDDEN_REASON_CHOICES = [
+    (HIDDEN_REASON_NONE, 'Unspecified'),
+    (HIDDEN_REASON_REPORTS, 'Reports'),
+    (HIDDEN_REASON_CLASSIFIER, 'Classifier'),
+]
+
+
 # A post on the website
 class Post(models.Model):
     post_identifier = models.UUIDField(default=uuid.uuid4, primary_key=True, unique=True, editable=False)
@@ -200,6 +217,7 @@ class Post(models.Model):
     updated_time = models.DateTimeField(auto_now=True, null=True, blank=True)
     author = models.ForeignKey(PositiveOnlySocialUser, on_delete=models.CASCADE)
     hidden = models.BooleanField(default=False)
+    hidden_reason = models.TextField(choices=HIDDEN_REASON_CHOICES, default=HIDDEN_REASON_NONE, blank=True)
 
 
 # A report on a post
@@ -244,6 +262,7 @@ class Comment(models.Model):
                                          blank=True)
     updated_time = models.DateTimeField(auto_now=True, null=True, blank=True)
     hidden = models.BooleanField(default=False)
+    hidden_reason = models.TextField(choices=HIDDEN_REASON_CHOICES, default=HIDDEN_REASON_NONE, blank=True)
 
 
 # A report on a comment
@@ -266,3 +285,84 @@ class CommentLike(models.Model):
         constraints = [
             models.UniqueConstraint(fields=['user', 'comment'], name='unique_comment_like')
         ]
+
+
+class AppealManager(models.Manager):
+    def pending(self):
+        """Appeals awaiting an admin decision."""
+        return self.filter(status=APPEAL_STATUS_PENDING)
+
+
+# An appeal a user files against a moderation action: a hidden post, a hidden
+# comment, or a ban. Exactly one of post/comment/ban is set. Kept as its own
+# record (rather than a flag on the target) so admins have a queue and an audit
+# trail of who appealed what, when, and how it was resolved. A post or comment
+# may be deleted as part of denying its appeal, so content_snapshot preserves
+# what was appealed for the trail.
+class Appeal(models.Model):
+    APPEAL_STATUS_CHOICES = [
+        (APPEAL_STATUS_PENDING, 'Pending'),
+        (APPEAL_STATUS_APPROVED, 'Approved'),
+        (APPEAL_STATUS_DENIED, 'Denied'),
+    ]
+
+    appeal_identifier = models.UUIDField(default=uuid.uuid4, primary_key=True, unique=True, editable=False)
+    appellant = models.ForeignKey(settings.AUTH_USER_MODEL, related_name='appeals', on_delete=models.CASCADE)
+
+    # Exactly one target is set. on_delete=SET_NULL so resolving (and deleting)
+    # the target does not erase the appeal record.
+    post = models.ForeignKey(Post, related_name='appeals', null=True, blank=True, on_delete=models.SET_NULL)
+    comment = models.ForeignKey(Comment, related_name='appeals', null=True, blank=True, on_delete=models.SET_NULL)
+    ban = models.ForeignKey(UserBan, related_name='appeals', null=True, blank=True, on_delete=models.SET_NULL)
+
+    reason = models.TextField(null=True, blank=True)
+    content_snapshot = models.TextField(null=True, blank=True)
+    status = models.TextField(choices=APPEAL_STATUS_CHOICES, default=APPEAL_STATUS_PENDING)
+    created = models.DateTimeField(auto_now_add=True)
+    resolved_time = models.DateTimeField(null=True, blank=True, default=None)
+    resolved_by = models.ForeignKey(settings.AUTH_USER_MODEL, related_name='appeals_resolved', null=True, blank=True,
+                                    on_delete=models.SET_NULL)
+    resolution_note = models.TextField(null=True, blank=True)
+
+    objects = AppealManager()
+
+    class Meta:
+        app_label = 'user_system'
+        constraints = [
+            # At most one target may be set. We cannot require *exactly* one at
+            # the DB level because on_delete=SET_NULL clears the target when the
+            # post/comment/ban is deleted (e.g. when denying an appeal removes
+            # the offending post); the "exactly one at creation" rule is
+            # enforced by clean() and the appeal endpoints instead.
+            models.CheckConstraint(
+                name='appeal_has_at_most_one_target',
+                condition=~(
+                    (Q(post__isnull=False) & Q(comment__isnull=False))
+                    | (Q(post__isnull=False) & Q(ban__isnull=False))
+                    | (Q(comment__isnull=False) & Q(ban__isnull=False))
+                ),
+            ),
+        ]
+
+    @property
+    def target(self):
+        """The post, comment, or ban this appeal is about (whichever is set)."""
+        return self.post or self.comment or self.ban
+
+    def clean(self):
+        targets = [self.post, self.comment, self.ban]
+        if sum(t is not None for t in targets) != 1:
+            raise ValidationError("An appeal must reference exactly one of a post, comment, or ban.")
+
+    def save(self, *args, **kwargs):
+        # Django does not run clean() on save()/create(), and the DB constraint
+        # only forbids *two* targets (it must allow zero so SET_NULL can clear a
+        # target when its post/comment/ban is deleted). Enforce the exactly-one
+        # rule on insert here so a zero-target appeal can never be created; once
+        # persisted, a later target-clearing delete is allowed.
+        if self._state.adding:
+            self.clean()
+        super().save(*args, **kwargs)
+
+    def __str__(self):
+        return f"{self.status} appeal by {self.appellant} on {self.target}"
