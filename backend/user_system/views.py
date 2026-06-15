@@ -25,7 +25,8 @@ from .constants import Patterns, Params, POST_BATCH_SIZE, MAX_BEFORE_HIDING_POST
     MAX_CAPTION_LENGTH, MAX_COMMENT_LENGTH, \
     COMMENT_BATCH_SIZE, Fields, COMMENT_THREAD_BATCH_SIZE, \
     VERIFY_RESET_MAX_ATTEMPTS, VERIFY_RESET_LOCKOUT_MINUTES, \
-    ACCOUNT_BANNED, BAN_TYPE_OUTRIGHT
+    ACCOUNT_BANNED, BAN_TYPE_OUTRIGHT, \
+    HIDDEN_REASON_NONE, HIDDEN_REASON_REPORTS, HIDDEN_REASON_CLASSIFIER
 from .feed_algorithm import feed_algorithm
 from .input_validator import is_valid_pattern
 from .models import LoginCookie, Session, Post, CommentThread, PositiveOnlySocialUser, Comment, UserBlock, UserBan, \
@@ -783,17 +784,39 @@ def make_post(request):
         logger.warning(f"Make post failed: Caption too long ({len(caption)} chars) for user_id: {request.user.id}")
         return log_and_return_json("make_post", {'error': f"Caption exceeds maximum length of {MAX_CAPTION_LENGTH} characters"}, status=400)
 
-    if not text_classifier_class.is_text_positive(caption):
-        logger.warning(f"Make post failed: Caption not positive for user_id: {request.user.id}")
+    # A rejection that is not appealable is final: reject outright and do not
+    # create the post. An appealable rejection still creates the post but hides
+    # it pending appeal (handled below). The text check runs first so the more
+    # expensive image check is skipped on a final text rejection.
+    text_result = text_classifier_class.is_text_positive(caption)
+    if not text_result and not text_result.appealable:
+        logger.warning(f"Make post failed: Caption not positive (final) for user_id: {request.user.id}")
         return log_and_return_json("make_post", {'error': "Text is not positive"}, status=400)
 
-    if not image_classifier_class.is_image_positive(image_url):
-        logger.warning(f"Make post failed: Image not positive for user_id: {request.user.id}")
+    image_result = image_classifier_class.is_image_positive(image_url)
+    if not image_result and not image_result.appealable:
+        logger.warning(f"Make post failed: Image not positive (final) for user_id: {request.user.id}")
         return log_and_return_json("make_post", {'error': "Image is not positive"}, status=400)
 
-    new_post = request.user.post_set.create(image_url=image_url, caption=caption)
-    logger.info(f"Post created successfully: post_id: {new_post.post_identifier} for user_id: {request.user.id}")
-    return log_and_return_json("make_post", {Fields.post_identifier: new_post.post_identifier}, status=201)
+    # Any remaining rejection is appealable, so post it but hide it pending
+    # appeal. The visibility layer already shows authors their own hidden posts
+    # while hiding them from everyone else, so no extra visibility wiring is
+    # needed here.
+    hidden = not (text_result and image_result)
+    new_post = request.user.post_set.create(
+        image_url=image_url, caption=caption, hidden=hidden,
+        hidden_reason=HIDDEN_REASON_CLASSIFIER if hidden else HIDDEN_REASON_NONE)
+
+    response = {Fields.post_identifier: new_post.post_identifier}
+    if hidden:
+        logger.info(f"Post created hidden pending appeal: post_id: {new_post.post_identifier} for user_id: {request.user.id}")
+        response[Fields.hidden] = True
+        response[Fields.hidden_reason] = HIDDEN_REASON_CLASSIFIER
+        response['message'] = ("Your post did not pass automated review. It is hidden for now "
+                               "but you can appeal the decision.")
+    else:
+        logger.info(f"Post created successfully: post_id: {new_post.post_identifier} for user_id: {request.user.id}")
+    return log_and_return_json("make_post", response, status=201)
 
 
 @csrf_exempt
@@ -853,6 +876,7 @@ def report_post(request, post_identifier):
 
         if post.postreport_set.count() > MAX_BEFORE_HIDING_POST:
             post.hidden = True
+            post.hidden_reason = HIDDEN_REASON_REPORTS
             post.save()
             logger.info(f"Post hidden due to reports: post_id: {post_identifier}")
 
@@ -1086,7 +1110,10 @@ def comment_on_post(request, post_identifier):
     if len(comment_text) > MAX_COMMENT_LENGTH:
         return log_and_return_json("comment_on_post", {'error': f"Comment exceeds maximum length of {MAX_COMMENT_LENGTH} characters"}, status=400)
 
-    if not text_classifier_class.is_text_positive(comment_text):
+    # A final (non-appealable) rejection blocks the comment; an appealable one
+    # creates it hidden pending appeal.
+    text_result = text_classifier_class.is_text_positive(comment_text)
+    if not text_result and not text_result.appealable:
         return log_and_return_json("comment_on_post", {'error': "Text is not positive"}, status=400)
 
     post = get_post_with_identifier(post_identifier)
@@ -1094,15 +1121,26 @@ def comment_on_post(request, post_identifier):
         logger.warning(f"Comment on post failed: Post {post_identifier} not found")
         return log_and_return_json("comment_on_post", {'error': "No post with that identifier"}, status=400)
 
+    hidden = not text_result
+
     # Create a new thread for this top-level comment
     comment_thread = post.commentthread_set.create()
-    new_comment = comment_thread.comment_set.create(author=request.user, body=comment_text)
+    new_comment = comment_thread.comment_set.create(
+        author=request.user, body=comment_text, hidden=hidden,
+        hidden_reason=HIDDEN_REASON_CLASSIFIER if hidden else HIDDEN_REASON_NONE)
 
     response_data = {
         Fields.comment_thread_identifier: comment_thread.comment_thread_identifier,
         Fields.comment_identifier: new_comment.comment_identifier
     }
-    logger.info(f"Comment on post successful: post_id: {post_identifier}, comment_id: {new_comment.comment_identifier} for user_id: {request.user.id}")
+    if hidden:
+        logger.info(f"Comment on post created hidden pending appeal: comment_id: {new_comment.comment_identifier} for user_id: {request.user.id}")
+        response_data[Fields.hidden] = True
+        response_data[Fields.hidden_reason] = HIDDEN_REASON_CLASSIFIER
+        response_data['message'] = ("Your comment did not pass automated review. It is hidden for now "
+                                    "but you can appeal the decision.")
+    else:
+        logger.info(f"Comment on post successful: post_id: {post_identifier}, comment_id: {new_comment.comment_identifier} for user_id: {request.user.id}")
     return log_and_return_json("comment_on_post", response_data, status=201)
 
 
@@ -1133,7 +1171,10 @@ def reply_to_comment_thread(request, post_identifier, comment_thread_identifier)
     if len(comment_text) > MAX_COMMENT_LENGTH:
         return log_and_return_json("reply_to_comment_thread", {'error': f"Comment exceeds maximum length of {MAX_COMMENT_LENGTH} characters"}, status=400)
 
-    if not text_classifier_class.is_text_positive(comment_text):
+    # A final (non-appealable) rejection blocks the reply; an appealable one
+    # creates it hidden pending appeal.
+    text_result = text_classifier_class.is_text_positive(comment_text)
+    if not text_result and not text_result.appealable:
         return log_and_return_json("reply_to_comment_thread", {'error': "Text is not positive"}, status=400)
 
     try:
@@ -1144,9 +1185,21 @@ def reply_to_comment_thread(request, post_identifier, comment_thread_identifier)
     except CommentThread.DoesNotExist:
         return log_and_return_json("reply_to_comment_thread", {'error': "Comment thread not found for the given post"}, status=400)
 
-    new_comment = comment_thread.comment_set.create(author=request.user, body=comment_text)
-    logger.info(f"Reply to comment successful: comment_thread_id: {comment_thread_identifier}, comment_id: {new_comment.comment_identifier} for user_id: {request.user.id}")
-    return log_and_return_json("reply_to_comment_thread", {Fields.comment_identifier: new_comment.comment_identifier}, status=201)
+    hidden = not text_result
+    new_comment = comment_thread.comment_set.create(
+        author=request.user, body=comment_text, hidden=hidden,
+        hidden_reason=HIDDEN_REASON_CLASSIFIER if hidden else HIDDEN_REASON_NONE)
+
+    response_data = {Fields.comment_identifier: new_comment.comment_identifier}
+    if hidden:
+        logger.info(f"Reply created hidden pending appeal: comment_id: {new_comment.comment_identifier} for user_id: {request.user.id}")
+        response_data[Fields.hidden] = True
+        response_data[Fields.hidden_reason] = HIDDEN_REASON_CLASSIFIER
+        response_data['message'] = ("Your reply did not pass automated review. It is hidden for now "
+                                    "but you can appeal the decision.")
+    else:
+        logger.info(f"Reply to comment successful: comment_thread_id: {comment_thread_identifier}, comment_id: {new_comment.comment_identifier} for user_id: {request.user.id}")
+    return log_and_return_json("reply_to_comment_thread", response_data, status=201)
 
 
 @csrf_exempt
@@ -1313,6 +1366,7 @@ def report_comment(request, post_identifier, comment_thread_identifier, comment_
 
     if comment.commentreport_set.count() > MAX_BEFORE_HIDING_COMMENT:
         comment.hidden = True
+        comment.hidden_reason = HIDDEN_REASON_REPORTS
         comment.save()
         logger.info(f"Comment hidden due to reports: comment_id: {comment_identifier}")
 

@@ -104,6 +104,8 @@ class Fields:
     identity_is_verified = "identity_is_verified"
     reset_token = "reset_token"
     verification_token = "verification_token"
+    hidden = "hidden"
+    hidden_reason = "hidden_reason"
 
 # Lengths of things
 LEN_LOGIN_COOKIE_TOKEN = 32

@@ -2,7 +2,7 @@ from django.urls import reverse
 
 from .test_constants import UserFields
 from .test_parent_case import PositiveOnlySocialTestCase
-from ..constants import MAX_BEFORE_HIDING_POST
+from ..constants import MAX_BEFORE_HIDING_POST, HIDDEN_REASON_REPORTS
 from ..models import Post
 
 # --- Constants ---
@@ -144,3 +144,4 @@ class ReportPostTests(PositiveOnlySocialTestCase):
         self.post.refresh_from_db()
         self.assertEqual(self.post.postreport_set.count(), MAX_BEFORE_HIDING_POST + 1)
         self.assertTrue(self.post.hidden)
+        self.assertEqual(self.post.hidden_reason, HIDDEN_REASON_REPORTS)
