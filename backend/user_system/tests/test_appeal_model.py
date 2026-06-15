@@ -69,18 +69,23 @@ class AppealModelTests(PositiveOnlySocialTestCase):
         self.assertNotIn(resolved.appeal_identifier, pending_ids)
 
     def test_appeal_requires_a_target(self):
-        """Zero targets is rejected by clean() (the DB allows it post-deletion)."""
+        """save() rejects a zero-target appeal on insert (the DB allows it so
+        SET_NULL can clear a target post-deletion)."""
         with self.assertRaises(ValidationError):
-            Appeal(appellant=self.user).clean()
+            Appeal.objects.create(appellant=self.user)
 
-    def test_appeal_rejects_two_targets_via_clean(self):
+    def test_appeal_rejects_two_targets_on_create(self):
+        """save() enforces exactly-one before the row reaches the DB."""
         with self.assertRaises(ValidationError):
-            Appeal(appellant=self.user, post=self.post, comment=self.comment).clean()
+            Appeal.objects.create(appellant=self.user, post=self.post, comment=self.comment)
 
-    def test_appeal_rejects_two_targets_at_db_level(self):
+    def test_db_constraint_rejects_two_targets(self):
+        """The CheckConstraint is defense-in-depth: bulk_create bypasses save()
+        so this exercises the raw DB rule."""
         with self.assertRaises(IntegrityError):
             with transaction.atomic():
-                Appeal.objects.create(appellant=self.user, post=self.post, comment=self.comment)
+                Appeal.objects.bulk_create(
+                    [Appeal(appellant=self.user, post=self.post, comment=self.comment)])
 
     def test_deleting_post_keeps_appeal_record(self):
         """SET_NULL means denying-and-deleting a post leaves the audit trail."""
