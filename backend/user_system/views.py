@@ -874,7 +874,10 @@ def report_post(request, post_identifier):
         post.postreport_set.create(user=request.user, reason=reason)
         logger.info(f"Post reported successful: post_id: {post_identifier} by user_id: {request.user.id}")
 
-        if post.postreport_set.count() > MAX_BEFORE_HIDING_POST:
+        # Only hide (and stamp the reason) if it is not already hidden, so a
+        # post already hidden by the classifier keeps its original reason and
+        # the appeal flow can still tell why it was hidden.
+        if not post.hidden and post.postreport_set.count() > MAX_BEFORE_HIDING_POST:
             post.hidden = True
             post.hidden_reason = HIDDEN_REASON_REPORTS
             post.save()
@@ -1117,8 +1120,11 @@ def comment_on_post(request, post_identifier):
         return log_and_return_json("comment_on_post", {'error': "Text is not positive"}, status=400)
 
     post = get_post_with_identifier(post_identifier)
-    if post is None:
-        logger.warning(f"Comment on post failed: Post {post_identifier} not found")
+    # Treat a post the caller cannot see (hidden, or by a shadow-banned author)
+    # the same as a missing one, so a leaked/guessed UUID cannot be used to
+    # comment on hidden content or reveal that it exists.
+    if post is None or not can_view_post(post, request.user):
+        logger.warning(f"Comment on post failed: Post {post_identifier} not found or not visible")
         return log_and_return_json("comment_on_post", {'error': "No post with that identifier"}, status=400)
 
     hidden = not text_result
@@ -1183,6 +1189,11 @@ def reply_to_comment_thread(request, post_identifier, comment_thread_identifier)
             post__post_identifier=post_identifier
         )
     except CommentThread.DoesNotExist:
+        return log_and_return_json("reply_to_comment_thread", {'error': "Comment thread not found for the given post"}, status=400)
+
+    # A caller who cannot see the parent post must not be able to reply to its
+    # threads via a leaked/guessed UUID; treat it as if the thread is not there.
+    if not can_view_post(comment_thread.post, request.user):
         return log_and_return_json("reply_to_comment_thread", {'error': "Comment thread not found for the given post"}, status=400)
 
     hidden = not text_result
@@ -1364,7 +1375,9 @@ def report_comment(request, post_identifier, comment_thread_identifier, comment_
     comment.commentreport_set.create(user=request.user, reason=reason)
     logger.info(f"Report comment successful: comment_id: {comment_identifier} by user_id: {request.user.id}")
 
-    if comment.commentreport_set.count() > MAX_BEFORE_HIDING_COMMENT:
+    # Only hide (and stamp the reason) if it is not already hidden, so a comment
+    # already hidden by the classifier keeps its original reason.
+    if not comment.hidden and comment.commentreport_set.count() > MAX_BEFORE_HIDING_COMMENT:
         comment.hidden = True
         comment.hidden_reason = HIDDEN_REASON_REPORTS
         comment.save()

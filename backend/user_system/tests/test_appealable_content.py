@@ -150,3 +150,52 @@ class CommentAppealableTests(PositiveOnlySocialTestCase):
         comment = Comment.objects.get(comment_identifier=body[Fields.comment_identifier])
         self.assertTrue(comment.hidden)
         self.assertEqual(comment.hidden_reason, HIDDEN_REASON_CLASSIFIER)
+
+
+class CommentOnHiddenPostVisibilityTests(PositiveOnlySocialTestCase):
+    """A hidden post is visible only to its author, so others cannot comment on
+    or reply to it via a leaked/guessed UUID."""
+
+    def setUp(self):
+        super().setUp()
+        self.make_post_with_users(num=2)
+        self.author_token = self.session_management_token
+        self.other_token = self.users[UserFields.TOKEN][1]
+        # Hide the post as if the classifier flagged it.
+        self.post.hidden = True
+        self.post.hidden_reason = HIDDEN_REASON_CLASSIFIER
+        self.post.save()
+
+    def _comment(self, token, text=POSITIVE_TEXT):
+        url = reverse('comment_on_post', kwargs={'post_identifier': str(self.post_identifier)})
+        header = {'HTTP_AUTHORIZATION': f'Bearer {token}'}
+        return self.client.post(url, data={'comment_text': text}, content_type='application/json', **header)
+
+    @patch(TEXT, return_value=ALLOWED)
+    def test_other_user_cannot_comment_on_hidden_post(self, _text):
+        response = self._comment(self.other_token)
+        self.assertEqual(response.status_code, 400)
+        self.assertIn('No post with that identifier', response.json().get('error', ''))
+        self.assertEqual(Comment.objects.count(), 0)
+
+    @patch(TEXT, return_value=ALLOWED)
+    def test_author_can_comment_on_own_hidden_post(self, _text):
+        response = self._comment(self.author_token)
+        self.assertEqual(response.status_code, 201)
+        self.assertEqual(Comment.objects.count(), 1)
+
+    @patch(TEXT, return_value=ALLOWED)
+    def test_other_user_cannot_reply_on_hidden_post(self, _text):
+        # The author creates a thread on their own hidden post.
+        thread_id = self._comment(self.author_token).json()[Fields.comment_thread_identifier]
+
+        url = reverse('reply_to_comment_thread', kwargs={
+            'post_identifier': str(self.post_identifier),
+            'comment_thread_identifier': str(thread_id),
+        })
+        header = {'HTTP_AUTHORIZATION': f'Bearer {self.other_token}'}
+        response = self.client.post(url, data={'comment_text': POSITIVE_TEXT},
+                                    content_type='application/json', **header)
+
+        self.assertEqual(response.status_code, 400)
+        self.assertIn('Comment thread not found', response.json().get('error', ''))
