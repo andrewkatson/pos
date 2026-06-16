@@ -64,7 +64,14 @@ def is_image_positive(image_url):
             logger.debug("s3:// URL — bucket=%s key=%s", bucket_name, key)
         elif parsed.scheme in ['http', 'https'] and 's3' in parsed.netloc:
             parts = parsed.netloc.split('.')
-            if parts[0] == 's3' or parts[0].startswith('s3-'):
+            # Path-style hosts (s3.amazonaws.com, s3.<region>.amazonaws.com,
+            # s3-<region>.amazonaws.com) carry the bucket as the first path
+            # segment. A virtual-hosted bucket whose own name starts with "s3-"
+            # (e.g. s3-my-bucket.s3.amazonaws.com) is NOT path-style — there the
+            # second label is the literal "s3" and the path is already just the
+            # key — so exclude it.
+            is_path_style = (parts[0] == 's3' or parts[0].startswith('s3-')) and (len(parts) < 2 or parts[1] != 's3')
+            if is_path_style:
                 # Path-style: s3[.region].amazonaws.com/bucket/key
                 # or dashed-region: s3-region.amazonaws.com/bucket/key
                 path_parts = parsed.path.lstrip('/').split('/', 1)
