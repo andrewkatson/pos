@@ -418,6 +418,50 @@ EOF
     fi
 }
 
+setup_cleanup_timer() {
+    # Schedules the orphan-image S3 cleanup as a daily systemd timer. The job
+    # needs both the database (to know which images live Posts still use) and
+    # the AWS credentials, so it runs on the app host with the same env as
+    # gunicorn rather than from CI, which cannot reach the private database.
+    print_status "Setting up orphan-image cleanup systemd timer..."
+
+    sudo tee /etc/systemd/system/cleanup-orphan-images.service > /dev/null << EOF
+[Unit]
+Description=Delete orphaned post images from S3 for $DOMAIN
+After=network.target
+
+[Service]
+Type=oneshot
+User=$APP_USER
+Group=www-data
+WorkingDirectory=$APP_DIR
+Environment="PATH=$APP_DIR/venv/bin"
+EnvironmentFile=$APP_DIR/.env
+ExecStart=$APP_DIR/venv/bin/python manage.py cleanup_orphan_images
+EOF
+
+    sudo tee /etc/systemd/system/cleanup-orphan-images.timer > /dev/null << EOF
+[Unit]
+Description=Run orphan-image cleanup daily
+
+[Timer]
+OnCalendar=daily
+Persistent=true
+
+[Install]
+WantedBy=timers.target
+EOF
+
+    sudo systemctl daemon-reload
+    sudo systemctl enable --now cleanup-orphan-images.timer
+
+    if sudo systemctl is-enabled --quiet cleanup-orphan-images.timer; then
+        print_status "Orphan-image cleanup timer enabled (daily)"
+    else
+        print_error "Cleanup timer failed to enable. Check: sudo journalctl -u cleanup-orphan-images -n 50"
+    fi
+}
+
 setup_nginx() {
     print_status "Configuring Nginx..."
     
@@ -639,6 +683,7 @@ main() {
     test_database_connection
     run_django_setup
     setup_gunicorn_service
+    setup_cleanup_timer
     setup_nginx
     setup_ssl
     setup_log_rotation
