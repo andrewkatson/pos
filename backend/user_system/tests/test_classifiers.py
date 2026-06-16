@@ -473,6 +473,16 @@ class TestClassifiers(PositiveOnlySocialTestCase):
             is_image_positive(url)
         mock_s3.get_object.assert_called_with(Bucket="s3-my-bucket", Key="123/abc.jpeg")
 
+    @patch.dict(os.environ, {"GEMINI_API_KEY": "fake_key", **_AWS_KEYS_NO_BUCKET}, clear=True)
+    @patch("user_system.classifiers.image_classifier.boto3")
+    def test_url_parsing_virtual_hosted_s3_dash_bucket_accelerate(self, mock_boto3):
+        """An 's3-' virtual-hosted bucket on a non-literal-'s3' endpoint label is still virtual-hosted."""
+        mock_s3 = self._make_mock_s3(mock_boto3)
+        url = "https://s3-my-bucket.s3-accelerate.amazonaws.com/123/abc.jpeg"
+        with patch.dict(_IMAGE_DISPATCH, {API_GEMINI: MagicMock(return_value=ALLOW_SCORE)}):
+            is_image_positive(url)
+        mock_s3.get_object.assert_called_with(Bucket="s3-my-bucket", Key="123/abc.jpeg")
+
     # ------------------------------------------------------------------ #
     # Prompt content                                                       #
     # ------------------------------------------------------------------ #
