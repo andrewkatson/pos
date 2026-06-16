@@ -25,10 +25,14 @@ def image_url_to_key(image_url):
     second_label = labels[1] if len(labels) > 1 else ''
     # Path-style hosts (s3.amazonaws.com, s3.<region>.amazonaws.com,
     # s3-<region>.amazonaws.com) carry the bucket as the first path segment, so
-    # strip it. A virtual-hosted bucket whose own name starts with "s3-" (e.g.
-    # s3-my-bucket.s3.amazonaws.com) is NOT path-style — there the second label
-    # is the literal "s3" and the path is already just the key — so exclude it.
-    is_path_style = (first_label == 's3' or first_label.startswith('s3-')) and second_label != 's3'
+    # strip it. A virtual-hosted bucket whose own name starts with "s3-" is NOT
+    # path-style — there the second label is the S3 service label (e.g. "s3" in
+    # s3-my-bucket.s3.amazonaws.com, or "s3-accelerate" in
+    # s3-my-bucket.s3-accelerate.amazonaws.com) and the path is already just the
+    # key — so exclude any host whose second label starts with "s3". A genuine
+    # path-style host's second label is a region or "amazonaws", neither of
+    # which starts with "s3", so this is safe.
+    is_path_style = (first_label == 's3' or first_label.startswith('s3-')) and not second_label.startswith('s3')
     if is_path_style:
         _, _, key = key.partition('/')
     return key

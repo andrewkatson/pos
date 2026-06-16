@@ -42,6 +42,14 @@ class ImageUrlToKeyTests(SimpleTestCase):
         url = "https://s3-my-bucket.s3.us-east-2.amazonaws.com/123/abc.jpeg"
         self.assertEqual(image_url_to_key(url), "123/abc.jpeg")
 
+    def test_virtual_hosted_s3_dash_bucket_on_s3_accelerate_endpoint(self):
+        # The S3 service label is "s3-accelerate" — it starts with "s3" but is
+        # not the literal "s3" — and the bucket name itself starts with "s3-".
+        # This is still virtual-hosted, so the path's first segment must not be
+        # stripped.
+        url = "https://s3-my-bucket.s3-accelerate.amazonaws.com/123/abc.jpeg"
+        self.assertEqual(image_url_to_key(url), "123/abc.jpeg")
+
     def test_empty_url_returns_empty(self):
         self.assertEqual(image_url_to_key(""), "")
         self.assertEqual(image_url_to_key(None), "")
