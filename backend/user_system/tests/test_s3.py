@@ -28,6 +28,10 @@ class ImageUrlToKeyTests(SimpleTestCase):
         url = "https://s3-us-west-1.amazonaws.com/my-bucket/123/abc.jpeg"
         self.assertEqual(image_url_to_key(url), "123/abc.jpeg")
 
+    def test_dotted_region_path_style_strips_bucket_segment(self):
+        url = "https://s3.us-east-1.amazonaws.com/my-bucket/123/abc.jpeg"
+        self.assertEqual(image_url_to_key(url), "123/abc.jpeg")
+
     def test_bucket_name_starting_with_s3_is_not_treated_as_path_style(self):
         url = "https://s3bucket.s3.amazonaws.com/123/abc.jpeg"
         self.assertEqual(image_url_to_key(url), "123/abc.jpeg")
@@ -94,4 +98,15 @@ class DeleteImageTests(SimpleTestCase):
     @patch("user_system.s3.boto3")
     def test_no_op_when_no_key(self, mock_boto3):
         delete_image("")
+        mock_boto3.client.assert_not_called()
+
+    @patch.dict(os.environ, _AWS_CREDS, clear=True)
+    @patch("user_system.s3.boto3")
+    def test_redacts_query_params_in_logs(self, mock_boto3):
+        # A URL with a query but no object key hits the warning log; the
+        # pre-signed signature must not leak into it.
+        url = "https://my-bucket.s3.amazonaws.com/?X-Amz-Signature=supersecret"
+        with self.assertLogs("user_system.s3", level="WARNING") as cm:
+            delete_image(url)
+        self.assertNotIn("supersecret", "\n".join(cm.output))
         mock_boto3.client.assert_not_called()

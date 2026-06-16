@@ -8,6 +8,17 @@ from django.conf import settings
 logger = logging.getLogger(__name__)
 
 
+def _redact(image_url):
+    """Drop the query/fragment from a URL before logging it, so pre-signed-URL
+    parameters (e.g. X-Amz-Signature) are never written to logs."""
+    if not image_url:
+        return image_url
+    try:
+        return urlparse(image_url)._replace(query='', fragment='').geturl()
+    except Exception:
+        return '<unparseable url>'
+
+
 def image_url_to_key(image_url):
     """Extract the S3 object key from an uploaded image URL.
 
@@ -69,7 +80,7 @@ def delete_image(image_url):
     """
     key = image_url_to_key(image_url)
     if not key:
-        logger.warning("Could not derive an S3 key from image_url=%r; skipping delete.", image_url)
+        logger.warning("Could not derive an S3 key from image_url=%r; skipping delete.", _redact(image_url))
         return
 
     client = _s3_client()
