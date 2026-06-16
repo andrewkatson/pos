@@ -2,6 +2,7 @@
 [![Android Tests](https://github.com/andrewkatson/pos/actions/workflows/android-tests.yml/badge.svg)](https://github.com/andrewkatson/pos/actions/workflows/android-tests.yml)
 [![iOS Tests](https://github.com/andrewkatson/pos/actions/workflows/ios-tests.yml/badge.svg)](https://github.com/andrewkatson/pos/actions/workflows/ios-tests.yml)
 [![Backend Tests](https://github.com/andrewkatson/pos/actions/workflows/backend-tests.yml/badge.svg)](https://github.com/andrewkatson/pos/actions/workflows/backend-tests.yml)
+[![Website Tests](https://github.com/andrewkatson/pos/actions/workflows/website-tests.yml/badge.svg)](https://github.com/andrewkatson/pos/actions/workflows/website-tests.yml)
 
 ## Overview
 
