@@ -26,7 +26,12 @@ final class AuthenticationManager: ObservableObject {
     }
     
     private let keychainHelper: KeychainHelperProtocol
-    
+
+    // The notification center used to observe app-wide events such as
+    // account bans. Injectable so tests can isolate it from the shared
+    // `.default` center and avoid cross-test contamination.
+    private let notificationCenter: NotificationCenter
+
     // A private lock to ensure thread-safe access to the keychain.
     private let lock = NSLock()
     
@@ -42,9 +47,10 @@ final class AuthenticationManager: ObservableObject {
         self.init(shouldAutoLogin: false, keychainHelper: KeychainHelper())
     }
     
-    init(shouldAutoLogin: Bool, keychainHelper: KeychainHelperProtocol) {
+    init(shouldAutoLogin: Bool, keychainHelper: KeychainHelperProtocol, notificationCenter: NotificationCenter = .default) {
         self.keychainHelper = keychainHelper
-        
+        self.notificationCenter = notificationCenter
+
         // Check for a session token when the app starts
         if shouldAutoLogin {
             checkInitialState()
@@ -56,7 +62,7 @@ final class AuthenticationManager: ObservableObject {
         // A banned account has its sessions revoked server-side; when the API
         // layer sees the account_banned rejection, drop the local session so
         // the user lands back on the welcome screen.
-        NotificationCenter.default.publisher(for: .accountBanned)
+        notificationCenter.publisher(for: .accountBanned)
             .receive(on: DispatchQueue.main)
             .sink { [weak self] _ in self?.logout() }
             .store(in: &cancellables)

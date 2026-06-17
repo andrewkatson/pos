@@ -22,11 +22,16 @@ struct Positive_Only_SocialTests_AuthenticationManager {
     
     // A helper to access the keychain for setup/teardown
     private let keychain : KeychainHelperProtocol!
-    
+
+    // An isolated notification center so the `.accountBanned` post in
+    // testAccountBannedNotification_LogsOut cannot reach managers created by
+    // other tests running in parallel (which would call an extra logout()).
+    private let notificationCenter = NotificationCenter()
+
     // --- Test setup ---
     init() {
         keychain = KeychainHelper()
-        
+
         try? keychain.delete(service: keychainService, account: userSessionAccount)
     }
     
@@ -36,7 +41,7 @@ struct Positive_Only_SocialTests_AuthenticationManager {
         // Given: The keychain is empty (guaranteed by our init() setup)
         
         // When: The AuthenticationManager is initialized
-        sut = AuthenticationManager(shouldAutoLogin: true, keychainHelper: keychain)
+        sut = AuthenticationManager(shouldAutoLogin: true, keychainHelper: keychain, notificationCenter: notificationCenter)
         
         // Then: The user should be logged out
         #expect(sut.isLoggedIn == false, "isLoggedIn should be false when no token exists")
@@ -55,7 +60,7 @@ struct Positive_Only_SocialTests_AuthenticationManager {
         try keychain.save(userSession, for: keychainService, account: userSessionAccount)
         
         // When: The AuthenticationManager is initialized
-        sut = AuthenticationManager(shouldAutoLogin: true, keychainHelper: keychain)
+        sut = AuthenticationManager(shouldAutoLogin: true, keychainHelper: keychain, notificationCenter: notificationCenter)
         
         // Then: The user should be logged in
         #expect(sut.isLoggedIn == true, "isLoggedIn should be true when a token exists")
@@ -67,7 +72,7 @@ struct Positive_Only_SocialTests_AuthenticationManager {
 
     @Test mutating func testLogin_SetsIsLoggedInToTrue() async throws {
         // Given: The SUT is initialized in a logged-out state
-        sut = AuthenticationManager(shouldAutoLogin: true, keychainHelper: keychain)
+        sut = AuthenticationManager(shouldAutoLogin: true, keychainHelper: keychain, notificationCenter: notificationCenter)
         #expect(sut.isLoggedIn == false) // Verify initial state
 
         // When: login() is called
@@ -95,7 +100,7 @@ struct Positive_Only_SocialTests_AuthenticationManager {
         let testUsername = "username"
         let userSession = UserSession(sessionToken: token, username: testUsername, userId: "1", isIdentityVerified: false)
         try keychain.save(userSession, for: keychainService, account: userSessionAccount)
-        sut = AuthenticationManager(shouldAutoLogin: true, keychainHelper: keychain)
+        sut = AuthenticationManager(shouldAutoLogin: true, keychainHelper: keychain, notificationCenter: notificationCenter)
         
         // Wait to login
         try await Task.sleep(for: .seconds(TestConstants.shortTimeout))
@@ -125,12 +130,12 @@ struct Positive_Only_SocialTests_AuthenticationManager {
 
     @Test mutating func testAccountBannedNotification_LogsOut() async throws {
         // Given: A logged-in manager
-        sut = AuthenticationManager(shouldAutoLogin: false, keychainHelper: keychain)
+        sut = AuthenticationManager(shouldAutoLogin: false, keychainHelper: keychain, notificationCenter: notificationCenter)
         sut.login(with: UserSession(sessionToken: "token", username: "banneduser", userId: "user-id", isIdentityVerified: false))
         #expect(sut.isLoggedIn == true)
 
         // When: The API layer reports the account is banned
-        NotificationCenter.default.post(name: .accountBanned, object: nil)
+        notificationCenter.post(name: .accountBanned, object: nil)
         try await Task.sleep(for: .seconds(TestConstants.shortTimeout))
 
         // Then: The session is dropped
