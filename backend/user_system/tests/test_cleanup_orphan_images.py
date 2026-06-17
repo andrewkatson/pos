@@ -4,6 +4,7 @@ from unittest.mock import MagicMock, patch
 
 from django.contrib.auth import get_user_model
 from django.core.management import call_command
+from django.core.management.base import CommandError
 from django.test import TestCase, override_settings
 from django.utils import timezone
 
@@ -125,3 +126,26 @@ class CleanupOrphanImagesTests(TestCase):
         with patch('user_system.s3._s3_client', return_value=None):
             call_command('cleanup_orphan_images', stderr=err)
         self.assertIn("No AWS credentials", err.getvalue())
+
+    def test_negative_grace_hours_rejected(self):
+        key = f"{self.user.id}/orphan.jpeg"
+        client = _make_client({SOURCE_BUCKET: [{'Key': key, 'LastModified': self.old}]})
+        with patch('user_system.s3._s3_client', return_value=client):
+            with self.assertRaises(CommandError):
+                call_command('cleanup_orphan_images', grace_hours=-1)
+        client.delete_object.assert_not_called()
+
+    def test_listing_error_aborts_without_deleting(self):
+        """A failed bucket listing (e.g. missing s3:ListBucket) must not delete
+        anything, since a partial listing could make live objects look orphaned."""
+        client = MagicMock()
+        paginator = MagicMock()
+        paginator.paginate.side_effect = Exception("AccessDenied")
+        client.get_paginator.return_value = paginator
+
+        err = StringIO()
+        with patch('user_system.s3._s3_client', return_value=client):
+            call_command('cleanup_orphan_images', stderr=err)
+
+        client.delete_object.assert_not_called()
+        self.assertIn("aborting without deleting", err.getvalue())

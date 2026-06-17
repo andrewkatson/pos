@@ -84,4 +84,5 @@ denied. Cleanup happens at two levels (see `backend/user_system/s3.py`):
   CI, because it needs both the database and AWS credentials.
 
 The backend's IAM credentials need `s3:DeleteObject` on both buckets for either
-path to take effect.
+path to take effect, plus `s3:ListBucket` on both buckets for the sweeper to
+enumerate them (without it `cleanup_orphan_images` fails with AccessDenied).

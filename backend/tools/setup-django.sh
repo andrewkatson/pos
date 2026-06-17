@@ -428,7 +428,8 @@ setup_cleanup_timer() {
     sudo tee /etc/systemd/system/cleanup-orphan-images.service > /dev/null << EOF
 [Unit]
 Description=Delete orphaned post images from S3 for $DOMAIN
-After=network.target
+Wants=network-online.target
+After=network-online.target
 
 [Service]
 Type=oneshot

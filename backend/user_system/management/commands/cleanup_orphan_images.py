@@ -2,7 +2,7 @@ import logging
 from datetime import timedelta
 
 from django.conf import settings
-from django.core.management.base import BaseCommand
+from django.core.management.base import BaseCommand, CommandError
 from django.utils import timezone
 
 from user_system import s3
@@ -38,6 +38,10 @@ class Command(BaseCommand):
             return
 
         grace_hours = options['grace_hours']
+        # A negative grace would push the cutoff into the future and delete very
+        # recent objects, so reject it rather than risk a mass deletion.
+        if grace_hours < 0:
+            raise CommandError("--grace-hours must be non-negative.")
         dry_run = options['dry_run']
         cutoff = timezone.now() - timedelta(hours=grace_hours)
 
@@ -56,11 +60,19 @@ class Command(BaseCommand):
         for bucket in (settings.AWS_STORAGE_BUCKET_NAME, settings.AWS_COMPRESSED_STORAGE_BUCKET_NAME):
             if not bucket:
                 continue
-            for obj in s3.iter_bucket_objects(bucket, client):
-                key = obj['Key']
-                last_modified = obj['LastModified']
-                if key not in candidates or last_modified > candidates[key]:
-                    candidates[key] = last_modified
+            # If listing fails (e.g. missing s3:ListBucket, or a transient S3
+            # error), abort before deleting anything. A partial listing would
+            # make live objects look orphaned and risk deleting them.
+            try:
+                for obj in s3.iter_bucket_objects(bucket, client):
+                    key = obj['Key']
+                    last_modified = obj['LastModified']
+                    if key not in candidates or last_modified > candidates[key]:
+                        candidates[key] = last_modified
+            except Exception:
+                logger.exception("Failed to list bucket %s; aborting without sweeping.", bucket)
+                self.stderr.write(f"Failed to list bucket {bucket}; aborting without deleting anything.")
+                return
 
         swept = skipped_live = skipped_recent = 0
         for key, last_modified in candidates.items():
