@@ -7,7 +7,6 @@ on:
       - 'website/**'
       - '.github/workflows/website-tests.yml'
   pull_request:
-    branches: [ "main" ]
     paths:
       - 'website/**'
       - '.github/workflows/website-tests.yml'
