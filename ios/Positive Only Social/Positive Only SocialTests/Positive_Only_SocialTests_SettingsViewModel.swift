@@ -146,7 +146,7 @@ struct Positive_Only_SocialTests_SettingsViewModel {
         let token = try await setupLoggedInUser(username: "verifyUser")
         let sut = SettingsViewModel(api: stubAPI, keychainHelper: keychainHelper, account: "verifyUser_account")
         let authenticationManager = makeAuthManager()
-        let dateOfBirth = Date() // Today
+        let dateOfBirth = Date.now
         
         // When: Verify Identity is called
         sut.verifyIdentity(authManager: authenticationManager, dateOfBirth: dateOfBirth)
