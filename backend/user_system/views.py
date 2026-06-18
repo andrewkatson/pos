@@ -4,7 +4,6 @@ import json
 import logging
 import secrets
 from datetime import datetime, date, timedelta
-from urllib.parse import urlparse
 
 from functools import wraps
 
@@ -33,6 +32,7 @@ from .models import LoginCookie, Session, Post, CommentThread, PositiveOnlySocia
     KnownDevice
 from .utils import convert_to_bool, generate_login_cookie_token, generate_management_token, generate_series_identifier, \
     get_batch, get_compressed_image_url
+from .s3 import delete_image, image_url_to_key
 from .visibility import can_view_post, searchable_users, visible_comment_threads, visible_comments, visible_posts
 
 image_classifier_class = image_classifier
@@ -763,15 +763,8 @@ def make_post(request):
     if not image_url or not is_valid_pattern(image_url, Patterns.image_url):
         invalid_fields.append(Params.image)
     else:
-        parsed = urlparse(image_url)
-        key = parsed.path.lstrip('/')
-        # For path-hosted URLs (s3[.-]region.amazonaws.com/bucket/key), strip the bucket segment.
-        # Match exactly "s3" or "s3-<region>" first labels (per the accepted image_url regex),
-        # but not bucket names that happen to start with "s3" (e.g. s3bucket.s3.amazonaws.com).
-        first_label = parsed.hostname.split('.')[0] if parsed.hostname else ''
-        if first_label == 's3' or first_label.startswith('s3-'):
-            _, _, key = key.partition('/')
-        if not key.startswith(f"{request.user.id}/"):
+        # The key must be scoped to this user (clients upload to `{user_id}/...`).
+        if not image_url_to_key(image_url).startswith(f"{request.user.id}/"):
             invalid_fields.append(Params.image)
     if not caption or not is_valid_pattern(caption, Patterns.alphanumeric_with_special_chars):
         invalid_fields.append(Params.caption)
@@ -791,11 +784,15 @@ def make_post(request):
     text_result = text_classifier_class.is_text_positive(caption)
     if not text_result and not text_result.appealable:
         logger.warning(f"Make post failed: Caption not positive (final) for user_id: {request.user.id}")
+        # The post is never created, so clean up the image the client already
+        # uploaded rather than orphaning it in S3.
+        delete_image(image_url)
         return log_and_return_json("make_post", {'error': "Text is not positive"}, status=400)
 
     image_result = image_classifier_class.is_image_positive(image_url)
     if not image_result and not image_result.appealable:
         logger.warning(f"Make post failed: Image not positive (final) for user_id: {request.user.id}")
+        delete_image(image_url)
         return log_and_return_json("make_post", {'error': "Image is not positive"}, status=400)
 
     # Any remaining rejection is appealable, so post it but hide it pending
@@ -831,7 +828,11 @@ def delete_post(request, post_identifier):
 
     try:
         post = request.user.post_set.get(post_identifier=post_identifier)
+        image_url = post.image_url
         post.delete()
+        # Remove the backing image from both buckets so deleting a post does not
+        # orphan its S3 objects.
+        delete_image(image_url)
         logger.info(f"Post deleted successfully: post_id: {post_identifier} by user_id: {request.user.id}")
         return log_and_return_json("delete_post", {'message': 'Post deleted'})
     except Post.DoesNotExist:
