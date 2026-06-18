@@ -43,7 +43,8 @@ class Command(BaseCommand):
         if grace_hours < 0:
             raise CommandError("--grace-hours must be non-negative.")
         dry_run = options['dry_run']
-        cutoff = timezone.now() - timedelta(hours=grace_hours)
+        grace_period = timedelta(hours=grace_hours)
+        cutoff = timezone.now() - grace_period
 
         # Keys that a live Post still points at must never be deleted.
         live_keys = {
