@@ -368,6 +368,17 @@ class Appeal(models.Model):
                     | (Q(comment__isnull=False) & Q(ban__isnull=False))
                 ),
             ),
+            # One appeal per post/comment, enforced at the DB level so two
+            # concurrent submissions cannot both pass the application-side
+            # exists() check and create duplicates.
+            models.UniqueConstraint(
+                fields=['post'], condition=Q(post__isnull=False),
+                name='unique_appeal_per_post',
+            ),
+            models.UniqueConstraint(
+                fields=['comment'], condition=Q(comment__isnull=False),
+                name='unique_appeal_per_comment',
+            ),
         ]
 
     @property

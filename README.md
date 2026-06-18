@@ -103,4 +103,5 @@ resolution trail.
   and cannot log in, so they cannot reach an authenticated endpoint. Admins can
   record such an appeal against the ban for the audit trail.
 
-Admin review of appeals (approve to un-hide / deny) is handled in Django admin.
+Admins review appeals and either approve them — reversing the moderation action
+(un-hiding the content) — or deny them.
