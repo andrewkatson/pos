@@ -66,24 +66,23 @@ def _s3_client():
     )
 
 
-def delete_image(image_url):
-    """Best-effort delete of an uploaded image from both buckets.
+def delete_key(key, client=None):
+    """Best-effort delete of an object key from both buckets.
 
     A post's image is uploaded to the source bucket and a Lambda mirrors a
     compressed copy to the compressed bucket under the same key, so cleanup must
     remove both. S3 DeleteObject is idempotent (deleting a missing key is not an
     error), so this needs no special 404 handling. Never raises: failures are
-    logged and swallowed so cleanup cannot break the request that triggered it.
+    logged and swallowed so cleanup cannot break its caller. Callers deleting
+    many keys (the sweeper) should pass a shared client.
 
     Note: the backend's IAM credentials need s3:DeleteObject on both
     AWS_STORAGE_BUCKET_NAME and AWS_COMPRESSED_STORAGE_BUCKET_NAME.
     """
-    key = image_url_to_key(image_url)
     if not key:
-        logger.warning("Could not derive an S3 key from image_url=%r; skipping delete.", _redact(image_url))
         return
-
-    client = _s3_client()
+    if client is None:
+        client = _s3_client()
     if client is None:
         return
 
@@ -95,3 +94,21 @@ def delete_image(image_url):
             logger.info("Deleted s3://%s/%s", bucket, key)
         except Exception:
             logger.exception("Failed to delete s3://%s/%s", bucket, key)
+
+
+def delete_image(image_url):
+    """Best-effort delete of an uploaded image (by its URL) from both buckets."""
+    key = image_url_to_key(image_url)
+    if not key:
+        logger.warning("Could not derive an S3 key from image_url=%r; skipping delete.", _redact(image_url))
+        return
+    delete_key(key)
+
+
+def iter_bucket_objects(bucket, client):
+    """Yield each object summary ({'Key', 'LastModified', ...}) in a bucket,
+    transparently paging through large listings."""
+    paginator = client.get_paginator('list_objects_v2')
+    for page in paginator.paginate(Bucket=bucket):
+        for obj in page.get('Contents', []):
+            yield obj
