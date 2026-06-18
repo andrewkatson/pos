@@ -162,3 +162,31 @@ class AppealAdminActionTests(TestCase):
         self.assertEqual(appeal.status, APPEAL_STATUS_PENDING)
         post.refresh_from_db()
         self.assertTrue(post.hidden)
+
+    def test_approve_is_noop_on_resolved_appeal(self):
+        """Re-resolving must not overwrite the audit trail or re-send email."""
+        comment = self._hidden_comment()
+        appeal = Appeal.objects.create(appellant=self.author, comment=comment, reason='r')
+        appeal.deny(resolved_by=self.admin_user)
+        original_time = Appeal.objects.get(pk=appeal.pk).resolved_time
+
+        mail.outbox.clear()
+        appeal.approve(resolved_by=self.admin_user)  # should be a no-op
+
+        appeal.refresh_from_db()
+        self.assertEqual(appeal.status, APPEAL_STATUS_DENIED)
+        self.assertEqual(appeal.resolved_time, original_time)
+        self.assertEqual(len(mail.outbox), 0)
+
+    def test_deny_is_noop_on_resolved_appeal(self):
+        post = self._hidden_post()
+        appeal = Appeal.objects.create(appellant=self.author, post=post, reason='r')
+        appeal.approve(resolved_by=self.admin_user)  # un-hides, marks approved
+
+        with patch('user_system.s3.delete_image') as mock_delete:
+            appeal.deny(resolved_by=self.admin_user)  # should be a no-op
+
+        appeal.refresh_from_db()
+        self.assertEqual(appeal.status, APPEAL_STATUS_APPROVED)
+        mock_delete.assert_not_called()
+        self.assertTrue(Post.objects.filter(pk=post.pk).exists())

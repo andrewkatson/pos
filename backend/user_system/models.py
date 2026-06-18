@@ -425,6 +425,10 @@ class Appeal(models.Model):
         """Reverse the moderation action and mark the appeal approved: un-hide
         the post/comment, or lift the ban. Idempotent on already-reversed
         targets."""
+        # Resolution is irreversible — never re-resolve an already-decided
+        # appeal (which would overwrite the audit fields and re-send the email).
+        if self.status != APPEAL_STATUS_PENDING:
+            return
         if self.post is not None and self.post.hidden:
             self.post.hidden = False
             self.post.hidden_reason = HIDDEN_REASON_NONE
@@ -445,6 +449,10 @@ class Appeal(models.Model):
         up from S3) since it stays hidden forever; the appeal keeps
         content_snapshot for the audit trail. Denied comments stay hidden and
         denied bans stay in effect, so they need no further action."""
+        # Resolution is irreversible — never re-resolve an already-decided
+        # appeal (which would re-send the email and re-delete a post).
+        if self.status != APPEAL_STATUS_PENDING:
+            return
         self._mark_resolved(APPEAL_STATUS_DENIED, resolved_by, note)
         notify_user_of_appeal_resolution(self, "denied")
         if self.post is not None:
