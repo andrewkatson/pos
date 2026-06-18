@@ -11,7 +11,7 @@ from django.conf import settings
 from django.contrib.auth import login, logout, get_user_model
 from django.contrib.auth.hashers import check_password
 from django.core.mail import send_mail
-from django.db import transaction
+from django.db import transaction, IntegrityError
 from django.http import JsonResponse
 from django.utils import timezone
 from django.views.decorators.csrf import csrf_exempt
@@ -33,7 +33,7 @@ from .input_validator import is_valid_pattern
 from .models import LoginCookie, Session, Post, CommentThread, PositiveOnlySocialUser, Comment, UserBlock, UserBan, \
     KnownDevice, Appeal
 from .utils import convert_to_bool, generate_login_cookie_token, generate_management_token, generate_series_identifier, \
-    get_batch, get_compressed_image_url
+    get_batch, get_queryset_batch, get_compressed_image_url
 from .s3 import delete_image, image_url_to_key
 from .visibility import can_view_post, searchable_users, visible_comment_threads, visible_comments, visible_posts
 
@@ -1679,7 +1679,7 @@ def get_hidden_posts(request, batch):
         return log_and_return_json("get_hidden_posts", {'error': "Invalid batch parameter"}, status=400)
 
     hidden = request.user.post_set.filter(hidden=True).order_by('-creation_time')
-    batched = get_batch(batch, POST_BATCH_SIZE, hidden)
+    batched = get_queryset_batch(hidden, batch, POST_BATCH_SIZE)
     appealed_ids = set(
         Appeal.objects.filter(post__in=batched).values_list('post_id', flat=True)
     )
@@ -1707,7 +1707,7 @@ def get_hidden_comments(request, batch):
         return log_and_return_json("get_hidden_comments", {'error': "Invalid batch parameter"}, status=400)
 
     hidden = Comment.objects.filter(author=request.user, hidden=True).order_by('-creation_time')
-    batched = get_batch(batch, COMMENT_BATCH_SIZE, hidden)
+    batched = get_queryset_batch(hidden, batch, COMMENT_BATCH_SIZE)
     appealed_ids = set(
         Appeal.objects.filter(comment__in=batched).values_list('comment_id', flat=True)
     )
@@ -1734,7 +1734,7 @@ def get_my_appeals(request, batch):
         return log_and_return_json("get_my_appeals", {'error': "Invalid batch parameter"}, status=400)
 
     appeals = request.user.appeals.order_by('-created')
-    batched = get_batch(batch, POST_BATCH_SIZE, appeals)
+    batched = get_queryset_batch(appeals, batch, POST_BATCH_SIZE)
     data = [
         {
             Fields.appeal_identifier: appeal.appeal_identifier,
@@ -1817,16 +1817,24 @@ def submit_appeal(request):
     target_field, target_object, content_snapshot = resolved
 
     # One appeal per item, regardless of status: an approval un-hides or a denial
-    # removes the item, so a second appeal should never be needed.
+    # removes the item, so a second appeal should never be needed. The exists()
+    # check gives a friendly error in the common case; the unique constraint on
+    # Appeal.post/comment is the real guard against two concurrent submissions
+    # both passing this check.
     if Appeal.objects.filter(**{target_field: target_object}).exists():
         logger.warning(f"Submit appeal failed: item already appealed for user_id: {request.user.id}")
         return log_and_return_json("submit_appeal", {'error': "This item has already been appealed"}, status=400)
 
-    appeal = Appeal.objects.create(
-        appellant=request.user,
-        reason=reason,
-        content_snapshot=content_snapshot,
-        **{target_field: target_object},
-    )
+    try:
+        appeal = Appeal.objects.create(
+            appellant=request.user,
+            reason=reason,
+            content_snapshot=content_snapshot,
+            **{target_field: target_object},
+        )
+    except IntegrityError:
+        logger.warning(f"Submit appeal race: item already appealed for user_id: {request.user.id}")
+        return log_and_return_json("submit_appeal", {'error': "This item has already been appealed"}, status=400)
+
     logger.info(f"Appeal submitted: appeal_id: {appeal.appeal_identifier} ({target_type}) for user_id: {request.user.id}")
     return log_and_return_json("submit_appeal", {Fields.appeal_identifier: appeal.appeal_identifier}, status=201)

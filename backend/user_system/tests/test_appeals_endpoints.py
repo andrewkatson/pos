@@ -1,3 +1,4 @@
+from django.db import IntegrityError, transaction
 from django.urls import reverse
 
 from .test_parent_case import PositiveOnlySocialTestCase
@@ -167,3 +168,11 @@ class SubmitAppealTests(AppealsEndpointsTestCase):
                               status=APPEAL_STATUS_DENIED)
         response = self._submit('comment', comment.comment_identifier)
         self.assertEqual(response.status_code, 400)
+
+    def test_duplicate_appeal_blocked_at_db_level(self):
+        """The unique constraint guards against the exists()-then-create race."""
+        post = self._hidden_post()
+        Appeal.objects.create(appellant=self.user, post=post, reason='r')
+        with self.assertRaises(IntegrityError):
+            with transaction.atomic():
+                Appeal.objects.create(appellant=self.user, post=post, reason='r2')

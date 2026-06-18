@@ -81,3 +81,14 @@ def get_batch(batch_num, batch_size, lst):
     starting_index = batch_num * batch_size
     ending_index = min((batch_num + 1) * batch_size, len(lst))
     return lst[starting_index:ending_index]
+
+
+def get_queryset_batch(queryset, batch_num, batch_size):
+    """One batch of a QuerySet via DB-level LIMIT/OFFSET, materialized as a list.
+
+    Unlike get_batch (which calls len() and so evaluates the whole sequence),
+    this slices the QuerySet directly so the database only returns up to
+    batch_size rows.
+    """
+    starting_index = batch_num * batch_size
+    return list(queryset[starting_index:starting_index + batch_size])
