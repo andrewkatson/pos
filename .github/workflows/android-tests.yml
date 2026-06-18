@@ -7,7 +7,6 @@ on:
       - 'android/**'
       - '.github/workflows/android-tests.yml'
   pull_request:
-    branches: [ "main" ]
     paths:
       - 'android/**'
       - '.github/workflows/android-tests.yml'
