@@ -86,3 +86,21 @@ denied. Cleanup happens at two levels (see `backend/user_system/s3.py`):
 The backend's IAM credentials need `s3:DeleteObject` on both buckets for either
 path to take effect, plus `s3:ListBucket` on both buckets for the sweeper to
 enumerate them (without it `cleanup_orphan_images` fails with AccessDenied).
+
+## Appeals
+
+A user can appeal moderation actions. Each appeal is an `Appeal` record (see
+`backend/user_system/models.py`) that targets exactly one of a hidden post, a
+hidden comment, or a ban, and carries the user's reason plus an admin
+resolution trail.
+
+- **Content appeals** (hidden posts and comments) are filed in-app. A signed-in
+  user can list their own hidden posts/comments and their existing appeals, and
+  submit an appeal, via the `appeals/...` endpoints. Both classifier-hidden and
+  report-hidden content is appealable. An item can be appealed only once.
+- **Ban appeals** go through the email-reply flow described in the suspension
+  email, not an in-app endpoint: an outright-banned user has no active session
+  and cannot log in, so they cannot reach an authenticated endpoint. Admins can
+  record such an appeal against the ban for the audit trail.
+
+Admin review of appeals (approve to un-hide / deny) is handled in Django admin.

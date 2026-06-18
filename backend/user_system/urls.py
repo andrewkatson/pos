@@ -129,4 +129,19 @@ urlpatterns = [
 
     # GET /users/<str:username>/profile/ (Token in header)
     path('users/<str:username>/profile/', views.get_profile_details, name='get_profile_details'),
+
+    # =========================================================================
+    # APPEALS
+    # =========================================================================
+    # GET /appeals/hidden/posts/<int:batch>/ (Token in header)
+    path('appeals/hidden/posts/<int:batch>/', views.get_hidden_posts, name='get_hidden_posts'),
+
+    # GET /appeals/hidden/comments/<int:batch>/ (Token in header)
+    path('appeals/hidden/comments/<int:batch>/', views.get_hidden_comments, name='get_hidden_comments'),
+
+    # GET /appeals/mine/<int:batch>/ (Token in header)
+    path('appeals/mine/<int:batch>/', views.get_my_appeals, name='get_my_appeals'),
+
+    # POST /appeals/submit/ (Token in header)
+    path('appeals/submit/', views.submit_appeal, name='submit_appeal'),
 ]
