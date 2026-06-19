@@ -126,6 +126,18 @@ class AppealAdminActionTests(TestCase):
         appeal.refresh_from_db()
         self.assertEqual(appeal.status, APPEAL_STATUS_DENIED)
 
+    @patch('user_system.s3.delete_image')
+    def test_str_after_denied_post_deleted(self, _mock_delete):
+        post = self._hidden_post()
+        appeal = Appeal.objects.create(appellant=self.author, post=post, reason='r',
+                                       content_snapshot=post.caption)
+        appeal.deny(resolved_by=self.admin_user)
+
+        appeal.refresh_from_db()
+        rendered = str(appeal)
+        self.assertIn('removed target', rendered)
+        self.assertIn(str(appeal.appeal_identifier), rendered)
+
     def test_deny_emails_appellant(self):
         comment = self._hidden_comment()
         appeal = Appeal.objects.create(appellant=self.author, comment=comment, reason='r')

@@ -4,7 +4,7 @@ from django.conf import settings
 from django.contrib.auth.models import AbstractUser
 from django.core.exceptions import ValidationError
 from django.core.mail import send_mail
-from django.db import models
+from django.db import models, transaction
 from django.db.models import Q
 from django.utils import timezone
 from .constants import (
@@ -421,46 +421,61 @@ class Appeal(models.Model):
             self.resolution_note = note
         self.save(update_fields=['status', 'resolved_time', 'resolved_by', 'resolution_note'])
 
+    def _claim_pending(self):
+        """Lock this appeal's row and confirm it is still pending, so two admins
+        resolving the same appeal concurrently cannot both apply side effects.
+        Must be called inside transaction.atomic(); returns True if this caller
+        won the claim (the loser blocks on the lock, then sees it resolved)."""
+        return type(self).objects.select_for_update().filter(
+            pk=self.pk, status=APPEAL_STATUS_PENDING).exists()
+
     def approve(self, resolved_by=None, note=''):
         """Reverse the moderation action and mark the appeal approved: un-hide
-        the post/comment, or lift the ban. Idempotent on already-reversed
-        targets."""
-        # Resolution is irreversible — never re-resolve an already-decided
-        # appeal (which would overwrite the audit fields and re-send the email).
-        if self.status != APPEAL_STATUS_PENDING:
-            return
-        if self.post is not None and self.post.hidden:
-            self.post.hidden = False
-            self.post.hidden_reason = HIDDEN_REASON_NONE
-            self.post.save(update_fields=['hidden', 'hidden_reason'])
-        if self.comment is not None and self.comment.hidden:
-            self.comment.hidden = False
-            self.comment.hidden_reason = HIDDEN_REASON_NONE
-            self.comment.save(update_fields=['hidden', 'hidden_reason'])
-        if self.ban is not None and self.ban.is_in_effect():
-            # Expire rather than delete so the ban audit trail is kept.
-            self.ban.expires = timezone.now()
-            self.ban.save(update_fields=['expires'])
-        self._mark_resolved(APPEAL_STATUS_APPROVED, resolved_by, note)
+        the post/comment, or lift the ban. A no-op if the appeal is no longer
+        pending (resolution is irreversible)."""
+        with transaction.atomic():
+            if not self._claim_pending():
+                return
+            if self.post is not None and self.post.hidden:
+                self.post.hidden = False
+                self.post.hidden_reason = HIDDEN_REASON_NONE
+                self.post.save(update_fields=['hidden', 'hidden_reason'])
+            if self.comment is not None and self.comment.hidden:
+                self.comment.hidden = False
+                self.comment.hidden_reason = HIDDEN_REASON_NONE
+                self.comment.save(update_fields=['hidden', 'hidden_reason'])
+            if self.ban is not None and self.ban.is_in_effect():
+                # Expire rather than delete so the ban audit trail is kept.
+                self.ban.expires = timezone.now()
+                self.ban.save(update_fields=['expires'])
+            self._mark_resolved(APPEAL_STATUS_APPROVED, resolved_by, note)
+        # Outside the transaction: never hold the row lock during SMTP, and do
+        # not email if the transaction rolled back.
         notify_user_of_appeal_resolution(self, "approved")
 
     def deny(self, resolved_by=None, note=''):
         """Mark the appeal denied. A denied post is removed (its image cleaned
         up from S3) since it stays hidden forever; the appeal keeps
         content_snapshot for the audit trail. Denied comments stay hidden and
-        denied bans stay in effect, so they need no further action."""
-        # Resolution is irreversible — never re-resolve an already-decided
-        # appeal (which would re-send the email and re-delete a post).
-        if self.status != APPEAL_STATUS_PENDING:
-            return
-        self._mark_resolved(APPEAL_STATUS_DENIED, resolved_by, note)
+        denied bans stay in effect. A no-op if the appeal is no longer pending."""
+        image_url = None
+        with transaction.atomic():
+            if not self._claim_pending():
+                return
+            self._mark_resolved(APPEAL_STATUS_DENIED, resolved_by, note)
+            if self.post is not None:
+                image_url = self.post.image_url
+                self.post.delete()  # SET_NULL clears self.post; content_snapshot remains
+        # Outside the transaction: email and the S3 cleanup (network I/O) run
+        # only after the denial has committed.
         notify_user_of_appeal_resolution(self, "denied")
-        if self.post is not None:
+        if image_url is not None:
             # Local import avoids importing the S3/boto3 module at model load.
             from .s3 import delete_image
-            image_url = self.post.image_url
-            self.post.delete()  # SET_NULL clears self.post; content_snapshot remains
             delete_image(image_url)
 
     def __str__(self):
-        return f"{self.status} appeal by {self.appellant} on {self.target}"
+        # target is None once a resolved target has been deleted (e.g. a denied
+        # post), so fall back to a clear placeholder and always show the id.
+        target = self.target if self.target is not None else "removed target"
+        return f"{self.status} appeal {self.appeal_identifier} by {self.appellant} on {target}"
