@@ -1,3 +1,5 @@
+from unittest.mock import patch
+
 from django.urls import reverse
 from .test_parent_case import PositiveOnlySocialTestCase
 from ..constants import Fields
@@ -82,3 +84,25 @@ class DeletePostTests(PositiveOnlySocialTestCase):
         # 2. Verify the post is gone from the database
         self.user.refresh_from_db()
         self.assertEqual(self.user.post_set.count(), 0)
+
+    def test_delete_post_cleans_up_s3_image(self):
+        """Deleting a post removes its backing image from S3 rather than
+        orphaning it."""
+        image_url = self.post.image_url
+
+        with patch('user_system.views.delete_image') as mock_delete:
+            response = self.client.post(self.url, **self.valid_header)
+
+        self.assertEqual(response.status_code, 200)
+        mock_delete.assert_called_once_with(image_url)
+
+    def test_failed_delete_does_not_clean_up_s3(self):
+        """If no post is deleted (wrong owner), no S3 cleanup happens."""
+        other_user_data = self.make_user_with_prefix()
+        other_header = {'HTTP_AUTHORIZATION': f'Bearer {other_user_data[Fields.session_management_token]}'}
+
+        with patch('user_system.views.delete_image') as mock_delete:
+            response = self.client.post(self.url, **other_header)
+
+        self.assertEqual(response.status_code, 400)
+        mock_delete.assert_not_called()
