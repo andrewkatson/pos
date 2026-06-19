@@ -13,12 +13,15 @@ _AWS_CREDS = {
 SOURCE_BUCKET = "src-bucket"
 COMPRESSED_BUCKET = "compressed-bucket"
 
+# A virtual-hosted-style URL and the object key it maps to, reused across tests.
+VIRTUAL_HOSTED_URL = "https://my-bucket.s3.us-east-2.amazonaws.com/123/abc.jpeg"
+EXPECTED_KEY = "123/abc.jpeg"
+
 
 class ImageUrlToKeyTests(SimpleTestCase):
 
     def test_virtual_hosted_style(self):
-        url = "https://my-bucket.s3.us-east-2.amazonaws.com/123/abc.jpeg"
-        self.assertEqual(image_url_to_key(url), "123/abc.jpeg")
+        self.assertEqual(image_url_to_key(VIRTUAL_HOSTED_URL), EXPECTED_KEY)
 
     def test_path_style_strips_bucket_segment(self):
         url = "https://s3.amazonaws.com/my-bucket/123/abc.jpeg"
@@ -71,10 +74,10 @@ class DeleteImageTests(SimpleTestCase):
         client = MagicMock()
         mock_boto3.client.return_value = client
 
-        delete_image("https://my-bucket.s3.us-east-2.amazonaws.com/123/abc.jpeg")
+        delete_image(VIRTUAL_HOSTED_URL)
 
-        client.delete_object.assert_any_call(Bucket=SOURCE_BUCKET, Key="123/abc.jpeg")
-        client.delete_object.assert_any_call(Bucket=COMPRESSED_BUCKET, Key="123/abc.jpeg")
+        client.delete_object.assert_any_call(Bucket=SOURCE_BUCKET, Key=EXPECTED_KEY)
+        client.delete_object.assert_any_call(Bucket=COMPRESSED_BUCKET, Key=EXPECTED_KEY)
         self.assertEqual(client.delete_object.call_count, 2)
 
     @patch.dict(os.environ, _AWS_CREDS, clear=True)
@@ -85,13 +88,13 @@ class DeleteImageTests(SimpleTestCase):
         mock_boto3.client.return_value = client
 
         # Must not raise even though every delete fails.
-        delete_image("https://my-bucket.s3.us-east-2.amazonaws.com/123/abc.jpeg")
+        delete_image(VIRTUAL_HOSTED_URL)
         self.assertEqual(client.delete_object.call_count, 2)
 
     @patch.dict(os.environ, {}, clear=True)
     @patch("user_system.s3.boto3")
     def test_no_op_without_credentials(self, mock_boto3):
-        delete_image("https://my-bucket.s3.us-east-2.amazonaws.com/123/abc.jpeg")
+        delete_image(VIRTUAL_HOSTED_URL)
         mock_boto3.client.assert_not_called()
 
     @patch.dict(os.environ, _AWS_CREDS, clear=True)
