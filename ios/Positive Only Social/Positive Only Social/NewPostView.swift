@@ -64,6 +64,7 @@ struct NewPostView: View {
                     }
                     
                     TextEditor(text: $caption).frame(height: 100).accessibilityIdentifier("CaptionTextEditor")
+                    CharacterCounter(text: caption, max: GVOAppConstants.maxCaptionLength)
                 }
                 
                 if isLoading {
@@ -74,11 +75,12 @@ struct NewPostView: View {
                     }
                 } else {
                     Button(action: makePost) { Text("Share Post") }
-                        .disabled(selectedImageData == nil || caption.isEmpty)
+                        .disabled(selectedImageData == nil || caption.isEmpty || !isWithinLength(caption, max: GVOAppConstants.maxCaptionLength))
                         .accessibilityIdentifier("SharePostButton")
                 }
             }
             .navigationTitle("Create Post")
+            .scrollDismissesKeyboard(.immediately)
             // Alert for SUCCESS
             .alert("Success!", isPresented: $showSuccessAlert) {
                 Button("OK") {
@@ -119,9 +121,9 @@ struct NewPostView: View {
                 // 1. LOAD SESSION (needed for the scoped S3 key)
                 let userSession: UserSession
                 if isTesting() {
-                    userSession = try keychainHelper.load(UserSession.self, from: AppConstants.keychainService, account: "userSessionToken") ?? UserSession(sessionToken: "123", username: "test", userId: "", isIdentityVerified: false)
+                    userSession = try keychainHelper.load(UserSession.self, from: GVOAppConstants.keychainService, account: "userSessionToken") ?? UserSession(sessionToken: "123", username: "test", userId: "", isIdentityVerified: false)
                 } else {
-                    guard let loaded = try keychainHelper.load(UserSession.self, from: AppConstants.keychainService, account: "userSessionToken") else {
+                    guard let loaded = try keychainHelper.load(UserSession.self, from: GVOAppConstants.keychainService, account: "userSessionToken") else {
                         failureAlertMessage = "You must be logged in to post."
                         isLoading = false
                         showFailureAlert = true

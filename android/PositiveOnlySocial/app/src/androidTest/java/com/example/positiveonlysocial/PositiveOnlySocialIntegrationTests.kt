@@ -178,6 +178,13 @@ class PositiveOnlySocialIntegrationTests {
             com.example.positiveonlysocial.di.DependencyProvider.api.makePost(token, request)
         }
 
+    private fun makeCommentViaApi(username: String, password: String, postId: String, body: String) =
+        kotlinx.coroutines.runBlocking {
+            val token = loginUserViaApi(username, password)
+            val request = com.example.positiveonlysocial.data.model.CommentRequest(body)
+            com.example.positiveonlysocial.di.DependencyProvider.api.commentOnPost(token, postId, request)
+        }
+
     // MARK: Tests
 
     @Test
@@ -492,44 +499,93 @@ class PositiveOnlySocialIntegrationTests {
         composeTestRule.onNodeWithText("Feed").performClick()
         composeTestRule.onAllNodesWithContentDescription("Post Image").onFirst().performClick()
         
-        // Long press to report
+        // Long press opens the action menu; this is another user's post, so it
+        // offers Report (not Delete).
         composeTestRule.onNodeWithContentDescription("Post Image").performTouchInput { longClick() }
-        
+        composeTestRule.onNodeWithText("Report Post").performClick()
+
         // Report Dialog
-        composeTestRule.onNodeWithText("Report").assertExists()
         composeTestRule.onNodeWithText("Reason for reporting...").performTextInput("Report post")
         composeTestRule.onNodeWithText("Submit").performClick()
-        
+
         // Verify reported icon
         composeTestRule.onNodeWithContentDescription("Reported").assertExists()
     }
 
     @Test
     fun testReportComment() {
-        // Setup
+        // Setup: testUser owns both the post and the comment, so otherTestUser
+        // (the viewer) can report the comment — you can't report your own.
         registerUserViaApi(testUsername, strongPassword)
         val postResponse = makePostViaApi(testUsername, strongPassword, "Some Post Caption")
         val postId = postResponse.body()?.postIdentifier ?: throw IllegalStateException("Failed to create post")
-        
+        makeCommentViaApi(testUsername, strongPassword, postId, "Comment to Report")
+
         loginUser(otherTestUsername, strongPassword, rememberMe = false, registerToo = true)
-        
+
         composeTestRule.onNodeWithText("Feed").performClick()
         composeTestRule.onAllNodesWithContentDescription("Post Image").onFirst().performClick()
-        
-        // Make comment
-        composeTestRule.onNodeWithText("Add a comment...").performTextInput("Comment to Report")
-        composeTestRule.onNodeWithText("Post").performClick()
-        
-        // Long press comment
+
+        // Long press the other user's comment; the menu offers Report.
         composeTestRule.onNodeWithText("Comment to Report").performTouchInput { longClick() }
-        
+        composeTestRule.onNodeWithText("Report Comment").performClick()
+
         // Report Dialog
-        composeTestRule.onNodeWithText("Report").assertExists()
         composeTestRule.onNodeWithText("Reason for reporting...").performTextInput("Report comment")
         composeTestRule.onNodeWithText("Submit").performClick()
 
         // Verify reported icon
         composeTestRule.onNodeWithContentDescription("Reported").assertExists()
+    }
+
+    @Test
+    fun testDeleteOwnPost() {
+        // The viewer owns the post, so long-press offers Delete (not Report).
+        registerUserViaApi(testUsername, strongPassword)
+        makePostViaApi(testUsername, strongPassword, "Post to Delete")
+
+        loginUser(testUsername, strongPassword, rememberMe = false)
+
+        composeTestRule.onNodeWithText("Feed").performClick()
+        composeTestRule.onAllNodesWithContentDescription("Post Image").onFirst().performClick()
+
+        composeTestRule.onNodeWithContentDescription("Post Image").performTouchInput { longClick() }
+
+        // It's the user's own post: Delete is offered, Report is not.
+        composeTestRule.onNodeWithText("Report Post").assertDoesNotExist()
+        composeTestRule.onNodeWithText("Delete Post").performClick()
+
+        // Deleting pops the Post Detail screen back to the feed.
+        composeTestRule.waitUntil(timeoutMillis = 5_000) {
+            composeTestRule.onAllNodesWithText("Add a comment...").fetchSemanticsNodes().isEmpty()
+        }
+        assertOnFeedView()
+    }
+
+    @Test
+    fun testDeleteOwnComment() {
+        // The viewer owns the comment, so long-press offers Delete (not Report).
+        registerUserViaApi(testUsername, strongPassword)
+        val postResponse = makePostViaApi(testUsername, strongPassword, "Some Post Caption")
+        val postId = postResponse.body()?.postIdentifier ?: throw IllegalStateException("Failed to create post")
+        makeCommentViaApi(testUsername, strongPassword, postId, "Comment to Delete")
+
+        loginUser(testUsername, strongPassword, rememberMe = false)
+
+        composeTestRule.onNodeWithText("Feed").performClick()
+        composeTestRule.onAllNodesWithContentDescription("Post Image").onFirst().performClick()
+
+        composeTestRule.onNodeWithText("Comment to Delete").performTouchInput { longClick() }
+
+        // It's the user's own comment: Delete is offered, Report is not.
+        composeTestRule.onNodeWithText("Report Comment").assertDoesNotExist()
+        composeTestRule.onNodeWithText("Delete Comment").performClick()
+
+        // The comment is removed from the thread.
+        composeTestRule.waitUntil(timeoutMillis = 5_000) {
+            composeTestRule.onAllNodesWithText("Comment to Delete").fetchSemanticsNodes().isEmpty()
+        }
+        composeTestRule.onNodeWithText("Comment to Delete").assertDoesNotExist()
     }
     @Test
     fun testVerifyIdentity() {

@@ -6,6 +6,7 @@
 //
 
 import SwiftUI
+import Kingfisher
 
 // An enum to define our top tabs
 enum FeedType: String, CaseIterable {
@@ -107,14 +108,18 @@ struct ForYouFeedView: View {
                             Color(.systemGray5)
                                 .aspectRatio(1, contentMode: .fit)
                                 .overlay {
-                                    AsyncImage(url: URL(string: post.imageUrl)) { image in
-                                        image.resizable().scaledToFill()
-                                    } placeholder: {
-                                        Color(.systemGray5)
-                                    }
+                                    // Correct Kingfisher implementation
+                                    KFImage(URL(string: post.imageUrl))
+                                        .placeholder {
+                                            Color(.systemGray5) // Shows while loading
+                                        }
+                                        .resizable()
+                                        .scaledToFill()
                                 }
                                 .clipped()
-                                .border(Color.black, width: 1)
+                                .border(Color.gray, width: 0.5)
+                                .cornerRadius(15)
+                                .shadow(color: Color.black.opacity(0.4), radius: 10, x: 0, y: 0)
                         }
                         .onAppear {
                             // Trigger for infinite scrolling
@@ -134,7 +139,9 @@ struct ForYouFeedView: View {
         }
         .refreshable {
             // Pull-to-refresh: reload the newest posts from the backend.
-            await viewModel.refreshFeed()
+            // Run the reload in an unstructured Task so SwiftUI cancelling
+            // the refreshable task on a re-render can't cancel the request.
+            await Task { await viewModel.refreshFeed() }.value
         }
         .onAppear {
             if viewModel.feedPosts.isEmpty {
@@ -200,7 +207,9 @@ struct FollowingFeedView: View {
         }
         .refreshable {
             // Pull-to-refresh: reload the newest posts from the backend.
-            await viewModel.refreshFeed()
+            // Run the reload in an unstructured Task so SwiftUI cancelling
+            // the refreshable task on a re-render can't cancel the request.
+            await Task { await viewModel.refreshFeed() }.value
         }
         // Add .onAppear to trigger the *initial* fetch
         .onAppear {

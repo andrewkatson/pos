@@ -3,6 +3,7 @@ import { createRoot } from 'react-dom/client'
 import { BrowserRouter } from 'react-router-dom'
 import App from './App'
 import { apiClient } from './api/client'
+import { clearSession } from './api/session'
 import './index.css'
 
 // Restore the session token persisted at login so a page reload keeps the user
@@ -11,6 +12,13 @@ const storedToken = localStorage.getItem('session_token')
 if (storedToken) {
   apiClient.setToken(storedToken)
 }
+
+// A banned account has its sessions revoked server-side; drop the local
+// session and land on the login page, which explains the suspension.
+apiClient.setOnAccountBanned(() => {
+  clearSession()
+  window.location.assign('/login?suspended=1')
+})
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>

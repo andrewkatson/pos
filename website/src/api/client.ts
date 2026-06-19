@@ -34,6 +34,13 @@ import type {
 
 const DEFAULT_BASE_URL = 'https://api.smiling.social/user_index'
 
+/** Error code the backend returns when the account has an active outright ban. */
+export const ACCOUNT_BANNED = 'account_banned'
+
+/** User-facing message shown wherever the account_banned error surfaces. */
+export const ACCOUNT_SUSPENDED_MESSAGE =
+  'Your account has been suspended for violating our community guidelines.'
+
 /** Error thrown for any non-2xx response, carrying the backend's error message. */
 export class ApiError extends Error {
   readonly status: number
@@ -58,6 +65,7 @@ export class ApiClient implements PositiveOnlySocialAPI {
   private readonly baseUrl: string
   private readonly fetchFn: typeof fetch
   private token: string | null
+  private onAccountBanned: (() => void) | null = null
 
   constructor(options: ApiClientOptions = {}) {
     const envBaseUrl =
@@ -80,6 +88,15 @@ export class ApiClient implements PositiveOnlySocialAPI {
 
   isAuthenticated(): boolean {
     return this.token !== null
+  }
+
+  /**
+   * Handler invoked when an authenticated request is rejected because the
+   * account is banned (the backend kills the session server-side, so the
+   * app must drop its local session too).
+   */
+  setOnAccountBanned(handler: (() => void) | null): void {
+    this.onAccountBanned = handler
   }
 
   private async request<T>(
@@ -119,6 +136,9 @@ export class ApiClient implements PositiveOnlySocialAPI {
         payload && typeof payload === 'object' && 'error' in payload
           ? String((payload as { error: unknown }).error)
           : `Request failed with status ${response.status}`
+      if (options.auth && message === ACCOUNT_BANNED) {
+        this.onAccountBanned?.()
+      }
       throw new ApiError(response.status, message)
     }
 

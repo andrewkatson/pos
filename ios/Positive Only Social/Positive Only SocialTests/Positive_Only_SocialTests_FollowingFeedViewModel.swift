@@ -48,7 +48,7 @@ struct Positive_Only_SocialTests_FollowingFeedViewModel {
         // Given: A user is logged in
         let userAToken = try await registerUserAndGetToken(username: "userA")
         let userSession = UserSession(sessionToken: userAToken, username: "userA", userId: "1", isIdentityVerified: false)
-        try keychainHelper.save(userSession, for: AppConstants.keychainService, account: "fetchFollowingFeedUserNotFollowingAnyone")
+        try keychainHelper.save(userSession, for: GVOAppConstants.keychainService, account: "fetchFollowingFeedUserNotFollowingAnyone")
         
         // And: Another user posts, but our user *does not* follow them
         let userBToken = try await registerUserAndGetToken(username: "userB")
@@ -71,7 +71,7 @@ struct Positive_Only_SocialTests_FollowingFeedViewModel {
         // Given: A user is logged in
         let userAToken = try await registerUserAndGetToken(username: "userA")
         let userSession = UserSession(sessionToken: userAToken, username: "userA", userId: "1", isIdentityVerified: false)
-        try keychainHelper.save(userSession, for: AppConstants.keychainService, account: "fetchFollowingFeedWhileAlreadyLoading")
+        try keychainHelper.save(userSession, for: GVOAppConstants.keychainService, account: "fetchFollowingFeedWhileAlreadyLoading")
         
         // And: The viewmodel is *already* loading
         sut.isLoadingNextPage = true
@@ -107,7 +107,7 @@ struct Positive_Only_SocialTests_FollowingFeedViewModel {
         let userAToken = try await registerUserAndGetToken(username: "userA")
         let userBToken = try await registerUserAndGetToken(username: "userB")
         let userSession = UserSession(sessionToken: userAToken, username: "userA", userId: "1", isIdentityVerified: false)
-        try keychainHelper.save(userSession, for: AppConstants.keychainService, account: "fetchFollowingFeedPagination")
+        try keychainHelper.save(userSession, for: GVOAppConstants.keychainService, account: "fetchFollowingFeedPagination")
 
         // And: User A follows User B
         _ = try await stubAPI.followUser(sessionManagementToken: userAToken, username: "userB")
@@ -164,7 +164,7 @@ struct Positive_Only_SocialTests_FollowingFeedViewModel {
         let userAToken = try await registerUserAndGetToken(username: "userA")
         let userBToken = try await registerUserAndGetToken(username: "userB")
         let userSession = UserSession(sessionToken: userAToken, username: "userA", userId: "1", isIdentityVerified: false)
-        try keychainHelper.save(userSession, for: AppConstants.keychainService, account: "refreshFollowingPullsNewest")
+        try keychainHelper.save(userSession, for: GVOAppConstants.keychainService, account: "refreshFollowingPullsNewest")
         _ = try await stubAPI.followUser(sessionManagementToken: userAToken, username: "userB")
         _ = try await stubAPI.makePost(sessionManagementToken: userBToken, imageURL: "image.url/1", caption: "Post 1")
 
@@ -194,7 +194,7 @@ struct Positive_Only_SocialTests_FollowingFeedViewModel {
         let userAToken = try await registerUserAndGetToken(username: "userA")
         let userBToken = try await registerUserAndGetToken(username: "userB")
         let userSession = UserSession(sessionToken: userAToken, username: "userA", userId: "1", isIdentityVerified: false)
-        try keychainHelper.save(userSession, for: AppConstants.keychainService, account: "refreshFollowingResetsPagination")
+        try keychainHelper.save(userSession, for: GVOAppConstants.keychainService, account: "refreshFollowingResetsPagination")
         _ = try await stubAPI.followUser(sessionManagementToken: userAToken, username: "userB")
         _ = try await stubAPI.makePost(sessionManagementToken: userBToken, imageURL: "image.url/1", caption: "Post 1")
 
@@ -230,7 +230,7 @@ struct Positive_Only_SocialTests_FollowingFeedViewModel {
         let userAToken = try await registerUserAndGetToken(username: "userA")
         let userBToken = try await registerUserAndGetToken(username: "userB")
         let userSession = UserSession(sessionToken: userAToken, username: "userA", userId: "1", isIdentityVerified: false)
-        try keychainHelper.save(userSession, for: AppConstants.keychainService, account: account)
+        try keychainHelper.save(userSession, for: GVOAppConstants.keychainService, account: account)
         _ = try await stubAPI.followUser(sessionManagementToken: userAToken, username: "userB")
 
         // Given: 3 posts exist and we've loaded the first page (cursor at page 1)
@@ -243,9 +243,9 @@ struct Positive_Only_SocialTests_FollowingFeedViewModel {
         #expect(sut.followingPosts.first?.imageUrl == "image.url/3")
 
         // When: A refresh fails (session is unavailable for the duration of the refresh)
-        try keychainHelper.delete(service: AppConstants.keychainService, account: account)
+        try keychainHelper.delete(service: GVOAppConstants.keychainService, account: account)
         await sut.refreshFeed()
-        try keychainHelper.save(userSession, for: AppConstants.keychainService, account: account)
+        try keychainHelper.save(userSession, for: GVOAppConstants.keychainService, account: account)
 
         // Then: The existing posts are untouched and the loading flag is reset
         #expect(sut.isLoadingNextPage == false)

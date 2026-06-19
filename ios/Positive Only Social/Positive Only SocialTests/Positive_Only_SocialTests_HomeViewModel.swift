@@ -44,7 +44,7 @@ struct Positive_Only_SocialTests_HomeViewModel {
     private func setupLoggedInUser(username: String) async throws {
         let token = try await registerUserAndGetToken(username: username)
         let userSession = UserSession(sessionToken: token, username: username, userId: "1", isIdentityVerified: false)
-        try keychainHelper.save(userSession, for: AppConstants.keychainService, account: "\(username)_account")
+        try keychainHelper.save(userSession, for: GVOAppConstants.keychainService, account: "\(username)_account")
     }
 
     // --- Post Fetching Tests ---
@@ -57,7 +57,7 @@ struct Positive_Only_SocialTests_HomeViewModel {
 
         // 1. Tell the 'load' function what type you're expecting.
         //    Swift can now infer the generic type 'T' is 'UserSession'.
-        let session = try keychainHelper.load(UserSession.self, from: AppConstants.keychainService, account: "fetchMyPostsUser_account")
+        let session = try keychainHelper.load(UserSession.self, from: GVOAppConstants.keychainService, account: "fetchMyPostsUser_account")
 
         // 2. Now you can safely unwrap and access the property.
         let token = session!.sessionToken
@@ -116,7 +116,7 @@ struct Positive_Only_SocialTests_HomeViewModel {
         try await setupLoggedInUser(username: "refreshMyPostsPullsNewest")
         let sut = HomeViewModel(api: stubAPI, keychainHelper: keychainHelper, account: "refreshMyPostsPullsNewest_account")
 
-        let session = try keychainHelper.load(UserSession.self, from: AppConstants.keychainService, account: "refreshMyPostsPullsNewest_account")
+        let session = try keychainHelper.load(UserSession.self, from: GVOAppConstants.keychainService, account: "refreshMyPostsPullsNewest_account")
         let token = session!.sessionToken
 
         // Given: One post exists and the grid has loaded once
@@ -145,7 +145,7 @@ struct Positive_Only_SocialTests_HomeViewModel {
         try await setupLoggedInUser(username: "refreshMyPostsResetsPagination")
         let sut = HomeViewModel(api: stubAPI, keychainHelper: keychainHelper, account: "refreshMyPostsResetsPagination_account")
 
-        let session = try keychainHelper.load(UserSession.self, from: AppConstants.keychainService, account: "refreshMyPostsResetsPagination_account")
+        let session = try keychainHelper.load(UserSession.self, from: GVOAppConstants.keychainService, account: "refreshMyPostsResetsPagination_account")
         let token = session!.sessionToken
 
         _ = try await stubAPI.makePost(sessionManagementToken: token, imageURL: "my.image/1", caption: "Post 1")
@@ -180,7 +180,7 @@ struct Positive_Only_SocialTests_HomeViewModel {
         try await setupLoggedInUser(username: "refreshMyPostsFailurePreservesCursor")
         let sut = HomeViewModel(api: stubAPI, keychainHelper: keychainHelper, account: account)
 
-        let session = try keychainHelper.load(UserSession.self, from: AppConstants.keychainService, account: account)
+        let session = try keychainHelper.load(UserSession.self, from: GVOAppConstants.keychainService, account: account)
         let userSession = session!
         let token = userSession.sessionToken
 
@@ -194,9 +194,9 @@ struct Positive_Only_SocialTests_HomeViewModel {
         #expect(sut.userPosts.first?.imageUrl == "my.image/3")
 
         // When: A refresh fails (session is unavailable for the duration of the refresh)
-        try keychainHelper.delete(service: AppConstants.keychainService, account: account)
+        try keychainHelper.delete(service: GVOAppConstants.keychainService, account: account)
         await sut.refreshMyPosts()
-        try keychainHelper.save(userSession, for: AppConstants.keychainService, account: account)
+        try keychainHelper.save(userSession, for: GVOAppConstants.keychainService, account: account)
 
         // Then: The existing posts are untouched and the loading flag is reset
         #expect(sut.isLoadingNextPage == false)

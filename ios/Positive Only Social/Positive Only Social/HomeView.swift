@@ -80,7 +80,9 @@ struct MyPostsGridView: View {
             .searchable(text: $viewModel.searchText, prompt: "Search for Users")
             .refreshable {
                 // Pull-to-refresh: reload the newest posts from the backend.
-                await viewModel.refreshMyPosts()
+                // Run the reload in an unstructured Task so SwiftUI cancelling
+                // the refreshable task on a re-render can't cancel the request.
+                await Task { await viewModel.refreshMyPosts() }.value
             }
             .onAppear {
                 // Fetch initial posts only if the list is empty

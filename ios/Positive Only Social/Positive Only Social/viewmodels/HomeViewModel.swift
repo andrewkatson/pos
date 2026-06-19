@@ -14,7 +14,7 @@ final class HomeViewModel: ObservableObject {
     private let api: Networking
     private let keychainHelper: KeychainHelperProtocol
     private let account: String
-    private let keychainService = AppConstants.keychainService
+    private let keychainService = GVOAppConstants.keychainService
     
     // Data for the view
     @Published var userPosts: [Post] = []
@@ -107,8 +107,15 @@ final class HomeViewModel: ObservableObject {
             }
 
         } catch {
-            self.errorMessage = error.localizedDescription
-            NSLog("%@", "Error fetching my posts: \(error)")
+            // A cancelled load (e.g. SwiftUI tearing down a pull-to-refresh
+            // task) is not a real failure — keep the existing data and stay
+            // quiet so routine cancellations don't pollute the error logs.
+            if error.isCancellation {
+                NSLog("%@", "My posts load cancelled")
+            } else {
+                NSLog("%@", "Error fetching my posts: \(error)")
+                errorMessage = error.localizedDescription
+            }
         }
 
         self.isLoadingNextPage = false
@@ -131,10 +138,22 @@ final class HomeViewModel: ObservableObject {
                     return
                 }
 
-                self.searchedUsers = try await searchForUsers(fragment: query, token: userSession.sessionToken)
+                let results = try await searchForUsers(fragment: query, token: userSession.sessionToken)
+
+                // The user may have kept typing while this request was in
+                // flight; drop the results if they're for a stale query so a
+                // slow response can't overwrite results for the current text.
+                guard query == self.searchText else { return }
+                self.searchedUsers = results
             } catch {
-                self.errorMessage = error.localizedDescription
-                NSLog("%@", "Error performing search: \(error)")
+                // Cancelled searches (e.g. superseded by newer keystrokes) are
+                // routine, not failures worth alerting or error-logging about.
+                if error.isCancellation {
+                    NSLog("%@", "Search for \"\(query)\" cancelled")
+                } else {
+                    NSLog("%@", "Error performing search: \(error)")
+                    self.errorMessage = error.localizedDescription
+                }
             }
         }
     }

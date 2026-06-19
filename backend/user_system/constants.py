@@ -2,6 +2,27 @@
 # for a user
 NEVER_RUN = "never_run"
 
+# Types of bans that can be applied to a user
+BAN_TYPE_OUTRIGHT = "outright"
+BAN_TYPE_SHADOW = "shadow"
+
+# Why a post or comment is hidden. Empty string means no hide reason is
+# recorded — the content may still be hidden (e.g. report-based hiding that
+# predates this field) but without a recorded cause. "reports" is set when
+# enough users report it; "classifier" is set when the AI classifier rejected
+# it but the rejection is appealable.
+HIDDEN_REASON_NONE = ""
+HIDDEN_REASON_REPORTS = "reports"
+HIDDEN_REASON_CLASSIFIER = "classifier"
+
+# Lifecycle of an appeal a user files against hidden content or a ban.
+APPEAL_STATUS_PENDING = "pending"
+APPEAL_STATUS_APPROVED = "approved"
+APPEAL_STATUS_DENIED = "denied"
+
+# Error code returned when an outright-banned user attempts to authenticate
+ACCOUNT_BANNED = "account_banned"
+
 # Regex Patterns to check against
 class Patterns:
     password = r"^(?=.*[0-9])(?=.*[a-z])(?=.*[A-Z])(?=.*[@#$%^&+=_])(?=\S+$).{8,}$"
@@ -85,6 +106,8 @@ class Fields:
     identity_is_verified = "identity_is_verified"
     reset_token = "reset_token"
     verification_token = "verification_token"
+    hidden = "hidden"
+    hidden_reason = "hidden_reason"
 
 # Lengths of things
 LEN_LOGIN_COOKIE_TOKEN = 32
@@ -98,6 +121,12 @@ COMMENT_BATCH_SIZE = 30
 
 # Size of comment thread batches
 COMMENT_THREAD_BATCH_SIZE = 10
+
+# Maximum lengths for user-authored text, counted as unicode code points
+# (Python's len() on a str is code-point based, so these limits are unicode
+# aware rather than restricted to ASCII bytes).
+MAX_CAPTION_LENGTH = 125
+MAX_COMMENT_LENGTH = 500
 
 # Number of reports before hiding
 MAX_BEFORE_HIDING_POST = 10

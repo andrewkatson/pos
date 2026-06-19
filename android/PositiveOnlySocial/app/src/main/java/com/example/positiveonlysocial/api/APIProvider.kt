@@ -2,6 +2,7 @@ package com.example.positiveonlysocial.api
 
 import android.os.Build
 import okhttp3.OkHttpClient
+import org.json.JSONObject
 import retrofit2.Retrofit
 import retrofit2.converter.gson.GsonConverterFactory
 import com.example.positiveonlysocial.data.constants.Constants
@@ -10,6 +11,14 @@ import com.example.positiveonlysocial.BuildConfig
 object APIProvider {
 
     private val stubbedService = StatefulStubbedAPI()
+
+    /**
+     * Invoked when an authenticated request is rejected because the account
+     * has an active outright ban. Wired up in PositiveOnlySocialApp to force
+     * a logout (the backend has already revoked the session server-side).
+     */
+    @Volatile
+    var onAccountBanned: (() -> Unit)? = null
     
     @Volatile
     private var realService: PositiveOnlySocialAPI? = null
@@ -62,7 +71,20 @@ object APIProvider {
                 } else {
                     original
                 }
-                chain.proceed(request)
+                val response = chain.proceed(request)
+                if (response.code == 403 && request.header("Authorization") != null) {
+                    // Peek so the body stays readable for the Retrofit consumer.
+                    val isBanned = try {
+                        JSONObject(response.peekBody(1024).string())
+                            .getString("error") == Constants.ACCOUNT_BANNED
+                    } catch (e: Exception) {
+                        false
+                    }
+                    if (isBanned) {
+                        onAccountBanned?.invoke()
+                    }
+                }
+                response
             }
             .build()
         return Retrofit.Builder()

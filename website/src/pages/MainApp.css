@@ -662,6 +662,29 @@
   margin: 1rem 0;
 }
 
+/* ---- Character-limit counter ---- */
+
+.char-counter {
+  /* Named state colors so the amber/red are defined once and easy to retheme. */
+  --char-counter-near-color: #e0a106;
+  --char-counter-over-color: #e5484d;
+  font-size: 0.78rem;
+  text-align: right;
+  margin-top: 0.25rem;
+  color: rgba(255, 255, 255, 0.4);
+}
+
+/* Getting close to the limit. */
+.char-counter--near {
+  color: var(--char-counter-near-color);
+}
+
+/* Over the limit — the submit button is disabled in this state. */
+.char-counter--over {
+  color: var(--char-counter-over-color);
+  font-weight: 600;
+}
+
 .comment-form input {
   flex: 1;
   background: #1a1a1a;

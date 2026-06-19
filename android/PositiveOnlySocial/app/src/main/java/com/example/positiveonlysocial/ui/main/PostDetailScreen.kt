@@ -1,10 +1,13 @@
 package com.example.positiveonlysocial.ui.main
 
 import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material.icons.filled.FavoriteBorder
@@ -16,21 +19,28 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.NavController
 import coil.compose.AsyncImage
 import com.example.positiveonlysocial.api.PositiveOnlySocialAPI
+import com.example.positiveonlysocial.data.constants.Constants
 import com.example.positiveonlysocial.data.model.CommentThreadViewData
+import com.example.positiveonlysocial.ui.components.CharacterCounter
+import com.example.positiveonlysocial.ui.components.isWithinLength
 import com.example.positiveonlysocial.data.model.CommentViewData
 import com.example.positiveonlysocial.data.security.KeychainHelperProtocol
 import com.example.positiveonlysocial.models.viewmodels.PostDetailViewModel
 import com.example.positiveonlysocial.models.viewmodels.PostDetailViewModelFactory
+import com.example.positiveonlysocial.ui.navigation.Screen
 import androidx.compose.runtime.collectAsState
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.navigation.compose.rememberNavController
+import com.example.positiveonlysocial.ui.dismissKeyboardOnTap
 import com.example.positiveonlysocial.ui.preview.PreviewHelpers
 import com.example.positiveonlysocial.ui.theme.PositiveOnlySocialTheme
 
@@ -64,6 +74,20 @@ fun PostDetailScreen(
         val commentToReport by viewModel.commentToReport.collectAsState()
         val threadToReplyTo by viewModel.threadToReplyTo.collectAsState()
 
+        val focusManager = LocalFocusManager.current
+
+        // Long-press action menus (Report vs Delete, depending on ownership).
+        val showActionSheetForPost by viewModel.showActionSheetForPost.collectAsState()
+        val commentForAction by viewModel.commentForAction.collectAsState()
+        val postWasDeleted by viewModel.postWasDeleted.collectAsState()
+
+        // The post was deleted out from under this screen; pop back to the feed.
+        LaunchedEffect(postWasDeleted) {
+            if (postWasDeleted) {
+                navController.popBackStack()
+            }
+        }
+
         if (alertMessage != null) {
             AlertDialog(
                 onDismissRequest = { viewModel.dismissAlert() },
@@ -74,6 +98,31 @@ fun PostDetailScreen(
                         Text("OK")
                     }
                 }
+            )
+        }
+
+        // The post's long-press action menu: Delete on the user's own post,
+        // Report on everyone else's — so you can never report your own post.
+        if (showActionSheetForPost) {
+            val isOwnPost = postDetail?.authorUsername == currentUsername
+            ActionSheetDialog(
+                isOwn = isOwnPost,
+                itemLabel = "Post",
+                onDismiss = { viewModel.setShowActionSheetForPost(false) },
+                onReport = { viewModel.setShowReportSheetForPost(true) },
+                onDelete = { viewModel.deletePost() }
+            )
+        }
+
+        // The comment's long-press action menu mirrors the post's.
+        commentForAction?.let { comment ->
+            val isOwnComment = comment.authorUsername == currentUsername
+            ActionSheetDialog(
+                isOwn = isOwnComment,
+                itemLabel = "Comment",
+                onDismiss = { viewModel.setCommentForAction(null) },
+                onReport = { viewModel.setCommentToReport(comment) },
+                onDelete = { viewModel.deleteComment(comment, comment.threadId) }
             )
         }
 
@@ -108,7 +157,7 @@ fun PostDetailScreen(
             modifier = Modifier.fillMaxSize()
         ) {
         LazyColumn(
-            modifier = Modifier.fillMaxSize(),
+            modifier = Modifier.fillMaxSize().dismissKeyboardOnTap(),
             contentPadding = PaddingValues(bottom = 16.dp)
         ) {
             if (isLoading && postDetail == null) {
@@ -137,7 +186,7 @@ fun PostDetailScreen(
                                         if (post.isLiked) viewModel.unlikePost() else viewModel.likePost()
                                     },
                                     onLongClick = {
-                                       viewModel.setShowReportSheetForPost(true)
+                                       viewModel.setShowActionSheetForPost(true)
                                     },
                                     onClick = {}
                                 ),
@@ -166,28 +215,48 @@ fun PostDetailScreen(
                             
                             Spacer(modifier = Modifier.height(8.dp))
                             
-                            Text(
-                                text = "${post.authorUsername} ${post.caption}",
-                                style = MaterialTheme.typography.bodyMedium
-                            )
+                            Row {
+                                // Tap the author's name to open their profile,
+                                // same as in the feed.
+                                Text(
+                                    text = post.authorUsername,
+                                    fontWeight = FontWeight.Bold,
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    modifier = Modifier.clickable {
+                                        navController.navigate(Screen.Profile.createRoute(post.authorUsername))
+                                    }
+                                )
+                                Spacer(modifier = Modifier.width(4.dp))
+                                Text(
+                                    text = post.caption,
+                                    style = MaterialTheme.typography.bodyMedium
+                                )
+                            }
                             
                             Divider(modifier = Modifier.padding(vertical = 16.dp))
                             
                             // Add Comment Section
-                            Row(verticalAlignment = Alignment.CenterVertically) {
-                                TextField(
-                                    value = viewModel.newCommentText.collectAsState().value,
-                                    onValueChange = { viewModel.updateNewCommentText(it) },
-                                    placeholder = { Text("Add a comment...") },
-                                    modifier = Modifier.weight(1f)
-                                )
-                                Button(
-                                    onClick = { viewModel.commentOnPost(viewModel.newCommentText.value) },
-                                    enabled = viewModel.newCommentText.collectAsState().value.isNotEmpty(),
-                                    modifier = Modifier.padding(start = 8.dp)
-                                ) {
-                                    Text("Post")
+                            val newCommentText by viewModel.newCommentText.collectAsState()
+                            Column {
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    TextField(
+                                        value = newCommentText,
+                                        onValueChange = { viewModel.updateNewCommentText(it) },
+                                        placeholder = { Text("Add a comment...") },
+                                        modifier = Modifier.weight(1f),
+                                        singleLine = true,
+                                        keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
+                                        keyboardActions = KeyboardActions(onDone = { focusManager.clearFocus() })
+                                    )
+                                    Button(
+                                        onClick = { viewModel.commentOnPost(newCommentText) },
+                                        enabled = newCommentText.isNotEmpty() && isWithinLength(newCommentText, Constants.MAX_COMMENT_LENGTH),
+                                        modifier = Modifier.padding(start = 8.dp)
+                                    ) {
+                                        Text("Post")
+                                    }
                                 }
+                                CharacterCounter(text = newCommentText, max = Constants.MAX_COMMENT_LENGTH)
                             }
                             
                             Spacer(modifier = Modifier.height(16.dp))
@@ -197,7 +266,14 @@ fun PostDetailScreen(
                 }
                 
                 items(commentThreads) { thread ->
-                    CommentThreadView(thread = thread, viewModel = viewModel, currentUsername = currentUsername)
+                    CommentThreadView(
+                        thread = thread,
+                        viewModel = viewModel,
+                        currentUsername = currentUsername,
+                        onAuthorClick = { username ->
+                            navController.navigate(Screen.Profile.createRoute(username))
+                        }
+                    )
                 }
             } else {
                 item {
@@ -210,15 +286,23 @@ fun PostDetailScreen(
 }
 
 @Composable
-fun CommentThreadView(thread: CommentThreadViewData, viewModel: PostDetailViewModel, currentUsername: String?) {
+fun CommentThreadView(
+    thread: CommentThreadViewData,
+    viewModel: PostDetailViewModel,
+    currentUsername: String?,
+    onAuthorClick: (String) -> Unit
+) {
+    val reportedCommentIds by viewModel.reportedCommentIds.collectAsState()
     Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)) {
         thread.comments.firstOrNull()?.let { rootComment ->
             CommentRow(
                 comment = rootComment,
                 isOwn = rootComment.authorUsername == currentUsername,
+                isReported = reportedCommentIds.contains(rootComment.id),
                 onLike = { viewModel.likeComment(rootComment, rootComment.threadId) },
                 onUnlike = { viewModel.unlikeComment(rootComment, rootComment.threadId) },
-                onReport = { viewModel.setCommentToReport(rootComment) }
+                onLongPress = { viewModel.setCommentForAction(rootComment) },
+                onAuthorClick = onAuthorClick
             )
             
             // Reply Input for Thread
@@ -235,9 +319,11 @@ fun CommentThreadView(thread: CommentThreadViewData, viewModel: PostDetailViewMo
                     CommentRow(
                         comment = reply,
                         isOwn = reply.authorUsername == currentUsername,
+                        isReported = reportedCommentIds.contains(reply.id),
                         onLike = { viewModel.likeComment(reply, reply.threadId) },
                         onUnlike = { viewModel.unlikeComment(reply, reply.threadId) },
-                        onReport = { viewModel.setCommentToReport(reply) }
+                        onLongPress = { viewModel.setCommentForAction(reply) },
+                        onAuthorClick = onAuthorClick
                     )
                 }
             }
@@ -250,12 +336,12 @@ fun CommentThreadView(thread: CommentThreadViewData, viewModel: PostDetailViewMo
 fun CommentRow(
     comment: CommentViewData,
     isOwn: Boolean,
+    isReported: Boolean,
     onLike: () -> Unit,
     onUnlike: () -> Unit,
-    onReport: () -> Unit
+    onLongPress: () -> Unit,
+    onAuthorClick: (String) -> Unit
 ) {
-    var isReported by remember { mutableStateOf(false) }
-
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -269,8 +355,8 @@ fun CommentRow(
                     if (comment.isLiked) onUnlike() else onLike()
                 },
                 onLongClick = {
-                    isReported = true
-                    onReport()
+                    // Open the action menu (Report or Delete, by ownership).
+                    onLongPress()
                 },
                 onClick = {}
             ),
@@ -287,7 +373,24 @@ fun CommentRow(
         
         Column {
             Row {
-                Text(comment.authorUsername, fontWeight = FontWeight.Bold, fontSize = 14.sp)
+                // Tap the author's name to open their profile, same as the
+                // post author above. combinedClickable (not clickable) so the
+                // row's double-tap (like) and long-press (report/delete)
+                // gestures keep working over the username instead of being
+                // consumed by this inner handler.
+                Text(
+                    comment.authorUsername,
+                    fontWeight = FontWeight.Bold,
+                    fontSize = 14.sp,
+                    modifier = Modifier.combinedClickable(
+                        onDoubleClick = {
+                            if (isOwn) return@combinedClickable
+                            if (comment.isLiked) onUnlike() else onLike()
+                        },
+                        onLongClick = { onLongPress() },
+                        onClick = { onAuthorClick(comment.authorUsername) }
+                    )
+                )
                 Spacer(modifier = Modifier.width(4.dp))
                 Text(comment.body, fontSize = 14.sp)
             }
@@ -321,9 +424,47 @@ fun CommentRow(
     }
 }
 
+/**
+ * The mini action menu shown on long-press. Offers a single action — Delete for
+ * the user's own content, Report for everyone else's — so you can never report
+ * your own post or comment. More options can be added here later.
+ */
+@Composable
+fun ActionSheetDialog(
+    isOwn: Boolean,
+    itemLabel: String,
+    onDismiss: () -> Unit,
+    onReport: () -> Unit,
+    onDelete: () -> Unit
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text(itemLabel) },
+        // The primary action lives in the confirmButton slot so it's laid out and
+        // announced as the dialog's main action; more options can be added later.
+        confirmButton = {
+            if (isOwn) {
+                TextButton(onClick = { onDelete(); onDismiss() }) {
+                    Text("Delete $itemLabel")
+                }
+            } else {
+                TextButton(onClick = { onReport(); onDismiss() }) {
+                    Text("Report $itemLabel")
+                }
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) {
+                Text("Cancel")
+            }
+        }
+    )
+}
+
 @Composable
 fun ReportDialog(onDismiss: () -> Unit, onSubmit: (String) -> Unit) {
     var reason by remember { mutableStateOf("") }
+    val focusManager = LocalFocusManager.current
     AlertDialog(
         onDismissRequest = onDismiss,
         title = { Text("Report") },
@@ -331,7 +472,10 @@ fun ReportDialog(onDismiss: () -> Unit, onSubmit: (String) -> Unit) {
             TextField(
                 value = reason,
                 onValueChange = { reason = it },
-                placeholder = { Text("Reason for reporting...") }
+                placeholder = { Text("Reason for reporting...") },
+                singleLine = true,
+                keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
+                keyboardActions = KeyboardActions(onDone = { focusManager.clearFocus() })
             )
         },
         confirmButton = {
@@ -359,19 +503,28 @@ fun ReplyDialog(thread: CommentThreadViewData, onDismiss: () -> Unit, onSubmit: 
         onDismissRequest = onDismiss,
         title = { Text("Reply to ${thread.comments.firstOrNull()?.authorUsername ?: "Comment"}") },
         text = {
-            TextField(
-                value = text,
-                onValueChange = { text = it },
-                placeholder = { Text("Your reply...") }
-            )
+            // A reply can span multiple lines, so this stays multiline (Enter
+            // inserts a newline). The dialog's Send/Cancel buttons remain
+            // reachable above the keyboard, so no Done-to-dismiss is needed.
+            Column {
+                TextField(
+                    value = text,
+                    onValueChange = { text = it },
+                    placeholder = { Text("Your reply...") }
+                )
+                CharacterCounter(text = text, max = Constants.MAX_COMMENT_LENGTH)
+            }
         },
         confirmButton = {
-            Button(onClick = { 
-                if (text.isNotEmpty()) {
-                    onSubmit(text)
-                    onDismiss()
-                }
-            }) {
+            Button(
+                onClick = {
+                    if (text.isNotEmpty()) {
+                        onSubmit(text)
+                        onDismiss()
+                    }
+                },
+                enabled = text.isNotEmpty() && isWithinLength(text, Constants.MAX_COMMENT_LENGTH)
+            ) {
                 Text("Send")
             }
         },
