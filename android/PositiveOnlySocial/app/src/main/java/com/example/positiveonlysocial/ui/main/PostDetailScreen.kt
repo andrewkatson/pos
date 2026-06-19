@@ -37,6 +37,7 @@ import com.example.positiveonlysocial.data.security.KeychainHelperProtocol
 import com.example.positiveonlysocial.models.viewmodels.PostDetailViewModel
 import com.example.positiveonlysocial.models.viewmodels.PostDetailViewModelFactory
 import com.example.positiveonlysocial.ui.navigation.Screen
+import com.example.positiveonlysocial.util.RelativeTime
 import androidx.compose.runtime.collectAsState
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.navigation.compose.rememberNavController
@@ -395,8 +396,7 @@ fun CommentRow(
                 Text(comment.body, fontSize = 14.sp)
             }
             Row(verticalAlignment = Alignment.CenterVertically) {
-                // TODO Date placeholder - needs formatting logic
-                Text("Just now", fontSize = 12.sp, color = Color.Gray)
+                Text(RelativeTime.format(comment.createdDate), fontSize = 12.sp, color = Color.Gray)
                 Spacer(modifier = Modifier.width(8.dp))
                 if (!isOwn) {
                     IconButton(

@@ -6,6 +6,7 @@ import androidx.lifecycle.viewModelScope
 import com.example.positiveonlysocial.api.PositiveOnlySocialAPI
 import com.example.positiveonlysocial.data.model.*
 import com.example.positiveonlysocial.data.security.KeychainHelperProtocol
+import com.example.positiveonlysocial.util.parseBackendDate
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
@@ -208,7 +209,7 @@ class PostDetailViewModel(
                                 body = c.body,
                                 likeCount = c.likeCount,
                                 isLiked = c.isLiked,
-                                createdDate = Date() // TODO: Parse c.creationTime string to Date
+                                createdDate = parseBackendDate(c.creationTime) ?: Date()
                             )
                         }
 

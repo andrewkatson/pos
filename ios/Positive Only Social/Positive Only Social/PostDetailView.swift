@@ -325,7 +325,7 @@ struct PostDetailView: View {
                     
                     // Info row
                     HStack(spacing: 16) {
-                        Text(comment.createdDate, style: .relative)
+                        Text(RelativeTime.string(from: comment.createdDate))
                             .font(.caption)
                             .foregroundColor(.secondary)
 
