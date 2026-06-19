@@ -140,6 +140,25 @@ class SubmitAppealTests(AppealsEndpointsTestCase):
         self.assertEqual(response.status_code, 400)
         self.assertEqual(Appeal.objects.count(), 0)
 
+    def _submit_raw(self, body):
+        return self.client.post(reverse('submit_appeal'), data=body,
+                                content_type='application/json', **self.header)
+
+    def test_non_string_target_identifier_rejected(self):
+        """A numeric/non-string id must 400, not 500 (UUID() would raise)."""
+        response = self._submit_raw({Fields.target_type: 'post',
+                                     Fields.target_identifier: 123,
+                                     Fields.reason: 'please'})
+        self.assertEqual(response.status_code, 400)
+
+    def test_non_string_reason_rejected(self):
+        post = self._hidden_post()
+        response = self._submit_raw({Fields.target_type: 'post',
+                                     Fields.target_identifier: str(post.post_identifier),
+                                     Fields.reason: 123})
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(Appeal.objects.count(), 0)
+
     def test_cannot_appeal_visible_post(self):
         post = self.user.post_set.create(image_url='u', caption='v', hidden=False)
         response = self._submit('post', post.post_identifier)
