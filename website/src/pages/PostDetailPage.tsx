@@ -5,6 +5,7 @@ import { getCurrentUsername } from '../api/session'
 import type { Comment, PostDetails } from '../api/types'
 import { isWithinLimit, MAX_COMMENT_LENGTH } from '../auth/requirements'
 import CharacterCounter from '../components/CharacterCounter'
+import { formatRelativeTime } from '../utils/relativeTime'
 import './MainApp.css'
 
 /** A comment enriched with the local like/report state the API doesn't return. */
@@ -672,6 +673,7 @@ function CommentRow({ comment, onToggleLike, onReport, onDelete, onNavigate }: C
           <span className="comment-row__body">{comment.body}</span>
         </span>
         <div className="comment-row__info">
+          <span>{formatRelativeTime(comment.createdTime)}</span>
           {!comment.isOwn && (
             <button
               type="button"
