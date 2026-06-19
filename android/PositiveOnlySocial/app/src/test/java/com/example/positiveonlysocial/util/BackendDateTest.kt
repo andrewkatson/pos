@@ -26,8 +26,17 @@ class BackendDateTest {
     }
 
     @Test
-    fun returnsNullForUnparseableInput() {
+    fun parsesEpochMillisStringsFromStubbedApi() {
+        // The stubbed API (debug/UI-test builds) emits creation_time as
+        // System.currentTimeMillis().toString().
+        val parsed = parseBackendDate("1718800000000")
+        assertEquals(1718800000000L, parsed?.time)
+    }
+
+    @Test
+    fun returnsNullForBlankOrUnparseableInput() {
         assertNull(parseBackendDate(""))
+        assertNull(parseBackendDate("   "))
         assertNull(parseBackendDate("not a date"))
     }
 }
