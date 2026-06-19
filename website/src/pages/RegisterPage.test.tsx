@@ -1,4 +1,4 @@
-import { render, screen } from '@testing-library/react'
+import { render, screen,fireEvent} from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { MemoryRouter, Routes, Route } from 'react-router-dom'
 import { vi, beforeEach, afterEach } from 'vitest'
@@ -21,7 +21,8 @@ function renderRegisterPage() {
     <MemoryRouter initialEntries={['/register']}>
       <Routes>
         <Route path="/register" element={<RegisterPage />} />
-        <Route path="/" element={<div>Home</div>} />
+        <Route path="/" element={<div> Landing</div>}/>
+        <Route path="/home" element={<div>Home</div>} />
       </Routes>
     </MemoryRouter>,
   )
@@ -120,7 +121,9 @@ test('register button stays disabled when username is too short', async () => {
 
 test('register button stays disabled when username exceeds 500 characters', async () => {
   renderRegisterPage()
-  await userEvent.type(screen.getByLabelText('Username'), 'a'.repeat(501))
+  fireEvent.change(screen.getByLabelText('Username'), {
+  target: { value: 'a'.repeat(501) },
+})
   await userEvent.type(screen.getByLabelText('Email'), 'ada@example.com')
   await userEvent.type(screen.getByLabelText('Date of Birth'), '1990-01-01')
   await userEvent.type(screen.getByLabelText('Password'), VALID_PASSWORD)
