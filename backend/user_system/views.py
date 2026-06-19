@@ -1798,9 +1798,14 @@ def submit_appeal(request):
     target_identifier = data.get(Fields.target_identifier)
     reason = data.get(Fields.reason)
 
+    # JSON values can be any type; reject non-string id/reason up front so the
+    # validation below can't crash on them (UUID()/len() on a non-string would
+    # otherwise 500).
     if target_type not in (APPEAL_TARGET_POST, APPEAL_TARGET_COMMENT):
         return log_and_return_json("submit_appeal", {'error': "Invalid target_type"}, status=400)
-    if not reason or not is_valid_pattern(reason, Patterns.alphanumeric_with_special_chars):
+    if not isinstance(target_identifier, str):
+        return log_and_return_json("submit_appeal", {'error': "Invalid target_identifier"}, status=400)
+    if not isinstance(reason, str) or not reason or not is_valid_pattern(reason, Patterns.alphanumeric_with_special_chars):
         return log_and_return_json("submit_appeal", {'error': "Invalid reason"}, status=400)
     if len(reason) > MAX_APPEAL_REASON_LENGTH:
         return log_and_return_json(
