@@ -107,7 +107,13 @@ final class RealAPI: Networking {
     private struct CommentBody: Encodable {
         let comment_text: String
     }
-    
+
+    private struct SubmitAppealBody: Encodable {
+        let target_type: String
+        let target_identifier: String
+        let reason: String
+    }
+
     // MARK: - Private Helpers
     
     /// Encodes an `Encodable` value into `Data`.
@@ -558,6 +564,43 @@ final class RealAPI: Networking {
         return try await performRequest(
             pathSegments: [GVOAppConstants.pathSegmentUsers, username, GVOAppConstants.pathSegmenProfile],
             method: .get,
+            authToken: sessionManagementToken
+        )
+    }
+
+    // MARK: - Appeals
+
+    func getHiddenPosts(sessionManagementToken: String, batch: Int) async throws -> Data {
+        return try await performRequest(
+            pathSegments: [GVOAppConstants.pathSegmentAppeals, GVOAppConstants.pathSegmentHidden, GVOAppConstants.pathSegmentPosts, String(batch)],
+            method: .get,
+            authToken: sessionManagementToken
+        )
+    }
+
+    func getHiddenComments(sessionManagementToken: String, batch: Int) async throws -> Data {
+        return try await performRequest(
+            pathSegments: [GVOAppConstants.pathSegmentAppeals, GVOAppConstants.pathSegmentHidden, GVOAppConstants.pathSegmentComments, String(batch)],
+            method: .get,
+            authToken: sessionManagementToken
+        )
+    }
+
+    func getMyAppeals(sessionManagementToken: String, batch: Int) async throws -> Data {
+        return try await performRequest(
+            pathSegments: [GVOAppConstants.pathSegmentAppeals, GVOAppConstants.pathSegmentMine, String(batch)],
+            method: .get,
+            authToken: sessionManagementToken
+        )
+    }
+
+    func submitAppeal(sessionManagementToken: String, targetType: String, targetIdentifier: String, reason: String) async throws -> Data {
+        let body = SubmitAppealBody(target_type: targetType, target_identifier: targetIdentifier, reason: reason)
+        let requestBody = try encode(body)
+        return try await performRequest(
+            pathSegments: [GVOAppConstants.pathSegmentAppeals, GVOAppConstants.pathSegmentSubmit],
+            method: .post,
+            body: requestBody,
             authToken: sessionManagementToken
         )
     }

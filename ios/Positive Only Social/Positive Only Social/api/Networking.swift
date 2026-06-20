@@ -117,4 +117,19 @@ protocol Networking {
     
     /// Gets the details of a profile
     func getProfileDetails(sessionManagementToken: String, username: String) async throws -> Data
+
+    // MARK: - Appeals
+
+    /// Gets a batch of the signed-in user's own hidden posts.
+    func getHiddenPosts(sessionManagementToken: String, batch: Int) async throws -> Data
+
+    /// Gets a batch of the signed-in user's own hidden comments.
+    func getHiddenComments(sessionManagementToken: String, batch: Int) async throws -> Data
+
+    /// Gets a batch of the appeals the signed-in user has filed.
+    func getMyAppeals(sessionManagementToken: String, batch: Int) async throws -> Data
+
+    /// Files an appeal against a hidden post or comment. `targetType` is
+    /// "post" or "comment"; ban appeals go through the email-reply flow.
+    func submitAppeal(sessionManagementToken: String, targetType: String, targetIdentifier: String, reason: String) async throws -> Data
 }

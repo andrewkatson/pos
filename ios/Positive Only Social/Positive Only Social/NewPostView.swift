@@ -23,6 +23,7 @@ struct NewPostView: View {
     @State private var caption = ""
     @State private var isLoading = false
     @State private var showSuccessAlert = false
+    @State private var successAlertMessage = "Your post was shared successfully!"
     @State private var showFailureAlert = false
     @State private var failureAlertMessage = ""
     
@@ -88,7 +89,7 @@ struct NewPostView: View {
                     tabSelection = 0
                 }.accessibilityIdentifier("OkButtonSuccess")
             } message: {
-                Text("Your post was shared successfully!")
+                Text(successAlertMessage)
             }
             
             // Alert for FAILURE
@@ -144,7 +145,7 @@ struct NewPostView: View {
                 }
 
                 // 3. SEND THE S3 URL TO YOUR BACKEND
-                _ = try await api.makePost(
+                let responseData = try await api.makePost(
                     sessionManagementToken: userSession.sessionToken,
                     imageURL: imageURL.absoluteString,
                     caption: caption
@@ -154,6 +155,17 @@ struct NewPostView: View {
                 await homeViewModel.refreshMyPosts()
 
                 // --- SUCCESS ---
+                // A post flagged by automated review is created hidden pending
+                // appeal; tell the user it's hidden but appealable rather than
+                // implying it went live.
+                let response = try? JSONDecoder().decode(MakePostResponse.self, from: responseData)
+                if response?.hidden == true {
+                    successAlertMessage = response?.message
+                        ?? "Your post did not pass automated review. It is hidden for now but you can appeal the decision."
+                } else {
+                    successAlertMessage = "Your post was shared successfully!"
+                }
+
                 // Reset the form and show the success alert
                 isLoading = false
                 caption = ""

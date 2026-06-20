@@ -276,6 +276,25 @@ struct MockedAPI: Networking {
         )
         return try encode(profile)
     }
+
+    // MARK: - Appeals
+
+    func getHiddenPosts(sessionManagementToken: String, batch: Int) async throws -> Data {
+        return try encode([HiddenPost]())
+    }
+
+    func getHiddenComments(sessionManagementToken: String, batch: Int) async throws -> Data {
+        return try encode([HiddenComment]())
+    }
+
+    func getMyAppeals(sessionManagementToken: String, batch: Int) async throws -> Data {
+        return try encode([MyAppeal]())
+    }
+
+    func submitAppeal(sessionManagementToken: String, targetType: String, targetIdentifier: String, reason: String) async throws -> Data {
+        struct Fields: Codable { let appeal_identifier: String }
+        return try encode(Fields(appeal_identifier: UUID().uuidString))
+    }
 }
 
 // MARK: - Preview Helpers

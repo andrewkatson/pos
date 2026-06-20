@@ -55,6 +55,7 @@ fileprivate struct MockPost {
     var reports: [(username: String, reason: String)] = []
     var commentThreads: [MockCommentThread] = []
     var isHidden: Bool = false
+    var hiddenReason: String = ""
     let createdDate = Date()
 }
 
@@ -72,8 +73,20 @@ fileprivate struct MockComment {
     var likes: [String] = []
     var reports: [(username: String, reason: String)] = []
     var isHidden: Bool = false
+    var hiddenReason: String = ""
     let createdDate = Date()
     var updatedDate = Date()
+}
+
+fileprivate struct MockAppeal {
+    let appealIdentifier = UUID().uuidString
+    let appellantId: UUID
+    let targetType: String
+    let targetId: String
+    var reason: String
+    var contentSnapshot: String
+    var status: String = "pending"
+    let createdDate = Date()
 }
 
 
@@ -87,6 +100,7 @@ final class StatefulStubbedAPI: Networking {
     private var posts: [MockPost] = []
     private var commentThreads: [MockCommentThread] = []
     private var comments: [MockComment] = []
+    private var appeals: [MockAppeal] = []
     private var userFollows: [MockUserFollow] = []
 
     // MARK: - Configuration
@@ -343,7 +357,10 @@ final class StatefulStubbedAPI: Networking {
         if posts[postIndex].reports.contains(where: { $0.username == reporter.username }) { throw APIError.badServerResponse(statusCode: 400) }
         
         posts[postIndex].reports.append((reporter.username, reason))
-        if posts[postIndex].reports.count > maxReportsBeforeHiding { posts[postIndex].isHidden = true }
+        if posts[postIndex].reports.count > maxReportsBeforeHiding {
+            posts[postIndex].isHidden = true
+            posts[postIndex].hiddenReason = "reports"
+        }
         return try createEmptySuccessResponse()
     }
 
@@ -596,7 +613,10 @@ final class StatefulStubbedAPI: Networking {
         if comments[commentIndex].reports.contains(where: { $0.username == reporter.username }) { throw APIError.badServerResponse(statusCode: 400) }
         
         comments[commentIndex].reports.append((reporter.username, reason))
-        if comments[commentIndex].reports.count > maxReportsBeforeHiding { comments[commentIndex].isHidden = true }
+        if comments[commentIndex].reports.count > maxReportsBeforeHiding {
+            comments[commentIndex].isHidden = true
+            comments[commentIndex].hiddenReason = "reports"
+        }
         return try createEmptySuccessResponse()
     }
 
@@ -811,6 +831,118 @@ final class StatefulStubbedAPI: Networking {
 
         // 6. Return the data using your existing helper
         return try createSerializedResponse(fields: fields)
+    }
+
+    // MARK: - Appeals
+
+    private func hasAppeal(forTarget id: String) -> Bool {
+        appeals.contains { $0.targetId == id }
+    }
+
+    func getHiddenPosts(sessionManagementToken: String, batch: Int) async throws -> Data {
+        await simulateNetwork()
+        guard let user = findUser(bySessionToken: sessionManagementToken) else { throw APIError.badServerResponse(statusCode: 401) }
+
+        let hidden = posts
+            .filter { $0.authorId == user.id && $0.isHidden }
+            .sorted { $0.createdDate > $1.createdDate }
+
+        let startIndex = batch * pageSize
+        struct Fields: Codable {
+            let post_identifier: String
+            let image_url: String
+            let caption: String
+            let hidden_reason: String
+            let has_appeal: Bool
+        }
+        guard startIndex < hidden.count else { return try createSerializedListResponse(fieldsList: [Fields]()) }
+        let endIndex = min(startIndex + pageSize, hidden.count)
+
+        let fields = hidden[startIndex..<endIndex].map {
+            Fields(post_identifier: $0.postIdentifier, image_url: $0.imageURL, caption: $0.caption,
+                   hidden_reason: $0.hiddenReason, has_appeal: hasAppeal(forTarget: $0.postIdentifier))
+        }
+        return try createSerializedListResponse(fieldsList: fields)
+    }
+
+    func getHiddenComments(sessionManagementToken: String, batch: Int) async throws -> Data {
+        await simulateNetwork()
+        guard let user = findUser(bySessionToken: sessionManagementToken) else { throw APIError.badServerResponse(statusCode: 401) }
+
+        let hidden = comments
+            .filter { $0.authorUsername == user.username && $0.isHidden }
+            .sorted { $0.createdDate > $1.createdDate }
+
+        let startIndex = batch * pageSize
+        struct Fields: Codable {
+            let comment_identifier: String
+            let body: String
+            let hidden_reason: String
+            let has_appeal: Bool
+        }
+        guard startIndex < hidden.count else { return try createSerializedListResponse(fieldsList: [Fields]()) }
+        let endIndex = min(startIndex + pageSize, hidden.count)
+
+        let fields = hidden[startIndex..<endIndex].map {
+            Fields(comment_identifier: $0.commentIdentifier, body: $0.body,
+                   hidden_reason: $0.hiddenReason, has_appeal: hasAppeal(forTarget: $0.commentIdentifier))
+        }
+        return try createSerializedListResponse(fieldsList: fields)
+    }
+
+    func getMyAppeals(sessionManagementToken: String, batch: Int) async throws -> Data {
+        await simulateNetwork()
+        guard let user = findUser(bySessionToken: sessionManagementToken) else { throw APIError.badServerResponse(statusCode: 401) }
+
+        let mine = appeals
+            .filter { $0.appellantId == user.id }
+            .sorted { $0.createdDate > $1.createdDate }
+
+        let startIndex = batch * pageSize
+        struct Fields: Codable {
+            let appeal_identifier: String
+            let target_type: String?
+            let status: String
+            let reason: String
+            let content_snapshot: String?
+            let resolution_note: String?
+        }
+        guard startIndex < mine.count else { return try createSerializedListResponse(fieldsList: [Fields]()) }
+        let endIndex = min(startIndex + pageSize, mine.count)
+
+        let fields = mine[startIndex..<endIndex].map {
+            Fields(appeal_identifier: $0.appealIdentifier, target_type: $0.targetType, status: $0.status,
+                   reason: $0.reason, content_snapshot: $0.contentSnapshot, resolution_note: nil)
+        }
+        return try createSerializedListResponse(fieldsList: fields)
+    }
+
+    func submitAppeal(sessionManagementToken: String, targetType: String, targetIdentifier: String, reason: String) async throws -> Data {
+        await simulateNetwork()
+        guard let user = findUser(bySessionToken: sessionManagementToken) else { throw APIError.badServerResponse(statusCode: 401) }
+
+        let snapshot: String
+        if targetType == "post" {
+            guard let post = posts.first(where: { $0.postIdentifier == targetIdentifier && $0.authorId == user.id && $0.isHidden }) else {
+                throw APIError.serverError(statusCode: 400, serverMessage: "No appealable item with that identifier")
+            }
+            snapshot = post.caption
+        } else {
+            guard let comment = comments.first(where: { $0.commentIdentifier == targetIdentifier && $0.authorUsername == user.username && $0.isHidden }) else {
+                throw APIError.serverError(statusCode: 400, serverMessage: "No appealable item with that identifier")
+            }
+            snapshot = comment.body
+        }
+
+        if hasAppeal(forTarget: targetIdentifier) {
+            throw APIError.serverError(statusCode: 400, serverMessage: "This item has already been appealed")
+        }
+
+        let appeal = MockAppeal(appellantId: user.id, targetType: targetType, targetId: targetIdentifier,
+                                reason: reason, contentSnapshot: snapshot)
+        appeals.append(appeal)
+        struct Fields: Codable { let appeal_identifier: String }
+        return try createSerializedResponse(fields: Fields(appeal_identifier: appeal.appealIdentifier))
     }
 }
 
