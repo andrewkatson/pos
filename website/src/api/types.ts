@@ -69,6 +69,12 @@ export interface CreatePostRequest {
 
 export interface CreatePostResponse {
   post_identifier: string
+  /** True when the post was created hidden pending appeal (classifier flagged
+   * it but the rejection is appealable). Absent/false for a normal post. */
+  hidden?: boolean
+  hidden_reason?: string
+  /** User-facing explanation when the post is hidden pending appeal. */
+  message?: string
 }
 
 /** A post as returned by the feed/listing endpoints. */
@@ -124,4 +130,58 @@ export interface ProfileDetails {
   is_blocked: boolean
   identity_is_verified: boolean
   is_adult: boolean
+}
+
+// ---------------------------------------------------------------------------
+// Appeals (backend/user_system/views.py appeal endpoints)
+// ---------------------------------------------------------------------------
+
+/** What a content appeal can target in-app. Ban appeals go via email. */
+export type AppealTargetType = 'post' | 'comment'
+
+/** One of the signed-in user's hidden posts. */
+export interface HiddenPost {
+  post_identifier: string
+  image_url: string
+  caption: string
+  /** Why it was hidden: 'classifier', 'reports', or '' (unspecified). */
+  hidden_reason: string
+  creation_time: string
+  /** True once an appeal has been filed for it (it can only be appealed once). */
+  has_appeal: boolean
+}
+
+/** One of the signed-in user's hidden comments. */
+export interface HiddenComment {
+  comment_identifier: string
+  body: string
+  hidden_reason: string
+  creation_time: string
+  has_appeal: boolean
+}
+
+/** An appeal the signed-in user has filed, with its current status. */
+export interface MyAppeal {
+  appeal_identifier: string
+  /** 'post' | 'comment' | 'ban', or null once a resolved target was removed. */
+  target_type: AppealTargetType | 'ban' | null
+  target_identifier: string | null
+  /** 'pending' | 'approved' | 'denied'. */
+  status: string
+  reason: string
+  /** Snapshot of the appealed content, kept when the target was removed. */
+  content_snapshot: string | null
+  resolution_note: string | null
+  creation_time: string
+  resolved_time: string | null
+}
+
+export interface SubmitAppealRequest {
+  target_type: AppealTargetType
+  target_identifier: string
+  reason: string
+}
+
+export interface SubmitAppealResponse {
+  appeal_identifier: string
 }

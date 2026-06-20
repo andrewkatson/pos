@@ -13,16 +13,21 @@ import type {
   CreatePostRequest,
   CreatePostResponse,
   FeedPost,
+  HiddenComment,
+  HiddenPost,
   LoginRequest,
   LoginWithRememberMeRequest,
   LoginWithRememberMeResponse,
   MessageResponse,
+  MyAppeal,
   PostDetails,
   ProfileDetails,
   RegisterRequest,
   ReplyResponse,
   RequestResetRequest,
   ResetPasswordRequest,
+  SubmitAppealRequest,
+  SubmitAppealResponse,
   UserSearchResult,
   VerifyResetRequest,
   VerifyResetResponse,
@@ -70,6 +75,7 @@ interface PostMock {
   caption: string
   creationTime: number
   hidden: boolean
+  hiddenReason: string
   likes: Set<string>
   reports: Set<string>
 }
@@ -80,8 +86,20 @@ interface CommentMock {
   body: string
   creationTime: number
   hidden: boolean
+  hiddenReason: string
   likes: Set<string>
   reports: Set<string>
+}
+
+interface AppealMock {
+  appealIdentifier: string
+  appellantId: string
+  targetType: 'post' | 'comment'
+  targetId: string
+  reason: string
+  contentSnapshot: string
+  status: 'pending' | 'approved' | 'denied'
+  creationTime: number
 }
 
 interface CommentThreadMock {
@@ -118,6 +136,7 @@ export class StatefulStubbedAPI implements PositiveOnlySocialAPI {
   private loginCookies: LoginCookieMock[] = []
   private posts: PostMock[] = []
   private commentThreads: CommentThreadMock[] = []
+  private appeals: AppealMock[] = []
 
   // Mirrors the "Authorization: Bearer <token>" header.
   private token: string | null = null
@@ -378,6 +397,7 @@ export class StatefulStubbedAPI implements PositiveOnlySocialAPI {
       caption: body.caption,
       creationTime: Date.now(),
       hidden: false,
+      hiddenReason: '',
       likes: new Set(),
       reports: new Set(),
     }
@@ -407,6 +427,7 @@ export class StatefulStubbedAPI implements PositiveOnlySocialAPI {
     post.reports.add(user.id)
     if (post.reports.size > MAX_BEFORE_HIDING_POST) {
       post.hidden = true
+      post.hiddenReason = 'reports'
     }
     return { message: 'Post reported' }
   }
@@ -519,6 +540,7 @@ export class StatefulStubbedAPI implements PositiveOnlySocialAPI {
       body: commentText,
       creationTime: Date.now(),
       hidden: false,
+      hiddenReason: '',
       likes: new Set(),
       reports: new Set(),
     }
@@ -547,6 +569,7 @@ export class StatefulStubbedAPI implements PositiveOnlySocialAPI {
       body: commentText,
       creationTime: Date.now(),
       hidden: false,
+      hiddenReason: '',
       likes: new Set(),
       reports: new Set(),
     }
@@ -661,6 +684,7 @@ export class StatefulStubbedAPI implements PositiveOnlySocialAPI {
     comment.reports.add(user.id)
     if (comment.reports.size > MAX_BEFORE_HIDING_COMMENT) {
       comment.hidden = true
+      comment.hiddenReason = 'reports'
     }
     return { message: 'Comment reported' }
   }
@@ -755,5 +779,98 @@ export class StatefulStubbedAPI implements PositiveOnlySocialAPI {
       identity_is_verified: target.isVerified,
       is_adult: target.isAdult,
     }
+  }
+
+  // ---------------------------------------------------------------------------
+  // Appeals
+  // ---------------------------------------------------------------------------
+
+  private hasAppeal(targetId: string): boolean {
+    return this.appeals.some((a) => a.targetId === targetId)
+  }
+
+  async getHiddenPosts(batch: number): Promise<HiddenPost[]> {
+    const user = this.requireUser()
+    const hidden = this.posts
+      .filter((p) => p.authorId === user.id && p.hidden)
+      .sort((a, b) => b.creationTime - a.creationTime)
+    return this.batch(hidden, batch, POST_BATCH_SIZE).map((p) => ({
+      post_identifier: p.postIdentifier,
+      image_url: p.imageUrl,
+      caption: p.caption,
+      hidden_reason: p.hiddenReason,
+      creation_time: new Date(p.creationTime).toISOString(),
+      has_appeal: this.hasAppeal(p.postIdentifier),
+    }))
+  }
+
+  async getHiddenComments(batch: number): Promise<HiddenComment[]> {
+    const user = this.requireUser()
+    const hidden = this.commentThreads
+      .flatMap((t) => t.comments)
+      .filter((c) => c.authorId === user.id && c.hidden)
+      .sort((a, b) => b.creationTime - a.creationTime)
+    return this.batch(hidden, batch, COMMENT_BATCH_SIZE).map((c) => ({
+      comment_identifier: c.commentIdentifier,
+      body: c.body,
+      hidden_reason: c.hiddenReason,
+      creation_time: new Date(c.creationTime).toISOString(),
+      has_appeal: this.hasAppeal(c.commentIdentifier),
+    }))
+  }
+
+  async getMyAppeals(batch: number): Promise<MyAppeal[]> {
+    const user = this.requireUser()
+    const mine = this.appeals
+      .filter((a) => a.appellantId === user.id)
+      .sort((a, b) => b.creationTime - a.creationTime)
+    return this.batch(mine, batch, POST_BATCH_SIZE).map((a) => ({
+      appeal_identifier: a.appealIdentifier,
+      target_type: a.targetType,
+      target_identifier: a.targetId,
+      status: a.status,
+      reason: a.reason,
+      content_snapshot: a.contentSnapshot,
+      resolution_note: null,
+      creation_time: new Date(a.creationTime).toISOString(),
+      resolved_time: null,
+    }))
+  }
+
+  async submitAppeal(body: SubmitAppealRequest): Promise<SubmitAppealResponse> {
+    const user = this.requireUser()
+    let snapshot: string
+    if (body.target_type === 'post') {
+      const post = this.posts.find(
+        (p) => p.postIdentifier === body.target_identifier && p.authorId === user.id && p.hidden,
+      )
+      if (!post) {
+        throw new ApiError(400, 'No appealable item with that identifier')
+      }
+      snapshot = post.caption
+    } else {
+      const comment = this.commentThreads
+        .flatMap((t) => t.comments)
+        .find((c) => c.commentIdentifier === body.target_identifier && c.authorId === user.id && c.hidden)
+      if (!comment) {
+        throw new ApiError(400, 'No appealable item with that identifier')
+      }
+      snapshot = comment.body
+    }
+    if (this.hasAppeal(body.target_identifier)) {
+      throw new ApiError(400, 'This item has already been appealed')
+    }
+    const appeal: AppealMock = {
+      appealIdentifier: newId(),
+      appellantId: user.id,
+      targetType: body.target_type,
+      targetId: body.target_identifier,
+      reason: body.reason,
+      contentSnapshot: snapshot,
+      status: 'pending',
+      creationTime: Date.now(),
+    }
+    this.appeals.push(appeal)
+    return { appeal_identifier: appeal.appealIdentifier }
   }
 }

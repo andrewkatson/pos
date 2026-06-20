@@ -98,6 +98,13 @@ function SettingsTab() {
         <button
           type="button"
           className="settings-row"
+          onClick={() => navigate('/appeals')}
+        >
+          Hidden Content &amp; Appeals
+        </button>
+        <button
+          type="button"
+          className="settings-row"
           onClick={() => setActiveModal('privacy')}
         >
           Privacy Policy

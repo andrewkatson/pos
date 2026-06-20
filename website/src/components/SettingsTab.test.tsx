@@ -24,6 +24,7 @@ function renderTab() {
       <Routes>
         <Route path="/home" element={<SettingsTab />} />
         <Route path="/" element={<div>Landing page</div>} />
+        <Route path="/appeals" element={<div>Appeals page</div>} />
       </Routes>
     </MemoryRouter>,
   )
@@ -79,4 +80,10 @@ test('privacy policy can be shown', async () => {
   renderTab()
   await userEvent.click(screen.getByRole('button', { name: 'Privacy Policy' }))
   expect(screen.getByRole('dialog', { name: 'Privacy Policy' })).toBeInTheDocument()
+})
+
+test('opens the hidden content & appeals page', async () => {
+  renderTab()
+  await userEvent.click(screen.getByRole('button', { name: 'Hidden Content & Appeals' }))
+  expect(await screen.findByText('Appeals page')).toBeInTheDocument()
 })

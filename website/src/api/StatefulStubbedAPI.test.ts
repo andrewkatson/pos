@@ -198,3 +198,79 @@ test('password reset flow updates the password', async () => {
   })
   expect(login.username).toBe('ada')
 })
+
+// --- Appeals -----------------------------------------------------------------
+
+async function makeReportHiddenPost(api: StatefulStubbedAPI) {
+  await register(api, 'author')
+  const post = await api.createPost({
+    image_url: 'https://example.com/a.jpg',
+    caption: 'flagged caption',
+  })
+  // Report past the stub hide threshold (one report per distinct user).
+  for (let i = 0; i < 6; i += 1) {
+    await register(api, `reporter${i}`)
+    await api.reportPost(post.post_identifier, 'bad')
+  }
+  await api.login({ username_or_email: 'author', password: 'password123' })
+  return post
+}
+
+test('getHiddenPosts is empty when nothing is hidden', async () => {
+  const api = new StatefulStubbedAPI()
+  await register(api, 'author')
+  await api.createPost({ image_url: 'https://example.com/a.jpg', caption: 'fine' })
+
+  expect(await api.getHiddenPosts(0)).toEqual([])
+})
+
+test('a report-hidden post appears in getHiddenPosts with its reason', async () => {
+  const api = new StatefulStubbedAPI()
+  const post = await makeReportHiddenPost(api)
+
+  const hidden = await api.getHiddenPosts(0)
+  expect(hidden).toHaveLength(1)
+  expect(hidden[0].post_identifier).toBe(post.post_identifier)
+  expect(hidden[0].hidden_reason).toBe('reports')
+  expect(hidden[0].has_appeal).toBe(false)
+})
+
+test('appealing a hidden post records a pending appeal and flips has_appeal', async () => {
+  const api = new StatefulStubbedAPI()
+  const post = await makeReportHiddenPost(api)
+
+  const result = await api.submitAppeal({
+    target_type: 'post',
+    target_identifier: post.post_identifier,
+    reason: 'please reconsider',
+  })
+  expect(result.appeal_identifier).toBeTruthy()
+
+  const appeals = await api.getMyAppeals(0)
+  expect(appeals).toHaveLength(1)
+  expect(appeals[0].status).toBe('pending')
+  expect(appeals[0].reason).toBe('please reconsider')
+
+  const hidden = await api.getHiddenPosts(0)
+  expect(hidden[0].has_appeal).toBe(true)
+})
+
+test('cannot appeal a post that is not hidden', async () => {
+  const api = new StatefulStubbedAPI()
+  await register(api, 'author')
+  const post = await api.createPost({ image_url: 'https://example.com/a.jpg', caption: 'fine' })
+
+  await expect(
+    api.submitAppeal({ target_type: 'post', target_identifier: post.post_identifier, reason: 'x' }),
+  ).rejects.toThrow('No appealable item with that identifier')
+})
+
+test('cannot appeal the same item twice', async () => {
+  const api = new StatefulStubbedAPI()
+  const post = await makeReportHiddenPost(api)
+  await api.submitAppeal({ target_type: 'post', target_identifier: post.post_identifier, reason: 'a' })
+
+  await expect(
+    api.submitAppeal({ target_type: 'post', target_identifier: post.post_identifier, reason: 'b' }),
+  ).rejects.toThrow('already been appealed')
+})
