@@ -63,7 +63,9 @@ struct AppealsView: View {
         .navigationBarTitleDisplayMode(.inline)
         .task { await viewModel.load() }
         .refreshable { await viewModel.load() }
-        .sheet(item: $appealTarget) { target in appealSheet(target) }
+        // onDismiss clears the draft so an interactive swipe-down (which only
+        // nils appealTarget) doesn't leave stale reason text for the next appeal.
+        .sheet(item: $appealTarget, onDismiss: { reasonText = "" }) { target in appealSheet(target) }
         .alert("Error", isPresented: Binding(
             get: { viewModel.errorMessage != nil },
             set: { if !$0 { viewModel.errorMessage = nil } }

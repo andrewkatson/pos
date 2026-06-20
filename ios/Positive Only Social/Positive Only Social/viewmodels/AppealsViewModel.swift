@@ -36,6 +36,7 @@ final class AppealsViewModel: ObservableObject {
     /// Loads (or reloads) the first page of hidden content and filed appeals.
     func load() async {
         isLoading = true
+        errorMessage = nil  // clear any stale error from a previous load/submit
         defer { isLoading = false }
         do {
             guard let session = try loadSession() else {

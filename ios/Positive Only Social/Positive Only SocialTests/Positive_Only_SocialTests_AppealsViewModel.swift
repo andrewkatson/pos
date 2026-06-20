@@ -95,4 +95,18 @@ struct Positive_Only_SocialTests_AppealsViewModel {
         #expect(ok == false)
         #expect(vm.errorMessage != nil)
     }
+
+    @Test func testInvalidTargetTypeIsRejected() async throws {
+        let authorToken = try await register("author")
+        let account = "author_account"
+        try saveSession(token: authorToken, username: "author", account: account)
+        let vm = AppealsViewModel(api: stubAPI, keychainHelper: keychainHelper, account: account)
+
+        // "ban" is not appealable in-app; the stub must reject it, not treat it
+        // as a comment.
+        let ok = await vm.submitAppeal(targetType: "ban", targetIdentifier: "1", reason: "x")
+
+        #expect(ok == false)
+        #expect(vm.errorMessage != nil)
+    }
 }

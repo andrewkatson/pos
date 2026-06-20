@@ -922,16 +922,21 @@ final class StatefulStubbedAPI: Networking {
         guard let user = findUser(bySessionToken: sessionManagementToken) else { throw APIError.badServerResponse(statusCode: 401) }
 
         let snapshot: String
-        if targetType == "post" {
+        switch targetType {
+        case "post":
             guard let post = posts.first(where: { $0.postIdentifier == targetIdentifier && $0.authorId == user.id && $0.isHidden }) else {
                 throw APIError.serverError(statusCode: 400, serverMessage: "No appealable item with that identifier")
             }
             snapshot = post.caption
-        } else {
+        case "comment":
             guard let comment = comments.first(where: { $0.commentIdentifier == targetIdentifier && $0.authorUsername == user.username && $0.isHidden }) else {
                 throw APIError.serverError(statusCode: 400, serverMessage: "No appealable item with that identifier")
             }
             snapshot = comment.body
+        default:
+            // Match the backend, which rejects any target_type other than
+            // post/comment instead of silently treating it as a comment.
+            throw APIError.serverError(statusCode: 400, serverMessage: "Invalid target_type")
         }
 
         if hasAppeal(forTarget: targetIdentifier) {
