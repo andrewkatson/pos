@@ -124,7 +124,6 @@ struct MyPostsGridView: View {
                 // This is the trigger for infinite scrolling
                 .onAppear {
                     // If this post is the last one in the list, fetch the next page
-                    print("the view")
                     if post.id == viewModel.userPosts.last?.id {
                         viewModel.fetchMyPosts()
                     }
