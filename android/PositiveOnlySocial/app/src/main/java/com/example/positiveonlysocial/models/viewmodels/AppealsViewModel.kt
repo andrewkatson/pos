@@ -4,16 +4,19 @@ import android.util.Log
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.example.positiveonlysocial.api.PositiveOnlySocialAPI
+import com.example.positiveonlysocial.data.model.GenericResponse
 import com.example.positiveonlysocial.data.model.HiddenComment
 import com.example.positiveonlysocial.data.model.HiddenPost
 import com.example.positiveonlysocial.data.model.MyAppeal
 import com.example.positiveonlysocial.data.model.SubmitAppealRequest
 import com.example.positiveonlysocial.data.model.UserSession
 import com.example.positiveonlysocial.data.security.KeychainHelperProtocol
+import com.google.gson.Gson
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
+import retrofit2.Response
 
 private const val TAG = "AppealsViewModel"
 
@@ -44,6 +47,7 @@ class AppealsViewModel(
     val errorMessage: StateFlow<String?> = _errorMessage.asStateFlow()
 
     private val service = "positive-only-social.Positive-Only-Social"
+    private val gson = Gson()
 
     fun clearError() {
         _errorMessage.value = null
@@ -52,9 +56,23 @@ class AppealsViewModel(
     private fun session(): UserSession? =
         keychainHelper.load(UserSession::class.java, service, account)
 
+    /**
+     * Extracts the backend's `error` message from a failed response body so the
+     * UI shows the message rather than the raw `{"error": ...}` JSON.
+     */
+    private fun errorOf(response: Response<*>): String {
+        val raw = response.errorBody()?.string()
+        return try {
+            gson.fromJson(raw, GenericResponse::class.java)?.error ?: raw ?: "Request failed"
+        } catch (e: Exception) {
+            raw ?: "Request failed"
+        }
+    }
+
     /** Loads (or reloads) the first page of hidden content and filed appeals. */
     fun load() {
         _isLoading.value = true
+        _errorMessage.value = null // drop any stale error from a previous load/submit
         viewModelScope.launch {
             try {
                 val userSession = session()
@@ -68,17 +86,21 @@ class AppealsViewModel(
                 if (postsResp.isSuccessful) {
                     _hiddenPosts.value = postsResp.body() ?: emptyList()
                 } else {
-                    _errorMessage.value = postsResp.errorBody()?.string()
+                    _errorMessage.value = errorOf(postsResp)
                 }
 
                 val commentsResp = api.getHiddenComments(token, 0)
                 if (commentsResp.isSuccessful) {
                     _hiddenComments.value = commentsResp.body() ?: emptyList()
+                } else {
+                    _errorMessage.value = errorOf(commentsResp)
                 }
 
                 val appealsResp = api.getMyAppeals(token, 0)
                 if (appealsResp.isSuccessful) {
                     _appeals.value = appealsResp.body() ?: emptyList()
+                } else {
+                    _errorMessage.value = errorOf(appealsResp)
                 }
             } catch (e: Exception) {
                 _errorMessage.value = e.localizedMessage
@@ -114,7 +136,7 @@ class AppealsViewModel(
                     load()
                     onResult(true)
                 } else {
-                    _errorMessage.value = response.errorBody()?.string()
+                    _errorMessage.value = errorOf(response)
                     onResult(false)
                 }
             } catch (e: Exception) {

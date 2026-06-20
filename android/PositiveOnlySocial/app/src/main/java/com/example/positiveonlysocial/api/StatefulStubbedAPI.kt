@@ -706,15 +706,21 @@ class StatefulStubbedAPI : PositiveOnlySocialAPI {
     override suspend fun submitAppeal(token: String, request: SubmitAppealRequest): Response<SubmitAppealResponse> {
         val user = getAuthorizedUser(token) ?: return errorGeneric(401, "Unauthorized")
 
-        val snapshot: String = if (request.targetType == "post") {
-            val post = posts.find { it.postIdentifier == request.targetIdentifier && it.authorId == user.id && it.hidden }
-                ?: return errorGeneric(400, "No appealable item with that identifier")
-            post.caption
-        } else {
-            val comment = commentThreads.flatMap { it.comments }
-                .find { it.commentIdentifier == request.targetIdentifier && it.authorId == user.id && it.hidden }
-                ?: return errorGeneric(400, "No appealable item with that identifier")
-            comment.body
+        val snapshot: String = when (request.targetType) {
+            "post" -> {
+                val post = posts.find { it.postIdentifier == request.targetIdentifier && it.authorId == user.id && it.hidden }
+                    ?: return errorGeneric(400, "No appealable item with that identifier")
+                post.caption
+            }
+            "comment" -> {
+                val comment = commentThreads.flatMap { it.comments }
+                    .find { it.commentIdentifier == request.targetIdentifier && it.authorId == user.id && it.hidden }
+                    ?: return errorGeneric(400, "No appealable item with that identifier")
+                comment.body
+            }
+            // Match the backend, which rejects any target_type other than
+            // post/comment rather than treating it as a comment.
+            else -> return errorGeneric(400, "Invalid target_type")
         }
 
         if (hasAppeal(request.targetIdentifier)) {

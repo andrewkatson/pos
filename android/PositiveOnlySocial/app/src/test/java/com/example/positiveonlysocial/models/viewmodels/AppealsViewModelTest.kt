@@ -70,7 +70,7 @@ class AppealsViewModelTest {
     }
 
     @Test
-    fun `submitAppeal failure sets error and reports false`() = runTest {
+    fun `submitAppeal failure extracts the backend error message`() = runTest {
         val errorBody = "{\"error\":\"This item has already been appealed\"}"
             .toResponseBody("application/json".toMediaTypeOrNull())
         whenever(api.submitAppeal(any(), any())).thenReturn(Response.error(400, errorBody))
@@ -79,6 +79,7 @@ class AppealsViewModelTest {
         viewModel.submitAppeal("post", "p1", "again") { result = it }
 
         assertEquals(false, result)
-        assertNotNull(viewModel.errorMessage.value)
+        // The user sees the message, not the raw {"error": ...} JSON.
+        assertEquals("This item has already been appealed", viewModel.errorMessage.value)
     }
 }
