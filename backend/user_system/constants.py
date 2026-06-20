@@ -20,6 +20,12 @@ APPEAL_STATUS_PENDING = "pending"
 APPEAL_STATUS_APPROVED = "approved"
 APPEAL_STATUS_DENIED = "denied"
 
+# What an appeal can target.
+APPEAL_TARGET_POST = "post"
+APPEAL_TARGET_COMMENT = "comment"
+APPEAL_TARGET_BAN = "ban"
+APPEAL_TARGET_TYPES = (APPEAL_TARGET_POST, APPEAL_TARGET_COMMENT, APPEAL_TARGET_BAN)
+
 # Error code returned when an outright-banned user attempts to authenticate
 ACCOUNT_BANNED = "account_banned"
 
@@ -108,6 +114,14 @@ class Fields:
     verification_token = "verification_token"
     hidden = "hidden"
     hidden_reason = "hidden_reason"
+    appeal_identifier = "appeal_identifier"
+    status = "status"
+    resolution_note = "resolution_note"
+    resolved_time = "resolved_time"
+    content_snapshot = "content_snapshot"
+    target_type = "target_type"
+    target_identifier = "target_identifier"
+    has_appeal = "has_appeal"
 
 # Lengths of things
 LEN_LOGIN_COOKIE_TOKEN = 32
@@ -127,6 +141,7 @@ COMMENT_THREAD_BATCH_SIZE = 10
 # aware rather than restricted to ASCII bytes).
 MAX_CAPTION_LENGTH = 125
 MAX_COMMENT_LENGTH = 500
+MAX_APPEAL_REASON_LENGTH = 1000
 
 # Number of reports before hiding
 MAX_BEFORE_HIDING_POST = 10

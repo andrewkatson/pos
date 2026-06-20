@@ -4,7 +4,6 @@ import json
 import logging
 import secrets
 from datetime import datetime, date, timedelta
-from urllib.parse import urlparse
 
 from functools import wraps
 
@@ -12,7 +11,7 @@ from django.conf import settings
 from django.contrib.auth import login, logout, get_user_model
 from django.contrib.auth.hashers import check_password
 from django.core.mail import send_mail
-from django.db import transaction
+from django.db import transaction, IntegrityError
 from django.http import JsonResponse
 from django.utils import timezone
 from django.views.decorators.csrf import csrf_exempt
@@ -26,13 +25,16 @@ from .constants import Patterns, Params, POST_BATCH_SIZE, MAX_BEFORE_HIDING_POST
     COMMENT_BATCH_SIZE, Fields, COMMENT_THREAD_BATCH_SIZE, \
     VERIFY_RESET_MAX_ATTEMPTS, VERIFY_RESET_LOCKOUT_MINUTES, \
     ACCOUNT_BANNED, BAN_TYPE_OUTRIGHT, \
-    HIDDEN_REASON_NONE, HIDDEN_REASON_REPORTS, HIDDEN_REASON_CLASSIFIER
+    HIDDEN_REASON_NONE, HIDDEN_REASON_REPORTS, HIDDEN_REASON_CLASSIFIER, \
+    APPEAL_TARGET_POST, APPEAL_TARGET_COMMENT, APPEAL_TARGET_BAN, \
+    MAX_APPEAL_REASON_LENGTH
 from .feed_algorithm import feed_algorithm
 from .input_validator import is_valid_pattern
 from .models import LoginCookie, Session, Post, CommentThread, PositiveOnlySocialUser, Comment, UserBlock, UserBan, \
-    KnownDevice
+    KnownDevice, Appeal
 from .utils import convert_to_bool, generate_login_cookie_token, generate_management_token, generate_series_identifier, \
-    get_batch, get_compressed_image_url
+    get_batch, get_queryset_batch, get_compressed_image_url
+from .s3 import delete_image, image_url_to_key
 from .visibility import can_view_post, searchable_users, visible_comment_threads, visible_comments, visible_posts
 
 image_classifier_class = image_classifier
@@ -772,15 +774,8 @@ def make_post(request):
     if not image_url or not is_valid_pattern(image_url, Patterns.image_url):
         invalid_fields.append(Params.image)
     else:
-        parsed = urlparse(image_url)
-        key = parsed.path.lstrip('/')
-        # For path-hosted URLs (s3[.-]region.amazonaws.com/bucket/key), strip the bucket segment.
-        # Match exactly "s3" or "s3-<region>" first labels (per the accepted image_url regex),
-        # but not bucket names that happen to start with "s3" (e.g. s3bucket.s3.amazonaws.com).
-        first_label = parsed.hostname.split('.')[0] if parsed.hostname else ''
-        if first_label == 's3' or first_label.startswith('s3-'):
-            _, _, key = key.partition('/')
-        if not key.startswith(f"{request.user.id}/"):
+        # The key must be scoped to this user (clients upload to `{user_id}/...`).
+        if not image_url_to_key(image_url).startswith(f"{request.user.id}/"):
             invalid_fields.append(Params.image)
     if not caption or not is_valid_pattern(caption, Patterns.alphanumeric_with_special_chars):
         invalid_fields.append(Params.caption)
@@ -800,11 +795,15 @@ def make_post(request):
     text_result = text_classifier_class.is_text_positive(caption)
     if not text_result and not text_result.appealable:
         logger.warning(f"Make post failed: Caption not positive (final) for user_id: {request.user.id}")
+        # The post is never created, so clean up the image the client already
+        # uploaded rather than orphaning it in S3.
+        delete_image(image_url)
         return log_and_return_json("make_post", {'error': "Text is not positive"}, status=400)
 
     image_result = image_classifier_class.is_image_positive(image_url)
     if not image_result and not image_result.appealable:
         logger.warning(f"Make post failed: Image not positive (final) for user_id: {request.user.id}")
+        delete_image(image_url)
         return log_and_return_json("make_post", {'error': "Image is not positive"}, status=400)
 
     # Any remaining rejection is appealable, so post it but hide it pending
@@ -840,7 +839,11 @@ def delete_post(request, post_identifier):
 
     try:
         post = request.user.post_set.get(post_identifier=post_identifier)
+        image_url = post.image_url
         post.delete()
+        # Remove the backing image from both buckets so deleting a post does not
+        # orphan its S3 objects.
+        delete_image(image_url)
         logger.info(f"Post deleted successfully: post_id: {post_identifier} by user_id: {request.user.id}")
         return log_and_return_json("delete_post", {'message': 'Post deleted'})
     except Post.DoesNotExist:
@@ -1646,3 +1649,206 @@ def get_profile_details(request, username):
     }
 
     return log_and_return_json("get_profile_details", data, status=200)
+
+
+# =============================================================================
+# APPEALS
+# =============================================================================
+
+def _appeal_target_type(appeal):
+    """The kind of thing an appeal targets, or None if its target was deleted
+    when the appeal was resolved (e.g. a denied post)."""
+    if appeal.post_id:
+        return APPEAL_TARGET_POST
+    if appeal.comment_id:
+        return APPEAL_TARGET_COMMENT
+    if appeal.ban_id:
+        return APPEAL_TARGET_BAN
+    return None
+
+
+def _appeal_target_identifier(appeal):
+    if appeal.post_id:
+        return appeal.post_id
+    if appeal.comment_id:
+        return appeal.comment_id
+    if appeal.ban_id:
+        return appeal.ban_id
+    return None
+
+
+@api_login_required
+@ratelimit(key='user', rate='60/m', block=True)
+@require_GET
+def get_hidden_posts(request, batch):
+    """The requesting user's own hidden posts, so they can see what was hidden
+    and decide whether to appeal."""
+    logger.info("Endpoint get_hidden_posts invoked by IP or User")
+    if batch < 0:
+        return log_and_return_json("get_hidden_posts", {'error': "Invalid batch parameter"}, status=400)
+
+    hidden = request.user.post_set.filter(hidden=True).order_by('-creation_time')
+    batched = get_queryset_batch(hidden, batch, POST_BATCH_SIZE)
+    appealed_ids = set(
+        Appeal.objects.filter(post__in=batched).values_list('post_id', flat=True)
+    )
+    data = [
+        {
+            Fields.post_identifier: post.post_identifier,
+            Fields.image_url: get_compressed_image_url(post.image_url),
+            Fields.caption: post.caption,
+            Fields.hidden_reason: post.hidden_reason,
+            Fields.creation_time: post.creation_time,
+            Fields.has_appeal: post.post_identifier in appealed_ids,
+        }
+        for post in batched
+    ]
+    return log_and_return_json("get_hidden_posts", data, safe=False)
+
+
+@api_login_required
+@ratelimit(key='user', rate='60/m', block=True)
+@require_GET
+def get_hidden_comments(request, batch):
+    """The requesting user's own hidden comments."""
+    logger.info("Endpoint get_hidden_comments invoked by IP or User")
+    if batch < 0:
+        return log_and_return_json("get_hidden_comments", {'error': "Invalid batch parameter"}, status=400)
+
+    hidden = Comment.objects.filter(author=request.user, hidden=True).order_by('-creation_time')
+    batched = get_queryset_batch(hidden, batch, COMMENT_BATCH_SIZE)
+    appealed_ids = set(
+        Appeal.objects.filter(comment__in=batched).values_list('comment_id', flat=True)
+    )
+    data = [
+        {
+            Fields.comment_identifier: comment.comment_identifier,
+            Fields.body: comment.body,
+            Fields.hidden_reason: comment.hidden_reason,
+            Fields.creation_time: comment.creation_time,
+            Fields.has_appeal: comment.comment_identifier in appealed_ids,
+        }
+        for comment in batched
+    ]
+    return log_and_return_json("get_hidden_comments", data, safe=False)
+
+
+@api_login_required
+@ratelimit(key='user', rate='60/m', block=True)
+@require_GET
+def get_my_appeals(request, batch):
+    """The requesting user's appeals and their current status."""
+    logger.info("Endpoint get_my_appeals invoked by IP or User")
+    if batch < 0:
+        return log_and_return_json("get_my_appeals", {'error': "Invalid batch parameter"}, status=400)
+
+    appeals = request.user.appeals.order_by('-created')
+    batched = get_queryset_batch(appeals, batch, POST_BATCH_SIZE)
+    data = [
+        {
+            Fields.appeal_identifier: appeal.appeal_identifier,
+            Fields.target_type: _appeal_target_type(appeal),
+            Fields.target_identifier: _appeal_target_identifier(appeal),
+            Fields.status: appeal.status,
+            Fields.reason: appeal.reason,
+            Fields.content_snapshot: appeal.content_snapshot,
+            Fields.resolution_note: appeal.resolution_note,
+            Fields.creation_time: appeal.created,
+            Fields.resolved_time: appeal.resolved_time,
+        }
+        for appeal in batched
+    ]
+    return log_and_return_json("get_my_appeals", data, safe=False)
+
+
+def _resolve_appeal_target(request, target_type, target_identifier):
+    """Resolve and authorize the content an appeal targets. Returns
+    (target_field, target_object, content_snapshot) or None if the caller may
+    not appeal it (not theirs, not hidden, or not found).
+
+    Only posts and comments are appealable in-app. Ban appeals go through the
+    email-reply flow (see the suspension email) because an outright-banned user
+    has no session and cannot reach an authenticated endpoint."""
+    if target_type == APPEAL_TARGET_POST:
+        if not is_valid_pattern(target_identifier, Patterns.uuid4):
+            return None
+        post = request.user.post_set.filter(post_identifier=target_identifier, hidden=True).first()
+        if post is None:
+            return None
+        return APPEAL_TARGET_POST, post, post.caption
+    if target_type == APPEAL_TARGET_COMMENT:
+        if not is_valid_pattern(target_identifier, Patterns.uuid4):
+            return None
+        comment = Comment.objects.filter(
+            author=request.user, comment_identifier=target_identifier, hidden=True
+        ).first()
+        if comment is None:
+            return None
+        return APPEAL_TARGET_COMMENT, comment, comment.body
+    return None
+
+
+@csrf_exempt
+@api_login_required
+@ratelimit(key='user', rate='10/h', block=True)
+@require_POST
+def submit_appeal(request):
+    """File an appeal against a hidden post or a hidden comment. One appeal per
+    item: an item that already has an appeal (pending or resolved) cannot be
+    appealed again. Ban appeals are not handled here — an outright-banned user
+    has no session, so those go through the email-reply flow in the suspension
+    email instead."""
+    logger.info("Endpoint submit_appeal invoked by IP or User")
+    data = _get_json_body(request)
+    if data is None:
+        return log_and_return_json("submit_appeal", {'error': "Invalid JSON data"}, status=400)
+
+    target_type = data.get(Fields.target_type)
+    target_identifier = data.get(Fields.target_identifier)
+    reason = data.get(Fields.reason)
+
+    # JSON values can be any type; reject non-string id/reason up front so the
+    # validation below can't crash on them (UUID()/len() on a non-string would
+    # otherwise 500).
+    if target_type not in (APPEAL_TARGET_POST, APPEAL_TARGET_COMMENT):
+        return log_and_return_json("submit_appeal", {'error': "Invalid target_type"}, status=400)
+    if not isinstance(target_identifier, str):
+        return log_and_return_json("submit_appeal", {'error': "Invalid target_identifier"}, status=400)
+    if not isinstance(reason, str) or not reason or not is_valid_pattern(reason, Patterns.alphanumeric_with_special_chars):
+        return log_and_return_json("submit_appeal", {'error': "Invalid reason"}, status=400)
+    if len(reason) > MAX_APPEAL_REASON_LENGTH:
+        return log_and_return_json(
+            "submit_appeal",
+            {'error': f"Reason exceeds maximum length of {MAX_APPEAL_REASON_LENGTH} characters"},
+            status=400,
+        )
+
+    resolved = _resolve_appeal_target(request, target_type, target_identifier)
+    if resolved is None:
+        logger.warning(f"Submit appeal failed: target not found/appealable for user_id: {request.user.id}")
+        return log_and_return_json("submit_appeal", {'error': "No appealable item with that identifier"}, status=400)
+
+    target_field, target_object, content_snapshot = resolved
+
+    # One appeal per item, regardless of status: an approval un-hides or a denial
+    # removes the item, so a second appeal should never be needed. The exists()
+    # check gives a friendly error in the common case; the unique constraint on
+    # Appeal.post/comment is the real guard against two concurrent submissions
+    # both passing this check.
+    if Appeal.objects.filter(**{target_field: target_object}).exists():
+        logger.warning(f"Submit appeal failed: item already appealed for user_id: {request.user.id}")
+        return log_and_return_json("submit_appeal", {'error': "This item has already been appealed"}, status=400)
+
+    try:
+        appeal = Appeal.objects.create(
+            appellant=request.user,
+            reason=reason,
+            content_snapshot=content_snapshot,
+            **{target_field: target_object},
+        )
+    except IntegrityError:
+        logger.warning(f"Submit appeal race: item already appealed for user_id: {request.user.id}")
+        return log_and_return_json("submit_appeal", {'error': "This item has already been appealed"}, status=400)
+
+    logger.info(f"Appeal submitted: appeal_id: {appeal.appeal_identifier} ({target_type}) for user_id: {request.user.id}")
+    return log_and_return_json("submit_appeal", {Fields.appeal_identifier: appeal.appeal_identifier}, status=201)

@@ -63,3 +63,46 @@ The IP recorded at registration is treated as already-known, so a user's first
 real login from the device they signed up on is not flagged. Both the
 password login and the remember-me login paths perform the check. Sending the
 email is best-effort — a mail failure is logged but never blocks the login.
+
+## Post image cleanup
+
+Post images live in two S3 buckets: clients upload the original to the source
+bucket (`AWS_STORAGE_BUCKET_NAME`) and a Lambda mirrors a compressed copy to
+`AWS_COMPRESSED_STORAGE_BUCKET_NAME` under the same key. Because the upload
+happens before the backend ever sees the post, images can be left behind:
+when a post is rejected outright by the classifier, deleted, or its appeal is
+denied. Cleanup happens at two levels (see `backend/user_system/s3.py`):
+
+- **Inline** — `delete_image` removes the key from both buckets the moment a
+  post is outright-rejected or deleted. It is best-effort: failures are logged
+  and never block the request.
+- **Sweeper** — the `cleanup_orphan_images` management command lists both
+  buckets and deletes any object no live `Post` references. A grace window
+  (default 24h, `--grace-hours`) protects objects too new to have become a post
+  yet and the brief window where the Lambda writes a compressed copy just after
+  a rejection cleaned up the original. Run it with `--dry-run` to preview. It is
+  scheduled as a daily systemd timer on the app host (`setup-django.sh`), not in
+  CI, because it needs both the database and AWS credentials.
+
+The backend's IAM credentials need `s3:DeleteObject` on both buckets for either
+path to take effect, plus `s3:ListBucket` on both buckets for the sweeper to
+enumerate them (without it `cleanup_orphan_images` fails with AccessDenied).
+
+## Appeals
+
+A user can appeal moderation actions. Each appeal is an `Appeal` record (see
+`backend/user_system/models.py`) that targets exactly one of a hidden post, a
+hidden comment, or a ban, and carries the user's reason plus an admin
+resolution trail.
+
+- **Content appeals** (hidden posts and comments) are filed in-app. A signed-in
+  user can list their own hidden posts/comments and their existing appeals, and
+  submit an appeal, via the `appeals/...` endpoints. Both classifier-hidden and
+  report-hidden content is appealable. An item can be appealed only once.
+- **Ban appeals** go through the email-reply flow described in the suspension
+  email, not an in-app endpoint: an outright-banned user has no active session
+  and cannot log in, so they cannot reach an authenticated endpoint. Admins can
+  record such an appeal against the ban for the audit trail.
+
+Admins review appeals and either approve them — reversing the moderation action
+(un-hiding the content) — or deny them.

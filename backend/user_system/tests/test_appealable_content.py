@@ -99,6 +99,35 @@ class MakePostAppealableTests(PositiveOnlySocialTestCase):
         self.assertEqual(response.status_code, 400)
         self.assertEqual(self.user.post_set.count(), 0)
 
+    @patch('user_system.views.delete_image')
+    @patch(IMAGE, return_value=ALLOWED)
+    @patch(TEXT, return_value=FINAL_REJECT)
+    def test_final_caption_rejection_deletes_uploaded_image(self, _text, _image, mock_delete):
+        self._post()
+        mock_delete.assert_called_once_with(self.data['image_url'])
+
+    @patch('user_system.views.delete_image')
+    @patch(IMAGE, return_value=FINAL_REJECT)
+    @patch(TEXT, return_value=ALLOWED)
+    def test_final_image_rejection_deletes_uploaded_image(self, _text, _image, mock_delete):
+        self._post()
+        mock_delete.assert_called_once_with(self.data['image_url'])
+
+    @patch('user_system.views.delete_image')
+    @patch(IMAGE, return_value=ALLOWED)
+    @patch(TEXT, return_value=APPEALABLE)
+    def test_appealable_post_keeps_uploaded_image(self, _text, _image, mock_delete):
+        """An appealable post is created hidden, so its image must be kept."""
+        self._post()
+        mock_delete.assert_not_called()
+
+    @patch('user_system.views.delete_image')
+    @patch(IMAGE, return_value=ALLOWED)
+    @patch(TEXT, return_value=ALLOWED)
+    def test_allowed_post_keeps_uploaded_image(self, _text, _image, mock_delete):
+        self._post()
+        mock_delete.assert_not_called()
+
 
 class CommentAppealableTests(PositiveOnlySocialTestCase):
     """comment_on_post and reply_to_comment_thread hide appealable rejections."""

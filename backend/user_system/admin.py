@@ -3,8 +3,8 @@ from django.contrib.auth.admin import UserAdmin
 from django.db.models import Prefetch
 from django.utils import timezone
 
-from .constants import BAN_TYPE_OUTRIGHT, BAN_TYPE_SHADOW
-from .models import LoginCookie, PositiveOnlySocialUser, Session, UserBan, notify_user_of_outright_ban
+from .constants import BAN_TYPE_OUTRIGHT, BAN_TYPE_SHADOW, APPEAL_STATUS_PENDING
+from .models import Appeal, LoginCookie, PositiveOnlySocialUser, Session, UserBan, notify_user_of_outright_ban
 
 _SUPERUSER_ONLY_FIELDS = frozenset(("is_staff", "is_superuser", "groups", "user_permissions"))
 _ALWAYS_READONLY_FIELDS = ("verification_token", "verification_token_expires",
@@ -148,5 +148,53 @@ class UserBanAdmin(admin.ModelAdmin):
         super().save_model(request, obj, form, change)
 
 
+class AppealAdmin(admin.ModelAdmin):
+    list_display = ("appellant", "target_kind", "status", "created", "resolved_time", "resolved_by")
+    list_filter = ("status",)
+    search_fields = ("appellant__username",)
+    # Appeals are user-submitted and resolved via the approve/deny actions, so
+    # every field is read-only in the form — admins act, they don't hand-edit.
+    readonly_fields = ("appeal_identifier", "appellant", "post", "comment", "ban",
+                       "reason", "content_snapshot", "status", "created",
+                       "resolved_time", "resolved_by", "resolution_note")
+    actions = ("approve_appeals", "deny_appeals")
+
+    @admin.display(description="Target")
+    def target_kind(self, appeal):
+        return appeal.target_kind or "—"
+
+    def _resolve(self, request, queryset, approve):
+        if not request.user.has_perm('user_system.change_appeal'):
+            self.message_user(request, "You do not have permission to resolve appeals.", messages.ERROR)
+            return
+
+        # Only pending appeals can be resolved; resolving is irreversible (a
+        # denied post is deleted, an approved one un-hidden), so skip the rest.
+        selected = list(queryset)
+        pending = [appeal for appeal in selected if appeal.status == APPEAL_STATUS_PENDING]
+        for appeal in pending:
+            if approve:
+                appeal.approve(resolved_by=request.user)
+            else:
+                appeal.deny(resolved_by=request.user)
+
+        resolved = len(pending)
+        skipped = len(selected) - resolved
+        verb = "Approved" if approve else "Denied"
+        message = f"{verb} {resolved} appeal(s)."
+        if skipped:
+            message += f" Skipped {skipped} already-resolved."
+        self.message_user(request, message)
+
+    @admin.action(description="Approve selected appeals (reverse the moderation action)")
+    def approve_appeals(self, request, queryset):
+        self._resolve(request, queryset, approve=True)
+
+    @admin.action(description="Deny selected appeals")
+    def deny_appeals(self, request, queryset):
+        self._resolve(request, queryset, approve=False)
+
+
 admin.site.register(PositiveOnlySocialUser, PositiveOnlySocialUserAdmin)
 admin.site.register(UserBan, UserBanAdmin)
+admin.site.register(Appeal, AppealAdmin)
