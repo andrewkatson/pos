@@ -114,5 +114,9 @@ fun NavGraph(
             val postId = backStackEntry.arguments?.getString("postId") ?: ""
             PostDetailScreen(navController, api, keychainHelper, postId)
         }
+
+        composable(Screen.Appeals.route) {
+            AppealsScreen(navController, api, keychainHelper)
+        }
     }
 }

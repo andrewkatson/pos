@@ -21,4 +21,5 @@ sealed class Screen(val route: String) {
         fun createRoute(username: String) = "profile/$username"
     }
     object Settings : Screen("settings")
+    object Appeals : Screen("appeals")
 }

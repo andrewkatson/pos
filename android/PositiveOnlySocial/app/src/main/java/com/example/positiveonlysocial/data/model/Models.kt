@@ -77,7 +77,13 @@ data class CreatePostRequest(
 )
 
 data class CreatePostResponse(
-    @SerializedName("post_identifier") val postIdentifier: String
+    @SerializedName("post_identifier") val postIdentifier: String,
+    // Present (true) when the post was created hidden pending appeal — the
+    // classifier flagged it but the rejection is appealable. Absent/false for
+    // a normal post.
+    val hidden: Boolean = false,
+    @SerializedName("hidden_reason") val hiddenReason: String? = null,
+    val message: String? = null
 )
 
 data class ReportRequest(
@@ -186,4 +192,44 @@ data class CommentViewData(
 data class CommentThreadViewData(
     val id: String,
     val comments: List<CommentViewData>
+)
+// =============================================================================
+// APPEALS (backend appeal endpoints)
+// =============================================================================
+
+/** One of the signed-in user's hidden posts, from the appeals endpoint. */
+data class HiddenPost(
+    @SerializedName("post_identifier") val postIdentifier: String,
+    @SerializedName("image_url") val imageUrl: String,
+    val caption: String,
+    @SerializedName("hidden_reason") val hiddenReason: String = "",
+    @SerializedName("has_appeal") val hasAppeal: Boolean = false
+)
+
+/** One of the signed-in user's hidden comments. */
+data class HiddenComment(
+    @SerializedName("comment_identifier") val commentIdentifier: String,
+    val body: String,
+    @SerializedName("hidden_reason") val hiddenReason: String = "",
+    @SerializedName("has_appeal") val hasAppeal: Boolean = false
+)
+
+/** An appeal the signed-in user has filed, with its current status. */
+data class MyAppeal(
+    @SerializedName("appeal_identifier") val appealIdentifier: String,
+    @SerializedName("target_type") val targetType: String?,
+    val status: String,
+    val reason: String,
+    @SerializedName("content_snapshot") val contentSnapshot: String?,
+    @SerializedName("resolution_note") val resolutionNote: String?
+)
+
+data class SubmitAppealRequest(
+    @SerializedName("target_type") val targetType: String,
+    @SerializedName("target_identifier") val targetIdentifier: String,
+    val reason: String
+)
+
+data class SubmitAppealResponse(
+    @SerializedName("appeal_identifier") val appealIdentifier: String
 )

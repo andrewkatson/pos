@@ -254,7 +254,13 @@ fun SettingsScreen(
             }
 
             HorizontalDivider()
-            
+
+            ListListItem(text = "Hidden Content & Appeals") {
+                navController.navigate(Screen.Appeals.route)
+            }
+
+            HorizontalDivider()
+
             ListListItem(text = "Logout", textColor = Color.Red) {
                 showingLogoutConfirm = true
             }
