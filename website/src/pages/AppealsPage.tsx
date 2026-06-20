@@ -57,6 +57,7 @@ function AppealsView() {
 
   const load = useCallback(async () => {
     try {
+      if (isMounted.current) setErrorMessage(null) // drop any stale error before reloading
       const [posts, comments, mine] = await Promise.all([
         apiClient.getHiddenPosts(0),
         apiClient.getHiddenComments(0),

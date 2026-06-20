@@ -274,3 +274,13 @@ test('cannot appeal the same item twice', async () => {
     api.submitAppeal({ target_type: 'post', target_identifier: post.post_identifier, reason: 'b' }),
   ).rejects.toThrow('already been appealed')
 })
+
+test('rejects an invalid appeal target type', async () => {
+  const api = new StatefulStubbedAPI()
+  await register(api, 'author')
+
+  await expect(
+    // 'ban' is not appealable in-app; cast past the type to exercise the guard.
+    api.submitAppeal({ target_type: 'ban' as never, target_identifier: '1', reason: 'x' }),
+  ).rejects.toThrow('Invalid target_type')
+})

@@ -848,7 +848,7 @@ export class StatefulStubbedAPI implements PositiveOnlySocialAPI {
         throw new ApiError(400, 'No appealable item with that identifier')
       }
       snapshot = post.caption
-    } else {
+    } else if (body.target_type === 'comment') {
       const comment = this.commentThreads
         .flatMap((t) => t.comments)
         .find((c) => c.commentIdentifier === body.target_identifier && c.authorId === user.id && c.hidden)
@@ -856,6 +856,10 @@ export class StatefulStubbedAPI implements PositiveOnlySocialAPI {
         throw new ApiError(400, 'No appealable item with that identifier')
       }
       snapshot = comment.body
+    } else {
+      // Match the backend, which rejects any target_type other than
+      // post/comment rather than treating it as a comment.
+      throw new ApiError(400, 'Invalid target_type')
     }
     if (this.hasAppeal(body.target_identifier)) {
       throw new ApiError(400, 'This item has already been appealed')
