@@ -341,7 +341,6 @@ final class PostDetailViewModel: ObservableObject {
         guard !isOwnComment(comment) else { return }
         NSLog("%@", "ACTION: Like comment \(comment.id)")
 
-        // --- ⬇️ ADDED OPTIMISTIC UPDATE ⬇️ ---
         // Find the index of the thread
         guard let threadIndex = commentThreads.firstIndex(where: { $0.id == comment.threadId }) else {
             NSLog("%@", "Error: Could not find thread for optimistic update.")
@@ -370,7 +369,6 @@ final class PostDetailViewModel: ObservableObject {
         
         // Replace the old comment with the new one in the published array
         commentThreads[threadIndex].comments[commentIndex] = newComment
-        // --- ⬆️ END OF OPTIMISTIC UPDATE ⬆️ ---
 
         Task {
             do {
@@ -393,7 +391,6 @@ final class PostDetailViewModel: ObservableObject {
     func unlikeComment(_ comment: CommentViewData) {
         NSLog("%@", "ACTION: unliking comment \(comment.id)")
         
-        // --- ⬇️ ADDED OPTIMISTIC UPDATE ⬇️ ---
         guard let threadIndex = commentThreads.firstIndex(where: { $0.id == comment.threadId }) else {
             NSLog("%@", "Error: Could not find thread for optimistic update.")
             return
@@ -419,7 +416,6 @@ final class PostDetailViewModel: ObservableObject {
         )
         
         commentThreads[threadIndex].comments[commentIndex] = newComment
-        // --- ⬆️ END OF OPTIMISTIC UPDATE ⬆️ ---
 
         Task {
             do {

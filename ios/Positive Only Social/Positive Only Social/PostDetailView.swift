@@ -40,7 +40,6 @@ struct PostDetailView: View {
                     .padding()
             } else if let post = viewModel.postDetail {
                 VStack(alignment: .leading, spacing: 12) {
-                    // --- POST IMAGE ---
                     // Using AsyncImage for network URLs
                     AsyncImage(url: URL(string: post.imageURL)) { image in
                         image
@@ -59,7 +58,6 @@ struct PostDetailView: View {
                     .accessibilityAddTraits(.isImage)
                     .accessibilityAddTraits(.isButton)  // Makes it clear it's tappable
                     // --- Image Interactions ---
-                    // --- UPDATED ---
                     .onTapGesture(count: 2) {
                         // The backend rejects liking your own post, so double-tap
                         // is a no-op on the current user's own post.
@@ -75,7 +73,6 @@ struct PostDetailView: View {
                         viewModel.showActionSheetForPost = true
                     }
 
-                    // --- POST DETAILS (CAPTION, LIKES) ---
                     VStack(alignment: .leading, spacing: 8) {
                         HStack {
                             // Hide the like heart on the current user's own post;
@@ -132,7 +129,6 @@ struct PostDetailView: View {
                     }
                     .padding()
                     
-                    // --- COMMENTS SECTION ---
                     Text("Comments")
                         .font(.headline)
                         .padding(.horizontal)
@@ -355,7 +351,6 @@ struct PostDetailView: View {
             }
             .padding(.vertical, 8)
             // --- Interactions ---
-            // --- UPDATED ---
             .onTapGesture(count: 2) {
                 // The backend rejects liking your own comment, so double-tap is
                 // a no-op on the current user's own comment.
@@ -391,7 +386,7 @@ struct PostDetailView: View {
                                    onLike: {
                                        viewModel.likeComment(rootComment)
                                    },
-                                   onUnlike: { // --- ADDED ---
+                                   onUnlike: {
                                        viewModel.unlikeComment(rootComment)
                                    },
                                    onLongPress: {
@@ -424,14 +419,13 @@ struct PostDetailView: View {
                     // Indent replies
                     VStack(alignment: .leading, spacing: 0) {
                         ForEach(thread.comments.dropFirst()) { reply in
-                            // --- UPDATED ---
                             CommentRowView(comment: reply,
                                            isReported: viewModel.reportedCommentIds.contains(reply.id),
                                            isOwn: viewModel.isOwnComment(reply),
                                            onLike: {
                                                viewModel.likeComment(reply)
                                            },
-                                           onUnlike: { // --- ADDED ---
+                                           onUnlike: {
                                                viewModel.unlikeComment(reply)
                                            },
                                            onLongPress: {

@@ -152,7 +152,6 @@ struct NewPostView: View {
                 // Reload the Home grid so the new post appears there immediately.
                 await homeViewModel.refreshMyPosts()
 
-                // --- SUCCESS ---
                 // Reset the form and show the success alert
                 isLoading = false
                 caption = ""
@@ -161,7 +160,6 @@ struct NewPostView: View {
                 showSuccessAlert = true // This will trigger the success alert
                 
             } catch {
-                // --- FAILURE ---
                 // Set the error message and show the failure alert
                 failureAlertMessage =
                 "Failed to share post. Error: \(error.localizedDescription)"
