@@ -66,7 +66,10 @@ final class AppealsViewModel: ObservableObject {
     /// "comment". Returns true on success (and reloads so the lists update).
     func submitAppeal(targetType: String, targetIdentifier: String, reason: String) async -> Bool {
         do {
-            guard let session = try loadSession() else { return false }
+            guard let session = try loadSession() else {
+                errorMessage = "You must be logged in to file an appeal."
+                return false
+            }
             _ = try await api.submitAppeal(
                 sessionManagementToken: session.sessionToken,
                 targetType: targetType,
