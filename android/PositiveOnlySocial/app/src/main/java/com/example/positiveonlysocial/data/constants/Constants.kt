@@ -7,9 +7,6 @@ import gvo_constants.* // Target binding package
 object Constants {
      //TODO (@eBlender) INTEGRATE THIS ONCE ABLE TO COMPILE THIS on PC//
     val isUnitTesting = false
-    // Error code the backend returns when the account has an active outright ban.
-    val accountBanned: String = GVO_accountBanned.toKString()
-    val accountSuspendedMessage: String = GVO_accountSuspendedMessage.toKString()
 
     // Error code the backend returns when the account has an active outright ban.
     const val ACCOUNT_BANNED = "account_banned"
