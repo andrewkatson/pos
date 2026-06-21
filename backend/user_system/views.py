@@ -299,7 +299,17 @@ def register(request):
     new_user.identity_is_verified = True if date_of_birth_str else False
     new_user.is_adult = is_adult
     new_user.save()
-
+   
+    try:
+        send_mail(
+        "Welcome to Good Vibes Only",
+        f"Hi{new_user.username},\n\n Thank you for registering",
+        settings.EMAIL_HOST_USER,
+        [new_user.email],
+        fail_silently=False,
+        )
+    except Exception:
+        logger.exception("Failed to send welcome email for user: %s",new_user.id)
     new_login_cookie = None
     if remember_me:
         new_login_cookie = new_user.logincookie_set.create(series_identifier=generate_series_identifier(),
@@ -390,7 +400,6 @@ def login_user(request):
     except TypeError:
         remember_me = False
         invalid_fields.append(Params.remember_me)
-
     if len(invalid_fields) > 0:
         return log_and_return_json("login_user", {'error': f"Invalid fields {invalid_fields}"}, status=400)
 
@@ -579,7 +588,7 @@ def request_reset(request):
             "Password Reset",
             f"Your password reset verification token is:\n\n{token}\n\nEnter this in the app to proceed. It expires in 1 hour.",
             settings.EMAIL_HOST_USER,
-            [user.email]
+            [user.email],
         )
 
         user.verification_token = token_hash

@@ -1,6 +1,5 @@
 from django.core import mail
 from django.urls import reverse
-
 from .test_constants import false, true
 from .test_parent_case import PositiveOnlySocialTestCase
 from ..models import KnownDevice, PositiveOnlySocialUser
@@ -19,7 +18,8 @@ class NewDeviceEmailTests(PositiveOnlySocialTestCase):
         super().setUp()
         super().register_user_and_setup_local_fields()
         self.login_url = reverse('login_user')
-
+        self.registration_email= list(mail.outbox)
+        mail.outbox.clear()
     def _login(self, remote_addr, remember_me=false):
         data = {
             'username_or_email': self.local_username,
@@ -37,7 +37,9 @@ class NewDeviceEmailTests(PositiveOnlySocialTestCase):
     def test_registration_records_device_without_emailing(self):
         user = PositiveOnlySocialUser.objects.get(username=self.local_username)
         self.assertTrue(KnownDevice.objects.filter(user=user, ip=REGISTRATION_IP).exists())
-        self.assertEqual(len(mail.outbox), 0)
+        self.assertEqual(len(self.registration_email), 1)
+        self.assertEqual(self.registration_email[0].subject,"Welcome to Good Vibes Only")
+
 
     # --- login from a new device ---
 

@@ -9,12 +9,12 @@ https://docs.djangoproject.com/en/5.2/topics/settings/
 For the full list of settings and their values, see
 https://docs.djangoproject.com/en/5.2/ref/settings/
 """
+
 import os
 from pathlib import Path
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
-
 AUTH_USER_MODEL = 'user_system.PositiveOnlySocialUser'
 
 # Quick-start development settings - unsuitable for production
@@ -32,7 +32,6 @@ DEBUG = False
 
 # ALLOWED_HOSTS
 ALLOWED_HOSTS = os.environ.get('ALLOWED_HOSTS', '').split(',')
-
 # CSRF settings
 CSRF_TRUSTED_ORIGINS = [
     origin for origin in os.environ.get(
@@ -60,7 +59,7 @@ INSTALLED_APPS = [
     'django.contrib.sessions',
     'django.contrib.messages',
     'django.contrib.staticfiles',
-]
+    ]
 
 MIDDLEWARE = [
     'django.middleware.security.SecurityMiddleware',
