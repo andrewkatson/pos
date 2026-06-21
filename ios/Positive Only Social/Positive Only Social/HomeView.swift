@@ -25,6 +25,7 @@ struct HomeView: View {
         self.keychainHelper = keychainHelper
     }
     
+    //TabView Menu
     var body: some View {
         TabView(selection: $currentTab){
             // Tab 1: User's personal post grid

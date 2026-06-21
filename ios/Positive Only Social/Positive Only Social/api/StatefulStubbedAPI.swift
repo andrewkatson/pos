@@ -219,7 +219,6 @@ final class StatefulStubbedAPI: Networking {
             throw APIError.badServerResponse(statusCode: 401) // Unauthorized
         }
         
-        // --- SIMULATED LOGIC ---
         // On success, issue a new cookie token AND a new session token.
         // NOTE: This assumes the backend's intent is to grant a full session.
         
@@ -404,7 +403,6 @@ final class StatefulStubbedAPI: Networking {
             }
             .sorted { $0.createdDate > $1.createdDate }
 
-        // --- PAGINATION LOGIC ---
         let startIndex = batch * pageSize
         
         // Check if the requested page is beyond the available posts
@@ -415,7 +413,6 @@ final class StatefulStubbedAPI: Networking {
         
         let endIndex = min(startIndex + pageSize, relevantPosts.count)
         let paginatedPosts = Array(relevantPosts[startIndex..<endIndex])
-        // --- END PAGINATION LOGIC ---
 
         struct Fields: Codable { let post_identifier: String; let image_url: String; let caption: String; let author_username: String }
         
@@ -453,7 +450,6 @@ final class StatefulStubbedAPI: Networking {
             }
             .sorted { $0.createdDate > $1.createdDate } // Sort by newest first
         
-        // --- PAGINATION LOGIC ---
         let startIndex = batch * pageSize
         
         // Check if the requested page is beyond the available posts
@@ -464,7 +460,6 @@ final class StatefulStubbedAPI: Networking {
         
         let endIndex = min(startIndex + pageSize, relevantPosts.count)
         let paginatedPosts = Array(relevantPosts[startIndex..<endIndex])
-        // --- END PAGINATION LOGIC ---
 
         // 5. Format the response (matching getPostsInFeed)
         struct Fields: Codable { let post_identifier: String; let image_url: String; let caption: String; let author_username: String }
@@ -499,7 +494,6 @@ final class StatefulStubbedAPI: Networking {
             .filter { $0.authorId == targetUser.id && !$0.isHidden }
             .sorted { $0.createdDate > $1.createdDate } // Sort newest first
 
-        // --- PAGINATION LOGIC ---
         let startIndex = batch * pageSize
         guard startIndex < relevantPosts.count else {
             // Return an empty list, NOT an error
@@ -508,7 +502,6 @@ final class StatefulStubbedAPI: Networking {
         
         let endIndex = min(startIndex + pageSize, relevantPosts.count)
         let paginatedPosts = Array(relevantPosts[startIndex..<endIndex])
-        // --- END PAGINATION LOGIC ---
 
         // (Note: Added `caption` to prevent decoding errors)
         struct Fields: Codable {
@@ -679,7 +672,6 @@ final class StatefulStubbedAPI: Networking {
         return try createSerializedListResponse(fieldsList: fieldObjects)
     }
     
-    // --- NEWLY ADDED ---
     func followUser(sessionManagementToken: String, username: String) async throws -> Data {
         await simulateNetwork()
         guard let currentUser = findUser(bySessionToken: sessionManagementToken) else {
@@ -703,7 +695,6 @@ final class StatefulStubbedAPI: Networking {
         return try createEmptySuccessResponse()
     }
         
-    // --- NEWLY ADDED ---
     func unfollowUser(sessionManagementToken: String, username: String) async throws -> Data {
         await simulateNetwork()
         guard let currentUser = findUser(bySessionToken: sessionManagementToken) else {

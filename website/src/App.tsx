@@ -8,6 +8,7 @@ import ResetPasswordPage from './pages/ResetPasswordPage'
 import HomePage from './pages/HomePage'
 import PostDetailPage from './pages/PostDetailPage'
 import ProfilePage from './pages/ProfilePage'
+import AppealsPage from './pages/AppealsPage'
 
 function App() {
   return (
@@ -21,6 +22,7 @@ function App() {
       <Route path="/home" element={<HomePage />} />
       <Route path="/post/:postId" element={<PostDetailPage />} />
       <Route path="/profile/:username" element={<ProfilePage />} />
+      <Route path="/appeals" element={<AppealsPage />} />
     </Routes>
   )
 }

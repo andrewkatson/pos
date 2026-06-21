@@ -154,7 +154,6 @@ struct NewPostView: View {
                 // Reload the Home grid so the new post appears there immediately.
                 await homeViewModel.refreshMyPosts()
 
-                // --- SUCCESS ---
                 // A post flagged by automated review is created hidden pending
                 // appeal; tell the user it's hidden but appealable rather than
                 // implying it went live.
@@ -174,7 +173,6 @@ struct NewPostView: View {
                 showSuccessAlert = true // This will trigger the success alert
                 
             } catch {
-                // --- FAILURE ---
                 // Set the error message and show the failure alert
                 failureAlertMessage =
                 "Failed to share post. Error: \(error.localizedDescription)"

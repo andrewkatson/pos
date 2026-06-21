@@ -17,16 +17,21 @@ import type {
   CreatePostRequest,
   CreatePostResponse,
   FeedPost,
+  HiddenComment,
+  HiddenPost,
   LoginRequest,
   LoginWithRememberMeRequest,
   LoginWithRememberMeResponse,
   MessageResponse,
+  MyAppeal,
   PostDetails,
   ProfileDetails,
   RegisterRequest,
   ReplyResponse,
   RequestResetRequest,
   ResetPasswordRequest,
+  SubmitAppealRequest,
+  SubmitAppealResponse,
   UserSearchResult,
   VerifyResetRequest,
   VerifyResetResponse,
@@ -369,6 +374,26 @@ export class ApiClient implements PositiveOnlySocialAPI {
 
   getProfile(username: string): Promise<ProfileDetails> {
     return this.request<ProfileDetails>('GET', `/users/${username}/profile/`, { auth: true })
+  }
+
+  // ===========================================================================
+  // APPEALS
+  // ===========================================================================
+
+  getHiddenPosts(batch: number): Promise<HiddenPost[]> {
+    return this.request<HiddenPost[]>('GET', `/appeals/hidden/posts/${batch}/`, { auth: true })
+  }
+
+  getHiddenComments(batch: number): Promise<HiddenComment[]> {
+    return this.request<HiddenComment[]>('GET', `/appeals/hidden/comments/${batch}/`, { auth: true })
+  }
+
+  getMyAppeals(batch: number): Promise<MyAppeal[]> {
+    return this.request<MyAppeal[]>('GET', `/appeals/mine/${batch}/`, { auth: true })
+  }
+
+  submitAppeal(body: SubmitAppealRequest): Promise<SubmitAppealResponse> {
+    return this.request<SubmitAppealResponse>('POST', '/appeals/submit/', { auth: true, body })
   }
 }
 

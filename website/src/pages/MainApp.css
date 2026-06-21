@@ -748,3 +748,63 @@
   cursor: pointer;
   padding: 0.25rem 0 0 2rem;
 }
+
+/* Appeals / hidden content (AppealsPage) */
+.appeal-item {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  background: #1a1a1a;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 10px;
+  padding: 0.75rem 1rem;
+}
+
+.appeal-item__thumb {
+  width: 48px;
+  height: 48px;
+  object-fit: cover;
+  border-radius: 8px;
+  flex-shrink: 0;
+}
+
+.appeal-item__body {
+  flex: 1;
+  min-width: 0;
+}
+
+.appeal-item__text {
+  margin: 0 0 0.25rem;
+  overflow-wrap: anywhere;
+}
+
+.appeal-item__action {
+  flex-shrink: 0;
+  width: auto;
+  padding: 0.4rem 0.8rem;
+  font-size: 0.85rem;
+}
+
+.appeal-status {
+  flex-shrink: 0;
+  font-size: 0.78rem;
+  font-weight: 700;
+  text-transform: capitalize;
+  padding: 0.25rem 0.6rem;
+  border-radius: 999px;
+}
+
+.appeal-status--pending {
+  color: #ffd479;
+  background: rgba(255, 212, 121, 0.15);
+}
+
+.appeal-status--approved {
+  color: #7be495;
+  background: rgba(123, 228, 149, 0.15);
+}
+
+.appeal-status--denied {
+  color: #ff8a8a;
+  background: rgba(255, 138, 138, 0.15);
+}

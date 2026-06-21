@@ -56,11 +56,18 @@ function NewPostTab({ onPosted }: NewPostTabProps) {
     setSuccessMessage(null)
     try {
       const imageUrl = await uploadImage(file, userId)
-      await apiClient.createPost({ image_url: imageUrl, caption: caption.trim() })
+      const result = await apiClient.createPost({ image_url: imageUrl, caption: caption.trim() })
       setFile(null)
       setPreviewUrl(null)
       setCaption('')
-      setSuccessMessage('Your post was shared successfully!')
+      // A post flagged by automated review is created hidden pending appeal; tell
+      // the user it's hidden but appealable rather than implying it's live.
+      setSuccessMessage(
+        result.hidden
+          ? (result.message ??
+              'Your post did not pass automated review. It is hidden for now but you can appeal the decision.')
+          : 'Your post was shared successfully!',
+      )
       onPosted()
     } catch (err) {
       const apiErr = err as ApiError

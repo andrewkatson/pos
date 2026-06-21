@@ -11,16 +11,21 @@ import type {
   CreatePostRequest,
   CreatePostResponse,
   FeedPost,
+  HiddenComment,
+  HiddenPost,
   LoginRequest,
   LoginWithRememberMeRequest,
   LoginWithRememberMeResponse,
   MessageResponse,
+  MyAppeal,
   PostDetails,
   ProfileDetails,
   RegisterRequest,
   ReplyResponse,
   RequestResetRequest,
   ResetPasswordRequest,
+  SubmitAppealRequest,
+  SubmitAppealResponse,
   UserSearchResult,
   VerifyResetRequest,
   VerifyResetResponse,
@@ -96,4 +101,10 @@ export interface PositiveOnlySocialAPI {
   unfollowUser(username: string): Promise<MessageResponse>
   toggleBlock(username: string): Promise<MessageResponse>
   getProfile(username: string): Promise<ProfileDetails>
+
+  // Appeals
+  getHiddenPosts(batch: number): Promise<HiddenPost[]>
+  getHiddenComments(batch: number): Promise<HiddenComment[]>
+  getMyAppeals(batch: number): Promise<MyAppeal[]>
+  submitAppeal(body: SubmitAppealRequest): Promise<SubmitAppealResponse>
 }
