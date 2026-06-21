@@ -55,7 +55,7 @@ fileprivate struct MockPost {
     var reports: [(username: String, reason: String)] = []
     var commentThreads: [MockCommentThread] = []
     var isHidden: Bool = false
-    var hiddenReason: String = ""
+    var hiddenReason: String = GVOAppConstants.emptyString
     let createdDate = Date()
 }
 
@@ -73,7 +73,7 @@ fileprivate struct MockComment {
     var likes: [String] = []
     var reports: [(username: String, reason: String)] = []
     var isHidden: Bool = false
-    var hiddenReason: String = ""
+    var hiddenReason: String = GVOAppConstants.emptyString
     let createdDate = Date()
     var updatedDate = Date()
 }

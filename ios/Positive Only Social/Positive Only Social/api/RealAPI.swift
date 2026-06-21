@@ -108,7 +108,7 @@ final class RealAPI: Networking {
         let comment_text: String
     }
 
-    private struct SubmitAppealBody: Encodable {
+    private struct SubmitAppealBody: Codable {
         let target_type: String
         let target_identifier: String
         let reason: String

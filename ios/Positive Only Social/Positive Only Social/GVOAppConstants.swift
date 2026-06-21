@@ -23,6 +23,7 @@ import Foundation
     static let bearer = "Bearer"
     static let decodingError = "Failed to decode the server response: "
     static let encodingError = "Failed to encode the request body: "
+    static let emptyString = ""
     static let get = "GET"
     static let httpHeaderField = "Content-Type"
     static let invalidURL = "The URL provided was invalid."
