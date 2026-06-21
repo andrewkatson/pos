@@ -82,6 +82,8 @@
 				viewmodels/HomeViewModel.swift,
 				viewmodels/PostDetailViewModel.swift,
 				viewmodels/ProfileViewModel.swift,
+				AppealsView.swift,
+				viewmodels/AppealsViewModel.swift,
 				viewmodels/SettingsViewModel.swift,
 			);
 			target = 248836DF2E6282C5002D47F1 /* Positive Only SocialTests */;
@@ -119,6 +121,8 @@
 				viewmodels/HomeViewModel.swift,
 				viewmodels/PostDetailViewModel.swift,
 				viewmodels/ProfileViewModel.swift,
+				AppealsView.swift,
+				viewmodels/AppealsViewModel.swift,
 				viewmodels/SettingsViewModel.swift,
 			);
 			target = 248836E92E6282C5002D47F1 /* Positive Only SocialUITests */;
