@@ -16,7 +16,7 @@ object Constants {
     const val ACCOUNT_SUSPENDED_MESSAGE =
         "Your account has been suspended for violating our community guidelines."
     //TODO (@eBlender) INTEGRATE THIS ONCE ABLE TO COMPILE THIS on PC//
-    
+    //
     //Exposed from C to KT (e.g., @C.GVO_accountBannedError.toKString())
     //Readme.md for more info//
     val accountBannedError: String = GVO_accountBannedError.toKString()
