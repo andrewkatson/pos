@@ -9,7 +9,7 @@ android {
     compileSdk = 36
 
     defaultConfig {
-        applicationId = "com.example.positiveonlysocial"
+        applicationId = "io.github.andrewkatson.positiveonlysocial"
         minSdk = 26
         targetSdk = 36
         versionCode = 1
