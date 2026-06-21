@@ -129,7 +129,7 @@ fun NewPostScreen(
                     .height(100.dp)
             )
 
-            CharacterCounter(text = caption, max = Constants.MAX_CAPTION_LENGTH)
+            CharacterCounter(text = caption, max = Constants.maxCaptionLength)
 
             Spacer(modifier = Modifier.weight(1f))
 
@@ -196,7 +196,7 @@ fun NewPostScreen(
                         }
                     },
                     modifier = Modifier.fillMaxWidth(),
-                    enabled = selectedImageUri != null && caption.isNotEmpty() && isWithinLength(caption, Constants.MAX_CAPTION_LENGTH)
+                    enabled = selectedImageUri != null && caption.isNotEmpty() && isWithinLength(caption, Constants.maxCaptionLength)
                 ) {
                     Text("Share Post")
                 }

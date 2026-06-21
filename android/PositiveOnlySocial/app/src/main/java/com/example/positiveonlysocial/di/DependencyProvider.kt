@@ -22,7 +22,7 @@ object DependencyProvider {
     var isUITesting: Boolean = false
 
     val api: PositiveOnlySocialAPI by lazy {
-        APIProvider.returnGoodVibesOnlyAPI(com.example.positiveonlysocial.data.constants.Constants.BASE_URL, isUITesting)
+        APIProvider.returnGoodVibesOnlyAPI(com.example.positiveonlysocial.data.constants.Constants.baseURL, isUITesting)
     }
 
     val keychainHelper: KeychainHelperProtocol by lazy {
