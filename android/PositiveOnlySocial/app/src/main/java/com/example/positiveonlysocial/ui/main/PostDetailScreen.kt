@@ -251,13 +251,13 @@ fun PostDetailScreen(
                                     )
                                     Button(
                                         onClick = { viewModel.commentOnPost(newCommentText) },
-                                        enabled = newCommentText.isNotEmpty() && isWithinLength(newCommentText, Constants.MAX_COMMENT_LENGTH),
+                                        enabled = newCommentText.isNotEmpty() && isWithinLength(newCommentText, Constants.maxCommentLength),
                                         modifier = Modifier.padding(start = 8.dp)
                                     ) {
                                         Text("Post")
                                     }
                                 }
-                                CharacterCounter(text = newCommentText, max = Constants.MAX_COMMENT_LENGTH)
+                                CharacterCounter(text = newCommentText, max = Constants.maxCaptionLength)
                             }
                             
                             Spacer(modifier = Modifier.height(16.dp))
@@ -512,7 +512,7 @@ fun ReplyDialog(thread: CommentThreadViewData, onDismiss: () -> Unit, onSubmit: 
                     onValueChange = { text = it },
                     placeholder = { Text("Your reply...") }
                 )
-                CharacterCounter(text = text, max = Constants.MAX_COMMENT_LENGTH)
+                CharacterCounter(text = text, max = Constants.maxCommentLength)
             }
         },
         confirmButton = {
@@ -523,7 +523,7 @@ fun ReplyDialog(thread: CommentThreadViewData, onDismiss: () -> Unit, onSubmit: 
                         onDismiss()
                     }
                 },
-                enabled = text.isNotEmpty() && isWithinLength(text, Constants.MAX_COMMENT_LENGTH)
+                enabled = text.isNotEmpty() && isWithinLength(text, Constants.maxCommentLength)
             ) {
                 Text("Send")
             }

@@ -1,0 +1,13 @@
+To add constant variable that can be exposed to Android and iOS, please follow these steps.
+
+1.-Add the const in the GOVConstants.h file.
+
+e.g static const char* const GVO_helloWorld = "Hello World";
+
+2.-For Swift go to GVOAppConstants and follow the convention file as follows " static let helloWorld = String(cString: GVO_helloWorld)"
+
+3.-For Kotlin go to Constants and follow the convention file as follows      " val helloWorld: String = GVO_helloWorld.toKString()"
+
+4.-Enjoy having one source of verdad!
+
+

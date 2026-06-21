@@ -84,3 +84,41 @@ dependencies {
     debugImplementation(libs.androidx.ui.tooling)
     debugImplementation(libs.androidx.ui.test.manifest)
 }
+
+val generateGvoConstants by tasks.registering {
+    val headerFile = file("../../../ios/Positive Only Social/Positive Only Social/MultiPlatform/GVOConstants.h")
+    val outputFile = file("src/main/java/gvo_constants/GvoConstants.kt")
+
+    inputs.file(headerFile)
+    outputs.file(outputFile)
+
+    doLast {
+        val lines = headerFile.readLines()
+        val constants = mutableListOf<String>()
+
+        val regexString = """static const char\* const (GVO_\w+)\s*=\s*"([^"]*)";""".toRegex()
+        val regexInt = """static const int (GVO_\w+)\s*=\s*(\d+);""".toRegex()
+
+        lines.forEach { line ->
+            regexString.find(line)?.let { match ->
+                constants.add("val ${match.groupValues[1]} = \"${match.groupValues[2]}\"")
+            }
+            regexInt.find(line)?.let { match ->
+                constants.add("val ${match.groupValues[1]} = ${match.groupValues[2]}")
+            }
+        }
+
+        outputFile.parentFile.mkdirs()
+        outputFile.writeText("""
+package gvo_constants
+
+// GENERATED FROM GVOConstants.h - DO NOT EDIT MANUALLY
+
+${constants.joinToString("\n")}
+        """.trimIndent())
+    }
+}
+
+tasks.withType<org.jetbrains.kotlin.gradle.tasks.KotlinCompile>().configureEach {
+    dependsOn(generateGvoConstants)
+}
