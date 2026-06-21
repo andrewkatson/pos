@@ -17,14 +17,15 @@ def _client_ip(request):
     remote_addr = request.META.get("REMOTE_ADDR", "")
     # A request can reach us through a trusted reverse proxy in two ways:
     #   * Over a unix domain socket (nginx -> Gunicorn on the same host), where
-    #     Gunicorn reports an empty REMOTE_ADDR. Only a local process can open
-    #     that socket, and a direct TCP client always has a non-empty
-    #     REMOTE_ADDR, so an empty value cannot be forged by a remote client and
-    #     reliably identifies the local proxy.
+    #     Gunicorn reports REMOTE_ADDR as exactly "". Only a local process can
+    #     open that socket, and a direct TCP client always has a non-empty
+    #     REMOTE_ADDR, so an empty string cannot be forged by a remote client and
+    #     reliably identifies the local proxy. We match "" specifically rather
+    #     than any falsy value so a missing/malformed REMOTE_ADDR isn't trusted.
     #   * Over TCP from a proxy whose address is listed in TRUSTED_PROXY_IPS.
     # In both cases the proxy sets X-Real-IP to the real client IP, so trust it,
     # falling back to REMOTE_ADDR if the proxy didn't set the header.
-    if not remote_addr or remote_addr in _get_trusted_proxies():
+    if remote_addr == "" or remote_addr in _get_trusted_proxies():
         return request.META.get("HTTP_X_REAL_IP") or remote_addr
     return remote_addr
 
