@@ -86,6 +86,25 @@ test('uploads the photo to S3 and creates the post on success', async () => {
   expect(onPosted).toHaveBeenCalled()
 })
 
+test('shows the appeal message when the post is hidden pending appeal', async () => {
+  mockUploadImage.mockResolvedValue(
+    'https://goodvibesonly-images.s3.us-east-2.amazonaws.com/user-123/abc.jpeg',
+  )
+  mockCreatePost.mockResolvedValue({
+    post_identifier: 'p1',
+    hidden: true,
+    hidden_reason: 'classifier',
+    message: 'Your post did not pass automated review. It is hidden for now but you can appeal the decision.',
+  })
+  render(<NewPostTab onPosted={() => {}} />)
+
+  await userEvent.upload(screen.getByLabelText('Choose a photo'), makeFile())
+  await userEvent.type(screen.getByLabelText('Caption'), 'maybe edgy')
+  await userEvent.click(screen.getByRole('button', { name: 'Share Post' }))
+
+  expect(await screen.findByText(/hidden for now but you can appeal/i)).toBeInTheDocument()
+})
+
 test('shows an error when the upload fails', async () => {
   mockUploadImage.mockRejectedValue({ message: 'Upload failed' })
   render(<NewPostTab onPosted={() => {}} />)
