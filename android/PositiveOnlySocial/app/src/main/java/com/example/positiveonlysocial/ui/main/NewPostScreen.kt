@@ -40,6 +40,7 @@ fun NewPostScreen(
         var selectedImageUri by remember { mutableStateOf<Uri?>(null) }
         var isLoading by remember { mutableStateOf(false) }
         var showSuccessAlert by remember { mutableStateOf(false) }
+        var successMessage by remember { mutableStateOf("Your post was shared successfully!") }
         var showFailureAlert by remember { mutableStateOf(false) }
         var failureMessage by remember { mutableStateOf("") }
 
@@ -55,7 +56,7 @@ fun NewPostScreen(
             AlertDialog(
                 onDismissRequest = { showSuccessAlert = false },
                 title = { Text("Success!") },
-                text = { Text("Your post was shared successfully!") },
+                text = { Text(successMessage) },
                 confirmButton = {
                     Button(onClick = { 
                         showSuccessAlert = false
@@ -181,10 +182,28 @@ fun NewPostScreen(
                                     imageUrl = uploadUrl.toString(),
                                     caption = caption
                                 )
-                                api.makePost(
+                                val response = api.makePost(
                                     token = session.sessionToken,
                                     request = request
                                 )
+                                if (!response.isSuccessful) {
+                                    // A non-2xx (e.g. final classifier rejection)
+                                    // must not show a success dialog.
+                                    val raw = response.errorBody()?.string()
+                                    failureMessage = "Failed to share post: ${raw ?: "Please try again."}"
+                                    showFailureAlert = true
+                                    return@launch
+                                }
+                                // A post flagged by automated review is created
+                                // hidden pending appeal; say so rather than
+                                // implying it went live.
+                                val body = response.body()
+                                successMessage = if (body?.hidden == true) {
+                                    body.message
+                                        ?: "Your post did not pass automated review. It is hidden for now but you can appeal the decision."
+                                } else {
+                                    "Your post was shared successfully!"
+                                }
                                 showSuccessAlert = true
 
                             } catch (e: Exception) {

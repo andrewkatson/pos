@@ -207,4 +207,32 @@ interface PositiveOnlySocialAPI {
         @Header("Authorization") token: String,
         @Path("username") username: String
     ): Response<ProfileDetailsResponse>
+
+    // ============================================================================================
+    // APPEALS
+    // ============================================================================================
+
+    @GET("appeals/hidden/posts/{batch}/")
+    suspend fun getHiddenPosts(
+        @Header("Authorization") token: String,
+        @Path("batch") batch: Int
+    ): Response<List<HiddenPost>>
+
+    @GET("appeals/hidden/comments/{batch}/")
+    suspend fun getHiddenComments(
+        @Header("Authorization") token: String,
+        @Path("batch") batch: Int
+    ): Response<List<HiddenComment>>
+
+    @GET("appeals/mine/{batch}/")
+    suspend fun getMyAppeals(
+        @Header("Authorization") token: String,
+        @Path("batch") batch: Int
+    ): Response<List<MyAppeal>>
+
+    @POST("appeals/submit/")
+    suspend fun submitAppeal(
+        @Header("Authorization") token: String,
+        @Body request: SubmitAppealRequest
+    ): Response<SubmitAppealResponse>
 }
