@@ -5,8 +5,8 @@ from django.contrib.auth import get_user_model
 
 
 from .test_constants import (
-    username, email, password, ip, invalid_username, invalid_password,
-    invalid_email, invalid_ip, invalid_bool, false, true
+    username, email, password, invalid_username, invalid_password,
+    invalid_email, invalid_bool, false, true
 )
 from .test_parent_case import PositiveOnlySocialTestCase
 from ..constants import Fields, Patterns
@@ -34,7 +34,6 @@ class RegisterTests(PositiveOnlySocialTestCase):
             'email': self.local_email,
             'password': self.local_password,
             'remember_me': false,
-            'ip': ip,
             'date_of_birth': '2000-01-01'
         }
 
@@ -77,17 +76,6 @@ class RegisterTests(PositiveOnlySocialTestCase):
         """
         data = self.valid_data.copy()
         data['remember_me'] = invalid_bool
-
-        response = self.client.post(self.url, data=data, content_type='application/json')
-
-        self.assertEqual(response.status_code, 400)
-
-    def test_invalid_ip_returns_bad_response(self):
-        """
-        Tests that a malformed IP address is rejected.
-        """
-        data = self.valid_data.copy()
-        data['ip'] = invalid_ip
 
         response = self.client.post(self.url, data=data, content_type='application/json')
 

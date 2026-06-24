@@ -1,0 +1,187 @@
+// Types mirroring the Django backend in backend/user_system/views.py.
+// Field names match the `Fields` constants in backend/user_system/constants.py.
+
+export interface RegisterRequest {
+  username: string
+  email: string
+  password: string
+  remember_me?: boolean
+  /** YYYY-MM-DD. When provided, the account is identity-verified on creation. */
+  date_of_birth?: string
+}
+
+export interface AuthResponse {
+  session_management_token: string
+  /** UUID string matching PositiveOnlySocialUser.id (UUIDField on the backend). */
+  user_id: string
+  username?: string
+  // Only present when remember_me was requested.
+  series_identifier?: string
+  login_cookie_token?: string
+}
+
+export interface LoginRequest {
+  username_or_email: string
+  password: string
+  remember_me?: boolean
+}
+
+export interface LoginWithRememberMeRequest {
+  session_management_token: string
+  series_identifier: string
+  login_cookie_token: string
+}
+
+export interface LoginWithRememberMeResponse {
+  session_management_token: string
+  login_cookie_token: string
+}
+
+export interface MessageResponse {
+  message: string
+}
+
+export interface RequestResetRequest {
+  username_or_email: string
+}
+
+export interface VerifyResetRequest {
+  username_or_email: string
+  verification_token: string
+}
+
+export interface VerifyResetResponse {
+  message: string
+  reset_token: string
+}
+
+export interface ResetPasswordRequest {
+  username: string
+  email: string
+  password: string
+  reset_token: string
+}
+
+export interface CreatePostRequest {
+  image_url: string
+  caption: string
+}
+
+export interface CreatePostResponse {
+  post_identifier: string
+  /** True when the post was created hidden pending appeal (classifier flagged
+   * it but the rejection is appealable). Absent/false for a normal post. */
+  hidden?: boolean
+  hidden_reason?: string
+  /** User-facing explanation when the post is hidden pending appeal. */
+  message?: string
+}
+
+/** A post as returned by the feed/listing endpoints. */
+export interface FeedPost {
+  post_identifier: string
+  image_url: string
+  author_username: string
+  caption: string
+}
+
+/** A post as returned by the post-details endpoint. */
+export interface PostDetails {
+  post_identifier: string
+  image_url: string
+  caption: string
+  post_likes: number
+  author_username: string
+}
+
+export interface CommentOnPostResponse {
+  comment_thread_identifier: string
+  comment_identifier: string
+}
+
+export interface ReplyResponse {
+  comment_identifier: string
+}
+
+export interface CommentThreadRef {
+  comment_thread_identifier: string
+}
+
+export interface Comment {
+  comment_identifier: string
+  body: string
+  author_username: string
+  creation_time: string
+  updated_time: string
+  comment_likes: number
+}
+
+export interface UserSearchResult {
+  username: string
+  identity_is_verified: boolean
+}
+
+export interface ProfileDetails {
+  username: string
+  post_count: number
+  follower_count: number
+  following_count: number
+  is_following: boolean
+  is_blocked: boolean
+  identity_is_verified: boolean
+  is_adult: boolean
+}
+
+// ---------------------------------------------------------------------------
+// Appeals (backend/user_system/views.py appeal endpoints)
+// ---------------------------------------------------------------------------
+
+/** What a content appeal can target in-app. Ban appeals go via email. */
+export type AppealTargetType = 'post' | 'comment'
+
+/** One of the signed-in user's hidden posts. */
+export interface HiddenPost {
+  post_identifier: string
+  image_url: string
+  caption: string
+  /** Why it was hidden: 'classifier', 'reports', or '' (unspecified). */
+  hidden_reason: string
+  creation_time: string
+  /** True once an appeal has been filed for it (it can only be appealed once). */
+  has_appeal: boolean
+}
+
+/** One of the signed-in user's hidden comments. */
+export interface HiddenComment {
+  comment_identifier: string
+  body: string
+  hidden_reason: string
+  creation_time: string
+  has_appeal: boolean
+}
+
+/** An appeal the signed-in user has filed, with its current status. */
+export interface MyAppeal {
+  appeal_identifier: string
+  /** 'post' | 'comment' | 'ban', or null once a resolved target was removed. */
+  target_type: AppealTargetType | 'ban' | null
+  target_identifier: string | null
+  /** 'pending' | 'approved' | 'denied'. */
+  status: string
+  reason: string
+  /** Snapshot of the appealed content, kept when the target was removed. */
+  content_snapshot: string | null
+  resolution_note: string | null
+  creation_time: string
+  resolved_time: string | null
+}
+
+export interface SubmitAppealRequest {
+  target_type: AppealTargetType
+  target_identifier: string
+  reason: string
+}
+
+export interface SubmitAppealResponse {
+  appeal_identifier: string
+}

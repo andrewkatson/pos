@@ -6,6 +6,7 @@ import androidx.lifecycle.viewModelScope
 import com.example.positiveonlysocial.api.PositiveOnlySocialAPI
 import com.example.positiveonlysocial.data.model.*
 import com.example.positiveonlysocial.data.security.KeychainHelperProtocol
+import com.example.positiveonlysocial.util.parseBackendDate
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
@@ -39,6 +40,9 @@ class PostDetailViewModel(
     private val _isLoading = MutableStateFlow(true)
     val isLoading: StateFlow<Boolean> = _isLoading.asStateFlow()
 
+    private val _isRefreshing = MutableStateFlow(false)
+    val isRefreshing: StateFlow<Boolean> = _isRefreshing.asStateFlow()
+
     private val _alertMessage = MutableStateFlow<String?>(null)
     val alertMessage: StateFlow<String?> = _alertMessage.asStateFlow()
 
@@ -49,11 +53,37 @@ class PostDetailViewModel(
     private val _commentToReport = MutableStateFlow<CommentViewData?>(null)
     val commentToReport: StateFlow<CommentViewData?> = _commentToReport.asStateFlow()
 
+    // Drives the long-press action menu for the post. The menu offers either
+    // "Report" (others' posts) or "Delete" (the user's own post) — never both,
+    // so you can't report your own content.
+    private val _showActionSheetForPost = MutableStateFlow(false)
+    val showActionSheetForPost: StateFlow<Boolean> = _showActionSheetForPost.asStateFlow()
+
+    // The comment whose long-press action menu is showing, if any.
+    private val _commentForAction = MutableStateFlow<CommentViewData?>(null)
+    val commentForAction: StateFlow<CommentViewData?> = _commentForAction.asStateFlow()
+
+    // Set once the post has been deleted so the screen can pop back — the post
+    // no longer exists to display.
+    private val _postWasDeleted = MutableStateFlow(false)
+    val postWasDeleted: StateFlow<Boolean> = _postWasDeleted.asStateFlow()
+
+    // Ids of comments the user has reported this session, so the reported flag
+    // stays shown after a successful report (the backend doesn't echo it back).
+    private val _reportedCommentIds = MutableStateFlow<Set<String>>(emptySet())
+    val reportedCommentIds: StateFlow<Set<String>> = _reportedCommentIds.asStateFlow()
+
     private val _newCommentText = MutableStateFlow("")
     val newCommentText: StateFlow<String> = _newCommentText.asStateFlow()
 
     private val _threadToReplyTo = MutableStateFlow<CommentThreadViewData?>(null)
     val threadToReplyTo: StateFlow<CommentThreadViewData?> = _threadToReplyTo.asStateFlow()
+
+    // The signed-in user's username, loaded alongside the post. The backend
+    // rejects liking your own post/comment, so the UI hides the like control
+    // (and the like actions are guarded) for content this user authored.
+    private val _currentUsername = MutableStateFlow<String?>(null)
+    val currentUsername: StateFlow<String?> = _currentUsername.asStateFlow()
 
     private val service = "positive-only-social.Positive-Only-Social"
 
@@ -77,8 +107,27 @@ class PostDetailViewModel(
         _commentToReport.value = comment
     }
 
+    fun setShowActionSheetForPost(show: Boolean) {
+        _showActionSheetForPost.value = show
+    }
+
+    fun setCommentForAction(comment: CommentViewData?) {
+        _commentForAction.value = comment
+    }
+
     fun dismissAlert() {
         _alertMessage.value = null
+    }
+
+    /** Whether the loaded post was authored by the signed-in user. */
+    fun isOwnPost(): Boolean {
+        val username = _currentUsername.value ?: return false
+        return _postDetail.value?.authorUsername == username
+    }
+
+    /** Whether the given comment was authored by the signed-in user. */
+    fun isOwnComment(comment: CommentViewData): Boolean {
+        return comment.authorUsername == _currentUsername.value
     }
 
     fun loadAllData() {
@@ -86,62 +135,105 @@ class PostDetailViewModel(
 
         viewModelScope.launch {
             try {
-                // 1. Fetch the main post details
-                val postResponse = api.getPostDetails(postIdentifier)
-                if (postResponse.isSuccessful) {
-                    _postDetail.value = postResponse.body()
-                } else {
-                    throw Exception("Failed to load post details")
-                }
-
-                // 2. Fetch the list of comment thread IDs for this post
-                val threadListResponse = api.getCommentsForPost(postIdentifier, 0)
-                val threadDtos = threadListResponse.body() ?: emptyList()
-                val threadIdentifiers = threadDtos.map { it.threadIdentifier }
-
-                // 3. Fetch all comments for *each* thread in parallel
-                val loadedThreads = coroutineScope {
-                    threadIdentifiers.map { threadId ->
-                        async {
-                            val commentsResponse = api.getCommentsForThread(threadId, 0)
-                            val comments = commentsResponse.body() ?: emptyList()
-                            // Sort comments by date (oldest first)
-                            val sortedComments = comments.sortedBy { it.creationTime }
-                            
-                            // Convert to CommentViewData
-                            val commentViewDataList = sortedComments.map { c ->
-                                CommentViewData(
-                                    id = c.commentIdentifier,
-                                    threadId = threadId,
-                                    authorUsername = c.authorUsername,
-                                    body = c.body,
-                                    likeCount = c.likeCount,
-                                    createdDate = Date() // TODO: Parse c.creationTime string to Date
-                                )
-                            }
-                            
-                            CommentThreadViewData(threadId, commentViewDataList)
-                        }
-                    }.awaitAll()
-                }
-
-                // Filter out empty threads if needed, or keep them
-                val nonEmptyThreads = loadedThreads.filter { it.comments.isNotEmpty() }
-
-                // Sort threads by their first comment's date (using dummy date for now as parsing is TODO)
-                _commentThreads.value = nonEmptyThreads
-                // .sortedBy { it.comments.firstOrNull()?.createdDate } 
-
-            } catch (e: Exception) {
-                Log.e(TAG, "Error loading post details", e)
-                _alertMessage.value = "Failed to load post: ${e.localizedMessage}"
+                loadAllDataInternal()
             } finally {
                 _isLoading.value = false
             }
         }
     }
 
+    /**
+     * Pull-to-refresh: reloads the post details and comments from the backend.
+     * Uses a separate [isRefreshing] flag so the pull-to-refresh indicator is
+     * shown instead of the initial full-screen loading spinner.
+     */
+    fun refresh() {
+        // Don't start a refresh while another load is already in flight (the
+        // initial loadAllData() from init or an action-triggered reload). Two
+        // concurrent loadAllDataInternal() calls both write _postDetail and
+        // _commentThreads, so an older response could otherwise overwrite the
+        // fresher refreshed data.
+        if (_isRefreshing.value || _isLoading.value) return
+        _isRefreshing.value = true
+
+        viewModelScope.launch {
+            try {
+                loadAllDataInternal()
+            } finally {
+                _isRefreshing.value = false
+            }
+        }
+    }
+
+    private suspend fun loadAllDataInternal() {
+        try {
+            // These authenticated GETs need the session token so the backend can
+            // report whether the current user has liked the post / each comment.
+            val userSession = keychainHelper.load(UserSession::class.java, service, account)
+            if (userSession == null) {
+                Log.e(TAG, "No active session found — cannot load post details")
+                _alertMessage.value = "Not logged in."
+                return
+            }
+            val token = userSession.sessionToken
+            _currentUsername.value = userSession.username
+
+            // 1. Fetch the main post details
+            val postResponse = api.getPostDetails(token, postIdentifier)
+            if (postResponse.isSuccessful) {
+                _postDetail.value = postResponse.body()
+            } else {
+                throw Exception("Failed to load post details")
+            }
+
+            // 2. Fetch the list of comment thread IDs for this post
+            val threadListResponse = api.getCommentsForPost(token, postIdentifier, 0)
+            val threadDtos = threadListResponse.body() ?: emptyList()
+            val threadIdentifiers = threadDtos.map { it.threadIdentifier }
+
+            // 3. Fetch all comments for *each* thread in parallel
+            val loadedThreads = coroutineScope {
+                threadIdentifiers.map { threadId ->
+                    async {
+                        val commentsResponse = api.getCommentsForThread(token, threadId, 0)
+                        val comments = commentsResponse.body() ?: emptyList()
+                        // Sort comments by date (oldest first)
+                        val sortedComments = comments.sortedBy { it.creationTime }
+
+                        // Convert to CommentViewData
+                        val commentViewDataList = sortedComments.map { c ->
+                            CommentViewData(
+                                id = c.commentIdentifier,
+                                threadId = threadId,
+                                authorUsername = c.authorUsername,
+                                body = c.body,
+                                likeCount = c.likeCount,
+                                isLiked = c.isLiked,
+                                createdDate = parseBackendDate(c.creationTime) ?: Date()
+                            )
+                        }
+
+                        CommentThreadViewData(threadId, commentViewDataList)
+                    }
+                }.awaitAll()
+            }
+
+            // Filter out empty threads if needed, or keep them
+            val nonEmptyThreads = loadedThreads.filter { it.comments.isNotEmpty() }
+
+            // Sort threads by their first comment's date (using dummy date for now as parsing is TODO)
+            _commentThreads.value = nonEmptyThreads
+            // .sortedBy { it.comments.firstOrNull()?.createdDate }
+
+        } catch (e: Exception) {
+            Log.e(TAG, "Error loading post details", e)
+            _alertMessage.value = "Failed to load post: ${e.localizedMessage}"
+        }
+    }
+
     fun likePost() {
+        // The backend rejects liking your own post; ignore the request.
+        if (isOwnPost()) return
         viewModelScope.launch {
             try {
                 val userSession = keychainHelper.load(UserSession::class.java, service, account)
@@ -208,7 +300,61 @@ class PostDetailViewModel(
         }
     }
 
+    /**
+     * Deletes the user's own post, then signals the screen to pop back since the
+     * post no longer exists. Only reachable from the action menu on an own post.
+     */
+    fun deletePost() {
+        viewModelScope.launch {
+            try {
+                val userSession = keychainHelper.load(UserSession::class.java, service, account)
+                if (userSession == null) {
+                    Log.e(TAG, "No active session found — cannot perform action")
+                    _alertMessage.value = "Not logged in."
+                    return@launch
+                }
+                val response = api.deletePost(userSession.sessionToken, postIdentifier)
+                if (response.isSuccessful) {
+                    _postWasDeleted.value = true
+                } else {
+                    _alertMessage.value = "Failed to delete post: ${response.message()}"
+                }
+            } catch (e: Exception) {
+                Log.e(TAG, "Failed to delete post", e)
+                _alertMessage.value = "Error: ${e.localizedMessage}"
+            }
+        }
+    }
+
+    /**
+     * Deletes one of the user's own comments, then reloads so it disappears from
+     * the thread. Only reachable from the action menu on an own comment.
+     */
+    fun deleteComment(comment: CommentViewData, threadId: String) {
+        viewModelScope.launch {
+            try {
+                val userSession = keychainHelper.load(UserSession::class.java, service, account)
+                if (userSession == null) {
+                    Log.e(TAG, "No active session found — cannot perform action")
+                    _alertMessage.value = "Not logged in."
+                    return@launch
+                }
+                val response = api.deleteComment(userSession.sessionToken, postIdentifier, threadId, comment.id)
+                if (response.isSuccessful) {
+                    loadAllData()
+                } else {
+                    _alertMessage.value = "Failed to delete comment: ${response.message()}"
+                }
+            } catch (e: Exception) {
+                Log.e(TAG, "Failed to delete comment", e)
+                _alertMessage.value = "Error: ${e.localizedMessage}"
+            }
+        }
+    }
+
     fun likeComment(comment: CommentViewData, threadId: String) {
+        // The backend rejects liking your own comment; ignore the request.
+        if (isOwnComment(comment)) return
         viewModelScope.launch {
             try {
                 val userSession = keychainHelper.load(UserSession::class.java, service, account)
@@ -263,6 +409,7 @@ class PostDetailViewModel(
                 }
                 val response = api.reportComment(userSession.sessionToken, postIdentifier, threadId, comment.id, ReportRequest(reason))
                 if (response.isSuccessful) {
+                    _reportedCommentIds.value = _reportedCommentIds.value + comment.id
                     _alertMessage.value = "Comment reported successfully."
                 } else {
                     _alertMessage.value = "Failed to report comment: ${response.message()}"

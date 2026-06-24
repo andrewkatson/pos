@@ -1,5 +1,5 @@
 {
-  "originHash" : "99435ed0efc4a2bf9855e4cf18d798a05703cf6d4b6e747f1f4156672739a71c",
+  "originHash" : "0d956e551cd681b13acf1dbe3377f01cc9416986062248ef1ff63cebf652ed5d",
   "pins" : [
     {
       "identity" : "aws-crt-swift",
@@ -26,6 +26,15 @@
       "state" : {
         "revision" : "a56a157218877ef3e9625f7e1f7b2cb7e46ead1b",
         "version" : "1.26.1"
+      }
+    },
+    {
+      "identity" : "kingfisher",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/onevcat/Kingfisher.git",
+      "state" : {
+        "revision" : "ac632bd26a1c00f139ff62fd01806f21cf67325e",
+        "version" : "8.10.0"
       }
     },
     {

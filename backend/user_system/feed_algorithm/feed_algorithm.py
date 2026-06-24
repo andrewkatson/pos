@@ -1,8 +1,35 @@
 from django.db.models import Q, Count, F, ExpressionWrapper, FloatField, DurationField
 from django.db.models.functions import Power, Now
+from django.db.models import Func
 import logging
 
 logger = logging.getLogger(__name__)
+
+
+class DurationToSeconds(Func):
+    """Converts a DurationField expression to elapsed seconds as a float.
+
+    PostgreSQL stores durations as interval; EXTRACT(EPOCH FROM ...) is needed
+    to get a numeric value.  SQLite stores durations as microseconds (integer),
+    so a plain division suffices.
+    """
+    arity = 1
+    output_field = FloatField()
+
+    def as_postgresql(self, compiler, connection, **extra_context):
+        return self.as_sql(
+            compiler, connection,
+            template='EXTRACT(EPOCH FROM %(expressions)s)',
+            **extra_context,
+        )
+
+    def as_sqlite(self, compiler, connection, **extra_context):
+        return self.as_sql(
+            compiler, connection,
+            template='(%(expressions)s / 1000000.0)',
+            **extra_context,
+        )
+
 
 def calculate_weights(qs, like_field, G=1.8, user=None):
     logger.debug(f"Calculating feed weights with gravity G={G}")
@@ -11,19 +38,15 @@ def calculate_weights(qs, like_field, G=1.8, user=None):
         like_count=Count(like_field)
     )
 
-    # 2. Annotate the age of the post in hours
+    # 2. Annotate the age of the post in hours as a pure float.
+    #    DurationToSeconds handles the DB difference: PostgreSQL keeps interval
+    #    arithmetic as interval, so EXTRACT(EPOCH FROM ...) is required; SQLite
+    #    stores durations as microseconds integers, so dividing by 1e6 suffices.
     qs = qs.annotate(
-        # 1. Calculate the duration between now and the creation time.
-        #    This creates an 'interval' type in SQL.
-        duration=ExpressionWrapper(
-            Now() - F('creation_time'),
-            output_field=DurationField()
-        )
-    ).annotate(
-        # 2. Convert the duration (which is in microseconds) to hours.
-        #    1 hour = 3,600,000,000 microseconds (3600 * 1,000,000)
         age_in_hours=ExpressionWrapper(
-            F('duration') / 3600000000.0,
+            DurationToSeconds(
+                ExpressionWrapper(Now() - F('creation_time'), output_field=DurationField())
+            ) / 3600.0,
             output_field=FloatField()
         )
     )
@@ -31,7 +54,7 @@ def calculate_weights(qs, like_field, G=1.8, user=None):
     # 3. Annotate the final score using the hot rank formula
     qs = qs.annotate(
         score=ExpressionWrapper(
-            (F('like_count') + 1) / Power(F('age_in_hours') + 2, G),
+            (F('like_count') + 1) / Power(F('age_in_hours') + 2.0, G),
             output_field=FloatField()
         )
     )

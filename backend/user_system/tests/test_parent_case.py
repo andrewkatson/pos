@@ -6,7 +6,7 @@ from django.test import TestCase, Client, override_settings
 from django.urls import reverse
 
 # Note: test_constants are no longer used for FAIL/SUCCESS
-from .test_constants import ip, false, UserFields
+from .test_constants import false, UserFields
 # Note: test_utils.get_response_fields is replaced by response.json()
 from ..classifiers.classifier_constants import POSITIVE_IMAGE_URL, POSITIVE_IMAGE_FILENAME, POSITIVE_TEXT
 from ..constants import Fields
@@ -81,7 +81,6 @@ class PositiveOnlySocialTestCase(TestCase):
             'email': email,
             'password': password,
             'remember_me': remember_me,
-            'ip': ip
         }
         response = self.client.post(url, data=data, content_type='application/json')
 
@@ -102,7 +101,6 @@ class PositiveOnlySocialTestCase(TestCase):
             'username_or_email': username,
             'password': password,
             'remember_me': remember_me,
-            'ip': ip
         }
         response = self.client.post(url, data=data, content_type='application/json')
         self.assertEqual(response.status_code, 200)

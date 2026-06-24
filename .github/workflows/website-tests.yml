@@ -1,0 +1,50 @@
+name: Website Tests
+
+on:
+  push:
+    branches: [ "main" ]
+    paths:
+      - 'website/**'
+      - '.github/workflows/website-tests.yml'
+  pull_request:
+    paths:
+      - 'website/**'
+      - '.github/workflows/website-tests.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: Build and Test
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'npm'
+          cache-dependency-path: website/package-lock.json
+
+      - name: Install dependencies
+        working-directory: ./website
+        run: npm ci
+
+      - name: Lint
+        working-directory: ./website
+        run: npm run lint
+
+      - name: Type check
+        working-directory: ./website
+        run: npx tsc -b --noEmit
+
+      - name: Run tests
+        working-directory: ./website
+        run: npm test
+
+      - name: Build
+        working-directory: ./website
+        run: npm run build

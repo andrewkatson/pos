@@ -44,7 +44,7 @@ struct Positive_Only_SocialTests_HomeViewModel {
     private func setupLoggedInUser(username: String) async throws {
         let token = try await registerUserAndGetToken(username: username)
         let userSession = UserSession(sessionToken: token, username: username, userId: "1", isIdentityVerified: false)
-        try keychainHelper.save(userSession, for: AppConstants.keychainService, account: "\(username)_account")
+        try keychainHelper.save(userSession, for: GVOAppConstants.keychainService, account: "\(username)_account")
     }
 
     // --- Post Fetching Tests ---
@@ -57,7 +57,7 @@ struct Positive_Only_SocialTests_HomeViewModel {
 
         // 1. Tell the 'load' function what type you're expecting.
         //    Swift can now infer the generic type 'T' is 'UserSession'.
-        let session = try keychainHelper.load(UserSession.self, from: AppConstants.keychainService, account: "fetchMyPostsUser_account")
+        let session = try keychainHelper.load(UserSession.self, from: GVOAppConstants.keychainService, account: "fetchMyPostsUser_account")
 
         // 2. Now you can safely unwrap and access the property.
         let token = session!.sessionToken
@@ -108,6 +108,107 @@ struct Positive_Only_SocialTests_HomeViewModel {
         // Then: The API was never called
         #expect(stubAPI.getPostsForUserCallCount == 0)
         #expect(sut.userPosts.isEmpty == true)
+    }
+
+    @Test func testRefreshMyPosts_PullsNewestPostsAndReplacesList() async throws {
+        stubAPI.pageSize = 2
+
+        try await setupLoggedInUser(username: "refreshMyPostsPullsNewest")
+        let sut = HomeViewModel(api: stubAPI, keychainHelper: keychainHelper, account: "refreshMyPostsPullsNewest_account")
+
+        let session = try keychainHelper.load(UserSession.self, from: GVOAppConstants.keychainService, account: "refreshMyPostsPullsNewest_account")
+        let token = session!.sessionToken
+
+        // Given: One post exists and the grid has loaded once
+        _ = try await stubAPI.makePost(sessionManagementToken: token, imageURL: "my.image/1", caption: "Post 1")
+        sut.fetchMyPosts()
+        await yield()
+        #expect(sut.userPosts.count == 1)
+        #expect(stubAPI.getPostsForUserCallCount == 1)
+
+        // When: Two more posts are made and we pull-to-refresh
+        _ = try await stubAPI.makePost(sessionManagementToken: token, imageURL: "my.image/2", caption: "Post 2")
+        _ = try await stubAPI.makePost(sessionManagementToken: token, imageURL: "my.image/3", caption: "Post 3")
+        await sut.refreshMyPosts()
+
+        // Then: The list is replaced with the freshest first page (newest first)
+        #expect(sut.isLoadingNextPage == false)
+        #expect(sut.userPosts.count == 2)
+        #expect(sut.userPosts.first?.imageUrl == "my.image/3")
+        #expect(sut.userPosts.last?.imageUrl == "my.image/2")
+        #expect(stubAPI.getPostsForUserCallCount == 2)
+    }
+
+    @Test func testRefreshMyPosts_ResetsPaginationAfterEndReached() async throws {
+        stubAPI.pageSize = 2
+
+        try await setupLoggedInUser(username: "refreshMyPostsResetsPagination")
+        let sut = HomeViewModel(api: stubAPI, keychainHelper: keychainHelper, account: "refreshMyPostsResetsPagination_account")
+
+        let session = try keychainHelper.load(UserSession.self, from: GVOAppConstants.keychainService, account: "refreshMyPostsResetsPagination_account")
+        let token = session!.sessionToken
+
+        _ = try await stubAPI.makePost(sessionManagementToken: token, imageURL: "my.image/1", caption: "Post 1")
+
+        // Given: We have paged to the end (canLoadMorePosts becomes false)
+        sut.fetchMyPosts()
+        await yield()
+        sut.fetchMyPosts() // empty page 1 -> canLoadMorePosts = false
+        await yield()
+        #expect(sut.userPosts.count == 1)
+        #expect(stubAPI.getPostsForUserCallCount == 2)
+
+        // And: Two more posts now exist on the backend (3 total = 2 pages)
+        _ = try await stubAPI.makePost(sessionManagementToken: token, imageURL: "my.image/2", caption: "Post 2")
+        _ = try await stubAPI.makePost(sessionManagementToken: token, imageURL: "my.image/3", caption: "Post 3")
+
+        // When: We refresh
+        await sut.refreshMyPosts()
+
+        // Then: The freshest first page replaces the list...
+        #expect(sut.userPosts.count == 2)
+
+        // ...and pagination is reset, so a subsequent fetch loads page 1 again.
+        sut.fetchMyPosts()
+        await yield()
+        #expect(sut.userPosts.count == 3)
+    }
+
+    @Test func testRefreshMyPosts_Failure_PreservesPaginationCursor() async throws {
+        stubAPI.pageSize = 2
+        let account = "refreshMyPostsFailurePreservesCursor_account"
+        try await setupLoggedInUser(username: "refreshMyPostsFailurePreservesCursor")
+        let sut = HomeViewModel(api: stubAPI, keychainHelper: keychainHelper, account: account)
+
+        let session = try keychainHelper.load(UserSession.self, from: GVOAppConstants.keychainService, account: account)
+        let userSession = session!
+        let token = userSession.sessionToken
+
+        // Given: 3 posts exist and we've loaded the first page (cursor at page 1)
+        _ = try await stubAPI.makePost(sessionManagementToken: token, imageURL: "my.image/1", caption: "Post 1")
+        _ = try await stubAPI.makePost(sessionManagementToken: token, imageURL: "my.image/2", caption: "Post 2")
+        _ = try await stubAPI.makePost(sessionManagementToken: token, imageURL: "my.image/3", caption: "Post 3")
+        sut.fetchMyPosts()
+        await yield()
+        #expect(sut.userPosts.count == 2)
+        #expect(sut.userPosts.first?.imageUrl == "my.image/3")
+
+        // When: A refresh fails (session is unavailable for the duration of the refresh)
+        try keychainHelper.delete(service: GVOAppConstants.keychainService, account: account)
+        await sut.refreshMyPosts()
+        try keychainHelper.save(userSession, for: GVOAppConstants.keychainService, account: account)
+
+        // Then: The existing posts are untouched and the loading flag is reset
+        #expect(sut.isLoadingNextPage == false)
+        #expect(sut.userPosts.count == 2)
+
+        // And: The cursor was NOT reset, so the next fetch loads page 1 (not page 0
+        // again), appending the third post without duplicating the first page.
+        sut.fetchMyPosts()
+        await yield()
+        #expect(sut.userPosts.count == 3)
+        #expect(sut.userPosts.last?.imageUrl == "my.image/1")
+        #expect(sut.userPosts.filter { $0.imageUrl == "my.image/3" }.count == 1)
     }
 
     // --- Search Tests ---

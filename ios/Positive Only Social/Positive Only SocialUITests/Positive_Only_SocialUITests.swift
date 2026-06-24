@@ -13,8 +13,8 @@ final class Positive_Only_SocialUITests: XCTestCase {
     var testUsername: String = ""
     var otherTestUsername: String = ""
     var newTestUsername: String = ""
-    let strongPassword: String = "StrongPassword123!"
-    let newStrongPassword: String = "NewStrongPassword456!"
+    let strongPassword: String = "StrongPassword123@"
+    let newStrongPassword: String = "NewStrongPassword456@"
 
     override func setUpWithError() throws {
         try super.setUpWithError()
@@ -26,11 +26,12 @@ final class Positive_Only_SocialUITests: XCTestCase {
         
         app = XCUIApplication()
         app.launchArguments.append("--ui_testing")
-        // get the name and remove the opening
+        // get the name and remove the opening bracket and closing bracket,
+        // then replace spaces (between class name and method name) with underscores
+        // so the resulting username contains only word characters.
         var baseName = self.name.replacingOccurrences(of: "-[", with: "")
-
-        // And then you'll need to remove the closing square bracket at the end of the test name
         baseName = baseName.replacingOccurrences(of: "]", with: "")
+        baseName = baseName.replacingOccurrences(of: " ", with: "_")
         
         app.launchEnvironment["test-name"] = baseName
         app.launch()
@@ -44,8 +45,11 @@ final class Positive_Only_SocialUITests: XCTestCase {
         // dialogs (presented by SpringBoard, not the app) that would otherwise
         // block interactions. The monitor fires the next time the test tries to
         // interact with a UI element while the system dialog is in front.
-        addUIInterruptionMonitor(withDescription: "Save Password dialog") { alert -> Bool in
-            for title in ["Not Now", "Never for This Website", "Cancel"] {
+        // "Choose My Own Password" / "Don't Use" cover the Strong Password variant
+        // when iOS surfaces it as a system-level interrupt rather than an in-app sheet.
+        addUIInterruptionMonitor(withDescription: "Password dialog") { alert -> Bool in
+            for title in ["Not Now", "Never for This Website", "Cancel",
+                          "Choose My Own Password", "Choose My Own…", "Don't Use"] {
                 if alert.buttons[title].exists {
                     alert.buttons[title].tap()
                     return true
@@ -81,11 +85,45 @@ final class Positive_Only_SocialUITests: XCTestCase {
         }
     }
 
+    /// Dismisses the iOS "Use Strong Password" AutoFill panel/sheet if it is showing.
+    /// In newer iOS the suggestion appears as a floating panel above the keyboard with
+    /// an "xmark" close button (SF Symbol); older iOS uses an action sheet with text
+    /// buttons. We try both styles.
+    ///
+    /// - Parameter shouldWait: Pass `true` for password fields where the panel takes a
+    ///   couple of seconds to appear (adds ~2 s to the first probe); pass `false` for
+    ///   regular text fields where the panel never shows (stays at 0.5 s so tests stay fast).
+    private func dismissStrongPasswordIfPresent(shouldWait: Bool) {
+        let firstProbeTimeout: TimeInterval = shouldWait ? 2.0 : 0.5
+        // Newer iOS (17+): floating AutoFill panel has an X / xmark close button.
+        for (index, title) in ["xmark", "Close", "close"].enumerated() {
+            let timeout = index == 0 ? firstProbeTimeout : 0.5
+            if app.buttons[title].waitForExistence(timeout: timeout) {
+                app.buttons[title].tap()
+                return
+            }
+        }
+        // Older iOS / action-sheet style: text buttons on a sheet.
+        for title in ["Choose My Own Password", "Choose My Own…", "Don't Use"] {
+            if app.buttons[title].waitForExistence(timeout: 0.5) {
+                app.buttons[title].tap()
+                return
+            }
+        }
+    }
+
     private func typeText(element: XCUIElement, text: String) {
         let maxAttempts = 5
         var attempt = 0
 
         element.tap()
+
+        // The "Use Strong Password" AutoFill panel appears immediately on the
+        // first tap and prevents the field from ever gaining focus.  Dismiss it
+        // right here — before the focus-check loop — so the loop can succeed.
+        // Only password (secure) fields trigger the panel, so we only wait for
+        // it on those fields; plain text fields use a fast 0.5 s probe.
+        dismissStrongPasswordIfPresent(shouldWait: element.elementType == .secureTextField)
 
         while (!element.hasFocus || app.keyboards.count == 0) && attempt < maxAttempts {
             element.tap()
@@ -212,7 +250,11 @@ final class Positive_Only_SocialUITests: XCTestCase {
         XCTAssertTrue(confirmPasswordField.waitForExistence(timeout: TestConstants.shortTimeout))
         confirmPasswordField.tap()
         typeText(element: confirmPasswordField, text: password)
-        
+
+        // The keyboard can obscure the "Register" button at the bottom of the
+        // screen, so dismiss it before trying to tap the button.
+        dismissKeyboardIfPresent(app)
+
         let otherRegisterButton = app.buttons["RegisterButton"]
         XCTAssertTrue(otherRegisterButton.waitForExistence(timeout: TestConstants.shortTimeout))
         otherRegisterButton.tap()
@@ -340,52 +382,89 @@ final class Positive_Only_SocialUITests: XCTestCase {
         XCTAssertTrue(sharePostButton.waitForExistence(timeout: TestConstants.shortTimeout))
         sharePostButton.tap()
 
+        // Sharing shows a "Success!" alert; its OK button is what returns the
+        // app to the Home tab, and the alert blocks all taps until dismissed,
+        // so every caller needs it gone before doing anything else.
+        // SwiftUI exposes the alert button as a nested Button with the same
+        // identifier, so scope to the alert and take firstMatch to avoid an
+        // ambiguous "multiple matching elements" failure.
+        let okButton = app.alerts.buttons["OkButtonSuccess"].firstMatch
+        XCTAssertTrue(okButton.waitForExistence(timeout: TestConstants.shortTimeout),
+                      "Success alert should appear after sharing a post")
+        okButton.tap()
+
         assertOnHomeView(app: app)
     }
     
     /// Makes a comment on the first post found in the For You Feed. Assumes the user is logged in and we are on HomeView and a post was made already.
+    /// Note the For You feed excludes the signed-in user's own posts, so the
+    /// post being commented on must belong to ANOTHER user; to comment on the
+    /// user's own post, use openOwnPostFromHomeGrid + addCommentToOpenPost.
     /// Ends on the PostDetailView.
     private func makeCommentOnPost(app: XCUIApplication, commentText: String) {
         assertOnHomeView(app: app)
-        
+
         let feedTab = app.buttons["Feed"]
         XCTAssertTrue(feedTab.waitForExistence(timeout: TestConstants.shortTimeout))
         feedTab.tap()
-        
+
         assertOnFeedView(app: app)
-        
+
         // First, get the query for all elements matching our identifier.
         // (NavigationLinks are 'buttons' in the accessibility tree)
         let allPostsQuery = app.buttons.matching(identifier: "ForYouPostImage")
 
         // Now, get the specific element at index 0 (the first one)
         let firstPostElement = allPostsQuery.element(boundBy: 0)
-        
+
         XCTAssertTrue(firstPostElement.waitForExistence(timeout: TestConstants.shortTimeout))
         firstPostElement.tap()
-        
+
         assertOnPostDetailView(app: app)
-        
+
+        addCommentToOpenPost(app: app, commentText: commentText)
+
+        assertOnPostDetailView(app: app)
+    }
+
+    /// Opens the signed-in user's own first post from the Home grid, ending on
+    /// the PostDetailView. The For You feed excludes the user's own posts, so
+    /// tests that operate on an own post must navigate through the Home grid.
+    private func openOwnPostFromHomeGrid(app: XCUIApplication) {
+        assertOnHomeView(app: app)
+
+        let myPosts = app.buttons.matching(identifier: "MyPostImage")
+        expectation(for: NSPredicate(format: "count >= 1"), evaluatedWith: myPosts, handler: nil)
+        waitForExpectations(timeout: TestConstants.timeout, handler: nil)
+
+        let firstPost = myPosts.element(boundBy: 0)
+        XCTAssertTrue(firstPost.waitForExistence(timeout: TestConstants.shortTimeout))
+        firstPost.tap()
+
+        assertOnPostDetailView(app: app)
+    }
+
+    /// Types and posts a comment on the currently open PostDetailView, then
+    /// waits for it to appear as the only comment.
+    private func addCommentToOpenPost(app: XCUIApplication, commentText: String) {
         let addACommentTextField = app.textFields["AddACommentTextFieldToPost"]
         XCTAssertTrue(addACommentTextField.waitForExistence(timeout: TestConstants.shortTimeout))
         addACommentTextField.tap()
         typeText(element: addACommentTextField, text: commentText)
-        
+
         let postCommentButton = app.buttons["PostCommentButton"]
         XCTAssertTrue(postCommentButton.waitForExistence(timeout: TestConstants.shortTimeout))
         postCommentButton.tap()
-        
+
         dismissKeyboardIfPresent(app)
-        
+
         // Should be one comment total
         let commentElements = app.staticTexts.matching(identifier: "CommentText")
         expectation(for: NSPredicate(format: "count == 1"), evaluatedWith: commentElements, handler: nil)
         waitForExpectations(timeout: TestConstants.timeout, handler: nil)
         XCTAssert(commentElements.count == 1, "Expected to find 1 comment, but found \(commentElements.count)")
-        
-        assertOnPostDetailView(app: app)
     }
-    
+
     /// Makes a comment on the first comment thread found on the first post found in the For You Feed. Assumes the user is logged in and we are on
     /// HomeView and a post was made already. Ends on the PostDetailView.
     private func makeCommentOnThread(app: XCUIApplication, commentText: String) {
@@ -444,7 +523,61 @@ final class Positive_Only_SocialUITests: XCTestCase {
         assertOnPostDetailView(app: app)
     }
     
+    /// Waits for an element's accessibility label to equal the expected value. Like/unlike updates
+    /// are applied optimistically on the SwiftUI run loop, and XCUITest reads the accessibility label
+    /// from a separate process, so a plain `XCTAssertEqual` can race the re-render. Waiting on a
+    /// predicate makes the check robust, matching how the rest of this file handles async values.
+    private func waitForLabel(_ element: XCUIElement, toEqual expected: String) {
+        let predicate = NSPredicate(format: "label == %@", expected)
+        expectation(for: predicate, evaluatedWith: element, handler: nil)
+        waitForExpectations(timeout: TestConstants.timeout, handler: nil)
+    }
+
     // MARK: Tests
+
+    /// Issue #205: tapping anywhere outside a text field should dismiss the
+    /// keyboard so the buttons it was covering (Register, Login, …) become
+    /// reachable again. Exercised on the Register screen; the dismissal itself
+    /// is purely a UI behavior, though the test first clears any signed-in
+    /// state via `ifOnHomeDeleteAccount` to reach the Welcome → Register flow.
+    @MainActor
+    func testTappingOutsideFieldDismissesKeyboard() throws {
+        try ifOnHomeDeleteAccount(app: app)
+
+        // Navigate to the Register screen.
+        let welcomeText = app.staticTexts["Welcome! 👋"]
+        XCTAssertTrue(welcomeText.waitForExistence(timeout: TestConstants.shortTimeout),
+                      "Welcome view did not appear")
+        let registerButton = app.buttons["RegisterText"]
+        XCTAssertTrue(registerButton.waitForExistence(timeout: TestConstants.shortTimeout))
+        registerButton.tap()
+        assertOnRegisterView(app: app)
+
+        // Focus a field so the keyboard appears. The simulator occasionally
+        // fails to present the software keyboard on the first focus, so retry
+        // the tap once before treating it as a failure.
+        let usernameField = app.textFields["UsernameTextField"]
+        XCTAssertTrue(usernameField.waitForExistence(timeout: TestConstants.shortTimeout))
+        usernameField.tap()
+        if !app.keyboards.firstMatch.waitForExistence(timeout: TestConstants.shortTimeout) {
+            usernameField.tap()
+        }
+        XCTAssertTrue(app.keyboards.firstMatch.waitForExistence(timeout: TestConstants.shortTimeout),
+                      "Keyboard should appear when a text field is focused")
+
+        // Tap empty space outside any field — the gap just above the username
+        // field. A coordinate (resolved relative to the field at tap time) is
+        // used instead of a static element because the AutoFill accessory bar
+        // can appear asynchronously and grow the keyboard, shifting the whole
+        // layout up; a fixed element like the screen title can end up under
+        // the navigation bar where taps no longer reach the screen's content.
+        usernameField.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: -0.3)).tap()
+
+        let keyboardGone = NSPredicate(format: "count == 0")
+        expectation(for: keyboardGone, evaluatedWith: app.keyboards, handler: nil)
+        waitForExpectations(timeout: TestConstants.timeout, handler: nil)
+    }
+
     @MainActor
     func testAutomaticLoginAfterRememberMe() throws {
         
@@ -571,17 +704,27 @@ final class Positive_Only_SocialUITests: XCTestCase {
         XCTAssertTrue(app.textFields["UsernameTextField"].waitForExistence(timeout: TestConstants.shortTimeout), "Username text field should exist")
         XCTAssertTrue(app.textFields["EmailTextField"].waitForExistence(timeout: TestConstants.shortTimeout), "Email text field should exist")
         XCTAssertTrue(app.secureTextFields["NewPasswordSecureField"].waitForExistence(timeout: TestConstants.shortTimeout), "New password text field should exist")
-        
+        XCTAssertTrue(app.secureTextFields["ConfirmNewPasswordSecureField"].waitForExistence(timeout: TestConstants.shortTimeout), "Confirm new password text field should exist")
+
         let emailTextField = app.textFields["EmailTextField"]
         XCTAssertTrue(emailTextField.waitForExistence(timeout: TestConstants.shortTimeout))
         emailTextField.tap()
         typeText(element: emailTextField, text: "\(testUsername)@test.com")
-        
+
         let passwordTextField = app.secureTextFields["NewPasswordSecureField"]
         XCTAssertTrue(passwordTextField.waitForExistence(timeout: TestConstants.shortTimeout))
         passwordTextField.tap()
         typeText(element: passwordTextField, text: newStrongPassword)
-        
+
+        let confirmNewPasswordTextField = app.secureTextFields["ConfirmNewPasswordSecureField"]
+        XCTAssertTrue(confirmNewPasswordTextField.waitForExistence(timeout: TestConstants.shortTimeout))
+        confirmNewPasswordTextField.tap()
+        typeText(element: confirmNewPasswordTextField, text: newStrongPassword)
+
+        // The keyboard can obscure the "Reset Password and Login" button at the
+        // bottom of the screen, so dismiss it before trying to tap the button.
+        dismissKeyboardIfPresent(app)
+
         let resetPasswordAndLoginButton = app.buttons["ResetPasswordAndLoginButton"]
         XCTAssertTrue(resetPasswordAndLoginButton.waitForExistence(timeout: TestConstants.shortTimeout))
         resetPasswordAndLoginButton.tap()
@@ -843,39 +986,173 @@ final class Positive_Only_SocialUITests: XCTestCase {
         firstPostElement.tap()
 
         assertOnPostDetailView(app: app)
-        
+
         let postImage = app.buttons["PostImage"]
         XCTAssertTrue(postImage.waitForExistence(timeout: TestConstants.shortTimeout))
-        postImage.doubleTap()
-        
+
         let postLikesText = app.staticTexts["PostLikesText"]
-        XCTAssertEqual(postLikesText.label, "1 likes")
-        
+
+        // --- New method: tap the heart button ---
+        let likePostButton = app.buttons["Like post"]
+        XCTAssertTrue(likePostButton.waitForExistence(timeout: TestConstants.shortTimeout))
+        likePostButton.tap()
+        waitForLabel(postLikesText, toEqual: "1 likes")
+
+        let unlikePostButton = app.buttons["Unlike post"]
+        XCTAssertTrue(unlikePostButton.waitForExistence(timeout: TestConstants.shortTimeout))
+        unlikePostButton.tap()
+        waitForLabel(postLikesText, toEqual: "0 likes")
+
+        // --- Old method: double-tap the post image ---
         XCTAssertTrue(postImage.waitForExistence(timeout: TestConstants.shortTimeout))
         postImage.doubleTap()
-        
-        XCTAssertEqual(postLikesText.label, "0 likes")
-        
+        waitForLabel(postLikesText, toEqual: "1 likes")
+
+        XCTAssertTrue(postImage.waitForExistence(timeout: TestConstants.shortTimeout))
+        postImage.doubleTap()
+        waitForLabel(postLikesText, toEqual: "0 likes")
+
         let backButton = app.navigationBars.firstMatch.buttons.element(boundBy: 0)
         XCTAssertTrue(backButton.waitForExistence(timeout: TestConstants.shortTimeout))
         backButton.tap()
-        
+
         let homeButton = app.buttons["Home"]
         if homeButton.exists {
             XCTAssertTrue(homeButton.waitForExistence(timeout: TestConstants.shortTimeout))
             homeButton.tap()
         }
-        
+
         assertOnHomeView(app: app)
     }
     
+    /// A newly created post shows up in the Home grid in real time (without a
+    /// manual refresh), and tapping it opens the post detail view.
+    @MainActor
+    func testOpenPostDetailFromHomeGrid() throws {
+
+        try ifOnHomeDeleteAccount(app: app)
+
+        try loginUser(app: app, username: testUsername, password: strongPassword, rememberMe: false)
+
+        try makePost(app: app, postText: "Home Grid Post")
+
+        // makePost dismissed the success alert, which returns to the Home tab.
+        // The grid is refreshed as part of creating the post, so it appears live.
+        assertOnHomeView(app: app)
+
+        let myPosts = app.buttons.matching(identifier: "MyPostImage")
+        expectation(for: NSPredicate(format: "count >= 1"), evaluatedWith: myPosts, handler: nil)
+        waitForExpectations(timeout: TestConstants.timeout, handler: nil)
+
+        let firstPost = myPosts.element(boundBy: 0)
+        XCTAssertTrue(firstPost.waitForExistence(timeout: TestConstants.shortTimeout))
+        firstPost.tap()
+
+        assertOnPostDetailView(app: app)
+    }
+
+    /// Tapping a post in another user's Profile grid opens the post detail view.
+    @MainActor
+    func testOpenPostDetailFromProfileGrid() throws {
+
+        try ifOnHomeDeleteAccount(app: app)
+
+        try loginUser(app: app, username: testUsername, password: strongPassword, rememberMe: false)
+        try makePost(app: app, postText: "Profile Grid Post")
+        try logoutUserFromHome(app: app)
+
+        try loginUser(app: app, username: otherTestUsername, password: strongPassword, rememberMe: false)
+
+        // Search for the author and open their profile.
+        let userSearchField = app.searchFields["Search for Users"]
+        XCTAssertTrue(userSearchField.waitForExistence(timeout: TestConstants.shortTimeout))
+        userSearchField.tap()
+        typeText(element: userSearchField, text: testUsername)
+
+        let userLink = app.buttons[testUsername]
+        XCTAssertTrue(userLink.waitForExistence(timeout: TestConstants.shortTimeout))
+        userLink.tap()
+
+        assertOnProfileView(app: app)
+
+        let profilePosts = app.buttons.matching(identifier: "ProfilePostImage")
+        expectation(for: NSPredicate(format: "count >= 1"), evaluatedWith: profilePosts, handler: nil)
+        waitForExpectations(timeout: TestConstants.timeout, handler: nil)
+
+        let firstPost = profilePosts.element(boundBy: 0)
+        XCTAssertTrue(firstPost.waitForExistence(timeout: TestConstants.shortTimeout))
+        firstPost.tap()
+
+        assertOnPostDetailView(app: app)
+    }
+
+    /// Tapping a post in the Following feed opens the post detail view.
+    @MainActor
+    func testOpenPostDetailFromFollowingFeed() throws {
+
+        try ifOnHomeDeleteAccount(app: app)
+
+        try loginUser(app: app, username: testUsername, password: strongPassword, rememberMe: false)
+        try makePost(app: app, postText: "Following Feed Post")
+        try logoutUserFromHome(app: app)
+
+        try loginUser(app: app, username: otherTestUsername, password: strongPassword, rememberMe: false)
+
+        // Follow the author so their post shows up in the Following feed.
+        let userSearchField = app.searchFields["Search for Users"]
+        XCTAssertTrue(userSearchField.waitForExistence(timeout: TestConstants.shortTimeout))
+        userSearchField.tap()
+        typeText(element: userSearchField, text: testUsername)
+
+        let userLink = app.buttons[testUsername]
+        XCTAssertTrue(userLink.waitForExistence(timeout: TestConstants.shortTimeout))
+        userLink.tap()
+
+        assertOnProfileView(app: app)
+
+        let followButton = app.buttons["FollowButton"]
+        XCTAssertTrue(followButton.waitForExistence(timeout: TestConstants.shortTimeout))
+        followButton.tap()
+
+        let followersLabel = app.staticTexts["FollowersCount"]
+        expectation(for: NSPredicate(format: "label == '1'"), evaluatedWith: followersLabel, handler: nil)
+        waitForExpectations(timeout: TestConstants.timeout, handler: nil)
+
+        // Go back to the feed and switch to the Following tab.
+        let backButton = app.navigationBars.firstMatch.buttons.element(boundBy: 0)
+        XCTAssertTrue(backButton.waitForExistence(timeout: TestConstants.shortTimeout))
+        backButton.tap()
+
+        let feedTab = app.buttons["Feed"]
+        XCTAssertTrue(feedTab.waitForExistence(timeout: TestConstants.shortTimeout))
+        feedTab.tap()
+
+        assertOnFeedView(app: app)
+
+        let feedPicker = app.segmentedControls["FeedTypePicker"]
+        XCTAssertTrue(feedPicker.waitForExistence(timeout: TestConstants.shortTimeout))
+        let followingSegment = feedPicker.buttons["Following"]
+        XCTAssertTrue(followingSegment.waitForExistence(timeout: TestConstants.shortTimeout))
+        followingSegment.tap()
+
+        let followingPosts = app.buttons.matching(identifier: "FollowingPostImage")
+        expectation(for: NSPredicate(format: "count == 1"), evaluatedWith: followingPosts, handler: nil)
+        waitForExpectations(timeout: TestConstants.timeout, handler: nil)
+
+        let firstPost = followingPosts.element(boundBy: 0)
+        XCTAssertTrue(firstPost.waitForExistence(timeout: TestConstants.shortTimeout))
+        firstPost.tap()
+
+        assertOnPostDetailView(app: app)
+    }
+
     @MainActor
     func testVerifyIdentity() throws {
-        
+
         try ifOnHomeDeleteAccount(app: app)
-        
+
         try loginUser(app: app, username: testUsername, password: strongPassword, rememberMe: false)
-        
+
         let settingsTab = app.buttons["Settings"]
         XCTAssertTrue(settingsTab.waitForExistence(timeout: TestConstants.shortTimeout))
         settingsTab.tap()
@@ -973,35 +1250,63 @@ final class Positive_Only_SocialUITests: XCTestCase {
 
         assertOnPostDetailView(app: app)
         
-        // First we like and unlike the comment post comment
+        // --- Root comment ---
         let postCommentStackQuery = app.buttons.matching(identifier: "CommentStack")
         let postCommentStack = postCommentStackQuery.element(boundBy: 0)
         XCTAssertTrue(postCommentStack.waitForExistence(timeout: TestConstants.shortTimeout))
-        postCommentStack.doubleTap()
-        
+
         let postCommentLikesTextQuery = app.staticTexts.matching(identifier: "CommentLikesCount")
         let postCommentLikesText = postCommentLikesTextQuery.element(boundBy: 0)
-        XCTAssertEqual(postCommentLikesText.label, "1 likes")
-        
+
+        // New method: tap the heart button
+        let firstLikeCommentButton = app.buttons.matching(NSPredicate(format: "label == 'Like comment'")).element(boundBy: 0)
+        XCTAssertTrue(firstLikeCommentButton.waitForExistence(timeout: TestConstants.shortTimeout))
+        firstLikeCommentButton.tap()
+        waitForLabel(postCommentLikesText, toEqual: "1 likes")
+
+        let firstUnlikeCommentButton = app.buttons.matching(NSPredicate(format: "label == 'Unlike comment'")).element(boundBy: 0)
+        XCTAssertTrue(firstUnlikeCommentButton.waitForExistence(timeout: TestConstants.shortTimeout))
+        firstUnlikeCommentButton.tap()
+        waitForLabel(postCommentLikesText, toEqual: "0 likes")
+
+        // Old method: double-tap the comment row
         XCTAssertTrue(postCommentStack.waitForExistence(timeout: TestConstants.shortTimeout))
         postCommentStack.doubleTap()
-        
-        XCTAssertEqual(postCommentLikesText.label, "0 likes")
-        
-        // Then we like and unlike the comment thread comment
+        waitForLabel(postCommentLikesText, toEqual: "1 likes")
+
+        XCTAssertTrue(postCommentStack.waitForExistence(timeout: TestConstants.shortTimeout))
+        postCommentStack.doubleTap()
+        waitForLabel(postCommentLikesText, toEqual: "0 likes")
+
+        // --- Thread reply ---
         let postCommentStackQuery2 = app.buttons.matching(identifier: "CommentStack")
         let postCommentStack2 = postCommentStackQuery2.element(boundBy: 1)
         XCTAssertTrue(postCommentStack2.waitForExistence(timeout: TestConstants.shortTimeout))
-        postCommentStack2.doubleTap()
-        
+
         let postCommentLikesTextQuery2 = app.staticTexts.matching(identifier: "CommentLikesCount")
         let postCommentLikesText2 = postCommentLikesTextQuery2.element(boundBy: 1)
-        XCTAssertEqual(postCommentLikesText2.label, "1 likes")
-        
+
+        // New method: tap the heart button on the reply
+        // boundBy: 1 because root comment's heart is still at index 0 (not liked)
+        let secondLikeCommentButton = app.buttons.matching(NSPredicate(format: "label == 'Like comment'")).element(boundBy: 1)
+        XCTAssertTrue(secondLikeCommentButton.waitForExistence(timeout: TestConstants.shortTimeout))
+        secondLikeCommentButton.tap()
+        waitForLabel(postCommentLikesText2, toEqual: "1 likes")
+
+        // After liking the reply, it becomes the only "Unlike comment" button
+        let secondUnlikeCommentButton = app.buttons.matching(NSPredicate(format: "label == 'Unlike comment'")).element(boundBy: 0)
+        XCTAssertTrue(secondUnlikeCommentButton.waitForExistence(timeout: TestConstants.shortTimeout))
+        secondUnlikeCommentButton.tap()
+        waitForLabel(postCommentLikesText2, toEqual: "0 likes")
+
+        // Old method: double-tap the reply row
         XCTAssertTrue(postCommentStack2.waitForExistence(timeout: TestConstants.shortTimeout))
         postCommentStack2.doubleTap()
-        
-        XCTAssertEqual(postCommentLikesText2.label, "0 likes")
+        waitForLabel(postCommentLikesText2, toEqual: "1 likes")
+
+        XCTAssertTrue(postCommentStack2.waitForExistence(timeout: TestConstants.shortTimeout))
+        postCommentStack2.doubleTap()
+        waitForLabel(postCommentLikesText2, toEqual: "0 likes")
         
         let backButton = app.navigationBars.firstMatch.buttons.element(boundBy: 0)
         XCTAssertTrue(backButton.waitForExistence(timeout: TestConstants.shortTimeout))
@@ -1069,7 +1374,16 @@ final class Positive_Only_SocialUITests: XCTestCase {
         // 2 second press
         XCTAssertTrue(postImage.waitForExistence(timeout: TestConstants.shortTimeout))
         postImage.press(forDuration: 2)
-        
+
+        // The long-press now opens an action menu; choose Report Post (this
+        // post belongs to another user, so the menu offers Report, not Delete).
+        // Query by accessibilityIdentifier; SwiftUI exposes the dialog button as
+        // a nested duplicate with the same identifier, so take firstMatch to
+        // avoid an ambiguous "multiple matching elements" failure on tap().
+        let reportPostAction = app.buttons["ReportPostActionButton"].firstMatch
+        XCTAssertTrue(reportPostAction.waitForExistence(timeout: TestConstants.shortTimeout))
+        reportPostAction.tap()
+
         let reasonTextField = app.textFields["ProvideAReasonTextField"]
         XCTAssertTrue(reasonTextField.waitForExistence(timeout: TestConstants.shortTimeout))
         reasonTextField.tap()
@@ -1094,7 +1408,91 @@ final class Positive_Only_SocialUITests: XCTestCase {
         
         assertOnHomeView(app: app)
     }
-    
+
+    /// Long-pressing your own post offers Delete (not Report); deleting it pops
+    /// back to the feed and the post is gone.
+    @MainActor
+    func testDeleteOwnPost() throws {
+
+        try ifOnHomeDeleteAccount(app: app)
+
+        try loginUser(app: app, username: testUsername, password: strongPassword, rememberMe: false)
+
+        try makePost(app: app, postText: "Post To Delete")
+
+        // The For You feed excludes the user's own posts, so open the new post
+        // from the Home grid instead.
+        openOwnPostFromHomeGrid(app: app)
+
+        let postImage = app.buttons["PostImage"]
+        XCTAssertTrue(postImage.waitForExistence(timeout: TestConstants.shortTimeout))
+        postImage.press(forDuration: 2)
+
+        // It's the user's own post, so the action menu offers Delete, not Report.
+        XCTAssertFalse(app.buttons["ReportPostActionButton"].exists, "Should not be able to report your own post")
+        // firstMatch: the dialog button is exposed as a nested duplicate with the
+        // same identifier, so a bare query matches multiple and tap() is ambiguous.
+        let deletePostAction = app.buttons["DeletePostActionButton"].firstMatch
+        XCTAssertTrue(deletePostAction.waitForExistence(timeout: TestConstants.shortTimeout))
+        deletePostAction.tap()
+
+        // Deleting pops the Post Detail view back to the Home grid it was
+        // opened from. The deletion round-trips through the API before the
+        // pop, so wait for the view to go away rather than asserting instantly.
+        let commentField = app.textFields["AddACommentTextFieldToPost"]
+        expectation(for: NSPredicate(format: "exists == false"), evaluatedWith: commentField, handler: nil)
+        waitForExpectations(timeout: TestConstants.timeout, handler: nil)
+
+        assertOnHomeView(app: app)
+    }
+
+    /// Long-pressing your own comment offers Delete (not Report); deleting it
+    /// removes it from the thread.
+    @MainActor
+    func testDeleteOwnComment() throws {
+
+        try ifOnHomeDeleteAccount(app: app)
+
+        try loginUser(app: app, username: testUsername, password: strongPassword, rememberMe: false)
+
+        try makePost(app: app, postText: "Some Post Caption")
+
+        // Comment on the user's own post, ending on the Post Detail view. The
+        // For You feed excludes the user's own posts, so navigate to the post
+        // through the Home grid.
+        openOwnPostFromHomeGrid(app: app)
+        addCommentToOpenPost(app: app, commentText: "Comment To Delete")
+
+        let commentStack = app.buttons.matching(identifier: "CommentStack").element(boundBy: 0)
+        XCTAssertTrue(commentStack.waitForExistence(timeout: TestConstants.shortTimeout))
+        commentStack.press(forDuration: 2)
+
+        // It's the user's own comment, so the menu offers Delete, not Report.
+        XCTAssertFalse(app.buttons["ReportCommentActionButton"].exists, "Should not be able to report your own comment")
+        // firstMatch: the dialog button is exposed as a nested duplicate with the
+        // same identifier, so a bare query matches multiple and tap() is ambiguous.
+        let deleteCommentAction = app.buttons["DeleteCommentActionButton"].firstMatch
+        XCTAssertTrue(deleteCommentAction.waitForExistence(timeout: TestConstants.shortTimeout))
+        deleteCommentAction.tap()
+
+        // The comment is removed from the thread.
+        let commentElements = app.staticTexts.matching(identifier: "CommentText")
+        expectation(for: NSPredicate(format: "count == 0"), evaluatedWith: commentElements, handler: nil)
+        waitForExpectations(timeout: TestConstants.timeout, handler: nil)
+        XCTAssertEqual(commentElements.count, 0, "Expected the deleted comment to be gone")
+
+        let backButton = app.navigationBars.firstMatch.buttons.element(boundBy: 0)
+        XCTAssertTrue(backButton.waitForExistence(timeout: TestConstants.shortTimeout))
+        backButton.tap()
+
+        let homeButton = app.buttons["Home"]
+        if homeButton.exists {
+            homeButton.tap()
+        }
+
+        assertOnHomeView(app: app)
+    }
+
     @MainActor
     func testReportComment() throws {
         
@@ -1157,7 +1555,15 @@ final class Positive_Only_SocialUITests: XCTestCase {
         // 2 second press
         XCTAssertTrue(commentStack.waitForExistence(timeout: TestConstants.shortTimeout))
         commentStack.press(forDuration: 2)
-        
+
+        // The long-press opens an action menu; choose Report Comment (this
+        // comment belongs to another user, so the menu offers Report).
+        // firstMatch: the dialog button is exposed as a nested duplicate with the
+        // same identifier, so a bare query matches multiple and tap() is ambiguous.
+        let reportCommentAction = app.buttons["ReportCommentActionButton"].firstMatch
+        XCTAssertTrue(reportCommentAction.waitForExistence(timeout: TestConstants.shortTimeout))
+        reportCommentAction.tap()
+
         let reasonTextField = app.textFields["ProvideAReasonTextField"]
         XCTAssertTrue(reasonTextField.waitForExistence(timeout: TestConstants.shortTimeout))
         reasonTextField.tap()
@@ -1176,7 +1582,11 @@ final class Positive_Only_SocialUITests: XCTestCase {
         // 2 second press
         XCTAssertTrue(commentStack2.waitForExistence(timeout: TestConstants.shortTimeout))
         commentStack2.press(forDuration: 2)
-        
+
+        let reportCommentAction2 = app.buttons["ReportCommentActionButton"].firstMatch
+        XCTAssertTrue(reportCommentAction2.waitForExistence(timeout: TestConstants.shortTimeout))
+        reportCommentAction2.tap()
+
         let reasonTextField2 = app.textFields["ProvideAReasonTextField"]
         XCTAssertTrue(reasonTextField2.waitForExistence(timeout: TestConstants.shortTimeout))
         reasonTextField2.tap()

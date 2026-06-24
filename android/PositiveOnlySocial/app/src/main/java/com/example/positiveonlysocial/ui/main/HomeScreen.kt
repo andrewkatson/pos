@@ -1,19 +1,26 @@
 package com.example.positiveonlysocial.ui.main
 
+import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material3.*
+import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.NavController
@@ -24,6 +31,7 @@ import com.example.positiveonlysocial.models.viewmodels.HomeViewModel
 import com.example.positiveonlysocial.models.viewmodels.HomeViewModelFactory
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.navigation.compose.rememberNavController
+import com.example.positiveonlysocial.ui.dismissKeyboardOnTap
 import com.example.positiveonlysocial.ui.preview.PreviewHelpers
 import com.example.positiveonlysocial.ui.navigation.Screen
 import com.example.positiveonlysocial.ui.theme.PositiveOnlySocialTheme
@@ -43,7 +51,10 @@ fun HomeScreen(
         val userPosts by viewModel.userPosts.collectAsState()
         val searchedUsers by viewModel.searchedUsers.collectAsState()
         val searchText by viewModel.searchText.collectAsState()
-        
+        val isRefreshing by viewModel.isRefreshing.collectAsState()
+
+        val focusManager = LocalFocusManager.current
+
         // Trigger initial fetch
         LaunchedEffect(Unit) {
             if (userPosts.isEmpty()) {
@@ -51,7 +62,7 @@ fun HomeScreen(
             }
         }
 
-        Column(modifier = Modifier.fillMaxSize()) {
+        Column(modifier = Modifier.fillMaxSize().dismissKeyboardOnTap()) {
             // Search Bar
             TextField(
                 value = searchText,
@@ -61,7 +72,9 @@ fun HomeScreen(
                     .padding(8.dp),
                 placeholder = { Text("Search for Users") },
                 leadingIcon = { Icon(Icons.Default.Search, contentDescription = null) },
-                singleLine = true
+                singleLine = true,
+                keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
+                keyboardActions = KeyboardActions(onSearch = { focusManager.clearFocus() })
             )
 
             if (searchText.isNotEmpty()) {
@@ -112,28 +125,39 @@ fun HomeScreen(
                 }
             } else {
                 // User Posts Grid
-                LazyVerticalGrid(
-                    columns = GridCells.Fixed(3),
-                    contentPadding = PaddingValues(2.dp),
-                    horizontalArrangement = Arrangement.spacedBy(2.dp),
-                    verticalArrangement = Arrangement.spacedBy(2.dp)
+                PullToRefreshBox(
+                    isRefreshing = isRefreshing,
+                    onRefresh = { viewModel.refreshMyPosts() },
+                    modifier = Modifier.fillMaxSize()
                 ) {
-                    items(userPosts) { post ->
-                        AsyncImage(
-                            model = post.imageUrl,
-                            contentDescription = "Post Image",
-                            modifier = Modifier
-                                .aspectRatio(1f)
-                                .clickable {
-                                    navController.navigate(Screen.PostDetail.createRoute(post.postIdentifier))
-                                },
-                            contentScale = ContentScale.Crop
-                        )
-                        
-                        // Infinite scroll trigger
-                        if (post == userPosts.lastOrNull()) {
-                            LaunchedEffect(Unit) {
-                                viewModel.fetchMyPosts()
+                    // Black backing shows through the 1dp gaps as thin borders between
+                    // posts; the 1dp contentPadding extends that border around the outer edge.
+                    LazyVerticalGrid(
+                        columns = GridCells.Fixed(3),
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .background(Color.Black),
+                        contentPadding = PaddingValues(1.dp),
+                        horizontalArrangement = Arrangement.spacedBy(1.dp),
+                        verticalArrangement = Arrangement.spacedBy(1.dp)
+                    ) {
+                        items(userPosts) { post ->
+                            AsyncImage(
+                                model = post.imageUrl,
+                                contentDescription = "Post Image",
+                                modifier = Modifier
+                                    .aspectRatio(1f)
+                                    .clickable {
+                                        navController.navigate(Screen.PostDetail.createRoute(post.postIdentifier))
+                                    },
+                                contentScale = ContentScale.Crop
+                            )
+
+                            // Infinite scroll trigger
+                            if (post == userPosts.lastOrNull()) {
+                                LaunchedEffect(Unit) {
+                                    viewModel.fetchMyPosts()
+                                }
                             }
                         }
                     }

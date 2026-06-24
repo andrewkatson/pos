@@ -7,7 +7,6 @@ on:
       - 'android/**'
       - '.github/workflows/android-tests.yml'
   pull_request:
-    branches: [ "main" ]
     paths:
       - 'android/**'
       - '.github/workflows/android-tests.yml'
@@ -20,10 +19,12 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Set up JDK 17
+      # JDK 21 matches the daemon JVM criteria in gradle-daemon-jvm.properties
+      # so Gradle never has to download a toolchain from foojay.io.
+      - name: Set up JDK 21
         uses: actions/setup-java@v4
         with:
-          java-version: '17'
+          java-version: '21'
           distribution: 'temurin'
           cache: gradle
 
@@ -45,10 +46,12 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Set up JDK 17
+      # JDK 21 matches the daemon JVM criteria in gradle-daemon-jvm.properties
+      # so Gradle never has to download a toolchain from foojay.io.
+      - name: Set up JDK 21
         uses: actions/setup-java@v4
         with:
-          java-version: '17'
+          java-version: '21'
           distribution: 'temurin'
           cache: gradle
 

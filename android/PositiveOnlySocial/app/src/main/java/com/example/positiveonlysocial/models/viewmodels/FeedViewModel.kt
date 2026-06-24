@@ -27,12 +27,51 @@ class FeedViewModel(
     private val _isLoadingNextPage = MutableStateFlow(false)
     val isLoadingNextPage: StateFlow<Boolean> = _isLoadingNextPage.asStateFlow()
 
+    private val _isRefreshing = MutableStateFlow(false)
+    val isRefreshing: StateFlow<Boolean> = _isRefreshing.asStateFlow()
+
     private var canLoadMore = true
     private var currentPage = 0
     private val service = "positive-only-social.Positive-Only-Social"
 
+    /**
+     * Pull-to-refresh: resets pagination and reloads the feed from the first
+     * page, replacing the existing posts with the newest ones from the backend.
+     */
+    fun refreshFeed() {
+        if (_isRefreshing.value || _isLoadingNextPage.value) return
+
+        _isRefreshing.value = true
+
+        viewModelScope.launch {
+            try {
+                val userSession = keychainHelper.load(UserSession::class.java, service, account)
+                if (userSession == null) {
+                    Log.e(TAG, "No active session found — cannot refresh feed")
+                    return@launch
+                }
+
+                val response = api.getPostsInFeed(userSession.sessionToken, 0)
+                if (response.isSuccessful) {
+                    val newPosts = response.body() ?: emptyList()
+                    _feedPosts.value = newPosts
+                    canLoadMore = newPosts.isNotEmpty()
+                    currentPage = if (newPosts.isEmpty()) 0 else 1
+                } else {
+                    Log.e(TAG, "Failed to refresh feed: ${response.errorBody()?.string()}")
+                }
+            } catch (e: Exception) {
+                Log.e(TAG, "Failed to refresh feed", e)
+            } finally {
+                _isRefreshing.value = false
+            }
+        }
+    }
+
     fun fetchFeed() {
-        if (_isLoadingNextPage.value || !canLoadMore) return
+        // Also short-circuit during a pull-to-refresh so pagination can't race
+        // the refresh's reset of the feed and pagination cursor.
+        if (_isLoadingNextPage.value || _isRefreshing.value || !canLoadMore) return
 
         _isLoadingNextPage.value = true
 

@@ -18,7 +18,8 @@ struct ResetPasswordView: View {
     @State private var username: String = ""
     @State private var email: String = ""
     @State private var newPassword: String = ""
-    
+    @State private var confirmPassword: String = ""
+
     // State matching your template
     @State private var isLoading: Bool = false
     @State private var errorMessage: String = ""
@@ -43,18 +44,34 @@ struct ResetPasswordView: View {
                 
                 Section(header: Text("Set New Password")) {
                     SecureField("New Password", text: $newPassword)
+                        // Disable the automatic "Use Strong Password" AutoFill prompt
+                        // during UI tests, where it would block interaction. Real users
+                        // still get the new-password content type.
+                        .textContentType(isUITesting() ? nil : .newPassword)
                         .accessibilityIdentifier("NewPasswordSecureField")
+                    if !newPassword.isEmpty {
+                        RequirementHints(requirements: AuthRequirements.password(newPassword))
+                    }
+                    SecureField("Confirm Password", text: $confirmPassword)
+                        .textContentType(isUITesting() ? nil : .newPassword)
+                        .accessibilityIdentifier("ConfirmNewPasswordSecureField")
+                    if !confirmPassword.isEmpty && newPassword != confirmPassword {
+                        Text("Passwords do not match.")
+                            .font(.caption)
+                            .foregroundColor(.red)
+                    }
                 }
-                
+
                 Button("Reset Password and Login") {
                     Task {
                         await performReset()
                     }
                 }
-                .disabled(username.isEmpty || email.isEmpty || newPassword.isEmpty || isLoading)
+                .disabled(username.isEmpty || email.isEmpty || !AuthRequirements.allMet(AuthRequirements.password(newPassword)) || newPassword != confirmPassword || isLoading)
                 .accessibilityIdentifier("ResetPasswordAndLoginButton")
             }
             .navigationTitle("Set New Password")
+            .scrollDismissesKeyboard(.immediately)
             .onAppear {
                 if usernameOrEmail.contains("@") {
                     self.email = usernameOrEmail

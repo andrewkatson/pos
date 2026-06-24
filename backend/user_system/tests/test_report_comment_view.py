@@ -2,7 +2,7 @@ from django.urls import reverse
 
 from .test_parent_case import PositiveOnlySocialTestCase
 from .test_constants import UserFields
-from ..constants import Fields, MAX_BEFORE_HIDING_COMMENT
+from ..constants import Fields, MAX_BEFORE_HIDING_COMMENT, HIDDEN_REASON_REPORTS
 from ..models import Comment
 
 # --- Constants ---
@@ -179,4 +179,5 @@ class ReportCommentTests(PositiveOnlySocialTestCase):
         # Final check after the loop
         self.comment.refresh_from_db()
         self.assertTrue(self.comment.hidden)
+        self.assertEqual(self.comment.hidden_reason, HIDDEN_REASON_REPORTS)
         self.assertEqual(self.comment.commentreport_set.count(), MAX_BEFORE_HIDING_COMMENT + 1)

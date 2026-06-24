@@ -13,12 +13,17 @@ struct NewPostView: View {
     let keychainHelper: KeychainHelperProtocol
     // Create an instance of the S3Uploader
     private let s3Uploader = S3Uploader()
+
+    // Shared with the rest of HomeView so a new post shows up in the Home grid
+    // in real time (without waiting for a manual pull-to-refresh).
+    @EnvironmentObject private var homeViewModel: HomeViewModel
     
     @State private var selectedItem: PhotosPickerItem?
     @State private var selectedImageData: Data?
     @State private var caption = ""
     @State private var isLoading = false
     @State private var showSuccessAlert = false
+    @State private var successAlertMessage = "Your post was shared successfully!"
     @State private var showFailureAlert = false
     @State private var failureAlertMessage = ""
     
@@ -60,6 +65,7 @@ struct NewPostView: View {
                     }
                     
                     TextEditor(text: $caption).frame(height: 100).accessibilityIdentifier("CaptionTextEditor")
+                    CharacterCounter(text: caption, max: GVOAppConstants.maxCaptionLength)
                 }
                 
                 if isLoading {
@@ -70,11 +76,12 @@ struct NewPostView: View {
                     }
                 } else {
                     Button(action: makePost) { Text("Share Post") }
-                        .disabled(selectedImageData == nil || caption.isEmpty)
+                        .disabled(selectedImageData == nil || caption.isEmpty || !isWithinLength(caption, max: GVOAppConstants.maxCaptionLength))
                         .accessibilityIdentifier("SharePostButton")
                 }
             }
             .navigationTitle("Create Post")
+            .scrollDismissesKeyboard(.immediately)
             // Alert for SUCCESS
             .alert("Success!", isPresented: $showSuccessAlert) {
                 Button("OK") {
@@ -82,7 +89,7 @@ struct NewPostView: View {
                     tabSelection = 0
                 }.accessibilityIdentifier("OkButtonSuccess")
             } message: {
-                Text("Your post was shared successfully!")
+                Text(successAlertMessage)
             }
             
             // Alert for FAILURE
@@ -115,9 +122,9 @@ struct NewPostView: View {
                 // 1. LOAD SESSION (needed for the scoped S3 key)
                 let userSession: UserSession
                 if isTesting() {
-                    userSession = try keychainHelper.load(UserSession.self, from: AppConstants.keychainService, account: "userSessionToken") ?? UserSession(sessionToken: "123", username: "test", userId: "", isIdentityVerified: false)
+                    userSession = try keychainHelper.load(UserSession.self, from: GVOAppConstants.keychainService, account: "userSessionToken") ?? UserSession(sessionToken: "123", username: "test", userId: "", isIdentityVerified: false)
                 } else {
-                    guard let loaded = try keychainHelper.load(UserSession.self, from: AppConstants.keychainService, account: "userSessionToken") else {
+                    guard let loaded = try keychainHelper.load(UserSession.self, from: GVOAppConstants.keychainService, account: "userSessionToken") else {
                         failureAlertMessage = "You must be logged in to post."
                         isLoading = false
                         showFailureAlert = true
@@ -138,13 +145,26 @@ struct NewPostView: View {
                 }
 
                 // 3. SEND THE S3 URL TO YOUR BACKEND
-                _ = try await api.makePost(
+                let responseData = try await api.makePost(
                     sessionManagementToken: userSession.sessionToken,
                     imageURL: imageURL.absoluteString,
                     caption: caption
                 )
-                
-                // --- SUCCESS ---
+
+                // Reload the Home grid so the new post appears there immediately.
+                await homeViewModel.refreshMyPosts()
+
+                // A post flagged by automated review is created hidden pending
+                // appeal; tell the user it's hidden but appealable rather than
+                // implying it went live.
+                let response = try? JSONDecoder().decode(MakePostResponse.self, from: responseData)
+                if response?.hidden == true {
+                    successAlertMessage = response?.message
+                        ?? "Your post did not pass automated review. It is hidden for now but you can appeal the decision."
+                } else {
+                    successAlertMessage = "Your post was shared successfully!"
+                }
+
                 // Reset the form and show the success alert
                 isLoading = false
                 caption = ""
@@ -153,7 +173,6 @@ struct NewPostView: View {
                 showSuccessAlert = true // This will trigger the success alert
                 
             } catch {
-                // --- FAILURE ---
                 // Set the error message and show the failure alert
                 failureAlertMessage =
                 "Failed to share post. Error: \(error.localizedDescription)"
@@ -166,4 +185,5 @@ struct NewPostView: View {
 
 #Preview {
     NewPostView(api: PreviewHelpers.api, keychainHelper: PreviewHelpers.keychainHelper, tabSelection: .constant(2))
+        .environmentObject(HomeViewModel(api: PreviewHelpers.api, keychainHelper: PreviewHelpers.keychainHelper))
 }

@@ -44,6 +44,76 @@ struct Post: Codable, Identifiable, Hashable {
     }
 }
 
+// MARK: - Appeals (backend appeal endpoints)
+
+/// The response from makePost. `hidden` is true when the post was created
+/// hidden pending appeal (classifier flagged it but it is appealable).
+struct MakePostResponse: Codable {
+    let postIdentifier: String
+    let hidden: Bool?
+    let message: String?
+
+    enum CodingKeys: String, CodingKey {
+        case postIdentifier = "post_identifier"
+        case hidden
+        case message
+    }
+}
+
+/// One of the signed-in user's hidden posts, from the appeals endpoint.
+struct HiddenPost: Codable, Identifiable, Hashable {
+    var id: String { postIdentifier }
+    let postIdentifier: String
+    let imageUrl: String
+    let caption: String
+    let hiddenReason: String
+    let hasAppeal: Bool
+
+    enum CodingKeys: String, CodingKey {
+        case postIdentifier = "post_identifier"
+        case imageUrl = "image_url"
+        case caption
+        case hiddenReason = "hidden_reason"
+        case hasAppeal = "has_appeal"
+    }
+}
+
+/// One of the signed-in user's hidden comments.
+struct HiddenComment: Codable, Identifiable, Hashable {
+    var id: String { commentIdentifier }
+    let commentIdentifier: String
+    let body: String
+    let hiddenReason: String
+    let hasAppeal: Bool
+
+    enum CodingKeys: String, CodingKey {
+        case commentIdentifier = "comment_identifier"
+        case body
+        case hiddenReason = "hidden_reason"
+        case hasAppeal = "has_appeal"
+    }
+}
+
+/// An appeal the signed-in user has filed, with its current status.
+struct MyAppeal: Codable, Identifiable, Hashable {
+    var id: String { appealIdentifier }
+    let appealIdentifier: String
+    let targetType: String?
+    let status: String
+    let reason: String
+    let contentSnapshot: String?
+    let resolutionNote: String?
+
+    enum CodingKeys: String, CodingKey {
+        case appealIdentifier = "appeal_identifier"
+        case targetType = "target_type"
+        case status
+        case reason
+        case contentSnapshot = "content_snapshot"
+        case resolutionNote = "resolution_note"
+    }
+}
+
 // Represents a user from the search results.
 struct User: Codable, Identifiable, Hashable {
     var id: String { username }
@@ -110,6 +180,7 @@ struct PostDisplayData: Identifiable, Equatable {
     let imageURL: String
     let caption: String
     let likeCount: Int
+    let isLiked: Bool // Whether the current user has liked this post
     let authorUsername: String // Added for context
 }
 
@@ -120,6 +191,7 @@ struct CommentViewData: Identifiable, Equatable {
     let authorUsername: String
     let body: String
     let likeCount: Int
+    let isLiked: Bool // Whether the current user has liked this comment
     let createdDate: Date
 }
 

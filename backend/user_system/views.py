@@ -4,7 +4,6 @@ import json
 import logging
 import secrets
 from datetime import datetime, date, timedelta
-from urllib.parse import urlparse
 
 from functools import wraps
 
@@ -12,7 +11,7 @@ from django.conf import settings
 from django.contrib.auth import login, logout, get_user_model
 from django.contrib.auth.hashers import check_password
 from django.core.mail import send_mail
-from django.db import transaction
+from django.db import transaction, IntegrityError
 from django.http import JsonResponse
 from django.utils import timezone
 from django.views.decorators.csrf import csrf_exempt
@@ -22,13 +21,21 @@ from django_ratelimit.exceptions import Ratelimited
 
 from .classifiers import image_classifier, text_classifier
 from .constants import Patterns, Params, POST_BATCH_SIZE, MAX_BEFORE_HIDING_POST, MAX_BEFORE_HIDING_COMMENT, \
+    MAX_CAPTION_LENGTH, MAX_COMMENT_LENGTH, \
     COMMENT_BATCH_SIZE, Fields, COMMENT_THREAD_BATCH_SIZE, \
-    VERIFY_RESET_MAX_ATTEMPTS, VERIFY_RESET_LOCKOUT_MINUTES
+    VERIFY_RESET_MAX_ATTEMPTS, VERIFY_RESET_LOCKOUT_MINUTES, \
+    ACCOUNT_BANNED, BAN_TYPE_OUTRIGHT, \
+    HIDDEN_REASON_NONE, HIDDEN_REASON_REPORTS, HIDDEN_REASON_CLASSIFIER, \
+    APPEAL_TARGET_POST, APPEAL_TARGET_COMMENT, APPEAL_TARGET_BAN, \
+    MAX_APPEAL_REASON_LENGTH
 from .feed_algorithm import feed_algorithm
 from .input_validator import is_valid_pattern
-from .models import LoginCookie, Session, Post, CommentThread, PositiveOnlySocialUser, Comment, UserBlock
+from .models import LoginCookie, Session, Post, CommentThread, PositiveOnlySocialUser, Comment, UserBlock, UserBan, \
+    KnownDevice, Appeal
 from .utils import convert_to_bool, generate_login_cookie_token, generate_management_token, generate_series_identifier, \
-    get_batch, get_compressed_image_url
+    get_batch, get_queryset_batch, get_compressed_image_url
+from .s3 import delete_image, image_url_to_key
+from .visibility import can_view_post, searchable_users, visible_comment_threads, visible_comments, visible_posts
 
 image_classifier_class = image_classifier
 text_classifier_class = text_classifier
@@ -121,6 +128,10 @@ def get_user_with_session_management_token(token):
         return None
 
 
+def has_active_outright_ban(user):
+    return UserBan.objects.active().filter(user=user, ban_type=BAN_TYPE_OUTRIGHT).exists()
+
+
 def get_post_with_identifier(identifier):
     try:
         existing_post = Post.objects.get(post_identifier=identifier)
@@ -173,6 +184,10 @@ def api_login_required(view_func):
         if user is None:
             return JsonResponse({'error': 'Invalid session token'}, status=401)
 
+        if has_active_outright_ban(user):
+            logger.warning(f"Request rejected: Account banned for user_id: {user.id}")
+            return JsonResponse({'error': ACCOUNT_BANNED}, status=403)
+
         # Attach user and token to the request for the view to use
         request.user = user
         request.token = token
@@ -185,6 +200,33 @@ def api_login_required(view_func):
             return JsonResponse({'error': 'Internal server error'}, status=500)
 
     return _wrapped_view
+
+
+def _record_device_and_maybe_notify(user, ip, notify=True):
+    """Record that ``user`` has logged in from ``ip``.
+
+    The first time we see an IP for a user (a brand-new device) we email them
+    so they are alerted to the login. ``notify`` is set False for registration,
+    where the user is plainly the one establishing the account and a "new login"
+    alert would only be noise. A failure to send the email must never block the
+    login itself, so it is logged and swallowed.
+    """
+    if not ip:
+        return
+    _, created = KnownDevice.objects.get_or_create(user=user, ip=ip)
+    if not (created and notify):
+        return
+    try:
+        send_mail(
+            "New login to your account",
+            "We noticed a login to your account from a new device "
+            f"(IP address {ip}).\n\nIf this was you, you can ignore this email. "
+            "If you don't recognize this activity, please reset your password right away.",
+            settings.EMAIL_HOST_USER,
+            [user.email],
+        )
+    except Exception:
+        logger.exception(f"Failed to send new-device login email for user_id {user.id}")
 
 
 # =============================================================================
@@ -205,7 +247,7 @@ def register(request):
     email = data.get(Fields.email)
     password = data.get(Fields.password)
     remember_me_str = data.get(Fields.remember_me)
-    ip = data.get(Fields.ip)
+    ip = _get_client_ip(None, request)
     date_of_birth_str = data.get('date_of_birth')
 
     invalid_fields = []
@@ -213,8 +255,6 @@ def register(request):
         invalid_fields.append(Params.username)
     if not email or not is_valid_pattern(email, Patterns.email):
         invalid_fields.append(Params.email)
-    if not ip or (not is_valid_pattern(ip, Patterns.ipv4) and not is_valid_pattern(ip, Patterns.ipv6)):
-        invalid_fields.append(Params.ip)
     if not password or not is_valid_pattern(password, Patterns.password):
         invalid_fields.append(Params.password)
 
@@ -259,7 +299,17 @@ def register(request):
     new_user.identity_is_verified = True if date_of_birth_str else False
     new_user.is_adult = is_adult
     new_user.save()
-
+   
+    try:
+        send_mail(
+        "Welcome to Good Vibes Only",
+        f"Hi{new_user.username},\n\n Thank you for registering",
+        settings.EMAIL_HOST_USER,
+        [new_user.email],
+        fail_silently=False,
+        )
+    except Exception:
+        logger.exception("Failed to send welcome email for user: %s",new_user.id)
     new_login_cookie = None
     if remember_me:
         new_login_cookie = new_user.logincookie_set.create(series_identifier=generate_series_identifier(),
@@ -268,6 +318,10 @@ def register(request):
 
     new_session = new_user.session_set.create(management_token=generate_management_token(), ip=ip)
     # .create() already saves
+
+    # Record the registering device as known so the user's first real login
+    # from it is not flagged as new, but don't email them about it.
+    _record_device_and_maybe_notify(new_user, ip, notify=False)
 
     response_data = {
         Fields.session_management_token: new_session.management_token,
@@ -331,15 +385,13 @@ def login_user(request):
     username_or_email = data.get(Fields.username_or_email)
     password = data.get(Fields.password)
     remember_me_str = data.get(Fields.remember_me)
-    ip = data.get(Fields.ip)
+    ip = _get_client_ip(None, request)
 
     invalid_fields = []
     if not username_or_email or (
             not is_valid_pattern(username_or_email, Patterns.alphanumeric) and not is_valid_pattern(username_or_email,
                                                                                                     Patterns.email)):
         invalid_fields.append(Params.username_or_email)
-    if not ip or (not is_valid_pattern(ip, Patterns.ipv4) and not is_valid_pattern(ip, Patterns.ipv6)):
-        invalid_fields.append(Params.ip)
     if not password or not is_valid_pattern(password, Patterns.password):
         invalid_fields.append(Params.password)
 
@@ -348,7 +400,6 @@ def login_user(request):
     except TypeError:
         remember_me = False
         invalid_fields.append(Params.remember_me)
-
     if len(invalid_fields) > 0:
         return log_and_return_json("login_user", {'error': f"Invalid fields {invalid_fields}"}, status=400)
 
@@ -358,6 +409,10 @@ def login_user(request):
             logger.warning(f"Login failed: Password was not correct for user_id: {existing.id}")
             return log_and_return_json("login_user", {'error': "Invalid username or password"}, status=400)
 
+        if has_active_outright_ban(existing):
+            logger.warning(f"Login failed: Account banned for user_id: {existing.id}")
+            return log_and_return_json("login_user", {'error': ACCOUNT_BANNED}, status=403)
+
         login(request, existing)  # Logs into Django's session auth
 
         new_login_cookie = None
@@ -366,6 +421,10 @@ def login_user(request):
                                                                token=generate_login_cookie_token())
 
         new_session = existing.session_set.create(management_token=generate_management_token(), ip=ip)
+
+        # Alert the user by email if this login is from a device (IP) we have
+        # not seen for them before.
+        _record_device_and_maybe_notify(existing, ip)
 
         response_data = {
             Fields.session_management_token: new_session.management_token,
@@ -396,7 +455,7 @@ def login_user_with_remember_me(request):
     session_management_token = data.get(Fields.session_management_token)
     series_identifier = data.get(Fields.series_identifier)
     login_cookie_token = data.get(Fields.login_cookie_token)
-    ip = data.get(Fields.ip)
+    ip = _get_client_ip(None, request)
 
     invalid_fields = []
     if not session_management_token or not is_valid_pattern(session_management_token, Patterns.alphanumeric):
@@ -405,8 +464,6 @@ def login_user_with_remember_me(request):
         invalid_fields.append(Params.series_identifier)
     if not login_cookie_token or not is_valid_pattern(login_cookie_token, Patterns.alphanumeric):
         invalid_fields.append(Params.login_cookie_token)
-    if not ip or (not is_valid_pattern(ip, Patterns.ipv4) and not is_valid_pattern(ip, Patterns.ipv6)):
-        invalid_fields.append(Params.ip)
 
     if len(invalid_fields) > 0:
         return log_and_return_json("login_user_with_remember_me", {'error': f"Invalid fields {invalid_fields}"}, status=400)
@@ -424,20 +481,35 @@ def login_user_with_remember_me(request):
         logger.warning(f"Login with remember me failed: Login cookie token does not match for series: {series_identifier}")
         return log_and_return_json("login_user_with_remember_me", {'error': "Login cookie token does not match"}, status=400)
 
-    # Issue a new login cookie token (token rotation)
-    new_login_cookie_token = generate_login_cookie_token()
-    matching_login_cookie.token = new_login_cookie_token
-    matching_login_cookie.save()
-
-    # Get the user with the *old* session management token
+    # Get the user with the *old* session management token. This must be
+    # validated (and match the cookie's user) before the ban check and token
+    # rotation, so a cookie for one user cannot be combined with a session
+    # token for another.
     existing = get_user_with_session_management_token(session_management_token)
     if existing is None:
         logger.warning("Login with remember me failed: Original session token is invalid")
         return log_and_return_json("login_user_with_remember_me", {'error': "Original session token is invalid"}, status=400)
 
+    if existing != matching_login_cookie.cookie_user:
+        logger.warning(f"Login with remember me failed: Session token does not belong to the cookie's user for series: {series_identifier}")
+        return log_and_return_json("login_user_with_remember_me", {'error': "Original session token is invalid"}, status=400)
+
+    if has_active_outright_ban(existing):
+        logger.warning(f"Login with remember me failed: Account banned for user_id: {existing.id}")
+        return log_and_return_json("login_user_with_remember_me", {'error': ACCOUNT_BANNED}, status=403)
+
+    # Issue a new login cookie token (token rotation)
+    new_login_cookie_token = generate_login_cookie_token()
+    matching_login_cookie.token = new_login_cookie_token
+    matching_login_cookie.save()
+
     # Issue a new session management token
     new_session_management_token = generate_management_token()
     _ = existing.session_set.create(management_token=new_session_management_token, ip=ip)
+
+    # Alert the user by email if this remember-me login is from a device (IP)
+    # we have not seen for them before.
+    _record_device_and_maybe_notify(existing, ip)
 
     response_data = {
         Fields.login_cookie_token: new_login_cookie_token,
@@ -516,7 +588,7 @@ def request_reset(request):
             "Password Reset",
             f"Your password reset verification token is:\n\n{token}\n\nEnter this in the app to proceed. It expires in 1 hour.",
             settings.EMAIL_HOST_USER,
-            [user.email]
+            [user.email],
         )
 
         user.verification_token = token_hash
@@ -702,15 +774,8 @@ def make_post(request):
     if not image_url or not is_valid_pattern(image_url, Patterns.image_url):
         invalid_fields.append(Params.image)
     else:
-        parsed = urlparse(image_url)
-        key = parsed.path.lstrip('/')
-        # For path-hosted URLs (s3[.-]region.amazonaws.com/bucket/key), strip the bucket segment.
-        # Match exactly "s3" or "s3-<region>" first labels (per the accepted image_url regex),
-        # but not bucket names that happen to start with "s3" (e.g. s3bucket.s3.amazonaws.com).
-        first_label = parsed.hostname.split('.')[0] if parsed.hostname else ''
-        if first_label == 's3' or first_label.startswith('s3-'):
-            _, _, key = key.partition('/')
-        if not key.startswith(f"{request.user.id}/"):
+        # The key must be scoped to this user (clients upload to `{user_id}/...`).
+        if not image_url_to_key(image_url).startswith(f"{request.user.id}/"):
             invalid_fields.append(Params.image)
     if not caption or not is_valid_pattern(caption, Patterns.alphanumeric_with_special_chars):
         invalid_fields.append(Params.caption)
@@ -719,17 +784,47 @@ def make_post(request):
         logger.warning(f"Make post failed: Invalid fields {invalid_fields} for user_id: {request.user.id}")
         return log_and_return_json("make_post", {'error': f"Invalid fields {invalid_fields}"}, status=400)
 
-    if not image_classifier_class.is_image_positive(image_url):
-        logger.warning(f"Make post failed: Image not positive for user_id: {request.user.id}")
-        return log_and_return_json("make_post", {'error': "Image is not positive"}, status=400)
+    if len(caption) > MAX_CAPTION_LENGTH:
+        logger.warning(f"Make post failed: Caption too long ({len(caption)} chars) for user_id: {request.user.id}")
+        return log_and_return_json("make_post", {'error': f"Caption exceeds maximum length of {MAX_CAPTION_LENGTH} characters"}, status=400)
 
-    if not text_classifier_class.is_text_positive(caption):
-        logger.warning(f"Make post failed: Caption not positive for user_id: {request.user.id}")
+    # A rejection that is not appealable is final: reject outright and do not
+    # create the post. An appealable rejection still creates the post but hides
+    # it pending appeal (handled below). The text check runs first so the more
+    # expensive image check is skipped on a final text rejection.
+    text_result = text_classifier_class.is_text_positive(caption)
+    if not text_result and not text_result.appealable:
+        logger.warning(f"Make post failed: Caption not positive (final) for user_id: {request.user.id}")
+        # The post is never created, so clean up the image the client already
+        # uploaded rather than orphaning it in S3.
+        delete_image(image_url)
         return log_and_return_json("make_post", {'error': "Text is not positive"}, status=400)
 
-    new_post = request.user.post_set.create(image_url=image_url, caption=caption)
-    logger.info(f"Post created successfully: post_id: {new_post.post_identifier} for user_id: {request.user.id}")
-    return log_and_return_json("make_post", {Fields.post_identifier: new_post.post_identifier}, status=201)
+    image_result = image_classifier_class.is_image_positive(image_url)
+    if not image_result and not image_result.appealable:
+        logger.warning(f"Make post failed: Image not positive (final) for user_id: {request.user.id}")
+        delete_image(image_url)
+        return log_and_return_json("make_post", {'error': "Image is not positive"}, status=400)
+
+    # Any remaining rejection is appealable, so post it but hide it pending
+    # appeal. The visibility layer already shows authors their own hidden posts
+    # while hiding them from everyone else, so no extra visibility wiring is
+    # needed here.
+    hidden = not (text_result and image_result)
+    new_post = request.user.post_set.create(
+        image_url=image_url, caption=caption, hidden=hidden,
+        hidden_reason=HIDDEN_REASON_CLASSIFIER if hidden else HIDDEN_REASON_NONE)
+
+    response = {Fields.post_identifier: new_post.post_identifier}
+    if hidden:
+        logger.info(f"Post created hidden pending appeal: post_id: {new_post.post_identifier} for user_id: {request.user.id}")
+        response[Fields.hidden] = True
+        response[Fields.hidden_reason] = HIDDEN_REASON_CLASSIFIER
+        response['message'] = ("Your post did not pass automated review. It is hidden for now "
+                               "but you can appeal the decision.")
+    else:
+        logger.info(f"Post created successfully: post_id: {new_post.post_identifier} for user_id: {request.user.id}")
+    return log_and_return_json("make_post", response, status=201)
 
 
 @csrf_exempt
@@ -744,7 +839,11 @@ def delete_post(request, post_identifier):
 
     try:
         post = request.user.post_set.get(post_identifier=post_identifier)
+        image_url = post.image_url
         post.delete()
+        # Remove the backing image from both buckets so deleting a post does not
+        # orphan its S3 objects.
+        delete_image(image_url)
         logger.info(f"Post deleted successfully: post_id: {post_identifier} by user_id: {request.user.id}")
         return log_and_return_json("delete_post", {'message': 'Post deleted'})
     except Post.DoesNotExist:
@@ -787,8 +886,12 @@ def report_post(request, post_identifier):
         post.postreport_set.create(user=request.user, reason=reason)
         logger.info(f"Post reported successful: post_id: {post_identifier} by user_id: {request.user.id}")
 
-        if post.postreport_set.count() > MAX_BEFORE_HIDING_POST:
+        # Only hide (and stamp the reason) if it is not already hidden, so a
+        # post already hidden by the classifier keeps its original reason and
+        # the appeal flow can still tell why it was hidden.
+        if not post.hidden and post.postreport_set.count() > MAX_BEFORE_HIDING_POST:
             post.hidden = True
+            post.hidden_reason = HIDDEN_REASON_REPORTS
             post.save()
             logger.info(f"Post hidden due to reports: post_id: {post_identifier}")
 
@@ -877,6 +980,8 @@ def get_posts_in_feed(request, batch):
     blocking_users = request.user.blocked_by.all()
     relevant_posts = relevant_posts.exclude(author__in=blocked_users).exclude(author__in=blocking_users)
 
+    relevant_posts = visible_posts(relevant_posts, request.user)
+
     if relevant_posts.count() > 0:
         batched_posts = get_batch(batch, POST_BATCH_SIZE, relevant_posts)
         posts_data = [
@@ -912,7 +1017,9 @@ def get_posts_for_followed_users(request, batch):
     if not followed_users.exists():
         return log_and_return_json("get_posts_for_followed_users", [], safe=False)
 
-    posts_queryset = Post.objects.filter(author__in=followed_users).order_by('-creation_time')
+    posts_queryset = visible_posts(
+        Post.objects.filter(author__in=followed_users), request.user
+    ).order_by('-creation_time')
     posts_batch = get_batch(batch, POST_BATCH_SIZE, posts_queryset)
 
     posts_data = [
@@ -949,7 +1056,9 @@ def get_posts_for_user(request, username, batch):
         logger.info(f"Get posts for user: Blocking relationship exists for user_id: {request.user.id} and target_user_id: {target_user.id}")
         return log_and_return_json("get_posts_for_user", [], safe=False)
 
-    relevant_posts = feed_algorithm_class.get_posts_weighted_for_user(target_user, Post)
+    relevant_posts = visible_posts(
+        feed_algorithm_class.get_posts_weighted_for_user(target_user, Post), request.user
+    )
 
     if relevant_posts.count() > 0:
         batched_posts = get_batch(batch, POST_BATCH_SIZE, relevant_posts)
@@ -967,21 +1076,23 @@ def get_posts_for_user(request, username, batch):
         return log_and_return_json("get_posts_for_user", [], safe=False)
 
 
-@ratelimit(key=_get_client_ip, rate='60/m', block=True)
-@require_GET  # Publicly viewable, no @api_login_required
+@api_login_required
+@ratelimit(key='user', rate='60/m', block=True)
+@require_GET
 def get_post_details(request, post_identifier):
     logger.info("Endpoint get_post_details invoked by IP or User")
     if not is_valid_pattern(post_identifier, Patterns.uuid4):
         return log_and_return_json("get_post_details", {'error': "Invalid post identifier"}, status=400)
 
     post = get_post_with_identifier(post_identifier)
-    if post is not None:
+    if post is not None and can_view_post(post, request.user):
         total_likes = post.postlike_set.count()
         post_data = {
             Fields.post_identifier: post.post_identifier,
             Fields.image_url: get_compressed_image_url(post.image_url),
             Fields.caption: post.caption,
             Fields.post_likes: total_likes,
+            Fields.is_liked: post.postlike_set.filter(user=request.user).exists(),
             Fields.author_username: post.author.username
         }
         return log_and_return_json("get_post_details", post_data)
@@ -1011,24 +1122,45 @@ def comment_on_post(request, post_identifier):
         return log_and_return_json("comment_on_post", {'error': "Invalid post_identifier"}, status=400)
     if not comment_text or not is_valid_pattern(comment_text, Patterns.alphanumeric_with_special_chars):
         return log_and_return_json("comment_on_post", {'error': "Invalid comment text"}, status=400)
+    if len(comment_text) > MAX_COMMENT_LENGTH:
+        return log_and_return_json("comment_on_post", {'error': f"Comment exceeds maximum length of {MAX_COMMENT_LENGTH} characters"}, status=400)
 
-    if not text_classifier_class.is_text_positive(comment_text):
+    # Resolve and visibility-check the post before running the (expensive) AI
+    # classifier, so a leaked/guessed UUID for a missing or hidden post cannot
+    # trigger classifier calls (avoidable cost / billing amplification). Treat a
+    # post the caller cannot see (hidden, or by a shadow-banned author) the same
+    # as a missing one so its existence is not revealed.
+    post = get_post_with_identifier(post_identifier)
+    if post is None or not can_view_post(post, request.user):
+        logger.warning(f"Comment on post failed: Post {post_identifier} not found or not visible")
+        return log_and_return_json("comment_on_post", {'error': "No post with that identifier"}, status=400)
+
+    # A final (non-appealable) rejection blocks the comment; an appealable one
+    # creates it hidden pending appeal.
+    text_result = text_classifier_class.is_text_positive(comment_text)
+    if not text_result and not text_result.appealable:
         return log_and_return_json("comment_on_post", {'error': "Text is not positive"}, status=400)
 
-    post = get_post_with_identifier(post_identifier)
-    if post is None:
-        logger.warning(f"Comment on post failed: Post {post_identifier} not found")
-        return log_and_return_json("comment_on_post", {'error': "No post with that identifier"}, status=400)
+    hidden = not text_result
 
     # Create a new thread for this top-level comment
     comment_thread = post.commentthread_set.create()
-    new_comment = comment_thread.comment_set.create(author=request.user, body=comment_text)
+    new_comment = comment_thread.comment_set.create(
+        author=request.user, body=comment_text, hidden=hidden,
+        hidden_reason=HIDDEN_REASON_CLASSIFIER if hidden else HIDDEN_REASON_NONE)
 
     response_data = {
         Fields.comment_thread_identifier: comment_thread.comment_thread_identifier,
         Fields.comment_identifier: new_comment.comment_identifier
     }
-    logger.info(f"Comment on post successful: post_id: {post_identifier}, comment_id: {new_comment.comment_identifier} for user_id: {request.user.id}")
+    if hidden:
+        logger.info(f"Comment on post created hidden pending appeal: comment_id: {new_comment.comment_identifier} for user_id: {request.user.id}")
+        response_data[Fields.hidden] = True
+        response_data[Fields.hidden_reason] = HIDDEN_REASON_CLASSIFIER
+        response_data['message'] = ("Your comment did not pass automated review. It is hidden for now "
+                                    "but you can appeal the decision.")
+    else:
+        logger.info(f"Comment on post successful: post_id: {post_identifier}, comment_id: {new_comment.comment_identifier} for user_id: {request.user.id}")
     return log_and_return_json("comment_on_post", response_data, status=201)
 
 
@@ -1056,9 +1188,14 @@ def reply_to_comment_thread(request, post_identifier, comment_thread_identifier)
     if len(invalid_fields) > 0:
         return log_and_return_json("reply_to_comment_thread", {'error': f"Invalid fields {invalid_fields}"}, status=400)
 
-    if not text_classifier_class.is_text_positive(comment_text):
-        return log_and_return_json("reply_to_comment_thread", {'error': "Text is not positive"}, status=400)
+    if len(comment_text) > MAX_COMMENT_LENGTH:
+        return log_and_return_json("reply_to_comment_thread", {'error': f"Comment exceeds maximum length of {MAX_COMMENT_LENGTH} characters"}, status=400)
 
+    # Resolve and visibility-check the thread/parent post before running the
+    # (expensive) AI classifier, so a leaked/guessed UUID for a missing or
+    # hidden thread cannot trigger classifier calls (avoidable cost / billing
+    # amplification). A caller who cannot see the parent post is treated as if
+    # the thread is not there so its existence is not revealed.
     try:
         comment_thread = CommentThread.objects.get(
             comment_thread_identifier=comment_thread_identifier,
@@ -1067,9 +1204,30 @@ def reply_to_comment_thread(request, post_identifier, comment_thread_identifier)
     except CommentThread.DoesNotExist:
         return log_and_return_json("reply_to_comment_thread", {'error': "Comment thread not found for the given post"}, status=400)
 
-    new_comment = comment_thread.comment_set.create(author=request.user, body=comment_text)
-    logger.info(f"Reply to comment successful: comment_thread_id: {comment_thread_identifier}, comment_id: {new_comment.comment_identifier} for user_id: {request.user.id}")
-    return log_and_return_json("reply_to_comment_thread", {Fields.comment_identifier: new_comment.comment_identifier}, status=201)
+    if not can_view_post(comment_thread.post, request.user):
+        return log_and_return_json("reply_to_comment_thread", {'error': "Comment thread not found for the given post"}, status=400)
+
+    # A final (non-appealable) rejection blocks the reply; an appealable one
+    # creates it hidden pending appeal.
+    text_result = text_classifier_class.is_text_positive(comment_text)
+    if not text_result and not text_result.appealable:
+        return log_and_return_json("reply_to_comment_thread", {'error': "Text is not positive"}, status=400)
+
+    hidden = not text_result
+    new_comment = comment_thread.comment_set.create(
+        author=request.user, body=comment_text, hidden=hidden,
+        hidden_reason=HIDDEN_REASON_CLASSIFIER if hidden else HIDDEN_REASON_NONE)
+
+    response_data = {Fields.comment_identifier: new_comment.comment_identifier}
+    if hidden:
+        logger.info(f"Reply created hidden pending appeal: comment_id: {new_comment.comment_identifier} for user_id: {request.user.id}")
+        response_data[Fields.hidden] = True
+        response_data[Fields.hidden_reason] = HIDDEN_REASON_CLASSIFIER
+        response_data['message'] = ("Your reply did not pass automated review. It is hidden for now "
+                                    "but you can appeal the decision.")
+    else:
+        logger.info(f"Reply to comment successful: comment_thread_id: {comment_thread_identifier}, comment_id: {new_comment.comment_identifier} for user_id: {request.user.id}")
+    return log_and_return_json("reply_to_comment_thread", response_data, status=201)
 
 
 @csrf_exempt
@@ -1234,8 +1392,11 @@ def report_comment(request, post_identifier, comment_thread_identifier, comment_
     comment.commentreport_set.create(user=request.user, reason=reason)
     logger.info(f"Report comment successful: comment_id: {comment_identifier} by user_id: {request.user.id}")
 
-    if comment.commentreport_set.count() > MAX_BEFORE_HIDING_COMMENT:
+    # Only hide (and stamp the reason) if it is not already hidden, so a comment
+    # already hidden by the classifier keeps its original reason.
+    if not comment.hidden and comment.commentreport_set.count() > MAX_BEFORE_HIDING_COMMENT:
         comment.hidden = True
+        comment.hidden_reason = HIDDEN_REASON_REPORTS
         comment.save()
         logger.info(f"Comment hidden due to reports: comment_id: {comment_identifier}")
 
@@ -1253,11 +1414,11 @@ def get_comments_for_post(request, post_identifier, batch):
         return log_and_return_json("get_comments_for_post", {'error': "Invalid batch parameter"}, status=400)
 
     post = get_post_with_identifier(post_identifier)
-    if not post:
-        logger.warning(f"Get comments for post failed: Post {post_identifier} not found")
+    if not post or not can_view_post(post, request.user):
+        logger.warning(f"Get comments for post failed: Post {post_identifier} not found or not visible")
         return log_and_return_json("get_comments_for_post", {'error': "No post with that identifier"}, status=400)
 
-    comment_threads = post.commentthread_set.all()
+    comment_threads = visible_comment_threads(post.commentthread_set.all(), request.user)
 
     relevant_comment_threads = feed_algorithm_class.get_comment_threads_weighted_for_post(comment_threads)
 
@@ -1280,17 +1441,24 @@ def get_comments_for_thread(request, comment_thread_identifier, batch):
         return log_and_return_json("get_comments_for_thread", {'error': "Invalid batch parameter"}, status=400)
 
     comment_thread = get_comment_thread_with_identifier(comment_thread_identifier)
-    if not comment_thread:
-        logger.warning(f"Get comments for thread failed: Thread {comment_thread_identifier} not found")
+    if not comment_thread or not can_view_post(comment_thread.post, request.user):
+        logger.warning(f"Get comments for thread failed: Thread {comment_thread_identifier} not found or not visible")
         return log_and_return_json("get_comments_for_thread", {'error': "No comment thread with that identifier"}, status=400)
 
-    comments = comment_thread.comment_set.all().order_by('creation_time')
+    comments = visible_comments(comment_thread.comment_set.all(), request.user).order_by('creation_time')
     relevant_comments = feed_algorithm_class.get_comments_weighted_for_thread(comments)
 
     if not relevant_comments.count() > 0:
         return log_and_return_json("get_comments_for_thread", [], safe=False)
 
     batched_comments = get_batch(batch, COMMENT_BATCH_SIZE, relevant_comments)
+    # Single query to find which of these comments the requesting user has liked,
+    # avoiding an N+1 .exists() call per comment.
+    liked_comment_ids = set(
+        request.user.commentlike_set
+        .filter(comment__in=batched_comments)
+        .values_list('comment_id', flat=True)
+    )
     comments_data = [
         {
             Fields.comment_identifier: comment.comment_identifier,
@@ -1298,7 +1466,8 @@ def get_comments_for_thread(request, comment_thread_identifier, batch):
             Fields.author_username: comment.author.username,
             Fields.creation_time: comment.creation_time,
             Fields.updated_time: comment.updated_time,
-            Fields.comment_likes: comment.commentlike_set.count()
+            Fields.comment_likes: comment.commentlike_set.count(),
+            Fields.is_liked: comment.comment_identifier in liked_comment_ids
         }
         for comment in batched_comments
     ]
@@ -1330,7 +1499,7 @@ def get_users_matching_fragment(request, username_fragment):
     # So if I blocked someone, I can still search them.
     # But if someone blocked me, I cannot search them.
     users_who_blocked_me = request.user.blocked_by.all()
-    users = users.exclude(pk__in=users_who_blocked_me)[:10]
+    users = searchable_users(users.exclude(pk__in=users_who_blocked_me))[:10]
 
     users_data = [
         {
@@ -1438,7 +1607,9 @@ def get_profile_details(request, username):
         logger.warning(f"Get profile details failed: User with username fragment not found")
         return log_and_return_json("get_profile_details", {'error': "User not found"}, status=400)
 
-    post_count = profile_user.post_set.count()
+    # Count only the posts the requesting user is allowed to see, so a
+    # shadow-banned profile shows no posts to others (but all to its owner).
+    post_count = visible_posts(profile_user.post_set.all(), request.user).count()
 
     # Assuming UserFollow model or a ManyToMany 'followers' field
     # This logic depends heavily on your model structure.
@@ -1478,3 +1649,206 @@ def get_profile_details(request, username):
     }
 
     return log_and_return_json("get_profile_details", data, status=200)
+
+
+# =============================================================================
+# APPEALS
+# =============================================================================
+
+def _appeal_target_type(appeal):
+    """The kind of thing an appeal targets, or None if its target was deleted
+    when the appeal was resolved (e.g. a denied post)."""
+    if appeal.post_id:
+        return APPEAL_TARGET_POST
+    if appeal.comment_id:
+        return APPEAL_TARGET_COMMENT
+    if appeal.ban_id:
+        return APPEAL_TARGET_BAN
+    return None
+
+
+def _appeal_target_identifier(appeal):
+    if appeal.post_id:
+        return appeal.post_id
+    if appeal.comment_id:
+        return appeal.comment_id
+    if appeal.ban_id:
+        return appeal.ban_id
+    return None
+
+
+@api_login_required
+@ratelimit(key='user', rate='60/m', block=True)
+@require_GET
+def get_hidden_posts(request, batch):
+    """The requesting user's own hidden posts, so they can see what was hidden
+    and decide whether to appeal."""
+    logger.info("Endpoint get_hidden_posts invoked by IP or User")
+    if batch < 0:
+        return log_and_return_json("get_hidden_posts", {'error': "Invalid batch parameter"}, status=400)
+
+    hidden = request.user.post_set.filter(hidden=True).order_by('-creation_time')
+    batched = get_queryset_batch(hidden, batch, POST_BATCH_SIZE)
+    appealed_ids = set(
+        Appeal.objects.filter(post__in=batched).values_list('post_id', flat=True)
+    )
+    data = [
+        {
+            Fields.post_identifier: post.post_identifier,
+            Fields.image_url: get_compressed_image_url(post.image_url),
+            Fields.caption: post.caption,
+            Fields.hidden_reason: post.hidden_reason,
+            Fields.creation_time: post.creation_time,
+            Fields.has_appeal: post.post_identifier in appealed_ids,
+        }
+        for post in batched
+    ]
+    return log_and_return_json("get_hidden_posts", data, safe=False)
+
+
+@api_login_required
+@ratelimit(key='user', rate='60/m', block=True)
+@require_GET
+def get_hidden_comments(request, batch):
+    """The requesting user's own hidden comments."""
+    logger.info("Endpoint get_hidden_comments invoked by IP or User")
+    if batch < 0:
+        return log_and_return_json("get_hidden_comments", {'error': "Invalid batch parameter"}, status=400)
+
+    hidden = Comment.objects.filter(author=request.user, hidden=True).order_by('-creation_time')
+    batched = get_queryset_batch(hidden, batch, COMMENT_BATCH_SIZE)
+    appealed_ids = set(
+        Appeal.objects.filter(comment__in=batched).values_list('comment_id', flat=True)
+    )
+    data = [
+        {
+            Fields.comment_identifier: comment.comment_identifier,
+            Fields.body: comment.body,
+            Fields.hidden_reason: comment.hidden_reason,
+            Fields.creation_time: comment.creation_time,
+            Fields.has_appeal: comment.comment_identifier in appealed_ids,
+        }
+        for comment in batched
+    ]
+    return log_and_return_json("get_hidden_comments", data, safe=False)
+
+
+@api_login_required
+@ratelimit(key='user', rate='60/m', block=True)
+@require_GET
+def get_my_appeals(request, batch):
+    """The requesting user's appeals and their current status."""
+    logger.info("Endpoint get_my_appeals invoked by IP or User")
+    if batch < 0:
+        return log_and_return_json("get_my_appeals", {'error': "Invalid batch parameter"}, status=400)
+
+    appeals = request.user.appeals.order_by('-created')
+    batched = get_queryset_batch(appeals, batch, POST_BATCH_SIZE)
+    data = [
+        {
+            Fields.appeal_identifier: appeal.appeal_identifier,
+            Fields.target_type: _appeal_target_type(appeal),
+            Fields.target_identifier: _appeal_target_identifier(appeal),
+            Fields.status: appeal.status,
+            Fields.reason: appeal.reason,
+            Fields.content_snapshot: appeal.content_snapshot,
+            Fields.resolution_note: appeal.resolution_note,
+            Fields.creation_time: appeal.created,
+            Fields.resolved_time: appeal.resolved_time,
+        }
+        for appeal in batched
+    ]
+    return log_and_return_json("get_my_appeals", data, safe=False)
+
+
+def _resolve_appeal_target(request, target_type, target_identifier):
+    """Resolve and authorize the content an appeal targets. Returns
+    (target_field, target_object, content_snapshot) or None if the caller may
+    not appeal it (not theirs, not hidden, or not found).
+
+    Only posts and comments are appealable in-app. Ban appeals go through the
+    email-reply flow (see the suspension email) because an outright-banned user
+    has no session and cannot reach an authenticated endpoint."""
+    if target_type == APPEAL_TARGET_POST:
+        if not is_valid_pattern(target_identifier, Patterns.uuid4):
+            return None
+        post = request.user.post_set.filter(post_identifier=target_identifier, hidden=True).first()
+        if post is None:
+            return None
+        return APPEAL_TARGET_POST, post, post.caption
+    if target_type == APPEAL_TARGET_COMMENT:
+        if not is_valid_pattern(target_identifier, Patterns.uuid4):
+            return None
+        comment = Comment.objects.filter(
+            author=request.user, comment_identifier=target_identifier, hidden=True
+        ).first()
+        if comment is None:
+            return None
+        return APPEAL_TARGET_COMMENT, comment, comment.body
+    return None
+
+
+@csrf_exempt
+@api_login_required
+@ratelimit(key='user', rate='10/h', block=True)
+@require_POST
+def submit_appeal(request):
+    """File an appeal against a hidden post or a hidden comment. One appeal per
+    item: an item that already has an appeal (pending or resolved) cannot be
+    appealed again. Ban appeals are not handled here — an outright-banned user
+    has no session, so those go through the email-reply flow in the suspension
+    email instead."""
+    logger.info("Endpoint submit_appeal invoked by IP or User")
+    data = _get_json_body(request)
+    if data is None:
+        return log_and_return_json("submit_appeal", {'error': "Invalid JSON data"}, status=400)
+
+    target_type = data.get(Fields.target_type)
+    target_identifier = data.get(Fields.target_identifier)
+    reason = data.get(Fields.reason)
+
+    # JSON values can be any type; reject non-string id/reason up front so the
+    # validation below can't crash on them (UUID()/len() on a non-string would
+    # otherwise 500).
+    if target_type not in (APPEAL_TARGET_POST, APPEAL_TARGET_COMMENT):
+        return log_and_return_json("submit_appeal", {'error': "Invalid target_type"}, status=400)
+    if not isinstance(target_identifier, str):
+        return log_and_return_json("submit_appeal", {'error': "Invalid target_identifier"}, status=400)
+    if not isinstance(reason, str) or not reason or not is_valid_pattern(reason, Patterns.alphanumeric_with_special_chars):
+        return log_and_return_json("submit_appeal", {'error': "Invalid reason"}, status=400)
+    if len(reason) > MAX_APPEAL_REASON_LENGTH:
+        return log_and_return_json(
+            "submit_appeal",
+            {'error': f"Reason exceeds maximum length of {MAX_APPEAL_REASON_LENGTH} characters"},
+            status=400,
+        )
+
+    resolved = _resolve_appeal_target(request, target_type, target_identifier)
+    if resolved is None:
+        logger.warning(f"Submit appeal failed: target not found/appealable for user_id: {request.user.id}")
+        return log_and_return_json("submit_appeal", {'error': "No appealable item with that identifier"}, status=400)
+
+    target_field, target_object, content_snapshot = resolved
+
+    # One appeal per item, regardless of status: an approval un-hides or a denial
+    # removes the item, so a second appeal should never be needed. The exists()
+    # check gives a friendly error in the common case; the unique constraint on
+    # Appeal.post/comment is the real guard against two concurrent submissions
+    # both passing this check.
+    if Appeal.objects.filter(**{target_field: target_object}).exists():
+        logger.warning(f"Submit appeal failed: item already appealed for user_id: {request.user.id}")
+        return log_and_return_json("submit_appeal", {'error': "This item has already been appealed"}, status=400)
+
+    try:
+        appeal = Appeal.objects.create(
+            appellant=request.user,
+            reason=reason,
+            content_snapshot=content_snapshot,
+            **{target_field: target_object},
+        )
+    except IntegrityError:
+        logger.warning(f"Submit appeal race: item already appealed for user_id: {request.user.id}")
+        return log_and_return_json("submit_appeal", {'error': "This item has already been appealed"}, status=400)
+
+    logger.info(f"Appeal submitted: appeal_id: {appeal.appeal_identifier} ({target_type}) for user_id: {request.user.id}")
+    return log_and_return_json("submit_appeal", {Fields.appeal_identifier: appeal.appeal_identifier}, status=201)

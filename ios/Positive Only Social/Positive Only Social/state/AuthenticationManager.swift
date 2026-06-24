@@ -16,7 +16,7 @@ final class AuthenticationManager: ObservableObject {
     @Published var session: UserSession?
     
     // Unique identifiers for Keychain
-    private let keychainService = AppConstants.keychainService
+    private let keychainService = GVOAppConstants.keychainService
     private var sessionAccount: String {
         let base = "userSessionToken"
         guard isUITesting(), let testName = ProcessInfo.processInfo.environment["test-name"] else {
@@ -26,9 +26,16 @@ final class AuthenticationManager: ObservableObject {
     }
     
     private let keychainHelper: KeychainHelperProtocol
-    
+
+    // The notification center used to observe app-wide events such as
+    // account bans. Injectable so tests can isolate it from the shared
+    // `.default` center and avoid cross-test contamination.
+    private let notificationCenter: NotificationCenter
+
     // A private lock to ensure thread-safe access to the keychain.
     private let lock = NSLock()
+    
+    private var cancellables = Set<AnyCancellable>()
     
     private(set) var logoutCallCount = 0
     
@@ -40,9 +47,10 @@ final class AuthenticationManager: ObservableObject {
         self.init(shouldAutoLogin: false, keychainHelper: KeychainHelper())
     }
     
-    init(shouldAutoLogin: Bool, keychainHelper: KeychainHelperProtocol) {
+    init(shouldAutoLogin: Bool, keychainHelper: KeychainHelperProtocol, notificationCenter: NotificationCenter = .default) {
         self.keychainHelper = keychainHelper
-        
+        self.notificationCenter = notificationCenter
+
         // Check for a session token when the app starts
         if shouldAutoLogin {
             checkInitialState()
@@ -50,6 +58,14 @@ final class AuthenticationManager: ObservableObject {
             self.session = nil
             self.isLoggedIn = false
         }
+        
+        // A banned account has its sessions revoked server-side; when the API
+        // layer sees the account_banned rejection, drop the local session so
+        // the user lands back on the welcome screen.
+        notificationCenter.publisher(for: .accountBanned)
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] _ in self?.logout() }
+            .store(in: &cancellables)
     }
     
     private func checkInitialState() {

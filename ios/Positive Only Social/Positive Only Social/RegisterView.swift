@@ -30,9 +30,15 @@ struct RegisterView: View {
     @State private var errorMessage: String?
     @State private var showingErrorAlert = false
     @State private var showingPrivacyPolicy = false
+
+    // Which field currently owns the keyboard. Cleared (set to nil) to dismiss
+    // the keyboard through SwiftUI's focus system — the only dismissal that
+    // sticks; see KeyboardDismiss.swift (issue #205).
+    private enum Field: Hashable { case username, email, password, confirmPassword }
+    @FocusState private var focusedField: Field?
     
     // Unique identifiers for Keychain
-    private let keychainService = AppConstants.keychainService
+    private let keychainService = GVOAppConstants.keychainService
     private let sessionAccount = "userSessionToken"
 
     // MARK: - Computed Properties for Validation
@@ -43,9 +49,12 @@ struct RegisterView: View {
         }
         return password == confirmPassword
     }
-    
+
     private var isFormValid: Bool {
-        !username.isEmpty && !email.isEmpty && !password.isEmpty && password == confirmPassword
+        AuthRequirements.allMet(AuthRequirements.username(username))
+            && !email.isEmpty
+            && AuthRequirements.allMet(AuthRequirements.password(password))
+            && password == confirmPassword
     }
 
     // MARK: - View Body
@@ -54,6 +63,9 @@ struct RegisterView: View {
             Text("Create Account")
                 .font(.largeTitle).fontWeight(.bold)
                 .padding(.bottom, 20)
+                // Let taps on this decorative title fall through to the
+                // container's dismiss-keyboard gesture (issue #205).
+                .allowsHitTesting(false)
 
             // MARK: - Input Fields
             TextField("Username", text: $username)
@@ -62,7 +74,13 @@ struct RegisterView: View {
                 .cornerRadius(10)
                 .textContentType(.username)
                 .autocapitalization(.none)
+                .focused($focusedField, equals: .username)
                 .accessibilityIdentifier("UsernameTextField")
+            if !username.isEmpty {
+                RequirementHints(requirements: AuthRequirements.username(username))
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.horizontal, 4)
+            }
 
             TextField("Email", text: $email)
                 .padding()
@@ -71,19 +89,30 @@ struct RegisterView: View {
                 .textContentType(.emailAddress)
                 .autocapitalization(.none)
                 .keyboardType(.emailAddress)
+                .focused($focusedField, equals: .email)
                 .accessibilityIdentifier("EmailTextField")
 
             SecureField("Password", text: $password)
                 .padding()
                 .background(Color(.systemGray6))
                 .cornerRadius(10)
-                .textContentType(.newPassword)
+                // Disable the automatic "Use Strong Password" AutoFill prompt
+                // during UI tests, where it would block interaction. Real users
+                // still get the new-password content type.
+                .textContentType(isUITesting() ? nil : .newPassword)
+                .focused($focusedField, equals: .password)
                 .accessibilityIdentifier("PasswordSecureField")
+            if !password.isEmpty {
+                RequirementHints(requirements: AuthRequirements.password(password))
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.horizontal, 4)
+            }
             SecureField("Confirm Password", text: $confirmPassword)
                 .padding()
                 .background(Color(.systemGray6))
                 .cornerRadius(10)
-                .textContentType(.newPassword)
+                .textContentType(isUITesting() ? nil : .newPassword)
+                .focused($focusedField, equals: .confirmPassword)
                 .accessibilityIdentifier("ConfirmPasswordSecureField")
             
             DatePicker("Date of Birth", selection: $dateOfBirth, displayedComponents: .date)
@@ -121,6 +150,8 @@ struct RegisterView: View {
             }
         }
         .padding()
+        .dismissKeyboardOnTap { focusedField = nil }
+        .onSubmit { focusedField = nil }
         .navigationTitle("Register")
         .navigationBarTitleDisplayMode(.inline)
         .alert("Registration Failed", isPresented: $showingErrorAlert) {

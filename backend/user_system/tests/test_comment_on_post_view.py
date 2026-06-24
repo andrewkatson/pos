@@ -6,7 +6,7 @@ from django.urls import reverse
 
 from .test_parent_case import PositiveOnlySocialTestCase
 from ..classifiers.classifier_constants import POSITIVE_TEXT, NEGATIVE_TEXT
-from ..constants import Fields
+from ..constants import Fields, MAX_COMMENT_LENGTH
 from ..views import get_user_with_username
 
 invalid_session_management_token = '?'
@@ -76,6 +76,44 @@ class CommentOnPostTests(PositiveOnlySocialTestCase):
             **self.valid_header
         )
         self.assertEqual(response.status_code, 400)
+
+    def test_comment_over_max_length_returns_bad_response(self):
+        """
+        A comment longer than MAX_COMMENT_LENGTH characters must be rejected with a
+        message that states the limit.
+        """
+        # Positive text (no "negative" substring) so only the length check can fail it.
+        too_long_data = {'comment_text': 'a' * (MAX_COMMENT_LENGTH + 1)}
+
+        response = self.client.post(
+            self.url,
+            data=too_long_data,
+            content_type='application/json',
+            **self.valid_header
+        )
+
+        self.assertEqual(response.status_code, 400)
+        self.assertIn(f"maximum length of {MAX_COMMENT_LENGTH}", response.json().get('error', ''))
+
+    @patch.dict(os.environ, {"TESTING": "True"}, clear=True)
+    def test_unicode_comment_at_max_length_returns_good_response(self):
+        """
+        A non-ASCII comment at exactly MAX_COMMENT_LENGTH code points must be accepted,
+        confirming the limit is unicode aware rather than byte/ASCII based.
+        """
+        # 'é' is multi-byte in UTF-8 but a single unicode code point; len() counts code points.
+        body = 'é' * MAX_COMMENT_LENGTH
+        response = self.client.post(
+            self.url,
+            data={'comment_text': body},
+            content_type='application/json',
+            **self.valid_header
+        )
+
+        self.assertEqual(response.status_code, 201)
+        user = get_user_with_username(self.local_username)
+        comment = user.post_set.first().commentthread_set.first().comment_set.first()
+        self.assertEqual(comment.body, body)
 
     # The reason this test isn't "negative" in title is because the classifier looks for "negative" in tests
     # in the username and will fail this test

@@ -160,21 +160,23 @@ struct MockedAPI: Networking {
         return try encode(posts)
     }
 
-    func getPostDetails(postIdentifier: String) async throws -> Data {
+    func getPostDetails(sessionManagementToken: String, postIdentifier: String) async throws -> Data {
         // Matches PostDetailViewModel.PostDetailsFields
         struct PostDetailsResponse: Codable {
             let post_identifier: String
             let image_url: String
             let caption: String
             let post_likes: Int
+            let is_liked: Bool
             let author_username: String
         }
-        
+
         let detail = PostDetailsResponse(
             post_identifier: postIdentifier,
             image_url: "https://picsum.photos/400/400",
             caption: "Detailed view of the post",
             post_likes: 100,
+            is_liked: false,
             author_username: "mock_author"
         )
         return try encode(detail)
@@ -224,6 +226,7 @@ struct MockedAPI: Networking {
             let creation_time: String
             let updated_time: String
             let comment_likes: Int
+            let is_liked: Bool
         }
 
         let comments = [
@@ -233,7 +236,8 @@ struct MockedAPI: Networking {
                 author_username: "fan_1",
                 creation_time: "2023-01-01T12:00:00Z",
                 updated_time: "2023-01-01T12:00:00Z",
-                comment_likes: 5
+                comment_likes: 5,
+                is_liked: false
             ),
             CommentResponse(
                 comment_identifier: "c2",
@@ -241,7 +245,8 @@ struct MockedAPI: Networking {
                 author_username: "fan_2",
                 creation_time: "2023-01-01T12:05:00Z",
                 updated_time: "2023-01-01T12:05:00Z",
-                comment_likes: 2
+                comment_likes: 2,
+                is_liked: true
             )
         ]
         return try encode(comments)
@@ -270,6 +275,25 @@ struct MockedAPI: Networking {
             isFollowing: false
         )
         return try encode(profile)
+    }
+
+    // MARK: - Appeals
+
+    func getHiddenPosts(sessionManagementToken: String, batch: Int) async throws -> Data {
+        return try encode([HiddenPost]())
+    }
+
+    func getHiddenComments(sessionManagementToken: String, batch: Int) async throws -> Data {
+        return try encode([HiddenComment]())
+    }
+
+    func getMyAppeals(sessionManagementToken: String, batch: Int) async throws -> Data {
+        return try encode([MyAppeal]())
+    }
+
+    func submitAppeal(sessionManagementToken: String, targetType: String, targetIdentifier: String, reason: String) async throws -> Data {
+        struct Fields: Codable { let appeal_identifier: String }
+        return try encode(Fields(appeal_identifier: UUID().uuidString))
     }
 }
 

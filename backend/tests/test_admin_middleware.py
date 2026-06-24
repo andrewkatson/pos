@@ -152,3 +152,43 @@ def test_empty_trusted_proxy_ips_means_no_proxies_trusted():
     with patch.dict("os.environ", env, clear=False):
         with pytest.raises(Http404):
             middleware(request)
+
+
+# --- IP source: behind a unix-socket proxy (nginx -> Gunicorn, empty REMOTE_ADDR) ---
+
+def test_unix_socket_uses_x_real_ip():
+    """An empty REMOTE_ADDR (unix-socket proxy) trusts X-Real-IP without
+    needing TRUSTED_PROXY_IPS, since the empty value can't be forged remotely."""
+    middleware = make_middleware()
+    request = make_request("/admin/", remote_addr="", x_real_ip="10.0.0.1")
+    with patch.dict("os.environ", {"ADMIN_IP_ALLOWLIST": "10.0.0.1"}, clear=True):
+        response = middleware(request)
+    assert response.status_code == 200
+
+
+def test_unix_socket_unlisted_real_ip_blocked():
+    """A unix-socket request whose real client IP isn't allowlisted is blocked."""
+    middleware = make_middleware()
+    request = make_request("/admin/", remote_addr="", x_real_ip="9.9.9.9")
+    with patch.dict("os.environ", {"ADMIN_IP_ALLOWLIST": "10.0.0.1"}, clear=True):
+        with pytest.raises(Http404):
+            middleware(request)
+
+
+def test_unix_socket_without_x_real_ip_blocked():
+    """With no X-Real-IP, the empty REMOTE_ADDR falls back to '' and is never
+    in the allowlist, so the request is blocked rather than allowed."""
+    middleware = make_middleware()
+    request = make_request("/admin/", remote_addr="")
+    with patch.dict("os.environ", {"ADMIN_IP_ALLOWLIST": "10.0.0.1"}, clear=True):
+        with pytest.raises(Http404):
+            middleware(request)
+
+
+def test_unix_socket_x_forwarded_for_not_trusted():
+    """X-Forwarded-For must not grant access over a unix socket either."""
+    middleware = make_middleware()
+    request = make_request("/admin/", remote_addr="", spoofed_xff="10.0.0.1")
+    with patch.dict("os.environ", {"ADMIN_IP_ALLOWLIST": "10.0.0.1"}, clear=True):
+        with pytest.raises(Http404):
+            middleware(request)

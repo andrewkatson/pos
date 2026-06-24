@@ -1,7 +1,7 @@
 import uuid
 from django.urls import reverse
 
-from .test_constants import ip, invalid_ip, true, false, LOGIN_USER_WITH_REMEMBER_ME
+from .test_constants import true, false, LOGIN_USER_WITH_REMEMBER_ME
 from .test_parent_case import PositiveOnlySocialTestCase
 from ..constants import Fields
 from ..utils import generate_login_cookie_token
@@ -32,7 +32,6 @@ class LoginUserRememberMETests(PositiveOnlySocialTestCase):
             Fields.session_management_token: self.session_management_token,
             'series_identifier': self.series_identifier,
             'login_cookie_token': self.login_cookie_token,
-            'ip': ip
         }
 
     def test_invalid_session_management_token_returns_bad_response(self):
@@ -63,17 +62,6 @@ class LoginUserRememberMETests(PositiveOnlySocialTestCase):
         """
         data = self.valid_data.copy()
         data['login_cookie_token'] = invalid_login_cookie_token
-
-        response = self.client.post(self.url, data=data, content_type='application/json')
-
-        self.assertEqual(response.status_code, 400)
-
-    def test_invalid_ip_returns_bad_response(self):
-        """
-        Tests that a malformed IP address is rejected.
-        """
-        data = self.valid_data.copy()
-        data['ip'] = invalid_ip
 
         response = self.client.post(self.url, data=data, content_type='application/json')
 

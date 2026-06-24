@@ -18,8 +18,8 @@ class PositiveOnlySocialIntegrationTests {
     private val testUsername = "test_user_${UUID.randomUUID().toString().take(5)}"
     private val otherTestUsername = "other_user_${UUID.randomUUID().toString().take(5)}"
     private val newTestUsername = "new_user_${UUID.randomUUID().toString().take(5)}"
-    private val strongPassword = "StrongPassword123!"
-    private val newStrongPassword = "NewStrongPassword456!"
+    private val strongPassword = "StrongPassword123@"
+    private val newStrongPassword = "NewStrongPassword456@"
 
     // MARK: Helpers
 
@@ -178,6 +178,13 @@ class PositiveOnlySocialIntegrationTests {
             com.example.positiveonlysocial.di.DependencyProvider.api.makePost(token, request)
         }
 
+    private fun makeCommentViaApi(username: String, password: String, postId: String, body: String) =
+        kotlinx.coroutines.runBlocking {
+            val token = loginUserViaApi(username, password)
+            val request = com.example.positiveonlysocial.data.model.CommentRequest(body)
+            com.example.positiveonlysocial.di.DependencyProvider.api.commentOnPost(token, postId, request)
+        }
+
     // MARK: Tests
 
     @Test
@@ -276,9 +283,9 @@ class PositiveOnlySocialIntegrationTests {
             .onNodeWithTag("tag_Followers", true)
             .assert(hasAnyDescendant(hasText("0")))
 
-        // Follow
-        composeTestRule.onNodeWithText("Follow").performClick()
-        composeTestRule.onNodeWithText("Following").assertExists()
+        // Follow (disambiguate the clickable button from the "Following" stat label)
+        composeTestRule.onNode(hasText("Follow") and hasClickAction()).performClick()
+        composeTestRule.onNode(hasText("Following") and hasClickAction()).assertExists()
 
         // Verify Followers count is 1
         composeTestRule
@@ -286,9 +293,9 @@ class PositiveOnlySocialIntegrationTests {
             .assert(hasAnyDescendant(hasText("1")))
 
 
-        // Unfollow
-        composeTestRule.onNodeWithText("Following").performClick()
-        composeTestRule.onNodeWithText("Follow").assertExists()
+        // Unfollow (target the button, not the "Following" stat label)
+        composeTestRule.onNode(hasText("Following") and hasClickAction()).performClick()
+        composeTestRule.onNode(hasText("Follow") and hasClickAction()).assertExists()
     }
     @Test
     fun testLikeAndUnlikePost() {
@@ -308,18 +315,98 @@ class PositiveOnlySocialIntegrationTests {
         composeTestRule.onAllNodesWithContentDescription("Post Image").onFirst().performClick()
         
         assertOnPostDetailView()
-        
-        // Double tap to like
-        composeTestRule.onNodeWithContentDescription("Post Image").performTouchInput { doubleClick() }
-        
-        // Verify like count
+
+        // --- New method: tap the heart icon ---
+        composeTestRule.onNodeWithContentDescription("Like post").performClick()
         composeTestRule.onNodeWithText("1 likes").assertExists()
-        
-        // Double tap to unlike
-        composeTestRule.onNodeWithContentDescription("Post Image").performTouchInput { doubleClick() }
-        
-        // Verify like count
+
+        composeTestRule.onNodeWithContentDescription("Unlike post").performClick()
         composeTestRule.onNodeWithText("0 likes").assertExists()
+
+        // --- Old method: double-tap the post image ---
+        composeTestRule.onNodeWithContentDescription("Post Image").performTouchInput { doubleClick() }
+        composeTestRule.onNodeWithText("1 likes").assertExists()
+
+        composeTestRule.onNodeWithContentDescription("Post Image").performTouchInput { doubleClick() }
+        composeTestRule.onNodeWithText("0 likes").assertExists()
+    }
+
+    @Test
+    fun testOpenPostDetailFromHomeGrid() {
+        // Setup: a user with one post.
+        registerUserViaApi(testUsername, strongPassword)
+        makePostViaApi(testUsername, strongPassword, "Home Grid Post")
+
+        // Login as that user; the Home grid loads their posts.
+        loginUser(testUsername, strongPassword, rememberMe = false)
+        assertOnHomeView()
+
+        // Tap the first post in the Home grid -> post detail.
+        composeTestRule.waitUntil(timeoutMillis = 5000) {
+            composeTestRule.onAllNodesWithContentDescription("Post Image").fetchSemanticsNodes().isNotEmpty()
+        }
+        composeTestRule.onAllNodesWithContentDescription("Post Image").onFirst().performClick()
+
+        assertOnPostDetailView()
+    }
+
+    @Test
+    fun testOpenPostDetailFromProfileGrid() {
+        // Setup: an author with one post.
+        registerUserViaApi(testUsername, strongPassword)
+        makePostViaApi(testUsername, strongPassword, "Profile Grid Post")
+
+        // Login as a different user and open the author's profile.
+        loginUser(otherTestUsername, strongPassword, rememberMe = false, registerToo = true)
+
+        composeTestRule.onNodeWithText("Search for Users").performTextInput(testUsername)
+        composeTestRule.waitUntil(timeoutMillis = 5000) {
+            composeTestRule.onNodeWithTag(testUsername, useUnmergedTree = true).isDisplayed()
+        }
+        composeTestRule.onNodeWithTag(testUsername, useUnmergedTree = true).performClick()
+        assertOnProfileView()
+
+        // Tap the first post in the Profile grid -> post detail.
+        composeTestRule.waitUntil(timeoutMillis = 5000) {
+            composeTestRule.onAllNodesWithContentDescription("Post Image").fetchSemanticsNodes().isNotEmpty()
+        }
+        composeTestRule.onAllNodesWithContentDescription("Post Image").onFirst().performClick()
+
+        assertOnPostDetailView()
+    }
+
+    @Test
+    fun testOpenPostDetailFromFollowingFeed() {
+        // Setup: an author with one post.
+        registerUserViaApi(testUsername, strongPassword)
+        makePostViaApi(testUsername, strongPassword, "Following Feed Post")
+
+        // Login as a different user and follow the author.
+        loginUser(otherTestUsername, strongPassword, rememberMe = false, registerToo = true)
+
+        composeTestRule.onNodeWithText("Search for Users").performTextInput(testUsername)
+        composeTestRule.waitUntil(timeoutMillis = 5000) {
+            composeTestRule.onNodeWithTag(testUsername, useUnmergedTree = true).isDisplayed()
+        }
+        composeTestRule.onNodeWithTag(testUsername, useUnmergedTree = true).performClick()
+        assertOnProfileView()
+
+        composeTestRule.onNode(hasText("Follow") and hasClickAction()).performClick()
+        composeTestRule.onNode(hasText("Following") and hasClickAction()).assertExists()
+
+        // Back to Home, then open the Following feed.
+        Espresso.pressBack()
+        composeTestRule.onNodeWithText("Feed").performClick()
+        assertOnFeedView()
+        composeTestRule.onNodeWithText("Following").performClick()
+
+        // Tap the first post in the Following feed -> post detail.
+        composeTestRule.waitUntil(timeoutMillis = 5000) {
+            composeTestRule.onAllNodesWithContentDescription("Post Image").fetchSemanticsNodes().isNotEmpty()
+        }
+        composeTestRule.onAllNodesWithContentDescription("Post Image").onFirst().performClick()
+
+        assertOnPostDetailView()
     }
 
     @Test
@@ -361,31 +448,43 @@ class PositiveOnlySocialIntegrationTests {
         composeTestRule.onNodeWithText("Feed").performClick()
         composeTestRule.onAllNodesWithContentDescription("Post Image").onFirst().performClick()
         
-        // Like comment (double tap on comment row)
-        composeTestRule.onNodeWithText("Comment On a Post").performTouchInput { doubleClick() }
-
-        // Verify like count
-        composeTestRule.onNodeWithText("1 likes").assertExists()
-        
-        // Unlike comment
-        composeTestRule.onNodeWithText("Comment On a Post").performTouchInput { doubleClick() }
-        
-        // Verify like count
-        composeTestRule
-            .onAllNodesWithText("0 likes")
-            .assertCountEquals(3)
-        
-        // Verify reply appears
+        // Verify both comments are visible before starting
+        composeTestRule.onNodeWithText("Comment On a Post").assertExists()
         composeTestRule.onNodeWithText("Comment On a Thread").assertExists()
-        
-        // Like reply
+
+        // ======= Root comment =======
+
+        // New method: tap the heart icon on the root comment
+        composeTestRule.onAllNodesWithContentDescription("Like comment").onFirst().performClick()
+        composeTestRule.onNodeWithText("1 likes").assertExists()
+
+        // Tap "Unlike comment" — root comment is now the only liked one
+        composeTestRule.onAllNodesWithContentDescription("Unlike comment").onFirst().performClick()
+        composeTestRule.onAllNodesWithText("0 likes").assertCountEquals(3)
+
+        // Old method: double-tap the root comment row
+        composeTestRule.onNodeWithText("Comment On a Post").performTouchInput { doubleClick() }
+        composeTestRule.onNodeWithText("1 likes").assertExists()
+
+        composeTestRule.onNodeWithText("Comment On a Post").performTouchInput { doubleClick() }
+        composeTestRule.onAllNodesWithText("0 likes").assertCountEquals(3)
+
+        // ======= Thread reply =======
+
+        // New method: tap the heart icon on the reply (last "Like comment" node)
+        composeTestRule.onAllNodesWithContentDescription("Like comment").onLast().performClick()
+        composeTestRule.onAllNodesWithText("1 likes").onLast().assertExists()
+
+        // Tap "Unlike comment" — reply is now the only liked one
+        composeTestRule.onAllNodesWithContentDescription("Unlike comment").onFirst().performClick()
+        composeTestRule.onAllNodesWithText("0 likes").assertCountEquals(3)
+
+        // Old method: double-tap the reply row
         composeTestRule.onNodeWithText("Comment On a Thread").performTouchInput { doubleClick() }
         composeTestRule.onAllNodesWithText("1 likes").onLast().assertExists()
 
         composeTestRule.onNodeWithText("Comment On a Thread").performTouchInput { doubleClick() }
-        composeTestRule
-            .onAllNodesWithText("0 likes")
-            .assertCountEquals(3)
+        composeTestRule.onAllNodesWithText("0 likes").assertCountEquals(3)
     }
 
     @Test
@@ -400,44 +499,93 @@ class PositiveOnlySocialIntegrationTests {
         composeTestRule.onNodeWithText("Feed").performClick()
         composeTestRule.onAllNodesWithContentDescription("Post Image").onFirst().performClick()
         
-        // Long press to report
+        // Long press opens the action menu; this is another user's post, so it
+        // offers Report (not Delete).
         composeTestRule.onNodeWithContentDescription("Post Image").performTouchInput { longClick() }
-        
+        composeTestRule.onNodeWithText("Report Post").performClick()
+
         // Report Dialog
-        composeTestRule.onNodeWithText("Report").assertExists()
         composeTestRule.onNodeWithText("Reason for reporting...").performTextInput("Report post")
         composeTestRule.onNodeWithText("Submit").performClick()
-        
+
         // Verify reported icon
         composeTestRule.onNodeWithContentDescription("Reported").assertExists()
     }
 
     @Test
     fun testReportComment() {
-        // Setup
+        // Setup: testUser owns both the post and the comment, so otherTestUser
+        // (the viewer) can report the comment — you can't report your own.
         registerUserViaApi(testUsername, strongPassword)
         val postResponse = makePostViaApi(testUsername, strongPassword, "Some Post Caption")
         val postId = postResponse.body()?.postIdentifier ?: throw IllegalStateException("Failed to create post")
-        
+        makeCommentViaApi(testUsername, strongPassword, postId, "Comment to Report")
+
         loginUser(otherTestUsername, strongPassword, rememberMe = false, registerToo = true)
-        
+
         composeTestRule.onNodeWithText("Feed").performClick()
         composeTestRule.onAllNodesWithContentDescription("Post Image").onFirst().performClick()
-        
-        // Make comment
-        composeTestRule.onNodeWithText("Add a comment...").performTextInput("Comment to Report")
-        composeTestRule.onNodeWithText("Post").performClick()
-        
-        // Long press comment
+
+        // Long press the other user's comment; the menu offers Report.
         composeTestRule.onNodeWithText("Comment to Report").performTouchInput { longClick() }
-        
+        composeTestRule.onNodeWithText("Report Comment").performClick()
+
         // Report Dialog
-        composeTestRule.onNodeWithText("Report").assertExists()
         composeTestRule.onNodeWithText("Reason for reporting...").performTextInput("Report comment")
         composeTestRule.onNodeWithText("Submit").performClick()
 
         // Verify reported icon
         composeTestRule.onNodeWithContentDescription("Reported").assertExists()
+    }
+
+    @Test
+    fun testDeleteOwnPost() {
+        // The viewer owns the post, so long-press offers Delete (not Report).
+        registerUserViaApi(testUsername, strongPassword)
+        makePostViaApi(testUsername, strongPassword, "Post to Delete")
+
+        loginUser(testUsername, strongPassword, rememberMe = false)
+
+        composeTestRule.onNodeWithText("Feed").performClick()
+        composeTestRule.onAllNodesWithContentDescription("Post Image").onFirst().performClick()
+
+        composeTestRule.onNodeWithContentDescription("Post Image").performTouchInput { longClick() }
+
+        // It's the user's own post: Delete is offered, Report is not.
+        composeTestRule.onNodeWithText("Report Post").assertDoesNotExist()
+        composeTestRule.onNodeWithText("Delete Post").performClick()
+
+        // Deleting pops the Post Detail screen back to the feed.
+        composeTestRule.waitUntil(timeoutMillis = 5_000) {
+            composeTestRule.onAllNodesWithText("Add a comment...").fetchSemanticsNodes().isEmpty()
+        }
+        assertOnFeedView()
+    }
+
+    @Test
+    fun testDeleteOwnComment() {
+        // The viewer owns the comment, so long-press offers Delete (not Report).
+        registerUserViaApi(testUsername, strongPassword)
+        val postResponse = makePostViaApi(testUsername, strongPassword, "Some Post Caption")
+        val postId = postResponse.body()?.postIdentifier ?: throw IllegalStateException("Failed to create post")
+        makeCommentViaApi(testUsername, strongPassword, postId, "Comment to Delete")
+
+        loginUser(testUsername, strongPassword, rememberMe = false)
+
+        composeTestRule.onNodeWithText("Feed").performClick()
+        composeTestRule.onAllNodesWithContentDescription("Post Image").onFirst().performClick()
+
+        composeTestRule.onNodeWithText("Comment to Delete").performTouchInput { longClick() }
+
+        // It's the user's own comment: Delete is offered, Report is not.
+        composeTestRule.onNodeWithText("Report Comment").assertDoesNotExist()
+        composeTestRule.onNodeWithText("Delete Comment").performClick()
+
+        // The comment is removed from the thread.
+        composeTestRule.waitUntil(timeoutMillis = 5_000) {
+            composeTestRule.onAllNodesWithText("Comment to Delete").fetchSemanticsNodes().isEmpty()
+        }
+        composeTestRule.onNodeWithText("Comment to Delete").assertDoesNotExist()
     }
     @Test
     fun testVerifyIdentity() {

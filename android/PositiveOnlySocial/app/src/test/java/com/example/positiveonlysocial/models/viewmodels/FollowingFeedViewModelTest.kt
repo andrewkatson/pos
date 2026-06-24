@@ -64,4 +64,54 @@ class FollowingFeedViewModelTest {
         assertTrue(viewModel.followingPosts.value.isEmpty())
         assertFalse(viewModel.isLoadingNextPage.value)
     }
+
+    @Test
+    fun `refreshFollowingFeed replaces followingPosts with fresh data`() = runTest {
+        val initialPosts = listOf(Post("1", "url1", "caption1", "user1", 0))
+        whenever(api.getFollowedPosts("token123", 0)).thenReturn(Response.success(initialPosts))
+
+        viewModel.fetchFollowingFeed()
+        assertEquals(initialPosts, viewModel.followingPosts.value)
+
+        val refreshedPosts = listOf(
+            Post("2", "url2", "caption2", "user2", 0),
+            Post("3", "url3", "caption3", "user3", 0)
+        )
+        whenever(api.getFollowedPosts("token123", 0)).thenReturn(Response.success(refreshedPosts))
+
+        viewModel.refreshFollowingFeed()
+
+        assertEquals(refreshedPosts, viewModel.followingPosts.value)
+        assertFalse(viewModel.isRefreshing.value)
+    }
+
+    @Test
+    fun `refreshFollowingFeed resets pagination after it was exhausted`() = runTest {
+        whenever(api.getFollowedPosts("token123", 0)).thenReturn(Response.success(emptyList()))
+        viewModel.fetchFollowingFeed()
+        assertTrue(viewModel.followingPosts.value.isEmpty())
+
+        val refreshedPosts = listOf(Post("1", "url1", "caption1", "user1", 0))
+        whenever(api.getFollowedPosts("token123", 0)).thenReturn(Response.success(refreshedPosts))
+        viewModel.refreshFollowingFeed()
+        assertEquals(refreshedPosts, viewModel.followingPosts.value)
+
+        val nextPage = listOf(Post("2", "url2", "caption2", "user2", 0))
+        whenever(api.getFollowedPosts("token123", 1)).thenReturn(Response.success(nextPage))
+        viewModel.fetchFollowingFeed()
+        assertEquals(refreshedPosts + nextPage, viewModel.followingPosts.value)
+    }
+
+    @Test
+    fun `refreshFollowingFeed failure keeps existing posts`() = runTest {
+        val initialPosts = listOf(Post("1", "url1", "caption1", "user1", 0))
+        whenever(api.getFollowedPosts("token123", 0)).thenReturn(Response.success(initialPosts))
+        viewModel.fetchFollowingFeed()
+
+        whenever(api.getFollowedPosts("token123", 0)).thenReturn(Response.error(400, "error".toResponseBody()))
+        viewModel.refreshFollowingFeed()
+
+        assertEquals(initialPosts, viewModel.followingPosts.value)
+        assertFalse(viewModel.isRefreshing.value)
+    }
 }

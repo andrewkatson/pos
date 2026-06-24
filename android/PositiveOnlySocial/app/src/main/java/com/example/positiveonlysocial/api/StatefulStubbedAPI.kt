@@ -28,6 +28,7 @@ class StatefulStubbedAPI : PositiveOnlySocialAPI {
     private val loginCookies = mutableListOf<LoginCookieMock>()
     private val posts = mutableListOf<PostMock>()
     private val commentThreads = mutableListOf<CommentThreadMock>()
+    private val appeals = mutableListOf<AppealMock>()
 
     // Simulates the "Authorization: Bearer <token>" header.
     // Set this variable before making authenticated calls.
@@ -76,8 +77,19 @@ class StatefulStubbedAPI : PositiveOnlySocialAPI {
         val caption: String,
         val creationTime: Long = System.currentTimeMillis(),
         var hidden: Boolean = false,
+        var hiddenReason: String = "",
         val likes: MutableSet<String> = mutableSetOf(), // Set of User IDs
         val reports: MutableSet<String> = mutableSetOf() // Set of User IDs
+    )
+
+    private data class AppealMock(
+        val appealIdentifier: String = UUID.randomUUID().toString(),
+        val appellantId: String,
+        val targetType: String, // "post" or "comment"
+        val targetId: String,
+        val reason: String,
+        val contentSnapshot: String,
+        val status: String = "pending"
     )
 
     private data class CommentThreadMock(
@@ -92,6 +104,7 @@ class StatefulStubbedAPI : PositiveOnlySocialAPI {
         val body: String,
         val creationTime: Long = System.currentTimeMillis(),
         var hidden: Boolean = false,
+        var hiddenReason: String = "",
         val likes: MutableSet<String> = mutableSetOf(),
         val reports: MutableSet<String> = mutableSetOf()
     )
@@ -297,7 +310,7 @@ class StatefulStubbedAPI : PositiveOnlySocialAPI {
     }
 
     // ============================================================================================
-    // POSTS
+    // posts
     // ============================================================================================
 
     override suspend fun makePost(token: String, request: CreatePostRequest): Response<CreatePostResponse> {
@@ -341,6 +354,7 @@ class StatefulStubbedAPI : PositiveOnlySocialAPI {
         post.reports.add(user.id)
         if (post.reports.size > MAX_BEFORE_HIDING_POST) {
             post.hidden = true
+            post.hiddenReason = "reports"
         }
         return Response.success(GenericResponse("Post reported", null))
     }
@@ -369,7 +383,7 @@ class StatefulStubbedAPI : PositiveOnlySocialAPI {
     }
 
     // ============================================================================================
-    // FEED / RETRIEVAL
+    // feed / retrieval
     // ============================================================================================
 
     override suspend fun getPostsInFeed(token: String, batch: Int): Response<List<Post>> {
@@ -426,7 +440,8 @@ class StatefulStubbedAPI : PositiveOnlySocialAPI {
         return Response.success(dtos)
     }
 
-    override suspend fun getPostDetails(postId: String): Response<Post> {
+    override suspend fun getPostDetails(token: String, postId: String): Response<Post> {
+        val user = getAuthorizedUser(token) ?: return errorGeneric(401, "Unauthorized")
         val post = posts.find { it.postIdentifier == postId }
             ?: return errorGeneric(404, "No post with that identifier")
         val author = users.find { it.id == post.authorId }!!
@@ -436,12 +451,13 @@ class StatefulStubbedAPI : PositiveOnlySocialAPI {
             post.imageUrl,
             post.caption,
             authorUsername = author.username,
-            post.likes.count()
+            likeCount = post.likes.count(),
+            isLiked = post.likes.contains(user.id)
         ))
     }
 
     // ============================================================================================
-    // COMMENTS
+    // comments
     // ============================================================================================
 
     override suspend fun commentOnPost(token: String, postId: String, request: CommentRequest): Response<CommentResponse> {
@@ -511,18 +527,23 @@ class StatefulStubbedAPI : PositiveOnlySocialAPI {
         if (comment.reports.contains(user.id)) return error(404, "Already reported")
 
         comment.reports.add(user.id)
-        if (comment.reports.size > 5) comment.hidden = true // Stub limit
+        if (comment.reports.size > 5) { // Stub limit
+            comment.hidden = true
+            comment.hiddenReason = "reports"
+        }
 
         return Response.success(GenericResponse("Comment reported", null))
     }
 
-    override suspend fun getCommentsForPost(postId: String, batch: Int): Response<List<CommentThreadDto>> {
+    override suspend fun getCommentsForPost(token: String, postId: String, batch: Int): Response<List<CommentThreadDto>> {
+        getAuthorizedUser(token) ?: return errorGeneric(401, "Unauthorized")
         val threads = commentThreads.filter { it.postId == postId }
         val batched = getBatch(threads, batch, COMMENT_BATCH_SIZE)
         return Response.success(batched.map { CommentThreadDto(it.threadIdentifier) })
     }
 
-    override suspend fun getCommentsForThread(threadId: String, batch: Int): Response<List<CommentDto>> {
+    override suspend fun getCommentsForThread(token: String, threadId: String, batch: Int): Response<List<CommentDto>> {
+        val user = getAuthorizedUser(token) ?: return errorGeneric(401, "Unauthorized")
         val thread = commentThreads.find { it.threadIdentifier == threadId }
             ?: return errorGeneric(404, "Thread not found")
 
@@ -537,7 +558,8 @@ class StatefulStubbedAPI : PositiveOnlySocialAPI {
                 author.username,
                 c.creationTime.toString(),
                 c.creationTime.toString(),
-                c.likes.size
+                c.likes.size,
+                isLiked = c.likes.contains(user.id)
             )
         }
         return Response.success(dtos)
@@ -646,7 +668,78 @@ class StatefulStubbedAPI : PositiveOnlySocialAPI {
     }
 
     // ============================================================================================
-    // UTILS
+    // appeals
+    // ============================================================================================
+
+    private fun hasAppeal(targetId: String): Boolean = appeals.any { it.targetId == targetId }
+
+    override suspend fun getHiddenPosts(token: String, batch: Int): Response<List<HiddenPost>> {
+        val user = getAuthorizedUser(token) ?: return errorGeneric(401, "Unauthorized")
+        val hidden = posts.filter { it.authorId == user.id && it.hidden }
+            .sortedByDescending { it.creationTime }
+        val dtos = getBatch(hidden, batch, POST_BATCH_SIZE).map {
+            HiddenPost(it.postIdentifier, it.imageUrl, it.caption, it.hiddenReason, hasAppeal(it.postIdentifier))
+        }
+        return Response.success(dtos)
+    }
+
+    override suspend fun getHiddenComments(token: String, batch: Int): Response<List<HiddenComment>> {
+        val user = getAuthorizedUser(token) ?: return errorGeneric(401, "Unauthorized")
+        val hidden = commentThreads.flatMap { it.comments }
+            .filter { it.authorId == user.id && it.hidden }
+            .sortedByDescending { it.creationTime }
+        val dtos = getBatch(hidden, batch, COMMENT_BATCH_SIZE).map {
+            HiddenComment(it.commentIdentifier, it.body, it.hiddenReason, hasAppeal(it.commentIdentifier))
+        }
+        return Response.success(dtos)
+    }
+
+    override suspend fun getMyAppeals(token: String, batch: Int): Response<List<MyAppeal>> {
+        val user = getAuthorizedUser(token) ?: return errorGeneric(401, "Unauthorized")
+        val mine = appeals.filter { it.appellantId == user.id }
+        val dtos = getBatch(mine, batch, POST_BATCH_SIZE).map {
+            MyAppeal(it.appealIdentifier, it.targetType, it.status, it.reason, it.contentSnapshot, null)
+        }
+        return Response.success(dtos)
+    }
+
+    override suspend fun submitAppeal(token: String, request: SubmitAppealRequest): Response<SubmitAppealResponse> {
+        val user = getAuthorizedUser(token) ?: return errorGeneric(401, "Unauthorized")
+
+        val snapshot: String = when (request.targetType) {
+            "post" -> {
+                val post = posts.find { it.postIdentifier == request.targetIdentifier && it.authorId == user.id && it.hidden }
+                    ?: return errorGeneric(400, "No appealable item with that identifier")
+                post.caption
+            }
+            "comment" -> {
+                val comment = commentThreads.flatMap { it.comments }
+                    .find { it.commentIdentifier == request.targetIdentifier && it.authorId == user.id && it.hidden }
+                    ?: return errorGeneric(400, "No appealable item with that identifier")
+                comment.body
+            }
+            // Match the backend, which rejects any target_type other than
+            // post/comment rather than treating it as a comment.
+            else -> return errorGeneric(400, "Invalid target_type")
+        }
+
+        if (hasAppeal(request.targetIdentifier)) {
+            return errorGeneric(400, "This item has already been appealed")
+        }
+
+        val appeal = AppealMock(
+            appellantId = user.id,
+            targetType = request.targetType,
+            targetId = request.targetIdentifier,
+            reason = request.reason,
+            contentSnapshot = snapshot
+        )
+        appeals.add(appeal)
+        return Response.success(SubmitAppealResponse(appeal.appealIdentifier))
+    }
+
+    // ============================================================================================
+    // utils
     // ============================================================================================
 
     private fun <T> getBatch(list: List<T>, batchIndex: Int, batchSize: Int): List<T> {
