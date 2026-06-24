@@ -310,7 +310,7 @@ class StatefulStubbedAPI : PositiveOnlySocialAPI {
     }
 
     // ============================================================================================
-    // POSTS
+    // posts
     // ============================================================================================
 
     override suspend fun makePost(token: String, request: CreatePostRequest): Response<CreatePostResponse> {
@@ -383,7 +383,7 @@ class StatefulStubbedAPI : PositiveOnlySocialAPI {
     }
 
     // ============================================================================================
-    // FEED / RETRIEVAL
+    // feed / retrieval
     // ============================================================================================
 
     override suspend fun getPostsInFeed(token: String, batch: Int): Response<List<Post>> {
@@ -457,7 +457,7 @@ class StatefulStubbedAPI : PositiveOnlySocialAPI {
     }
 
     // ============================================================================================
-    // COMMENTS
+    // comments
     // ============================================================================================
 
     override suspend fun commentOnPost(token: String, postId: String, request: CommentRequest): Response<CommentResponse> {
@@ -668,7 +668,7 @@ class StatefulStubbedAPI : PositiveOnlySocialAPI {
     }
 
     // ============================================================================================
-    // APPEALS
+    // appeals
     // ============================================================================================
 
     private fun hasAppeal(targetId: String): Boolean = appeals.any { it.targetId == targetId }
@@ -739,7 +739,7 @@ class StatefulStubbedAPI : PositiveOnlySocialAPI {
     }
 
     // ============================================================================================
-    // UTILS
+    // utils
     // ============================================================================================
 
     private fun <T> getBatch(list: List<T>, batchIndex: Int, batchSize: Int): List<T> {
