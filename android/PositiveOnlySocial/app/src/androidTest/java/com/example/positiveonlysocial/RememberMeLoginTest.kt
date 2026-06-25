@@ -146,7 +146,9 @@ class RememberMeLoginTest {
 
         composeTestRule.onNodeWithText("Username or Email").performTextInput(username)
         composeTestRule.onNodeWithText("Password").performTextInput(password)
-        composeTestRule.onNodeWithText("Remember Me").performClick()
+        // Flip the actual switch, not the "Remember Me" label next to it — the
+        // label is a plain sibling and clicking it leaves remember-me off.
+        composeTestRule.onNodeWithTag("RememberMeToggle").performClick()
 
         composeTestRule.onNodeWithText("Login").performClick()
         assertOnHomeView()

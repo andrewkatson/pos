@@ -11,6 +11,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
@@ -113,7 +114,10 @@ fun LoginScreen(
                 Spacer(modifier = Modifier.weight(1f))
                 Switch(
                     checked = rememberMe,
-                    onCheckedChange = { rememberMe = it }
+                    onCheckedChange = { rememberMe = it },
+                    // Tag the actual toggle so tests flip it directly. Clicking the
+                    // "Remember Me" label does nothing — it's a sibling, not the switch.
+                    modifier = Modifier.testTag("RememberMeToggle")
                 )
             }
 
