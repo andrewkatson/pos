@@ -45,9 +45,11 @@ async function refreshRememberMeSession(): Promise<void> {
       login_cookie_token: tokens.loginCookieToken,
     })
     localStorage.setItem('session_token', result.session_management_token)
-    // The remembered session lives only in localStorage; make sure a stray
-    // ephemeral copy can't shadow it.
+    // The remembered session lives only in localStorage; make sure no stray
+    // ephemeral copies can shadow it.
     sessionStorage.removeItem('session_token')
+    sessionStorage.removeItem('user_id')
+    sessionStorage.removeItem('username')
     saveRememberMeTokens({
       seriesIdentifier: tokens.seriesIdentifier,
       loginCookieToken: result.login_cookie_token,
