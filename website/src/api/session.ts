@@ -87,7 +87,11 @@ export function saveRememberMeTokens(tokens: RememberMeTokens): void {
 export function loadRememberMeTokens(): RememberMeTokens | null {
   const seriesIdentifier = localStorage.getItem(SERIES_IDENTIFIER_KEY)
   const loginCookieToken = localStorage.getItem(LOGIN_COOKIE_TOKEN_KEY)
-  if (!seriesIdentifier || !loginCookieToken) return null
+  if (!seriesIdentifier || !loginCookieToken) {
+    // If either key is missing, treat any partial state as stale.
+    clearRememberMeTokens()
+    return null
+  }
   return { seriesIdentifier, loginCookieToken }
 }
 
