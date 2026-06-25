@@ -16,8 +16,14 @@ struct SettingsView: View {
     @State private var dateOfBirth = Date()
     @State private var showingDatePicker = false
     @State private var showingPrivacyPolicy = false
-    
+
+    // Kept so the appeals screen can be built with the same API/keychain.
+    private let api: Networking
+    private let keychainHelper: KeychainHelperProtocol
+
     init(api: Networking, keychainHelper: KeychainHelperProtocol) {
+        self.api = api
+        self.keychainHelper = keychainHelper
         _viewModel = StateObject(wrappedValue: SettingsViewModel(api: api, keychainHelper: keychainHelper))
     }
     
@@ -56,6 +62,15 @@ struct SettingsView: View {
                     } label: {
                         Text("Privacy Policy")
                     }.accessibilityIdentifier("PrivacyPolicyButton")
+                }
+
+                // MARK: - Appeals Section
+                Section {
+                    NavigationLink {
+                        AppealsView(api: api, keychainHelper: keychainHelper)
+                    } label: {
+                        Text("Hidden Content & Appeals")
+                    }.accessibilityIdentifier("AppealsButton")
                 }
             
                 

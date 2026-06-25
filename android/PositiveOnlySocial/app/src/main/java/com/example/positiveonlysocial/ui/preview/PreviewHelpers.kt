@@ -419,6 +419,18 @@ class MockPositiveOnlySocialAPI : PositiveOnlySocialAPI {
             )
         )
     }
+
+    override suspend fun getHiddenPosts(token: String, batch: Int): Response<List<HiddenPost>> =
+        Response.success(emptyList())
+
+    override suspend fun getHiddenComments(token: String, batch: Int): Response<List<HiddenComment>> =
+        Response.success(emptyList())
+
+    override suspend fun getMyAppeals(token: String, batch: Int): Response<List<MyAppeal>> =
+        Response.success(emptyList())
+
+    override suspend fun submitAppeal(token: String, request: SubmitAppealRequest): Response<SubmitAppealResponse> =
+        Response.success(SubmitAppealResponse("preview-appeal"))
 }
 
 object PreviewHelpers {
