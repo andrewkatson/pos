@@ -135,6 +135,8 @@ test('persists the session and remember-me tokens in localStorage when remember 
   await screen.findByText('Home')
   // Remembered sessions survive browser restarts, so they live in localStorage.
   expect(localStorageMock.setItem).toHaveBeenCalledWith('session_token', 'tok')
+  expect(localStorageMock.setItem).toHaveBeenCalledWith('user_id', 'uuid-xyz')
+  expect(sessionStorageMock.setItem).not.toHaveBeenCalledWith('session_token', expect.anything())
   expect(localStorageMock.setItem).toHaveBeenCalledWith('series_identifier', 'series-1')
   expect(localStorageMock.setItem).toHaveBeenCalledWith('login_cookie_token', 'cookie-1')
 })
