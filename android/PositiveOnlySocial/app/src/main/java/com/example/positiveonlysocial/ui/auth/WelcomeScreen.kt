@@ -69,7 +69,7 @@ fun WelcomeScreen(
                 val existingSession = authManager.session.value
                     ?: keychainHelper.load(UserSession::class.java, keychainService, sessionAccount)
                 if (existingSession == null) {
-                    throw Exception("No existing session found for remember-me refresh.")
+                    throw Exception("Automatic sign-in failed. Please log in again.")
                 }
                 if (existingSession.userId.isEmpty()) {
                     throw Exception("Automatic sign-in failed. Please log in again.")
