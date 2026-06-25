@@ -3,6 +3,7 @@ import { useNavigate, useSearchParams } from 'react-router-dom'
 import Logo from '../components/Logo'
 import { ACCOUNT_BANNED, ACCOUNT_SUSPENDED_MESSAGE, apiClient } from '../api/client'
 import type { ApiError } from '../api/client'
+import { clearRememberMeTokens, persistSession, saveRememberMeTokens } from '../api/session'
 import './LoginPage.css'
 
 function LoginPage() {
@@ -30,10 +31,19 @@ function LoginPage() {
         password,
         remember_me: rememberMe,
       })
-      localStorage.setItem('session_token', response.session_management_token)
-      localStorage.setItem('user_id', response.user_id)
-      if (response.username) {
-        localStorage.setItem('username', response.username)
+      // When "Remember Me" is off the session goes to sessionStorage and is
+      // cleared when the browser/tab closes; when on it persists in localStorage.
+      persistSession(response, rememberMe)
+      // Persist the remember-me tokens (only returned when remember_me was
+      // requested) so the session can be rotated on the next browser start;
+      // otherwise drop any stale tokens from a previous "remember me" login.
+      if (rememberMe && response.series_identifier && response.login_cookie_token) {
+        saveRememberMeTokens({
+          seriesIdentifier: response.series_identifier,
+          loginCookieToken: response.login_cookie_token,
+        })
+      } else {
+        clearRememberMeTokens()
       }
       navigate('/home')
     } catch (err) {

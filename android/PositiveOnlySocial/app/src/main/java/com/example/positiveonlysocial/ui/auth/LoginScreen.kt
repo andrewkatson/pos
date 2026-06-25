@@ -25,6 +25,7 @@ import com.example.positiveonlysocial.api.PositiveOnlySocialAPI
 import com.example.positiveonlysocial.data.auth.AuthenticationManager
 import com.example.positiveonlysocial.data.constants.Constants
 import com.example.positiveonlysocial.data.model.LoginRequest
+import com.example.positiveonlysocial.data.model.RememberMeTokens
 import com.example.positiveonlysocial.data.model.UserSession
 import com.example.positiveonlysocial.data.security.KeychainHelperProtocol
 import com.example.positiveonlysocial.ui.dismissKeyboardOnTap
@@ -49,6 +50,11 @@ fun LoginScreen(
 
         val scope = rememberCoroutineScope()
         val focusManager = LocalFocusManager.current
+
+        // Keychain identifiers, matching WelcomeScreen's auto-login reader and
+        // AuthenticationManager's session store.
+        val keychainService = "positive-only-social.Positive-Only-Social"
+        val rememberMeAccount = "userRememberMeTokens"
 
         if (showingErrorAlert) {
             AlertDialog(
@@ -144,6 +150,27 @@ fun LoginScreen(
                                             isIdentityVerified = false
                                         )
                                         authManager.login(session)
+
+                                        // Persist (or clear) the remember-me tokens so
+                                        // WelcomeScreen can silently re-authenticate on the
+                                        // next launch. Mirrors iOS LoginView. Best-effort:
+                                        // a storage failure must not block this session's login.
+                                        try {
+                                            val seriesId = body.seriesIdentifier
+                                            val cookieToken = body.loginCookieToken
+                                            if (rememberMe && seriesId != null && cookieToken != null) {
+                                                keychainHelper.save(
+                                                    RememberMeTokens(seriesId, cookieToken),
+                                                    keychainService,
+                                                    rememberMeAccount
+                                                )
+                                            } else {
+                                                keychainHelper.delete(keychainService, rememberMeAccount)
+                                            }
+                                        } catch (e: Exception) {
+                                            // Ignore: the user is still logged in for this session.
+                                        }
+
                                         navController.navigate(Screen.Home.route) {
                                             popUpTo(Screen.Login.route) { inclusive = true }
                                         }

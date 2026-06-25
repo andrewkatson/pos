@@ -14,6 +14,7 @@ import androidx.navigation.NavController
 import androidx.navigation.compose.rememberNavController
 import com.example.positiveonlysocial.api.PositiveOnlySocialAPI
 import com.example.positiveonlysocial.data.auth.AuthenticationManager
+import com.example.positiveonlysocial.data.model.RememberMeTokens
 import com.example.positiveonlysocial.data.model.TokenRefreshRequest
 import com.example.positiveonlysocial.data.model.UserSession
 import com.example.positiveonlysocial.data.security.KeychainHelperProtocol
@@ -27,8 +28,6 @@ private const val TAG = "WelcomeScreen"
 private enum class AuthState {
     Checking, NeedsAuth, Authenticated
 }
-
-private data class RememberMeTokens(val seriesId: String, val cookieToken: String)
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
