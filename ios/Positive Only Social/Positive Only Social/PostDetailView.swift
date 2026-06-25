@@ -39,8 +39,8 @@ struct PostDetailView: View {
                 ProgressView()
                     .padding()
             } else if let post = viewModel.postDetail {
-                VStack(alignment: .leading, spacing: 12) {
-                    // Using AsyncImage for network URLs
+                VStack(alignment: .center) {
+                    // TODO : eBlender replace with KFImage
                     AsyncImage(url: URL(string: post.imageURL)) { image in
                         image
                             .resizable()
