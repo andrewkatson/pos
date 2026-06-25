@@ -66,6 +66,10 @@ class ProfileViewModel(
                 val userSession = keychainHelper.load(UserSession::class.java, service, account)
                 if (userSession == null) {
                     Log.e(TAG, "No active session found — cannot fetch profile")
+                    // Fail safe: without a session we can't claim this is the
+                    // user's own profile, so don't leave a stale `true` that would
+                    // wrongly hide Follow/Block on someone else's profile.
+                    _isOwnProfile.value = false
                     return@launch
                 }
 
