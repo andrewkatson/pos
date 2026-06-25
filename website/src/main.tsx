@@ -23,20 +23,31 @@ if (storedToken) {
 
 // If the user chose "Remember Me", rotate the session + cookie tokens on startup
 // so the login survives across browser restarts (parity with the native clients'
-// WelcomeScreen auto-login). The remember endpoint requires the original session
-// token, so this only runs alongside a stored session. Best-effort and
-// non-blocking: on failure we drop the stale remember-me tokens and fall back to
-// the existing session.
+// WelcomeScreen auto-login). Remember-me tokens only ever accompany a persistent
+// (localStorage) session, so we read the session token straight from localStorage
+// — never from an ephemeral sessionStorage session, which we must not silently
+// upgrade to persistent. Best-effort and non-blocking: on any inconsistency or
+// failure we drop the stale remember-me tokens and fall back to the existing
+// session.
 async function refreshRememberMeSession(): Promise<void> {
   const tokens = loadRememberMeTokens()
-  if (!storedToken || !tokens) return
+  if (!tokens) return
+  const rememberedToken = localStorage.getItem('session_token')
+  if (!rememberedToken) {
+    // Tokens with no matching persistent session — stale, so drop them.
+    clearRememberMeTokens()
+    return
+  }
   try {
     const result = await apiClient.loginWithRememberMe({
-      session_management_token: storedToken,
+      session_management_token: rememberedToken,
       series_identifier: tokens.seriesIdentifier,
       login_cookie_token: tokens.loginCookieToken,
     })
     localStorage.setItem('session_token', result.session_management_token)
+    // The remembered session lives only in localStorage; make sure a stray
+    // ephemeral copy can't shadow it.
+    sessionStorage.removeItem('session_token')
     saveRememberMeTokens({
       seriesIdentifier: tokens.seriesIdentifier,
       loginCookieToken: result.login_cookie_token,

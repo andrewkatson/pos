@@ -62,9 +62,22 @@ fun WelcomeScreen(
 
             // Call the API to log in with the tokens
             try {
+                // Load the persisted session first: the backend requires the
+                // original session_management_token (which must belong to the
+                // cookie's user) for the remember-me refresh, so we pass it in
+                // rather than an empty string.
+                val existingSession = authManager.session.value
+                    ?: keychainHelper.load(UserSession::class.java, keychainService, sessionAccount)
+                if (existingSession == null) {
+                    throw Exception("No existing session found for remember-me refresh.")
+                }
+                if (existingSession.userId.isEmpty()) {
+                    throw Exception("Stored session has no valid user ID. Please log in again.")
+                }
+
                 val response = api.loginUserWithRememberMe(
                     TokenRefreshRequest(
-                        sessionToken = "",
+                        sessionToken = existingSession.sessionToken,
                         seriesIdentifier = tokens.seriesId,
                         loginCookieToken = tokens.cookieToken,
                         ip = "127.0.0.1",
@@ -73,14 +86,6 @@ fun WelcomeScreen(
 
                 if (response.isSuccessful && response.body() != null) {
                     val loginDetails = response.body()!!
-                    val existingSession = authManager.session.value
-                        ?: keychainHelper.load(UserSession::class.java, keychainService, sessionAccount)
-                    if (existingSession == null) {
-                        throw Exception("No existing session found for remember-me refresh.")
-                    }
-                    if (existingSession.userId.isEmpty()) {
-                        throw Exception("Stored session has no valid user ID. Please log in again.")
-                    }
                     val userSession = UserSession(
                         sessionToken = loginDetails.newSessionToken,
                         username = existingSession.username,
