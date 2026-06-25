@@ -72,7 +72,7 @@ fun WelcomeScreen(
                     throw Exception("No existing session found for remember-me refresh.")
                 }
                 if (existingSession.userId.isEmpty()) {
-                    throw Exception("Stored session has no valid user ID. Please log in again.")
+                    throw Exception("Automatic sign-in failed. Please log in again.")
                 }
 
                 val response = api.loginUserWithRememberMe(
