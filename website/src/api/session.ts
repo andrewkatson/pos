@@ -33,6 +33,9 @@ export function persistSession(
   store.setItem('user_id', session.user_id)
   if (session.username) {
     store.setItem('username', session.username)
+  } else {
+    // Don't let a username from a previous session linger in this store.
+    store.removeItem('username')
   }
   SESSION_KEYS.forEach(key => other.removeItem(key))
 }
