@@ -172,7 +172,11 @@ fun LoginScreen(
                                                 keychainHelper.delete(keychainService, rememberMeAccount)
                                             }
                                         } catch (e: Exception) {
-                                            // Ignore: the user is still logged in for this session.
+                                            android.util.Log.w(
+                                                "LoginScreen",
+                                                "Failed to persist/clear remember-me tokens; continuing without auto-login.",
+                                                e,
+                                            )
                                         }
 
                                         navController.navigate(Screen.Home.route) {
