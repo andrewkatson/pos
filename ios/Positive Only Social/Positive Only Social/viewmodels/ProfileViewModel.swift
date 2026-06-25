@@ -169,6 +169,16 @@ class ProfileViewModel: ObservableObject {
         }
     }
     
+    /// Adjusts the follower count by `delta`, clamped at zero. Copies the struct
+    /// and reassigns rather than mutating `profileDetails?.followerCount` in place,
+    /// so we never read and write `profileDetails` in the same expression (which
+    /// Swift rejects as an exclusive-access violation).
+    private func adjustFollowerCount(by delta: Int) {
+        guard var details = profileDetails else { return }
+        details.followerCount = max(0, details.followerCount + delta)
+        profileDetails = details
+    }
+
     func toggleFollow() {
         guard !isBusy else { return }
         isBusy = true
@@ -176,11 +186,7 @@ class ProfileViewModel: ObservableObject {
         // Optimistic update: change UI immediately, revert on error.
         let wasFollowing = isFollowing
         isFollowing = !wasFollowing
-        if wasFollowing {
-            profileDetails?.followerCount = max(0, (profileDetails?.followerCount ?? 1) - 1)
-        } else {
-            profileDetails?.followerCount += 1
-        }
+        adjustFollowerCount(by: wasFollowing ? -1 : 1)
 
         Task {
             do {
@@ -207,11 +213,7 @@ class ProfileViewModel: ObservableObject {
 
     private func revertFollow(wasFollowing: Bool) {
         isFollowing = wasFollowing
-        if wasFollowing {
-            profileDetails?.followerCount += 1
-        } else {
-            profileDetails?.followerCount = max(0, (profileDetails?.followerCount ?? 1) - 1)
-        }
+        adjustFollowerCount(by: wasFollowing ? 1 : -1)
     }
 
     func toggleBlock() {
@@ -226,7 +228,7 @@ class ProfileViewModel: ObservableObject {
         // Blocking also unfollows on the backend; mirror that locally.
         if isBlocked && isFollowing {
             isFollowing = false
-            profileDetails?.followerCount = max(0, (profileDetails?.followerCount ?? 1) - 1)
+            adjustFollowerCount(by: -1)
         }
 
         Task {
@@ -253,7 +255,7 @@ class ProfileViewModel: ObservableObject {
         // Only restore the follow state if we had optimistically unfollowed (i.e. we were blocking).
         if !previousBlockState && previousFollowState {
             isFollowing = previousFollowState
-            profileDetails?.followerCount += 1
+            adjustFollowerCount(by: 1)
         }
     }
 }
