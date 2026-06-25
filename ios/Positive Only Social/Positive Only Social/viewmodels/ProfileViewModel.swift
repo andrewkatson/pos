@@ -16,28 +16,36 @@ class ProfileViewModel: ObservableObject {
     @Published var isLoading = false
     @Published private(set) var canLoadMore = true
     @Published var profileDetails: ProfileDetailsResponse?
-    @Published var isLoadingProfile = false // For the button
+    @Published var isLoadingProfile = false
+    @Published var isBusy = false // For follow/block button actions
     @Published var isFollowing = false
     @Published var isBlocked = false
-    
+
     // Private state for pagination and API
     private var batch = 0
     private let api: Networking
     private let keychainHelper: KeychainHelperProtocol
     private let account: String
     private let keychainService = GVOAppConstants.keychainService
-    
+
     let user: User // The user this profile is for
+    // The logged-in user's username, loaded once at init for own-profile detection.
+    private let currentLoggedInUsername: String?
+
+    var isOwnProfile: Bool {
+        user.username == (currentLoggedInUsername ?? "")
+    }
 
     convenience init(user: User, api: Networking, keychainHelper: KeychainHelperProtocol) {
         self.init(user: user, api: api, keychainHelper: keychainHelper, account: "userSessionToken")
     }
-    
+
     init(user: User, api: Networking, keychainHelper: KeychainHelperProtocol, account: String) {
         self.user = user
         self.api = api
         self.keychainHelper = keychainHelper
         self.account = account
+        self.currentLoggedInUsername = try? keychainHelper.load(UserSession.self, from: GVOAppConstants.keychainService, account: account)?.username
     }
     
     /// Fetches the next batch of posts for the current user.
@@ -162,93 +170,90 @@ class ProfileViewModel: ObservableObject {
     }
     
     func toggleFollow() {
-        guard !isLoadingProfile else { return } // Use same loader
-        isLoadingProfile = true
-            
+        guard !isBusy else { return }
+        isBusy = true
+
+        // Optimistic update: change UI immediately, revert on error.
+        let wasFollowing = isFollowing
+        isFollowing = !wasFollowing
+        if wasFollowing {
+            profileDetails?.followerCount = max(0, (profileDetails?.followerCount ?? 1) - 1)
+        } else {
+            profileDetails?.followerCount += 1
+        }
+
         Task {
             do {
                 guard let userSession = try keychainHelper.load(UserSession.self, from: keychainService, account: account) else {
                     NSLog("%@", "No active session — cannot toggle follow")
-                    isLoadingProfile = false
+                    revertFollow(wasFollowing: wasFollowing)
+                    isBusy = false
                     return
                 }
                 let token = userSession.sessionToken
 
-                if isFollowing {
-                    // --- Unfollow Logic ---
+                if wasFollowing {
                     let _ = try await api.unfollowUser(sessionManagementToken: token, username: user.username)
-                    
-                    // Update local state directly
-                    self.isFollowing = false
-                    if self.profileDetails != nil {
-                        self.profileDetails?.followerCount -= 1
-                    }
-                    
                 } else {
-                    // --- Follow Logic ---
                     let _ = try await api.followUser(sessionManagementToken: token, username: user.username)
-                    
-                    // Update local state directly
-                    self.isFollowing = true
-                    if self.profileDetails != nil {
-                        self.profileDetails?.followerCount += 1
-                    }
                 }
             } catch {
                 NSLog("%@", "Error toggling follow: \(error)")
-                // Handle error (e.g., show alert)
-                // Since we update the UI *after* the await, we don't need to
-                // manually roll back the change if the API call fails.
+                revertFollow(wasFollowing: wasFollowing)
             }
-            isLoadingProfile = false
+            isBusy = false
+        }
+    }
+
+    private func revertFollow(wasFollowing: Bool) {
+        isFollowing = wasFollowing
+        if wasFollowing {
+            profileDetails?.followerCount += 1
+        } else {
+            profileDetails?.followerCount = max(0, (profileDetails?.followerCount ?? 1) - 1)
         }
     }
 
     func toggleBlock() {
-        // Toggle block status
-        guard !isLoadingProfile else { return }
-        isLoadingProfile = true
-        
+        guard !isBusy else { return }
+        isBusy = true
+
         let previousBlockState = isBlocked
         let previousFollowState = isFollowing
+
         // Optimistic update
         isBlocked.toggle()
-
-        // Blocking also unfollows in our backend logic, so mirror that here.
-        // Only decrement the follower count if we were actually following,
-        // otherwise the count drifts (e.g. follow -> block -> follow would
-        // count the same follow twice).
+        // Blocking also unfollows on the backend; mirror that locally.
         if isBlocked && isFollowing {
             isFollowing = false
-            if self.profileDetails != nil {
-                self.profileDetails?.followerCount -= 1
-            }
+            profileDetails?.followerCount = max(0, (profileDetails?.followerCount ?? 1) - 1)
         }
 
         Task {
             do {
                 guard let userSession = try keychainHelper.load(UserSession.self, from: keychainService, account: account) else {
                     NSLog("%@", "No active session — cannot toggle block")
-                    isLoadingProfile = false
+                    revertBlock(previousBlockState: previousBlockState, previousFollowState: previousFollowState)
+                    isBusy = false
                     return
                 }
                 let token = userSession.sessionToken
 
                 let _ = try await api.toggleBlock(sessionManagementToken: token, username: user.username)
-                
-                // Success, state already updated.
             } catch {
                 NSLog("%@", "Error toggling block: \(error)")
-                // Revert on error, including the optimistic unfollow side-effect.
-                if isBlocked && !previousBlockState && previousFollowState {
-                    isFollowing = previousFollowState
-                    if self.profileDetails != nil {
-                        self.profileDetails?.followerCount += 1
-                    }
-                }
-                isBlocked = previousBlockState
+                revertBlock(previousBlockState: previousBlockState, previousFollowState: previousFollowState)
             }
-            isLoadingProfile = false
+            isBusy = false
+        }
+    }
+
+    private func revertBlock(previousBlockState: Bool, previousFollowState: Bool) {
+        isBlocked = previousBlockState
+        // Only restore the follow state if we had optimistically unfollowed (i.e. we were blocking).
+        if !previousBlockState && previousFollowState {
+            isFollowing = previousFollowState
+            profileDetails?.followerCount += 1
         }
     }
 }

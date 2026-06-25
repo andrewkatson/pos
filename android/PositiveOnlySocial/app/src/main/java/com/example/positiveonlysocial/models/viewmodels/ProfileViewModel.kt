@@ -43,6 +43,9 @@ class ProfileViewModel(
     private val _isRefreshing = MutableStateFlow(false)
     val isRefreshing: StateFlow<Boolean> = _isRefreshing.asStateFlow()
 
+    private val _isOwnProfile = MutableStateFlow(false)
+    val isOwnProfile: StateFlow<Boolean> = _isOwnProfile.asStateFlow()
+
     private val service = "positive-only-social.Positive-Only-Social"
 
     // Pagination state
@@ -65,6 +68,8 @@ class ProfileViewModel(
                     Log.e(TAG, "No active session found — cannot fetch profile")
                     return@launch
                 }
+
+                _isOwnProfile.value = (userSession.username == username)
 
                 // Fetch Profile Details
                 val profileResponse = api.getProfileDetails(userSession.sessionToken, username)
