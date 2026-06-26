@@ -46,6 +46,7 @@
 		248836E02E6282C5002D47F1 /* Positive Only SocialTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = "Positive Only SocialTests.xctest"; sourceTree = BUILT_PRODUCTS_DIR; };
 		248836EA2E6282C5002D47F1 /* Positive Only SocialUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = "Positive Only SocialUITests.xctest"; sourceTree = BUILT_PRODUCTS_DIR; };
 		2498321F2EB8091700583B17 /* Positive Only Social.xctestplan */ = {isa = PBXFileReference; lastKnownFileType = text; path = "Positive Only Social.xctestplan"; sourceTree = "<group>"; };
+		C2AC623C2FEE1F02006EDA80 /* Positive Only Social.xcodeproj */ = {isa = PBXFileReference; lastKnownFileType = "wrapper.pb-project"; path = "Positive Only Social.xcodeproj"; sourceTree = SOURCE_ROOT; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
@@ -193,6 +194,7 @@
 		248836CA2E6282C3002D47F1 = {
 			isa = PBXGroup;
 			children = (
+				C2AC623C2FEE1F02006EDA80 /* Positive Only Social.xcodeproj */,
 				245C55B02EE083B400901062 /* Positive Only Social Unit Tests.xctestplan */,
 				2498321F2EB8091700583B17 /* Positive Only Social.xctestplan */,
 				248836D52E6282C3002D47F1 /* Positive Only Social */,
@@ -218,6 +220,11 @@
 			children = (
 			);
 			name = Frameworks;
+			sourceTree = "<group>";
+		};
+		C2AC623D2FEE1F02006EDA80 /* Products */ = {
+			isa = PBXGroup;
+			name = Products;
 			sourceTree = "<group>";
 		};
 /* End PBXGroup section */
@@ -344,6 +351,12 @@
 			preferredProjectObjectVersion = 77;
 			productRefGroup = 248836D42E6282C3002D47F1 /* Products */;
 			projectDirPath = "";
+			projectReferences = (
+				{
+					ProductGroup = C2AC623D2FEE1F02006EDA80 /* Products */;
+					ProjectRef = C2AC623C2FEE1F02006EDA80 /* Positive Only Social.xcodeproj */;
+				},
+			);
 			projectRoot = "";
 			targets = (
 				248836D22E6282C3002D47F1 /* Positive Only Social */,
@@ -602,7 +615,7 @@
 				BUNDLE_LOADER = "$(TEST_HOST)";
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 3;
-				DEVELOPMENT_TEAM = 5M9HC3H25W;
+				DEVELOPMENT_TEAM = "";
 				GENERATE_INFOPLIST_FILE = YES;
 				IPHONEOS_DEPLOYMENT_TARGET = 18.4;
 				MARKETING_VERSION = 1.01;
@@ -622,7 +635,7 @@
 				BUNDLE_LOADER = "$(TEST_HOST)";
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 3;
-				DEVELOPMENT_TEAM = 5M9HC3H25W;
+				DEVELOPMENT_TEAM = "";
 				GENERATE_INFOPLIST_FILE = YES;
 				IPHONEOS_DEPLOYMENT_TARGET = 18.4;
 				MARKETING_VERSION = 1.01;
@@ -641,7 +654,7 @@
 			buildSettings = {
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 3;
-				DEVELOPMENT_TEAM = 5M9HC3H25W;
+				DEVELOPMENT_TEAM = "";
 				GENERATE_INFOPLIST_FILE = YES;
 				MARKETING_VERSION = 1.01;
 				PRODUCT_BUNDLE_IDENTIFIER = com.eblen.macari;
@@ -658,7 +671,7 @@
 			buildSettings = {
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 3;
-				DEVELOPMENT_TEAM = 5M9HC3H25W;
+				DEVELOPMENT_TEAM = "";
 				GENERATE_INFOPLIST_FILE = YES;
 				MARKETING_VERSION = 1.01;
 				PRODUCT_BUNDLE_IDENTIFIER = com.eblen.macari;
