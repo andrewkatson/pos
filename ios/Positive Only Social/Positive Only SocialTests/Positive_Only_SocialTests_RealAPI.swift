@@ -52,8 +52,10 @@ struct Positive_Only_SocialTests_RealAPI {
             commentText: "Nice photo"
         )
 
+        // `URL.path` strips the trailing slash that `RealAPI` appends, so the
+        // expected value below is the singular `comment` segment without it.
         #expect(
             CapturingURLProtocol.lastRequestURL?.path
-                == "/user_index/posts/11111111-1111-1111-1111-111111111111/comment/")
+                == "/user_index/posts/11111111-1111-1111-1111-111111111111/comment")
     }
 }
