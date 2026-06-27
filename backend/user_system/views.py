@@ -799,28 +799,36 @@ def make_post(request):
         logger.warning(f"Make post failed: Caption too long ({len(caption)} chars) for user_id: {request.user.id}")
         return log_and_return_json("make_post", {'error': f"Caption exceeds maximum length of {MAX_CAPTION_LENGTH} characters"}, status=400)
 
-    # The text and image classifiers each make external AI calls, so run them
-    # concurrently rather than back-to-back: the request waits on the slower of
-    # the two cascades instead of their sum, which keeps post creation under the
-    # gateway timeout (the cause of the 504 in #274). Running both up front means
-    # we no longer skip the image check on a final text rejection, but the image
-    # was already uploaded by the client and the per-call timeouts bound the
-    # extra work. A rejection that is not appealable is final: reject outright
-    # and do not create the post. An appealable rejection still creates the post
-    # but hides it pending appeal (handled below).
+    # The text and image classifiers each make external AI calls, so dispatch
+    # them concurrently rather than back-to-back: when both outcomes are needed
+    # the request waits on the slower of the two cascades instead of their sum,
+    # which keeps post creation under the gateway timeout (the cause of the 504
+    # in #274). We still only block on the image result when the text result
+    # doesn't already settle the request (see below). A rejection that is not
+    # appealable is final: reject outright and do not create the post. An
+    # appealable rejection still creates the post but hides it pending appeal
+    # (handled below).
     text_future = _CLASSIFICATION_EXECUTOR.submit(text_classifier_class.is_text_positive, caption)
     image_future = _CLASSIFICATION_EXECUTOR.submit(image_classifier_class.is_image_positive, image_url)
     text_result = text_future.result()
-    image_result = image_future.result()
 
     # Text rejection takes precedence in the message shown to the user, matching
-    # the previous text-first ordering.
+    # the previous text-first ordering. A final (non-appealable) text rejection
+    # is decisive, so return immediately without blocking on the image future:
+    # the image cascade is the slower of the two, and waiting on it once the
+    # outcome is already settled would needlessly hold the 400 path open and risk
+    # the gateway timeout from #274. The image future still runs to completion in
+    # the executor, so no worker is leaked.
     if not text_result and not text_result.appealable:
         logger.warning(f"Make post failed: Caption not positive (final) for user_id: {request.user.id}")
         # The post is never created, so clean up the image the client already
         # uploaded rather than orphaning it in S3.
         delete_image(image_url)
         return log_and_return_json("make_post", {'error': "Text is not positive"}, status=400)
+
+    # Text passed (or is appealable), so the image outcome is now needed to
+    # decide between rejection, an appealable hidden post, or a clean post.
+    image_result = image_future.result()
 
     if not image_result and not image_result.appealable:
         logger.warning(f"Make post failed: Image not positive (final) for user_id: {request.user.id}")
