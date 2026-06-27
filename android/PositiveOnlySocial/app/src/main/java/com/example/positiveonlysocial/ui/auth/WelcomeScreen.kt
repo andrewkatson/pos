@@ -14,6 +14,7 @@ import androidx.navigation.NavController
 import androidx.navigation.compose.rememberNavController
 import com.example.positiveonlysocial.api.PositiveOnlySocialAPI
 import com.example.positiveonlysocial.data.auth.AuthenticationManager
+import com.example.positiveonlysocial.data.model.RememberMeTokens
 import com.example.positiveonlysocial.data.model.TokenRefreshRequest
 import com.example.positiveonlysocial.data.model.UserSession
 import com.example.positiveonlysocial.data.security.KeychainHelperProtocol
@@ -27,8 +28,6 @@ private const val TAG = "WelcomeScreen"
 private enum class AuthState {
     Checking, NeedsAuth, Authenticated
 }
-
-private data class RememberMeTokens(val seriesId: String, val cookieToken: String)
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -63,9 +62,22 @@ fun WelcomeScreen(
 
             // Call the API to log in with the tokens
             try {
+                // Load the persisted session first: the backend requires the
+                // original session_management_token (which must belong to the
+                // cookie's user) for the remember-me refresh, so we pass it in
+                // rather than an empty string.
+                val existingSession = authManager.session.value
+                    ?: keychainHelper.load(UserSession::class.java, keychainService, sessionAccount)
+                if (existingSession == null) {
+                    throw Exception("Automatic sign-in failed. Please log in again.")
+                }
+                if (existingSession.userId.isEmpty()) {
+                    throw Exception("Automatic sign-in failed. Please log in again.")
+                }
+
                 val response = api.loginUserWithRememberMe(
                     TokenRefreshRequest(
-                        sessionToken = "",
+                        sessionToken = existingSession.sessionToken,
                         seriesIdentifier = tokens.seriesId,
                         loginCookieToken = tokens.cookieToken,
                         ip = "127.0.0.1",
@@ -74,14 +86,6 @@ fun WelcomeScreen(
 
                 if (response.isSuccessful && response.body() != null) {
                     val loginDetails = response.body()!!
-                    val existingSession = authManager.session.value
-                        ?: keychainHelper.load(UserSession::class.java, keychainService, sessionAccount)
-                    if (existingSession == null) {
-                        throw Exception("No existing session found for remember-me refresh.")
-                    }
-                    if (existingSession.userId.isEmpty()) {
-                        throw Exception("Stored session has no valid user ID. Please log in again.")
-                    }
                     val userSession = UserSession(
                         sessionToken = loginDetails.newSessionToken,
                         username = existingSession.username,
