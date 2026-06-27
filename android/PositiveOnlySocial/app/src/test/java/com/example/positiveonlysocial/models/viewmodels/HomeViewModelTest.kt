@@ -59,12 +59,12 @@ class HomeViewModelTest {
 
     @Test
     fun `fetchMyPosts failure updates errorMessage`() = runTest {
-        whenever(api.getPostsForUser("token123", "testuser", 0)).thenReturn(Response.error(400, "error".toResponseBody()))
+        whenever(api.getPostsForUser("token123", "testuser", 0)).thenReturn(Response.error(400, "{\"error\":\"Server error\"}".toResponseBody()))
 
         viewModel.fetchMyPosts()
 
         assertTrue(viewModel.userPosts.value.isEmpty())
-        assertEquals("error", viewModel.errorMessage.value)
+        assertEquals("Server error", viewModel.errorMessage.value)
     }
 
     @Test
@@ -110,11 +110,11 @@ class HomeViewModelTest {
         whenever(api.getPostsForUser("token123", "testuser", 0)).thenReturn(Response.success(initialPosts))
         viewModel.fetchMyPosts()
 
-        whenever(api.getPostsForUser("token123", "testuser", 0)).thenReturn(Response.error(400, "error".toResponseBody()))
+        whenever(api.getPostsForUser("token123", "testuser", 0)).thenReturn(Response.error(400, "{\"error\":\"Server error\"}".toResponseBody()))
         viewModel.refreshMyPosts()
 
         assertEquals(initialPosts, viewModel.userPosts.value)
-        assertEquals("error", viewModel.errorMessage.value)
+        assertEquals("Server error", viewModel.errorMessage.value)
         assertFalse(viewModel.isRefreshing.value)
     }
 

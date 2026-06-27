@@ -1,6 +1,7 @@
 package com.example.positiveonlysocial.api
 
-import org.json.JSONObject
+import com.google.gson.Gson
+import com.google.gson.JsonObject
 import retrofit2.Response
 import java.io.IOException
 import java.net.ConnectException
@@ -15,8 +16,14 @@ import java.net.UnknownHostException
  * gateway timeout, a routing failure, or a network drop returns HTML, an empty
  * body, or throws — so instead of leaking a raw response body, a status code, or
  * a low-level exception message to the user, those are mapped to plain language.
+ *
+ * Parsing uses Gson rather than `org.json` so the backend message is extracted
+ * the same way in production and in local unit tests (where `org.json` is a
+ * stubbed Android class that returns default values).
  */
 object ApiErrors {
+
+    private val gson = Gson()
 
     /**
      * Friendly message for an unsuccessful Retrofit [response]. Prefers the
@@ -26,7 +33,15 @@ object ApiErrors {
     fun messageFor(response: Response<*>, fallback: String): String {
         val backendError = try {
             val body = response.errorBody()?.string()
-            if (body.isNullOrBlank()) null else JSONObject(body).optString("error").ifBlank { null }
+            if (body.isNullOrBlank()) {
+                null
+            } else {
+                gson.fromJson(body, JsonObject::class.java)
+                    ?.get("error")
+                    ?.takeIf { it.isJsonPrimitive }
+                    ?.asString
+                    ?.ifBlank { null }
+            }
         } catch (e: Exception) {
             null
         }
