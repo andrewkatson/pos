@@ -49,6 +49,7 @@ fun ProfileScreen(
         val isFollowing by viewModel.isFollowing.collectAsState()
         val isLoading by viewModel.isLoading.collectAsState()
         val isRefreshing by viewModel.isRefreshing.collectAsState()
+        val isOwnProfile by viewModel.isOwnProfile.collectAsState()
 
         LaunchedEffect(Unit) {
             if (userPosts.isEmpty()) {
@@ -88,30 +89,32 @@ fun ProfileScreen(
                 }
                 
                 Spacer(modifier = Modifier.height(16.dp))
-                
-                Button(
-                    onClick = { viewModel.toggleFollow(username) },
-                    modifier = Modifier.fillMaxWidth(),
-                    colors = ButtonDefaults.buttonColors(
-                        containerColor = if (isFollowing) MaterialTheme.colorScheme.secondary else MaterialTheme.colorScheme.primary
-                    )
-                ) {
-                    Text(if (isFollowing) "Following" else "Follow")
-                }
-                
-                Spacer(modifier = Modifier.height(8.dp))
-                
-                val isBlocked by viewModel.isBlocked.collectAsState()
-                
-                Button(
-                    onClick = { viewModel.toggleBlock(username) },
-                    modifier = Modifier.fillMaxWidth(),
-                    colors = ButtonDefaults.buttonColors(
-                        containerColor = if (isBlocked) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.surfaceVariant,
-                        contentColor = if (isBlocked) MaterialTheme.colorScheme.onError else MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                ) {
-                    Text(if (isBlocked) "Unblock" else "Block")
+
+                if (!isOwnProfile) {
+                    Button(
+                        onClick = { viewModel.toggleFollow(username) },
+                        modifier = Modifier.fillMaxWidth(),
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = if (isFollowing) MaterialTheme.colorScheme.secondary else MaterialTheme.colorScheme.primary
+                        )
+                    ) {
+                        Text(if (isFollowing) "Following" else "Follow")
+                    }
+
+                    Spacer(modifier = Modifier.height(8.dp))
+
+                    val isBlocked by viewModel.isBlocked.collectAsState()
+
+                    Button(
+                        onClick = { viewModel.toggleBlock(username) },
+                        modifier = Modifier.fillMaxWidth(),
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = if (isBlocked) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.surfaceVariant,
+                            contentColor = if (isBlocked) MaterialTheme.colorScheme.onError else MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    ) {
+                        Text(if (isBlocked) "Unblock" else "Block")
+                    }
                 }
             }
             
