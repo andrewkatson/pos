@@ -9,11 +9,14 @@ import Foundation
 
 /// Intercepts outbound requests so we can assert the exact URL `RealAPI` builds.
 /// Registered globally because `RealAPI` uses `URLSession.shared`, which honors
-/// classes registered with `URLProtocol.registerClass`.
+/// classes registered with `URLProtocol.registerClass` — so interception is
+/// scoped to the API host only, leaving any unrelated traffic untouched.
 final class CapturingURLProtocol: URLProtocol {
+    static let interceptedHost = "api.smiling.social"
     nonisolated(unsafe) static var lastRequestURL: URL?
 
     override class func canInit(with request: URLRequest) -> Bool {
+        guard request.url?.host == interceptedHost else { return false }
         lastRequestURL = request.url
         return true
     }

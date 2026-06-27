@@ -40,6 +40,16 @@ from .visibility import can_view_post, searchable_users, visible_comment_threads
 
 image_classifier_class = image_classifier
 text_classifier_class = text_classifier
+
+# Shared, bounded thread pool for the per-request content-classification fan-out
+# (a post's text and image are classified concurrently). A single module-level
+# executor is reused across requests rather than creating a new one per call, so
+# a traffic spike cannot spawn unbounded threads: once every worker is busy,
+# further classification tasks queue, which provides backpressure. The work is
+# I/O-bound (waiting on external AI APIs), so a worker count above the CPU count
+# is fine; this caps the threads one gunicorn worker process can devote to
+# classification.
+_CLASSIFICATION_EXECUTOR = ThreadPoolExecutor(max_workers=8, thread_name_prefix="classify")
 feed_algorithm_class = feed_algorithm
 
 logger = logging.getLogger(__name__)
@@ -798,11 +808,10 @@ def make_post(request):
     # extra work. A rejection that is not appealable is final: reject outright
     # and do not create the post. An appealable rejection still creates the post
     # but hides it pending appeal (handled below).
-    with ThreadPoolExecutor(max_workers=2) as executor:
-        text_future = executor.submit(text_classifier_class.is_text_positive, caption)
-        image_future = executor.submit(image_classifier_class.is_image_positive, image_url)
-        text_result = text_future.result()
-        image_result = image_future.result()
+    text_future = _CLASSIFICATION_EXECUTOR.submit(text_classifier_class.is_text_positive, caption)
+    image_future = _CLASSIFICATION_EXECUTOR.submit(image_classifier_class.is_image_positive, image_url)
+    text_result = text_future.result()
+    image_result = image_future.result()
 
     # Text rejection takes precedence in the message shown to the user, matching
     # the previous text-first ordering.
