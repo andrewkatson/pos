@@ -223,7 +223,6 @@ class ProfileViewModel: ObservableObject {
         let previousBlockState = isBlocked
         let previousFollowState = isFollowing
 
-        // Optimistic update
         isBlocked.toggle()
         // Blocking also unfollows on the backend; mirror that locally.
         if isBlocked && isFollowing {
