@@ -40,6 +40,9 @@ final class CapturingURLProtocol: URLProtocol {
 struct Positive_Only_SocialTests_RealAPI {
 
     @Test func testCommentOnPostUsesSingularCommentPath() async throws {
+        // Reset any value left by a prior run so the assertion can't pass on
+        // stale state (e.g. if the request below never fires).
+        CapturingURLProtocol.lastRequestURL = nil
         URLProtocol.registerClass(CapturingURLProtocol.self)
         defer { URLProtocol.unregisterClass(CapturingURLProtocol.self) }
 

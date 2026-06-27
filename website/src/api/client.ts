@@ -150,12 +150,18 @@ export class ApiClient implements PositiveOnlySocialAPI {
       headers['Authorization'] = `Bearer ${this.token}`
     }
 
+    // Serialize the body up front so a stringify failure (e.g. a circular
+    // structure) surfaces as itself, not mistaken for a network failure by the
+    // catch below.
+    const serializedBody =
+      options.body !== undefined ? JSON.stringify(options.body) : undefined
+
     let response: Response
     try {
       response = await this.fetchFn(`${this.baseUrl}${path}`, {
         method,
         headers,
-        body: options.body !== undefined ? JSON.stringify(options.body) : undefined,
+        body: serializedBody,
       })
     } catch {
       // fetch rejects (typically a TypeError) when the request never reached the
