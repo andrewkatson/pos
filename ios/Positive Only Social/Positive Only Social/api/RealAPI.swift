@@ -463,7 +463,7 @@ final class RealAPI: Networking {
         let requestBody = try encode(body)
         
         return try await performRequest(
-            pathSegments: [GVOAppConstants.pathSegmentPosts, postIdentifier, GVOAppConstants.pathSegmentComments],
+            pathSegments: [GVOAppConstants.pathSegmentPosts, postIdentifier, GVOAppConstants.pathSegmentComment],
             method: .post,
             body: requestBody,
             authToken: sessionManagementToken

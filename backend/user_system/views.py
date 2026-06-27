@@ -3,6 +3,7 @@ import ipaddress
 import json
 import logging
 import secrets
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, date, timedelta
 
 from functools import wraps
@@ -788,11 +789,23 @@ def make_post(request):
         logger.warning(f"Make post failed: Caption too long ({len(caption)} chars) for user_id: {request.user.id}")
         return log_and_return_json("make_post", {'error': f"Caption exceeds maximum length of {MAX_CAPTION_LENGTH} characters"}, status=400)
 
-    # A rejection that is not appealable is final: reject outright and do not
-    # create the post. An appealable rejection still creates the post but hides
-    # it pending appeal (handled below). The text check runs first so the more
-    # expensive image check is skipped on a final text rejection.
-    text_result = text_classifier_class.is_text_positive(caption)
+    # The text and image classifiers each make external AI calls, so run them
+    # concurrently rather than back-to-back: the request waits on the slower of
+    # the two cascades instead of their sum, which keeps post creation under the
+    # gateway timeout (the cause of the 504 in #274). Running both up front means
+    # we no longer skip the image check on a final text rejection, but the image
+    # was already uploaded by the client and the per-call timeouts bound the
+    # extra work. A rejection that is not appealable is final: reject outright
+    # and do not create the post. An appealable rejection still creates the post
+    # but hides it pending appeal (handled below).
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        text_future = executor.submit(text_classifier_class.is_text_positive, caption)
+        image_future = executor.submit(image_classifier_class.is_image_positive, image_url)
+        text_result = text_future.result()
+        image_result = image_future.result()
+
+    # Text rejection takes precedence in the message shown to the user, matching
+    # the previous text-first ordering.
     if not text_result and not text_result.appealable:
         logger.warning(f"Make post failed: Caption not positive (final) for user_id: {request.user.id}")
         # The post is never created, so clean up the image the client already
@@ -800,7 +813,6 @@ def make_post(request):
         delete_image(image_url)
         return log_and_return_json("make_post", {'error': "Text is not positive"}, status=400)
 
-    image_result = image_classifier_class.is_image_positive(image_url)
     if not image_result and not image_result.appealable:
         logger.warning(f"Make post failed: Image not positive (final) for user_id: {request.user.id}")
         delete_image(image_url)

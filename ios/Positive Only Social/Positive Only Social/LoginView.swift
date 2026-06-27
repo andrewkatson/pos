@@ -96,7 +96,9 @@ struct LoginView: View {
                 } else if case .serverError(_, let message) = error {
                     errorMessage = message
                 } else {
-                    errorMessage = "Login failed. Please check your credentials and try again."
+                    // Transport/status-code failures (timeouts, 5xx) aren't a
+                    // credentials problem — show what actually went wrong.
+                    errorMessage = error.userFacingMessage
                 }
                 showingErrorAlert = true
                 NSLog("%@", "🔴 Login failed with error: \(error)")

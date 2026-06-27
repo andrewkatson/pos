@@ -3,6 +3,7 @@ package com.example.positiveonlysocial.models.viewmodels
 import android.util.Log
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.example.positiveonlysocial.api.ApiErrors
 import com.example.positiveonlysocial.api.PositiveOnlySocialAPI
 import com.example.positiveonlysocial.data.model.Post
 import com.example.positiveonlysocial.data.model.User
@@ -89,10 +90,10 @@ class HomeViewModel(
                     canLoadMorePosts = newPosts.isNotEmpty()
                     currentPage = if (newPosts.isEmpty()) 0 else 1
                 } else {
-                    _errorMessage.value = response.errorBody()?.string()
+                    _errorMessage.value = ApiErrors.messageFor(response, fallback = "Something went wrong. Please try again.")
                 }
             } catch (e: Exception) {
-                _errorMessage.value = e.localizedMessage
+                _errorMessage.value = ApiErrors.messageFor(e, fallback = "Something went wrong. Please try again.")
                 Log.e(TAG, "Error refreshing my posts", e)
             } finally {
                 _isRefreshing.value = false
@@ -127,10 +128,10 @@ class HomeViewModel(
                         currentPage += 1
                     }
                 } else {
-                    _errorMessage.value = response.errorBody()?.string()
+                    _errorMessage.value = ApiErrors.messageFor(response, fallback = "Something went wrong. Please try again.")
                 }
             } catch (e: Exception) {
-                _errorMessage.value = e.localizedMessage
+                _errorMessage.value = ApiErrors.messageFor(e, fallback = "Something went wrong. Please try again.")
                 Log.e(TAG, "Error fetching my posts", e)
             } finally {
                 _isLoadingNextPage.value = false
@@ -155,10 +156,10 @@ class HomeViewModel(
             if (response.isSuccessful) {
                 _searchedUsers.value = response.body() ?: emptyList()
             } else {
-                _errorMessage.value = response.errorBody()?.string()
+                _errorMessage.value = ApiErrors.messageFor(response, fallback = "Something went wrong. Please try again.")
             }
         } catch (e: Exception) {
-            _errorMessage.value = e.localizedMessage
+            _errorMessage.value = ApiErrors.messageFor(e, fallback = "Something went wrong. Please try again.")
             Log.e(TAG, "Error performing search", e)
         }
     }

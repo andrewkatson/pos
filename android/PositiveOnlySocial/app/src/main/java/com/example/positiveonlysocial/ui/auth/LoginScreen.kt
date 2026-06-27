@@ -21,6 +21,7 @@ import androidx.compose.ui.tooling.preview.Preview
 import androidx.navigation.NavController
 import androidx.navigation.compose.rememberNavController
 import com.example.positiveonlysocial.ui.preview.PreviewHelpers
+import com.example.positiveonlysocial.api.ApiErrors
 import com.example.positiveonlysocial.api.PositiveOnlySocialAPI
 import com.example.positiveonlysocial.data.auth.AuthenticationManager
 import com.example.positiveonlysocial.data.constants.Constants
@@ -149,12 +150,7 @@ fun LoginScreen(
                                         }
                                     }
                                 } else {
-                                    val errorBody = response.errorBody()?.string()
-                                    val errorMsg = try {
-                                        org.json.JSONObject(errorBody).getString("error")
-                                    } catch (e: Exception) {
-                                        "Login failed. Please check your credentials."
-                                    }
+                                    val errorMsg = ApiErrors.messageFor(response, fallback = "Login failed. Please check your credentials.")
                                     errorMessage = if (errorMsg == Constants.ACCOUNT_BANNED) {
                                         Constants.ACCOUNT_SUSPENDED_MESSAGE
                                     } else {

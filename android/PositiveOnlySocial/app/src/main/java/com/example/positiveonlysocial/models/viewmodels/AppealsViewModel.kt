@@ -3,15 +3,14 @@ package com.example.positiveonlysocial.models.viewmodels
 import android.util.Log
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.example.positiveonlysocial.api.ApiErrors
 import com.example.positiveonlysocial.api.PositiveOnlySocialAPI
-import com.example.positiveonlysocial.data.model.GenericResponse
 import com.example.positiveonlysocial.data.model.HiddenComment
 import com.example.positiveonlysocial.data.model.HiddenPost
 import com.example.positiveonlysocial.data.model.MyAppeal
 import com.example.positiveonlysocial.data.model.SubmitAppealRequest
 import com.example.positiveonlysocial.data.model.UserSession
 import com.example.positiveonlysocial.data.security.KeychainHelperProtocol
-import com.google.gson.Gson
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -47,7 +46,6 @@ class AppealsViewModel(
     val errorMessage: StateFlow<String?> = _errorMessage.asStateFlow()
 
     private val service = "positive-only-social.Positive-Only-Social"
-    private val gson = Gson()
 
     fun clearError() {
         _errorMessage.value = null
@@ -61,12 +59,7 @@ class AppealsViewModel(
      * UI shows the message rather than the raw `{"error": ...}` JSON.
      */
     private fun errorOf(response: Response<*>): String {
-        val raw = response.errorBody()?.string()
-        return try {
-            gson.fromJson(raw, GenericResponse::class.java)?.error ?: raw ?: "Request failed"
-        } catch (e: Exception) {
-            raw ?: "Request failed"
-        }
+        return ApiErrors.messageFor(response, fallback = "Request failed. Please try again.")
     }
 
     /** Loads (or reloads) the first page of hidden content and filed appeals. */
@@ -103,7 +96,7 @@ class AppealsViewModel(
                     _errorMessage.value = errorOf(appealsResp)
                 }
             } catch (e: Exception) {
-                _errorMessage.value = e.localizedMessage
+                _errorMessage.value = ApiErrors.messageFor(e, fallback = "Request failed. Please try again.")
                 Log.e(TAG, "Error loading appeals", e)
             } finally {
                 _isLoading.value = false
@@ -140,7 +133,7 @@ class AppealsViewModel(
                     onResult(false)
                 }
             } catch (e: Exception) {
-                _errorMessage.value = e.localizedMessage
+                _errorMessage.value = ApiErrors.messageFor(e, fallback = "Request failed. Please try again.")
                 Log.e(TAG, "Error submitting appeal", e)
                 onResult(false)
             }

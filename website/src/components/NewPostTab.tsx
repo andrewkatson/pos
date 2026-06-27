@@ -1,4 +1,4 @@
-import { useEffect, useState, type FormEvent } from 'react'
+import { useEffect, useRef, useState, type FormEvent } from 'react'
 import { apiClient } from '../api/client'
 import type { ApiError } from '../api/client'
 import { getCurrentUserId } from '../api/session'
@@ -20,6 +20,7 @@ interface NewPostTabProps {
 function NewPostTab({ onPosted }: NewPostTabProps) {
   const [file, setFile] = useState<File | null>(null)
   const [previewUrl, setPreviewUrl] = useState<string | null>(null)
+  const fileInputRef = useRef<HTMLInputElement>(null)
   const [caption, setCaption] = useState('')
   const [isLoading, setIsLoading] = useState(false)
   const [errorMessage, setErrorMessage] = useState<string | null>(null)
@@ -100,12 +101,22 @@ function NewPostTab({ onPosted }: NewPostTabProps) {
       )}
 
       <div className="auth-field">
-        <label className="auth-label" htmlFor="photo">
-          Photo
-        </label>
+        <span className="auth-label">Photo</span>
+        <button
+          type="button"
+          className="btn btn-outline form-section__file-button"
+          onClick={() => fileInputRef.current?.click()}
+          disabled={isLoading}
+        >
+          {file ? 'Change Photo' : 'Select a Photo'}
+        </button>
+        {file && <span className="form-section__file-name">{file.name}</span>}
+        {/* The real control is visually hidden but keeps its accessible label so
+            assistive tech (and tests) still reach it; the button above drives it. */}
         <input
+          ref={fileInputRef}
           id="photo"
-          className="search-bar"
+          className="visually-hidden"
           type="file"
           accept="image/*"
           aria-label="Choose a photo"
@@ -127,6 +138,7 @@ function NewPostTab({ onPosted }: NewPostTabProps) {
           className="text-area"
           rows={4}
           value={caption}
+          placeholder="Put a description here"
           onChange={e => setCaption(e.target.value)}
           disabled={isLoading}
         />

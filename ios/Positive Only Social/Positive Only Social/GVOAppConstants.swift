@@ -35,6 +35,9 @@ import Foundation
     static let pathSegmentHidden = "hidden"
     static let pathSegmentMine = "mine"
     static let pathSegmentSubmit = "submit"
+    // Posting a comment hits the singular `comment/` route; the plural
+    // `comments/` route is only the GET that fetches a batch of threads.
+    static let pathSegmentComment = "comment"
     static let pathSegmentComments = "comments"
     static let pathSegmentCreate = "create"
     static let pathSegmentDelete = "delete"

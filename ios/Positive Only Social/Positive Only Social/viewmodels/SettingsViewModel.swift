@@ -123,7 +123,7 @@ final class SettingsViewModel: ObservableObject {
                 showingVerificationAlert = true
                 
             } catch {
-                errorMessage = "Verification failed: \(error.localizedDescription)"
+                errorMessage = "Verification failed: \(error.userFacingMessage)"
                 showingErrorAlert = true
             }
         }

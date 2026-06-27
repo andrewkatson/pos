@@ -87,7 +87,7 @@ struct RequestResetView: View {
                 isLoading = false
             }
         } catch {
-            errorMessage = error.localizedDescription
+            errorMessage = error.userFacingMessage
             showingErrorAlert = true
             NSLog("%@", "🔴 Request reset failed: \(error)")
             isLoading = false

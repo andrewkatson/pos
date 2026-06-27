@@ -3,6 +3,7 @@ package com.example.positiveonlysocial.models.viewmodels
 import android.util.Log
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.example.positiveonlysocial.api.ApiErrors
 import com.example.positiveonlysocial.api.PositiveOnlySocialAPI
 import com.example.positiveonlysocial.data.model.*
 import com.example.positiveonlysocial.data.security.KeychainHelperProtocol
@@ -227,7 +228,7 @@ class PostDetailViewModel(
 
         } catch (e: Exception) {
             Log.e(TAG, "Error loading post details", e)
-            _alertMessage.value = "Failed to load post: ${e.localizedMessage}"
+            _alertMessage.value = ApiErrors.messageFor(e, fallback = "Failed to load the post. Please try again.")
         }
     }
 
@@ -247,11 +248,11 @@ class PostDetailViewModel(
                     // Reload data to get fresh counts
                     loadAllData()
                 } else {
-                    _alertMessage.value = "Failed to like post: ${response.message()}"
+                    _alertMessage.value = ApiErrors.messageFor(response, fallback = "Failed to like the post. Please try again.")
                 }
             } catch (e: Exception) {
                 Log.e(TAG, "Failed to like post", e)
-                _alertMessage.value = "Error: ${e.localizedMessage}"
+                _alertMessage.value = ApiErrors.messageFor(e, fallback = "Something went wrong. Please try again.")
             }
         }
     }
@@ -269,11 +270,11 @@ class PostDetailViewModel(
                 if (response.isSuccessful) {
                     loadAllData()
                 } else {
-                    _alertMessage.value = "Failed to unlike post: ${response.message()}"
+                    _alertMessage.value = ApiErrors.messageFor(response, fallback = "Failed to unlike the post. Please try again.")
                 }
             } catch (e: Exception) {
                 Log.e(TAG, "Failed to unlike post", e)
-                _alertMessage.value = "Error: ${e.localizedMessage}"
+                _alertMessage.value = ApiErrors.messageFor(e, fallback = "Something went wrong. Please try again.")
             }
         }
     }
@@ -291,11 +292,11 @@ class PostDetailViewModel(
                 if (response.isSuccessful) {
                     _alertMessage.value = "Post reported successfully."
                 } else {
-                    _alertMessage.value = "Failed to report post: ${response.message()}"
+                    _alertMessage.value = ApiErrors.messageFor(response, fallback = "Failed to report the post. Please try again.")
                 }
             } catch (e: Exception) {
                 Log.e(TAG, "Failed to report post", e)
-                _alertMessage.value = "Error: ${e.localizedMessage}"
+                _alertMessage.value = ApiErrors.messageFor(e, fallback = "Something went wrong. Please try again.")
             }
         }
     }
@@ -317,11 +318,11 @@ class PostDetailViewModel(
                 if (response.isSuccessful) {
                     _postWasDeleted.value = true
                 } else {
-                    _alertMessage.value = "Failed to delete post: ${response.message()}"
+                    _alertMessage.value = ApiErrors.messageFor(response, fallback = "Failed to delete the post. Please try again.")
                 }
             } catch (e: Exception) {
                 Log.e(TAG, "Failed to delete post", e)
-                _alertMessage.value = "Error: ${e.localizedMessage}"
+                _alertMessage.value = ApiErrors.messageFor(e, fallback = "Something went wrong. Please try again.")
             }
         }
     }
@@ -343,11 +344,11 @@ class PostDetailViewModel(
                 if (response.isSuccessful) {
                     loadAllData()
                 } else {
-                    _alertMessage.value = "Failed to delete comment: ${response.message()}"
+                    _alertMessage.value = ApiErrors.messageFor(response, fallback = "Failed to delete the comment. Please try again.")
                 }
             } catch (e: Exception) {
                 Log.e(TAG, "Failed to delete comment", e)
-                _alertMessage.value = "Error: ${e.localizedMessage}"
+                _alertMessage.value = ApiErrors.messageFor(e, fallback = "Something went wrong. Please try again.")
             }
         }
     }
@@ -367,11 +368,11 @@ class PostDetailViewModel(
                 if (response.isSuccessful) {
                     loadAllData()
                 } else {
-                    _alertMessage.value = "Failed to like comment: ${response.message()}"
+                    _alertMessage.value = ApiErrors.messageFor(response, fallback = "Failed to like the comment. Please try again.")
                 }
             } catch (e: Exception) {
                 Log.e(TAG, "Failed to like comment", e)
-                _alertMessage.value = "Error: ${e.localizedMessage}"
+                _alertMessage.value = ApiErrors.messageFor(e, fallback = "Something went wrong. Please try again.")
             }
         }
     }
@@ -389,11 +390,11 @@ class PostDetailViewModel(
                 if (response.isSuccessful) {
                     loadAllData()
                 } else {
-                    _alertMessage.value = "Failed to unlike comment: ${response.message()}"
+                    _alertMessage.value = ApiErrors.messageFor(response, fallback = "Failed to unlike the comment. Please try again.")
                 }
             } catch (e: Exception) {
                 Log.e(TAG, "Failed to unlike comment", e)
-                _alertMessage.value = "Error: ${e.localizedMessage}"
+                _alertMessage.value = ApiErrors.messageFor(e, fallback = "Something went wrong. Please try again.")
             }
         }
     }
@@ -412,11 +413,11 @@ class PostDetailViewModel(
                     _reportedCommentIds.value = _reportedCommentIds.value + comment.id
                     _alertMessage.value = "Comment reported successfully."
                 } else {
-                    _alertMessage.value = "Failed to report comment: ${response.message()}"
+                    _alertMessage.value = ApiErrors.messageFor(response, fallback = "Failed to report the comment. Please try again.")
                 }
             } catch (e: Exception) {
                 Log.e(TAG, "Failed to report comment", e)
-                _alertMessage.value = "Error: ${e.localizedMessage}"
+                _alertMessage.value = ApiErrors.messageFor(e, fallback = "Something went wrong. Please try again.")
             }
         }
     }
@@ -443,16 +444,10 @@ class PostDetailViewModel(
                     _newCommentText.value = ""
                     loadAllData() // Reload to get the new thread
                 } else {
-                    val errorBody = response.errorBody()?.string()
-                    val errorMsg = try {
-                        org.json.JSONObject(errorBody).getString("error")
-                    } catch (e: Exception) {
-                        "Failed to post comment"
-                    }
-                    _alertMessage.value = errorMsg
+                    _alertMessage.value = ApiErrors.messageFor(response, fallback = "Failed to post comment. Please try again.")
                 }
             } catch (e: Exception) {
-                _alertMessage.value = "Failed to post comment: ${e.localizedMessage}"
+                _alertMessage.value = ApiErrors.messageFor(e, fallback = "Failed to post comment. Please try again.")
             }
         }
     }
@@ -479,16 +474,10 @@ class PostDetailViewModel(
                 if (response.isSuccessful) {
                     loadAllData() // Reload to get the new comment
                 } else {
-                    val errorBody = response.errorBody()?.string()
-                    val errorMsg = try {
-                        org.json.JSONObject(errorBody).getString("error")
-                    } catch (e: Exception) {
-                        "Failed to post reply"
-                    }
-                    _alertMessage.value = errorMsg
+                    _alertMessage.value = ApiErrors.messageFor(response, fallback = "Failed to post reply. Please try again.")
                 }
             } catch (e: Exception) {
-                _alertMessage.value = "Failed to post reply: ${e.localizedMessage}"
+                _alertMessage.value = ApiErrors.messageFor(e, fallback = "Failed to post reply. Please try again.")
             }
         }
     }
