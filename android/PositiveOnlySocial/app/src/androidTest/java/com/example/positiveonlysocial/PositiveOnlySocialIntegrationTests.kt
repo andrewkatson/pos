@@ -4,6 +4,8 @@ import androidx.compose.ui.test.*
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.espresso.Espresso
+import com.example.positiveonlysocial.di.DependencyProvider
+import org.junit.Before
 import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -14,6 +16,17 @@ class PositiveOnlySocialIntegrationTests {
 
     @get:Rule
     val composeTestRule = createAndroidComposeRule<MainActivity>()
+
+    // "Remember Me" logins now persist tokens to the keychain, and these tests
+    // share one process, so a prior test's session could auto-log-in on the next
+    // test's launch and skip the Welcome screen. Clear it so every test starts
+    // from a clean, signed-out state.
+    @Before
+    fun clearPersistedAuth() {
+        val keychain = DependencyProvider.keychainHelper
+        keychain.delete("positive-only-social.Positive-Only-Social", "userRememberMeTokens")
+        keychain.delete("positive-only-social.Positive-Only-Social", "userSessionToken")
+    }
 
     private val testUsername = "test_user_${UUID.randomUUID().toString().take(5)}"
     private val otherTestUsername = "other_user_${UUID.randomUUID().toString().take(5)}"

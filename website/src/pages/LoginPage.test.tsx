@@ -12,7 +12,12 @@ vi.mock('../api/client', async importOriginal => {
 import { apiClient } from '../api/client'
 const mockLogin = vi.mocked(apiClient.login)
 
-let mockSetItem: ReturnType<typeof vi.fn>
+function makeStorageMock() {
+  return { setItem: vi.fn(), getItem: vi.fn(), removeItem: vi.fn(), clear: vi.fn() }
+}
+
+let localStorageMock: ReturnType<typeof makeStorageMock>
+let sessionStorageMock: ReturnType<typeof makeStorageMock>
 
 function renderLoginPage() {
   return render(
@@ -28,8 +33,10 @@ function renderLoginPage() {
 
 beforeEach(() => {
   mockLogin.mockReset()
-  mockSetItem = vi.fn()
-  vi.stubGlobal('localStorage', { setItem: mockSetItem, getItem: vi.fn(), removeItem: vi.fn(), clear: vi.fn() })
+  localStorageMock = makeStorageMock()
+  sessionStorageMock = makeStorageMock()
+  vi.stubGlobal('localStorage', localStorageMock)
+  vi.stubGlobal('sessionStorage', sessionStorageMock)
 })
 
 afterEach(() => {
@@ -95,7 +102,7 @@ test('navigates to home on successful login', async () => {
   expect(await screen.findByText('Home')).toBeInTheDocument()
 })
 
-test('stores session token and user_id in localStorage on success', async () => {
+test('stores the session in sessionStorage (ephemeral) when remember me is off', async () => {
   mockLogin.mockResolvedValueOnce({
     session_management_token: 'my-token',
     user_id: 'uuid-xyz',
@@ -106,8 +113,49 @@ test('stores session token and user_id in localStorage on success', async () => 
   await userEvent.type(screen.getByLabelText('Password'), 'pass')
   await userEvent.click(screen.getByRole('button', { name: 'Login' }))
   await screen.findByText('Home')
-  expect(mockSetItem).toHaveBeenCalledWith('session_token', 'my-token')
-  expect(mockSetItem).toHaveBeenCalledWith('user_id', 'uuid-xyz')
+  // Without remember me the session must not persist across browser restarts.
+  expect(sessionStorageMock.setItem).toHaveBeenCalledWith('session_token', 'my-token')
+  expect(sessionStorageMock.setItem).toHaveBeenCalledWith('user_id', 'uuid-xyz')
+  expect(localStorageMock.setItem).not.toHaveBeenCalledWith('session_token', 'my-token')
+})
+
+test('persists the session and remember-me tokens in localStorage when remember me is checked', async () => {
+  mockLogin.mockResolvedValueOnce({
+    session_management_token: 'tok',
+    user_id: 'uuid-xyz',
+    username: 'ada',
+    series_identifier: 'series-1',
+    login_cookie_token: 'cookie-1',
+  })
+  renderLoginPage()
+  await userEvent.type(screen.getByLabelText('Username or Email'), 'ada')
+  await userEvent.type(screen.getByLabelText('Password'), 'pass')
+  await userEvent.click(screen.getByLabelText('Remember me'))
+  await userEvent.click(screen.getByRole('button', { name: 'Login' }))
+  await screen.findByText('Home')
+  // Remembered sessions survive browser restarts, so they live in localStorage.
+  expect(localStorageMock.setItem).toHaveBeenCalledWith('session_token', 'tok')
+  expect(localStorageMock.setItem).toHaveBeenCalledWith('user_id', 'uuid-xyz')
+  expect(sessionStorageMock.setItem).not.toHaveBeenCalledWith('session_token', expect.anything())
+  expect(localStorageMock.setItem).toHaveBeenCalledWith('series_identifier', 'series-1')
+  expect(localStorageMock.setItem).toHaveBeenCalledWith('login_cookie_token', 'cookie-1')
+})
+
+test('does not persist remember-me tokens when remember me is unchecked', async () => {
+  mockLogin.mockResolvedValueOnce({
+    session_management_token: 'tok',
+    user_id: 'uuid-xyz',
+    username: 'ada',
+    series_identifier: 'series-1',
+    login_cookie_token: 'cookie-1',
+  })
+  renderLoginPage()
+  await userEvent.type(screen.getByLabelText('Username or Email'), 'ada')
+  await userEvent.type(screen.getByLabelText('Password'), 'pass')
+  await userEvent.click(screen.getByRole('button', { name: 'Login' }))
+  await screen.findByText('Home')
+  expect(localStorageMock.setItem).not.toHaveBeenCalledWith('series_identifier', expect.anything())
+  expect(localStorageMock.setItem).not.toHaveBeenCalledWith('login_cookie_token', expect.anything())
 })
 
 test('Forgot Password link navigates to /request-reset', async () => {

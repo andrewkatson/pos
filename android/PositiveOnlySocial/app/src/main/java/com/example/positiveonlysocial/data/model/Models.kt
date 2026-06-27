@@ -169,6 +169,15 @@ data class UserSession(
     val loginCookieToken: String? = null
 )
 
+/**
+ * "Remember Me" tokens persisted to the keychain after a successful login so the
+ * app can silently re-authenticate via the remember-me endpoint on next launch.
+ *
+ * The field names are part of the persisted (gson) format and are read back in
+ * [com.example.positiveonlysocial.ui.auth.WelcomeScreen] — keep them in sync.
+ */
+data class RememberMeTokens(val seriesId: String, val cookieToken: String)
+
 // --- View Data Models (Matching Swift) ---
 
 data class PostDisplayData(
