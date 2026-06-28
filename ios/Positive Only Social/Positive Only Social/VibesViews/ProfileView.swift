@@ -68,10 +68,13 @@ struct ProfileView: View {
             if viewModel.userPosts.isEmpty {
                 viewModel.fetchUserPosts()
             }
-            
+
             if viewModel.profileDetails == nil {
                 viewModel.fetchProfileDetails()
             }
+        }
+        .navigationDestination(for: Post.self) { post in
+            PostDetailView(postIdentifier: post.id, api: api, keychainHelper: keychainHelper)
         }
     }
     
@@ -91,38 +94,40 @@ struct ProfileView: View {
             }
             .padding(.top)
             
-            Button(action: viewModel.toggleFollow) {
-                Text(viewModel.isFollowing ? "Following" : "Follow")
-                    .fontWeight(.semibold)
-                    .frame(maxWidth: .infinity)
-                    .padding(.vertical, 8)
-                    .background(viewModel.isFollowing ? Color.clear : Color.blue)
-                    .foregroundColor(viewModel.isFollowing ? .primary : .white)
-                    .cornerRadius(8)
-                    .overlay(
-                        RoundedRectangle(cornerRadius: 8)
-                            .stroke(viewModel.isFollowing ? Color.gray : Color.blue, lineWidth: 1)
-                    )
+            if !viewModel.isOwnProfile {
+                Button(action: viewModel.toggleFollow) {
+                    Text(viewModel.isFollowing ? "Following" : "Follow")
+                        .fontWeight(.semibold)
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 8)
+                        .background(viewModel.isFollowing ? Color.clear : Color.blue)
+                        .foregroundColor(viewModel.isFollowing ? .primary : .white)
+                        .cornerRadius(8)
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 8)
+                                .stroke(viewModel.isFollowing ? Color.gray : Color.blue, lineWidth: 1)
+                        )
+                }
+                .disabled(viewModel.isLoadingProfile || viewModel.isBusy)
+                .padding(.vertical)
+                .accessibilityIdentifier("FollowButton")
+
+                Button(action: viewModel.toggleBlock) {
+                    Text(viewModel.isBlocked ? "Unblock" : "Block")
+                        .fontWeight(.medium)
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 8)
+                        .foregroundColor(viewModel.isBlocked ? .white : .red)
+                        .background(viewModel.isBlocked ? Color.red : Color.clear)
+                        .cornerRadius(8)
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 8)
+                                .stroke(Color.red, lineWidth: 1)
+                        )
+                }
+                .disabled(viewModel.isLoadingProfile || viewModel.isBusy)
+                .padding(.bottom)
             }
-            .disabled(viewModel.isLoadingProfile) // Disable while loading
-            .padding(.vertical)
-            .accessibilityIdentifier("FollowButton")
-            
-            Button(action: viewModel.toggleBlock) {
-                Text(viewModel.isBlocked ? "Unblock" : "Block")
-                    .fontWeight(.medium)
-                    .frame(maxWidth: .infinity)
-                    .padding(.vertical, 8)
-                    .foregroundColor(viewModel.isBlocked ? .white : .red)
-                    .background(viewModel.isBlocked ? Color.red : Color.clear)
-                    .cornerRadius(8)
-                    .overlay(
-                        RoundedRectangle(cornerRadius: 8)
-                            .stroke(Color.red, lineWidth: 1)
-                    )
-            }
-            .disabled(viewModel.isLoadingProfile)
-            .padding(.bottom)
         }
     }
     
@@ -143,7 +148,7 @@ struct ProfileView: View {
             LazyVGrid(columns: columns, spacing: 1) {
                 ForEach(viewModel.userPosts) { post in
                     // Wrap each cell in a NavigationLink so tapping a post opens
-                    // its detail view (matches Home/Feed and the destination below).
+                    // its detail view (destination registered on the ScrollView).
                     NavigationLink(value: post) {
                         // Force every post into an identical square, cropping to fill
                         // so images no longer keep their original dimensions.
@@ -165,8 +170,6 @@ struct ProfileView: View {
                         }
                     }
                     .accessibilityIdentifier("ProfilePostImage")
-                }.navigationDestination(for: Post.self) { post in
-                    PostDetailView(postIdentifier: post.id, api: api, keychainHelper: keychainHelper)
                 }
             }
             // Black backing shows through the 1pt gaps as thin borders between posts.

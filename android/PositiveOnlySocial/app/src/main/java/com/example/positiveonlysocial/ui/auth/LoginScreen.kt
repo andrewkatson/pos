@@ -11,6 +11,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
@@ -26,6 +27,7 @@ import com.example.positiveonlysocial.api.PositiveOnlySocialAPI
 import com.example.positiveonlysocial.data.auth.AuthenticationManager
 import com.example.positiveonlysocial.data.constants.Constants
 import com.example.positiveonlysocial.data.model.LoginRequest
+import com.example.positiveonlysocial.data.model.RememberMeTokens
 import com.example.positiveonlysocial.data.model.UserSession
 import com.example.positiveonlysocial.data.security.KeychainHelperProtocol
 import com.example.positiveonlysocial.ui.dismissKeyboardOnTap
@@ -50,6 +52,11 @@ fun LoginScreen(
 
         val scope = rememberCoroutineScope()
         val focusManager = LocalFocusManager.current
+
+        // Keychain identifiers, matching WelcomeScreen's auto-login reader and
+        // AuthenticationManager's session store.
+        val keychainService = "positive-only-social.Positive-Only-Social"
+        val rememberMeAccount = "userRememberMeTokens"
 
         if (showingErrorAlert) {
             AlertDialog(
@@ -108,7 +115,10 @@ fun LoginScreen(
                 Spacer(modifier = Modifier.weight(1f))
                 Switch(
                     checked = rememberMe,
-                    onCheckedChange = { rememberMe = it }
+                    onCheckedChange = { rememberMe = it },
+                    // Tag the actual toggle so tests flip it directly. Clicking the
+                    // "Remember Me" label does nothing — it's a sibling, not the switch.
+                    modifier = Modifier.testTag("RememberMeToggle")
                 )
             }
 
@@ -145,6 +155,31 @@ fun LoginScreen(
                                             isIdentityVerified = false
                                         )
                                         authManager.login(session)
+
+                                        // Persist (or clear) the remember-me tokens so
+                                        // WelcomeScreen can silently re-authenticate on the
+                                        // next launch. Mirrors iOS LoginView. Best-effort:
+                                        // a storage failure must not block this session's login.
+                                        try {
+                                            val seriesId = body.seriesIdentifier
+                                            val cookieToken = body.loginCookieToken
+                                            if (rememberMe && seriesId != null && cookieToken != null) {
+                                                keychainHelper.save(
+                                                    RememberMeTokens(seriesId, cookieToken),
+                                                    keychainService,
+                                                    rememberMeAccount
+                                                )
+                                            } else {
+                                                keychainHelper.delete(keychainService, rememberMeAccount)
+                                            }
+                                        } catch (e: Exception) {
+                                            android.util.Log.w(
+                                                "LoginScreen",
+                                                "Failed to persist/clear remember-me tokens; continuing without auto-login.",
+                                                e,
+                                            )
+                                        }
+
                                         navController.navigate(Screen.Home.route) {
                                             popUpTo(Screen.Login.route) { inclusive = true }
                                         }
