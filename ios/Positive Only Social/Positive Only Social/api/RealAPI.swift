@@ -325,7 +325,7 @@ final class RealAPI: Networking {
     func followUser(sessionManagementToken: String, username: String) async throws -> Data {
         // This is a POST request, no body, with auth. Username is in path.
         return try await performRequest(
-            pathSegments: [GVOAppConstants.pathSegmentUser, username, GVOAppConstants.pathSegmentFollow],
+            pathSegments: [GVOAppConstants.pathSegmentUsers, username, GVOAppConstants.pathSegmentFollow],
             method: .post,
             authToken: sessionManagementToken
         )
@@ -463,13 +463,13 @@ final class RealAPI: Networking {
         let requestBody = try encode(body)
         
         return try await performRequest(
-            pathSegments: [GVOAppConstants.pathSegmentPosts, postIdentifier, GVOAppConstants.pathSegmentComments],
+            pathSegments: [GVOAppConstants.pathSegmentPosts, postIdentifier, GVOAppConstants.pathSegmentComment],
             method: .post,
             body: requestBody,
             authToken: sessionManagementToken
         )
     }
-    
+
     /// Likes a specific comment within a post.
     func likeComment(sessionManagementToken: String, postIdentifier: String, commentThreadIdentifier: String, commentIdentifier: String) async throws -> Data {
         // This is a POST request, no body, with auth. IDs are in path.

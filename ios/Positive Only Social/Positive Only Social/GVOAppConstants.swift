@@ -35,6 +35,7 @@ import Foundation
     static let pathSegmentHidden = "hidden"
     static let pathSegmentMine = "mine"
     static let pathSegmentSubmit = "submit"
+    static let pathSegmentComment = "comment"
     static let pathSegmentComments = "comments"
     static let pathSegmentCreate = "create"
     static let pathSegmentDelete = "delete"
