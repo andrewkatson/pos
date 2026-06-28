@@ -10,12 +10,10 @@ import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.NavController
-import coil.compose.AsyncImage
 import com.example.positiveonlysocial.api.PositiveOnlySocialAPI
 import com.example.positiveonlysocial.data.security.KeychainHelperProtocol
 import com.example.positiveonlysocial.models.viewmodels.FeedViewModel
@@ -178,17 +176,15 @@ fun PostItem(
 
         // Square, cropped to fill so images keep a standard size, with a thin
         // black border to match the grid views.
-        AsyncImage(
-            model = post.imageUrl,
-            contentDescription = "Post Image",
+        PostImageWithFallback(
+            post = post,
             modifier = Modifier
                 .fillMaxWidth()
                 .aspectRatio(1f)
                 .border(1.dp, Color.Black)
                 .clickable {
                     navController.navigate(Screen.PostDetail.createRoute(post.postIdentifier))
-                },
-            contentScale = ContentScale.Crop
+                }
         )
     }
 }

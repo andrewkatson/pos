@@ -87,6 +87,7 @@ class Fields:
     session_management_token = "session_management_token"
     post_identifier = "post_identifier"
     image_url = "image_url"
+    original_image_url = "original_image_url"
     caption = "caption"
     post_likes = "post_likes"
     comment_thread_identifier = "comment_thread_identifier"

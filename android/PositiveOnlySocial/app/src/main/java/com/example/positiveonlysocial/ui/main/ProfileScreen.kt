@@ -14,13 +14,11 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.NavController
-import coil.compose.AsyncImage
 import com.example.positiveonlysocial.api.PositiveOnlySocialAPI
 import com.example.positiveonlysocial.data.security.KeychainHelperProtocol
 import com.example.positiveonlysocial.models.viewmodels.ProfileViewModel
@@ -157,15 +155,13 @@ fun ProfileScreen(
                             verticalArrangement = Arrangement.spacedBy(1.dp)
                         ) {
                             items(userPosts) { post ->
-                                AsyncImage(
-                                    model = post.imageUrl,
-                                    contentDescription = "Post Image",
+                                PostImageWithFallback(
+                                    post = post,
                                     modifier = Modifier
                                         .aspectRatio(1f)
                                         .clickable {
                                             navController.navigate(Screen.PostDetail.createRoute(post.postIdentifier))
-                                        },
-                                    contentScale = ContentScale.Crop
+                                        }
                                 )
 
                                 if (post == userPosts.lastOrNull()) {

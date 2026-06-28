@@ -87,6 +87,23 @@ class GetFollowedPostsTests(PositiveOnlySocialTestCase):
         # Assumes POST_BATCH_SIZE is 10
         self.assertEqual(len(responses), 10)
 
+    def test_followed_posts_include_original_image_url_fallback(self):
+        """
+        Each followed-feed post carries an `original_image_url` alongside the
+        compressed `image_url` so clients can fall back to it while the
+        async-generated compressed copy isn't ready. See #252/#254.
+        """
+        url = reverse('get_posts_for_followed_users', kwargs={'batch': 0})
+
+        response = self.client.get(url, **self.user_a_header)
+
+        self.assertEqual(response.status_code, 200)
+        responses = response.json()
+        self.assertTrue(len(responses) > 0)
+        for post in responses:
+            self.assertIn(Fields.original_image_url, post)
+            self.assertTrue(post[Fields.original_image_url])
+
     def test_last_batch_returns_correct_number_of_posts(self):
         """
         Tests that the last partial batch (batch 1) returns the

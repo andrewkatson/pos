@@ -155,11 +155,10 @@ struct ProfileView: View {
                         Color(.systemGray4)
                             .aspectRatio(1, contentMode: .fit)
                             .overlay {
-                                AsyncImage(url: URL(string: post.imageUrl)) { image in
-                                    image.resizable().scaledToFill()
-                                } placeholder: {
-                                    Color(.systemGray4)
-                                }
+                                GridPostImage(
+                                    imageUrl: post.imageUrl,
+                                    originalImageUrl: post.originalImageUrl
+                                )
                             }
                             .clipped()
                     }

@@ -464,6 +464,9 @@ export class StatefulStubbedAPI implements PositiveOnlySocialAPI {
     return {
       post_identifier: post.postIdentifier,
       image_url: post.imageUrl,
+      // Mirrors the backend: the full-resolution original, used as a client-side
+      // fallback when the compressed image isn't available yet (issues #252/#254).
+      original_image_url: post.imageUrl,
       author_username: author ? author.username : '',
       caption: post.caption,
     }

@@ -8,6 +8,7 @@ import com.example.positiveonlysocial.data.model.Post
 import com.example.positiveonlysocial.data.model.User
 import com.example.positiveonlysocial.data.model.UserSession
 import com.example.positiveonlysocial.data.security.KeychainHelperProtocol
+import com.example.positiveonlysocial.util.PostEvents
 import kotlinx.coroutines.FlowPreview
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -56,6 +57,15 @@ class HomeViewModel(
                 .collectLatest { query ->
                     performSearch(query)
                 }
+        }
+
+        // When a post is deleted (from its detail screen, which lives in a
+        // different nav entry), drop it from the grid so its now-missing image
+        // doesn't linger as an empty black tile until logout (issue #256).
+        viewModelScope.launch {
+            PostEvents.deletedPostIds.collect { deletedId ->
+                _userPosts.value = _userPosts.value.filterNot { it.postIdentifier == deletedId }
+            }
         }
     }
 
