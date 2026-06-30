@@ -1,5 +1,6 @@
 package com.example.positiveonlysocial.util
 
+import kotlinx.coroutines.channels.BufferOverflow
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.asSharedFlow
@@ -17,8 +18,13 @@ import kotlinx.coroutines.flow.asSharedFlow
  */
 object PostEvents {
     // extraBufferCapacity lets tryEmit succeed without a collector suspending the
-    // emitter; deletes are rare so a small buffer is plenty.
-    private val _deletedPostIds = MutableSharedFlow<String>(extraBufferCapacity = 16)
+    // emitter; deletes are rare so a small buffer is plenty. DROP_OLDEST keeps
+    // tryEmit non-suspending and never failing even if the buffer fills while the
+    // collector is briefly busy, so a delete event is never silently dropped.
+    private val _deletedPostIds = MutableSharedFlow<String>(
+        extraBufferCapacity = 16,
+        onBufferOverflow = BufferOverflow.DROP_OLDEST,
+    )
     val deletedPostIds: SharedFlow<String> = _deletedPostIds.asSharedFlow()
 
     /** Announce that the post with [postIdentifier] was deleted. */
