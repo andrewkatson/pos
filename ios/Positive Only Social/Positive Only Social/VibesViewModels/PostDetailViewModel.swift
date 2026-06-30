@@ -303,6 +303,9 @@ final class PostDetailViewModel: ObservableObject {
                 _ = try await api.deletePost(sessionManagementToken: token, postIdentifier: postIdentifier)
                 await MainActor.run {
                     self.postWasDeleted = true
+                    // Tell the Home grid to drop this post so its now-deleted
+                    // image doesn't linger as an empty grey tile (issue #256).
+                    NotificationCenter.default.post(name: .postDeleted, object: self.postIdentifier)
                 }
             } catch {
                 NSLog("%@", "Failed to delete post: \(error)")

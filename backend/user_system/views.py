@@ -1017,6 +1017,9 @@ def get_posts_in_feed(request, batch):
             {
                 Fields.post_identifier: post.post_identifier,
                 Fields.image_url: get_compressed_image_url(post.image_url),
+                # Full-res original, used as a client fallback while the async
+                # Lambda-generated compressed copy is still missing (#252/#254).
+                Fields.original_image_url: post.image_url,
                 Fields.author_username: post.author.username,
                 Fields.caption: post.caption
             }
@@ -1055,6 +1058,9 @@ def get_posts_for_followed_users(request, batch):
         {
             Fields.post_identifier: post.post_identifier,
             Fields.image_url: get_compressed_image_url(post.image_url),
+            # Full-res original, used as a client fallback while the async
+            # Lambda-generated compressed copy is still missing (#252/#254).
+            Fields.original_image_url: post.image_url,
             Fields.author_username: post.author.username,
             Fields.caption: post.caption
         }
@@ -1095,6 +1101,13 @@ def get_posts_for_user(request, username, batch):
             {
                 Fields.post_identifier: post.post_identifier,
                 Fields.image_url: get_compressed_image_url(post.image_url),
+                # The full-resolution original, used by clients as a fallback when
+                # the compressed copy 404s. Compression runs in an async Lambda, so
+                # a just-posted (or recently hidden-pending-appeal) image can be
+                # missing from the compressed bucket for a short while — without a
+                # fallback those tiles render as empty grey/black boxes until the
+                # user re-logs in. See issues #252 and #254.
+                Fields.original_image_url: post.image_url,
                 Fields.caption: post.caption,
                 Fields.author_username: target_user.username
             }

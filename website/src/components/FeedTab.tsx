@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { apiClient } from '../api/client'
 import type { FeedPost } from '../api/types'
+import PostThumbnail from './PostThumbnail'
 
 type FeedType = 'forYou' | 'following'
 
@@ -129,7 +130,7 @@ function FeedTab() {
                 aria-label={`Open post by ${post.author_username}`}
                 onClick={() => navigate(`/post/${post.post_identifier}`)}
               >
-                <img src={post.image_url} alt={post.caption} />
+                <PostThumbnail post={post} />
               </button>
             </article>
           ))}

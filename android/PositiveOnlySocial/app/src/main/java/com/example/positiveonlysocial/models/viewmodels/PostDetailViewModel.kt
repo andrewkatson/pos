@@ -7,6 +7,7 @@ import com.example.positiveonlysocial.api.ApiErrors
 import com.example.positiveonlysocial.api.PositiveOnlySocialAPI
 import com.example.positiveonlysocial.data.model.*
 import com.example.positiveonlysocial.data.security.KeychainHelperProtocol
+import com.example.positiveonlysocial.util.PostEvents
 import com.example.positiveonlysocial.util.parseBackendDate
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
@@ -317,6 +318,9 @@ class PostDetailViewModel(
                 val response = api.deletePost(userSession.sessionToken, postIdentifier)
                 if (response.isSuccessful) {
                     _postWasDeleted.value = true
+                    // Tell the Home grid to drop this post so its now-deleted image
+                    // doesn't linger as an empty black tile (issue #256).
+                    PostEvents.postDeleted(postIdentifier)
                 } else {
                     _alertMessage.value = ApiErrors.messageFor(response, fallback = "Failed to delete the post. Please try again.")
                 }

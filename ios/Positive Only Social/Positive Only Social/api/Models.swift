@@ -33,12 +33,20 @@ struct Post: Codable, Identifiable, Hashable {
     var id: String { postIdentifier }
     let postIdentifier: String
     let imageUrl: String
+    /// The full-resolution original image URL, used as a fallback when the
+    /// compressed `imageUrl` fails to load. The compressed copy is produced by
+    /// an async Lambda, so a just-posted (or recently hidden-pending-appeal)
+    /// image may not exist in the compressed bucket yet — without this fallback
+    /// those grid tiles render as empty grey boxes until the user re-logs in.
+    /// Optional for backward compatibility with responses that predate the field.
+    let originalImageUrl: String?
     let caption: String
     let authorUsername: String
 
     enum CodingKeys: String, CodingKey {
         case postIdentifier = "post_identifier"
         case imageUrl = "image_url"
+        case originalImageUrl = "original_image_url"
         case caption = "caption"
         case authorUsername = "author_username"
     }

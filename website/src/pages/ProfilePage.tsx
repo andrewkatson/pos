@@ -3,6 +3,7 @@ import { Navigate, useNavigate, useParams } from 'react-router-dom'
 import { apiClient } from '../api/client'
 import { getCurrentUsername } from '../api/session'
 import type { FeedPost, ProfileDetails } from '../api/types'
+import PostThumbnail from '../components/PostThumbnail'
 import './MainApp.css'
 
 /**
@@ -233,7 +234,7 @@ function ProfileView({ username }: { username: string }) {
                 aria-label={`Post by ${post.author_username}`}
                 onClick={() => navigate(`/post/${post.post_identifier}`)}
               >
-                <img src={post.image_url} alt={post.caption} />
+                <PostThumbnail post={post} />
               </button>
             ))}
           </div>

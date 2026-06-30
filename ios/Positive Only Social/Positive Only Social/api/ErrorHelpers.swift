@@ -10,6 +10,13 @@ extension Notification.Name {
     /// because the account has an active outright ban. The backend revokes
     /// the session server-side, so the app must drop its session too.
     static let accountBanned = Notification.Name("accountBanned")
+
+    /// Posted after a post is successfully deleted, with the deleted post's
+    /// identifier as the notification `object`. The Home grid listens for this
+    /// so it can drop the post from its cached list — otherwise the deleted
+    /// post's now-missing image lingers as an empty grey tile until the user
+    /// logs out. See issue #256.
+    static let postDeleted = Notification.Name("postDeleted")
 }
 
 extension Error {

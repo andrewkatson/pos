@@ -81,6 +81,13 @@ export interface CreatePostResponse {
 export interface FeedPost {
   post_identifier: string
   image_url: string
+  /** The full-resolution original image URL, used as a fallback when the
+   * compressed `image_url` fails to load. The compressed copy is produced by an
+   * async Lambda, so a just-posted (or recently hidden-pending-appeal) image may
+   * not exist in the compressed bucket yet; without this fallback those grid
+   * tiles render as broken images until the user re-logs in (issues #252/#254).
+   * Older responses that predate the field omit it. */
+  original_image_url?: string
   author_username: string
   caption: string
 }
