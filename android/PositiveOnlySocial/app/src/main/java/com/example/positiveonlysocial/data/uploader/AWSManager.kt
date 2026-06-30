@@ -159,24 +159,32 @@ class CognitoCredentialsProvider(
 ) : CredentialsProvider {
 
     override suspend fun resolve(attributes: Attributes): Credentials {
-        // 1. Get ID
-        val identityClient = CognitoIdentityClient { }
-        val idResponse = identityClient.getId {
-            identityPoolId = this@CognitoCredentialsProvider.identityPoolId
+        // The AWS Kotlin SDK requires an explicit region — on Android there is no
+        // ambient region (no env vars / instance metadata), so omitting it makes
+        // the first call throw a region-resolution error before any request is
+        // sent, which surfaced as posts "failing immediately" (issue #292).
+        val identityClient = CognitoIdentityClient {
+            region = this@CognitoCredentialsProvider.region
         }
+        identityClient.use { client ->
+            // 1. Get ID
+            val idResponse = client.getId {
+                identityPoolId = this@CognitoCredentialsProvider.identityPoolId
+            }
 
-        // 2. Get Credentials for ID
-        val credsResponse = identityClient.getCredentialsForIdentity {
-            identityId = idResponse.identityId
+            // 2. Get Credentials for ID
+            val credsResponse = client.getCredentialsForIdentity {
+                identityId = idResponse.identityId
+            }
+
+            val credentials = credsResponse.credentials ?: throw Exception("No credentials returned")
+
+            return Credentials(
+                accessKeyId = credentials.accessKeyId ?: "",
+                secretAccessKey = credentials.secretKey ?: "",
+                sessionToken = credentials.sessionToken,
+                expiration = credentials.expiration
+            )
         }
-
-        val credentials = credsResponse.credentials ?: throw Exception("No credentials returned")
-
-        return Credentials(
-            accessKeyId = credentials.accessKeyId ?: "",
-            secretAccessKey = credentials.secretKey ?: "",
-            sessionToken = credentials.sessionToken,
-            expiration = credentials.expiration
-        )
     }
 }
