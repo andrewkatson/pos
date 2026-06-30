@@ -205,9 +205,8 @@ final class Positive_Only_SocialUITests: XCTestCase {
     }
     
     private func assertOnPostDetailView(app: XCUIApplication) {
-        XCTAssertTrue(app.buttons["PostCommentButton"].waitForExistence(timeout: TestConstants.shortTimeout), "Post comment button not present")
         XCTAssertTrue(app.buttons["PostImage"].waitForExistence(timeout: TestConstants.shortTimeout), "Post image not present in time")
-        XCTAssertTrue(app.textFields["AddACommentTextFieldToPost"].waitForExistence(timeout: TestConstants.shortTimeout), "Add a comment text field not present")
+        XCTAssertTrue(app.buttons["AddACommentButton"].waitForExistence(timeout: TestConstants.shortTimeout), "Add a comment button not present")
     }
     
     private func ifOnHomeDeleteAccount(app: XCUIApplication) throws {
@@ -447,11 +446,19 @@ final class Positive_Only_SocialUITests: XCTestCase {
     /// Types and posts a comment on the currently open PostDetailView, then
     /// waits for it to appear as the only comment.
     private func addCommentToOpenPost(app: XCUIApplication, commentText: String) {
-        let addACommentTextField = app.textFields["AddACommentTextFieldToPost"]
-        XCTAssertTrue(addACommentTextField.waitForExistence(timeout: TestConstants.shortTimeout))
-        addACommentTextField.tap()
-        typeText(element: addACommentTextField, text: commentText)
+        // Open the shared comment composer sheet.
+        let addACommentButton = app.buttons["AddACommentButton"]
+        XCTAssertTrue(addACommentButton.waitForExistence(timeout: TestConstants.shortTimeout))
+        addACommentButton.tap()
 
+        // The composer presents a TextEditor, which is a textView in the
+        // accessibility hierarchy.
+        let commentTextEditor = app.textViews.firstMatch
+        XCTAssertTrue(commentTextEditor.waitForExistence(timeout: TestConstants.shortTimeout))
+        commentTextEditor.tap()
+        typeText(element: commentTextEditor, text: commentText)
+
+        // Submitting dismisses the sheet immediately.
         let postCommentButton = app.buttons["PostCommentButton"]
         XCTAssertTrue(postCommentButton.waitForExistence(timeout: TestConstants.shortTimeout))
         postCommentButton.tap()
@@ -507,12 +514,12 @@ final class Positive_Only_SocialUITests: XCTestCase {
         // Tap and type the reply
         replyTextEditor.tap()
         typeText(element: replyTextEditor, text: commentText)
-        
-        // Tap the Send button
-        let sendButton = app.buttons["Send"]
-        XCTAssertTrue(sendButton.waitForExistence(timeout: TestConstants.shortTimeout))
-        XCTAssertTrue(sendButton.isEnabled)
-        sendButton.tap()
+
+        // Tap the Post button (the shared composer's confirm action)
+        let postButton = app.buttons["PostCommentButton"]
+        XCTAssertTrue(postButton.waitForExistence(timeout: TestConstants.shortTimeout))
+        XCTAssertTrue(postButton.isEnabled)
+        postButton.tap()
         
         // Should be two comments total
         let commentElements = app.staticTexts.matching(identifier: "CommentText")
@@ -1439,8 +1446,8 @@ final class Positive_Only_SocialUITests: XCTestCase {
         // Deleting pops the Post Detail view back to the Home grid it was
         // opened from. The deletion round-trips through the API before the
         // pop, so wait for the view to go away rather than asserting instantly.
-        let commentField = app.textFields["AddACommentTextFieldToPost"]
-        expectation(for: NSPredicate(format: "exists == false"), evaluatedWith: commentField, handler: nil)
+        let commentButton = app.buttons["AddACommentButton"]
+        expectation(for: NSPredicate(format: "exists == false"), evaluatedWith: commentButton, handler: nil)
         waitForExpectations(timeout: TestConstants.timeout, handler: nil)
 
         assertOnHomeView(app: app)

@@ -131,12 +131,45 @@ test('renders comment threads', async () => {
   expect(screen.getByText('bob')).toBeInTheDocument()
 })
 
-test('posting a comment calls the API and reloads', async () => {
+test('posting a comment opens the dialog, calls the API, and dismisses', async () => {
   renderDetail()
   await screen.findByText('sunshine')
-  await userEvent.type(screen.getByLabelText('Add a comment'), 'nice!')
+  await userEvent.click(screen.getByRole('button', { name: 'Add a comment...' }))
+  await userEvent.type(screen.getByLabelText('Comment text'), 'nice!')
   await userEvent.click(screen.getByRole('button', { name: 'Post' }))
   await waitFor(() => expect(mockCommentOnPost).toHaveBeenCalledWith('p1', 'nice!'))
+  // The dialog closes immediately on submit so repeated taps can't double-post.
+  expect(screen.queryByRole('dialog', { name: 'Add comment' })).not.toBeInTheDocument()
+})
+
+test('collapsing a comment hides the replies below it, expanding restores them', async () => {
+  const reply: Comment = {
+    comment_identifier: 'c2',
+    body: 'totally agree',
+    author_username: 'cara',
+    creation_time: '2024-01-02T00:00:00.000Z',
+    updated_time: '2024-01-02T00:00:00.000Z',
+    comment_likes: 0,
+  }
+  mockGetThreadRefs.mockResolvedValue([{ comment_thread_identifier: 't1' }])
+  mockGetThreadComments.mockResolvedValue([comment, reply])
+  renderDetail()
+
+  // The root comment and its reply are both visible to start.
+  expect(await screen.findByText('love this')).toBeInTheDocument()
+  expect(screen.getByText('totally agree')).toBeInTheDocument()
+
+  // Tapping the root comment's header collapses the thread below it.
+  const collapseHeaders = screen.getAllByRole('button', { name: 'Collapse thread' })
+  await userEvent.click(collapseHeaders[0])
+  expect(screen.queryByText('totally agree')).not.toBeInTheDocument()
+  // The root stays put and its header flips to an expand affordance.
+  expect(screen.getByText('love this')).toBeInTheDocument()
+  expect(screen.getByRole('button', { name: 'Expand thread' })).toBeInTheDocument()
+
+  // Tapping it again expands the thread and the reply comes back.
+  await userEvent.click(screen.getByRole('button', { name: 'Expand thread' }))
+  expect(await screen.findByText('totally agree')).toBeInTheDocument()
 })
 
 test('refresh reloads the post and comments', async () => {
@@ -169,7 +202,8 @@ test('refresh during an in-flight load is coalesced into one follow-up load', as
   await screen.findByText('sunshine') // initial load done
 
   // Post a comment -> triggers loadAll, which parks on the 2nd getPostDetails.
-  await userEvent.type(screen.getByLabelText('Add a comment'), 'hi')
+  await userEvent.click(screen.getByRole('button', { name: 'Add a comment...' }))
+  await userEvent.type(screen.getByLabelText('Comment text'), 'hi')
   await userEvent.click(screen.getByRole('button', { name: 'Post' }))
   await waitFor(() => expect(mockGetDetails).toHaveBeenCalledTimes(2))
 

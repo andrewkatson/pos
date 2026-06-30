@@ -451,4 +451,33 @@ struct Positive_Only_SocialTests_PostDetailViewModel {
         #expect(sut.commentThreads.first?.comments.count == 2, "Thread should still have 2 comments")
         #expect(sut.alertMessage == nil, "No alert should be shown for an empty guard")
     }
+
+    @Test func testToggleCommentCollapsed_AddsThenRemovesId() async throws {
+        // Given: A fully loaded SUT
+        let (sut, _, _, _) = try await setupTestEnvironment(account: "collapse_account")
+
+        // Starts uncollapsed.
+        #expect(!sut.collapsedCommentIds.contains("c1"))
+
+        // First toggle collapses the thread below this comment...
+        sut.toggleCommentCollapsed("c1")
+        #expect(sut.collapsedCommentIds == ["c1"])
+
+        // ...and a second toggle expands it again.
+        sut.toggleCommentCollapsed("c1")
+        #expect(!sut.collapsedCommentIds.contains("c1"))
+    }
+
+    @Test func testToggleCommentCollapsed_TracksEachCommentIndependently() async throws {
+        // Given: A fully loaded SUT
+        let (sut, _, _, _) = try await setupTestEnvironment(account: "collapseIndependent_account")
+
+        sut.toggleCommentCollapsed("c1")
+        sut.toggleCommentCollapsed("c2")
+        #expect(sut.collapsedCommentIds == ["c1", "c2"])
+
+        // Expanding one leaves the other collapsed.
+        sut.toggleCommentCollapsed("c1")
+        #expect(sut.collapsedCommentIds == ["c2"])
+    }
 }

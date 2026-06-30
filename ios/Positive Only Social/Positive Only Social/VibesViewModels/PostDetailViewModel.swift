@@ -39,9 +39,28 @@ final class PostDetailViewModel: ObservableObject {
     
     /// The text for creating a brand new comment thread
     @Published var newCommentText: String = ""
-    
+
+    /// Drives the "Add a comment" composer sheet for a brand new comment on the
+    /// post. Both this and the reply flow go through the same composer sheet so
+    /// the character counter is always shown and comments aren't typed inline
+    /// (issues #266, #289, #290).
+    @Published var showAddCommentSheet = false
+
     /// When a user taps "Reply", this is set, which triggers the reply sheet
     @Published var threadToReplyTo: CommentThreadViewData?
+
+    /// Ids of comments whose thread below them is collapsed. Tapping a comment's
+    /// username/time header toggles its presence here (issue #243).
+    @Published var collapsedCommentIds: Set<String> = []
+
+    /// Toggles whether the thread below the given comment is collapsed.
+    func toggleCommentCollapsed(_ commentId: String) {
+        if collapsedCommentIds.contains(commentId) {
+            collapsedCommentIds.remove(commentId)
+        } else {
+            collapsedCommentIds.insert(commentId)
+        }
+    }
     
     @Published var isPostReported = false
     @Published var reportedCommentIds: Set<String> = []

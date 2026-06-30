@@ -75,8 +75,6 @@ fun PostDetailScreen(
         val commentToReport by viewModel.commentToReport.collectAsState()
         val threadToReplyTo by viewModel.threadToReplyTo.collectAsState()
 
-        val focusManager = LocalFocusManager.current
-
         // Long-press action menus (Report vs Delete, depending on ownership).
         val showActionSheetForPost by viewModel.showActionSheetForPost.collectAsState()
         val commentForAction by viewModel.commentForAction.collectAsState()
@@ -144,9 +142,21 @@ fun PostDetailScreen(
             )
         }
 
+        // "Add a comment" on the post and "Reply" on a thread share the same
+        // composer dialog (title aside), so the character counter is always shown
+        // and the dialog closes the moment the comment is submitted (issue #291).
+        val showAddCommentDialog by viewModel.showAddCommentDialog.collectAsState()
+        if (showAddCommentDialog) {
+            CommentComposerDialog(
+                title = "Add a comment",
+                onDismiss = { viewModel.setShowAddCommentDialog(false) },
+                onSubmit = { text -> viewModel.commentOnPost(text) }
+            )
+        }
+
         threadToReplyTo?.let { thread ->
-            ReplyDialog(
-                thread = thread,
+            CommentComposerDialog(
+                title = "Reply to ${thread.comments.firstOrNull()?.authorUsername ?: "Comment"}",
                 onDismiss = { viewModel.setThreadToReplyTo(null) },
                 onSubmit = { text -> viewModel.replyToCommentThread(thread, text) }
             )
@@ -235,31 +245,19 @@ fun PostDetailScreen(
                             }
                             
                             Divider(modifier = Modifier.padding(vertical = 16.dp))
-                            
-                            // Add Comment Section
-                            val newCommentText by viewModel.newCommentText.collectAsState()
-                            Column {
-                                Row(verticalAlignment = Alignment.CenterVertically) {
-                                    TextField(
-                                        value = newCommentText,
-                                        onValueChange = { viewModel.updateNewCommentText(it) },
-                                        placeholder = { Text("Add a comment...") },
-                                        modifier = Modifier.weight(1f),
-                                        singleLine = true,
-                                        keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
-                                        keyboardActions = KeyboardActions(onDone = { focusManager.clearFocus() })
-                                    )
-                                    Button(
-                                        onClick = { viewModel.commentOnPost(newCommentText) },
-                                        enabled = newCommentText.isNotEmpty() && isWithinLength(newCommentText, Constants.MAX_COMMENT_LENGTH),
-                                        modifier = Modifier.padding(start = 8.dp)
-                                    ) {
-                                        Text("Post")
-                                    }
-                                }
-                                CharacterCounter(text = newCommentText, max = Constants.MAX_COMMENT_LENGTH)
+
+                            // Add Comment Section. Tapping this opens the shared
+                            // comment composer dialog (which shows the character
+                            // counter) rather than typing inline, so commenting on
+                            // a post and replying to a thread work the same way
+                            // (issues #266, #289, #290).
+                            OutlinedButton(
+                                onClick = { viewModel.setShowAddCommentDialog(true) },
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                Text("Add a comment...", modifier = Modifier.weight(1f))
                             }
-                            
+
                             Spacer(modifier = Modifier.height(16.dp))
                             Text("Comments", fontWeight = FontWeight.Bold)
                         }
@@ -294,18 +292,28 @@ fun CommentThreadView(
     onAuthorClick: (String) -> Unit
 ) {
     val reportedCommentIds by viewModel.reportedCommentIds.collectAsState()
+    val collapsedCommentIds by viewModel.collapsedCommentIds.collectAsState()
+
+    // Hide every comment that sits below the first collapsed one in the thread,
+    // so tapping a comment's header folds away the comments under it (issue #243).
+    val collapseIndex = thread.comments.indexOfFirst { collapsedCommentIds.contains(it.id) }
+    val visibleComments =
+        if (collapseIndex == -1) thread.comments else thread.comments.take(collapseIndex + 1)
+
     Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)) {
-        thread.comments.firstOrNull()?.let { rootComment ->
+        visibleComments.firstOrNull()?.let { rootComment ->
             CommentRow(
                 comment = rootComment,
                 isOwn = rootComment.authorUsername == currentUsername,
                 isReported = reportedCommentIds.contains(rootComment.id),
+                isCollapsed = collapsedCommentIds.contains(rootComment.id),
+                onToggleCollapse = { viewModel.toggleCommentCollapsed(rootComment.id) },
                 onLike = { viewModel.likeComment(rootComment, rootComment.threadId) },
                 onUnlike = { viewModel.unlikeComment(rootComment, rootComment.threadId) },
                 onLongPress = { viewModel.setCommentForAction(rootComment) },
                 onAuthorClick = onAuthorClick
             )
-            
+
             // Reply Input for Thread
             Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(start = 16.dp, top = 8.dp)) {
                  TextButton(onClick = { viewModel.setThreadToReplyTo(thread) }) {
@@ -313,14 +321,16 @@ fun CommentThreadView(
                  }
             }
         }
-        
-        if (thread.comments.size > 1) {
+
+        if (visibleComments.size > 1) {
             Column(modifier = Modifier.padding(start = 32.dp)) {
-                thread.comments.drop(1).forEach { reply ->
+                visibleComments.drop(1).forEach { reply ->
                     CommentRow(
                         comment = reply,
                         isOwn = reply.authorUsername == currentUsername,
                         isReported = reportedCommentIds.contains(reply.id),
+                        isCollapsed = collapsedCommentIds.contains(reply.id),
+                        onToggleCollapse = { viewModel.toggleCommentCollapsed(reply.id) },
                         onLike = { viewModel.likeComment(reply, reply.threadId) },
                         onUnlike = { viewModel.unlikeComment(reply, reply.threadId) },
                         onLongPress = { viewModel.setCommentForAction(reply) },
@@ -338,6 +348,8 @@ fun CommentRow(
     comment: CommentViewData,
     isOwn: Boolean,
     isReported: Boolean,
+    isCollapsed: Boolean,
+    onToggleCollapse: () -> Unit,
     onLike: () -> Unit,
     onUnlike: () -> Unit,
     onLongPress: () -> Unit,
@@ -369,11 +381,19 @@ fun CommentRow(
             color = Color.Gray,
             modifier = Modifier.size(32.dp)
         ) {}
-        
+
         Spacer(modifier = Modifier.width(8.dp))
-        
-        Column {
-            Row {
+
+        Column(modifier = Modifier.weight(1f)) {
+            // Username + time header. Tapping the space around the author name
+            // collapses the thread below this comment (issue #243); tapping the
+            // name itself still opens the author's profile.
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clickable { onToggleCollapse() }
+            ) {
                 // Tap the author's name to open their profile, same as the
                 // post author above. combinedClickable (not clickable) so the
                 // row's double-tap (like) and long-press (report/delete)
@@ -392,12 +412,15 @@ fun CommentRow(
                         onClick = { onAuthorClick(comment.authorUsername) }
                     )
                 )
-                Spacer(modifier = Modifier.width(4.dp))
-                Text(comment.body, fontSize = 14.sp)
-            }
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Text(RelativeTime.format(comment.createdDate), fontSize = 12.sp, color = Color.Gray)
                 Spacer(modifier = Modifier.width(8.dp))
+                Text(RelativeTime.format(comment.createdDate), fontSize = 12.sp, color = Color.Gray)
+                Spacer(modifier = Modifier.weight(1f))
+                // Chevron hint for the collapse state of the thread below.
+                Text(if (isCollapsed) "▸" else "▾", fontSize = 12.sp, color = Color.Gray)
+            }
+            // The comment body sits below the username/time header line.
+            Text(comment.body, fontSize = 14.sp)
+            Row(verticalAlignment = Alignment.CenterVertically) {
                 if (!isOwn) {
                     IconButton(
                         onClick = { if (comment.isLiked) onUnlike() else onLike() },
@@ -496,21 +519,28 @@ fun ReportDialog(onDismiss: () -> Unit, onSubmit: (String) -> Unit) {
     )
 }
 
+/**
+ * The shared composer dialog for writing a comment — used both for a brand new
+ * comment on the post and for replying to a thread (issues #266, #289, #290).
+ * It always shows the character counter, and submitting dismisses the dialog
+ * (and thus the keyboard) immediately while clearing the text, so tapping the
+ * confirm button repeatedly can't post the same comment twice (issue #291).
+ */
 @Composable
-fun ReplyDialog(thread: CommentThreadViewData, onDismiss: () -> Unit, onSubmit: (String) -> Unit) {
+fun CommentComposerDialog(title: String, onDismiss: () -> Unit, onSubmit: (String) -> Unit) {
     var text by remember { mutableStateOf("") }
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text("Reply to ${thread.comments.firstOrNull()?.authorUsername ?: "Comment"}") },
+        title = { Text(title) },
         text = {
-            // A reply can span multiple lines, so this stays multiline (Enter
-            // inserts a newline). The dialog's Send/Cancel buttons remain
+            // A comment can span multiple lines, so this stays multiline (Enter
+            // inserts a newline). The dialog's confirm/Cancel buttons remain
             // reachable above the keyboard, so no Done-to-dismiss is needed.
             Column {
                 TextField(
                     value = text,
                     onValueChange = { text = it },
-                    placeholder = { Text("Your reply...") }
+                    placeholder = { Text("Write a comment...") }
                 )
                 CharacterCounter(text = text, max = Constants.MAX_COMMENT_LENGTH)
             }
@@ -525,7 +555,7 @@ fun ReplyDialog(thread: CommentThreadViewData, onDismiss: () -> Unit, onSubmit: 
                 },
                 enabled = text.isNotEmpty() && isWithinLength(text, Constants.MAX_COMMENT_LENGTH)
             ) {
-                Text("Send")
+                Text("Post")
             }
         },
         dismissButton = {

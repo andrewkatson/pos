@@ -436,19 +436,20 @@ class PositiveOnlySocialIntegrationTests {
         composeTestRule.onNodeWithText("Feed").performClick()
         composeTestRule.onAllNodesWithContentDescription("Post Image").onFirst().performClick()
         
-        // Make comment
-        composeTestRule.onNodeWithText("Add a comment...").performTextInput("Comment On a Post")
+        // Make comment via the composer dialog
+        composeTestRule.onNodeWithText("Add a comment...").performClick()
+        composeTestRule.onNodeWithText("Write a comment...").performTextInput("Comment On a Post")
         composeTestRule.onNodeWithText("Post").performClick()
-        
+
         // Verify comment appears
         composeTestRule.onNodeWithText("Comment On a Post").assertExists()
 
         dismissKeyboardIfPresent()
 
-        // Reply to thread
+        // Reply to thread via the same composer dialog
         composeTestRule.onNodeWithText("Reply").performClick()
-        composeTestRule.onNodeWithText("Your reply...").performTextInput("Comment On a Thread")
-        composeTestRule.onNodeWithText("Send").performClick()
+        composeTestRule.onNodeWithText("Write a comment...").performTextInput("Comment On a Thread")
+        composeTestRule.onNodeWithText("Post").performClick()
 
         // Now we logout
         Espresso.pressBack()
