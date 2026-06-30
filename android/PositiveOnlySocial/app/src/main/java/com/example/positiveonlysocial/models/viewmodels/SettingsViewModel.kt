@@ -3,6 +3,7 @@ package com.example.positiveonlysocial.models.viewmodels
 import android.util.Log
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.example.positiveonlysocial.api.ApiErrors
 import com.example.positiveonlysocial.api.PositiveOnlySocialAPI
 import com.example.positiveonlysocial.data.auth.AuthenticationManager
 import com.example.positiveonlysocial.data.model.UserSession
@@ -71,7 +72,7 @@ class SettingsViewModel(
                 authenticationManager.logout()
                 
             } catch (e: Exception) {
-                _errorMessage.value = "Logout failed: ${e.localizedMessage}"
+                _errorMessage.value = ApiErrors.messageFor(e, fallback = "Logout failed. Please try again.")
                 // Force local logout anyway? Usually yes.
                 authenticationManager.logout()
             }
@@ -88,13 +89,13 @@ class SettingsViewModel(
                     if (response.isSuccessful) {
                         authenticationManager.logout()
                     } else {
-                        _errorMessage.value = "Failed to delete account: ${response.errorBody()?.string()}"
+                        _errorMessage.value = ApiErrors.messageFor(response, fallback = "Failed to delete your account. Please try again.")
                     }
                 } else {
                     authenticationManager.logout()
                 }
             } catch (e: Exception) {
-                _errorMessage.value = "Error deleting account: ${e.localizedMessage}"
+                _errorMessage.value = ApiErrors.messageFor(e, fallback = "Failed to delete your account. Please try again.")
             }
         }
     }
@@ -117,7 +118,7 @@ class SettingsViewModel(
                         _verificationMessage.value = "Identity verified successfully!"
                         _showingVerificationAlert.value = true
                     } else {
-                        _errorMessage.value = "Verification failed: ${response.errorBody()?.string()}"
+                        _errorMessage.value = ApiErrors.messageFor(response, fallback = "Verification failed. Please try again.")
                         _showingErrorAlert.value = true
                     }
                 } else {
@@ -125,7 +126,7 @@ class SettingsViewModel(
                     _showingErrorAlert.value = true
                 }
             } catch (e: Exception) {
-                _errorMessage.value = "Verification error: ${e.localizedMessage}"
+                _errorMessage.value = ApiErrors.messageFor(e, fallback = "Verification failed. Please try again.")
                 _showingErrorAlert.value = true
             }
         }

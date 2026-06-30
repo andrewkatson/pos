@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from '@testing-library/react'
+import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { MemoryRouter, Routes, Route } from 'react-router-dom'
 import { vi, beforeEach, afterEach, test, expect } from 'vitest'
@@ -50,6 +50,33 @@ test('renders the current user post grid and opens a post', async () => {
   const cell = await screen.findByRole('button', { name: 'Post by ada' })
   await userEvent.click(cell)
   expect(screen.getByText('Post page')).toBeInTheDocument()
+})
+
+test('falls back to the original image when the compressed one fails to load', async () => {
+  // The compressed copy is produced by an async Lambda, so a just-posted (or
+  // recently hidden) image can 404 in the compressed bucket for a while. The
+  // grid should fall back to the full-resolution original rather than showing a
+  // broken image (issues #252/#254).
+  mockGetPosts.mockResolvedValue([
+    {
+      post_identifier: 'p1',
+      image_url: 'http://compressed/1.jpg',
+      original_image_url: 'http://original/1.jpg',
+      author_username: 'ada',
+      caption: 'hi',
+    },
+  ])
+  renderTab()
+  const img = (await screen.findByAltText('hi')) as HTMLImageElement
+  expect(img.getAttribute('src')).toBe('http://compressed/1.jpg')
+
+  // Simulate the compressed image failing to load.
+  fireEvent.error(img)
+  expect(img.getAttribute('src')).toBe('http://original/1.jpg')
+
+  // A second failure (e.g. the original also 404s) must not loop back.
+  fireEvent.error(img)
+  expect(img.getAttribute('src')).toBe('http://original/1.jpg')
 })
 
 test('shows empty state when the user has no posts', async () => {

@@ -211,6 +211,38 @@ struct Positive_Only_SocialTests_HomeViewModel {
         #expect(sut.userPosts.filter { $0.imageUrl == "my.image/3" }.count == 1)
     }
 
+    // --- Deletion Propagation Tests ---
+
+    @Test func testPostDeletedNotification_RemovesPostFromGrid() async throws {
+        stubAPI.pageSize = 10
+        let account = "postDeletedRemovesPost_account"
+        try await setupLoggedInUser(username: "postDeletedRemovesPost")
+
+        // Inject a private NotificationCenter so this test's notification can't
+        // leak into (or be disturbed by) other view models on `.default`.
+        let center = NotificationCenter()
+        let sut = HomeViewModel(api: stubAPI, keychainHelper: keychainHelper, account: account, notificationCenter: center)
+
+        let session = try keychainHelper.load(UserSession.self, from: GVOAppConstants.keychainService, account: account)
+        let token = session!.sessionToken
+
+        _ = try await stubAPI.makePost(sessionManagementToken: token, imageURL: "my.image/1", caption: "Post 1")
+        _ = try await stubAPI.makePost(sessionManagementToken: token, imageURL: "my.image/2", caption: "Post 2")
+        sut.fetchMyPosts()
+        await yield()
+        #expect(sut.userPosts.count == 2)
+
+        // When: one of the loaded posts is deleted (announced via the notification
+        // the post detail view posts on a successful delete)
+        let deletedId = sut.userPosts.first!.id
+        center.post(name: .postDeleted, object: deletedId)
+        await yield()
+
+        // Then: it's dropped from the grid so its now-missing image can't linger
+        #expect(sut.userPosts.count == 1)
+        #expect(!sut.userPosts.contains { $0.id == deletedId })
+    }
+
     // --- Search Tests ---
 
     @Test func testSearch_Debouncer_Success() async throws {

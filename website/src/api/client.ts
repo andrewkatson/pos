@@ -46,6 +46,36 @@ export const ACCOUNT_BANNED = 'account_banned'
 export const ACCOUNT_SUSPENDED_MESSAGE =
   'Your account has been suspended for violating our community guidelines.'
 
+/**
+ * Friendly, user-facing copy for an HTTP status code, used when the backend did
+ * not return its own `{ error }` message (e.g. a gateway timeout or routing
+ * failure that returns HTML or an empty body). Keeps a raw status code from ever
+ * reaching the user.
+ */
+function friendlyStatusMessage(status: number): string {
+  switch (status) {
+    case 404:
+      return "We couldn't find what you were looking for. It may have been removed."
+    case 408:
+      return 'The request timed out. Please try again.'
+    case 429:
+      return "You're doing that too often. Please wait a moment and try again."
+    case 502:
+    case 503:
+    case 504:
+      return 'The server is taking too long to respond. Please try again in a moment.'
+    default:
+      if (status >= 500) {
+        return 'The server ran into a problem. Please try again in a moment.'
+      }
+      return 'Something went wrong. Please try again.'
+  }
+}
+
+/** User-facing copy when the request never reached the server (offline, DNS). */
+const NETWORK_ERROR_MESSAGE =
+  'You appear to be offline. Please check your connection and try again.'
+
 /** Error thrown for any non-2xx response, carrying the backend's error message. */
 export class ApiError extends Error {
   readonly status: number
@@ -120,11 +150,25 @@ export class ApiClient implements PositiveOnlySocialAPI {
       headers['Authorization'] = `Bearer ${this.token}`
     }
 
-    const response = await this.fetchFn(`${this.baseUrl}${path}`, {
-      method,
-      headers,
-      body: options.body !== undefined ? JSON.stringify(options.body) : undefined,
-    })
+    // Serialize the body up front so a stringify failure (e.g. a circular
+    // structure) surfaces as itself, not mistaken for a network failure by the
+    // catch below.
+    const serializedBody =
+      options.body !== undefined ? JSON.stringify(options.body) : undefined
+
+    let response: Response
+    try {
+      response = await this.fetchFn(`${this.baseUrl}${path}`, {
+        method,
+        headers,
+        body: serializedBody,
+      })
+    } catch {
+      // fetch rejects (typically a TypeError) when the request never reached the
+      // server — offline, DNS failure, connection refused. Surface plain copy
+      // instead of a raw "Failed to fetch".
+      throw new ApiError(0, NETWORK_ERROR_MESSAGE)
+    }
 
     let payload: unknown = null
     const text = await response.text()
@@ -140,7 +184,7 @@ export class ApiClient implements PositiveOnlySocialAPI {
       const message =
         payload && typeof payload === 'object' && 'error' in payload
           ? String((payload as { error: unknown }).error)
-          : `Request failed with status ${response.status}`
+          : friendlyStatusMessage(response.status)
       if (options.auth && message === ACCOUNT_BANNED) {
         this.onAccountBanned?.()
       }

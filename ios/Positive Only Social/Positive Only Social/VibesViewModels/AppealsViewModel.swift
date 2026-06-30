@@ -57,7 +57,7 @@ final class AppealsViewModel: ObservableObject {
                 NSLog("%@", "Appeals load cancelled")
             } else {
                 NSLog("%@", "Error loading appeals: \(error)")
-                errorMessage = error.localizedDescription
+                errorMessage = error.userFacingMessage
             }
         }
     }
@@ -79,7 +79,7 @@ final class AppealsViewModel: ObservableObject {
             await load()
             return true
         } catch {
-            errorMessage = error.localizedDescription
+            errorMessage = error.userFacingMessage
             return false
         }
     }

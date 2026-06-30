@@ -16,6 +16,13 @@ OPENAI_MODEL = 'gpt-4o-mini'
 REJECT_THRESHOLD = 0.3
 ALLOW_THRESHOLD = 0.7
 
+# Per-call timeout (in seconds) for outbound AI classification requests. Without
+# an explicit timeout the provider SDKs default to minutes, so a single hung
+# provider can stall a whole post-creation request well past the gateway's own
+# timeout and surface to the client as a 504. A call that exceeds this is
+# treated like any other failed provider and skipped by the cascade.
+LLM_TIMEOUT_SECONDS = 15
+
 _CONTENT_RULES = (
     "1. No swear words\n"
     "2. No nudity\n"

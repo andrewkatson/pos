@@ -10,7 +10,7 @@ import anthropic
 import openai as openai_lib
 from .classifier_constants import (
     GEMINI_MODEL, CLAUDE_MODEL, OPENAI_MODEL,
-    REJECT_THRESHOLD, ALLOW_THRESHOLD,
+    REJECT_THRESHOLD, ALLOW_THRESHOLD, LLM_TIMEOUT_SECONDS,
 )
 
 logger = logging.getLogger(__name__)
@@ -125,7 +125,8 @@ def classify_with_thresholds(available_apis, call_fn):
 
 def call_text_gemini(text, prompt_template):
     api_key = os.environ.get('GEMINI_API_KEY')
-    client = genai.Client(api_key=api_key)
+    # google-genai expects the timeout in milliseconds.
+    client = genai.Client(api_key=api_key, http_options={'timeout': LLM_TIMEOUT_SECONDS * 1000})
     prompt = prompt_template.format(text=text)
     response = client.models.generate_content(model=GEMINI_MODEL, contents=prompt)
     return parse_probability(response.text)
@@ -133,7 +134,7 @@ def call_text_gemini(text, prompt_template):
 
 def call_text_claude(text, prompt_template):
     api_key = os.environ.get('ANTHROPIC_API_KEY')
-    client = anthropic.Anthropic(api_key=api_key)
+    client = anthropic.Anthropic(api_key=api_key, timeout=LLM_TIMEOUT_SECONDS)
     prompt = prompt_template.format(text=text)
     response = client.messages.create(
         model=CLAUDE_MODEL,
@@ -145,7 +146,7 @@ def call_text_claude(text, prompt_template):
 
 def call_text_openai(text, prompt_template):
     api_key = os.environ.get('OPENAI_API_KEY')
-    client = openai_lib.OpenAI(api_key=api_key)
+    client = openai_lib.OpenAI(api_key=api_key, timeout=LLM_TIMEOUT_SECONDS)
     prompt = prompt_template.format(text=text)
     response = client.chat.completions.create(
         model=OPENAI_MODEL,
@@ -163,14 +164,15 @@ def _image_to_base64_png(image):
 
 def call_image_gemini(image, prompt):
     api_key = os.environ.get('GEMINI_API_KEY')
-    client = genai.Client(api_key=api_key)
+    # google-genai expects the timeout in milliseconds.
+    client = genai.Client(api_key=api_key, http_options={'timeout': LLM_TIMEOUT_SECONDS * 1000})
     response = client.models.generate_content(model=GEMINI_MODEL, contents=[prompt, image])
     return parse_probability(response.text)
 
 
 def call_image_claude(image, prompt):
     api_key = os.environ.get('ANTHROPIC_API_KEY')
-    client = anthropic.Anthropic(api_key=api_key)
+    client = anthropic.Anthropic(api_key=api_key, timeout=LLM_TIMEOUT_SECONDS)
     image_data = _image_to_base64_png(image)
     response = client.messages.create(
         model=CLAUDE_MODEL,
@@ -188,7 +190,7 @@ def call_image_claude(image, prompt):
 
 def call_image_openai(image, prompt):
     api_key = os.environ.get('OPENAI_API_KEY')
-    client = openai_lib.OpenAI(api_key=api_key)
+    client = openai_lib.OpenAI(api_key=api_key, timeout=LLM_TIMEOUT_SECONDS)
     image_data = _image_to_base64_png(image)
     response = client.chat.completions.create(
         model=OPENAI_MODEL,

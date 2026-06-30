@@ -205,7 +205,9 @@ struct RegisterView: View {
                 if case .serverError(_, let message) = error {
                     errorMessage = message
                 } else {
-                    errorMessage = "This username or email may already be taken. Please try again."
+                    // Transport/status-code failures (timeouts, 5xx) aren't a
+                    // duplicate-account problem — show what actually went wrong.
+                    errorMessage = error.userFacingMessage
                 }
                 showingErrorAlert = true
                 NSLog("%@", "🔴 Registration failed: \(error)")

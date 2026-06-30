@@ -6,8 +6,10 @@ import com.example.positiveonlysocial.data.model.Post
 import com.example.positiveonlysocial.data.model.User
 import com.example.positiveonlysocial.data.model.UserSession
 import com.example.positiveonlysocial.data.security.KeychainHelperProtocol
+import com.example.positiveonlysocial.util.PostEvents
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.test.advanceTimeBy
+import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.runTest
 import okhttp3.ResponseBody.Companion.toResponseBody
 import org.junit.Assert.assertEquals
@@ -59,12 +61,12 @@ class HomeViewModelTest {
 
     @Test
     fun `fetchMyPosts failure updates errorMessage`() = runTest {
-        whenever(api.getPostsForUser("token123", "testuser", 0)).thenReturn(Response.error(400, "error".toResponseBody()))
+        whenever(api.getPostsForUser("token123", "testuser", 0)).thenReturn(Response.error(400, "{\"error\":\"Server error\"}".toResponseBody()))
 
         viewModel.fetchMyPosts()
 
         assertTrue(viewModel.userPosts.value.isEmpty())
-        assertEquals("error", viewModel.errorMessage.value)
+        assertEquals("Server error", viewModel.errorMessage.value)
     }
 
     @Test
@@ -110,12 +112,32 @@ class HomeViewModelTest {
         whenever(api.getPostsForUser("token123", "testuser", 0)).thenReturn(Response.success(initialPosts))
         viewModel.fetchMyPosts()
 
-        whenever(api.getPostsForUser("token123", "testuser", 0)).thenReturn(Response.error(400, "error".toResponseBody()))
+        whenever(api.getPostsForUser("token123", "testuser", 0)).thenReturn(Response.error(400, "{\"error\":\"Server error\"}".toResponseBody()))
         viewModel.refreshMyPosts()
 
         assertEquals(initialPosts, viewModel.userPosts.value)
-        assertEquals("error", viewModel.errorMessage.value)
+        assertEquals("Server error", viewModel.errorMessage.value)
         assertFalse(viewModel.isRefreshing.value)
+    }
+
+    @Test
+    fun `post deleted event removes matching post from grid`() = runTest {
+        val mockPosts = listOf(
+            Post("1", "url1", "caption1", "testuser"),
+            Post("2", "url2", "caption2", "testuser")
+        )
+        whenever(api.getPostsForUser("token123", "testuser", 0)).thenReturn(Response.success(mockPosts))
+        viewModel.fetchMyPosts()
+        assertEquals(2, viewModel.userPosts.value.size)
+
+        // When a post is deleted from its detail screen, it announces the delete
+        // through PostEvents; the grid should drop it so the now-missing image
+        // doesn't linger as an empty black tile (issue #256).
+        PostEvents.postDeleted("1")
+        advanceUntilIdle()
+
+        assertEquals(1, viewModel.userPosts.value.size)
+        assertFalse(viewModel.userPosts.value.any { it.postIdentifier == "1" })
     }
 
     @Test

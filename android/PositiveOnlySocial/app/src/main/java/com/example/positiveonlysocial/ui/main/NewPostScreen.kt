@@ -5,6 +5,8 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.*
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.AddAPhoto
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -14,6 +16,7 @@ import androidx.compose.ui.unit.dp
 import androidx.navigation.NavController
 import coil.compose.AsyncImage
 import androidx.compose.ui.platform.LocalContext
+import com.example.positiveonlysocial.api.ApiErrors
 import com.example.positiveonlysocial.api.PositiveOnlySocialAPI
 import com.example.positiveonlysocial.data.constants.Constants
 import com.example.positiveonlysocial.data.model.CreatePostRequest
@@ -105,9 +108,20 @@ fun NewPostScreen(
                         PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)
                     )
                 },
-                modifier = Modifier.fillMaxWidth()
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(52.dp)
             ) {
-                Text("Select a photo")
+                Icon(
+                    imageVector = Icons.Default.AddAPhoto,
+                    contentDescription = null,
+                    modifier = Modifier.size(20.dp)
+                )
+                Spacer(modifier = Modifier.width(8.dp))
+                Text(
+                    text = if (selectedImageUri == null) "Select a Photo" else "Change Photo",
+                    style = MaterialTheme.typography.titleMedium
+                )
             }
 
             if (selectedImageUri != null) {
@@ -125,6 +139,7 @@ fun NewPostScreen(
                 value = caption,
                 onValueChange = { caption = it },
                 label = { Text("Caption") },
+                placeholder = { Text("Put a description here") },
                 modifier = Modifier
                     .fillMaxWidth()
                     .height(100.dp)
@@ -189,8 +204,7 @@ fun NewPostScreen(
                                 if (!response.isSuccessful) {
                                     // A non-2xx (e.g. final classifier rejection)
                                     // must not show a success dialog.
-                                    val raw = response.errorBody()?.string()
-                                    failureMessage = "Failed to share post: ${raw ?: "Please try again."}"
+                                    failureMessage = ApiErrors.messageFor(response, fallback = "Failed to share post. Please try again.")
                                     showFailureAlert = true
                                     return@launch
                                 }
@@ -207,7 +221,7 @@ fun NewPostScreen(
                                 showSuccessAlert = true
 
                             } catch (e: Exception) {
-                                failureMessage = "Failed to share post: ${e.localizedMessage}"
+                                failureMessage = ApiErrors.messageFor(e, fallback = "Failed to share post. Please try again.")
                                 showFailureAlert = true
                             } finally {
                                 isLoading = false

@@ -87,4 +87,57 @@ struct Positive_Only_SocialTests_ErrorHelpers {
         let error = NSError(domain: "SomeDomain", code: 403)
         #expect(error.isAccountBanned == false)
     }
+
+    // --- User-facing message mapping ---
+
+    @Test func testServerError_PassesBackendMessageThrough() {
+        // The backend's own validation copy is already user-appropriate.
+        let error = APIError.serverError(statusCode: 400, serverMessage: "Text is not positive")
+        #expect(error.userFacingMessage == "Text is not positive")
+    }
+
+    @Test func testGatewayTimeout_IsFriendly() {
+        // A 504 must never surface as a raw status code to the user.
+        let message = APIError.badServerResponse(statusCode: 504).userFacingMessage
+        #expect(message == "The server is taking too long to respond. Please try again in a moment.")
+        #expect(message.contains("504") == false)
+    }
+
+    @Test func testNotFound_IsFriendly() {
+        let message = APIError.badServerResponse(statusCode: 404).userFacingMessage
+        #expect(message.contains("404") == false)
+        #expect(message.isEmpty == false)
+    }
+
+    @Test func testServerErrorRange_IsFriendly() {
+        #expect(
+            APIError.badServerResponse(statusCode: 500).userFacingMessage
+                == "The server ran into a problem. Please try again in a moment.")
+    }
+
+    @Test func testRateLimited_IsFriendly() {
+        #expect(
+            APIError.badServerResponse(statusCode: 429).userFacingMessage
+                == "You're doing that too often. Please wait a moment and try again.")
+    }
+
+    @Test func testRequestFailedWrappingTimeout_IsFriendly() {
+        let message = APIError.requestFailed(URLError(.timedOut)).userFacingMessage
+        #expect(message == "The request timed out. Please check your connection and try again.")
+    }
+
+    @Test func testRequestFailedWrappingOffline_IsFriendly() {
+        let message = APIError.requestFailed(URLError(.notConnectedToInternet)).userFacingMessage
+        #expect(message == "You appear to be offline. Please check your connection and try again.")
+    }
+
+    @Test func testOfflineNSError_IsFriendly() {
+        let error = NSError(domain: NSURLErrorDomain, code: NSURLErrorNotConnectedToInternet)
+        #expect(error.userFacingMessage == "You appear to be offline. Please check your connection and try again.")
+    }
+
+    @Test func testUnknownError_FallsBackToGeneric() {
+        let error = NSError(domain: "SomeDomain", code: 1)
+        #expect(error.userFacingMessage == "Something went wrong. Please try again.")
+    }
 }

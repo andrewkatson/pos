@@ -17,6 +17,7 @@ import androidx.compose.ui.tooling.preview.Preview
 import androidx.navigation.NavController
 import androidx.navigation.compose.rememberNavController
 import com.example.positiveonlysocial.ui.preview.PreviewHelpers
+import com.example.positiveonlysocial.api.ApiErrors
 import com.example.positiveonlysocial.api.PositiveOnlySocialAPI
 import com.example.positiveonlysocial.data.model.PasswordResetSubmitRequest
 import com.example.positiveonlysocial.data.security.KeychainHelperProtocol
@@ -24,7 +25,6 @@ import com.example.positiveonlysocial.ui.dismissKeyboardOnTap
 import com.example.positiveonlysocial.ui.navigation.Screen
 import com.example.positiveonlysocial.ui.theme.PositiveOnlySocialTheme
 import kotlinx.coroutines.launch
-import org.json.JSONObject
 
 @Composable
 fun ResetPasswordScreen(
@@ -162,9 +162,7 @@ fun ResetPasswordScreen(
                                 )
                                 val response = api.resetPassword(request = request)
                                 if (!response.isSuccessful) {
-                                    val backendError = response.errorBody()?.string()
-                                        ?.let { runCatching { JSONObject(it).getString("error") }.getOrNull() }
-                                    errorMessage = backendError ?: "Password reset failed. Please try again."
+                                    errorMessage = ApiErrors.messageFor(response, fallback = "Password reset failed. Please try again.")
                                     showingErrorAlert = true
                                 } else {
                                     navController.navigate(Screen.Login.route) {
@@ -172,7 +170,7 @@ fun ResetPasswordScreen(
                                     }
                                 }
                             } catch (e: Exception) {
-                                errorMessage = e.localizedMessage ?: "An unknown error occurred."
+                                errorMessage = ApiErrors.messageFor(e, fallback = "An unknown error occurred.")
                                 showingErrorAlert = true
                             } finally {
                                 isLoading = false

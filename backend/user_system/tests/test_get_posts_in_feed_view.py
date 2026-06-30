@@ -78,6 +78,23 @@ class GetPostsInFeedTests(PositiveOnlySocialTestCase):
         # This assumes POST_BATCH_SIZE is 10
         self.assertEqual(len(responses), 10)
 
+    def test_feed_posts_include_original_image_url_fallback(self):
+        """
+        Each feed post carries an `original_image_url` (the full-resolution
+        original) alongside the compressed `image_url`, so clients can fall back
+        to it while the async-generated compressed copy isn't ready. See #252/#254.
+        """
+        url = reverse('get_posts_in_feed', kwargs={'batch': 0})
+
+        response = self.client.get(url, **self.valid_header)
+
+        self.assertEqual(response.status_code, 200)
+        responses = response.json()
+        self.assertTrue(len(responses) > 0)
+        for post in responses:
+            self.assertIn(Fields.original_image_url, post)
+            self.assertTrue(post[Fields.original_image_url])
+
     def test_last_batch_returns_good_response(self):
         """
         Tests that requesting the last partial batch (batch 2)

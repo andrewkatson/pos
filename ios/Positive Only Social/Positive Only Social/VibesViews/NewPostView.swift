@@ -33,15 +33,29 @@ struct NewPostView: View {
         NavigationStack {
             Form {
                 Section(header: Text("New Post Details")) {
+                    // A prominent, full-width button reads as the primary call to
+                    // action rather than looking like plain tappable text.
+                    let pickerLabel = Label(
+                        selectedImageData == nil ? "Select a Photo" : "Change Photo",
+                        systemImage: "photo.on.rectangle.angled"
+                    )
+                    .font(.headline)
+                    .frame(maxWidth: .infinity)
+
                     if isUITesting() {
                         // Testing mode: Use a regular button
-                        Button("Select a photo") {
+                        Button {
                             // Load a test image
                             if let testImage = UIImage(systemName: "photo.fill"),
                                let imageData = testImage.jpegData(compressionQuality: 0.8) {
                                 selectedImageData = imageData
                             }
-                        }.accessibilityIdentifier("SelectAPhotoPicker")
+                        } label: {
+                            pickerLabel
+                        }
+                        .buttonStyle(.borderedProminent)
+                        .controlSize(.large)
+                        .accessibilityIdentifier("SelectAPhotoPicker")
                     } else {
                         // Production mode: Use real PhotosPicker
                         PhotosPicker(
@@ -49,10 +63,13 @@ struct NewPostView: View {
                             matching: .images,
                             photoLibrary: .shared()
                         ) {
-                            Text("Select a photo")
-                        }.accessibilityIdentifier("SelectAPhotoPicker")
+                            pickerLabel
+                        }
+                        .buttonStyle(.borderedProminent)
+                        .controlSize(.large)
+                        .accessibilityIdentifier("SelectAPhotoPicker")
                     }
-                    
+
                     if let selectedImageData,
                        let uiImage = UIImage(data: selectedImageData)
                     {
@@ -63,8 +80,19 @@ struct NewPostView: View {
                             )
                             .clipShape(RoundedRectangle(cornerRadius: 10))
                     }
-                    
-                    TextEditor(text: $caption).frame(height: 100).accessibilityIdentifier("CaptionTextEditor")
+
+                    // TextEditor has no built-in placeholder, so overlay one that
+                    // shows until the user starts typing a description.
+                    ZStack(alignment: .topLeading) {
+                        if caption.isEmpty {
+                            Text("Put a description here")
+                                .foregroundColor(Color(.placeholderText))
+                                .padding(.top, 8)
+                                .padding(.leading, 5)
+                                .allowsHitTesting(false)
+                        }
+                        TextEditor(text: $caption).frame(height: 100).accessibilityIdentifier("CaptionTextEditor")
+                    }
                     CharacterCounter(text: caption, max: GVOAppConstants.maxCaptionLength)
                 }
                 
@@ -174,8 +202,7 @@ struct NewPostView: View {
                 
             } catch {
                 // Set the error message and show the failure alert
-                failureAlertMessage =
-                "Failed to share post. Error: \(error.localizedDescription)"
+                failureAlertMessage = error.userFacingMessage
                 isLoading = false
                 showFailureAlert = true // This will trigger the failure alert
             }

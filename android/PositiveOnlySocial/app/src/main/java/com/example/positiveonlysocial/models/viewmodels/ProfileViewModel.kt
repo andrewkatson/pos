@@ -3,6 +3,7 @@ package com.example.positiveonlysocial.models.viewmodels
 import android.util.Log
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.example.positiveonlysocial.api.ApiErrors
 import com.example.positiveonlysocial.api.PositiveOnlySocialAPI
 import com.example.positiveonlysocial.data.model.Post
 import com.example.positiveonlysocial.data.model.ProfileDetailsResponse
@@ -83,7 +84,7 @@ class ProfileViewModel(
                     _isFollowing.value = profile?.isFollowing ?: false
                     _isBlocked.value = profile?.isBlocked ?: false
                 } else {
-                    _errorMessage.value = "Failed to load profile: ${profileResponse.errorBody()?.string()}"
+                    _errorMessage.value = ApiErrors.messageFor(profileResponse, fallback = "Failed to load this profile. Please try again.")
                 }
 
                 // Fetch Initial User Posts (Page 0)
@@ -99,12 +100,12 @@ class ProfileViewModel(
                     }
                 } else {
                     if (_errorMessage.value == null) {
-                        _errorMessage.value = "Failed to load posts: ${postsResponse.errorBody()?.string()}"
+                        _errorMessage.value = ApiErrors.messageFor(postsResponse, fallback = "Failed to load posts. Please try again.")
                     }
                 }
 
             } catch (e: Exception) {
-                _errorMessage.value = "Error: ${e.localizedMessage}"
+                _errorMessage.value = ApiErrors.messageFor(e, fallback = "Something went wrong. Please try again.")
                 Log.e(TAG, "Error fetching profile", e)
             } finally {
                 _isLoading.value = false
@@ -142,7 +143,7 @@ class ProfileViewModel(
                 } else {
                     // Surface the failure instead of silently leaving follow/block
                     // state stale (mirrors fetchProfile()).
-                    _errorMessage.value = "Failed to load profile: ${profileResponse.errorBody()?.string()}"
+                    _errorMessage.value = ApiErrors.messageFor(profileResponse, fallback = "Failed to load this profile. Please try again.")
                 }
 
                 val postsResponse = api.getPostsForUser(userSession.sessionToken, username, 0)
@@ -152,10 +153,10 @@ class ProfileViewModel(
                     canLoadMore = newPosts.isNotEmpty()
                     currentPage = if (newPosts.isEmpty()) 0 else 1
                 } else if (_errorMessage.value == null) {
-                    _errorMessage.value = "Failed to load posts: ${postsResponse.errorBody()?.string()}"
+                    _errorMessage.value = ApiErrors.messageFor(postsResponse, fallback = "Failed to load posts. Please try again.")
                 }
             } catch (e: Exception) {
-                _errorMessage.value = "Error: ${e.localizedMessage}"
+                _errorMessage.value = ApiErrors.messageFor(e, fallback = "Something went wrong. Please try again.")
                 Log.e(TAG, "Error refreshing profile", e)
             } finally {
                 _isRefreshing.value = false
@@ -238,7 +239,7 @@ class ProfileViewModel(
                 // Revert on error
                 _profileDetails.value = currentProfile
                 _isFollowing.value = isFollowing
-                _errorMessage.value = "Error: ${e.localizedMessage}"
+                _errorMessage.value = ApiErrors.messageFor(e, fallback = "Something went wrong. Please try again.")
             }
         }
     }
@@ -288,7 +289,7 @@ class ProfileViewModel(
                     _profileDetails.value = currentProfile
                     _isFollowing.value = currentProfile.isFollowing
                 }
-                _errorMessage.value = "Error: ${e.localizedMessage}"
+                _errorMessage.value = ApiErrors.messageFor(e, fallback = "Something went wrong. Please try again.")
             }
         }
     }

@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom'
 import { apiClient } from '../api/client'
 import { getCurrentUsername } from '../api/session'
 import type { FeedPost, UserSearchResult } from '../api/types'
+import PostThumbnail from './PostThumbnail'
 
 /**
  * The "Home" tab: the signed-in user's own post grid, with a user-search bar
@@ -156,7 +157,7 @@ function MyPostsTab() {
                   aria-label={`Post by ${post.author_username}`}
                   onClick={() => navigate(`/post/${post.post_identifier}`)}
                 >
-                  <img src={post.image_url} alt={post.caption} />
+                  <PostThumbnail post={post} />
                 </button>
               ))}
             </div>
