@@ -7,6 +7,7 @@ import retrofit2.Retrofit
 import retrofit2.converter.gson.GsonConverterFactory
 import com.example.positiveonlysocial.data.constants.Constants
 import com.example.positiveonlysocial.BuildConfig
+import java.util.concurrent.TimeUnit
 
 object APIProvider {
 
@@ -61,6 +62,13 @@ object APIProvider {
 
     private fun createRetrofitService(url: String): PositiveOnlySocialAPI {
         val client = OkHttpClient.Builder()
+            // Creating a post waits on server-side AI classification, so the
+            // read timeout must comfortably exceed that work; otherwise a slow
+            // (but successful) request is dropped client-side as a timeout. The
+            // defaults (10s) are too tight for that path.
+            .connectTimeout(15, TimeUnit.SECONDS)
+            .readTimeout(60, TimeUnit.SECONDS)
+            .writeTimeout(60, TimeUnit.SECONDS)
             .addInterceptor { chain ->
                 val original = chain.request()
                 val authHeader = original.header("Authorization")

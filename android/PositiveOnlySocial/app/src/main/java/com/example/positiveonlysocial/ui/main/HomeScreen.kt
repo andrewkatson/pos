@@ -17,14 +17,12 @@ import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.NavController
-import coil.compose.AsyncImage
 import com.example.positiveonlysocial.api.PositiveOnlySocialAPI
 import com.example.positiveonlysocial.data.security.KeychainHelperProtocol
 import com.example.positiveonlysocial.models.viewmodels.HomeViewModel
@@ -142,15 +140,13 @@ fun HomeScreen(
                         verticalArrangement = Arrangement.spacedBy(1.dp)
                     ) {
                         items(userPosts) { post ->
-                            AsyncImage(
-                                model = post.imageUrl,
-                                contentDescription = "Post Image",
+                            PostImageWithFallback(
+                                post = post,
                                 modifier = Modifier
                                     .aspectRatio(1f)
                                     .clickable {
                                         navController.navigate(Screen.PostDetail.createRoute(post.postIdentifier))
-                                    },
-                                contentScale = ContentScale.Crop
+                                    }
                             )
 
                             // Infinite scroll trigger

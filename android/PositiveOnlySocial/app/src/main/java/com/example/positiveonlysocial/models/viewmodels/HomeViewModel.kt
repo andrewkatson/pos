@@ -3,11 +3,13 @@ package com.example.positiveonlysocial.models.viewmodels
 import android.util.Log
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.example.positiveonlysocial.api.ApiErrors
 import com.example.positiveonlysocial.api.PositiveOnlySocialAPI
 import com.example.positiveonlysocial.data.model.Post
 import com.example.positiveonlysocial.data.model.User
 import com.example.positiveonlysocial.data.model.UserSession
 import com.example.positiveonlysocial.data.security.KeychainHelperProtocol
+import com.example.positiveonlysocial.util.PostEvents
 import kotlinx.coroutines.FlowPreview
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -57,6 +59,15 @@ class HomeViewModel(
                     performSearch(query)
                 }
         }
+
+        // When a post is deleted (from its detail screen, which lives in a
+        // different nav entry), drop it from the grid so its now-missing image
+        // doesn't linger as an empty black tile until logout (issue #256).
+        viewModelScope.launch {
+            PostEvents.deletedPostIds.collect { deletedId ->
+                _userPosts.value = _userPosts.value.filterNot { it.postIdentifier == deletedId }
+            }
+        }
     }
 
     fun updateSearchText(text: String) {
@@ -89,10 +100,10 @@ class HomeViewModel(
                     canLoadMorePosts = newPosts.isNotEmpty()
                     currentPage = if (newPosts.isEmpty()) 0 else 1
                 } else {
-                    _errorMessage.value = response.errorBody()?.string()
+                    _errorMessage.value = ApiErrors.messageFor(response, fallback = "Something went wrong. Please try again.")
                 }
             } catch (e: Exception) {
-                _errorMessage.value = e.localizedMessage
+                _errorMessage.value = ApiErrors.messageFor(e, fallback = "Something went wrong. Please try again.")
                 Log.e(TAG, "Error refreshing my posts", e)
             } finally {
                 _isRefreshing.value = false
@@ -127,10 +138,10 @@ class HomeViewModel(
                         currentPage += 1
                     }
                 } else {
-                    _errorMessage.value = response.errorBody()?.string()
+                    _errorMessage.value = ApiErrors.messageFor(response, fallback = "Something went wrong. Please try again.")
                 }
             } catch (e: Exception) {
-                _errorMessage.value = e.localizedMessage
+                _errorMessage.value = ApiErrors.messageFor(e, fallback = "Something went wrong. Please try again.")
                 Log.e(TAG, "Error fetching my posts", e)
             } finally {
                 _isLoadingNextPage.value = false
@@ -155,10 +166,10 @@ class HomeViewModel(
             if (response.isSuccessful) {
                 _searchedUsers.value = response.body() ?: emptyList()
             } else {
-                _errorMessage.value = response.errorBody()?.string()
+                _errorMessage.value = ApiErrors.messageFor(response, fallback = "Something went wrong. Please try again.")
             }
         } catch (e: Exception) {
-            _errorMessage.value = e.localizedMessage
+            _errorMessage.value = ApiErrors.messageFor(e, fallback = "Something went wrong. Please try again.")
             Log.e(TAG, "Error performing search", e)
         }
     }

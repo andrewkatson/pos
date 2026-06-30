@@ -15,6 +15,7 @@ import androidx.compose.ui.tooling.preview.Preview
 import androidx.navigation.NavController
 import androidx.navigation.compose.rememberNavController
 import com.example.positiveonlysocial.ui.preview.PreviewHelpers
+import com.example.positiveonlysocial.api.ApiErrors
 import com.example.positiveonlysocial.api.PositiveOnlySocialAPI
 import com.example.positiveonlysocial.data.model.ResetRequest
 import com.example.positiveonlysocial.data.security.KeychainHelperProtocol
@@ -91,7 +92,7 @@ fun RequestResetScreen(
                                 if (e.localizedMessage == "No user with that username or email") {
                                     navController.navigate(Screen.VerifyReset.createRoute(usernameOrEmail))
                                 } else {
-                                    errorMessage = e.localizedMessage ?: "An unknown error occurred."
+                                    errorMessage = ApiErrors.messageFor(e, fallback = "An unknown error occurred.")
                                     showingErrorAlert = true
                                 }
                             } finally {

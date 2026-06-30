@@ -30,22 +30,36 @@ final class HomeViewModel: ObservableObject {
     // For debouncing search text
     private var searchCancellable: AnyCancellable?
 
+    // Listens for `.postDeleted` so a post deleted from its detail view is also
+    // dropped from this grid's cached list.
+    private var postDeletedCancellable: AnyCancellable?
+
     // MARK: - Initializer
     convenience init(api: Networking, keychainHelper: KeychainHelperProtocol) {
         self.init(api: api, keychainHelper: keychainHelper, account: "userSessionToken")
     }
-    
-    init(api: Networking, keychainHelper: KeychainHelperProtocol, account: String) {
+
+    init(api: Networking, keychainHelper: KeychainHelperProtocol, account: String,
+         notificationCenter: NotificationCenter = .default) {
         self.api = api
         self.keychainHelper = keychainHelper
         self.account = account
-        
+
         // This subscriber automatically triggers a search when the user stops typing.
         searchCancellable = $searchText
             .debounce(for: .milliseconds(500), scheduler: RunLoop.main) // Wait 500ms after user stops typing
             .removeDuplicates()
             .sink { [weak self] searchText in
                 self?.performSearch(for: searchText)
+            }
+
+        // When a post is deleted (from its detail view), remove it from the grid
+        // so its now-missing image doesn't linger as an empty grey tile (#256).
+        postDeletedCancellable = notificationCenter.publisher(for: .postDeleted)
+            .receive(on: RunLoop.main)
+            .sink { [weak self] notification in
+                guard let postIdentifier = notification.object as? String else { return }
+                self?.userPosts.removeAll { $0.id == postIdentifier }
             }
     }
 
@@ -114,7 +128,7 @@ final class HomeViewModel: ObservableObject {
                 NSLog("%@", "My posts load cancelled")
             } else {
                 NSLog("%@", "Error fetching my posts: \(error)")
-                errorMessage = error.localizedDescription
+                errorMessage = error.userFacingMessage
             }
         }
 
@@ -152,7 +166,7 @@ final class HomeViewModel: ObservableObject {
                     NSLog("%@", "Search for \"\(query)\" cancelled")
                 } else {
                     NSLog("%@", "Error performing search: \(error)")
-                    self.errorMessage = error.localizedDescription
+                    self.errorMessage = error.userFacingMessage
                 }
             }
         }

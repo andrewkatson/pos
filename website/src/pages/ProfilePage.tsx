@@ -1,7 +1,9 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { Navigate, useNavigate, useParams } from 'react-router-dom'
 import { apiClient } from '../api/client'
+import { getCurrentUsername } from '../api/session'
 import type { FeedPost, ProfileDetails } from '../api/types'
+import PostThumbnail from '../components/PostThumbnail'
 import './MainApp.css'
 
 /**
@@ -22,6 +24,7 @@ function ProfilePage() {
 
 function ProfileView({ username }: { username: string }) {
   const navigate = useNavigate()
+  const isOwnProfile = getCurrentUsername() === username
 
   // Track mount state so async loads that resolve after navigating away don't
   // set state on an unmounted view.
@@ -187,24 +190,26 @@ function ProfileView({ username }: { username: string }) {
             </div>
           </div>
 
-          <div className="profile-actions">
-            <button
-              type="button"
-              className={`btn ${isFollowing ? 'btn-outline' : 'btn-primary'}`}
-              disabled={isBusy}
-              onClick={toggleFollow}
-            >
-              {isFollowing ? 'Following' : 'Follow'}
-            </button>
-            <button
-              type="button"
-              className={`btn ${isBlocked ? 'btn-danger--filled' : 'btn-danger'}`}
-              disabled={isBusy}
-              onClick={toggleBlock}
-            >
-              {isBlocked ? 'Unblock' : 'Block'}
-            </button>
-          </div>
+          {!isOwnProfile && (
+            <div className="profile-actions">
+              <button
+                type="button"
+                className={`btn ${isFollowing ? 'btn-outline' : 'btn-primary'}`}
+                disabled={isBusy}
+                onClick={toggleFollow}
+              >
+                {isFollowing ? 'Following' : 'Follow'}
+              </button>
+              <button
+                type="button"
+                className={`btn ${isBlocked ? 'btn-danger--filled' : 'btn-danger'}`}
+                disabled={isBusy}
+                onClick={toggleBlock}
+              >
+                {isBlocked ? 'Unblock' : 'Block'}
+              </button>
+            </div>
+          )}
         </div>
 
         <button
@@ -229,7 +234,7 @@ function ProfileView({ username }: { username: string }) {
                 aria-label={`Post by ${post.author_username}`}
                 onClick={() => navigate(`/post/${post.post_identifier}`)}
               >
-                <img src={post.image_url} alt={post.caption} />
+                <PostThumbnail post={post} />
               </button>
             ))}
           </div>

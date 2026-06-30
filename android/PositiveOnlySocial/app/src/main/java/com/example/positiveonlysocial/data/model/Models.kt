@@ -101,7 +101,14 @@ data class Post(
     @SerializedName("post_likes") val likeCount: Int? = 0,
     // Whether the current user has liked this post. Only the post-details endpoint
     // populates this; feed endpoints omit it, so it defaults to false.
-    @SerializedName("is_liked") val isLiked: Boolean = false
+    @SerializedName("is_liked") val isLiked: Boolean = false,
+    // The full-resolution original image URL, used as a fallback when the
+    // compressed `imageUrl` fails to load. The compressed copy is produced by an
+    // async Lambda, so a just-posted (or recently hidden-pending-appeal) image may
+    // not exist in the compressed bucket yet; without this fallback those grid
+    // tiles render as empty black boxes until the user re-logs in (issues #252/#254).
+    // Feed/details endpoints that predate the field omit it, so it defaults to null.
+    @SerializedName("original_image_url") val originalImageUrl: String? = null
 )
 
 // --- Comment DTOs ---
@@ -168,6 +175,15 @@ data class UserSession(
     val seriesIdentifier: String? = null,
     val loginCookieToken: String? = null
 )
+
+/**
+ * "Remember Me" tokens persisted to the keychain after a successful login so the
+ * app can silently re-authenticate via the remember-me endpoint on next launch.
+ *
+ * The field names are part of the persisted (gson) format and are read back in
+ * [com.example.positiveonlysocial.ui.auth.WelcomeScreen] — keep them in sync.
+ */
+data class RememberMeTokens(val seriesId: String, val cookieToken: String)
 
 // --- View Data Models (Matching Swift) ---
 

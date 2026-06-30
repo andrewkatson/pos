@@ -112,11 +112,10 @@ struct MyPostsGridView: View {
                     Color(.systemGray4)
                         .aspectRatio(1, contentMode: .fit)
                         .overlay {
-                            AsyncImage(url: URL(string: post.imageUrl)) { image in
-                                image.resizable().scaledToFill()
-                            } placeholder: {
-                                Color(.systemGray4) // Placeholder color
-                            }
+                            GridPostImage(
+                                imageUrl: post.imageUrl,
+                                originalImageUrl: post.originalImageUrl
+                            )
                         }
                         .clipped()
                 }
@@ -133,6 +132,43 @@ struct MyPostsGridView: View {
         }
         // Black backing shows through the 1pt gaps as thin borders between posts.
         .background(Color.black)
+    }
+}
+
+/// A square grid thumbnail for a post. Loads the compressed `imageUrl` and, if
+/// that fails, falls back to the full-resolution `originalImageUrl` before giving
+/// up to a grey placeholder. The compressed copy is produced by an async Lambda,
+/// so a just-posted or recently hidden-pending-appeal image can 404 in the
+/// compressed bucket for a while — the fallback keeps those tiles from rendering
+/// as empty grey boxes until the user re-logs in. See issues #252 and #254.
+struct GridPostImage: View {
+    let imageUrl: String
+    let originalImageUrl: String?
+    /// Shown while loading and when both the compressed and original images fail.
+    /// Defaults to the grid's grey backing; callers (e.g. the feed) override it to
+    /// match their own placeholder shade.
+    var placeholderColor: Color = Color(.systemGray4)
+
+    var body: some View {
+        AsyncImage(url: URL(string: imageUrl)) { phase in
+            switch phase {
+            case .success(let image):
+                image.resizable().scaledToFill()
+            case .failure:
+                // Compressed copy missing/not ready — try the original.
+                if let originalImageUrl, let url = URL(string: originalImageUrl) {
+                    AsyncImage(url: url) { image in
+                        image.resizable().scaledToFill()
+                    } placeholder: {
+                        placeholderColor
+                    }
+                } else {
+                    placeholderColor
+                }
+            default:
+                placeholderColor // Loading / empty
+            }
+        }
     }
 }
 

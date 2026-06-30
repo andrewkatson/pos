@@ -140,22 +140,22 @@ struct MockedAPI: Networking {
 
     func getPostsInFeed(sessionManagementToken: String, batch: Int) async throws -> Data {
         let posts = [
-            Post(postIdentifier: "1", imageUrl: "https://picsum.photos/400/300", caption: "Beautiful sunset!", authorUsername: "nature_lover"),
-            Post(postIdentifier: "2", imageUrl: "https://picsum.photos/400/301", caption: "My new puppy", authorUsername: "dog_fan")
+            Post(postIdentifier: "1", imageUrl: "https://picsum.photos/400/300", originalImageUrl: nil, caption: "Beautiful sunset!", authorUsername: "nature_lover"),
+            Post(postIdentifier: "2", imageUrl: "https://picsum.photos/400/301", originalImageUrl: nil, caption: "My new puppy", authorUsername: "dog_fan")
         ]
         return try encode(posts)
     }
 
     func getPostsForFollowedUsers(sessionManagementToken: String, batch: Int) async throws -> Data {
         let posts = [
-            Post(postIdentifier: "3", imageUrl: "https://picsum.photos/400/302", caption: "Coffee time", authorUsername: "coffee_addict")
+            Post(postIdentifier: "3", imageUrl: "https://picsum.photos/400/302", originalImageUrl: nil, caption: "Coffee time", authorUsername: "coffee_addict")
         ]
         return try encode(posts)
     }
 
     func getPostsForUser(sessionManagementToken: String, username: String, batch: Int) async throws -> Data {
         let posts = [
-            Post(postIdentifier: "4", imageUrl: "https://picsum.photos/400/303", caption: "Just me", authorUsername: username)
+            Post(postIdentifier: "4", imageUrl: "https://picsum.photos/400/303", originalImageUrl: nil, caption: "Just me", authorUsername: username)
         ]
         return try encode(posts)
     }

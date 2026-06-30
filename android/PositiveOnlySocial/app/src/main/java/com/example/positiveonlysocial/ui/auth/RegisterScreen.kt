@@ -19,6 +19,7 @@ import androidx.compose.ui.tooling.preview.Preview
 import androidx.navigation.NavController
 import androidx.navigation.compose.rememberNavController
 import com.example.positiveonlysocial.ui.preview.PreviewHelpers
+import com.example.positiveonlysocial.api.ApiErrors
 import com.example.positiveonlysocial.api.PositiveOnlySocialAPI
 import com.example.positiveonlysocial.data.auth.AuthenticationManager
 import com.example.positiveonlysocial.data.model.RegisterRequest
@@ -107,12 +108,7 @@ fun RegisterScreen(
                                         }
                                     }
                                 } else {
-                                    val errorBody = response.errorBody()?.string()
-                                    val errorMsg = try {
-                                        org.json.JSONObject(errorBody).getString("error")
-                                    } catch (e: Exception) {
-                                        "Registration failed. Username or email may be taken."
-                                    }
+                                    val errorMsg = ApiErrors.messageFor(response, fallback = "Registration failed. Username or email may be taken.")
                                     errorMessage = errorMsg
                                     showingErrorAlert = true
                                 }

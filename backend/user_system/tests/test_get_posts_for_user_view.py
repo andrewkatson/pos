@@ -119,6 +119,28 @@ class GetPostsForUserTests(PositiveOnlySocialTestCase):
         # (Assuming POST_BATCH_SIZE >= 10)
         self.assertEqual(len(responses), 10)
 
+    def test_posts_include_original_image_url_fallback(self):
+        """
+        Each post carries an `original_image_url` (the full-resolution original)
+        alongside the compressed `image_url`, so clients can fall back to it when
+        the async-generated compressed copy isn't available yet. See #252/#254.
+        """
+        url = reverse('get_posts_for_user', kwargs={
+            'username': self.username,
+            'batch': 0
+        })
+
+        response = self.client.get(url, **self.valid_header)
+
+        self.assertEqual(response.status_code, 200)
+        responses = response.json()
+        self.assertEqual(len(responses), 10)
+        for post in responses:
+            self.assertIn(Fields.original_image_url, post)
+            self.assertTrue(post[Fields.original_image_url])
+            # The original is the uncompressed source URL the client uploaded to.
+            self.assertIn('test-bucket', post[Fields.original_image_url])
+
     def test_posts_hidden_when_user_blocked(self):
         """
         Tests that the blocked users posts are hidden when they are blocked

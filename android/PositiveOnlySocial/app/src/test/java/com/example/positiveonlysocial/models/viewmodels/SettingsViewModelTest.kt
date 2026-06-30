@@ -63,7 +63,7 @@ class SettingsViewModelTest {
         viewModel.logout()
 
         verify(authManager).logout()
-        assertEquals("Logout failed: Network error", viewModel.errorMessage.value)
+        assertEquals("Logout failed. Please try again.", viewModel.errorMessage.value)
     }
 
     @Test
@@ -78,13 +78,13 @@ class SettingsViewModelTest {
 
     @Test
     fun `deleteAccount failure sets errorMessage`() = runTest {
-        whenever(api.deleteUser("token123")).thenReturn(Response.error(400, "error".toResponseBody()))
+        whenever(api.deleteUser("token123")).thenReturn(Response.error(400, "{\"error\":\"Account deletion failed\"}".toResponseBody()))
 
         viewModel.deleteAccount()
 
         verify(api).deleteUser("token123")
         verify(authManager, org.mockito.kotlin.never()).logout()
-        assertEquals("Failed to delete account: error", viewModel.errorMessage.value)
+        assertEquals("Account deletion failed", viewModel.errorMessage.value)
     }
     @Test
     fun `verifyIdentity success calls api and updates state`() = runTest {

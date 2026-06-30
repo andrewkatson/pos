@@ -1,6 +1,7 @@
 import os
 import boto3
 import logging
+from botocore.config import Config
 from PIL import Image
 from io import BytesIO
 from urllib.parse import urlparse
@@ -45,11 +46,14 @@ def is_image_positive(image_url):
     try:
         region = os.environ.get("AWS_REGION", "us-east-1")
         logger.debug("Creating S3 client in region: %s", region)
+        # Bound the S3 fetch so a slow/unreachable bucket can't hang the
+        # post-creation request (which would surface to the client as a 504).
         s3 = boto3.client(
             's3',
             aws_access_key_id=aws_access_key,
             aws_secret_access_key=aws_secret_key,
-            region_name=region
+            region_name=region,
+            config=Config(connect_timeout=5, read_timeout=10, retries={'max_attempts': 2})
         )
 
         bucket_name = os.environ.get("AWS_STORAGE_BUCKET_NAME")
