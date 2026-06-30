@@ -350,6 +350,36 @@
   background: #1a1a1a;
 }
 
+/* The "Select a Photo" control: a full-width button that stands on its own
+   rather than the browser's default file input. */
+.form-section__file-button {
+  display: block;
+  width: 100%;
+  text-align: center;
+}
+
+.form-section__file-name {
+  display: block;
+  margin-top: 0.4rem;
+  font-size: 0.85rem;
+  color: rgba(255, 255, 255, 0.6);
+  word-break: break-all;
+}
+
+/* Keep an element accessible to assistive tech and tests while hiding it
+   visually (used for the real file input behind the button above). */
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
 .text-area {
   background: #1a1a1a;
   border: 1px solid rgba(255, 255, 255, 0.15);

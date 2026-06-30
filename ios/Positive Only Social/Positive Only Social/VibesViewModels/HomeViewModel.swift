@@ -114,7 +114,7 @@ final class HomeViewModel: ObservableObject {
                 NSLog("%@", "My posts load cancelled")
             } else {
                 NSLog("%@", "Error fetching my posts: \(error)")
-                errorMessage = error.localizedDescription
+                errorMessage = error.userFacingMessage
             }
         }
 
@@ -152,7 +152,7 @@ final class HomeViewModel: ObservableObject {
                     NSLog("%@", "Search for \"\(query)\" cancelled")
                 } else {
                     NSLog("%@", "Error performing search: \(error)")
-                    self.errorMessage = error.localizedDescription
+                    self.errorMessage = error.userFacingMessage
                 }
             }
         }

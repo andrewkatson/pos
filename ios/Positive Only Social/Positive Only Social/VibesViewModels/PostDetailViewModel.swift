@@ -188,7 +188,7 @@ final class PostDetailViewModel: ObservableObject {
                     NSLog("%@", "Post details load cancelled")
                 } else {
                     NSLog("%@", "Error loading post details: \(error)")
-                    self.alertMessage = "Failed to load post: \(error.localizedDescription)"
+                    self.alertMessage = "Failed to load post: \(error.userFacingMessage)"
                 }
             }
 
@@ -226,7 +226,7 @@ final class PostDetailViewModel: ObservableObject {
             } catch {
                 NSLog("%@", "Failed to like post: \(error)")
                 await MainActor.run {
-                    self.alertMessage = "Failed to like post: \(error.localizedDescription)"
+                    self.alertMessage = "Failed to like post: \(error.userFacingMessage)"
                 }
             }
         }
@@ -259,7 +259,7 @@ final class PostDetailViewModel: ObservableObject {
             } catch {
                 NSLog("%@", "Failed to unlike post: \(error)")
                 await MainActor.run {
-                    self.alertMessage = "Failed to unlike post: \(error.localizedDescription)"
+                    self.alertMessage = "Failed to unlike post: \(error.userFacingMessage)"
                 }
             }
         }
@@ -282,7 +282,7 @@ final class PostDetailViewModel: ObservableObject {
             } catch {
                 NSLog("%@", "Failed to report post: \(error)")
                 await MainActor.run {
-                    self.alertMessage = "Failed to report post: \(error.localizedDescription)"
+                    self.alertMessage = "Failed to report post: \(error.userFacingMessage)"
                 }
             }
         }
@@ -307,7 +307,7 @@ final class PostDetailViewModel: ObservableObject {
             } catch {
                 NSLog("%@", "Failed to delete post: \(error)")
                 await MainActor.run {
-                    self.alertMessage = "Failed to delete post: \(error.localizedDescription)"
+                    self.alertMessage = "Failed to delete post: \(error.userFacingMessage)"
                 }
             }
         }
@@ -330,7 +330,7 @@ final class PostDetailViewModel: ObservableObject {
             } catch {
                 NSLog("%@", "Failed to delete comment: \(error)")
                 await MainActor.run {
-                    self.alertMessage = "Failed to delete comment: \(error.localizedDescription)"
+                    self.alertMessage = "Failed to delete comment: \(error.userFacingMessage)"
                 }
             }
         }
@@ -382,7 +382,7 @@ final class PostDetailViewModel: ObservableObject {
             } catch {
                 NSLog("%@", "Failed to like comment: \(error)")
                 await MainActor.run {
-                    self.alertMessage = "Failed to like comment: \(error.localizedDescription)"
+                    self.alertMessage = "Failed to like comment: \(error.userFacingMessage)"
                 }
             }
         }
@@ -429,7 +429,7 @@ final class PostDetailViewModel: ObservableObject {
             } catch {
                 NSLog("%@", "Failed to unlike comment: \(error)")
                 await MainActor.run {
-                    self.alertMessage = "Failed to unlike comment: \(error.localizedDescription)"
+                    self.alertMessage = "Failed to unlike comment: \(error.userFacingMessage)"
                 }
             }
         }
@@ -453,7 +453,7 @@ final class PostDetailViewModel: ObservableObject {
             } catch {
                 NSLog("%@", "Failed to report comment: \(error)")
                 await MainActor.run {
-                    self.alertMessage = "Failed to report comment: \(error.localizedDescription)"
+                    self.alertMessage = "Failed to report comment: \(error.userFacingMessage)"
                 }
             }
         }
@@ -483,7 +483,7 @@ final class PostDetailViewModel: ObservableObject {
                 self.loadAllData() // Reload to get the new thread
                 
             } catch {
-                self.alertMessage = "Failed to post comment: \(error.localizedDescription)"
+                self.alertMessage = "Failed to post comment: \(error.userFacingMessage)"
             }
         }
     }
@@ -513,7 +513,7 @@ final class PostDetailViewModel: ObservableObject {
                 self.loadAllData() // Reload to get the new comment in the thread
                 
             } catch {
-                self.alertMessage = "Failed to post reply: \(error.localizedDescription)"
+                self.alertMessage = "Failed to post reply: \(error.userFacingMessage)"
             }
         }
     }

@@ -86,10 +86,15 @@ class MakePostAppealableTests(PositiveOnlySocialTestCase):
 
     @patch(IMAGE, return_value=ALLOWED)
     @patch(TEXT, return_value=FINAL_REJECT)
-    def test_image_check_skipped_on_final_caption_rejection(self, _text, mock_image):
-        """A final text rejection short-circuits before the costly image check."""
-        self._post()
-        mock_image.assert_not_called()
+    def test_final_caption_rejection_wins_over_allowed_image(self, _text, _image):
+        """
+        Text and image are classified concurrently, so the image check may run,
+        but a final text rejection still blocks the post with the text error.
+        """
+        response = self._post()
+        self.assertEqual(response.status_code, 400)
+        self.assertIn('Text is not positive', response.json().get('error', ''))
+        self.assertEqual(self.user.post_set.count(), 0)
 
     @patch(IMAGE, return_value=FINAL_REJECT)
     @patch(TEXT, return_value=APPEALABLE)
