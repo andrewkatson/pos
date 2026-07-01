@@ -690,23 +690,13 @@ function CommentRow({
         ◍
       </span>
       <div className="comment-row__main">
-        {/* The username + time form a header band. Tapping the space around the
-            author name collapses the thread below this comment (issue #243);
-            tapping the name itself still opens the profile. */}
-        <div
-          className="comment-row__header"
-          role="button"
-          tabIndex={0}
-          aria-expanded={!isCollapsed}
-          aria-label={isCollapsed ? 'Expand thread' : 'Collapse thread'}
-          onClick={onToggleCollapse}
-          onKeyDown={e => {
-            if (e.key === 'Enter' || e.key === ' ') {
-              e.preventDefault()
-              onToggleCollapse()
-            }
-          }}
-        >
+        {/* The username + time form a header band. The chevron is the real,
+            keyboard-accessible collapse control; the surrounding band also
+            toggles on click as a mouse convenience (issue #243). The author name
+            and chevron are sibling <button>s — never nested inside an interactive
+            role — and each stops click propagation so activating one doesn't also
+            trigger the band's collapse. */}
+        <div className="comment-row__header" onClick={onToggleCollapse}>
           <button
             type="button"
             className="feed-post__author"
@@ -719,9 +709,18 @@ function CommentRow({
             <span className="comment-row__author">{comment.authorUsername}</span>
           </button>
           <span className="comment-row__time">{formatRelativeTime(comment.createdTime)}</span>
-          <span className="comment-row__collapse" aria-hidden="true">
+          <button
+            type="button"
+            className="comment-row__collapse"
+            aria-expanded={!isCollapsed}
+            aria-label={isCollapsed ? 'Expand thread' : 'Collapse thread'}
+            onClick={e => {
+              e.stopPropagation()
+              onToggleCollapse()
+            }}
+          >
             {isCollapsed ? '▸' : '▾'}
-          </span>
+          </button>
         </div>
         {/* The comment body sits below the username/time header line. */}
         <p className="comment-row__body">{comment.body}</p>

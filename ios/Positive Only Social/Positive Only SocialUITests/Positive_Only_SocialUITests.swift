@@ -451,9 +451,9 @@ final class Positive_Only_SocialUITests: XCTestCase {
         XCTAssertTrue(addACommentButton.waitForExistence(timeout: TestConstants.shortTimeout))
         addACommentButton.tap()
 
-        // The composer presents a TextEditor, which is a textView in the
-        // accessibility hierarchy.
-        let commentTextEditor = app.textViews.firstMatch
+        // The composer presents a TextEditor (a textView in the accessibility
+        // hierarchy), queried by its identifier so it can't match a stray textView.
+        let commentTextEditor = app.textViews["CommentComposerTextEditor"]
         XCTAssertTrue(commentTextEditor.waitForExistence(timeout: TestConstants.shortTimeout))
         commentTextEditor.tap()
         typeText(element: commentTextEditor, text: commentText)
@@ -506,9 +506,9 @@ final class Positive_Only_SocialUITests: XCTestCase {
         let replySheet = app.navigationBars["Post Reply"]
         XCTAssertTrue(replySheet.waitForExistence(timeout: TestConstants.shortTimeout))
         
-        // Find the TextEditor in the sheet
-        // TextEditor appears as a textView in the accessibility hierarchy
-        let replyTextEditor = app.textViews.firstMatch
+        // Find the TextEditor in the sheet, queried by its identifier so it
+        // can't match a stray textView elsewhere on screen.
+        let replyTextEditor = app.textViews["CommentComposerTextEditor"]
         XCTAssertTrue(replyTextEditor.waitForExistence(timeout: TestConstants.shortTimeout))
         
         // Tap and type the reply

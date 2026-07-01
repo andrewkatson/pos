@@ -789,8 +789,17 @@
 
 .comment-row__collapse {
   margin-left: auto;
+  background: none;
+  border: none;
+  padding: 0 0.25rem;
   font-size: 0.75rem;
+  line-height: 1;
   color: rgba(255, 255, 255, 0.5);
+  cursor: pointer;
+}
+
+.comment-row__collapse:hover {
+  color: rgba(255, 255, 255, 0.85);
 }
 
 .comment-row__body {
