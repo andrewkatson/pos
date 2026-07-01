@@ -446,8 +446,9 @@ class PositiveOnlySocialIntegrationTests {
 
         dismissKeyboardIfPresent()
 
-        // Reply to thread via the same composer dialog
-        composeTestRule.onNodeWithText("Reply").performClick()
+        // Reply to thread via the same composer dialog. Scroll the Reply button
+        // into view first so its tap isn't injected off-screen.
+        composeTestRule.onNodeWithText("Reply").performScrollTo().performClick()
         composeTestRule.onNodeWithText("Write a comment...").performTextInput("Comment On a Thread")
         composeTestRule.onNodeWithText("Post").performClick()
 
@@ -468,7 +469,11 @@ class PositiveOnlySocialIntegrationTests {
 
         // ======= Root comment =======
 
-        // New method: tap the heart icon on the root comment
+        // New method: tap the heart icon on the root comment. Scroll it into view
+        // first so taps aren't injected at off-screen coordinates — with the body
+        // on its own line, comments are taller and can sit below the fold on a
+        // fresh navigation.
+        composeTestRule.onNodeWithText("Comment On a Post").performScrollTo()
         composeTestRule.onAllNodesWithContentDescription("Like comment").onFirst().performClick()
         composeTestRule.onNodeWithText("1 likes").assertExists()
 
@@ -477,15 +482,17 @@ class PositiveOnlySocialIntegrationTests {
         composeTestRule.onAllNodesWithText("0 likes").assertCountEquals(3)
 
         // Old method: double-tap the root comment row
-        composeTestRule.onNodeWithText("Comment On a Post").performTouchInput { doubleClick() }
+        composeTestRule.onNodeWithText("Comment On a Post").performScrollTo().performTouchInput { doubleClick() }
         composeTestRule.onNodeWithText("1 likes").assertExists()
 
-        composeTestRule.onNodeWithText("Comment On a Post").performTouchInput { doubleClick() }
+        composeTestRule.onNodeWithText("Comment On a Post").performScrollTo().performTouchInput { doubleClick() }
         composeTestRule.onAllNodesWithText("0 likes").assertCountEquals(3)
 
         // ======= Thread reply =======
 
-        // New method: tap the heart icon on the reply (last "Like comment" node)
+        // New method: tap the heart icon on the reply (last "Like comment" node).
+        // Scroll the reply into view first, for the same off-screen reason.
+        composeTestRule.onNodeWithText("Comment On a Thread").performScrollTo()
         composeTestRule.onAllNodesWithContentDescription("Like comment").onLast().performClick()
         composeTestRule.onAllNodesWithText("1 likes").onLast().assertExists()
 
@@ -494,10 +501,10 @@ class PositiveOnlySocialIntegrationTests {
         composeTestRule.onAllNodesWithText("0 likes").assertCountEquals(3)
 
         // Old method: double-tap the reply row
-        composeTestRule.onNodeWithText("Comment On a Thread").performTouchInput { doubleClick() }
+        composeTestRule.onNodeWithText("Comment On a Thread").performScrollTo().performTouchInput { doubleClick() }
         composeTestRule.onAllNodesWithText("1 likes").onLast().assertExists()
 
-        composeTestRule.onNodeWithText("Comment On a Thread").performTouchInput { doubleClick() }
+        composeTestRule.onNodeWithText("Comment On a Thread").performScrollTo().performTouchInput { doubleClick() }
         composeTestRule.onAllNodesWithText("0 likes").assertCountEquals(3)
     }
 
@@ -540,8 +547,10 @@ class PositiveOnlySocialIntegrationTests {
         composeTestRule.onNodeWithText("Feed").performClick()
         composeTestRule.onAllNodesWithContentDescription("Post Image").onFirst().performClick()
 
-        // Long press the other user's comment; the menu offers Report.
-        composeTestRule.onNodeWithText("Comment to Report").performTouchInput { longClick() }
+        // Long press the other user's comment; the menu offers Report. Scroll it
+        // into view first so the long-press doesn't inject at off-screen
+        // coordinates when the comment sits below the fold (taller comment rows).
+        composeTestRule.onNodeWithText("Comment to Report").performScrollTo().performTouchInput { longClick() }
         composeTestRule.onNodeWithText("Report Comment").performClick()
 
         // Report Dialog
@@ -589,7 +598,11 @@ class PositiveOnlySocialIntegrationTests {
         composeTestRule.onNodeWithText("Feed").performClick()
         composeTestRule.onAllNodesWithContentDescription("Post Image").onFirst().performClick()
 
-        composeTestRule.onNodeWithText("Comment to Delete").performTouchInput { longClick() }
+        // Scroll the comment fully into view first: with the body on its own
+        // line each comment is taller, so on a fresh navigation (scrolled to the
+        // top) the comment can sit below the fold — composed but off-screen, which
+        // makes a touch inject at off-screen coordinates and fail.
+        composeTestRule.onNodeWithText("Comment to Delete").performScrollTo().performTouchInput { longClick() }
 
         // It's the user's own comment: Delete is offered, Report is not.
         composeTestRule.onNodeWithText("Report Comment").assertDoesNotExist()
