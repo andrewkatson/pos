@@ -162,9 +162,17 @@ fun NewPostScreen(
                             isLoading = true
                             try {
                                 val uri = selectedImageUri ?: return@launch
-                                val inputStream = context.contentResolver.openInputStream(uri)
-                                val bytes = inputStream?.use { it.readBytes() }
-                                
+                                // Reading the picked photo can throw (e.g. a
+                                // SecurityException on a lapsed picker grant),
+                                // not just return null — and that must not fall
+                                // through to the generic "post failed" message.
+                                val bytes = try {
+                                    context.contentResolver.openInputStream(uri)?.use { it.readBytes() }
+                                } catch (e: Exception) {
+                                    android.util.Log.e(TAG, "Failed to read picked image $uri", e)
+                                    null
+                                }
+
                                 if (bytes == null) {
                                     failureMessage = "Failed to read image data."
                                     showFailureAlert = true
