@@ -32,6 +32,8 @@ import com.example.positiveonlysocial.ui.preview.PreviewHelpers
 import kotlinx.coroutines.launch
 import com.example.positiveonlysocial.ui.theme.PositiveOnlySocialTheme
 
+private const val TAG = "NewPostScreen"
+
 @Composable
 fun NewPostScreen(
     navController: NavController,
@@ -191,7 +193,18 @@ fun NewPostScreen(
                                 val fileName = "${session.userId}/${UUID.randomUUID()}.jpg"
                                 val s3Uploader = S3Uploader()
 
-                                val uploadUrl = s3Uploader.upload(bytes, fileName)
+                                // The upload failing must be distinguishable from
+                                // the backend call failing: both used to surface
+                                // the same generic message, which made issue #292
+                                // undiagnosable from the dialog alone.
+                                val uploadUrl = try {
+                                    s3Uploader.upload(bytes, fileName)
+                                } catch (e: Exception) {
+                                    android.util.Log.e(TAG, "Image upload to S3 failed", e)
+                                    failureMessage = "We couldn't upload your image. Please try again."
+                                    showFailureAlert = true
+                                    return@launch
+                                }
 
                                 val request = CreatePostRequest(
                                     imageUrl = uploadUrl.toString(),
@@ -204,6 +217,7 @@ fun NewPostScreen(
                                 if (!response.isSuccessful) {
                                     // A non-2xx (e.g. final classifier rejection)
                                     // must not show a success dialog.
+                                    android.util.Log.e(TAG, "make_post rejected: HTTP ${response.code()}")
                                     failureMessage = ApiErrors.messageFor(response, fallback = "Failed to share post. Please try again.")
                                     showFailureAlert = true
                                     return@launch
@@ -221,6 +235,7 @@ fun NewPostScreen(
                                 showSuccessAlert = true
 
                             } catch (e: Exception) {
+                                android.util.Log.e(TAG, "Post creation failed", e)
                                 failureMessage = ApiErrors.messageFor(e, fallback = "Failed to share post. Please try again.")
                                 showFailureAlert = true
                             } finally {
