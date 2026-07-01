@@ -2,6 +2,8 @@
 //  GVOAppConstants.swift
 //  Positive Only Social
 //
+//  Dummy comment for PR validation testing.
+//
 
 import Foundation
 
