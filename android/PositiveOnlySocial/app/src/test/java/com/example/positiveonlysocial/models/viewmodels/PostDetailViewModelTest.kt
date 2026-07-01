@@ -143,4 +143,29 @@ class PostDetailViewModelTest {
         assertEquals("", viewModel.newCommentText.value)
         verify(api, org.mockito.kotlin.times(2)).getPostDetails("token123", postIdentifier)
     }
+
+    @Test
+    fun `toggleCommentCollapsed adds then removes the comment id`() = runTest {
+        // Starts uncollapsed.
+        assertFalse(viewModel.collapsedCommentIds.value.contains("c1"))
+
+        // First toggle collapses the thread below this comment...
+        viewModel.toggleCommentCollapsed("c1")
+        assertEquals(setOf("c1"), viewModel.collapsedCommentIds.value)
+
+        // ...and a second toggle expands it again.
+        viewModel.toggleCommentCollapsed("c1")
+        assertFalse(viewModel.collapsedCommentIds.value.contains("c1"))
+    }
+
+    @Test
+    fun `toggleCommentCollapsed tracks each comment independently`() = runTest {
+        viewModel.toggleCommentCollapsed("c1")
+        viewModel.toggleCommentCollapsed("c2")
+        assertEquals(setOf("c1", "c2"), viewModel.collapsedCommentIds.value)
+
+        // Expanding one leaves the other collapsed.
+        viewModel.toggleCommentCollapsed("c1")
+        assertEquals(setOf("c2"), viewModel.collapsedCommentIds.value)
+    }
 }

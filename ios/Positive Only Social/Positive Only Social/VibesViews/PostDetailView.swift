@@ -106,21 +106,25 @@ struct PostDetailView: View {
                     }
                     .padding(.horizontal)
                     Divider()
-                    Section {
-                        VStack(alignment: .leading) {
-                            HStack {
-                                TextField("Add a comment...", text: $viewModel.newCommentText)
-                                    .accessibilityIdentifier("AddACommentTextFieldToPost")
-                                
-                                Button("Post") {
-                                    viewModel.commentOnPost(commentText: viewModel.newCommentText)
-                                }
-                                .disabled(viewModel.newCommentText.isEmpty || !isWithinLength(viewModel.newCommentText, max: GVOAppConstants.maxCommentLength))
-                                .accessibilityIdentifier("PostCommentButton")
-                            }
-                            CharacterCounter(text: viewModel.newCommentText, max: GVOAppConstants.maxCommentLength)
-                        }
+                    // Tapping this opens the shared comment composer sheet (which
+                    // shows the character counter) rather than typing inline, so
+                    // commenting on a post and replying to a thread work the same
+                    // way (issues #266, #289, #290).
+                    Button {
+                        viewModel.showAddCommentSheet = true
+                    } label: {
+                        Text("Add a comment...")
+                            .foregroundColor(.secondary)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .padding(.vertical, 10)
+                            .padding(.horizontal, 12)
+                            .overlay(
+                                RoundedRectangle(cornerRadius: 8)
+                                    .stroke(Color.secondary.opacity(0.4), lineWidth: 1)
+                            )
+                            .contentShape(Rectangle())
                     }
+                    .accessibilityIdentifier("AddACommentButton")
                     .padding()
                     
                     Text("Comments")
@@ -211,9 +215,15 @@ struct PostDetailView: View {
                 viewModel.reportComment(comment, reason: reason)
             }
         }
+        // The "Add a comment" composer for a brand new comment on the post.
+        .sheet(isPresented: $viewModel.showAddCommentSheet) {
+            CommentComposerView(title: "Add Comment") { commentText in
+                viewModel.commentOnPost(commentText: commentText)
+            }
+        }
+        // The same composer, reused for replying to an existing thread.
         .sheet(item: $viewModel.threadToReplyTo) { thread in
-            ReplyView(thread: thread) { commentText in
-                // This is the action that gets called when "Send" is tapped
+            CommentComposerView(title: "Post Reply") { commentText in
                 viewModel.replyToCommentThread(thread: thread, commentText: commentText)
             }
         }

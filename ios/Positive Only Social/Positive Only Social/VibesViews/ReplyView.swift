@@ -1,29 +1,34 @@
 
 import SwiftUI
 
-/// A view presented as a sheet for replying to a comment thread.
-struct ReplyView: View {
+/// The shared composer sheet for writing a comment — used both for a brand new
+/// comment on the post and for replying to a thread (issues #266, #289, #290).
+/// It always shows the character counter, and submitting dismisses the sheet
+/// (and thus the keyboard) immediately, so tapping the confirm button repeatedly
+/// can't post the same comment twice (issue #291).
+struct CommentComposerView: View {
       @Environment(\.dismiss) var dismiss
-      
-      /// The thread being replied to (passed in).
-      let thread: CommentThreadViewData
-      
-      /// The action to perform when "Send" is tapped.
+
+      /// The sheet's title — e.g. "Add Comment" or "Post Reply".
+      let title: String
+
+      /// The action to perform when the confirm button is tapped.
       let onSubmit: (String) -> Void
-      
+
       /// Local state to hold the text being typed.
-      @State private var replyText: String = ""
-      
+      @State private var text: String = ""
+
       var body: some View {
           NavigationView {
               Form {
-                  Section(header: Text("Replying to \(thread.comments.first?.authorUsername ?? "Comment")")) {
-                      TextEditor(text: $replyText)
+                  Section {
+                      TextEditor(text: $text)
                           .frame(minHeight: 150)
-                      CharacterCounter(text: replyText, max: GVOAppConstants.maxCommentLength)
+                          .accessibilityIdentifier("CommentComposerTextEditor")
+                      CharacterCounter(text: text, max: GVOAppConstants.maxCommentLength)
                   }
               }
-              .navigationTitle("Post Reply")
+              .navigationTitle(title)
               .navigationBarTitleDisplayMode(.inline)
               .scrollDismissesKeyboard(.immediately)
               .toolbar {
@@ -33,14 +38,14 @@ struct ReplyView: View {
                       }
                   }
                   ToolbarItem(placement: .confirmationAction) {
-                      Button("Send") {
-                          onSubmit(replyText)
+                      Button("Post") {
+                          onSubmit(text)
                           dismiss()
                       }
-                      .disabled(replyText.isEmpty || !isWithinLength(replyText, max: GVOAppConstants.maxCommentLength))
+                      .disabled(text.isEmpty || !isWithinLength(text, max: GVOAppConstants.maxCommentLength))
+                      .accessibilityIdentifier("PostCommentButton")
                   }
               }
           }
       }
   }
-

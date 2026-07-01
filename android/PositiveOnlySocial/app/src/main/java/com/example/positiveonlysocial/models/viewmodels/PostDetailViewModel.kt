@@ -81,6 +81,18 @@ class PostDetailViewModel(
     private val _threadToReplyTo = MutableStateFlow<CommentThreadViewData?>(null)
     val threadToReplyTo: StateFlow<CommentThreadViewData?> = _threadToReplyTo.asStateFlow()
 
+    // Drives the "Add a comment" composer dialog for a brand new comment on the
+    // post. Both this and the reply flow go through the same dialog so the
+    // character counter is always shown and comments aren't typed inline
+    // (issues #266, #289, #290).
+    private val _showAddCommentDialog = MutableStateFlow(false)
+    val showAddCommentDialog: StateFlow<Boolean> = _showAddCommentDialog.asStateFlow()
+
+    // Ids of comments whose thread below them is collapsed. Tapping a comment's
+    // username/time header toggles its presence here (issue #243).
+    private val _collapsedCommentIds = MutableStateFlow<Set<String>>(emptySet())
+    val collapsedCommentIds: StateFlow<Set<String>> = _collapsedCommentIds.asStateFlow()
+
     // The signed-in user's username, loaded alongside the post. The backend
     // rejects liking your own post/comment, so the UI hides the like control
     // (and the like actions are guarded) for content this user authored.
@@ -99,6 +111,17 @@ class PostDetailViewModel(
 
     fun setThreadToReplyTo(thread: CommentThreadViewData?) {
         _threadToReplyTo.value = thread
+    }
+
+    fun setShowAddCommentDialog(show: Boolean) {
+        _showAddCommentDialog.value = show
+    }
+
+    /** Toggles whether the thread below the given comment is collapsed. */
+    fun toggleCommentCollapsed(commentId: String) {
+        val current = _collapsedCommentIds.value
+        _collapsedCommentIds.value =
+            if (current.contains(commentId)) current - commentId else current + commentId
     }
 
     fun setShowReportSheetForPost(show: Boolean) {
@@ -223,9 +246,11 @@ class PostDetailViewModel(
             // Filter out empty threads if needed, or keep them
             val nonEmptyThreads = loadedThreads.filter { it.comments.isNotEmpty() }
 
-            // Sort threads by their first comment's date (using dummy date for now as parsing is TODO)
-            _commentThreads.value = nonEmptyThreads
-            // .sortedBy { it.comments.firstOrNull()?.createdDate }
+            // Order threads oldest-to-newest by their first comment's date, so the
+            // post's comments always read top-to-bottom in chronological order
+            // (issue #293). Comments within each thread are already sorted oldest
+            // first above.
+            _commentThreads.value = nonEmptyThreads.sortedBy { it.comments.firstOrNull()?.createdDate }
 
         } catch (e: Exception) {
             Log.e(TAG, "Error loading post details", e)
