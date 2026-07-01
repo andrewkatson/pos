@@ -113,19 +113,17 @@ struct PostDetailView: View {
                     Button {
                         viewModel.showAddCommentSheet = true
                     } label: {
-                        HStack {
-                            Text("Add a comment...")
-                                .foregroundColor(.secondary)
-                            Spacer()
-                        }
-                        .padding(.vertical, 8)
-                        .padding(.horizontal, 12)
-                        .overlay(
-                            RoundedRectangle(cornerRadius: 8)
-                                .stroke(Color.secondary.opacity(0.4), lineWidth: 1)
-                        )
+                        Text("Add a comment...")
+                            .foregroundColor(.secondary)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .padding(.vertical, 10)
+                            .padding(.horizontal, 12)
+                            .overlay(
+                                RoundedRectangle(cornerRadius: 8)
+                                    .stroke(Color.secondary.opacity(0.4), lineWidth: 1)
+                            )
+                            .contentShape(Rectangle())
                     }
-                    .buttonStyle(.plain)
                     .accessibilityIdentifier("AddACommentButton")
                     .padding()
                     

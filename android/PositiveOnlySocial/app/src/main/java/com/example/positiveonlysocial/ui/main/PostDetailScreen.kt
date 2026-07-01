@@ -371,7 +371,13 @@ fun CommentRow(
                     // Open the action menu (Report or Delete, by ownership).
                     onLongPress()
                 },
-                onClick = {}
+                // A single tap collapses/expands the thread below this comment
+                // (issue #243). Tapping the author's name still opens their
+                // profile — that inner handler wins over this one. This lives on
+                // the row's own combinedClickable (rather than a nested
+                // clickable) so it can't swallow the long-press that opens the
+                // action menu.
+                onClick = { onToggleCollapse() }
             ),
         verticalAlignment = Alignment.Top
     ) {
@@ -385,14 +391,13 @@ fun CommentRow(
         Spacer(modifier = Modifier.width(8.dp))
 
         Column(modifier = Modifier.weight(1f)) {
-            // Username + time header. Tapping the space around the author name
-            // collapses the thread below this comment (issue #243); tapping the
-            // name itself still opens the author's profile.
+            // Username + time header. Tapping the comment (this header or the
+            // body) collapses the thread below it (issue #243) via the row's
+            // combinedClickable above; tapping the name itself still opens the
+            // author's profile.
             Row(
                 verticalAlignment = Alignment.CenterVertically,
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .clickable { onToggleCollapse() }
+                modifier = Modifier.fillMaxWidth()
             ) {
                 // Tap the author's name to open their profile, same as the
                 // post author above. combinedClickable (not clickable) so the
