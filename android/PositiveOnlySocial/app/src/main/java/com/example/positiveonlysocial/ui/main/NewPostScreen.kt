@@ -24,13 +24,19 @@ import com.example.positiveonlysocial.ui.components.CharacterCounter
 import com.example.positiveonlysocial.ui.components.isWithinLength
 import com.example.positiveonlysocial.data.security.KeychainHelperProtocol
 import com.example.positiveonlysocial.data.uploader.S3Uploader
+import com.example.positiveonlysocial.di.DependencyProvider
+import java.net.URL
 import java.util.UUID
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.navigation.compose.rememberNavController
 import com.example.positiveonlysocial.ui.dismissKeyboardOnTap
 import com.example.positiveonlysocial.ui.preview.PreviewHelpers
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import com.example.positiveonlysocial.ui.theme.PositiveOnlySocialTheme
+
 
 @Composable
 fun NewPostScreen(
@@ -160,9 +166,21 @@ fun NewPostScreen(
                             isLoading = true
                             try {
                                 val uri = selectedImageUri ?: return@launch
-                                val inputStream = context.contentResolver.openInputStream(uri)
-                                val bytes = inputStream?.use { it.readBytes() }
-                                
+                                // Reading the picked photo can throw (e.g. a
+                                // SecurityException on a lapsed picker grant),
+                                // not just return null — and that must not fall
+                                // through to the generic "post failed" message.
+                                val bytes = try {
+                                    withContext(Dispatchers.IO) {
+                                        context.contentResolver.openInputStream(uri)?.use { it.readBytes() }
+                                    }
+                                } catch (e: CancellationException) {
+                                    throw e
+                                } catch (e: Exception) {
+                                    android.util.Log.e("NewPostScreen", "Failed to read picked image $uri", e)
+                                    null
+                                }
+
                                 if (bytes == null) {
                                     failureMessage = "Failed to read image data."
                                     showFailureAlert = true
@@ -191,7 +209,23 @@ fun NewPostScreen(
                                 val fileName = "${session.userId}/${UUID.randomUUID()}.jpg"
                                 val s3Uploader = S3Uploader()
 
-                                val uploadUrl = s3Uploader.upload(bytes, fileName)
+                                 // The upload failing must be distinguishable from
+                                 // the backend call failing: both used to surface
+                                 // the same generic message, which made issue #292
+                                 // undiagnosable from the dialog alone.
+                                 var uploadUrl = URL("https://picsum.photos/id/237/400/400")
+                                 if (!DependencyProvider.isUITesting) {
+                                     try {
+                                         uploadUrl = s3Uploader.upload(bytes, fileName)
+                                     } catch (e: CancellationException) {
+                                         throw e
+                                     } catch (e: Exception) {
+                                         android.util.Log.e("NewPostScreen", "Image upload to S3 failed", e)
+                                         failureMessage = "We couldn't upload your image. Please try again."
+                                         showFailureAlert = true
+                                         return@launch
+                                     }
+                                 }
 
                                 val request = CreatePostRequest(
                                     imageUrl = uploadUrl.toString(),
@@ -201,10 +235,11 @@ fun NewPostScreen(
                                     token = session.sessionToken,
                                     request = request
                                 )
-                                if (!response.isSuccessful) {
-                                    // A non-2xx (e.g. final classifier rejection)
-                                    // must not show a success dialog.
-                                    failureMessage = ApiErrors.messageFor(response, fallback = "Failed to share post. Please try again.")
+                                 if (!response.isSuccessful) {
+                                     // A non-2xx (e.g. final classifier rejection)
+                                     // must not show a success dialog.
+                                     android.util.Log.e("NewPostScreen", "make_post rejected: HTTP ${response.code()} - ${response.message()}")
+                                     failureMessage = ApiErrors.messageFor(response, fallback = "Failed to share post. Please try again.")
                                     showFailureAlert = true
                                     return@launch
                                 }
@@ -220,9 +255,12 @@ fun NewPostScreen(
                                 }
                                 showSuccessAlert = true
 
-                            } catch (e: Exception) {
-                                failureMessage = ApiErrors.messageFor(e, fallback = "Failed to share post. Please try again.")
-                                showFailureAlert = true
+                             } catch (e: CancellationException) {
+                                 throw e
+                             } catch (e: Exception) {
+                                 android.util.Log.e("NewPostScreen", "Post creation failed", e)
+                                 failureMessage = ApiErrors.messageFor(e, fallback = "Failed to share post. Please try again.")
+                                 showFailureAlert = true
                             } finally {
                                 isLoading = false
                             }

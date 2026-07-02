@@ -12,8 +12,8 @@ android {
         applicationId = "io.github.andrewkatson.positiveonlysocial"
         minSdk = 26
         targetSdk = 36
-        versionCode = 1
-        versionName = "1.0"
+        versionCode = 7
+        versionName = "1.01.06"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
