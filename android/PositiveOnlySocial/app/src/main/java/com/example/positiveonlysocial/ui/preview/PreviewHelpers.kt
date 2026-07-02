@@ -180,6 +180,15 @@ class MockPositiveOnlySocialAPI : PositiveOnlySocialAPI {
         )
     }
 
+    override suspend fun createUploadUrl(token: String): Response<CreateUploadUrlResponse> {
+        return Response.success(
+            CreateUploadUrlResponse(
+                uploadUrl = "https://example-bucket.s3.us-east-2.amazonaws.com/mock-user/mock-image.jpeg?X-Amz-Signature=mock",
+                imageUrl = "https://example-bucket.s3.us-east-2.amazonaws.com/mock-user/mock-image.jpeg"
+            )
+        )
+    }
+
     override suspend fun makePost(
         token: String,
         request: CreatePostRequest

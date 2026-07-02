@@ -62,6 +62,13 @@ export interface ResetPasswordRequest {
   reset_token: string
 }
 
+export interface CreateUploadUrlResponse {
+  /** Short-lived presigned S3 PUT URL to send the JPEG bytes to. */
+  upload_url: string
+  /** The canonical object URL (no signing query) to pass to createPost. */
+  image_url: string
+}
+
 export interface CreatePostRequest {
   image_url: string
   caption: string

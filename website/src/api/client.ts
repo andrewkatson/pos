@@ -16,6 +16,7 @@ import type {
   CommentThreadRef,
   CreatePostRequest,
   CreatePostResponse,
+  CreateUploadUrlResponse,
   FeedPost,
   HiddenComment,
   HiddenPost,
@@ -258,6 +259,10 @@ export class ApiClient implements PositiveOnlySocialAPI {
   // ===========================================================================
   // POSTS
   // ===========================================================================
+
+  createUploadUrl(): Promise<CreateUploadUrlResponse> {
+    return this.request<CreateUploadUrlResponse>('POST', '/posts/upload-url/', { auth: true })
+  }
 
   createPost(body: CreatePostRequest): Promise<CreatePostResponse> {
     return this.request<CreatePostResponse>('POST', '/posts/create/', { auth: true, body })

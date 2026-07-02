@@ -13,9 +13,9 @@ interface NewPostTabProps {
 
 /**
  * The "Post" tab: pick a photo and write a caption. The photo is uploaded to S3
- * (scoped to the signed-in user) and the resulting URL is sent to the backend,
- * mirroring iOS NewPostView (photo picker, preview, share button, success/
- * failure handling).
+ * via a backend-issued presigned URL (the backend scopes the key to the
+ * signed-in user) and the resulting URL is sent to the backend, mirroring iOS
+ * NewPostView (photo picker, preview, share button, success/failure handling).
  */
 function NewPostTab({ onPosted }: NewPostTabProps) {
   const [file, setFile] = useState<File | null>(null)
@@ -56,7 +56,7 @@ function NewPostTab({ onPosted }: NewPostTabProps) {
     setErrorMessage(null)
     setSuccessMessage(null)
     try {
-      const imageUrl = await uploadImage(file, userId)
+      const imageUrl = await uploadImage(file)
       const result = await apiClient.createPost({ image_url: imageUrl, caption: caption.trim() })
       setFile(null)
       setPreviewUrl(null)

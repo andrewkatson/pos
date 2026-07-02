@@ -147,7 +147,7 @@ struct NewPostView: View {
         Task {
             isLoading = true
             do {
-                // 1. LOAD SESSION (needed for the scoped S3 key)
+                // 1. LOAD SESSION (needed for the authenticated upload-URL request)
                 let userSession: UserSession
                 if isTesting() {
                     userSession = try keychainHelper.load(UserSession.self, from: GVOAppConstants.keychainService, account: "userSessionToken") ?? UserSession(sessionToken: "123", username: "test", userId: "", isIdentityVerified: false)
@@ -161,21 +161,26 @@ struct NewPostView: View {
                     userSession = loaded
                 }
 
-                // 2. UPLOAD IMAGE TO S3 — key scoped to the authenticated user
-                let uniqueFileName = "\(userSession.userId)/\(UUID().uuidString).jpeg"
-
-                var imageURL: URL! = URL(string: "https://picsum.photos/400/400")!
+                // 2. UPLOAD IMAGE TO S3 via a backend-issued presigned URL.
+                // The backend scopes the object key to the authenticated user
+                // and signs it, so the app holds no AWS credentials (issue #310).
+                var imageURLString = "https://picsum.photos/400/400"
                 if !isTesting() {
-                    imageURL = try await s3Uploader.upload(
-                        data: imageData,
-                        fileName: uniqueFileName
+                    let uploadUrlData = try await api.createUploadUrl(
+                        sessionManagementToken: userSession.sessionToken
                     )
+                    let uploadUrlResponse = try JSONDecoder().decode(UploadUrlResponse.self, from: uploadUrlData)
+                    guard let uploadURL = URL(string: uploadUrlResponse.uploadUrl) else {
+                        throw ImageUploadError.invalidUploadURL
+                    }
+                    try await s3Uploader.upload(data: imageData, to: uploadURL)
+                    imageURLString = uploadUrlResponse.imageUrl
                 }
 
                 // 3. SEND THE S3 URL TO YOUR BACKEND
                 let responseData = try await api.makePost(
                     sessionManagementToken: userSession.sessionToken,
-                    imageURL: imageURL.absoluteString,
+                    imageURL: imageURLString,
                     caption: caption
                 )
 

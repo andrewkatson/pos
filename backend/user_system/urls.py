@@ -43,6 +43,9 @@ urlpatterns = [
     # =========================================================================
     # POSTS
     # =========================================================================
+    # POST /posts/upload-url/ (Token in header)
+    path('posts/upload-url/', views.create_upload_url, name='create_upload_url'),
+
     # POST /posts/create/ (Token in header)
     path('posts/create/', views.make_post, name='make_post'),
 

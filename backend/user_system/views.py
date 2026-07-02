@@ -3,6 +3,7 @@ import ipaddress
 import json
 import logging
 import secrets
+import uuid
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, date, timedelta
 
@@ -35,7 +36,7 @@ from .models import LoginCookie, Session, Post, CommentThread, PositiveOnlySocia
     KnownDevice, Appeal
 from .utils import convert_to_bool, generate_login_cookie_token, generate_management_token, generate_series_identifier, \
     get_batch, get_queryset_batch, get_compressed_image_url
-from .s3 import delete_image, image_url_to_key
+from .s3 import delete_image, generate_presigned_upload, image_url_to_key
 from .visibility import can_view_post, searchable_users, visible_comment_threads, visible_comments, visible_posts
 
 image_classifier_class = image_classifier
@@ -766,6 +767,31 @@ def reset_password(request):
 # =============================================================================
 # POST VIEWS
 # =============================================================================
+
+@csrf_exempt
+@api_login_required
+@ratelimit(key='user', rate='20/h', block=True)
+@require_POST
+def create_upload_url(request):
+    """Issue a short-lived presigned S3 PUT URL for a new post image.
+
+    The backend generates the object key under the authenticated user's
+    `{user_id}/` prefix, so key ownership is enforced server-side and clients
+    need no AWS credentials of their own (the Cognito guest-role upload path
+    allowed anonymous writes to the whole bucket — issue #310). The rate is
+    double make_post's 10/h so a failed upload can be retried without burning
+    a post slot.
+    """
+    logger.info("Endpoint create_upload_url invoked by IP or User")
+    key = f"{request.user.id}/{uuid.uuid4()}.jpeg"
+    upload_url, image_url = generate_presigned_upload(key)
+    if not upload_url:
+        return log_and_return_json("create_upload_url", {'error': "Could not create an upload URL"}, status=503)
+    return log_and_return_json("create_upload_url", {
+        Fields.upload_url: upload_url,
+        Fields.image_url: image_url,
+    })
+
 
 @csrf_exempt
 @api_login_required

@@ -331,6 +331,16 @@ final class StatefulStubbedAPI: Networking {
         return try createEmptySuccessResponse()
     }
         
+    func createUploadUrl(sessionManagementToken: String) async throws -> Data {
+        await simulateNetwork()
+        guard let user = findUser(bySessionToken: sessionManagementToken) else { throw APIError.badServerResponse(statusCode: 400) }
+        // Mirror the backend: a fresh key under the user's prefix, returned as
+        // both a "presigned" upload URL and the canonical image URL.
+        let imageUrl = "https://stub-bucket.s3.us-east-2.amazonaws.com/\(user.id)/stub-\(UUID().uuidString).jpeg"
+        struct Fields: Codable { let upload_url: String; let image_url: String }
+        return try createSerializedResponse(fields: Fields(upload_url: "\(imageUrl)?X-Amz-Signature=stub", image_url: imageUrl))
+    }
+
     func makePost(sessionManagementToken: String, imageURL: String, caption: String) async throws -> Data {
         await simulateNetwork()
         guard let user = findUser(bySessionToken: sessionManagementToken) else { throw APIError.badServerResponse(statusCode: 400) }

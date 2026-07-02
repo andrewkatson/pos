@@ -118,6 +118,14 @@ struct MockedAPI: Networking {
     
     // MARK: - Post Management
 
+    func createUploadUrl(sessionManagementToken: String) async throws -> Data {
+        let response = UploadUrlResponse(
+            uploadUrl: "https://example-bucket.s3.us-east-2.amazonaws.com/preview-user/preview.jpeg?X-Amz-Signature=preview",
+            imageUrl: "https://example-bucket.s3.us-east-2.amazonaws.com/preview-user/preview.jpeg"
+        )
+        return try JSONEncoder().encode(response)
+    }
+
     func makePost(sessionManagementToken: String, imageURL: String, caption: String) async throws -> Data {
         return try encodeGenericSuccess()
     }
