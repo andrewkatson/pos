@@ -4,6 +4,7 @@ import { apiClient } from '../api/client'
 import { getCurrentUsername } from '../api/session'
 import type { Comment, PostDetails } from '../api/types'
 import { isWithinLimit, MAX_COMMENT_LENGTH } from '../auth/requirements'
+import CaptionTile from '../components/CaptionTile'
 import CharacterCounter from '../components/CharacterCounter'
 import { formatRelativeTime } from '../utils/relativeTime'
 import './MainApp.css'
@@ -399,12 +400,21 @@ function PostDetailView({ postId }: { postId: string }) {
           </div>
         )}
 
-        <img
-          className="detail-image"
-          src={post.image_url}
-          alt={post.caption}
-          onDoubleClick={isOwnPost ? undefined : togglePostLike}
-        />
+        {post.image_url === null ? (
+          // A text-only post (#307): the caption is the tile, double-tap still likes.
+          <CaptionTile
+            caption={post.caption}
+            variant="detail"
+            onDoubleClick={isOwnPost ? undefined : togglePostLike}
+          />
+        ) : (
+          <img
+            className="detail-image"
+            src={post.image_url}
+            alt={post.caption}
+            onDoubleClick={isOwnPost ? undefined : togglePostLike}
+          />
+        )}
 
         <div className="detail-meta">
           {!isOwnPost && (

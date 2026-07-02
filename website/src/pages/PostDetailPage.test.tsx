@@ -95,6 +95,18 @@ test('renders the post caption and like count', async () => {
   expect(screen.getByText('3 likes')).toBeInTheDocument()
 })
 
+test('renders a text-only post as a caption tile and double-tap still likes (#307)', async () => {
+  mockGetDetails.mockResolvedValue({ ...post, image_url: null })
+  renderDetail()
+
+  const tile = await screen.findByRole('img', { name: 'sunshine' })
+  expect(tile.tagName).not.toBe('IMG')
+  expect(tile).toHaveTextContent('sunshine')
+
+  await userEvent.dblClick(tile)
+  await waitFor(() => expect(mockLikePost).toHaveBeenCalledWith('p1'))
+})
+
 test('liking the post calls the API and bumps the count optimistically', async () => {
   renderDetail()
   await screen.findByText('sunshine')

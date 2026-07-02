@@ -12,10 +12,11 @@ interface NewPostTabProps {
 }
 
 /**
- * The "Post" tab: pick a photo and write a caption. The photo is uploaded to S3
- * (scoped to the signed-in user) and the resulting URL is sent to the backend,
- * mirroring iOS NewPostView (photo picker, preview, share button, success/
- * failure handling).
+ * The "Post" tab: write a caption and optionally pick a photo (#307). When a
+ * photo is chosen it is uploaded to S3 (scoped to the signed-in user) and the
+ * resulting URL is sent to the backend; without one a text-only post is
+ * created. Mirrors iOS NewPostView (photo picker, preview, share button,
+ * success/failure handling).
  */
 function NewPostTab({ onPosted }: NewPostTabProps) {
   const [file, setFile] = useState<File | null>(null)
@@ -39,12 +40,11 @@ function NewPostTab({ onPosted }: NewPostTabProps) {
     setPreviewUrl(next ? URL.createObjectURL(next) : null)
   }
 
-  const isFormValid =
-    file !== null && caption.trim().length > 0 && isWithinLimit(caption, MAX_CAPTION_LENGTH)
+  const isFormValid = caption.trim().length > 0 && isWithinLimit(caption, MAX_CAPTION_LENGTH)
 
   async function handleSubmit(e: FormEvent) {
     e.preventDefault()
-    if (!isFormValid || !file) return
+    if (!isFormValid) return
 
     const userId = getCurrentUserId()
     if (!userId) {
@@ -56,8 +56,10 @@ function NewPostTab({ onPosted }: NewPostTabProps) {
     setErrorMessage(null)
     setSuccessMessage(null)
     try {
-      const imageUrl = await uploadImage(file, userId)
-      const result = await apiClient.createPost({ image_url: imageUrl, caption: caption.trim() })
+      const imageUrl = file ? await uploadImage(file, userId) : undefined
+      const result = await apiClient.createPost(
+        imageUrl ? { image_url: imageUrl, caption: caption.trim() } : { caption: caption.trim() },
+      )
       setFile(null)
       setPreviewUrl(null)
       setCaption('')
@@ -101,7 +103,7 @@ function NewPostTab({ onPosted }: NewPostTabProps) {
       )}
 
       <div className="auth-field">
-        <span className="auth-label">Photo</span>
+        <span className="auth-label">Photo (optional)</span>
         <button
           type="button"
           className="btn btn-outline form-section__file-button"

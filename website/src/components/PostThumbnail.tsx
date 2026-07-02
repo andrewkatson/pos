@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import type { FeedPost } from '../api/types'
+import CaptionTile from './CaptionTile'
 
 /**
  * A post's grid/feed thumbnail image. Renders the compressed `image_url` and, if
@@ -20,6 +21,10 @@ import type { FeedPost } from '../api/types'
  */
 function PostThumbnail({ post }: { post: Pick<FeedPost, 'image_url' | 'original_image_url' | 'caption'> }) {
   const [useOriginal, setUseOriginal] = useState(false)
+  if (post.image_url === null) {
+    // A text-only post (#307) has no image; render its caption as the tile.
+    return <CaptionTile caption={post.caption} />
+  }
   const src = useOriginal && post.original_image_url ? post.original_image_url : post.image_url
   return (
     <img

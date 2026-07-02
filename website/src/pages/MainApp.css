@@ -141,6 +141,63 @@
   display: block;
 }
 
+/* ---- Caption tile (text-only posts, #307) ---- */
+
+.caption-tile {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0.75rem;
+  box-sizing: border-box;
+  background: linear-gradient(135deg, #2b5876, #5ba4dc);
+  color: #ffffff;
+  text-align: center;
+  overflow: hidden;
+}
+
+.caption-tile__text {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 4;
+  line-clamp: 4;
+  overflow: hidden;
+  font-weight: 600;
+  line-height: 1.3;
+  overflow-wrap: anywhere;
+}
+
+/* Detail view: square like a post image, full caption (no clamp). */
+.caption-tile--detail {
+  aspect-ratio: 1 / 1;
+  height: auto;
+  border-radius: 12px;
+}
+
+.caption-tile--detail .caption-tile__text {
+  display: block;
+  -webkit-line-clamp: unset;
+  line-clamp: unset;
+  font-size: 1.15rem;
+}
+
+/* Appeals list: thumbnail-sized stand-in. */
+.caption-tile--thumb {
+  width: 48px;
+  height: 48px;
+  border-radius: 8px;
+  flex-shrink: 0;
+  padding: 4px;
+  font-size: 0.6rem;
+}
+
+.caption-tile--thumb .caption-tile__text {
+  -webkit-line-clamp: 3;
+  line-clamp: 3;
+  font-weight: 500;
+}
+
 /* ---- User search results ---- */
 
 .user-list {
