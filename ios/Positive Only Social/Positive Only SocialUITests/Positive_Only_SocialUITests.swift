@@ -13,8 +13,8 @@ final class Positive_Only_SocialUITests: XCTestCase {
     var testUsername: String = ""
     var otherTestUsername: String = ""
     var newTestUsername: String = ""
-    let strongPassword: String = "StrongPassword123@"
-    let newStrongPassword: String = "NewStrongPassword456@"
+    let strongPassword: String = "StrongPassword123-"
+    let newStrongPassword: String = "NewStrongPassword456-"
 
     override func setUpWithError() throws {
         try super.setUpWithError()

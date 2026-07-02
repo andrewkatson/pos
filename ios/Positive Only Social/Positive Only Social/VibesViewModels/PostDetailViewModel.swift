@@ -147,6 +147,7 @@ final class PostDetailViewModel: ObservableObject {
                 self.postDetail = PostDisplayData(
                     id: postFields.post_identifier,
                     imageURL: postFields.image_url,
+                    originalImageURL: postFields.original_image_url,
                     caption: postFields.caption,
                     likeCount: postFields.post_likes,
                     isLiked: postFields.is_liked,
@@ -225,6 +226,7 @@ final class PostDetailViewModel: ObservableObject {
             post = PostDisplayData(
                 id: post.id,
                 imageURL: post.imageURL,
+                originalImageURL: post.originalImageURL,
                 caption: post.caption,
                 likeCount: post.likeCount + 1, // Optimistic update
                 isLiked: true,
@@ -258,6 +260,7 @@ final class PostDetailViewModel: ObservableObject {
             post = PostDisplayData(
                 id: post.id,
                 imageURL: post.imageURL,
+                originalImageURL: post.originalImageURL,
                 caption: post.caption,
                 likeCount: max(0, post.likeCount - 1), // Optimistic update
                 isLiked: false,
@@ -547,6 +550,9 @@ final class PostDetailViewModel: ObservableObject {
         let post_identifier: String
         // Nil for a text-only post (#307).
         let image_url: String?
+        /// Full-res original for the compressed→original fallback (#252/#254).
+        /// Optional so responses that predate the field still decode.
+        let original_image_url: String?
         let caption: String
         let post_likes: Int
         let is_liked: Bool

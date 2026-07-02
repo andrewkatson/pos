@@ -17,7 +17,7 @@ class BanNotificationEmailTests(TestCase):
     def setUp(self):
         super().setUp()
         self.user = PositiveOnlySocialUser.objects.create_user(
-            username='banneduser', email='banned@email.com', password='Password123!')
+            username='banneduser', email='banned@email.com', password='Password123-')
 
     def test_outright_ban_emails_the_user(self):
         UserBan.objects.create(user=self.user, ban_type=BAN_TYPE_OUTRIGHT)

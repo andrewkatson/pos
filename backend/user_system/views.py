@@ -404,7 +404,7 @@ def login_user(request):
             not is_valid_pattern(username_or_email, Patterns.alphanumeric) and not is_valid_pattern(username_or_email,
                                                                                                     Patterns.email)):
         invalid_fields.append(Params.username_or_email)
-    if not password or not is_valid_pattern(password, Patterns.password):
+    if not password or not is_valid_pattern(password, Patterns.login_password):
         invalid_fields.append(Params.password)
 
     try:
@@ -1139,6 +1139,9 @@ def get_post_details(request, post_identifier):
         post_data = {
             Fields.post_identifier: post.post_identifier,
             Fields.image_url: get_compressed_image_url(post.image_url),
+            # Full-res original, used as a client fallback while the async
+            # Lambda-generated compressed copy is still missing (#252/#254).
+            Fields.original_image_url: post.image_url,
             Fields.caption: post.caption,
             Fields.post_likes: total_likes,
             Fields.is_liked: post.postlike_set.filter(user=request.user).exists(),

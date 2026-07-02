@@ -99,6 +99,10 @@ export interface PostDetails {
   post_identifier: string
   /** Null for a text-only post (#307), which renders as a caption tile. */
   image_url: string | null
+  /** The full-resolution original image URL, used as a fallback when the
+   * compressed `image_url` fails to load (see `FeedPost.original_image_url`).
+   * Older responses that predate the field omit it. */
+  original_image_url?: string | null
   caption: string
   post_likes: number
   author_username: string

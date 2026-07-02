@@ -29,9 +29,9 @@ class AdminBanActionTests(TestCase):
         self.ban_admin = UserBanAdmin(UserBan, self.site)
 
         self.admin_user = PositiveOnlySocialUser.objects.create_superuser(
-            username='adminuser', email='admin@email.com', password='AdminPassword123!')
+            username='adminuser', email='admin@email.com', password='AdminPassword123-')
         self.target = PositiveOnlySocialUser.objects.create_user(
-            username='targetuser', email='target@email.com', password='TargetPassword123!')
+            username='targetuser', email='target@email.com', password='TargetPassword123-')
 
     def _request(self, user):
         request = self.factory.post('/')
@@ -77,7 +77,7 @@ class AdminBanActionTests(TestCase):
         UserBan.save(), so the action does this teardown itself).
         """
         other = PositiveOnlySocialUser.objects.create_user(
-            username='targetuser2', email='target2@email.com', password='TargetPassword123!')
+            username='targetuser2', email='target2@email.com', password='TargetPassword123-')
         Session.objects.create(management_user=self.target, management_token='t1', ip='1.2.3.4')
         Session.objects.create(management_user=other, management_token='t2', ip='1.2.3.4')
         LoginCookie.objects.create(cookie_user=other, token='c2')
@@ -91,7 +91,7 @@ class AdminBanActionTests(TestCase):
 
     def test_outright_ban_action_emails_each_user(self):
         other = PositiveOnlySocialUser.objects.create_user(
-            username='targetuser3', email='target3@email.com', password='TargetPassword123!')
+            username='targetuser3', email='target3@email.com', password='TargetPassword123-')
 
         self.user_admin.apply_outright_ban(
             self._request(self.admin_user), self._target_queryset(self.target, other))
@@ -134,7 +134,7 @@ class AdminBanActionTests(TestCase):
 
     def test_staff_without_permission_cannot_ban(self):
         staff = PositiveOnlySocialUser.objects.create_user(
-            username='staffuser', email='staff@email.com', password='StaffPassword123!',
+            username='staffuser', email='staff@email.com', password='StaffPassword123-',
             is_staff=True)
 
         self.user_admin.apply_outright_ban(self._request(staff), self._target_queryset())
@@ -158,7 +158,7 @@ class AdminBanActionTests(TestCase):
     def test_staff_without_permission_cannot_lift_bans(self):
         UserBan.objects.create(user=self.target, ban_type=BAN_TYPE_OUTRIGHT)
         staff = PositiveOnlySocialUser.objects.create_user(
-            username='staffuser2', email='staff2@email.com', password='StaffPassword123!',
+            username='staffuser2', email='staff2@email.com', password='StaffPassword123-',
             is_staff=True)
 
         self.user_admin.lift_active_bans(self._request(staff), self._target_queryset())

@@ -127,7 +127,7 @@ class UserBanTests(PositiveOnlySocialTestCase):
         self._ban_user()
 
         data = self.login_data.copy()
-        data['password'] = "CorrectFormatButWrongPassword123$"
+        data['password'] = "CorrectFormatButWrongPassword123-"
 
         response = self.client.post(self.login_url, data=data, content_type='application/json')
 
