@@ -34,6 +34,7 @@ class MockKeychainHelper: KeychainHelperProtocol {
 // MARK: - Mocked API
 
 struct MockedAPI: Networking {
+    private let previewS3Bucket = "https://example-bucket.s3.us-east-2.amazonaws.com/"
 
     // MARK: - Encoding Helpers
 
@@ -119,9 +120,10 @@ struct MockedAPI: Networking {
     // MARK: - Post Management
 
     func createUploadUrl(sessionManagementToken: String) async throws -> Data {
+        let imageUrl = "\(previewS3Bucket)preview-user/preview.jpeg"
         let response = UploadUrlResponse(
-            uploadUrl: "https://example-bucket.s3.us-east-2.amazonaws.com/preview-user/preview.jpeg?X-Amz-Signature=preview",
-            imageUrl: "https://example-bucket.s3.us-east-2.amazonaws.com/preview-user/preview.jpeg"
+            uploadUrl: "\(imageUrl)?X-Amz-Signature=preview",
+            imageUrl: imageUrl
         )
         return try JSONEncoder().encode(response)
     }

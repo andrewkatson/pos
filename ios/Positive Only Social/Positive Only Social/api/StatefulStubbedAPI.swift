@@ -106,6 +106,7 @@ final class StatefulStubbedAPI: Networking {
     // MARK: - Configuration
     public var simulatedLatency: TimeInterval = 0.1
     private let maxReportsBeforeHiding = 5
+    private let awsStubBucket = "https://stub-bucket.s3.us-east-2.amazonaws.com/"
     public var pageSize = 2 // Make this small for easier testing
     public private(set) var getPostsInFeedCallCount = 0
     public private(set) var getPostsForFollowedUsersCallCount = 0
@@ -336,7 +337,7 @@ final class StatefulStubbedAPI: Networking {
         guard let user = findUser(bySessionToken: sessionManagementToken) else { throw APIError.badServerResponse(statusCode: 400) }
         // Mirror the backend: a fresh key under the user's prefix, returned as
         // both a "presigned" upload URL and the canonical image URL.
-        let imageUrl = "https://stub-bucket.s3.us-east-2.amazonaws.com/\(user.id)/stub-\(UUID().uuidString).jpeg"
+        let imageUrl = "\(awsStubBucket)\(user.id)/stub-\(UUID().uuidString).jpeg"
         struct Fields: Codable { let upload_url: String; let image_url: String }
         return try createSerializedResponse(fields: Fields(upload_url: "\(imageUrl)?X-Amz-Signature=stub", image_url: imageUrl))
     }

@@ -147,7 +147,7 @@ struct NewPostView: View {
         Task {
             isLoading = true
             do {
-                // 1. LOAD SESSION (needed for the authenticated upload-URL request)
+                // Load session
                 let userSession: UserSession
                 if isTesting() {
                     userSession = try keychainHelper.load(UserSession.self, from: GVOAppConstants.keychainService, account: "userSessionToken") ?? UserSession(sessionToken: "123", username: "test", userId: "", isIdentityVerified: false)
@@ -161,9 +161,7 @@ struct NewPostView: View {
                     userSession = loaded
                 }
 
-                // 2. UPLOAD IMAGE TO S3 via a backend-issued presigned URL.
-                // The backend scopes the object key to the authenticated user
-                // and signs it, so the app holds no AWS credentials (issue #310).
+                // Upload image using backend-issued presigned URL
                 var imageURLString = "https://picsum.photos/400/400"
                 if !isTesting() {
                     let uploadUrlData = try await api.createUploadUrl(
@@ -177,7 +175,7 @@ struct NewPostView: View {
                     imageURLString = uploadUrlResponse.imageUrl
                 }
 
-                // 3. SEND THE S3 URL TO YOUR BACKEND
+                // Send the image URL to the backend to create the post
                 let responseData = try await api.makePost(
                     sessionManagementToken: userSession.sessionToken,
                     imageURL: imageURLString,
