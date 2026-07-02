@@ -116,3 +116,111 @@ extension Error {
         return nsError.domain == NSURLErrorDomain && nsError.code == NSURLErrorCancelled
     }
 }
+
+/// Sanitizes backend raw token error messages into human-legible sentences.
+func sanitizeErrorMessage(_ message: String) -> String {
+    let invalidFieldsPrefix = "Invalid fields"
+    let invalidPrefix = "Invalid "
+    
+    let suffix: String
+    let isInvalidFields: Bool
+    
+    if message.hasPrefix(invalidFieldsPrefix) {
+        suffix = String(message.dropFirst(invalidFieldsPrefix.count))
+        isInvalidFields = true
+    } else if message.hasPrefix(invalidPrefix) {
+        suffix = String(message.dropFirst(invalidPrefix.count))
+        isInvalidFields = false
+        let cleaned = suffix.replacingOccurrences(of: "[\\[\\]'\"]", with: "", options: .regularExpression)
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        if cleaned.contains(" ") {
+            return message
+        }
+    } else {
+        return message
+    }
+    
+    let range = NSRange(location: 0, length: suffix.utf16.count)
+    guard let regex = try? NSRegularExpression(pattern: "[a-zA-Z0-9_]+") else {
+        return message
+    }
+    
+    let matches = regex.matches(in: suffix, options: [], range: range)
+    var tokens: [String] = []
+    for match in matches {
+        if let tokenRange = Range(match.range, in: suffix) {
+            tokens.append(String(suffix[tokenRange]))
+        }
+    }
+    
+    if tokens.isEmpty {
+        return isInvalidFields ? "Some fields are incorrect" : message
+    }
+    
+    let tokenMap: [String: String] = [
+        "USERNAME": "Username",
+        "EMAIL": "Email",
+        "PASSWORD": "Password",
+        "USERNAME_OR_EMAIL": "Username or email",
+        "USER_ID": "User ID",
+        "IMAGE_URL": "Image URL",
+        "COMMENT": "Comment",
+        "RESET_TOKEN": "Reset token",
+        "VERIFICATION_TOKEN": "Verification token",
+        "IP": "IP address",
+        "SESSION_MANAGEMENT_TOKEN": "Session token",
+        "SERIES_IDENTIFIER": "Series identifier",
+        "LOGIN_COOKIE_TOKEN": "Cookie token",
+        "REMEMBER_ME": "Remember me flag",
+        "CAPTION": "Caption",
+        "POST_IDENTIFIER": "Post identifier",
+        "REASON": "Reason",
+        "COMMENT_TEXT": "Comment text",
+        "COMMENT_THREAD_IDENTIFIER": "Comment thread identifier",
+        "COMMENT_IDENTIFIER": "Comment identifier",
+        "USERNAME_FRAGMENT": "Username fragment",
+        "DATE_OF_BIRTH": "Date of birth",
+        "TARGET_TYPE": "Target type",
+        "TARGET_IDENTIFIER": "Target identifier"
+    ]
+    
+    var friendlyNames: [String] = []
+    for token in tokens {
+        let upperToken = token.uppercased()
+        if let name = tokenMap[upperToken] {
+            if !friendlyNames.contains(name) {
+                friendlyNames.append(name)
+            }
+        } else {
+            let parts = token.split(separator: "_")
+            let humanized = parts.enumerated().map { (index, part) -> String in
+                let partStr = String(part).lowercased()
+                if index == 0 {
+                    return partStr.prefix(1).uppercased() + partStr.dropFirst()
+                } else {
+                    return partStr
+                }
+            }.joined(separator: " ")
+            if !friendlyNames.contains(humanized) && !humanized.isEmpty {
+                friendlyNames.append(humanized)
+            }
+        }
+    }
+    
+    if friendlyNames.isEmpty {
+        return isInvalidFields ? "Some fields are incorrect" : message
+    }
+    
+    if friendlyNames.count == 1 {
+        return "\(friendlyNames[0]) is incorrect"
+    }
+    
+    if friendlyNames.count == 2 {
+        return "\(friendlyNames[0]) and \(friendlyNames[1]) are incorrect"
+    }
+    
+    var list = friendlyNames
+    let last = list.removeLast()
+    return "\(list.joined(separator: ", ")), and \(last) are incorrect"
+}
+
