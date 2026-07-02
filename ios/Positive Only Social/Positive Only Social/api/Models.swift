@@ -52,7 +52,7 @@ struct Post: Codable, Identifiable, Hashable {
     }
 }
 
-// MARK: - Appeals (backend appeal endpoints)
+// MARK: - Post Creation (upload-url and create endpoints)
 
 /// The response from createUploadUrl: a short-lived presigned S3 PUT URL to
 /// send the JPEG bytes to, and the canonical object URL (no signing query)
@@ -80,6 +80,8 @@ struct MakePostResponse: Codable {
         case message
     }
 }
+
+// MARK: - Appeals (backend appeal endpoints)
 
 /// One of the signed-in user's hidden posts, from the appeals endpoint.
 struct HiddenPost: Codable, Identifiable, Hashable {
