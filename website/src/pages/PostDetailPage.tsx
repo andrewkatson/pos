@@ -4,6 +4,7 @@ import { apiClient } from '../api/client'
 import { getCurrentUsername } from '../api/session'
 import type { Comment, PostDetails } from '../api/types'
 import { isWithinLimit, MAX_COMMENT_LENGTH } from '../auth/requirements'
+import PostThumbnail from '../components/PostThumbnail'
 import CharacterCounter from '../components/CharacterCounter'
 import { formatRelativeTime } from '../utils/relativeTime'
 import './MainApp.css'
@@ -399,10 +400,9 @@ function PostDetailView({ postId }: { postId: string }) {
           </div>
         )}
 
-        <img
+        <PostThumbnail
+          post={post}
           className="detail-image"
-          src={post.image_url}
-          alt={post.caption}
           onDoubleClick={isOwnPost ? undefined : togglePostLike}
         />
 
@@ -550,8 +550,8 @@ function PostDetailView({ postId }: { postId: string }) {
 
       {composer && (
         <div className="modal-overlay">
-          <div className="modal" role="dialog" aria-modal="true" aria-label="Add comment">
-            <h2 className="modal__title">
+          <div className="modal" role="dialog" aria-modal="true" aria-labelledby="composer-title">
+            <h2 id="composer-title" className="modal__title">
               {composer.type === 'reply'
                 ? `Replying to ${composer.thread.comments[0]?.authorUsername ?? 'comment'}`
                 : 'Add a comment'}

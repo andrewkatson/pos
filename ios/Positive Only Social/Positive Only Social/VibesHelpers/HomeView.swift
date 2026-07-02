@@ -6,6 +6,7 @@
 //
 
 import SwiftUI
+import Kingfisher
 
 struct HomeView: View {
     
@@ -138,9 +139,18 @@ struct MyPostsGridView: View {
 /// A square grid thumbnail for a post. Loads the compressed `imageUrl` and, if
 /// that fails, falls back to the full-resolution `originalImageUrl` before giving
 /// up to a grey placeholder. The compressed copy is produced by an async Lambda,
-/// so a just-posted or recently hidden-pending-appeal image can 404 in the
+/// so a just-posted or recently hidden-pending-appeal image can 403 in the
 /// compressed bucket for a while — the fallback keeps those tiles from rendering
-/// as empty grey boxes until the user re-logs in. See issues #252 and #254.
+/// as empty grey boxes until the user re-logs in.
+///
+/// Backed by Kingfisher rather than AsyncImage: AsyncImage is one-shot, so a
+/// load that fails or gets cancelled (lazy-grid scrolling, pull-to-refresh,
+/// navigation transitions) parks the tile on the grey placeholder until the
+/// view's identity changes — QA's "fixes itself after toggling search" on #254.
+/// KFImage restarts a failed load when the tile reappears, keeps downloads
+/// alive off-screen, briefly retries HTTP errors, and disk-caches the result.
+/// Shared by the Home, For You, Following, and Profile grids.
+/// See issues #252, #253, and #254.
 struct GridPostImage: View {
     let imageUrl: String
     let originalImageUrl: String?
@@ -149,26 +159,28 @@ struct GridPostImage: View {
     /// match their own placeholder shade.
     var placeholderColor: Color = Color(.systemGray4)
 
+    // Once the compressed URL genuinely fails, switch to the original and let
+    // Kingfisher load the new URL.
+    @State private var useOriginal = false
+
     var body: some View {
-        AsyncImage(url: URL(string: imageUrl)) { phase in
-            switch phase {
-            case .success(let image):
-                image.resizable().scaledToFill()
-            case .failure:
-                // Compressed copy missing/not ready — try the original.
-                if let originalImageUrl, let url = URL(string: originalImageUrl) {
-                    AsyncImage(url: url) { image in
-                        image.resizable().scaledToFill()
-                    } placeholder: {
-                        placeholderColor
-                    }
-                } else {
-                    placeholderColor
+        let urlString = useOriginal ? (originalImageUrl ?? imageUrl) : imageUrl
+        KFImage(URL(string: urlString))
+            // Rides out the just-posted window where the compressed copy isn't
+            // in the bucket yet; only HTTP errors are retried, not cancellations.
+            .retry(maxCount: 2, interval: .seconds(1))
+            .placeholder { placeholderColor }
+            .onFailure { error in
+                // A cancelled load isn't a missing image — the tile reloads the
+                // same URL when it next appears, so save the fallback for real
+                // failures.
+                guard !error.isTaskCancelled else { return }
+                if !useOriginal, originalImageUrl != nil {
+                    useOriginal = true
                 }
-            default:
-                placeholderColor // Loading / empty
             }
-        }
+            .resizable()
+            .scaledToFill()
     }
 }
 
