@@ -6,13 +6,29 @@ struct CommentThreadView: View {
        let thread: CommentThreadViewData
        let onAuthorTap: (String) -> Void
 
+       /// Hide every comment that sits below the first collapsed one in the
+       /// thread, so tapping a comment's header folds away the comments under it
+       /// (issue #243).
+       private var visibleComments: [CommentViewData] {
+           if let collapseIndex = thread.comments.firstIndex(where: {
+               viewModel.collapsedCommentIds.contains($0.id)
+           }) {
+               return Array(thread.comments.prefix(collapseIndex + 1))
+           }
+           return thread.comments
+       }
+
        var body: some View {
            VStack(alignment: .leading, spacing: 0) {
-               if let rootComment = thread.comments.first {
+               if let rootComment = visibleComments.first {
                    // Show the root comment
                    CommentRowView(comment: rootComment,
                                   isReported: viewModel.reportedCommentIds.contains(rootComment.id),
                                   isOwn: viewModel.isOwnComment(rootComment),
+                                  isCollapsed: viewModel.collapsedCommentIds.contains(rootComment.id),
+                                  onToggleCollapse: {
+                                      viewModel.toggleCommentCollapsed(rootComment.id)
+                                  },
                                   onLike: {
                                       viewModel.likeComment(rootComment)
                                   },
@@ -25,33 +41,30 @@ struct CommentThreadView: View {
                                   onAuthorTap: {
                                       onAuthorTap(rootComment.authorUsername)
                                   })
-                   Section {
-                       HStack {
-                           TextField("Add a comment...", text: $viewModel.newCommentText)
-                               .accessibilityIdentifier("AddACommentTextFieldToThread")
-
-                           Button("Reply") {
-                               // This sets the @Published var, triggering the sheet
-                               viewModel.threadToReplyTo = thread
-                           }
-                           .font(.caption)
-                           .fontWeight(.bold)
-                           .padding(.leading, 50) // Aligns with comment text
-                           .padding(.bottom, 8)
-                           .accessibilityIdentifier("ReplyToCommentThreadButton")
-                       }
+                   // Tapping "Reply" opens the shared composer sheet, the same
+                   // dialog used for a new comment on the post.
+                   Button("Reply") {
+                       viewModel.threadToReplyTo = thread
                    }
-                   .padding()
+                   .font(.caption)
+                   .fontWeight(.bold)
+                   .padding(.leading, 50) // Aligns with comment text
+                   .padding(.vertical, 8)
+                   .accessibilityIdentifier("ReplyToCommentThreadButton")
                }
-               
+
                // Show replies, if any
-               if thread.comments.count > 1 {
+               if visibleComments.count > 1 {
                    // Indent replies
                    VStack(alignment: .leading, spacing: 0) {
-                       ForEach(thread.comments.dropFirst()) { reply in
+                       ForEach(visibleComments.dropFirst()) { reply in
                            CommentRowView(comment: reply,
                                           isReported: viewModel.reportedCommentIds.contains(reply.id),
                                           isOwn: viewModel.isOwnComment(reply),
+                                          isCollapsed: viewModel.collapsedCommentIds.contains(reply.id),
+                                          onToggleCollapse: {
+                                              viewModel.toggleCommentCollapsed(reply.id)
+                                          },
                                           onLike: {
                                               viewModel.likeComment(reply)
                                           },

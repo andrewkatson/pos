@@ -8,6 +8,10 @@ struct CommentRowView: View {
     /// rejects liking your own comment, so the like heart is hidden and the
     /// double-tap-to-like gesture is a no-op when true.
     let isOwn: Bool
+    /// Whether the thread below this comment is currently collapsed.
+    let isCollapsed: Bool
+    /// Toggles the collapsed state of the thread below this comment.
+    let onToggleCollapse: () -> Void
     /// Actions passed from the parent
     let onLike: () -> Void
     let onUnlike: () -> Void
@@ -20,13 +24,14 @@ struct CommentRowView: View {
             Image(systemName: "person.circle.fill")
                 .font(.title)
                 .foregroundColor(.secondary)
-            
+
             VStack(alignment: .leading, spacing: 4) {
-                // Comment body with author. Tap the author's name to open
-                // their profile. A plain tap gesture (not a NavigationLink)
-                // so the row's long-press (report/delete) and double-tap
-                // (like) gestures aren't swallowed by a nested Button.
-                HStack(alignment: .firstTextBaseline, spacing: 4) {
+                // Username + time header. Tap the author's name to open their
+                // profile; tapping the space next to it collapses the thread
+                // below this comment (issue #243). A plain tap gesture (not a
+                // NavigationLink) so the row's long-press (report/delete) and
+                // double-tap (like) gestures aren't swallowed by a nested Button.
+                HStack(alignment: .firstTextBaseline, spacing: 8) {
                     Text(comment.authorUsername)
                         .fontWeight(.bold)
                         .font(.subheadline)
@@ -38,18 +43,26 @@ struct CommentRowView: View {
                         .accessibilityAddTraits(.isButton)
                         .accessibilityHint("Opens \(comment.authorUsername)'s profile")
                         .accessibilityIdentifier("CommentAuthor")
-                    Text(comment.body)
-                        .font(.subheadline)
-                        .accessibilityIdentifier("CommentText")
-                        .accessibilityLabel(comment.body)
-                }
-                
-                // Info row
-                HStack(spacing: 16) {
                     Text(RelativeTime.string(from: comment.createdDate))
                         .font(.caption)
                         .foregroundColor(.secondary)
+                    Spacer()
+                    Image(systemName: isCollapsed ? "chevron.right" : "chevron.down")
+                        .font(.caption2)
+                        .foregroundColor(.secondary)
+                }
+                .contentShape(Rectangle())
+                .onTapGesture { onToggleCollapse() }
+                .accessibilityIdentifier("CommentCollapseHeader")
 
+                // The comment body sits below the username/time header line.
+                Text(comment.body)
+                    .font(.subheadline)
+                    .accessibilityIdentifier("CommentText")
+                    .accessibilityLabel(comment.body)
+
+                // Info row
+                HStack(spacing: 16) {
                     if !isOwn {
                         Button {
                             if comment.isLiked { onUnlike() } else { onLike() }

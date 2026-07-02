@@ -6,7 +6,6 @@
 //
 
 import SwiftUI
-import Kingfisher
 
 // An enum to define our top tabs
 enum FeedType: String, CaseIterable {
@@ -108,9 +107,10 @@ struct ForYouFeedView: View {
                             Color(.systemGray5)
                                 .aspectRatio(1, contentMode: .fit)
                                 .overlay {
-                                    KFGridPostImage(
+                                    GridPostImage(
                                         imageUrl: post.imageUrl,
-                                        originalImageUrl: post.originalImageUrl
+                                        originalImageUrl: post.originalImageUrl,
+                                        placeholderColor: Color(.systemGray5)
                                     )
                                 }
                                 .clipped()
@@ -214,36 +214,6 @@ struct FollowingFeedView: View {
                 viewModel.fetchFollowingFeed()
             }
         }
-    }
-}
-
-/// A square feed thumbnail backed by Kingfisher (for its disk cache). Loads the
-/// compressed `imageUrl` and, if that fails, retries with the full-resolution
-/// `originalImageUrl`. The compressed copy is produced by an async Lambda, so a
-/// just-posted image can 404 in the compressed bucket for a while — without the
-/// fallback those tiles render as an empty grey box until the image is ready.
-/// See issues #252 and #254.
-struct KFGridPostImage: View {
-    let imageUrl: String
-    let originalImageUrl: String?
-    /// Shown while loading and when both images fail.
-    var placeholderColor: Color = Color(.systemGray5)
-
-    // Once the compressed URL fails, switch to the original and let Kingfisher
-    // reload from the new URL.
-    @State private var useOriginal = false
-
-    var body: some View {
-        let urlString = useOriginal ? (originalImageUrl ?? imageUrl) : imageUrl
-        KFImage(URL(string: urlString))
-            .placeholder { placeholderColor }
-            .onFailure { _ in
-                if !useOriginal, originalImageUrl != nil {
-                    useOriginal = true
-                }
-            }
-            .resizable()
-            .scaledToFill()
     }
 }
 

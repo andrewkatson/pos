@@ -4,6 +4,7 @@ import { apiClient } from '../api/client'
 import { getCurrentUsername } from '../api/session'
 import type { Comment, PostDetails } from '../api/types'
 import { isWithinLimit, MAX_COMMENT_LENGTH } from '../auth/requirements'
+import PostThumbnail from '../components/PostThumbnail'
 import CharacterCounter from '../components/CharacterCounter'
 import { formatRelativeTime } from '../utils/relativeTime'
 import './MainApp.css'
@@ -30,6 +31,9 @@ interface ThreadView {
 
 type ReportTarget = { type: 'post' } | { type: 'comment'; comment: CommentView }
 type DeleteTarget = { type: 'post' } | { type: 'comment'; comment: CommentView }
+// The comment composer is shared between a brand-new post comment and a reply
+// to an existing thread, so both go through the same character-limit dialog.
+type ComposerTarget = { type: 'post' } | { type: 'reply'; thread: ThreadView }
 
 /**
  * Full post view: image, like count, caption, and threaded comments with
@@ -77,13 +81,27 @@ function PostDetailView({ postId }: { postId: string }) {
   const [isRefreshing, setIsRefreshing] = useState(false)
   const [notFound, setNotFound] = useState(false)
 
-  const [newComment, setNewComment] = useState('')
-  const [replyText, setReplyText] = useState('')
-  const [replyTarget, setReplyTarget] = useState<ThreadView | null>(null)
+  // A single composer dialog drives both new post comments and thread replies,
+  // so both surfaces show the same character-limit popup instead of an inline
+  // field duplicated in every thread (issues #266, #289, #290).
+  const [composer, setComposer] = useState<ComposerTarget | null>(null)
+  const [composerText, setComposerText] = useState('')
   const [reportTarget, setReportTarget] = useState<ReportTarget | null>(null)
   const [reportReason, setReportReason] = useState('')
   const [deleteTarget, setDeleteTarget] = useState<DeleteTarget | null>(null)
   const [errorMessage, setErrorMessage] = useState<string | null>(null)
+  // Ids of comments whose thread below them is collapsed. Tapping a comment's
+  // username/time header toggles it (issue #243).
+  const [collapsedIds, setCollapsedIds] = useState<Set<string>>(new Set())
+
+  function toggleCollapsed(id: string) {
+    setCollapsedIds(prev => {
+      const next = new Set(prev)
+      if (next.has(id)) next.delete(id)
+      else next.add(id)
+      return next
+    })
+  }
 
   // Local like/report state, kept in refs so the in-app reload after posting a
   // comment/reply doesn't drop it (the API only returns server-side counts,
@@ -263,28 +281,30 @@ function PostDetailView({ postId }: { postId: string }) {
     }
   }
 
-  async function submitComment() {
-    const text = newComment.trim()
-    if (!text) return
-    try {
-      await apiClient.commentOnPost(postId, text)
-      setNewComment('')
-      await loadAll()
-    } catch (err) {
-      setErrorMessage((err as Error).message ?? 'Failed to post comment.')
-    }
+  function openComposer(target: ComposerTarget) {
+    setComposerText('')
+    setComposer(target)
   }
 
-  async function submitReply() {
-    const text = replyText.trim()
-    if (!text || !replyTarget) return
+  // Submitting closes the dialog immediately and clears the text before the
+  // request is sent, so repeated taps can't post the same comment twice and the
+  // keyboard/dialog disappear at once (issue #291).
+  async function submitComposer() {
+    const text = composerText.trim()
+    const target = composer
+    if (!text || !target) return
+    setComposer(null)
+    setComposerText('')
     try {
-      await apiClient.replyToCommentThread(postId, replyTarget.threadId, text)
-      setReplyText('')
-      setReplyTarget(null)
+      if (target.type === 'reply') {
+        await apiClient.replyToCommentThread(postId, target.thread.threadId, text)
+      } else {
+        await apiClient.commentOnPost(postId, text)
+      }
       await loadAll()
     } catch (err) {
-      setErrorMessage((err as Error).message ?? 'Failed to post reply.')
+      const verb = target.type === 'reply' ? 'reply' : 'comment'
+      setErrorMessage((err as Error).message ?? `Failed to post ${verb}.`)
     }
   }
 
@@ -380,10 +400,9 @@ function PostDetailView({ postId }: { postId: string }) {
           </div>
         )}
 
-        <img
+        <PostThumbnail
+          post={post}
           className="detail-image"
-          src={post.image_url}
-          alt={post.caption}
           onDoubleClick={isOwnPost ? undefined : togglePostLike}
         />
 
@@ -443,25 +462,14 @@ function PostDetailView({ postId }: { postId: string }) {
         </p>
 
         <div className="comment-form">
-          <input
-            type="text"
-            placeholder="Add a comment..."
-            aria-label="Add a comment"
-            value={newComment}
-            onChange={e => setNewComment(e.target.value)}
-          />
           <button
             type="button"
-            className="btn btn-primary"
-            disabled={
-              newComment.trim().length === 0 || !isWithinLimit(newComment, MAX_COMMENT_LENGTH)
-            }
-            onClick={submitComment}
+            className="comment-compose-trigger"
+            onClick={() => openComposer({ type: 'post' })}
           >
-            Post
+            Add a comment...
           </button>
         </div>
-        <CharacterCounter value={newComment} max={MAX_COMMENT_LENGTH} />
 
         <h2 className="app-bar__title" style={{ fontSize: '1rem' }}>
           Comments
@@ -481,12 +489,20 @@ function PostDetailView({ postId }: { postId: string }) {
           <p className="muted">No comments yet. Be the first!</p>
         ) : (
           threads.map(thread => {
-            const [root, ...replies] = thread.comments
+            // Hide every comment that sits below the first collapsed one in the
+            // thread, so tapping a comment's header folds away the replies under
+            // it (issue #243).
+            const collapseAt = thread.comments.findIndex(c => collapsedIds.has(c.id))
+            const visible =
+              collapseAt === -1 ? thread.comments : thread.comments.slice(0, collapseAt + 1)
+            const [root, ...replies] = visible
             return (
               <div key={thread.threadId} className="comment-thread">
                 {root && (
                   <CommentRow
                     comment={root}
+                    isCollapsed={collapsedIds.has(root.id)}
+                    onToggleCollapse={() => toggleCollapsed(root.id)}
                     onToggleLike={() => toggleCommentLike(root)}
                     onReport={() => {
                       setReportReason('')
@@ -501,10 +517,7 @@ function PostDetailView({ postId }: { postId: string }) {
                 <button
                   type="button"
                   className="comment-reply-btn"
-                  onClick={() => {
-                    setReplyText('')
-                    setReplyTarget(thread)
-                  }}
+                  onClick={() => openComposer({ type: 'reply', thread })}
                 >
                   Reply
                 </button>
@@ -514,6 +527,8 @@ function PostDetailView({ postId }: { postId: string }) {
                       <CommentRow
                         key={reply.id}
                         comment={reply}
+                        isCollapsed={collapsedIds.has(reply.id)}
+                        onToggleCollapse={() => toggleCollapsed(reply.id)}
                         onToggleLike={() => toggleCommentLike(reply)}
                         onReport={() => {
                           setReportReason('')
@@ -533,27 +548,30 @@ function PostDetailView({ postId }: { postId: string }) {
         )}
       </main>
 
-      {replyTarget && (
+      {composer && (
         <div className="modal-overlay">
-          <div className="modal" role="dialog" aria-modal="true" aria-label="Post reply">
-            <h2 className="modal__title">
-              Replying to {replyTarget.comments[0]?.authorUsername ?? 'comment'}
+          <div className="modal" role="dialog" aria-modal="true" aria-labelledby="composer-title">
+            <h2 id="composer-title" className="modal__title">
+              {composer.type === 'reply'
+                ? `Replying to ${composer.thread.comments[0]?.authorUsername ?? 'comment'}`
+                : 'Add a comment'}
             </h2>
             <textarea
               className="text-area"
               rows={4}
-              aria-label="Reply text"
-              value={replyText}
-              onChange={e => setReplyText(e.target.value)}
+              aria-label="Comment text"
+              autoFocus
+              value={composerText}
+              onChange={e => setComposerText(e.target.value)}
             />
-            <CharacterCounter value={replyText} max={MAX_COMMENT_LENGTH} />
+            <CharacterCounter value={composerText} max={MAX_COMMENT_LENGTH} />
             <div className="modal__actions">
               <button
                 type="button"
                 className="modal__cancel"
                 onClick={() => {
-                  setReplyTarget(null)
-                  setReplyText('')
+                  setComposer(null)
+                  setComposerText('')
                 }}
               >
                 Cancel
@@ -562,11 +580,12 @@ function PostDetailView({ postId }: { postId: string }) {
                 type="button"
                 className="modal__confirm"
                 disabled={
-                  replyText.trim().length === 0 || !isWithinLimit(replyText, MAX_COMMENT_LENGTH)
+                  composerText.trim().length === 0 ||
+                  !isWithinLimit(composerText, MAX_COMMENT_LENGTH)
                 }
-                onClick={submitReply}
+                onClick={submitComposer}
               >
-                Send
+                {composer.type === 'reply' ? 'Send' : 'Post'}
               </button>
             </div>
           </div>
@@ -648,32 +667,64 @@ function DetailBar({ onBack }: { onBack: () => void }) {
 
 interface CommentRowProps {
   comment: CommentView
+  isCollapsed: boolean
+  onToggleCollapse: () => void
   onToggleLike: () => void
   onReport: () => void
   onDelete: () => void
   onNavigate: () => void
 }
 
-function CommentRow({ comment, onToggleLike, onReport, onDelete, onNavigate }: CommentRowProps) {
+function CommentRow({
+  comment,
+  isCollapsed,
+  onToggleCollapse,
+  onToggleLike,
+  onReport,
+  onDelete,
+  onNavigate,
+}: CommentRowProps) {
   return (
     <div className="comment-row">
       <span className="comment-row__avatar" aria-hidden="true">
         ◍
       </span>
-      <div>
-        <span>
+      <div className="comment-row__main">
+        {/* The username + time form a header band. The chevron is the real,
+            keyboard-accessible collapse control; the surrounding band also
+            toggles on click as a mouse convenience (issue #243). The author name
+            and chevron are sibling <button>s — never nested inside an interactive
+            role — and each stops click propagation so activating one doesn't also
+            trigger the band's collapse. */}
+        <div className="comment-row__header" onClick={onToggleCollapse}>
           <button
             type="button"
             className="feed-post__author"
             style={{ display: 'inline', padding: 0 }}
-            onClick={onNavigate}
+            onClick={e => {
+              e.stopPropagation()
+              onNavigate()
+            }}
           >
             <span className="comment-row__author">{comment.authorUsername}</span>
           </button>
-          <span className="comment-row__body">{comment.body}</span>
-        </span>
+          <span className="comment-row__time">{formatRelativeTime(comment.createdTime)}</span>
+          <button
+            type="button"
+            className="comment-row__collapse"
+            aria-expanded={!isCollapsed}
+            aria-label={isCollapsed ? 'Expand thread' : 'Collapse thread'}
+            onClick={e => {
+              e.stopPropagation()
+              onToggleCollapse()
+            }}
+          >
+            {isCollapsed ? '▸' : '▾'}
+          </button>
+        </div>
+        {/* The comment body sits below the username/time header line. */}
+        <p className="comment-row__body">{comment.body}</p>
         <div className="comment-row__info">
-          <span>{formatRelativeTime(comment.createdTime)}</span>
           {!comment.isOwn && (
             <button
               type="button"

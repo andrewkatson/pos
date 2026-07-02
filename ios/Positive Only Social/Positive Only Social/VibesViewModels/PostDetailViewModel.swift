@@ -39,9 +39,28 @@ final class PostDetailViewModel: ObservableObject {
     
     /// The text for creating a brand new comment thread
     @Published var newCommentText: String = ""
-    
+
+    /// Drives the "Add a comment" composer sheet for a brand new comment on the
+    /// post. Both this and the reply flow go through the same composer sheet so
+    /// the character counter is always shown and comments aren't typed inline
+    /// (issues #266, #289, #290).
+    @Published var showAddCommentSheet = false
+
     /// When a user taps "Reply", this is set, which triggers the reply sheet
     @Published var threadToReplyTo: CommentThreadViewData?
+
+    /// Ids of comments whose thread below them is collapsed. Tapping a comment's
+    /// username/time header toggles its presence here (issue #243).
+    @Published var collapsedCommentIds: Set<String> = []
+
+    /// Toggles whether the thread below the given comment is collapsed.
+    func toggleCommentCollapsed(_ commentId: String) {
+        if collapsedCommentIds.contains(commentId) {
+            collapsedCommentIds.remove(commentId)
+        } else {
+            collapsedCommentIds.insert(commentId)
+        }
+    }
     
     @Published var isPostReported = false
     @Published var reportedCommentIds: Set<String> = []
@@ -128,6 +147,7 @@ final class PostDetailViewModel: ObservableObject {
                 self.postDetail = PostDisplayData(
                     id: postFields.post_identifier,
                     imageURL: postFields.image_url,
+                    originalImageURL: postFields.original_image_url,
                     caption: postFields.caption,
                     likeCount: postFields.post_likes,
                     isLiked: postFields.is_liked,
@@ -206,6 +226,7 @@ final class PostDetailViewModel: ObservableObject {
             post = PostDisplayData(
                 id: post.id,
                 imageURL: post.imageURL,
+                originalImageURL: post.originalImageURL,
                 caption: post.caption,
                 likeCount: post.likeCount + 1, // Optimistic update
                 isLiked: true,
@@ -239,6 +260,7 @@ final class PostDetailViewModel: ObservableObject {
             post = PostDisplayData(
                 id: post.id,
                 imageURL: post.imageURL,
+                originalImageURL: post.originalImageURL,
                 caption: post.caption,
                 likeCount: max(0, post.likeCount - 1), // Optimistic update
                 isLiked: false,
@@ -527,6 +549,9 @@ final class PostDetailViewModel: ObservableObject {
     private struct PostDetailsFields: Decodable {
         let post_identifier: String
         let image_url: String
+        /// Full-res original for the compressed→original fallback (#252/#254).
+        /// Optional so responses that predate the field still decode.
+        let original_image_url: String?
         let caption: String
         let post_likes: Int
         let is_liked: Bool

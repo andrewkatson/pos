@@ -1,6 +1,7 @@
 
 import Foundation
 import SwiftUI
+import Kingfisher
 
 struct PostDetailView: View {
     // Use @StateObject to create and own the ViewModel
@@ -33,19 +34,10 @@ struct PostDetailView: View {
                     .padding()
             } else if let post = viewModel.postDetail {
                 VStack(alignment: .center, spacing: 12) {
-                    // Using AsyncImage for network URLs
-                    //TODO: eBlender change this to KFImage
-                    AsyncImage(url: URL(string: post.imageURL)) { image in
-                        image
-                            .resizable()
-                            .scaledToFit()
-                            .aspectRatio(1, contentMode: .fit)
-                    } placeholder: {
-                        Rectangle()
-                            .fill(Color.secondary.opacity(0.3))
-                            .aspectRatio(1, contentMode: .fit)
-                            .overlay(ProgressView())
-                    }
+                    PostDetailImage(
+                        imageUrl: post.imageURL,
+                        originalImageUrl: post.originalImageURL
+                    )
                     .accessibilityElement(children: .ignore)  // Treat as single element
                     .accessibilityIdentifier("PostImage")
                     .accessibilityLabel("Post image")
@@ -106,21 +98,25 @@ struct PostDetailView: View {
                     }
                     .padding(.horizontal)
                     Divider()
-                    Section {
-                        VStack(alignment: .leading) {
-                            HStack {
-                                TextField("Add a comment...", text: $viewModel.newCommentText)
-                                    .accessibilityIdentifier("AddACommentTextFieldToPost")
-                                
-                                Button("Post") {
-                                    viewModel.commentOnPost(commentText: viewModel.newCommentText)
-                                }
-                                .disabled(viewModel.newCommentText.isEmpty || !isWithinLength(viewModel.newCommentText, max: GVOAppConstants.maxCommentLength))
-                                .accessibilityIdentifier("PostCommentButton")
-                            }
-                            CharacterCounter(text: viewModel.newCommentText, max: GVOAppConstants.maxCommentLength)
-                        }
+                    // Tapping this opens the shared comment composer sheet (which
+                    // shows the character counter) rather than typing inline, so
+                    // commenting on a post and replying to a thread work the same
+                    // way (issues #266, #289, #290).
+                    Button {
+                        viewModel.showAddCommentSheet = true
+                    } label: {
+                        Text("Add a comment...")
+                            .foregroundColor(.secondary)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .padding(.vertical, 10)
+                            .padding(.horizontal, 12)
+                            .overlay(
+                                RoundedRectangle(cornerRadius: 8)
+                                    .stroke(Color.secondary.opacity(0.4), lineWidth: 1)
+                            )
+                            .contentShape(Rectangle())
                     }
+                    .accessibilityIdentifier("AddACommentButton")
                     .padding()
                     
                     Text("Comments")
@@ -211,9 +207,15 @@ struct PostDetailView: View {
                 viewModel.reportComment(comment, reason: reason)
             }
         }
+        // The "Add a comment" composer for a brand new comment on the post.
+        .sheet(isPresented: $viewModel.showAddCommentSheet) {
+            CommentComposerView(title: "Add Comment") { commentText in
+                viewModel.commentOnPost(commentText: commentText)
+            }
+        }
+        // The same composer, reused for replying to an existing thread.
         .sheet(item: $viewModel.threadToReplyTo) { thread in
-            ReplyView(thread: thread) { commentText in
-                // This is the action that gets called when "Send" is tapped
+            CommentComposerView(title: "Post Reply") { commentText in
                 viewModel.replyToCommentThread(thread: thread, commentText: commentText)
             }
         }
@@ -232,6 +234,48 @@ struct PostDetailView: View {
             if wasDeleted { dismiss() }
         }
         .environmentObject(viewModel) // Pass VM to subviews
+    }
+}
+
+/// The detail view's full-size post image. Loads the compressed `imageUrl` and
+/// falls back to the full-resolution `originalImageUrl` when it fails — the
+/// compressed copy is produced by an async Lambda, so a just-posted image can
+/// 403 in the compressed bucket for a while. Kingfisher-backed for the same
+/// reasons as `GridPostImage` (one-shot AsyncImage parks on the placeholder
+/// after a failed or cancelled load); scaled to fit instead of fill, with the
+/// detail view's spinner placeholder. See issues #252, #253, and #254.
+struct PostDetailImage: View {
+    let imageUrl: String
+    let originalImageUrl: String?
+
+    // Once the compressed URL genuinely fails, switch to the original and let
+    // Kingfisher load the new URL.
+    @State private var useOriginal = false
+
+    var body: some View {
+        let urlString = useOriginal ? (originalImageUrl ?? imageUrl) : imageUrl
+        KFImage(URL(string: urlString))
+            // Rides out the just-posted window where the compressed copy isn't
+            // in the bucket yet; only HTTP errors are retried, not cancellations.
+            .retry(maxCount: 2, interval: .seconds(1))
+            .placeholder {
+                Rectangle()
+                    .fill(Color.secondary.opacity(0.3))
+                    .aspectRatio(1, contentMode: .fit)
+                    .overlay(ProgressView())
+            }
+            .onFailure { error in
+                // A cancelled load isn't a missing image — the view reloads the
+                // same URL when it next appears, so save the fallback for real
+                // failures.
+                guard !error.isTaskCancelled else { return }
+                if !useOriginal, originalImageUrl != nil {
+                    useOriginal = true
+                }
+            }
+            .resizable()
+            .scaledToFit()
+            .aspectRatio(1, contentMode: .fit)
     }
 }
 
