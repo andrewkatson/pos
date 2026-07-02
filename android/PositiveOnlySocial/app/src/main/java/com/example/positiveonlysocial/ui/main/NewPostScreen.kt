@@ -177,6 +177,7 @@ fun NewPostScreen(
                                 } catch (e: CancellationException) {
                                     throw e
                                 } catch (e: Exception) {
+                                    android.util.Log.e("NewPostScreen", "Failed to read picked image $uri", e)
                                     null
                                 }
 
@@ -213,12 +214,13 @@ fun NewPostScreen(
                                  // the same generic message, which made issue #292
                                  // undiagnosable from the dialog alone.
                                  var uploadUrl = URL("https://picsum.photos/400/400")
-                                 if (!DependencyProvider.isUITesting && !Constants.isUnitTesting) {
+                                 if (!DependencyProvider.isUITesting) {
                                      try {
                                          uploadUrl = s3Uploader.upload(bytes, fileName)
                                      } catch (e: CancellationException) {
                                          throw e
                                      } catch (e: Exception) {
+                                         android.util.Log.e("NewPostScreen", "Image upload to S3 failed", e)
                                          failureMessage = "We couldn't upload your image. Please try again."
                                          showFailureAlert = true
                                          return@launch
@@ -236,6 +238,7 @@ fun NewPostScreen(
                                  if (!response.isSuccessful) {
                                      // A non-2xx (e.g. final classifier rejection)
                                      // must not show a success dialog.
+                                     android.util.Log.e("NewPostScreen", "make_post rejected: HTTP ${response.code()} - ${response.message()}")
                                      failureMessage = ApiErrors.messageFor(response, fallback = "Failed to share post. Please try again.")
                                     showFailureAlert = true
                                     return@launch
