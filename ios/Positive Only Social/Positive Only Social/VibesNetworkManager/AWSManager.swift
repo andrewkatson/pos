@@ -58,15 +58,20 @@ final class S3Uploader {
         NSLog("✅ Successfully uploaded image via presigned URL.")
     }
 
-    /// Compresses the image data to be within the specified maximum size.
+    private func isJpeg(data: Data) -> Bool {
+        guard data.count >= 2 else { return false }
+        return data.prefix(2) == Data([0xFF, 0xD8])
+    }
+
+    /// Compresses the image data to be within the specified maximum size, and ensures it is in JPEG format.
     ///
     /// - Parameters:
     ///   - data: The original image data.
     ///   - maxSizeBytes: The maximum allowed size in bytes.
     /// - Returns: The compressed image data.
     func compressImage(data: Data, maxSizeBytes: Int) -> Data {
-        // 1. Check if already within limits
-        if data.count <= maxSizeBytes {
+        // 1. Check if already within limits and is already JPEG
+        if data.count <= maxSizeBytes && isJpeg(data: data) {
             NSLog("✅ Good news, Image size (\(data.count) bytes) is within limits.")
             return data
         }
