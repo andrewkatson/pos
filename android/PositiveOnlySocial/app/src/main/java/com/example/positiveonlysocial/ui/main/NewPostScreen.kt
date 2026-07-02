@@ -31,6 +31,7 @@ import androidx.compose.ui.tooling.preview.Preview
 import androidx.navigation.compose.rememberNavController
 import com.example.positiveonlysocial.ui.dismissKeyboardOnTap
 import com.example.positiveonlysocial.ui.preview.PreviewHelpers
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -173,6 +174,8 @@ fun NewPostScreen(
                                     withContext(Dispatchers.IO) {
                                         context.contentResolver.openInputStream(uri)?.use { it.readBytes() }
                                     }
+                                } catch (e: CancellationException) {
+                                    throw e
                                 } catch (e: Exception) {
                                     null
                                 }
@@ -213,6 +216,8 @@ fun NewPostScreen(
                                  if (!DependencyProvider.isUITesting && !Constants.isUnitTesting) {
                                      try {
                                          uploadUrl = s3Uploader.upload(bytes, fileName)
+                                     } catch (e: CancellationException) {
+                                         throw e
                                      } catch (e: Exception) {
                                          failureMessage = "We couldn't upload your image. Please try again."
                                          showFailureAlert = true
@@ -247,6 +252,8 @@ fun NewPostScreen(
                                 }
                                 showSuccessAlert = true
 
+                             } catch (e: CancellationException) {
+                                 throw e
                              } catch (e: Exception) {
                                  failureMessage = ApiErrors.messageFor(e, fallback = "Failed to share post. Please try again.")
                                  showFailureAlert = true
