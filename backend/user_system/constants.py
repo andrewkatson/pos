@@ -32,6 +32,7 @@ ACCOUNT_BANNED = "account_banned"
 # Regex Patterns to check against
 class Patterns:
     password = r"^(?=.*[0-9])(?=.*[a-z])(?=.*[A-Z])(?=.*-)(?=\S+$).{8,}$"
+    login_password = r"^(?=\S+$).{8,}$"
     double = r"^\d{1,100}[.,]{0,1}\d{0,100}$"
     paragraph_of_chars = r"^[\w \n]{5,3000}$"
     alphanumeric = r"^\w{10,500}$"

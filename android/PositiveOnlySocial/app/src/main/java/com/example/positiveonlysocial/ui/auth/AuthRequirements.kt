@@ -17,13 +17,13 @@ import androidx.compose.ui.unit.dp
  * requirement hints and the form-validity checks share a single source of
  * truth so they can never drift apart.
  *
- *   password     = ^(?=.*[0-9])(?=.*[a-z])(?=.*[A-Z])(?=.*[@#$%^&+=_])(?=\S+$).{8,}$
+ *   password     = ^(?=.*[0-9])(?=.*[a-z])(?=.*[A-Z])(?=.*-)(?=\S+$).{8,}$
  *   alphanumeric = ^\w{10,500}$   (used for usernames)
  */
 data class Requirement(val label: String, val didMeetRequirement: Boolean)
 
 object AuthRequirements {
-    private const val SPECIAL_CHARS = "@#\$%^&+=_"
+
 
     fun password(password: String): List<Requirement> = listOf(
         Requirement("At least 8 characters", password.length >= 8),

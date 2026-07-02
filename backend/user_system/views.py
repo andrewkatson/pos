@@ -403,7 +403,7 @@ def login_user(request):
             not is_valid_pattern(username_or_email, Patterns.alphanumeric) and not is_valid_pattern(username_or_email,
                                                                                                     Patterns.email)):
         invalid_fields.append(Params.username_or_email)
-    if not password or not is_valid_pattern(password, Patterns.password):
+    if not password or not is_valid_pattern(password, Patterns.login_password):
         invalid_fields.append(Params.password)
 
     try:
