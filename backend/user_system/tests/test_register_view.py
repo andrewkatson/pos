@@ -210,7 +210,7 @@ class RegisterTests(PositiveOnlySocialTestCase):
         """
         data = self.valid_data.copy()
         data['email'] = f'{self.local_email[:-10]}_pwtest@email.com'  # Unique email to avoid collision
-        data['password'] = 'Nonpositive_Password_123!'
+        data['password'] = 'Nonpositive_Password_123-'
 
         response = self.client.post(self.url, data=data, content_type='application/json')
         self.assertEqual(response.status_code, 201)
