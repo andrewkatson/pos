@@ -4,6 +4,7 @@ import { apiClient } from '../api/client'
 import { getCurrentUsername } from '../api/session'
 import type { Comment, PostDetails } from '../api/types'
 import { isWithinLimit, MAX_COMMENT_LENGTH } from '../auth/requirements'
+import PostThumbnail from '../components/PostThumbnail'
 import CharacterCounter from '../components/CharacterCounter'
 import { formatRelativeTime } from '../utils/relativeTime'
 import './MainApp.css'
@@ -399,10 +400,9 @@ function PostDetailView({ postId }: { postId: string }) {
           </div>
         )}
 
-        <img
+        <PostThumbnail
+          post={post}
           className="detail-image"
-          src={post.image_url}
-          alt={post.caption}
           onDoubleClick={isOwnPost ? undefined : togglePostLike}
         />
 
