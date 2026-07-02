@@ -96,6 +96,10 @@ export interface FeedPost {
 export interface PostDetails {
   post_identifier: string
   image_url: string
+  /** The full-resolution original image URL, used as a fallback when the
+   * compressed `image_url` fails to load (see `FeedPost.original_image_url`).
+   * Older responses that predate the field omit it. */
+  original_image_url?: string
   caption: string
   post_likes: number
   author_username: string

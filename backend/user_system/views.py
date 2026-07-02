@@ -1132,6 +1132,9 @@ def get_post_details(request, post_identifier):
         post_data = {
             Fields.post_identifier: post.post_identifier,
             Fields.image_url: get_compressed_image_url(post.image_url),
+            # Full-res original, used as a client fallback while the async
+            # Lambda-generated compressed copy is still missing (#252/#254).
+            Fields.original_image_url: post.image_url,
             Fields.caption: post.caption,
             Fields.post_likes: total_likes,
             Fields.is_liked: post.postlike_set.filter(user=request.user).exists(),

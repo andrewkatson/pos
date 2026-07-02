@@ -186,6 +186,10 @@ struct UserSession: Codable, Equatable {
 struct PostDisplayData: Identifiable, Equatable {
     let id: String // postIdentifier
     let imageURL: String
+    /// The full-resolution original image URL, used as a fallback when the
+    /// compressed `imageURL` fails to load (see `Post.originalImageUrl`).
+    /// Optional for backward compatibility with responses that predate the field.
+    let originalImageURL: String?
     let caption: String
     let likeCount: Int
     let isLiked: Bool // Whether the current user has liked this post

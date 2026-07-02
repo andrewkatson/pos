@@ -26,7 +26,6 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.NavController
-import coil.compose.AsyncImage
 import com.example.positiveonlysocial.api.PositiveOnlySocialAPI
 import com.example.positiveonlysocial.data.constants.Constants
 import com.example.positiveonlysocial.data.model.CommentThreadViewData
@@ -184,9 +183,11 @@ fun PostDetailScreen(
                 val isOwnPost = post.authorUsername == currentUsername
                 item {
                     Column(modifier = Modifier.fillMaxWidth()) {
-                        AsyncImage(
-                            model = post.imageUrl,
-                            contentDescription = "Post Image",
+                        // Falls back to the full-res original while the async
+                        // Lambda-generated compressed copy is still missing
+                        // (#252/#254), same as the grids.
+                        PostImageWithFallback(
+                            post = post,
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .aspectRatio(1f)

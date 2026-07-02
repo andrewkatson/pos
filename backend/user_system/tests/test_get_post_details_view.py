@@ -71,6 +71,9 @@ class GetPostDetailsTests(PositiveOnlySocialTestCase):
         # Check that the data matches the post we created in setUp
         self.assertEqual(data[Fields.post_identifier], str(self.post_identifier))
         self.assertEqual(data[Fields.image_url], self.post.image_url)
+        # The raw original is served alongside the compressed URL so clients can
+        # fall back while the async-compressed copy is still missing (#252/#254).
+        self.assertEqual(data[Fields.original_image_url], self.post.image_url)
         self.assertEqual(data[Fields.caption], self.post.caption)
         self.assertEqual(data[Fields.author_username], self.local_username)
 
