@@ -31,7 +31,7 @@ class RememberMeLoginTest {
     val composeTestRule = createEmptyComposeRule()
 
     private val testUsername = "remember_user_${UUID.randomUUID().toString().take(5)}"
-    private val strongPassword = "StrongPassword123@"
+    private val strongPassword = "StrongPassword123-"
 
     // Matches the identifiers used by WelcomeScreen / AuthenticationManager.
     private val keychainService = "positive-only-social.Positive-Only-Social"

@@ -181,7 +181,7 @@ class PositiveOnlySocialTestCase(TestCase):
         """
         local_email = f'{local_username}_email@email.com'
         if not local_password:
-            local_password = f'{local_username}_Password123!'
+            local_password = f'{local_username}_Password123-'
 
         return self._register_user(local_username, local_email, local_password, remember_me)
 
@@ -191,7 +191,7 @@ class PositiveOnlySocialTestCase(TestCase):
         Returns their username and token.
         """
         username = self._get_unique_username(f"{prefix}_other_user")
-        password = "OtherPassword123$"
+        password = "OtherPassword123-"
         email = f"{username}@email.com"
 
         data = self._register_user(username, email, password)
@@ -209,7 +209,7 @@ class PositiveOnlySocialTestCase(TestCase):
         self.local_... attributes (username, token, etc.).
         """
         username = self._get_unique_username(f'testuser_{remember_me}')
-        password = f'Password_{self.prefix}123!'
+        password = f'Password_{self.prefix}123-'
         email = f'{username}@email.com'
 
         register_fields = self._register_user(username, email, password, remember_me)
@@ -271,7 +271,7 @@ class PositiveOnlySocialTestCase(TestCase):
         """
         for i in range(num):
             username = self._get_unique_username(f'user{i}')
-            password = f'Password_{i}_{self.prefix}!'
+            password = f'Password_{i}_{self.prefix}-'
             email = f'{username}@email.com'
 
             data = self._register_user(username, email, password)
@@ -292,7 +292,7 @@ class PositiveOnlySocialTestCase(TestCase):
         """
         for i in range(num):
             username = self._get_unique_username(f'user{i}')
-            password = f'Password_{i}_{self.prefix}!'
+            password = f'Password_{i}_{self.prefix}-'
             email = f'{username}@email.com'
 
             data = self._register_user(username, email, password)
@@ -316,7 +316,7 @@ class PositiveOnlySocialTestCase(TestCase):
         """
         for i in range(num):
             username = self._get_unique_username(f'user{i}')
-            password = f'Password_{i}_{self.prefix}!'
+            password = f'Password_{i}_{self.prefix}-'
             email = f'{username}@email.com'
 
             data = self._register_user(username, email, password)

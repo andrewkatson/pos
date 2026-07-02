@@ -30,7 +30,8 @@ object AuthRequirements {
         Requirement("At least one number", password.any { it.isDigit() }),
         Requirement("At least one lowercase letter", password.any { it.isLowerCase() }),
         Requirement("At least one uppercase letter", password.any { it.isUpperCase() }),
-        Requirement("At least one special character ($SPECIAL_CHARS)", password.any { it in SPECIAL_CHARS }),
+        Requirement("At least one dash (-)", password.any { it == '-' }),
+        Requirement("Adding other special characters (like !) is suggested", true),
         Requirement("No spaces", password.isNotEmpty() && password.none { it.isWhitespace() }),
     )
 

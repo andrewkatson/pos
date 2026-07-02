@@ -14,7 +14,7 @@ const mockRegister = vi.mocked(apiClient.register)
 // Credentials that satisfy the backend patterns mirrored on the client:
 // username = ^\w{10,500}$, password requires upper/lower/digit/special/no-space.
 const VALID_USERNAME = 'adalovelace'
-const VALID_PASSWORD = 'StrongPass1@'
+const VALID_PASSWORD = 'StrongPass1-'
 
 function renderRegisterPage() {
   return render(
@@ -82,7 +82,8 @@ test('password hints appear when password is typed', async () => {
   expect(screen.getByText('At least one number')).toBeInTheDocument()
   expect(screen.getByText('At least one lowercase letter')).toBeInTheDocument()
   expect(screen.getByText('At least one uppercase letter')).toBeInTheDocument()
-  expect(screen.getByText('At least one special character (@#$%^&+=_)')).toBeInTheDocument()
+  expect(screen.getByText('At least one dash (-)')).toBeInTheDocument()
+  expect(screen.getByText('Adding other special characters (like !) is suggested')).toBeInTheDocument()
   expect(screen.getByText('No spaces')).toBeInTheDocument()
 })
 

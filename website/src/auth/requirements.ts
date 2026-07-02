@@ -18,8 +18,12 @@ export function getPasswordRequirements(password: string): Requirement[] {
     { label: 'At least one lowercase letter', didMeetRequirement: /[a-z]/.test(password) },
     { label: 'At least one uppercase letter', didMeetRequirement: /[A-Z]/.test(password) },
     {
-      label: 'At least one special character (@#$%^&+=_)',
-      didMeetRequirement: /[@#$%^&+=_]/.test(password),
+      label: 'At least one dash (-)',
+      didMeetRequirement: /-/.test(password),
+    },
+    {
+      label: 'Adding other special characters (like !) is suggested',
+      didMeetRequirement: true,
     },
     { label: 'No spaces', didMeetRequirement: password.length > 0 && !/\s/.test(password) },
   ]

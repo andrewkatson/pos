@@ -32,7 +32,8 @@ enum AuthRequirements {
             Requirement(label: "At least one number", didMeetRequirement: matches(pwd, "[0-9]")),
             Requirement(label: "At least one lowercase letter", didMeetRequirement: matches(pwd, "[a-z]")),
             Requirement(label: "At least one uppercase letter", didMeetRequirement: matches(pwd, "[A-Z]")),
-            Requirement(label: "At least one special character (@#$%^&+=_)", didMeetRequirement: matches(pwd, "[@#$%^&+=_]")),
+            Requirement(label: "At least one dash (-)", didMeetRequirement: matches(pwd, "-")),
+            Requirement(label: "Adding other special characters (like !) is suggested", didMeetRequirement: true),
             Requirement(label: "No spaces", didMeetRequirement: !pwd.isEmpty && !matches(pwd, "\\s")),
         ]
     }

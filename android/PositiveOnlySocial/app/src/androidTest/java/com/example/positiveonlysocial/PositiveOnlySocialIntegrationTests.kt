@@ -31,8 +31,8 @@ class PositiveOnlySocialIntegrationTests {
     private val testUsername = "test_user_${UUID.randomUUID().toString().take(5)}"
     private val otherTestUsername = "other_user_${UUID.randomUUID().toString().take(5)}"
     private val newTestUsername = "new_user_${UUID.randomUUID().toString().take(5)}"
-    private val strongPassword = "StrongPassword123@"
-    private val newStrongPassword = "NewStrongPassword456@"
+    private val strongPassword = "StrongPassword123-"
+    private val newStrongPassword = "NewStrongPassword456-"
 
     // MARK: Helpers
 

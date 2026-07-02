@@ -23,9 +23,9 @@ class AppealAdminActionTests(TestCase):
         self.appeal_admin = AppealAdmin(Appeal, AdminSite())
 
         self.admin_user = PositiveOnlySocialUser.objects.create_superuser(
-            username='adminuser', email='admin@email.com', password='AdminPassword123!')
+            username='adminuser', email='admin@email.com', password='AdminPassword123-')
         self.author = PositiveOnlySocialUser.objects.create_user(
-            username='author', email='author@email.com', password='AuthorPassword123!')
+            username='author', email='author@email.com', password='AuthorPassword123-')
 
     def _request(self, user):
         request = self.factory.post('/')
