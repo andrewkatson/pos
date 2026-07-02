@@ -134,6 +134,62 @@ class MakePostAppealableTests(PositiveOnlySocialTestCase):
         mock_delete.assert_not_called()
 
 
+class TextOnlyPostAppealableTests(PositiveOnlySocialTestCase):
+    """Text-only posts (#307) skip the image classifier; visibility depends
+    solely on the text result."""
+
+    def setUp(self):
+        super().setUp()
+        self.register_user_and_setup_local_fields()
+        self.user = get_user_with_username(self.local_username)
+        self.header = {'HTTP_AUTHORIZATION': f'Bearer {self.session_management_token}'}
+        self.url = reverse('make_post')
+        self.data = {'caption': POSITIVE_TEXT}
+
+    def _post(self):
+        return self.client.post(self.url, data=self.data, content_type='application/json', **self.header)
+
+    @patch(IMAGE, return_value=ALLOWED)
+    @patch(TEXT, return_value=ALLOWED)
+    def test_text_only_post_skips_image_classifier(self, _text, mock_image):
+        response = self._post()
+        self.assertEqual(response.status_code, 201)
+        mock_image.assert_not_called()
+
+    @patch(TEXT, return_value=ALLOWED)
+    def test_allowed_text_only_post_is_visible(self, _text):
+        response = self._post()
+        self.assertEqual(response.status_code, 201)
+        self.assertNotIn(Fields.hidden, response.json())
+        post = self.user.post_set.get()
+        self.assertFalse(post.hidden)
+        self.assertIsNone(post.image_url)
+        self.assertEqual(post.hidden_reason, HIDDEN_REASON_NONE)
+
+    @patch(TEXT, return_value=APPEALABLE)
+    def test_appealable_text_only_post_is_posted_but_hidden(self, _text):
+        response = self._post()
+        self.assertEqual(response.status_code, 201)
+        body = response.json()
+        self.assertTrue(body[Fields.hidden])
+        self.assertEqual(body[Fields.hidden_reason], HIDDEN_REASON_CLASSIFIER)
+
+        post = self.user.post_set.get()
+        self.assertTrue(post.hidden)
+        self.assertIsNone(post.image_url)
+        self.assertEqual(post.hidden_reason, HIDDEN_REASON_CLASSIFIER)
+
+    @patch('user_system.views.delete_image')
+    @patch(TEXT, return_value=FINAL_REJECT)
+    def test_final_text_only_rejection_is_blocked_without_s3_cleanup(self, _text, mock_delete):
+        """There is no uploaded image to clean up on the final-rejection path."""
+        response = self._post()
+        self.assertEqual(response.status_code, 400)
+        self.assertIn('Text is not positive', response.json().get('error', ''))
+        self.assertEqual(self.user.post_set.count(), 0)
+        mock_delete.assert_not_called()
+
+
 class CommentAppealableTests(PositiveOnlySocialTestCase):
     """comment_on_post and reply_to_comment_thread hide appealable rejections."""
 

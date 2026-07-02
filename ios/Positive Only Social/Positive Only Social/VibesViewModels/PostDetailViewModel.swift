@@ -548,7 +548,8 @@ final class PostDetailViewModel: ObservableObject {
     // These match the 'Fields' structs in your stub API
     private struct PostDetailsFields: Decodable {
         let post_identifier: String
-        let image_url: String
+        // Nil for a text-only post (#307).
+        let image_url: String?
         /// Full-res original for the compressed→original fallback (#252/#254).
         /// Optional so responses that predate the field still decode.
         let original_image_url: String?

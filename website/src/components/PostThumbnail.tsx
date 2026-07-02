@@ -1,5 +1,6 @@
 import { useState, type MouseEventHandler } from 'react'
 import type { FeedPost } from '../api/types'
+import CaptionTile from './CaptionTile'
 
 /**
  * A post's image with the compressed→original fallback: renders the compressed
@@ -23,13 +24,26 @@ import type { FeedPost } from '../api/types'
 function PostThumbnail({
   post,
   className,
+  variant,
   onDoubleClick,
 }: {
   post: Pick<FeedPost, 'image_url' | 'original_image_url' | 'caption'>
   className?: string
-  onDoubleClick?: MouseEventHandler<HTMLImageElement>
+  variant?: 'detail' | 'thumb'
+  onDoubleClick?: MouseEventHandler<HTMLElement>
 }) {
   const [useOriginal, setUseOriginal] = useState(false)
+  if (post.image_url === null) {
+    // A text-only post (#307) has no image; render its caption as the tile.
+    return (
+      <CaptionTile
+        caption={post.caption}
+        variant={variant}
+        className={className}
+        onDoubleClick={onDoubleClick ? (e) => onDoubleClick(e) : undefined}
+      />
+    )
+  }
   const src = useOriginal && post.original_image_url ? post.original_image_url : post.image_url
   return (
     <img
