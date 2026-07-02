@@ -40,7 +40,7 @@ function PostThumbnail({
         caption={post.caption}
         variant={variant}
         className={className}
-        onDoubleClick={onDoubleClick as MouseEventHandler<HTMLDivElement> | undefined}
+        onDoubleClick={onDoubleClick ? (e) => onDoubleClick(e) : undefined}
       />
     )
   }
