@@ -60,6 +60,7 @@ import Foundation
     static let pathSegmentReset = "reset"
     static let pathSegmentThreads = "threads"
     static let pathSegmentUnblock = "unblock"
+    static let pathSegmentUploadUrl = "upload-url"
     static let pathSegmentUncomment = "uncomment"
     static let pathSegmentUnfollow = "unfollow"
     static let pathSegmentUnfollowed = "followed"

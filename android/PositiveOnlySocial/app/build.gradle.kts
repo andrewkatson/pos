@@ -66,8 +66,6 @@ dependencies {
     implementation(libs.retrofit)
     implementation(libs.converter.gson)
     implementation(libs.androidx.security.crypto)
-    implementation(libs.s3)
-    implementation(libs.cognitoidentity)
     implementation(libs.kotlinx.coroutines.core)
     implementation(libs.androidx.navigation.compose)
     implementation(libs.io.coil.compose)

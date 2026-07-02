@@ -51,11 +51,11 @@ def image_url_to_key(image_url):
 
 def _s3_client():
     """A boto3 S3 client built from the backend's AWS credentials, or None if
-    they are not configured (deletion is best-effort and must not hard-fail)."""
+    they are not configured (callers treat a missing client as a soft failure)."""
     aws_access_key = os.environ.get("AWS_ACCESS_KEY_ID")
     aws_secret_key = os.environ.get("AWS_SECRET_ACCESS_KEY")
     if not aws_access_key or not aws_secret_key:
-        logger.error("Missing AWS credentials — cannot perform S3 delete.")
+        logger.error("Missing AWS credentials — cannot build an S3 client.")
         return None
     region = os.environ.get("AWS_REGION", "us-east-1")
     return boto3.client(
@@ -64,6 +64,50 @@ def _s3_client():
         aws_secret_access_key=aws_secret_key,
         region_name=region,
     )
+
+
+# Post images are always JPEG (both clients transcode before uploading), and the
+# presigned URL is signed over this content type so the uploader cannot PUT
+# anything else without the signature check failing.
+UPLOAD_CONTENT_TYPE = "image/jpeg"
+
+# Presigned upload URLs are single-use in practice (the client PUTs immediately
+# after asking), so keep the validity window short.
+UPLOAD_URL_EXPIRES_SECONDS = 300
+
+
+def generate_presigned_upload(key, client=None):
+    """Create a short-lived presigned PUT URL for `key` in the images bucket.
+
+    Returns `(upload_url, image_url)` where `upload_url` is the presigned URL
+    the client PUTs the JPEG bytes to, and `image_url` is the same URL with the
+    signing query stripped — i.e. the canonical object URL the client should
+    send back to make_post. Returns `(None, None)` if AWS credentials are not
+    configured or signing fails.
+
+    This exists so clients never hold AWS credentials: the backend picks the
+    key (scoped to the authenticated user) and hands out a signature that is
+    only valid for that exact key and content type (issue #310).
+    """
+    if client is None:
+        client = _s3_client()
+    if client is None:
+        return None, None
+    try:
+        upload_url = client.generate_presigned_url(
+            'put_object',
+            Params={
+                'Bucket': settings.AWS_STORAGE_BUCKET_NAME,
+                'Key': key,
+                'ContentType': UPLOAD_CONTENT_TYPE,
+            },
+            ExpiresIn=UPLOAD_URL_EXPIRES_SECONDS,
+        )
+    except Exception:
+        logger.exception("Failed to generate a presigned upload URL for key=%s", key)
+        return None, None
+    image_url = urlparse(upload_url)._replace(query='', fragment='').geturl()
+    return upload_url, image_url
 
 
 def delete_key(key, client=None):
