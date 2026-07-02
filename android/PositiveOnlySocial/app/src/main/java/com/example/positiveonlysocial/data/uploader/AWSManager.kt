@@ -12,8 +12,13 @@ import aws.smithy.kotlin.runtime.collections.Attributes
 import aws.smithy.kotlin.runtime.content.ByteStream
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
+import android.graphics.Matrix
+import android.media.ExifInterface
+import java.io.ByteArrayInputStream
 import java.io.ByteArrayOutputStream
 import java.net.URL
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 
 // Custom Exception Class
 sealed class AWSManagerError(message: String, cause: Throwable? = null) : Exception(message, cause) {
@@ -80,7 +85,7 @@ class S3Uploader {
      * @param data The file bytes to upload
      * @param fileName The destination file name
      */
-    suspend fun upload(data: ByteArray, fileName: String): URL {
+    suspend fun upload(data: ByteArray, fileName: String): URL = withContext(Dispatchers.IO) {
 
         val s3Client = AWSManager.s3Client ?: run {
             // If the client is null, throw our custom error.
@@ -103,12 +108,57 @@ class S3Uploader {
         val region = AWSManager.AWS_REGION
         val urlString = "https://$bucketName.s3.$region.amazonaws.com/$fileName"
 
-        return try {
+        try {
             val url = URL(urlString)
             Log.d("S3Uploader", "Successfully uploaded to S3. URL: $url")
             url
         } catch (e: Exception) {
             throw AWSManagerError.InitializationFailed(e) // Or a specific URLError
+        }
+    }
+
+    private fun isSupportedByBackend(data: ByteArray): Boolean {
+        if (data.size < 12) return false
+
+        // JPEG magic bytes: FF D8
+        if (data[0] == 0xFF.toByte() && data[1] == 0xD8.toByte()) {
+            return true
+        }
+
+        // PNG magic bytes: 89 50 4E 47 0D 0A 1A 0A
+        if (data[0] == 0x89.toByte() && data[1] == 0x50.toByte() && data[2] == 0x4E.toByte() && data[3] == 0x47.toByte()) {
+            return true
+        }
+
+        // WebP magic bytes: RIFF (bytes 0-3) and WEBP (bytes 8-11)
+        if (data[0] == 'R'.code.toByte() && data[1] == 'I'.code.toByte() && data[2] == 'F'.code.toByte() && data[3] == 'F'.code.toByte() &&
+            data[8] == 'W'.code.toByte() && data[9] == 'E'.code.toByte() && data[10] == 'B'.code.toByte() && data[11] == 'P'.code.toByte()) {
+            return true
+        }
+
+        return false
+    }
+
+    private fun rotateImageIfRequired(data: ByteArray, bitmap: Bitmap): Bitmap {
+        try {
+            val exifInterface = ExifInterface(ByteArrayInputStream(data))
+            val orientation = exifInterface.getAttributeInt(
+                ExifInterface.TAG_ORIENTATION,
+                ExifInterface.ORIENTATION_NORMAL
+            )
+            val matrix = Matrix()
+            when (orientation) {
+                ExifInterface.ORIENTATION_ROTATE_90 -> matrix.postRotate(90f)
+                ExifInterface.ORIENTATION_ROTATE_180 -> matrix.postRotate(180f)
+                ExifInterface.ORIENTATION_ROTATE_270 -> matrix.postRotate(270f)
+                else -> return bitmap
+            }
+            val rotatedBitmap = Bitmap.createBitmap(bitmap, 0, 0, bitmap.width, bitmap.height, matrix, true)
+            bitmap.recycle()
+            return rotatedBitmap
+        } catch (e: Exception) {
+            Log.w("S3Uploader", "Failed to check EXIF orientation: ${e.localizedMessage}")
+            return bitmap
         }
     }
 
@@ -119,28 +169,32 @@ class S3Uploader {
      * @return The compressed image data
      */
     private fun compressImage(data: ByteArray, maxSizeBytes: Long): ByteArray {
-        if (data.size <= maxSizeBytes) {
-            Log.d("S3Uploader", "Image size (${data.size} bytes) is within limits.")
+        if (data.size <= maxSizeBytes && isSupportedByBackend(data)) {
+            Log.d("S3Uploader", "Image format is supported and size (${data.size} bytes) is within limits.")
             return data
         }
 
-        Log.d("S3Uploader", "Image size (${data.size} bytes) exceeds limit ($maxSizeBytes). Compressing...")
-        
-        val bitmap = BitmapFactory.decodeByteArray(data, 0, data.size) ?: run {
+        Log.d("S3Uploader", "Transcoding/compressing image to JPEG... Original size: ${data.size} bytes")
+
+        var bitmap = BitmapFactory.decodeByteArray(data, 0, data.size) ?: run {
             Log.e("S3Uploader", "Failed to decode bitmap for compression.")
             return data
         }
 
+        bitmap = rotateImageIfRequired(data, bitmap)
+
         var quality = 90
-        var compressedData = data
-        
+        val stream = ByteArrayOutputStream()
+        bitmap.compress(Bitmap.CompressFormat.JPEG, quality, stream)
+        var compressedData = stream.toByteArray()
+
         // Iteratively reduce quality until size is under limit or quality is too low
         while (compressedData.size > maxSizeBytes && quality >= 10) {
-            val stream = ByteArrayOutputStream()
-            bitmap.compress(Bitmap.CompressFormat.JPEG, quality, stream)
-            compressedData = stream.toByteArray()
-            Log.d("S3Uploader", "Compressed to quality $quality, size: ${compressedData.size} bytes")
+            val nextStream = ByteArrayOutputStream()
             quality -= 10
+            bitmap.compress(Bitmap.CompressFormat.JPEG, quality, nextStream)
+            compressedData = nextStream.toByteArray()
+            Log.d("S3Uploader", "Compressed to quality $quality, size: ${compressedData.size} bytes")
         }
 
         bitmap.recycle() // Free memory
@@ -158,7 +212,7 @@ class CognitoCredentialsProvider(
     private val region: String
 ) : CredentialsProvider {
 
-    override suspend fun resolve(attributes: Attributes): Credentials {
+    override suspend fun resolve(attributes: Attributes): Credentials = withContext(Dispatchers.IO) {
         // The AWS Kotlin SDK requires an explicit region — on Android there is no
         // ambient region (no env vars / instance metadata), so omitting it makes
         // the first call throw a region-resolution error before any request is
@@ -179,7 +233,7 @@ class CognitoCredentialsProvider(
 
             val credentials = credsResponse.credentials ?: throw Exception("No credentials returned")
 
-            return Credentials(
+            Credentials(
                 accessKeyId = credentials.accessKeyId ?: "",
                 secretAccessKey = credentials.secretKey ?: "",
                 sessionToken = credentials.sessionToken,
