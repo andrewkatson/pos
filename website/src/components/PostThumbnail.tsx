@@ -39,7 +39,8 @@ function PostThumbnail({
       <CaptionTile
         caption={post.caption}
         variant={variant}
-        onDoubleClick={onDoubleClick as (() => void) | undefined}
+        className={className}
+        onDoubleClick={onDoubleClick as MouseEventHandler<HTMLDivElement> | undefined}
       />
     )
   }

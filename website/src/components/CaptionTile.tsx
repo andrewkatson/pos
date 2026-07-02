@@ -1,3 +1,5 @@
+import type { MouseEventHandler } from 'react'
+
 /**
  * The visual stand-in for a text-only post's image (#307): the caption rendered
  * centered on a themed gradient background. Used wherever posts render as image
@@ -7,16 +9,19 @@
 function CaptionTile({
   caption,
   variant,
+  className,
   onDoubleClick,
 }: {
   caption: string
   variant?: 'detail' | 'thumb'
-  onDoubleClick?: () => void
+  className?: string
+  onDoubleClick?: MouseEventHandler<HTMLDivElement>
 }) {
   const variantClass = variant ? ` caption-tile--${variant}` : ''
+  const combinedClass = className ? ` ${className}` : ''
   return (
     <div
-      className={`caption-tile${variantClass}`}
+      className={`caption-tile${variantClass}${combinedClass}`}
       role="img"
       aria-label={caption}
       onDoubleClick={onDoubleClick}
