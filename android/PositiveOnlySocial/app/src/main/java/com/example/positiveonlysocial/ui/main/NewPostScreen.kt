@@ -213,7 +213,7 @@ fun NewPostScreen(
                                  // the backend call failing: both used to surface
                                  // the same generic message, which made issue #292
                                  // undiagnosable from the dialog alone.
-                                 var uploadUrl = URL("https://picsum.photos/400/400")
+                                 var uploadUrl = URL("https://picsum.photos/id/237/400/400")
                                  if (!DependencyProvider.isUITesting) {
                                      try {
                                          uploadUrl = s3Uploader.upload(bytes, fileName)

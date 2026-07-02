@@ -158,10 +158,7 @@ class S3Uploader {
 
         Log.d("S3Uploader", "Transcoding/compressing image to JPEG... Original size: ${data.size} bytes")
 
-        var bitmap = BitmapFactory.decodeByteArray(data, 0, data.size) ?: run {
-            Log.e("S3Uploader", "Failed to decode bitmap for compression.")
-            return data
-        }
+        var bitmap = BitmapFactory.decodeByteArray(data, 0, data.size) ?: throw IllegalArgumentException("Failed to decode image data for transcoding")
 
         bitmap = rotateImageIfRequired(data, bitmap)
 
@@ -171,7 +168,7 @@ class S3Uploader {
         var compressedData = stream.toByteArray()
 
         // Iteratively reduce quality until size is under limit or quality is too low
-        while (compressedData.size > maxSizeBytes && quality >= 10) {
+        while (compressedData.size > maxSizeBytes && quality > 10) {
             val nextStream = ByteArrayOutputStream()
             quality -= 10
             bitmap.compress(Bitmap.CompressFormat.JPEG, quality, nextStream)
