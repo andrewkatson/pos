@@ -781,10 +781,20 @@ def make_post(request):
 
     # The image is optional (#307): missing, null, and "" all mean a text-only
     # post. A provided image must still pass pattern and user-scoping checks.
-    image_url = data.get(Fields.image_url) or None
-    caption = data.get(Fields.caption)
-
+    raw_image_url = data.get(Fields.image_url)
+    
     invalid_fields = []
+    
+    if raw_image_url in (None, ""):
+        image_url = None
+    elif not isinstance(raw_image_url, str):
+        image_url = None
+        invalid_fields.append(Params.image)
+    else:
+        image_url = raw_image_url
+    
+    caption = data.get(Fields.caption)
+    
     if image_url:
         if not is_valid_pattern(image_url, Patterns.image_url):
             invalid_fields.append(Params.image)

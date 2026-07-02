@@ -173,6 +173,7 @@
   aspect-ratio: 1 / 1;
   height: auto;
   border-radius: 12px;
+  cursor: pointer;
 }
 
 .caption-tile--detail .caption-tile__text {
