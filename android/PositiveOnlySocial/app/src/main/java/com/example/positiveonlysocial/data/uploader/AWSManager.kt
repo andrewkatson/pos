@@ -117,26 +117,8 @@ class S3Uploader {
         }
     }
 
-    private fun isSupportedByBackend(data: ByteArray): Boolean {
-        if (data.size < 12) return false
-
-        // JPEG magic bytes: FF D8
-        if (data[0] == 0xFF.toByte() && data[1] == 0xD8.toByte()) {
-            return true
-        }
-
-        // PNG magic bytes: 89 50 4E 47 0D 0A 1A 0A
-        if (data[0] == 0x89.toByte() && data[1] == 0x50.toByte() && data[2] == 0x4E.toByte() && data[3] == 0x47.toByte()) {
-            return true
-        }
-
-        // WebP magic bytes: RIFF (bytes 0-3) and WEBP (bytes 8-11)
-        if (data[0] == 'R'.code.toByte() && data[1] == 'I'.code.toByte() && data[2] == 'F'.code.toByte() && data[3] == 'F'.code.toByte() &&
-            data[8] == 'W'.code.toByte() && data[9] == 'E'.code.toByte() && data[10] == 'B'.code.toByte() && data[11] == 'P'.code.toByte()) {
-            return true
-        }
-
-        return false
+    private fun isJpeg(data: ByteArray): Boolean {
+        return data.size >= 2 && data[0] == 0xFF.toByte() && data[1] == 0xD8.toByte()
     }
 
     private fun rotateImageIfRequired(data: ByteArray, bitmap: Bitmap): Bitmap {
@@ -169,8 +151,8 @@ class S3Uploader {
      * @return The compressed image data
      */
     private fun compressImage(data: ByteArray, maxSizeBytes: Long): ByteArray {
-        if (data.size <= maxSizeBytes && isSupportedByBackend(data)) {
-            Log.d("S3Uploader", "Image format is supported and size (${data.size} bytes) is within limits.")
+        if (data.size <= maxSizeBytes && isJpeg(data)) {
+            Log.d("S3Uploader", "Image is already JPEG and size (${data.size} bytes) is within limits.")
             return data
         }
 

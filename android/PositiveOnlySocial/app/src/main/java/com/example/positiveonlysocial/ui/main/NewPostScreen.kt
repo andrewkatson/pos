@@ -255,6 +255,7 @@ fun NewPostScreen(
                              } catch (e: CancellationException) {
                                  throw e
                              } catch (e: Exception) {
+                                 android.util.Log.e("NewPostScreen", "Post creation failed", e)
                                  failureMessage = ApiErrors.messageFor(e, fallback = "Failed to share post. Please try again.")
                                  showFailureAlert = true
                             } finally {
