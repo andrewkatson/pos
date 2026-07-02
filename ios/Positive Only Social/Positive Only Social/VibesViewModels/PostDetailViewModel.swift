@@ -545,7 +545,8 @@ final class PostDetailViewModel: ObservableObject {
     // These match the 'Fields' structs in your stub API
     private struct PostDetailsFields: Decodable {
         let post_identifier: String
-        let image_url: String
+        // Nil for a text-only post (#307).
+        let image_url: String?
         let caption: String
         let post_likes: Int
         let is_liked: Bool

@@ -110,7 +110,8 @@ struct ForYouFeedView: View {
                                 .overlay {
                                     KFGridPostImage(
                                         imageUrl: post.imageUrl,
-                                        originalImageUrl: post.originalImageUrl
+                                        originalImageUrl: post.originalImageUrl,
+                                        caption: post.caption
                                     )
                                 }
                                 .clipped()
@@ -179,6 +180,7 @@ struct FollowingFeedView: View {
                                     GridPostImage(
                                         imageUrl: post.imageUrl,
                                         originalImageUrl: post.originalImageUrl,
+                                        caption: post.caption,
                                         placeholderColor: Color(.systemGray5)
                                     )
                                 }
@@ -224,8 +226,11 @@ struct FollowingFeedView: View {
 /// fallback those tiles render as an empty grey box until the image is ready.
 /// See issues #252 and #254.
 struct KFGridPostImage: View {
-    let imageUrl: String
+    /// Nil for a text-only post (#307), which renders as a caption tile.
+    let imageUrl: String?
     let originalImageUrl: String?
+    /// The post caption, rendered as the tile for a text-only post.
+    var caption: String = ""
     /// Shown while loading and when both images fail.
     var placeholderColor: Color = Color(.systemGray5)
 
@@ -234,16 +239,20 @@ struct KFGridPostImage: View {
     @State private var useOriginal = false
 
     var body: some View {
-        let urlString = useOriginal ? (originalImageUrl ?? imageUrl) : imageUrl
-        KFImage(URL(string: urlString))
-            .placeholder { placeholderColor }
-            .onFailure { _ in
-                if !useOriginal, originalImageUrl != nil {
-                    useOriginal = true
+        if let imageUrl {
+            let urlString = useOriginal ? (originalImageUrl ?? imageUrl) : imageUrl
+            KFImage(URL(string: urlString))
+                .placeholder { placeholderColor }
+                .onFailure { _ in
+                    if !useOriginal, originalImageUrl != nil {
+                        useOriginal = true
+                    }
                 }
-            }
-            .resizable()
-            .scaledToFill()
+                .resizable()
+                .scaledToFill()
+        } else {
+            CaptionTileView(caption: caption)
+        }
     }
 }
 

@@ -35,16 +35,25 @@ struct PostDetailView: View {
                 VStack(alignment: .center, spacing: 12) {
                     // Using AsyncImage for network URLs
                     //TODO: eBlender change this to KFImage
-                    AsyncImage(url: URL(string: post.imageURL)) { image in
-                        image
-                            .resizable()
-                            .scaledToFit()
-                            .aspectRatio(1, contentMode: .fit)
-                    } placeholder: {
-                        Rectangle()
-                            .fill(Color.secondary.opacity(0.3))
-                            .aspectRatio(1, contentMode: .fit)
-                            .overlay(ProgressView())
+                    Group {
+                        if let imageURL = post.imageURL {
+                            AsyncImage(url: URL(string: imageURL)) { image in
+                                image
+                                    .resizable()
+                                    .scaledToFit()
+                                    .aspectRatio(1, contentMode: .fit)
+                            } placeholder: {
+                                Rectangle()
+                                    .fill(Color.secondary.opacity(0.3))
+                                    .aspectRatio(1, contentMode: .fit)
+                                    .overlay(ProgressView())
+                            }
+                        } else {
+                            // A text-only post (#307): the caption is the tile,
+                            // with the same square footprint and gestures.
+                            CaptionTileView(caption: post.caption, lineLimit: nil)
+                                .aspectRatio(1, contentMode: .fit)
+                        }
                     }
                     .accessibilityElement(children: .ignore)  // Treat as single element
                     .accessibilityIdentifier("PostImage")

@@ -36,7 +36,7 @@ struct NewPostView: View {
                     // A prominent, full-width button reads as the primary call to
                     // action rather than looking like plain tappable text.
                     let pickerLabel = Label(
-                        selectedImageData == nil ? "Select a Photo" : "Change Photo",
+                        selectedImageData == nil ? "Select a Photo (Optional)" : "Change Photo",
                         systemImage: "photo.on.rectangle.angled"
                     )
                     .font(.headline)
@@ -104,7 +104,7 @@ struct NewPostView: View {
                     }
                 } else {
                     Button(action: makePost) { Text("Share Post") }
-                        .disabled(selectedImageData == nil || caption.isEmpty || !isWithinLength(caption, max: GVOAppConstants.maxCaptionLength))
+                        .disabled(caption.isEmpty || !isWithinLength(caption, max: GVOAppConstants.maxCaptionLength))
                         .accessibilityIdentifier("SharePostButton")
                 }
             }
@@ -138,12 +138,6 @@ struct NewPostView: View {
     }
     
     private func makePost() {
-        guard let imageData = selectedImageData else {
-            failureAlertMessage = "Please select an image before posting."
-            showFailureAlert = true
-            return
-        }
-        
         Task {
             isLoading = true
             do {
@@ -161,21 +155,27 @@ struct NewPostView: View {
                     userSession = loaded
                 }
 
-                // 2. UPLOAD IMAGE TO S3 — key scoped to the authenticated user
-                let uniqueFileName = "\(userSession.userId)/\(UUID().uuidString).jpeg"
+                // 2. UPLOAD IMAGE TO S3 — key scoped to the authenticated user.
+                // The photo is optional (#307): with no image selected the upload
+                // is skipped entirely and a text-only post is created.
+                var imageURLString: String? = nil
+                if let imageData = selectedImageData {
+                    let uniqueFileName = "\(userSession.userId)/\(UUID().uuidString).jpeg"
 
-                var imageURL: URL! = URL(string: "https://picsum.photos/400/400")!
-                if !isTesting() {
-                    imageURL = try await s3Uploader.upload(
-                        data: imageData,
-                        fileName: uniqueFileName
-                    )
+                    var imageURL: URL! = URL(string: "https://picsum.photos/400/400")!
+                    if !isTesting() {
+                        imageURL = try await s3Uploader.upload(
+                            data: imageData,
+                            fileName: uniqueFileName
+                        )
+                    }
+                    imageURLString = imageURL.absoluteString
                 }
 
-                // 3. SEND THE S3 URL TO YOUR BACKEND
+                // 3. SEND THE S3 URL (IF ANY) TO YOUR BACKEND
                 let responseData = try await api.makePost(
                     sessionManagementToken: userSession.sessionToken,
-                    imageURL: imageURL.absoluteString,
+                    imageURL: imageURLString,
                     caption: caption
                 )
 
