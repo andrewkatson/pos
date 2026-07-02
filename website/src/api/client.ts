@@ -90,7 +90,7 @@ export function sanitizeErrorMessage(message: string): string {
   } else if (message.startsWith(invalidPrefix)) {
     suffix = message.substring(invalidPrefix.length)
     isInvalidFields = false
-    const cleaned = suffix.replace(/[\[\]'"]/g, '').trim()
+    const cleaned = suffix.replace(/[[\]'"]/g, '').trim()
     if (cleaned.includes(' ')) {
       return message
     }
