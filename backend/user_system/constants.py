@@ -89,6 +89,7 @@ class Fields:
     post_identifier = "post_identifier"
     image_url = "image_url"
     original_image_url = "original_image_url"
+    upload_url = "upload_url"
     caption = "caption"
     post_likes = "post_likes"
     comment_thread_identifier = "comment_thread_identifier"

@@ -54,6 +54,10 @@ protocol Networking {
     
     // MARK: - Post Management
 
+    /// Requests a backend-issued presigned S3 PUT URL for a new post image
+    /// (the backend scopes the object key to the authenticated user).
+    func createUploadUrl(sessionManagementToken: String) async throws -> Data
+
     /// Creates and stores a new post.
     func makePost(sessionManagementToken: String, imageURL: String, caption: String) async throws -> Data
 

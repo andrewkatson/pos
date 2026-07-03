@@ -147,7 +147,7 @@ struct NewPostView: View {
         Task {
             isLoading = true
             do {
-                // 1. LOAD SESSION (needed for the scoped S3 key)
+                // Load session
                 let userSession: UserSession
                 if isTesting() {
                     userSession = try keychainHelper.load(UserSession.self, from: GVOAppConstants.keychainService, account: "userSessionToken") ?? UserSession(sessionToken: "123", username: "test", userId: "", isIdentityVerified: false)
@@ -161,21 +161,24 @@ struct NewPostView: View {
                     userSession = loaded
                 }
 
-                // 2. UPLOAD IMAGE TO S3 — key scoped to the authenticated user
-                let uniqueFileName = "\(userSession.userId)/\(UUID().uuidString).jpeg"
-
-                var imageURL: URL! = URL(string: "https://picsum.photos/400/400")!
+                // Upload image using backend-issued presigned URL
+                var imageURLString = "https://picsum.photos/400/400"
                 if !isTesting() {
-                    imageURL = try await s3Uploader.upload(
-                        data: imageData,
-                        fileName: uniqueFileName
+                    let uploadUrlData = try await api.createUploadUrl(
+                        sessionManagementToken: userSession.sessionToken
                     )
+                    let uploadUrlResponse = try JSONDecoder().decode(UploadUrlResponse.self, from: uploadUrlData)
+                    guard let uploadURL = URL(string: uploadUrlResponse.uploadUrl) else {
+                        throw ImageUploadError.invalidUploadURL
+                    }
+                    try await s3Uploader.upload(data: imageData, to: uploadURL)
+                    imageURLString = uploadUrlResponse.imageUrl
                 }
 
-                // 3. SEND THE S3 URL TO YOUR BACKEND
+                // Send the image URL to the backend to create the post
                 let responseData = try await api.makePost(
                     sessionManagementToken: userSession.sessionToken,
-                    imageURL: imageURL.absoluteString,
+                    imageURL: imageURLString,
                     caption: caption
                 )
 

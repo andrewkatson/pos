@@ -313,6 +313,20 @@ class StatefulStubbedAPI : PositiveOnlySocialAPI {
     // posts
     // ============================================================================================
 
+    override suspend fun createUploadUrl(token: String): Response<CreateUploadUrlResponse> {
+        val user = getAuthorizedUser(token) ?: return errorGeneric(401, "Unauthorized")
+        // Mirror the backend: a fresh key under the user's prefix, returned as
+        // both a "presigned" upload URL and the canonical image URL.
+        val key = "${user.id}/stub-${java.util.UUID.randomUUID()}.jpeg"
+        val imageUrl = "https://stub-bucket.s3.us-east-2.amazonaws.com/$key"
+        return Response.success(
+            CreateUploadUrlResponse(
+                uploadUrl = "$imageUrl?X-Amz-Signature=stub",
+                imageUrl = imageUrl
+            )
+        )
+    }
+
     override suspend fun makePost(token: String, request: CreatePostRequest): Response<CreatePostResponse> {
         val user = getAuthorizedUser(token) ?: return errorGeneric(401, "Unauthorized")
 

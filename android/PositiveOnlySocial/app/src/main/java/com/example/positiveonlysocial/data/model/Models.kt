@@ -86,6 +86,13 @@ data class CreatePostResponse(
     val message: String? = null
 )
 
+data class CreateUploadUrlResponse(
+    // Short-lived presigned S3 PUT URL to send the JPEG bytes to.
+    @SerializedName("upload_url") val uploadUrl: String,
+    // The canonical object URL (no signing query) to pass to makePost.
+    @SerializedName("image_url") val imageUrl: String
+)
+
 data class ReportRequest(
     val reason: String
 )
