@@ -540,8 +540,8 @@ final class StatefulStubbedAPI: Networking {
         await simulateNetwork()
         guard let user = findUser(bySessionToken: sessionManagementToken) else { throw APIError.badServerResponse(statusCode: 401) }
         guard let post = findPost(byIdentifier: postIdentifier) else { throw APIError.badServerResponse(statusCode: 400) }
-        struct Fields: Codable { let post_identifier, image_url, caption: String; let post_likes: Int; let is_liked: Bool; let author_username: String }
-        let fields = Fields(post_identifier: post.postIdentifier, image_url: post.imageURL, caption: post.caption, post_likes: post.likes.count, is_liked: post.likes.contains(user.username), author_username: users.first(where: {$0.id == post.authorId})?.username ?? "Unknown User")
+        struct Fields: Codable { let post_identifier, image_url, caption, creation_time: String; let post_likes: Int; let is_liked: Bool; let author_username: String }
+        let fields = Fields(post_identifier: post.postIdentifier, image_url: post.imageURL, caption: post.caption, creation_time: ISO8601DateFormatter().string(from: post.createdDate), post_likes: post.likes.count, is_liked: post.likes.contains(user.username), author_username: users.first(where: {$0.id == post.authorId})?.username ?? "Unknown User")
         return try createSerializedResponse(fields: fields)
     }
 

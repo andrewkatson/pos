@@ -37,6 +37,7 @@ import com.example.positiveonlysocial.models.viewmodels.PostDetailViewModel
 import com.example.positiveonlysocial.models.viewmodels.PostDetailViewModelFactory
 import com.example.positiveonlysocial.ui.navigation.Screen
 import com.example.positiveonlysocial.util.RelativeTime
+import com.example.positiveonlysocial.util.parseBackendDate
 import androidx.compose.runtime.collectAsState
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.navigation.compose.rememberNavController
@@ -244,7 +245,19 @@ fun PostDetailScreen(
                                     style = MaterialTheme.typography.bodyMedium
                                 )
                             }
-                            
+
+                            // When the post was made, at the same coarse
+                            // granularity as comment times (issue #174). Older
+                            // backend responses omit creation_time.
+                            post.creationTime?.let { parseBackendDate(it) }?.let { created ->
+                                Spacer(modifier = Modifier.height(4.dp))
+                                Text(
+                                    text = RelativeTime.format(created),
+                                    fontSize = 12.sp,
+                                    color = Color.Gray
+                                )
+                            }
+
                             Divider(modifier = Modifier.padding(vertical = 16.dp))
 
                             // Add Comment Section. Tapping this opens the shared

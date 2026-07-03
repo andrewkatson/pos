@@ -108,6 +108,9 @@ export interface PostDetails {
    * Older responses that predate the field omit it. */
   original_image_url?: string
   caption: string
+  /** ISO-8601 timestamp of when the post was created. Older responses that
+   * predate the field omit it. */
+  creation_time?: string
   post_likes: number
   author_username: string
 }

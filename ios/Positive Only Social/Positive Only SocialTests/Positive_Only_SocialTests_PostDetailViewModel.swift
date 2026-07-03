@@ -130,6 +130,8 @@ struct Positive_Only_SocialTests_PostDetailViewModel {
         #expect(sut.postDetail?.authorUsername == "postOwner")
         // And: The current user has not liked the post, so it seeds as not-liked
         #expect(sut.postDetail?.isLiked == false)
+        // And: The post's creation timestamp is populated (issue #174)
+        #expect(sut.postDetail?.createdDate != nil)
 
         // And: The comment threads should be loaded
         #expect(sut.commentThreads.count == 1, "Should be 1 comment thread")

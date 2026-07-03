@@ -115,7 +115,11 @@ data class Post(
     // not exist in the compressed bucket yet; without this fallback those grid
     // tiles render as empty black boxes until the user re-logs in (issues #252/#254).
     // Feed/details endpoints that predate the field omit it, so it defaults to null.
-    @SerializedName("original_image_url") val originalImageUrl: String? = null
+    @SerializedName("original_image_url") val originalImageUrl: String? = null,
+    // When the post was created. Only the post-details endpoint returns it
+    // (ISO-8601 from the real backend, epoch-millis from the stub — see
+    // parseBackendDate); feed endpoints omit it, so it defaults to null.
+    @SerializedName("creation_time") val creationTime: String? = null
 )
 
 // --- Comment DTOs ---

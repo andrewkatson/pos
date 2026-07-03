@@ -76,6 +76,10 @@ class GetPostDetailsTests(PositiveOnlySocialTestCase):
         self.assertEqual(data[Fields.original_image_url], self.post.image_url)
         self.assertEqual(data[Fields.caption], self.post.caption)
         self.assertEqual(data[Fields.author_username], self.local_username)
+        # The creation timestamp is serialized as ISO-8601; compare down to the
+        # second since JSON encoding truncates sub-second precision.
+        self.assertTrue(data[Fields.creation_time].startswith(
+            self.post.creation_time.strftime('%Y-%m-%dT%H:%M:%S')))
 
         # Check default/calculated values
         self.assertEqual(data[Fields.post_likes], 0)

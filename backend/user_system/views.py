@@ -1162,6 +1162,7 @@ def get_post_details(request, post_identifier):
             # Lambda-generated compressed copy is still missing (#252/#254).
             Fields.original_image_url: post.image_url,
             Fields.caption: post.caption,
+            Fields.creation_time: post.creation_time,
             Fields.post_likes: total_likes,
             Fields.is_liked: post.postlike_set.filter(user=request.user).exists(),
             Fields.author_username: post.author.username

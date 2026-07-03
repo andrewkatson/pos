@@ -461,6 +461,12 @@ function PostDetailView({ postId }: { postId: string }) {
           {post.caption}
         </p>
 
+        {/* When the post was made, at the same coarse granularity as comment
+            times (issue #174). Older backend responses omit creation_time. */}
+        {post.creation_time && (
+          <p className="detail-time">{formatRelativeTime(post.creation_time)}</p>
+        )}
+
         <div className="comment-form">
           <button
             type="button"

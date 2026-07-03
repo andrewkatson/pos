@@ -151,7 +151,8 @@ final class PostDetailViewModel: ObservableObject {
                     caption: postFields.caption,
                     likeCount: postFields.post_likes,
                     isLiked: postFields.is_liked,
-                    authorUsername: postFields.author_username
+                    authorUsername: postFields.author_username,
+                    createdDate: postFields.creation_time.map { Self.parseDate($0) }
                 )
 
                 // 2. Fetch the list of comment thread IDs for this post
@@ -230,7 +231,8 @@ final class PostDetailViewModel: ObservableObject {
                 caption: post.caption,
                 likeCount: post.likeCount + 1, // Optimistic update
                 isLiked: true,
-                authorUsername: post.authorUsername
+                authorUsername: post.authorUsername,
+                createdDate: post.createdDate
             )
             self.postDetail = post
         }
@@ -264,7 +266,8 @@ final class PostDetailViewModel: ObservableObject {
                 caption: post.caption,
                 likeCount: max(0, post.likeCount - 1), // Optimistic update
                 isLiked: false,
-                authorUsername: post.authorUsername
+                authorUsername: post.authorUsername,
+                createdDate: post.createdDate
             )
             self.postDetail = post
         }
@@ -553,6 +556,9 @@ final class PostDetailViewModel: ObservableObject {
         /// Optional so responses that predate the field still decode.
         let original_image_url: String?
         let caption: String
+        /// When the post was created. Optional so responses that predate the
+        /// field still decode.
+        let creation_time: String?
         let post_likes: Int
         let is_liked: Bool
         let author_username: String

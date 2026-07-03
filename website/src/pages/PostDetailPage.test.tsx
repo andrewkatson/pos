@@ -95,6 +95,23 @@ test('renders the post caption and like count', async () => {
   expect(screen.getByText('3 likes')).toBeInTheDocument()
 })
 
+test('shows how long ago the post was made', async () => {
+  // Two hours ago, so the label reads at hour granularity (issue #174).
+  mockGetDetails.mockResolvedValue({
+    ...post,
+    creation_time: new Date(Date.now() - 2 * 60 * 60 * 1000).toISOString(),
+  })
+  renderDetail()
+  await screen.findByText('sunshine')
+  expect(screen.getByText('2 hr')).toBeInTheDocument()
+})
+
+test('omits the post time when the backend response predates creation_time', async () => {
+  renderDetail()
+  await screen.findByText('sunshine')
+  expect(document.querySelector('.detail-time')).not.toBeInTheDocument()
+})
+
 test('liking the post calls the API and bumps the count optimistically', async () => {
   renderDetail()
   await screen.findByText('sunshine')

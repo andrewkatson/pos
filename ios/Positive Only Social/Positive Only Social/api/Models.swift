@@ -209,6 +209,9 @@ struct PostDisplayData: Identifiable, Equatable {
     let likeCount: Int
     let isLiked: Bool // Whether the current user has liked this post
     let authorUsername: String // Added for context
+    /// When the post was created. Optional for backward compatibility with
+    /// backend responses that predate the field.
+    let createdDate: Date?
 }
 
 // A struct representing a single comment, for use in the view

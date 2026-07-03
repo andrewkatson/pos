@@ -466,7 +466,8 @@ class StatefulStubbedAPI : PositiveOnlySocialAPI {
             post.caption,
             authorUsername = author.username,
             likeCount = post.likes.count(),
-            isLiked = post.likes.contains(user.id)
+            isLiked = post.likes.contains(user.id),
+            creationTime = post.creationTime.toString()
         ))
     }
 
