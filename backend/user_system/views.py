@@ -308,6 +308,9 @@ def register(request):
         return log_and_return_json("register", {
             'error': f"Username is not positive because it {username_result.public_reason()}.",
             Fields.reason_code: username_result.public_reason_code(),
+            # There is no account yet to appeal from; the user can simply retry
+            # with a different username, so the rejection is never appealable.
+            Fields.appealable: False,
         }, status=400)
 
     new_user = get_user_model().objects.create_user(username=username, email=email)
