@@ -34,10 +34,13 @@ struct LoginView: View {
                 // Let taps on this decorative icon fall through to the
                 // container's dismiss-keyboard gesture (issue #205).
                 .allowsHitTesting(false)
-            TextField("Username or Email", text: $usernameOrEmail).padding().background(Color(.systemGray6)).cornerRadius(10).textContentType(.username).autocapitalization(.none).keyboardType(.emailAddress)
+            // Under UI testing, drop the credential content types on both fields:
+            // a `.username`/`.password` pairing makes iOS surface the AutoFill /
+            // strong-password QuickType panel, which steals focus and breaks typing.
+            TextField("Username or Email", text: $usernameOrEmail).padding().background(Color(.systemGray6)).cornerRadius(10).textContentType(isUITesting() ? nil : .username).autocapitalization(.none).keyboardType(.emailAddress)
                 .focused($focusedField, equals: .usernameOrEmail)
                 .accessibilityIdentifier("UsernameOrEmailTextField")
-            SecureField("Password", text: $password).padding().background(Color(.systemGray6)).cornerRadius(10).textContentType(.password)
+            SecureField("Password", text: $password).padding().background(Color(.systemGray6)).cornerRadius(10).textContentType(isUITesting() ? nil : .password)
                 .focused($focusedField, equals: .password)
                 .accessibilityIdentifier("PasswordSecureField")
             Toggle("Remember Me", isOn: $rememberMe)
