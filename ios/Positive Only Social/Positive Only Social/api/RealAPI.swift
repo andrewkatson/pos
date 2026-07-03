@@ -195,7 +195,7 @@ final class RealAPI: Networking {
                     if authToken != nil && message == GVOAppConstants.accountBannedError {
                         NotificationCenter.default.post(name: .accountBanned, object: nil)
                     }
-                    throw APIError.serverError(statusCode: httpResponse.statusCode, serverMessage: message)
+                    throw APIError.serverError(statusCode: httpResponse.statusCode, serverMessage: sanitizeErrorMessage(message))
                 }
                 throw APIError.badServerResponse(statusCode: httpResponse.statusCode)
             }
