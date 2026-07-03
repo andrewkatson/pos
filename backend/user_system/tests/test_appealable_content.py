@@ -14,6 +14,8 @@ from ..views import get_user_with_username
 ALLOWED = ClassificationResult(allowed=True)
 APPEALABLE = ClassificationResult(allowed=False, appealable=True)
 FINAL_REJECT = ClassificationResult(allowed=False, appealable=False)
+APPEALABLE_HATE = ClassificationResult(allowed=False, appealable=True, reason_code='hate_speech')
+FINAL_REJECT_GORE = ClassificationResult(allowed=False, appealable=False, reason_code='gore')
 
 TEXT = 'user_system.views.text_classifier_class.is_text_positive'
 IMAGE = 'user_system.views.image_classifier_class.is_image_positive'
@@ -83,6 +85,48 @@ class MakePostAppealableTests(PositiveOnlySocialTestCase):
         self.assertEqual(response.status_code, 400)
         self.assertIn('Image is not positive', response.json().get('error', ''))
         self.assertEqual(self.user.post_set.count(), 0)
+
+    @patch(IMAGE, return_value=ALLOWED)
+    @patch(TEXT, return_value=FINAL_REJECT_GORE)
+    def test_final_caption_rejection_includes_reason_and_no_appeal(self, _text, _image):
+        response = self._post()
+        self.assertEqual(response.status_code, 400)
+        body = response.json()
+        self.assertIn('may contain gore', body['error'])
+        self.assertIn('cannot be appealed', body['error'])
+        self.assertEqual(body[Fields.reason_code], 'gore')
+        self.assertFalse(body[Fields.appealable])
+
+    @patch(IMAGE, return_value=ALLOWED)
+    @patch(TEXT, return_value=FINAL_REJECT)
+    def test_final_rejection_without_cited_rule_uses_generic_reason(self, _text, _image):
+        response = self._post()
+        self.assertEqual(response.status_code, 400)
+        body = response.json()
+        self.assertIn('did not meet our positivity guidelines', body['error'])
+        self.assertEqual(body[Fields.reason_code], 'guidelines')
+
+    @patch(IMAGE, return_value=ALLOWED)
+    @patch(TEXT, return_value=APPEALABLE_HATE)
+    def test_appealable_caption_message_includes_reason(self, _text, _image):
+        response = self._post()
+        self.assertEqual(response.status_code, 201)
+        body = response.json()
+        self.assertIn('your caption may contain hate speech', body['message'])
+        self.assertIn('appeal', body['message'].lower())
+        self.assertEqual(body[Fields.reason_code], 'hate_speech')
+        self.assertTrue(body[Fields.appealable])
+
+    @patch(IMAGE, return_value=APPEALABLE_HATE)
+    @patch(TEXT, return_value=APPEALABLE)
+    def test_appealable_caption_and_image_message_mentions_both(self, _text, _image):
+        response = self._post()
+        self.assertEqual(response.status_code, 201)
+        body = response.json()
+        self.assertIn('your caption did not meet our positivity guidelines', body['message'])
+        self.assertIn('your image may contain hate speech', body['message'])
+        # Text precedence for the machine-readable code.
+        self.assertEqual(body[Fields.reason_code], 'guidelines')
 
     @patch(IMAGE, return_value=ALLOWED)
     @patch(TEXT, return_value=FINAL_REJECT)
@@ -165,6 +209,26 @@ class CommentAppealableTests(PositiveOnlySocialTestCase):
         response = self._comment()
         self.assertEqual(response.status_code, 400)
         self.assertEqual(Comment.objects.count(), 0)
+
+    @patch(TEXT, return_value=FINAL_REJECT_GORE)
+    def test_final_comment_rejection_includes_reason_and_no_appeal(self, _text):
+        response = self._comment()
+        self.assertEqual(response.status_code, 400)
+        body = response.json()
+        self.assertIn('your comment may contain gore', body['error'])
+        self.assertIn('cannot be appealed', body['error'])
+        self.assertEqual(body[Fields.reason_code], 'gore')
+        self.assertFalse(body[Fields.appealable])
+
+    @patch(TEXT, return_value=APPEALABLE_HATE)
+    def test_appealable_comment_message_includes_reason(self, _text):
+        response = self._comment()
+        self.assertEqual(response.status_code, 201)
+        body = response.json()
+        self.assertIn('it may contain hate speech', body['message'])
+        self.assertIn('appeal', body['message'].lower())
+        self.assertEqual(body[Fields.reason_code], 'hate_speech')
+        self.assertTrue(body[Fields.appealable])
 
     @patch(TEXT, return_value=APPEALABLE)
     def test_appealable_reply_is_posted_but_hidden(self, _text):
