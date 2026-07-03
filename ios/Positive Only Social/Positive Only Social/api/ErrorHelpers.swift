@@ -117,6 +117,34 @@ extension Error {
     }
 }
 
+/// Maps backend raw field tokens to friendly display names.
+private let errorTokenMap: [String: String] = [
+    "USERNAME": "Username",
+    "EMAIL": "Email",
+    "PASSWORD": "Password",
+    "USERNAME_OR_EMAIL": "Username or email",
+    "USER_ID": "User ID",
+    "IMAGE_URL": "Image URL",
+    "COMMENT": "Comment",
+    "RESET_TOKEN": "Reset token",
+    "VERIFICATION_TOKEN": "Verification token",
+    "IP": "IP address",
+    "SESSION_MANAGEMENT_TOKEN": "Session token",
+    "SERIES_IDENTIFIER": "Series identifier",
+    "LOGIN_COOKIE_TOKEN": "Cookie token",
+    "REMEMBER_ME": "Remember me flag",
+    "CAPTION": "Caption",
+    "POST_IDENTIFIER": "Post identifier",
+    "REASON": "Reason",
+    "COMMENT_TEXT": "Comment text",
+    "COMMENT_THREAD_IDENTIFIER": "Comment thread identifier",
+    "COMMENT_IDENTIFIER": "Comment identifier",
+    "USERNAME_FRAGMENT": "Username fragment",
+    "DATE_OF_BIRTH": "Date of birth",
+    "TARGET_TYPE": "Target type",
+    "TARGET_IDENTIFIER": "Target identifier"
+]
+
 /// Sanitizes backend raw token error messages into human-legible sentences.
 func sanitizeErrorMessage(_ message: String) -> String {
     let invalidFieldsPrefix = "Invalid fields"
@@ -156,38 +184,11 @@ func sanitizeErrorMessage(_ message: String) -> String {
     if tokens.isEmpty {
         return isInvalidFields ? "Some fields are incorrect" : message
     }
-    
-    let tokenMap: [String: String] = [
-        "USERNAME": "Username",
-        "EMAIL": "Email",
-        "PASSWORD": "Password",
-        "USERNAME_OR_EMAIL": "Username or email",
-        "USER_ID": "User ID",
-        "IMAGE_URL": "Image URL",
-        "COMMENT": "Comment",
-        "RESET_TOKEN": "Reset token",
-        "VERIFICATION_TOKEN": "Verification token",
-        "IP": "IP address",
-        "SESSION_MANAGEMENT_TOKEN": "Session token",
-        "SERIES_IDENTIFIER": "Series identifier",
-        "LOGIN_COOKIE_TOKEN": "Cookie token",
-        "REMEMBER_ME": "Remember me flag",
-        "CAPTION": "Caption",
-        "POST_IDENTIFIER": "Post identifier",
-        "REASON": "Reason",
-        "COMMENT_TEXT": "Comment text",
-        "COMMENT_THREAD_IDENTIFIER": "Comment thread identifier",
-        "COMMENT_IDENTIFIER": "Comment identifier",
-        "USERNAME_FRAGMENT": "Username fragment",
-        "DATE_OF_BIRTH": "Date of birth",
-        "TARGET_TYPE": "Target type",
-        "TARGET_IDENTIFIER": "Target identifier"
-    ]
-    
+
     var friendlyNames: [String] = []
     for token in tokens {
         let upperToken = token.uppercased()
-        if let name = tokenMap[upperToken] {
+        if let name = errorTokenMap[upperToken] {
             if !friendlyNames.contains(name) {
                 friendlyNames.append(name)
             }

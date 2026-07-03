@@ -72,6 +72,34 @@ function friendlyStatusMessage(status: number): string {
   }
 }
 
+/** Maps backend raw field tokens to friendly display names. */
+const ERROR_TOKEN_MAP: Record<string, string> = {
+  USERNAME: 'Username',
+  EMAIL: 'Email',
+  PASSWORD: 'Password',
+  USERNAME_OR_EMAIL: 'Username or email',
+  USER_ID: 'User ID',
+  IMAGE_URL: 'Image URL',
+  COMMENT: 'Comment',
+  RESET_TOKEN: 'Reset token',
+  VERIFICATION_TOKEN: 'Verification token',
+  IP: 'IP address',
+  SESSION_MANAGEMENT_TOKEN: 'Session token',
+  SERIES_IDENTIFIER: 'Series identifier',
+  LOGIN_COOKIE_TOKEN: 'Cookie token',
+  REMEMBER_ME: 'Remember me flag',
+  CAPTION: 'Caption',
+  POST_IDENTIFIER: 'Post identifier',
+  REASON: 'Reason',
+  COMMENT_TEXT: 'Comment text',
+  COMMENT_THREAD_IDENTIFIER: 'Comment thread identifier',
+  COMMENT_IDENTIFIER: 'Comment identifier',
+  USERNAME_FRAGMENT: 'Username fragment',
+  DATE_OF_BIRTH: 'Date of birth',
+  TARGET_TYPE: 'Target type',
+  TARGET_IDENTIFIER: 'Target identifier',
+}
+
 /**
  * Sanitizes backend raw token error messages into human-legible sentences.
  */
@@ -103,38 +131,11 @@ export function sanitizeErrorMessage(message: string): string {
     return isInvalidFields ? 'Some fields are incorrect' : message
   }
 
-  const tokenMap: Record<string, string> = {
-    USERNAME: 'Username',
-    EMAIL: 'Email',
-    PASSWORD: 'Password',
-    USERNAME_OR_EMAIL: 'Username or email',
-    USER_ID: 'User ID',
-    IMAGE_URL: 'Image URL',
-    COMMENT: 'Comment',
-    RESET_TOKEN: 'Reset token',
-    VERIFICATION_TOKEN: 'Verification token',
-    IP: 'IP address',
-    SESSION_MANAGEMENT_TOKEN: 'Session token',
-    SERIES_IDENTIFIER: 'Series identifier',
-    LOGIN_COOKIE_TOKEN: 'Cookie token',
-    REMEMBER_ME: 'Remember me flag',
-    CAPTION: 'Caption',
-    POST_IDENTIFIER: 'Post identifier',
-    REASON: 'Reason',
-    COMMENT_TEXT: 'Comment text',
-    COMMENT_THREAD_IDENTIFIER: 'Comment thread identifier',
-    COMMENT_IDENTIFIER: 'Comment identifier',
-    USERNAME_FRAGMENT: 'Username fragment',
-    DATE_OF_BIRTH: 'Date of birth',
-    TARGET_TYPE: 'Target type',
-    TARGET_IDENTIFIER: 'Target identifier',
-  }
-
   const friendlyNames: string[] = []
   for (const token of tokens) {
     const upperToken = token.toUpperCase()
-    if (upperToken in tokenMap) {
-      const name = tokenMap[upperToken]
+    if (upperToken in ERROR_TOKEN_MAP) {
+      const name = ERROR_TOKEN_MAP[upperToken]
       if (!friendlyNames.includes(name)) {
         friendlyNames.push(name)
       }

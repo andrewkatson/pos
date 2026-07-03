@@ -26,6 +26,36 @@ object ApiErrors {
     private val gson = Gson()
 
     /**
+     * Maps backend raw field tokens to friendly display names.
+     */
+    private val tokenMap = mapOf(
+        "USERNAME" to "Username",
+        "EMAIL" to "Email",
+        "PASSWORD" to "Password",
+        "USERNAME_OR_EMAIL" to "Username or email",
+        "USER_ID" to "User ID",
+        "IMAGE_URL" to "Image URL",
+        "COMMENT" to "Comment",
+        "RESET_TOKEN" to "Reset token",
+        "VERIFICATION_TOKEN" to "Verification token",
+        "IP" to "IP address",
+        "SESSION_MANAGEMENT_TOKEN" to "Session token",
+        "SERIES_IDENTIFIER" to "Series identifier",
+        "LOGIN_COOKIE_TOKEN" to "Cookie token",
+        "REMEMBER_ME" to "Remember me flag",
+        "CAPTION" to "Caption",
+        "POST_IDENTIFIER" to "Post identifier",
+        "REASON" to "Reason",
+        "COMMENT_TEXT" to "Comment text",
+        "COMMENT_THREAD_IDENTIFIER" to "Comment thread identifier",
+        "COMMENT_IDENTIFIER" to "Comment identifier",
+        "USERNAME_FRAGMENT" to "Username fragment",
+        "DATE_OF_BIRTH" to "Date of birth",
+        "TARGET_TYPE" to "Target type",
+        "TARGET_IDENTIFIER" to "Target identifier"
+    )
+
+    /**
      * Friendly message for an unsuccessful Retrofit [response]. Prefers the
      * backend's own `error` message; otherwise maps the HTTP status code, and
      * finally falls back to [fallback] for unmapped codes.
@@ -101,34 +131,7 @@ object ApiErrors {
         if (tokens.isEmpty()) {
             return if (isInvalidFields) "Some fields are incorrect" else message
         }
-        
-        val tokenMap = mapOf(
-            "USERNAME" to "Username",
-            "EMAIL" to "Email",
-            "PASSWORD" to "Password",
-            "USERNAME_OR_EMAIL" to "Username or email",
-            "USER_ID" to "User ID",
-            "IMAGE_URL" to "Image URL",
-            "COMMENT" to "Comment",
-            "RESET_TOKEN" to "Reset token",
-            "VERIFICATION_TOKEN" to "Verification token",
-            "IP" to "IP address",
-            "SESSION_MANAGEMENT_TOKEN" to "Session token",
-            "SERIES_IDENTIFIER" to "Series identifier",
-            "LOGIN_COOKIE_TOKEN" to "Cookie token",
-            "REMEMBER_ME" to "Remember me flag",
-            "CAPTION" to "Caption",
-            "POST_IDENTIFIER" to "Post identifier",
-            "REASON" to "Reason",
-            "COMMENT_TEXT" to "Comment text",
-            "COMMENT_THREAD_IDENTIFIER" to "Comment thread identifier",
-            "COMMENT_IDENTIFIER" to "Comment identifier",
-            "USERNAME_FRAGMENT" to "Username fragment",
-            "DATE_OF_BIRTH" to "Date of birth",
-            "TARGET_TYPE" to "Target type",
-            "TARGET_IDENTIFIER" to "Target identifier"
-        )
-        
+
         val friendlyNames = mutableListOf<String>()
         for (token in tokens) {
             val upperToken = token.uppercase()
