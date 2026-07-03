@@ -161,8 +161,9 @@ export function sanitizeErrorMessage(message: string): string {
     return `${friendlyNames[0]} and ${friendlyNames[1]} are incorrect`
   }
 
-  const last = friendlyNames.pop()
-  return `${friendlyNames.join(', ')}, and ${last} are incorrect`
+  const last = friendlyNames[friendlyNames.length - 1]
+  const rest = friendlyNames.slice(0, -1)
+  return `${rest.join(', ')}, and ${last} are incorrect`
 }
 
 
