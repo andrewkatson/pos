@@ -10,6 +10,7 @@ import type {
   CommentThreadRef,
   CreatePostRequest,
   CreatePostResponse,
+  CreateUploadUrlResponse,
   FeedPost,
   HiddenComment,
   HiddenPost,
@@ -52,6 +53,7 @@ export interface PositiveOnlySocialAPI {
   resetPassword(body: ResetPasswordRequest): Promise<MessageResponse>
 
   // Posts
+  createUploadUrl(): Promise<CreateUploadUrlResponse>
   createPost(body: CreatePostRequest): Promise<CreatePostResponse>
   deletePost(postIdentifier: string): Promise<MessageResponse>
   reportPost(postIdentifier: string, reason: string): Promise<MessageResponse>

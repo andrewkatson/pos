@@ -12,6 +12,7 @@ import type {
   CommentThreadRef,
   CreatePostRequest,
   CreatePostResponse,
+  CreateUploadUrlResponse,
   FeedPost,
   HiddenComment,
   HiddenPost,
@@ -384,6 +385,14 @@ export class StatefulStubbedAPI implements PositiveOnlySocialAPI {
   // ---------------------------------------------------------------------------
   // Posts
   // ---------------------------------------------------------------------------
+
+  async createUploadUrl(): Promise<CreateUploadUrlResponse> {
+    const user = this.requireUser()
+    // Mirror the backend: a fresh key under the user's prefix, returned as
+    // both a "presigned" upload URL and the canonical image URL.
+    const imageUrl = `https://stub-bucket.s3.us-east-2.amazonaws.com/${user.id}/stub-${newId()}.jpeg`
+    return { upload_url: `${imageUrl}?X-Amz-Signature=stub`, image_url: imageUrl }
+  }
 
   async createPost(body: CreatePostRequest): Promise<CreatePostResponse> {
     const user = this.requireUser()

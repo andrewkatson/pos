@@ -140,4 +140,17 @@ struct Positive_Only_SocialTests_ErrorHelpers {
         let error = NSError(domain: "SomeDomain", code: 1)
         #expect(error.userFacingMessage == "Something went wrong. Please try again.")
     }
+
+    @Test func testSanitizeErrorMessage() {
+        #expect(sanitizeErrorMessage("Text is not positive") == "Text is not positive")
+        #expect(sanitizeErrorMessage("User already exists") == "User already exists")
+        #expect(sanitizeErrorMessage("Invalid fields ['USERNAME']") == "Username is incorrect")
+        #expect(sanitizeErrorMessage("Invalid fields ['PASSWORD']") == "Password is incorrect")
+        #expect(sanitizeErrorMessage("Invalid fields ['USERNAME', 'PASSWORD']") == "Username and Password are incorrect")
+        #expect(sanitizeErrorMessage("Invalid fields ['USERNAME', 'PASSWORD', 'EMAIL']") == "Username, Password, and Email are incorrect")
+        #expect(sanitizeErrorMessage("Invalid post_identifier") == "Post identifier is incorrect")
+        #expect(sanitizeErrorMessage("Invalid target_type") == "Target type is incorrect")
+        #expect(sanitizeErrorMessage("Invalid comment text") == "Invalid comment text")
+        #expect(sanitizeErrorMessage("Invalid batch parameter") == "Invalid batch parameter")
+    }
 }

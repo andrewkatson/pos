@@ -77,6 +77,11 @@ interface PositiveOnlySocialAPI {
     // POSTS
     // ============================================================================================
 
+    @POST("posts/upload-url/")
+    suspend fun createUploadUrl(
+        @Header("Authorization") token: String
+    ): Response<CreateUploadUrlResponse>
+
     @POST("posts/create/")
     suspend fun makePost(
         @Header("Authorization") token: String,

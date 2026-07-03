@@ -23,10 +23,8 @@ import com.example.positiveonlysocial.data.model.CreatePostRequest
 import com.example.positiveonlysocial.ui.components.CharacterCounter
 import com.example.positiveonlysocial.ui.components.isWithinLength
 import com.example.positiveonlysocial.data.security.KeychainHelperProtocol
-import com.example.positiveonlysocial.data.uploader.S3Uploader
+import com.example.positiveonlysocial.data.uploader.ImageUploader
 import com.example.positiveonlysocial.di.DependencyProvider
-import java.net.URL
-import java.util.UUID
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.navigation.compose.rememberNavController
 import com.example.positiveonlysocial.ui.dismissKeyboardOnTap
@@ -211,17 +209,26 @@ fun NewPostScreen(
                                         return@launch
                                     }
 
-                                    val fileName = "${session.userId}/${UUID.randomUUID()}.jpg"
-                                    val s3Uploader = S3Uploader()
-
                                     // The upload failing must be distinguishable from
                                     // the backend call failing: both used to surface
                                     // the same generic message, which made issue #292
-                                    // undiagnosable from the dialog alone.
-                                    var uploadUrl = URL("https://picsum.photos/id/237/400/400")
+                                    // undiagnosable from the dialog alone. The backend
+                                    // issues a presigned PUT URL for a key it scopes to
+                                    // this user, so the app holds no AWS credentials
+                                    // (issue #310).
+                                    var uploadedImageUrl = "https://picsum.photos/id/237/400/400"
                                     if (!DependencyProvider.isUITesting) {
                                         try {
-                                            uploadUrl = s3Uploader.upload(bytes, fileName)
+                                            val uploadUrlResponse = api.createUploadUrl(token = session.sessionToken)
+                                            val uploadUrlBody = uploadUrlResponse.body()
+                                            if (!uploadUrlResponse.isSuccessful || uploadUrlBody == null) {
+                                                android.util.Log.e("NewPostScreen", "create_upload_url rejected: HTTP ${uploadUrlResponse.code()} - ${uploadUrlResponse.message()}")
+                                                failureMessage = "We couldn't upload your image. Please try again."
+                                                showFailureAlert = true
+                                                return@launch
+                                            }
+                                            ImageUploader().upload(bytes, uploadUrlBody.uploadUrl)
+                                            uploadedImageUrl = uploadUrlBody.imageUrl
                                         } catch (e: CancellationException) {
                                             throw e
                                         } catch (e: Exception) {
@@ -231,7 +238,7 @@ fun NewPostScreen(
                                             return@launch
                                         }
                                     }
-                                    imageUrl = uploadUrl.toString()
+                                    imageUrl = uploadedImageUrl
                                 }
 
                                 val request = CreatePostRequest(

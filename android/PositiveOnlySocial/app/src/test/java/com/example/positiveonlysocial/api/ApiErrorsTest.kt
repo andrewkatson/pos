@@ -87,4 +87,40 @@ class ApiErrorsTest {
             ApiErrors.messageFor(IllegalStateException("boom"), fallback = "fallback")
         )
     }
+
+    @Test
+    fun `sanitizeErrorMessage handles unrelated error messages`() {
+        assertEquals("Text is not positive", ApiErrors.sanitizeErrorMessage("Text is not positive"))
+        assertEquals("User already exists", ApiErrors.sanitizeErrorMessage("User already exists"))
+    }
+
+    @Test
+    fun `sanitizeErrorMessage handles single token invalid fields`() {
+        assertEquals("Username is incorrect", ApiErrors.sanitizeErrorMessage("Invalid fields ['USERNAME']"))
+        assertEquals("Password is incorrect", ApiErrors.sanitizeErrorMessage("Invalid fields ['PASSWORD']"))
+    }
+
+    @Test
+    fun `sanitizeErrorMessage handles multiple token invalid fields`() {
+        assertEquals(
+            "Username and Password are incorrect",
+            ApiErrors.sanitizeErrorMessage("Invalid fields ['USERNAME', 'PASSWORD']")
+        )
+        assertEquals(
+            "Username, Password, and Email are incorrect",
+            ApiErrors.sanitizeErrorMessage("Invalid fields ['USERNAME', 'PASSWORD', 'EMAIL']")
+        )
+    }
+
+    @Test
+    fun `sanitizeErrorMessage handles single token without brackets`() {
+        assertEquals("Post identifier is incorrect", ApiErrors.sanitizeErrorMessage("Invalid post_identifier"))
+        assertEquals("Target type is incorrect", ApiErrors.sanitizeErrorMessage("Invalid target_type"))
+    }
+
+    @Test
+    fun `sanitizeErrorMessage leaves human-readable invalid messages untouched`() {
+        assertEquals("Invalid comment text", ApiErrors.sanitizeErrorMessage("Invalid comment text"))
+        assertEquals("Invalid batch parameter", ApiErrors.sanitizeErrorMessage("Invalid batch parameter"))
+    }
 }

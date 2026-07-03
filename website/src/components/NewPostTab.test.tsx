@@ -91,7 +91,7 @@ test('uploads the photo to S3 and creates the post on success', async () => {
   await userEvent.type(screen.getByLabelText('Caption'), 'great day')
   await userEvent.click(screen.getByRole('button', { name: 'Share Post' }))
 
-  await waitFor(() => expect(mockUploadImage).toHaveBeenCalledWith(file, 'user-123'))
+  await waitFor(() => expect(mockUploadImage).toHaveBeenCalledWith(file))
   expect(mockCreatePost).toHaveBeenCalledWith({
     image_url: 'https://goodvibesonly-images.s3.us-east-2.amazonaws.com/user-123/abc.jpeg',
     caption: 'great day',

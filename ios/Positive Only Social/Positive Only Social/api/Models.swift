@@ -53,7 +53,20 @@ struct Post: Codable, Identifiable, Hashable {
     }
 }
 
-// MARK: - Appeals (backend appeal endpoints)
+// MARK: - Post Creation (upload-url and create endpoints)
+
+/// The response from createUploadUrl: a short-lived presigned S3 PUT URL to
+/// send the JPEG bytes to, and the canonical object URL (no signing query)
+/// to hand back to makePost.
+struct UploadUrlResponse: Codable {
+    let uploadUrl: String
+    let imageUrl: String
+
+    enum CodingKeys: String, CodingKey {
+        case uploadUrl = "upload_url"
+        case imageUrl = "image_url"
+    }
+}
 
 /// The response from makePost. `hidden` is true when the post was created
 /// hidden pending appeal (classifier flagged it but it is appealable).
@@ -68,6 +81,8 @@ struct MakePostResponse: Codable {
         case message
     }
 }
+
+// MARK: - Appeals (backend appeal endpoints)
 
 /// One of the signed-in user's hidden posts, from the appeals endpoint.
 struct HiddenPost: Codable, Identifiable, Hashable {

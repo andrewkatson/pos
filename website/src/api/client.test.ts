@@ -1,5 +1,5 @@
 import { vi, expect, test, describe } from 'vitest'
-import { ACCOUNT_BANNED, ApiClient, ApiError } from './client'
+import { ACCOUNT_BANNED, ApiClient, ApiError, sanitizeErrorMessage } from './client'
 
 function jsonResponse(status: number, body: unknown): Response {
   return new Response(JSON.stringify(body), {
@@ -85,3 +85,31 @@ describe('friendly error messages', () => {
     )
   })
 })
+
+describe('sanitizeErrorMessage', () => {
+  test('does not modify unrelated error messages', () => {
+    expect(sanitizeErrorMessage('Text is not positive')).toBe('Text is not positive')
+    expect(sanitizeErrorMessage('User already exists')).toBe('User already exists')
+  })
+
+  test('sanitizes single token invalid fields', () => {
+    expect(sanitizeErrorMessage("Invalid fields ['USERNAME']")).toBe('Username is incorrect')
+    expect(sanitizeErrorMessage("Invalid fields ['PASSWORD']")).toBe('Password is incorrect')
+  })
+
+  test('sanitizes multiple token invalid fields with and', () => {
+    expect(sanitizeErrorMessage("Invalid fields ['USERNAME', 'PASSWORD']")).toBe('Username and Password are incorrect')
+    expect(sanitizeErrorMessage("Invalid fields ['USERNAME', 'PASSWORD', 'EMAIL']")).toBe('Username, Password, and Email are incorrect')
+  })
+
+  test('sanitizes single token messages without brackets', () => {
+    expect(sanitizeErrorMessage('Invalid post_identifier')).toBe('Post identifier is incorrect')
+    expect(sanitizeErrorMessage('Invalid target_type')).toBe('Target type is incorrect')
+  })
+
+  test('leaves human-readable invalid messages untouched', () => {
+    expect(sanitizeErrorMessage('Invalid comment text')).toBe('Invalid comment text')
+    expect(sanitizeErrorMessage('Invalid batch parameter')).toBe('Invalid batch parameter')
+  })
+})
+

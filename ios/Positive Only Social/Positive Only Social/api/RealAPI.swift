@@ -196,7 +196,7 @@ final class RealAPI: Networking {
                     if authToken != nil && message == GVOAppConstants.accountBannedError {
                         NotificationCenter.default.post(name: .accountBanned, object: nil)
                     }
-                    throw APIError.serverError(statusCode: httpResponse.statusCode, serverMessage: message)
+                    throw APIError.serverError(statusCode: httpResponse.statusCode, serverMessage: sanitizeErrorMessage(message))
                 }
                 throw APIError.badServerResponse(statusCode: httpResponse.statusCode)
             }
@@ -358,7 +358,17 @@ final class RealAPI: Networking {
     }
     
     // MARK: - Post Management
-    
+
+    /// Requests a backend-issued presigned S3 PUT URL for a new post image.
+    func createUploadUrl(sessionManagementToken: String) async throws -> Data {
+        // This is a POST request, no body, with auth.
+        return try await performRequest(
+            pathSegments: [GVOAppConstants.pathSegmentPosts, GVOAppConstants.pathSegmentUploadUrl],
+            method: .post,
+            authToken: sessionManagementToken
+        )
+    }
+
     /// Creates and stores a new post. A nil `imageURL` creates a text-only post (#307).
     func makePost(sessionManagementToken: String, imageURL: String?, caption: String) async throws -> Data {
         let body = MakePostBody(image_url: imageURL, caption: caption)
