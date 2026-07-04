@@ -341,7 +341,7 @@ fun CommentThreadView(
             CommentRow(
                 comment = rootComment,
                 isOwn = rootComment.authorUsername == currentUsername,
-                isReported = reportedCommentIds.contains(rootComment.id),
+                isReported = rootComment.isReported || reportedCommentIds.contains(rootComment.id),
                 isCollapsed = collapsedCommentIds.contains(rootComment.id),
                 onToggleCollapse = { viewModel.toggleCommentCollapsed(rootComment.id) },
                 onLike = { viewModel.likeComment(rootComment, rootComment.threadId) },
@@ -364,7 +364,7 @@ fun CommentThreadView(
                     CommentRow(
                         comment = reply,
                         isOwn = reply.authorUsername == currentUsername,
-                        isReported = reportedCommentIds.contains(reply.id),
+                        isReported = reply.isReported || reportedCommentIds.contains(reply.id),
                         isCollapsed = collapsedCommentIds.contains(reply.id),
                         onToggleCollapse = { viewModel.toggleCommentCollapsed(reply.id) },
                         onLike = { viewModel.likeComment(reply, reply.threadId) },
