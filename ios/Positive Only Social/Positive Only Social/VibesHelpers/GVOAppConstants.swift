@@ -57,6 +57,7 @@ import Foundation
     static let pathSegmentReply = "reply"
     static let pathSegmentReport = "report"
     static let pathSegmentRequestReset = "request-reset"
+    static let pathSegmentRetract = "retract"
     static let pathSegmentReset = "reset"
     static let pathSegmentThreads = "threads"
     static let pathSegmentUnblock = "unblock"

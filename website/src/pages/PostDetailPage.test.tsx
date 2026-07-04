@@ -14,12 +14,14 @@ vi.mock('../api/client', () => ({
     likePost: vi.fn(),
     unlikePost: vi.fn(),
     reportPost: vi.fn(),
+    retractReportPost: vi.fn(),
     deletePost: vi.fn(),
     commentOnPost: vi.fn(),
     replyToCommentThread: vi.fn(),
     likeComment: vi.fn(),
     unlikeComment: vi.fn(),
     reportComment: vi.fn(),
+    retractReportComment: vi.fn(),
     deleteComment: vi.fn(),
   },
 }))
@@ -32,6 +34,9 @@ const mockLikePost = vi.mocked(apiClient.likePost)
 const mockCommentOnPost = vi.mocked(apiClient.commentOnPost)
 const mockDeletePost = vi.mocked(apiClient.deletePost)
 const mockDeleteComment = vi.mocked(apiClient.deleteComment)
+const mockReportPost = vi.mocked(apiClient.reportPost)
+const mockRetractReportPost = vi.mocked(apiClient.retractReportPost)
+const mockRetractReportComment = vi.mocked(apiClient.retractReportComment)
 
 const post: PostDetails = {
   post_identifier: 'p1',
@@ -83,6 +88,9 @@ beforeEach(() => {
   })
   mockDeletePost.mockReset().mockResolvedValue({ message: 'ok' })
   mockDeleteComment.mockReset().mockResolvedValue({ message: 'ok' })
+  mockReportPost.mockReset().mockResolvedValue({ message: 'ok' })
+  mockRetractReportPost.mockReset().mockResolvedValue({ message: 'ok' })
+  mockRetractReportComment.mockReset().mockResolvedValue({ message: 'ok' })
 })
 
 afterEach(() => {
@@ -234,16 +242,19 @@ test('still shows the post when only the comments fail to load', async () => {
   expect(await screen.findByText('Failed to load comments.')).toBeInTheDocument()
 })
 
-test('own post shows Delete instead of Report, and deleting navigates away', async () => {
+test('own post: the options menu offers Delete, and deleting navigates away', async () => {
   // The signed-in user authored the post, so they can't report it.
   localStorage.setItem('username', 'ada')
   renderDetail()
   await screen.findByText('sunshine')
-  // No Report control on your own post (issue: can't report your own post).
-  expect(screen.queryByRole('button', { name: 'Report' })).not.toBeInTheDocument()
 
-  await userEvent.click(screen.getByRole('button', { name: 'Delete' }))
-  // Confirm in the modal.
+  await userEvent.click(screen.getByRole('button', { name: 'Post options' }))
+  const menu = screen.getByRole('dialog', { name: 'Post options' })
+  // No Report control on your own post (issue: can't report your own post).
+  expect(within(menu).queryByRole('button', { name: 'Report' })).not.toBeInTheDocument()
+
+  await userEvent.click(within(menu).getByRole('button', { name: 'Delete' }))
+  // Confirm in the delete modal.
   const deleteDialog = screen.getByRole('dialog', { name: 'Delete item' })
   await userEvent.click(within(deleteDialog).getByRole('button', { name: 'Delete' }))
   await waitFor(() => expect(mockDeletePost).toHaveBeenCalledWith('p1'))
@@ -251,33 +262,85 @@ test('own post shows Delete instead of Report, and deleting navigates away', asy
   expect(await screen.findByText('Feed page')).toBeInTheDocument()
 })
 
-test('other users’ post still shows Report, not Delete', async () => {
+test('other users’ post: the options menu offers Report, and reporting works', async () => {
   // The post is by 'ada'; the signed-in user is someone else.
   localStorage.setItem('username', 'someone-else')
   renderDetail()
   await screen.findByText('sunshine')
-  expect(screen.getByRole('button', { name: 'Report' })).toBeInTheDocument()
-  expect(screen.queryByRole('button', { name: 'Delete' })).not.toBeInTheDocument()
+
+  await userEvent.click(screen.getByRole('button', { name: 'Post options' }))
+  const menu = screen.getByRole('dialog', { name: 'Post options' })
+  expect(within(menu).queryByRole('button', { name: 'Delete' })).not.toBeInTheDocument()
+  await userEvent.click(within(menu).getByRole('button', { name: 'Report' }))
+
+  // The reason dialog opens; submitting sends the report.
+  await userEvent.type(screen.getByLabelText('Reason for reporting'), 'not positive')
+  await userEvent.click(screen.getByRole('button', { name: 'Submit Report' }))
+  await waitFor(() => expect(mockReportPost).toHaveBeenCalledWith('p1', 'not positive'))
 })
 
-test('own comment shows Delete instead of Report, and deleting reloads', async () => {
+test('already-reported post: the menu offers Retract Report with the reason pre-filled', async () => {
+  localStorage.setItem('username', 'someone-else')
+  mockGetDetails.mockResolvedValue({
+    ...post,
+    is_reported: true,
+    report_reason: 'felt negative',
+  })
+  renderDetail()
+  await screen.findByText('sunshine')
+
+  await userEvent.click(screen.getByRole('button', { name: 'Post options' }))
+  const menu = screen.getByRole('dialog', { name: 'Post options' })
+  // Already reported: Retract replaces Report.
+  expect(within(menu).queryByRole('button', { name: 'Report' })).not.toBeInTheDocument()
+  await userEvent.click(within(menu).getByRole('button', { name: 'Retract Report' }))
+
+  // The retract dialog shows the original reason pre-populated (issue #176).
+  const retractDialog = screen.getByRole('dialog', { name: 'Retract report' })
+  expect(within(retractDialog).getByLabelText('Your report reason')).toHaveValue('felt negative')
+  await userEvent.click(within(retractDialog).getByRole('button', { name: 'Retract Report' }))
+  await waitFor(() => expect(mockRetractReportPost).toHaveBeenCalledWith('p1'))
+  // The reported flag clears once the retraction succeeds.
+  await waitFor(() => expect(screen.queryByLabelText('Reported')).not.toBeInTheDocument())
+})
+
+test('own comment: the options menu offers Delete, and deleting reloads', async () => {
   // The signed-in user authored the comment (bob), so they can't report it.
-  // The post is by 'ada', so it keeps its own Report control.
   localStorage.setItem('username', 'bob')
   mockGetThreadRefs.mockResolvedValue([{ comment_thread_identifier: 't1' }])
   mockGetThreadComments.mockResolvedValue([comment])
   renderDetail()
   await screen.findByText('love this')
 
-  // Scope to the comment row: it offers Delete, not Report.
-  const commentRow = screen.getByText('love this').closest('.comment-row') as HTMLElement
-  expect(within(commentRow).getByRole('button', { name: 'Delete' })).toBeInTheDocument()
-  expect(within(commentRow).queryByRole('button', { name: 'Report' })).not.toBeInTheDocument()
+  await userEvent.click(screen.getByRole('button', { name: 'Options for comment by bob' }))
+  const menu = screen.getByRole('dialog', { name: 'Comment options' })
+  expect(within(menu).queryByRole('button', { name: 'Report' })).not.toBeInTheDocument()
 
-  await userEvent.click(within(commentRow).getByRole('button', { name: 'Delete' }))
+  await userEvent.click(within(menu).getByRole('button', { name: 'Delete' }))
   const deleteDialog = screen.getByRole('dialog', { name: 'Delete item' })
   await userEvent.click(within(deleteDialog).getByRole('button', { name: 'Delete' }))
   await waitFor(() => expect(mockDeleteComment).toHaveBeenCalledWith('p1', 't1', 'c1'))
+})
+
+test('already-reported comment: the menu offers Retract Report with the reason pre-filled', async () => {
+  localStorage.setItem('username', 'someone-else')
+  mockGetThreadRefs.mockResolvedValue([{ comment_thread_identifier: 't1' }])
+  mockGetThreadComments.mockResolvedValue([
+    { ...comment, is_reported: true, report_reason: 'unkind words' },
+  ])
+  renderDetail()
+  await screen.findByText('love this')
+
+  await userEvent.click(screen.getByRole('button', { name: 'Options for comment by bob' }))
+  const menu = screen.getByRole('dialog', { name: 'Comment options' })
+  await userEvent.click(within(menu).getByRole('button', { name: 'Retract Report' }))
+
+  const retractDialog = screen.getByRole('dialog', { name: 'Retract report' })
+  expect(within(retractDialog).getByLabelText('Your report reason')).toHaveValue('unkind words')
+  await userEvent.click(within(retractDialog).getByRole('button', { name: 'Retract Report' }))
+  await waitFor(() =>
+    expect(mockRetractReportComment).toHaveBeenCalledWith('p1', 't1', 'c1'),
+  )
 })
 
 test('redirects to login when unauthenticated', () => {

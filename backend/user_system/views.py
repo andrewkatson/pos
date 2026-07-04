@@ -958,6 +958,41 @@ def report_post(request, post_identifier):
 
 @csrf_exempt
 @api_login_required
+@ratelimit(key='user', rate='20/h', block=True)
+@require_POST
+def retract_report_post(request, post_identifier):
+    logger.info("Endpoint retract_report_post invoked by IP or User")
+    # user is on request.user
+    if not is_valid_pattern(post_identifier, Patterns.uuid4):
+        return log_and_return_json("retract_report_post", {'error': f"Invalid fields {Fields.post_identifier}"}, status=400)
+
+    post = get_post_with_identifier(post_identifier)
+    if post is None:
+        logger.warning(f"Retract report post failed: Post {post_identifier} not found")
+        return log_and_return_json("retract_report_post", {'error': "No post with that identifier"}, status=400)
+
+    deleted_count, _ = post.postreport_set.filter(user=request.user).delete()
+    if deleted_count == 0:
+        logger.warning(f"Retract report post failed: Post not reported by user_id: {request.user.id}")
+        return log_and_return_json("retract_report_post", {'error': "Post not reported yet"}, status=400)
+
+    logger.info(f"Post report retracted: post_id: {post_identifier} by user_id: {request.user.id}")
+
+    # If the retraction takes the report count back under the hiding threshold,
+    # un-hide the post — but only when reports were what hid it. Content hidden
+    # by the classifier or with no recorded reason stays hidden.
+    if post.hidden and post.hidden_reason == HIDDEN_REASON_REPORTS \
+            and post.postreport_set.count() <= MAX_BEFORE_HIDING_POST:
+        post.hidden = False
+        post.hidden_reason = HIDDEN_REASON_NONE
+        post.save()
+        logger.info(f"Post un-hidden after report retraction: post_id: {post_identifier}")
+
+    return log_and_return_json("retract_report_post", {'message': 'Post report retracted'})
+
+
+@csrf_exempt
+@api_login_required
 @ratelimit(key='user', rate='60/m', block=True)
 @require_POST
 def like_post(request, post_identifier):
@@ -1155,6 +1190,9 @@ def get_post_details(request, post_identifier):
     post = get_post_with_identifier(post_identifier)
     if post is not None and can_view_post(post, request.user):
         total_likes = post.postlike_set.count()
+        # The caller's own report (if any), so clients can offer "retract
+        # report" with the original reason pre-filled instead of "report".
+        my_report = post.postreport_set.filter(user=request.user).first()
         post_data = {
             Fields.post_identifier: post.post_identifier,
             Fields.image_url: get_compressed_image_url(post.image_url),
@@ -1164,6 +1202,8 @@ def get_post_details(request, post_identifier):
             Fields.caption: post.caption,
             Fields.post_likes: total_likes,
             Fields.is_liked: post.postlike_set.filter(user=request.user).exists(),
+            Fields.is_reported: my_report is not None,
+            Fields.report_reason: my_report.reason if my_report is not None else None,
             Fields.author_username: post.author.username
         }
         return log_and_return_json("get_post_details", post_data)
@@ -1474,6 +1514,53 @@ def report_comment(request, post_identifier, comment_thread_identifier, comment_
     return log_and_return_json("report_comment", {'message': 'Comment reported'})
 
 
+@csrf_exempt
+@api_login_required
+@ratelimit(key='user', rate='20/h', block=True)
+@require_POST
+def retract_report_comment(request, post_identifier, comment_thread_identifier, comment_identifier):
+    logger.info("Endpoint retract_report_comment invoked by IP or User")
+    # user is on request.user
+    invalid_fields = []
+    if not is_valid_pattern(post_identifier, Patterns.uuid4):
+        invalid_fields.append(Params.post_identifier)
+    if not is_valid_pattern(comment_thread_identifier, Patterns.uuid4):
+        invalid_fields.append(Params.comment_thread_identifier)
+    if not is_valid_pattern(comment_identifier, Patterns.uuid4):
+        invalid_fields.append(Params.comment_identifier)
+    if len(invalid_fields) > 0:
+        return log_and_return_json("retract_report_comment", {'error': f"Invalid fields {invalid_fields}"}, status=400)
+
+    try:
+        comment = Comment.objects.get(
+            comment_identifier=comment_identifier,
+            comment_thread__comment_thread_identifier=comment_thread_identifier,
+            comment_thread__post__post_identifier=post_identifier
+        )
+    except Comment.DoesNotExist:
+        logger.warning(f"Retract report comment failed: Comment {comment_identifier} not found")
+        return log_and_return_json("retract_report_comment", {'error': "Comment not found"}, status=400)
+
+    deleted_count, _ = comment.commentreport_set.filter(user=request.user).delete()
+    if deleted_count == 0:
+        logger.warning(f"Retract report comment failed: Comment not reported by user_id: {request.user.id}")
+        return log_and_return_json("retract_report_comment", {'error': "Comment not reported yet"}, status=400)
+
+    logger.info(f"Comment report retracted: comment_id: {comment_identifier} by user_id: {request.user.id}")
+
+    # If the retraction takes the report count back under the hiding threshold,
+    # un-hide the comment — but only when reports were what hid it. Content
+    # hidden by the classifier or with no recorded reason stays hidden.
+    if comment.hidden and comment.hidden_reason == HIDDEN_REASON_REPORTS \
+            and comment.commentreport_set.count() <= MAX_BEFORE_HIDING_COMMENT:
+        comment.hidden = False
+        comment.hidden_reason = HIDDEN_REASON_NONE
+        comment.save()
+        logger.info(f"Comment un-hidden after report retraction: comment_id: {comment_identifier}")
+
+    return log_and_return_json("retract_report_comment", {'message': 'Comment report retracted'})
+
+
 @api_login_required  # Original had @login_required
 @ratelimit(key='user', rate='60/m', block=True)
 @require_GET
@@ -1530,6 +1617,14 @@ def get_comments_for_thread(request, comment_thread_identifier, batch):
         .filter(comment__in=batched_comments)
         .values_list('comment_id', flat=True)
     )
+    # The caller's own report reason per comment (single query, like the likes
+    # set above), so clients can offer "retract report" with the original
+    # reason pre-filled instead of "report".
+    my_report_reasons = dict(
+        request.user.commentreport_set
+        .filter(comment__in=batched_comments)
+        .values_list('comment_id', 'reason')
+    )
     comments_data = [
         {
             Fields.comment_identifier: comment.comment_identifier,
@@ -1538,7 +1633,9 @@ def get_comments_for_thread(request, comment_thread_identifier, batch):
             Fields.creation_time: comment.creation_time,
             Fields.updated_time: comment.updated_time,
             Fields.comment_likes: comment.commentlike_set.count(),
-            Fields.is_liked: comment.comment_identifier in liked_comment_ids
+            Fields.is_liked: comment.comment_identifier in liked_comment_ids,
+            Fields.is_reported: comment.comment_identifier in my_report_reasons,
+            Fields.report_reason: my_report_reasons.get(comment.comment_identifier)
         }
         for comment in batched_comments
     ]

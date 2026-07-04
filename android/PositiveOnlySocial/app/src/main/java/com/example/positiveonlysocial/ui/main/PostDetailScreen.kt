@@ -12,6 +12,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material.icons.filled.FavoriteBorder
 import androidx.compose.material.icons.filled.Flag
+import androidx.compose.material.icons.filled.MoreHoriz
 import androidx.compose.material3.*
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.runtime.*
@@ -99,28 +100,57 @@ fun PostDetailScreen(
             )
         }
 
-        // The post's long-press action menu: Delete on the user's own post,
-        // Report on everyone else's — so you can never report your own post.
+        // The post's action menu (three-dots button or long-press): Delete on
+        // the user's own post, Report on everyone else's — or Retract Report
+        // when they already reported it (issues #304, #176).
         if (showActionSheetForPost) {
             val isOwnPost = postDetail?.authorUsername == currentUsername
             ActionSheetDialog(
                 isOwn = isOwnPost,
+                isReported = postDetail?.isReported == true || isPostReported,
                 itemLabel = "Post",
                 onDismiss = { viewModel.setShowActionSheetForPost(false) },
                 onReport = { viewModel.setShowReportSheetForPost(true) },
+                onRetract = { viewModel.setShowRetractDialogForPost(true) },
                 onDelete = { viewModel.deletePost() }
             )
         }
 
-        // The comment's long-press action menu mirrors the post's.
+        // The comment's action menu mirrors the post's.
+        val reportedCommentIds by viewModel.reportedCommentIds.collectAsState()
         commentForAction?.let { comment ->
             val isOwnComment = comment.authorUsername == currentUsername
             ActionSheetDialog(
                 isOwn = isOwnComment,
+                isReported = comment.isReported || reportedCommentIds.contains(comment.id),
                 itemLabel = "Comment",
                 onDismiss = { viewModel.setCommentForAction(null) },
                 onReport = { viewModel.setCommentToReport(comment) },
+                onRetract = { viewModel.setCommentToRetract(comment) },
                 onDelete = { viewModel.deleteComment(comment, comment.threadId) }
+            )
+        }
+
+        // Retract-report confirmations, pre-populated with the user's original
+        // reason (issue #176).
+        val showRetractDialogForPost by viewModel.showRetractDialogForPost.collectAsState()
+        if (showRetractDialogForPost) {
+            RetractReportDialog(
+                reason = postDetail?.reportReason ?: "",
+                onDismiss = { viewModel.setShowRetractDialogForPost(false) },
+                onRetract = {
+                    viewModel.retractReportPost()
+                    isPostReported = false
+                }
+            )
+        }
+
+        val commentToRetract by viewModel.commentToRetract.collectAsState()
+        commentToRetract?.let { comment ->
+            RetractReportDialog(
+                reason = comment.reportReason ?: "",
+                onDismiss = { viewModel.setCommentToRetract(null) },
+                onRetract = { viewModel.retractReportComment(comment, comment.threadId) }
             )
         }
 
@@ -220,8 +250,13 @@ fun PostDetailScreen(
                                 }
                                 Text("${post.likeCount} likes", fontWeight = FontWeight.Bold)
                                 Spacer(modifier = Modifier.weight(1f))
-                                if (isPostReported) {
+                                if (post.isReported || isPostReported) {
                                     Icon(Icons.Default.Flag, contentDescription = "Reported", tint = Color.Red)
+                                }
+                                // Three-dots menu: the discoverable alternative to
+                                // long-pressing the image (issue #304).
+                                IconButton(onClick = { viewModel.setShowActionSheetForPost(true) }) {
+                                    Icon(Icons.Default.MoreHoriz, contentDescription = "Post options")
                                 }
                             }
                             
@@ -420,6 +455,21 @@ fun CommentRow(
                 )
                 Spacer(modifier = Modifier.width(8.dp))
                 Text(RelativeTime.format(comment.createdDate), fontSize = 12.sp, color = Color.Gray)
+                Spacer(modifier = Modifier.width(4.dp))
+                // Three-dots menu next to the timestamp: the discoverable
+                // alternative to long-pressing the comment (issue #304). Opens
+                // the same action menu (Report / Retract Report / Delete).
+                IconButton(
+                    onClick = { onLongPress() },
+                    modifier = Modifier.size(24.dp)
+                ) {
+                    Icon(
+                        Icons.Default.MoreHoriz,
+                        contentDescription = "Options for comment by ${comment.authorUsername}",
+                        tint = Color.Gray,
+                        modifier = Modifier.size(16.dp)
+                    )
+                }
                 Spacer(modifier = Modifier.weight(1f))
                 // Chevron hint for the collapse state of the thread below.
                 Text(if (isCollapsed) "▸" else "▾", fontSize = 12.sp, color = Color.Gray)
@@ -454,16 +504,19 @@ fun CommentRow(
 }
 
 /**
- * The mini action menu shown on long-press. Offers a single action — Delete for
- * the user's own content, Report for everyone else's — so you can never report
- * your own post or comment. More options can be added here later.
+ * The mini action menu shown by the three-dots button or a long-press. Offers a
+ * single action — Delete for the user's own content, Report for everyone
+ * else's, or Retract Report when they already have an active report against it
+ * (issues #304, #176) — so you can never report your own post or comment.
  */
 @Composable
 fun ActionSheetDialog(
     isOwn: Boolean,
+    isReported: Boolean,
     itemLabel: String,
     onDismiss: () -> Unit,
     onReport: () -> Unit,
+    onRetract: () -> Unit,
     onDelete: () -> Unit
 ) {
     AlertDialog(
@@ -476,6 +529,10 @@ fun ActionSheetDialog(
                 TextButton(onClick = { onDelete(); onDismiss() }) {
                     Text("Delete $itemLabel")
                 }
+            } else if (isReported) {
+                TextButton(onClick = { onRetract(); onDismiss() }) {
+                    Text("Retract Report")
+                }
             } else {
                 TextButton(onClick = { onReport(); onDismiss() }) {
                     Text("Report $itemLabel")
@@ -484,6 +541,44 @@ fun ActionSheetDialog(
         },
         dismissButton = {
             TextButton(onClick = onDismiss) {
+                Text("Cancel")
+            }
+        }
+    )
+}
+
+/**
+ * Confirmation for retracting an existing report (issue #176). Shows the user's
+ * original report reason pre-populated so they can see what they're retracting.
+ */
+@Composable
+fun RetractReportDialog(
+    reason: String,
+    onDismiss: () -> Unit,
+    onRetract: () -> Unit
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Retract Report?") },
+        text = {
+            Column {
+                Text("You reported this with the reason below. Retracting removes your report.")
+                Spacer(modifier = Modifier.height(8.dp))
+                TextField(
+                    value = reason,
+                    onValueChange = {},
+                    readOnly = true,
+                    singleLine = true
+                )
+            }
+        },
+        confirmButton = {
+            Button(onClick = { onRetract(); onDismiss() }) {
+                Text("Retract Report")
+            }
+        },
+        dismissButton = {
+            Button(onClick = onDismiss) {
                 Text("Cancel")
             }
         }

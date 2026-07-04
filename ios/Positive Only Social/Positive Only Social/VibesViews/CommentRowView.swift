@@ -46,6 +46,21 @@ struct CommentRowView: View {
                     Text(RelativeTime.string(from: comment.createdDate))
                         .font(.caption)
                         .foregroundColor(.secondary)
+                    // Three-dots menu next to the timestamp: the discoverable
+                    // alternative to long-pressing the comment (issue #304).
+                    // Opens the same action menu (Report / Retract Report /
+                    // Delete).
+                    Button {
+                        onLongPress()
+                    } label: {
+                        Image(systemName: "ellipsis")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                            .padding(.vertical, 4)
+                            .contentShape(Rectangle())
+                    }
+                    .accessibilityLabel("Options for comment by \(comment.authorUsername)")
+                    .accessibilityIdentifier("CommentOptionsButton")
                     Spacer()
                     Image(systemName: isCollapsed ? "chevron.right" : "chevron.down")
                         .font(.caption2)

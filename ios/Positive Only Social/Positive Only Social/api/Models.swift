@@ -209,6 +209,11 @@ struct PostDisplayData: Identifiable, Equatable {
     let likeCount: Int
     let isLiked: Bool // Whether the current user has liked this post
     let authorUsername: String // Added for context
+    /// Whether the current user has an active report against this post, and
+    /// their own report reason so the retract dialog can show it pre-populated
+    /// (issue #176).
+    var isReported: Bool = false
+    var reportReason: String? = nil
 }
 
 // A struct representing a single comment, for use in the view
@@ -220,6 +225,10 @@ struct CommentViewData: Identifiable, Equatable {
     let likeCount: Int
     let isLiked: Bool // Whether the current user has liked this comment
     let createdDate: Date
+    /// Whether the current user has an active report against this comment, and
+    /// their own report reason for the pre-populated retract dialog (issue #176).
+    var isReported: Bool = false
+    var reportReason: String? = nil
 }
 
 // A struct representing a full thread, which is just a list of comments

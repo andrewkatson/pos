@@ -79,7 +79,8 @@ class StatefulStubbedAPI : PositiveOnlySocialAPI {
         var hidden: Boolean = false,
         var hiddenReason: String = "",
         val likes: MutableSet<String> = mutableSetOf(), // Set of User IDs
-        val reports: MutableSet<String> = mutableSetOf() // Set of User IDs
+        // Reporting user id -> their reason, so retract flows can show the reason.
+        val reports: MutableMap<String, String> = mutableMapOf()
     )
 
     private data class AppealMock(
@@ -106,7 +107,8 @@ class StatefulStubbedAPI : PositiveOnlySocialAPI {
         var hidden: Boolean = false,
         var hiddenReason: String = "",
         val likes: MutableSet<String> = mutableSetOf(),
-        val reports: MutableSet<String> = mutableSetOf()
+        // Reporting user id -> their reason, so retract flows can show the reason.
+        val reports: MutableMap<String, String> = mutableMapOf()
     )
 
     // ============================================================================================
@@ -365,12 +367,28 @@ class StatefulStubbedAPI : PositiveOnlySocialAPI {
         if (post.authorId == user.id) return error(404, "Cannot report own post")
         if (post.reports.contains(user.id)) return error(404, "Cannot report post twice")
 
-        post.reports.add(user.id)
+        post.reports[user.id] = request.reason
         if (post.reports.size > MAX_BEFORE_HIDING_POST) {
             post.hidden = true
             post.hiddenReason = "reports"
         }
         return Response.success(GenericResponse("Post reported", null))
+    }
+
+    override suspend fun retractReportPost(token: String, postId: String): Response<GenericResponse> {
+        val user = getAuthorizedUser(token) ?: return error(401, "Unauthorized")
+        val post = posts.find { it.postIdentifier == postId }
+            ?: return error(404, "No post with that identifier")
+
+        if (!post.reports.contains(user.id)) return error(404, "Post not reported yet")
+
+        post.reports.remove(user.id)
+        // Un-hide only when reports were what hid it, mirroring the backend.
+        if (post.hidden && post.hiddenReason == "reports" && post.reports.size <= MAX_BEFORE_HIDING_POST) {
+            post.hidden = false
+            post.hiddenReason = ""
+        }
+        return Response.success(GenericResponse("Post report retracted", null))
     }
 
     override suspend fun likePost(token: String, postId: String): Response<GenericResponse> {
@@ -466,7 +484,9 @@ class StatefulStubbedAPI : PositiveOnlySocialAPI {
             post.caption,
             authorUsername = author.username,
             likeCount = post.likes.count(),
-            isLiked = post.likes.contains(user.id)
+            isLiked = post.likes.contains(user.id),
+            isReported = post.reports.contains(user.id),
+            reportReason = post.reports[user.id]
         ))
     }
 
@@ -540,13 +560,28 @@ class StatefulStubbedAPI : PositiveOnlySocialAPI {
         if (comment.authorId == user.id) return error(404, "Cannot report own comment")
         if (comment.reports.contains(user.id)) return error(404, "Already reported")
 
-        comment.reports.add(user.id)
+        comment.reports[user.id] = request.reason
         if (comment.reports.size > 5) { // Stub limit
             comment.hidden = true
             comment.hiddenReason = "reports"
         }
 
         return Response.success(GenericResponse("Comment reported", null))
+    }
+
+    override suspend fun retractReportComment(token: String, postId: String, threadId: String, commentId: String): Response<GenericResponse> {
+        val user = getAuthorizedUser(token) ?: return error(401, "Unauthorized")
+        val comment = findComment(postId, threadId, commentId) ?: return error(404, "Comment not found")
+
+        if (!comment.reports.contains(user.id)) return error(404, "Comment not reported yet")
+
+        comment.reports.remove(user.id)
+        // Un-hide only when reports were what hid it, mirroring the backend.
+        if (comment.hidden && comment.hiddenReason == "reports" && comment.reports.size <= 5) { // Stub limit
+            comment.hidden = false
+            comment.hiddenReason = ""
+        }
+        return Response.success(GenericResponse("Comment report retracted", null))
     }
 
     override suspend fun getCommentsForPost(token: String, postId: String, batch: Int): Response<List<CommentThreadDto>> {
@@ -573,7 +608,9 @@ class StatefulStubbedAPI : PositiveOnlySocialAPI {
                 c.creationTime.toString(),
                 c.creationTime.toString(),
                 c.likes.size,
-                isLiked = c.likes.contains(user.id)
+                isLiked = c.likes.contains(user.id),
+                isReported = c.reports.contains(user.id),
+                reportReason = c.reports[user.id]
             )
         }
         return Response.success(dtos)
