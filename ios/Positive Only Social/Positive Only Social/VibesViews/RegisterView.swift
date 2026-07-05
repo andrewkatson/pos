@@ -72,7 +72,13 @@ struct RegisterView: View {
                 .padding()
                 .background(Color(.systemGray6))
                 .cornerRadius(10)
-                .textContentType(.username)
+                // Under UI testing, drop the credential content types (here and on
+                // the password fields below). iOS offers "Automatic Strong Passwords"
+                // when it recognizes a credential form — a `.username` field followed
+                // by a secure field — and that floating QuickType panel steals focus
+                // and breaks typing in the UI tests. Nulling `.username` stops iOS
+                // from classifying the screen as a sign-up form at all.
+                .textContentType(isUITesting() ? nil : .username)
                 .autocapitalization(.none)
                 .focused($focusedField, equals: .username)
                 .accessibilityIdentifier("UsernameTextField")
