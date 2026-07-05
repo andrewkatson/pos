@@ -1,11 +1,16 @@
 package com.example.positiveonlysocial.ui.navigation
 
+import android.net.Uri
+
 sealed class Screen(val route: String) {
     object Login : Screen("login")
     object Welcome : Screen("welcome")
     object Register : Screen("register")
     object CheckEmail : Screen("check_email/{email}") {
-        fun createRoute(email: String) = "check_email/$email"
+        // Encoded because an email may contain reserved URI characters; the
+        // navigation library decodes route arguments before handing them to
+        // the destination.
+        fun createRoute(email: String) = "check_email/${Uri.encode(email)}"
     }
     object RequestReset : Screen("request_reset")
     object VerifyReset : Screen("verify_reset/{usernameOrEmail}") {

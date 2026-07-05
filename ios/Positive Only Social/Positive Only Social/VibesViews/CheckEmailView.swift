@@ -67,7 +67,7 @@ struct CheckEmailView: View {
             Spacer()
         }
         .padding()
-        .navigationTitle("Verify Email")
+        .navigationTitle("Check Your Email")
         .navigationBarTitleDisplayMode(.inline)
         // Registration is complete; going "back" to the form would only invite
         // a duplicate-account error.
