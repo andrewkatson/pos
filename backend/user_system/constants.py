@@ -29,6 +29,13 @@ APPEAL_TARGET_TYPES = (APPEAL_TARGET_POST, APPEAL_TARGET_COMMENT, APPEAL_TARGET_
 # Error code returned when an outright-banned user attempts to authenticate
 ACCOUNT_BANNED = "account_banned"
 
+# Error code returned when a user whose email address has not been verified
+# attempts to authenticate or call an authenticated endpoint
+EMAIL_NOT_VERIFIED = "email_not_verified"
+
+# How long an email verification link stays valid
+EMAIL_VERIFICATION_TOKEN_HOURS = 24
+
 # Regex Patterns to check against
 class Patterns:
     password = r"^(?=.*[0-9])(?=.*[a-z])(?=.*[A-Z])(?=.*-)(?=\S+$).{8,}$"

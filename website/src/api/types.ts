@@ -45,6 +45,15 @@ export interface RequestResetRequest {
   username_or_email: string
 }
 
+export interface VerifyEmailRequest {
+  /** The raw token from the verification link in the welcome email. */
+  verification_token: string
+}
+
+export interface ResendVerificationEmailRequest {
+  username_or_email: string
+}
+
 export interface VerifyResetRequest {
   username_or_email: string
   verification_token: string

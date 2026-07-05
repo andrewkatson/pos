@@ -1,7 +1,13 @@
 import { useState, type FormEvent } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 import Logo from '../components/Logo'
-import { ACCOUNT_BANNED, ACCOUNT_SUSPENDED_MESSAGE, apiClient } from '../api/client'
+import {
+  ACCOUNT_BANNED,
+  ACCOUNT_SUSPENDED_MESSAGE,
+  EMAIL_NOT_VERIFIED,
+  EMAIL_NOT_VERIFIED_MESSAGE,
+  apiClient,
+} from '../api/client'
 import type { ApiError } from '../api/client'
 import { clearRememberMeTokens, persistSession, saveRememberMeTokens } from '../api/session'
 import './LoginPage.css'
@@ -50,6 +56,8 @@ function LoginPage() {
       const apiErr = err as ApiError
       if (apiErr.message === ACCOUNT_BANNED) {
         setErrorMessage(ACCOUNT_SUSPENDED_MESSAGE)
+      } else if (apiErr.message === EMAIL_NOT_VERIFIED) {
+        setErrorMessage(EMAIL_NOT_VERIFIED_MESSAGE)
       } else {
         setErrorMessage(apiErr.message ?? 'Login failed. Please check your credentials.')
       }

@@ -5,7 +5,7 @@ import { vi, beforeEach, afterEach } from 'vitest'
 import RegisterPage from './RegisterPage'
 
 vi.mock('../api/client', () => ({
-  apiClient: { register: vi.fn() },
+  apiClient: { register: vi.fn(), setToken: vi.fn() },
 }))
 
 import { apiClient } from '../api/client'
@@ -23,6 +23,7 @@ function renderRegisterPage() {
         <Route path="/register" element={<RegisterPage />} />
         <Route path="/" element={<div> Landing</div>}/>
         <Route path="/home" element={<div>Home</div>} />
+        <Route path="/check-email" element={<div>Check Email</div>} />
       </Routes>
     </MemoryRouter>,
   )
@@ -173,7 +174,7 @@ test('shows error banner on failed registration', async () => {
   expect(await screen.findByRole('alert')).toHaveTextContent('Username already taken')
 })
 
-test('navigates to home on successful registration', async () => {
+test('navigates to check-email on successful registration', async () => {
   mockRegister.mockResolvedValueOnce({
     session_management_token: 'tok',
     user_id: 'uuid-abc',
@@ -183,5 +184,8 @@ test('navigates to home on successful registration', async () => {
   await fillValidForm()
   await userEvent.click(screen.getByRole('button', { name: 'Register' }))
   await userEvent.click(screen.getByRole('button', { name: 'Ok' }))
-  expect(await screen.findByText('Home')).toBeInTheDocument()
+  expect(await screen.findByText('Check Email')).toBeInTheDocument()
+  // The registration session must not be kept: the account can't act until
+  // the email is verified, so the user logs in afterwards instead.
+  expect(vi.mocked(apiClient.setToken)).toHaveBeenCalledWith(null)
 })

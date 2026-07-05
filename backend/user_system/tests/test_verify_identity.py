@@ -11,10 +11,13 @@ class VerifyIdentityTests(PositiveOnlySocialTestCase):
         
         # Create a user to test with
         self.user = get_user_model().objects.create_user(
-            username='testuser', 
-            email='test@example.com', 
+            username='testuser',
+            email='test@example.com',
             password='password'
         )
+        # Identity verification is an authenticated endpoint, so the account's
+        # email must already be verified to reach it.
+        self.user.email_verified = True
         self.user.save()
         
         # Log in the user (if required by decorator, but verify_identity is @api_login_required)

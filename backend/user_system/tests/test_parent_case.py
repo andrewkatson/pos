@@ -2,6 +2,7 @@ import os
 
 from unittest.mock import patch
 
+from django.contrib.auth import get_user_model
 from django.test import TestCase, Client, override_settings
 from django.urls import reverse
 
@@ -70,10 +71,14 @@ class PositiveOnlySocialTestCase(TestCase):
         self.users[UserFields.TOKEN].append(token)
 
     @patch.dict(os.environ, {"TESTING": "True"}, clear=True)
-    def _register_user(self, username, email, password, remember_me=false):
+    def _register_user(self, username, email, password, remember_me=false, verify_email=True):
         """
         Calls the 'register' endpoint and returns the parsed JSON response.
         Asserts that the registration was successful (201 Created).
+
+        Email verification gates login and every authenticated endpoint, so by
+        default the new user's address is marked verified directly in the DB.
+        Tests that exercise the verification flow itself pass verify_email=False.
         """
         url = reverse('register')
         data = {
@@ -86,6 +91,9 @@ class PositiveOnlySocialTestCase(TestCase):
 
         # 201 Created is the standard for successful creation
         self.assertEqual(response.status_code, 201)
+
+        if verify_email:
+            get_user_model().objects.filter(username=username).update(email_verified=True)
 
         response_data = response.json()
         self._store_user_in_dict(username, password, email, response_data)

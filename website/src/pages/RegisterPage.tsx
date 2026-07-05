@@ -45,17 +45,18 @@ function RegisterPage() {
     setShowPrivacyPolicy(false)
     setIsLoading(true)
     try {
-      const response = await apiClient.register({
+      await apiClient.register({
         username: username.trim(),
         email: email.trim(),
         password,
         remember_me: false,
         date_of_birth: dateOfBirth,
       })
-      localStorage.setItem('session_token', response.session_management_token)
-      localStorage.setItem('user_id', response.user_id)
-      localStorage.setItem('username', username.trim())
-      navigate('/home')
+      // The account can't do anything until the emailed verification link is
+      // used, so don't keep the registration session — send the user to the
+      // "check your email" screen and have them log in after verifying.
+      apiClient.setToken(null)
+      navigate('/check-email', { state: { email: email.trim() } })
     } catch (err) {
       const apiErr = err as ApiError
       setErrorMessage(apiErr.message ?? 'Registration failed. Username or email may be taken.')

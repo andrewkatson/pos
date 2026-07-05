@@ -176,6 +176,18 @@ test('shows suspension message when login fails with account_banned', async () =
   expect(await screen.findByText(ACCOUNT_SUSPENDED_MESSAGE)).toBeInTheDocument()
 })
 
+test('shows verify-your-email message when login fails with email_not_verified', async () => {
+  const { EMAIL_NOT_VERIFIED, EMAIL_NOT_VERIFIED_MESSAGE, ApiError } = await import('../api/client')
+  mockLogin.mockRejectedValue(new ApiError(403, EMAIL_NOT_VERIFIED))
+  renderLoginPage()
+
+  await userEvent.type(screen.getByLabelText('Username or Email'), 'ada')
+  await userEvent.type(screen.getByLabelText('Password'), 'pass')
+  await userEvent.click(screen.getByRole('button', { name: 'Login' }))
+
+  expect(await screen.findByText(EMAIL_NOT_VERIFIED_MESSAGE)).toBeInTheDocument()
+})
+
 test('shows suspension message when redirected with the suspended flag', async () => {
   const { ACCOUNT_SUSPENDED_MESSAGE } = await import('../api/client')
   render(

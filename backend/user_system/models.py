@@ -117,6 +117,13 @@ class PositiveOnlySocialUser(AbstractUser):
     verification_failed_attempts = models.IntegerField(default=0)
     verification_lockout_until = models.DateTimeField(null=True, blank=True, default=None)
 
+    # Email-address verification. Distinct from identity_is_verified (age/identity)
+    # and from verification_token above (password reset). Login and all
+    # authenticated endpoints are refused until the address is verified.
+    email_verified = models.BooleanField(default=False)
+    email_verification_token = models.TextField(null=True, blank=True, default=None)
+    email_verification_token_expires = models.DateTimeField(null=True, blank=True, default=None)
+
     creation_time = models.DateTimeField(auto_now_add=True, null=True, blank=True)
     updated_time = models.DateTimeField(auto_now=True, null=True, blank=True)
     id = models.UUIDField(default=uuid.uuid4, primary_key=True, unique=True, editable=False)
