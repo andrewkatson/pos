@@ -195,8 +195,11 @@ EMAIL_HOST_USER = os.environ.get("EMAIL_USER")
 EMAIL_HOST_PASSWORD = os.environ.get("EMAIL_PASS")
 
 # Base URL of the user-facing website, used to build links embedded in emails
-# (e.g. the email-verification link in the welcome email).
-FRONTEND_BASE_URL = os.environ.get("FRONTEND_BASE_URL", "https://smiling.social").rstrip('/')
+# (e.g. the email-verification link in the welcome email). An empty or
+# whitespace-only env value is treated as unset so a misconfigured deploy
+# can't produce broken relative links in emails.
+_frontend_base_url = os.environ.get("FRONTEND_BASE_URL", "").strip()
+FRONTEND_BASE_URL = (_frontend_base_url or "https://smiling.social").rstrip('/')
 
 
 DATETIME_FORMAT = f"iso-8601"
