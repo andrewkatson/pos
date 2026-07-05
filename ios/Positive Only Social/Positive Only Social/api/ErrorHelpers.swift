@@ -11,6 +11,12 @@ extension Notification.Name {
     /// the session server-side, so the app must drop its session too.
     static let accountBanned = Notification.Name("accountBanned")
 
+    /// Posted by the API layer when an authenticated request is rejected
+    /// because the account's email address has not been verified. The session
+    /// can't do anything until the emailed link is used, so the app drops it
+    /// and returns to the welcome screen.
+    static let emailNotVerified = Notification.Name("emailNotVerified")
+
     /// Posted after a post is successfully deleted, with the deleted post's
     /// identifier as the notification `object`. The Home grid listens for this
     /// so it can drop the post from its cached list — otherwise the deleted
@@ -29,6 +35,20 @@ extension Error {
             return message == GVOAppConstants.accountBannedError
         case .requestFailed(let underlying):
             return underlying.isAccountBanned
+        default:
+            return false
+        }
+    }
+
+    /// True when the backend rejected the request because the account's email
+    /// address has not been verified (the `email_not_verified` error code).
+    var isEmailNotVerified: Bool {
+        guard let apiError = self as? APIError else { return false }
+        switch apiError {
+        case .serverError(_, let message):
+            return message == GVOAppConstants.emailNotVerifiedError
+        case .requestFailed(let underlying):
+            return underlying.isEmailNotVerified
         default:
             return false
         }

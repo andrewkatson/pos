@@ -13,4 +13,9 @@ object Constants {
     const val ACCOUNT_BANNED = "account_banned"
     const val ACCOUNT_SUSPENDED_MESSAGE =
         "Your account has been suspended for violating our community guidelines."
+
+    // Error code the backend returns when the account's email address is unverified.
+    const val EMAIL_NOT_VERIFIED = "email_not_verified"
+    const val EMAIL_NOT_VERIFIED_MESSAGE =
+        "Please verify your email address first — check your inbox for the verification link."
 }

@@ -32,6 +32,16 @@ interface PositiveOnlySocialAPI {
     ): Response<GenericResponse>
 
     // ============================================================================================
+    // EMAIL VERIFICATION
+    // ============================================================================================
+
+    @POST("verify-email/")
+    suspend fun verifyEmail(@Body request: VerifyEmailRequest): Response<GenericResponse>
+
+    @POST("resend-verification-email/")
+    suspend fun resendVerificationEmail(@Body request: ResendVerificationEmailRequest): Response<GenericResponse>
+
+    // ============================================================================================
     // PASSWORD RESET
     // ============================================================================================
 

@@ -97,6 +97,14 @@ struct MockedAPI: Networking {
         return try encode(["message": "ok", "reset_token": "preview_reset_token"])
     }
 
+    func verifyEmail(verificationToken: String) async throws -> Data {
+        return try encodeGenericSuccess()
+    }
+
+    func resendVerificationEmail(usernameOrEmail: String) async throws -> Data {
+        return try encodeGenericSuccess()
+    }
+
     func logoutUser(sessionManagementToken: String) async throws -> Data {
         return try encodeGenericSuccess()
     }

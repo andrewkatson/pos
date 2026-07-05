@@ -23,7 +23,6 @@ import com.example.positiveonlysocial.api.ApiErrors
 import com.example.positiveonlysocial.api.PositiveOnlySocialAPI
 import com.example.positiveonlysocial.data.auth.AuthenticationManager
 import com.example.positiveonlysocial.data.model.RegisterRequest
-import com.example.positiveonlysocial.data.model.UserSession
 import com.example.positiveonlysocial.data.security.KeychainHelperProtocol
 import com.example.positiveonlysocial.ui.dismissKeyboardOnTap
 import com.example.positiveonlysocial.ui.navigation.Screen
@@ -88,24 +87,13 @@ fun RegisterScreen(
                                 )
 
                                 if (response.isSuccessful) {
-                                    val body = response.body()
-                                    val userId = body?.userId
-                                    if (userId == null) {
-                                        errorMessage = "Registration failed: server did not return a user ID."
-                                        showingErrorAlert = true
-                                    } else {
-                                        val session = UserSession(
-                                            sessionToken = body.sessionToken,
-                                            username = username,
-                                            userId = userId,
-                                            isIdentityVerified = false
-                                        )
-                                        authManager.login(session)
-
-                                        // Navigate to Home, clearing back stack
-                                        navController.navigate(Screen.Home.route) {
-                                            popUpTo(Screen.Welcome.route) { inclusive = true }
-                                        }
+                                    // The account can't do anything until the emailed
+                                    // verification link is used (issue #237), so don't
+                                    // keep the registration session — park the user on
+                                    // the "check your email" screen and have them log
+                                    // in after verifying.
+                                    navController.navigate(Screen.CheckEmail.createRoute(email)) {
+                                        popUpTo(Screen.Welcome.route)
                                     }
                                 } else {
                                     val errorMsg = ApiErrors.messageFor(response, fallback = "Registration failed. Username or email may be taken.")

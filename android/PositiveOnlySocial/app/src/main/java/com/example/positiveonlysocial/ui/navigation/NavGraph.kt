@@ -59,6 +59,13 @@ fun NavGraph(
         composable(Screen.Register.route) {
             RegisterScreen(navController, api, keychainHelper, authManager)
         }
+        composable(
+            route = Screen.CheckEmail.route,
+            arguments = listOf(navArgument("email") { type = NavType.StringType })
+        ) { backStackEntry ->
+            val email = backStackEntry.arguments?.getString("email") ?: ""
+            CheckEmailScreen(navController, api, email)
+        }
         composable(Screen.RequestReset.route) {
             RequestResetScreen(navController, api, keychainHelper)
         }

@@ -50,6 +50,11 @@ class StatefulStubbedAPI : PositiveOnlySocialAPI {
         var passwordHash: String, // Storing plain text for stub simplicity, or simple hash
         var verificationToken: String? = null,
         var resetToken: String? = null,
+        // The real backend starts accounts unverified and gates everything on
+        // the emailed link; the stub has no inbox, so accounts start verified
+        // to keep offline/demo mode usable.
+        var emailVerified: Boolean = true,
+        var emailVerificationToken: String? = null,
         val following: MutableList<String> = mutableListOf(), // List of User IDs
         val followers: MutableList<String> = mutableListOf(),
         var isVerified: Boolean = false,
@@ -307,6 +312,28 @@ class StatefulStubbedAPI : PositiveOnlySocialAPI {
             return Response.success(GenericResponse("Password reset successfully", null))
         }
         return error(400, "Invalid reset token or no user with that username or email")
+    }
+
+    // ============================================================================================
+    // email verification
+    // ============================================================================================
+
+    override suspend fun verifyEmail(request: VerifyEmailRequest): Response<GenericResponse> {
+        val user = users.find { it.emailVerificationToken != null && it.emailVerificationToken == request.verificationToken }
+            ?: return errorGeneric(400, "Invalid or expired verification token")
+        user.emailVerified = true
+        user.emailVerificationToken = null
+        return Response.success(GenericResponse("Email verified", null))
+    }
+
+    override suspend fun resendVerificationEmail(request: ResendVerificationEmailRequest): Response<GenericResponse> {
+        val user = users.find { it.username == request.usernameOrEmail || it.email == request.usernameOrEmail }
+            ?: return errorGeneric(400, "No user with that username or email")
+        if (user.emailVerified) {
+            return errorGeneric(400, "Email already verified")
+        }
+        user.emailVerificationToken = "stub_email_verification_token_${user.username}"
+        return Response.success(GenericResponse("Verification email sent", null))
     }
 
     // ============================================================================================

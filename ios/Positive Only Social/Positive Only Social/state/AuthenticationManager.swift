@@ -66,6 +66,13 @@ final class AuthenticationManager: ObservableObject {
             .receive(on: DispatchQueue.main)
             .sink { [weak self] _ in self?.logout() }
             .store(in: &cancellables)
+
+        // An unverified email blocks every authenticated endpoint, so a
+        // session that hits email_not_verified is useless — drop it too.
+        notificationCenter.publisher(for: .emailNotVerified)
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] _ in self?.logout() }
+            .store(in: &cancellables)
     }
     
     private func checkInitialState() {

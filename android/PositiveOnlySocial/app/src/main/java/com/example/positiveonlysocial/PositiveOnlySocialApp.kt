@@ -24,5 +24,13 @@ class PositiveOnlySocialApp : Application() {
                 DependencyProvider.authManager.forceLogout()
             }
         }
+
+        // An unverified email blocks every authenticated endpoint, so a
+        // session that hits email_not_verified is useless — drop it too.
+        APIProvider.onEmailNotVerified = {
+            CoroutineScope(Dispatchers.IO).launch {
+                DependencyProvider.authManager.forceLogout()
+            }
+        }
     }
 }
