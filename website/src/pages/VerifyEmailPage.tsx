@@ -7,6 +7,13 @@ import './LoginPage.css'
 
 type VerifyState = 'missing-token' | 'verifying' | 'success' | 'error'
 
+/** Outcome of the verification request for a specific token. */
+interface VerifyResult {
+  token: string
+  state: 'success' | 'error'
+  message?: string
+}
+
 // Landing page for the verification link in the welcome email
 // (https://smiling.social/verify-email?token=...). Verifies automatically on
 // load; on failure (expired/used token) it offers to resend the email.
@@ -15,8 +22,7 @@ function VerifyEmailPage() {
   const [searchParams] = useSearchParams()
   const token = searchParams.get('token')
 
-  const [state, setState] = useState<VerifyState>(token ? 'verifying' : 'missing-token')
-  const [errorMessage, setErrorMessage] = useState<string | null>(null)
+  const [result, setResult] = useState<VerifyResult | null>(null)
   const [usernameOrEmail, setUsernameOrEmail] = useState('')
   const [resendMessage, setResendMessage] = useState<string | null>(null)
   const [isResending, setIsResending] = useState(false)
@@ -28,22 +34,29 @@ function VerifyEmailPage() {
   const requestedToken = useRef<string | null>(null)
 
   useEffect(() => {
-    if (!token) {
-      setState('missing-token')
-      return
-    }
-    if (requestedToken.current === token) return
+    if (!token || requestedToken.current === token) return
     requestedToken.current = token
-    setState('verifying')
-    setErrorMessage(null)
     apiClient
       .verifyEmail({ verification_token: token })
-      .then(() => setState('success'))
+      .then(() => setResult({ token, state: 'success' }))
       .catch((err: ApiError) => {
-        setErrorMessage(err.message ?? 'Verification failed. The link may have expired.')
-        setState('error')
+        setResult({
+          token,
+          state: 'error',
+          message: err.message ?? 'Verification failed. The link may have expired.',
+        })
       })
   }, [token])
+
+  // Derived at render time (no setState in the effect body): a missing token
+  // needs no request, a token without a matching result is still in flight,
+  // and a stale result from a previous token is ignored.
+  const state: VerifyState = !token
+    ? 'missing-token'
+    : result?.token === token
+      ? result.state
+      : 'verifying'
+  const errorMessage = state === 'error' ? (result?.message ?? null) : null
 
   async function handleResend(e: FormEvent) {
     e.preventDefault()
