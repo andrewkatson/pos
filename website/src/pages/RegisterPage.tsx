@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom'
 import Logo from '../components/Logo'
 import { apiClient } from '../api/client'
 import type { ApiError } from '../api/client'
+import { clearSession } from '../api/session'
 import RequirementHints from '../auth/RequirementHints'
 import { getPasswordRequirements, getUsernameRequirements, allMet } from '../auth/requirements'
 import './LoginPage.css'
@@ -53,9 +54,10 @@ function RegisterPage() {
         date_of_birth: dateOfBirth,
       })
       // The account can't do anything until the emailed verification link is
-      // used, so don't keep the registration session — send the user to the
-      // "check your email" screen and have them log in after verifying.
-      apiClient.setToken(null)
+      // used, so don't keep the registration session — and drop any persisted
+      // session/remember-me tokens from a previous login, which main.tsx would
+      // otherwise restore on reload. The user logs in after verifying.
+      clearSession()
       navigate('/check-email', { state: { email: email.trim() } })
     } catch (err) {
       const apiErr = err as ApiError

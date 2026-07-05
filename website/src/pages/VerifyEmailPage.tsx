@@ -21,13 +21,21 @@ function VerifyEmailPage() {
   const [resendMessage, setResendMessage] = useState<string | null>(null)
   const [isResending, setIsResending] = useState(false)
 
-  // The token is single-use, so guard against the effect firing twice
-  // (e.g. React StrictMode) and the second call reporting a false failure.
-  const hasRequested = useRef(false)
+  // The token is single-use, so guard against the effect firing twice for the
+  // same token (e.g. React StrictMode) and the second call reporting a false
+  // failure. Keyed by token — not a boolean — so navigating to a different
+  // verification link while this page is mounted still verifies the new token.
+  const requestedToken = useRef<string | null>(null)
 
   useEffect(() => {
-    if (!token || hasRequested.current) return
-    hasRequested.current = true
+    if (!token) {
+      setState('missing-token')
+      return
+    }
+    if (requestedToken.current === token) return
+    requestedToken.current = token
+    setState('verifying')
+    setErrorMessage(null)
     apiClient
       .verifyEmail({ verification_token: token })
       .then(() => setState('success'))

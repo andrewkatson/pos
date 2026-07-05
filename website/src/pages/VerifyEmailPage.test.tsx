@@ -1,6 +1,6 @@
 import { render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import { MemoryRouter, Routes, Route } from 'react-router-dom'
+import { MemoryRouter, Routes, Route, useNavigate } from 'react-router-dom'
 import { vi, beforeEach } from 'vitest'
 import VerifyEmailPage from './VerifyEmailPage'
 
@@ -44,6 +44,46 @@ test('verifies automatically and shows success with a login link', async () => {
 
   await userEvent.click(screen.getByRole('button', { name: 'Go to Login' }))
   expect(screen.getByText('Login page')).toBeInTheDocument()
+})
+
+test('navigating to a different token while mounted verifies the new token', async () => {
+  const SECOND_TOKEN = 'b'.repeat(43)
+  mockVerifyEmail.mockRejectedValueOnce({ message: 'Invalid or expired verification token' })
+  mockVerifyEmail.mockResolvedValueOnce({ message: 'Email verified' })
+
+  // React Router reuses the mounted component when only the search param
+  // changes, so the single-use guard must be keyed by token, not a boolean.
+  function NavigateToSecondToken() {
+    const navigate = useNavigate()
+    return (
+      <button onClick={() => navigate(`/verify-email?token=${SECOND_TOKEN}`)}>
+        Open second link
+      </button>
+    )
+  }
+
+  render(
+    <MemoryRouter initialEntries={[`/verify-email?token=${VALID_TOKEN}`]}>
+      <Routes>
+        <Route
+          path="/verify-email"
+          element={
+            <>
+              <VerifyEmailPage />
+              <NavigateToSecondToken />
+            </>
+          }
+        />
+      </Routes>
+    </MemoryRouter>,
+  )
+
+  await screen.findByRole('alert')
+  await userEvent.click(screen.getByRole('button', { name: 'Open second link' }))
+
+  expect(await screen.findByText(/has been verified/)).toBeInTheDocument()
+  expect(mockVerifyEmail).toHaveBeenCalledTimes(2)
+  expect(mockVerifyEmail).toHaveBeenLastCalledWith({ verification_token: SECOND_TOKEN })
 })
 
 test('shows an explanation when the token is missing from the URL', () => {

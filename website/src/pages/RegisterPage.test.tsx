@@ -37,9 +37,16 @@ async function fillValidForm() {
   await userEvent.type(screen.getByLabelText('Confirm Password'), VALID_PASSWORD)
 }
 
+let localStorageMock: { setItem: ReturnType<typeof vi.fn>; getItem: ReturnType<typeof vi.fn>; removeItem: ReturnType<typeof vi.fn>; clear: ReturnType<typeof vi.fn> }
+let sessionStorageMock: typeof localStorageMock
+
 beforeEach(() => {
   mockRegister.mockReset()
-  vi.stubGlobal('localStorage', { setItem: vi.fn(), getItem: vi.fn(), removeItem: vi.fn(), clear: vi.fn() })
+  vi.mocked(apiClient.setToken).mockReset()
+  localStorageMock = { setItem: vi.fn(), getItem: vi.fn(), removeItem: vi.fn(), clear: vi.fn() }
+  sessionStorageMock = { setItem: vi.fn(), getItem: vi.fn(), removeItem: vi.fn(), clear: vi.fn() }
+  vi.stubGlobal('localStorage', localStorageMock)
+  vi.stubGlobal('sessionStorage', sessionStorageMock)
 })
 
 afterEach(() => {
@@ -186,6 +193,12 @@ test('navigates to check-email on successful registration', async () => {
   await userEvent.click(screen.getByRole('button', { name: 'Ok' }))
   expect(await screen.findByText('Check Email')).toBeInTheDocument()
   // The registration session must not be kept: the account can't act until
-  // the email is verified, so the user logs in afterwards instead.
+  // the email is verified, so the user logs in afterwards instead. Any
+  // persisted session from a previous login must be dropped too, or main.tsx
+  // would restore it on reload.
   expect(vi.mocked(apiClient.setToken)).toHaveBeenCalledWith(null)
+  expect(localStorageMock.removeItem).toHaveBeenCalledWith('session_token')
+  expect(sessionStorageMock.removeItem).toHaveBeenCalledWith('session_token')
+  expect(localStorageMock.removeItem).toHaveBeenCalledWith('series_identifier')
+  expect(localStorageMock.removeItem).toHaveBeenCalledWith('login_cookie_token')
 })
