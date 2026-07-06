@@ -1,0 +1,38 @@
+.privacy-page {
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+  background-color: #000000;
+}
+
+.privacy-page__nav {
+  padding: 1.25rem 1.5rem;
+}
+
+.privacy-page__home-link {
+  display: inline-flex;
+}
+
+.privacy-page__main {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 1.5rem 1.5rem 4rem;
+}
+
+.privacy-page__title {
+  margin: 0 0 1.5rem;
+  font-size: clamp(1.75rem, 5vw, 2.5rem);
+  font-weight: 800;
+  letter-spacing: -0.02em;
+  color: #ffffff;
+}
+
+.privacy-page__body {
+  max-width: 640px;
+  margin: 0;
+  font-size: 1rem;
+  line-height: 1.6;
+  color: rgba(255, 255, 255, 0.85);
+}
