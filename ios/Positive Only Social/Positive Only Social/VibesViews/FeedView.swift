@@ -110,6 +110,7 @@ struct ForYouFeedView: View {
                                     GridPostImage(
                                         imageUrl: post.imageUrl,
                                         originalImageUrl: post.originalImageUrl,
+                                        caption: post.caption,
                                         placeholderColor: Color(.systemGray5)
                                     )
                                 }
@@ -179,6 +180,7 @@ struct FollowingFeedView: View {
                                     GridPostImage(
                                         imageUrl: post.imageUrl,
                                         originalImageUrl: post.originalImageUrl,
+                                        caption: post.caption,
                                         placeholderColor: Color(.systemGray5)
                                     )
                                 }
@@ -216,6 +218,7 @@ struct FollowingFeedView: View {
         }
     }
 }
+
 
 // MARK: - Preview
 #Preview {

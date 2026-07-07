@@ -36,7 +36,7 @@ struct NewPostView: View {
                     // A prominent, full-width button reads as the primary call to
                     // action rather than looking like plain tappable text.
                     let pickerLabel = Label(
-                        selectedImageData == nil ? "Select a Photo" : "Change Photo",
+                        selectedImageData == nil ? "Select a Photo (Optional)" : "Change Photo",
                         systemImage: "photo.on.rectangle.angled"
                     )
                     .font(.headline)
@@ -104,7 +104,7 @@ struct NewPostView: View {
                     }
                 } else {
                     Button(action: makePost) { Text("Share Post") }
-                        .disabled(selectedImageData == nil || caption.isEmpty || !isWithinLength(caption, max: GVOAppConstants.maxCaptionLength))
+                        .disabled(caption.isEmpty || !isWithinLength(caption, max: GVOAppConstants.maxCaptionLength))
                         .accessibilityIdentifier("SharePostButton")
                 }
             }
@@ -138,12 +138,6 @@ struct NewPostView: View {
     }
     
     private func makePost() {
-        guard let imageData = selectedImageData else {
-            failureAlertMessage = "Please select an image before posting."
-            showFailureAlert = true
-            return
-        }
-        
         Task {
             isLoading = true
             do {
@@ -161,21 +155,28 @@ struct NewPostView: View {
                     userSession = loaded
                 }
 
-                // Upload image using backend-issued presigned URL
-                var imageURLString = "https://picsum.photos/400/400"
-                if !isTesting() {
-                    let uploadUrlData = try await api.createUploadUrl(
-                        sessionManagementToken: userSession.sessionToken
-                    )
-                    let uploadUrlResponse = try JSONDecoder().decode(UploadUrlResponse.self, from: uploadUrlData)
-                    guard let uploadURL = URL(string: uploadUrlResponse.uploadUrl) else {
-                        throw ImageUploadError.invalidUploadURL
+                // 2. UPLOAD IMAGE using a backend-issued presigned S3 URL (#310).
+                // The photo is optional (#307): with no image selected the upload
+                // is skipped entirely and a text-only post is created.
+                var imageURLString: String? = nil
+                if let imageData = selectedImageData {
+                    var uploadedURLString = "https://picsum.photos/400/400"
+                    if !isTesting() {
+                        let uploadUrlData = try await api.createUploadUrl(
+                            sessionManagementToken: userSession.sessionToken
+                        )
+                        let uploadUrlResponse = try JSONDecoder().decode(UploadUrlResponse.self, from: uploadUrlData)
+                        guard let uploadURL = URL(string: uploadUrlResponse.uploadUrl) else {
+                            throw ImageUploadError.invalidUploadURL
+                        }
+                        try await s3Uploader.upload(data: imageData, to: uploadURL)
+                        uploadedURLString = uploadUrlResponse.imageUrl
                     }
-                    try await s3Uploader.upload(data: imageData, to: uploadURL)
-                    imageURLString = uploadUrlResponse.imageUrl
+                    imageURLString = uploadedURLString
                 }
 
-                // Send the image URL to the backend to create the post
+                // 3. SEND THE IMAGE URL (IF ANY) TO THE BACKEND
+
                 let responseData = try await api.makePost(
                     sessionManagementToken: userSession.sessionToken,
                     imageURL: imageURLString,

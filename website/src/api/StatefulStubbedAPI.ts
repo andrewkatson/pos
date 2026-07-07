@@ -72,7 +72,8 @@ interface LoginCookieMock {
 interface PostMock {
   postIdentifier: string
   authorId: string
-  imageUrl: string
+  /** Null for a text-only post (#307). */
+  imageUrl: string | null
   caption: string
   creationTime: number
   hidden: boolean
@@ -402,7 +403,7 @@ export class StatefulStubbedAPI implements PositiveOnlySocialAPI {
     const post: PostMock = {
       postIdentifier: newId(),
       authorId: user.id,
-      imageUrl: body.image_url,
+      imageUrl: body.image_url ?? null,
       caption: body.caption,
       creationTime: Date.now(),
       hidden: false,

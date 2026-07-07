@@ -157,7 +157,8 @@ struct ProfileView: View {
                             .overlay {
                                 GridPostImage(
                                     imageUrl: post.imageUrl,
-                                    originalImageUrl: post.originalImageUrl
+                                    originalImageUrl: post.originalImageUrl,
+                                    caption: post.caption
                                 )
                             }
                             .clipped()
