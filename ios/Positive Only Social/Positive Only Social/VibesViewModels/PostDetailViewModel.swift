@@ -590,17 +590,14 @@ final class PostDetailViewModel: ObservableObject {
     // MARK: - Date Parsing
 
     /// Parses an ISO8601 date string produced by Django, which typically includes
-    /// fractional seconds and a `+00:00` timezone offset (e.g. "2024-01-15T10:30:45.123456+00:00").
-    /// Falls back to parsing without fractional seconds for older rows, then to `Date()`.
-    /// Marked `nonisolated` so it can be called from async task groups without actor hopping.
-    /// Formatters are created locally to avoid sharing non-Sendable NSObject state across isolation domains.
-    /// Parses an ISO8601 date string produced by Django, which typically includes
-    /// fractional seconds and a `+00:00` timezone offset (e.g. "2024-01-15T10:30:45.123456+00:00").
-    /// Falls back to parsing without fractional seconds for older rows, then to `Date()`.
-    /// Uses `Date.ISO8601FormatStyle` (a value type) to avoid allocating `NSObject`-backed
-    /// formatters on each call — safe to call from any isolation domain without extra cost.
-    /// Parses an ISO-8601 timestamp, returning nil when the string can't be parsed
-    /// so callers can omit a relative-time label rather than showing a bogus "now".
+    /// fractional seconds and a `+00:00` timezone offset (e.g. "2024-01-15T10:30:45.123456+00:00"),
+    /// falling back to parsing without fractional seconds for older rows. Returns nil
+    /// when the string can't be parsed so callers can omit a relative-time label rather
+    /// than showing a bogus "now".
+    ///
+    /// Uses `Date.ISO8601FormatStyle` (a value type) rather than an `NSObject`-backed
+    /// formatter, so it's cheap and safe to call `nonisolated` from async task groups
+    /// without actor hopping or sharing non-Sendable state across isolation domains.
     private nonisolated static func parseOptionalDate(_ string: String) -> Date? {
         if let date = try? Date(string, strategy: .iso8601.year().month().day()
             .time(includingFractionalSeconds: true)
