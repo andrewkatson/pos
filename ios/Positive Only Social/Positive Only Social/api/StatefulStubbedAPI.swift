@@ -49,7 +49,8 @@ fileprivate struct MockLoginCookie {
 fileprivate struct MockPost {
     let postIdentifier = UUID().uuidString
     let authorId: UUID
-    var imageURL: String
+    // Nil for a text-only post (#307).
+    var imageURL: String?
     var caption: String
     var likes: [String] = [] // Usernames of likers
     var reports: [(username: String, reason: String)] = []
@@ -342,7 +343,7 @@ final class StatefulStubbedAPI: Networking {
         return try createSerializedResponse(fields: Fields(upload_url: "\(imageUrl)?X-Amz-Signature=stub", image_url: imageUrl))
     }
 
-    func makePost(sessionManagementToken: String, imageURL: String, caption: String) async throws -> Data {
+    func makePost(sessionManagementToken: String, imageURL: String?, caption: String) async throws -> Data {
         await simulateNetwork()
         guard let user = findUser(bySessionToken: sessionManagementToken) else { throw APIError.badServerResponse(statusCode: 400) }
         let newPost = MockPost(authorId: user.id, imageURL: imageURL, caption: caption)
@@ -425,14 +426,14 @@ final class StatefulStubbedAPI: Networking {
         let endIndex = min(startIndex + pageSize, relevantPosts.count)
         let paginatedPosts = Array(relevantPosts[startIndex..<endIndex])
 
-        struct Fields: Codable { let post_identifier: String; let image_url: String; let caption: String; let author_username: String }
-        
+        struct Fields: Codable { let post_identifier: String; let image_url: String?; let caption: String; let author_username: String }
+
         let fieldObjects = paginatedPosts.map {
             let post = $0
             let authorUsername = users.first(where: { $0.id == post.authorId })?.username ?? "Unknown User"
             return Fields(post_identifier: $0.postIdentifier, image_url: $0.imageURL, caption: $0.caption, author_username: authorUsername)
         }
-        
+
         return try createSerializedListResponse(fieldsList: fieldObjects)
     }
 
@@ -473,7 +474,7 @@ final class StatefulStubbedAPI: Networking {
         let paginatedPosts = Array(relevantPosts[startIndex..<endIndex])
 
         // 5. Format the response (matching getPostsInFeed)
-        struct Fields: Codable { let post_identifier: String; let image_url: String; let caption: String; let author_username: String }
+        struct Fields: Codable { let post_identifier: String; let image_url: String?; let caption: String; let author_username: String }
         
         let fieldObjects = paginatedPosts.map {
             let post = $0
@@ -517,7 +518,7 @@ final class StatefulStubbedAPI: Networking {
         // (Note: Added `caption` to prevent decoding errors)
         struct Fields: Codable {
             let post_identifier: String
-            let image_url: String
+            let image_url: String?
             let caption: String
             let author_username: String
         }
@@ -540,7 +541,7 @@ final class StatefulStubbedAPI: Networking {
         await simulateNetwork()
         guard let user = findUser(bySessionToken: sessionManagementToken) else { throw APIError.badServerResponse(statusCode: 401) }
         guard let post = findPost(byIdentifier: postIdentifier) else { throw APIError.badServerResponse(statusCode: 400) }
-        struct Fields: Codable { let post_identifier, image_url, caption, creation_time: String; let post_likes: Int; let is_liked: Bool; let author_username: String }
+        struct Fields: Codable { let post_identifier: String; let image_url: String?; let caption: String; let creation_time: String; let post_likes: Int; let is_liked: Bool; let author_username: String }
         let fields = Fields(post_identifier: post.postIdentifier, image_url: post.imageURL, caption: post.caption, creation_time: ISO8601DateFormatter().string(from: post.createdDate), post_likes: post.likes.count, is_liked: post.likes.contains(user.username), author_username: users.first(where: {$0.id == post.authorId})?.username ?? "Unknown User")
         return try createSerializedResponse(fields: fields)
     }
@@ -852,7 +853,7 @@ final class StatefulStubbedAPI: Networking {
         let startIndex = batch * pageSize
         struct Fields: Codable {
             let post_identifier: String
-            let image_url: String
+            let image_url: String?
             let caption: String
             let hidden_reason: String
             let has_appeal: Bool

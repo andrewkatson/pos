@@ -102,6 +102,26 @@ struct Positive_Only_SocialTests_FeedViewModel {
         #expect(sut.feedPosts.isEmpty == true)
     }
 
+    @Test func testFetchFeed_TextOnlyPost_HasNilImageUrl() async throws {
+        // A text-only post (#307) round-trips through the API with no image URL
+        // and still carries its caption for the caption tile.
+        let sut = FeedViewModel(api: stubAPI, keychainHelper: keychainHelper, account: "fetchFeedTextOnly")
+
+        let userAToken = try await registerUserAndGetToken(username: "userA")
+        let userBToken = try await registerUserAndGetToken(username: "userB")
+        let userSession = UserSession(sessionToken: userAToken, username: "userA", userId: "1", isIdentityVerified: false)
+        try keychainHelper.save(userSession, for: GVOAppConstants.keychainService, account: "fetchFeedTextOnly")
+
+        _ = try await stubAPI.makePost(sessionManagementToken: userBToken, imageURL: nil, caption: "words only")
+
+        sut.fetchFeed()
+        await yield()
+
+        #expect(sut.feedPosts.count == 1)
+        #expect(sut.feedPosts.first?.imageUrl == nil)
+        #expect(sut.feedPosts.first?.caption == "words only")
+    }
+
     @Test func testFetchFeed_Pagination_FetchesPagesAndStopsAtEnd() async throws {
         // Given: We have a user and set the API page size to 2
         stubAPI.pageSize = 2

@@ -29,6 +29,7 @@ import androidx.navigation.NavController
 import com.example.positiveonlysocial.api.PositiveOnlySocialAPI
 import com.example.positiveonlysocial.data.constants.Constants
 import com.example.positiveonlysocial.data.model.CommentThreadViewData
+import com.example.positiveonlysocial.ui.components.CaptionTile
 import com.example.positiveonlysocial.ui.components.CharacterCounter
 import com.example.positiveonlysocial.ui.components.isWithinLength
 import com.example.positiveonlysocial.data.model.CommentViewData
@@ -184,27 +185,38 @@ fun PostDetailScreen(
                 val isOwnPost = post.authorUsername == currentUsername
                 item {
                     Column(modifier = Modifier.fillMaxWidth()) {
-                        // Falls back to the full-res original while the async
-                        // Lambda-generated compressed copy is still missing
-                        // (#252/#254), same as the grids.
-                        PostImageWithFallback(
-                            post = post,
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .aspectRatio(1f)
-                                .combinedClickable(
-                                    onDoubleClick = {
-                                        if (isOwnPost) return@combinedClickable
-                                        // Drive the action from the server-backed like state
-                                        if (post.isLiked) viewModel.unlikePost() else viewModel.likePost()
-                                    },
-                                    onLongClick = {
-                                       viewModel.setShowActionSheetForPost(true)
-                                    },
-                                    onClick = {}
-                                ),
-                            contentScale = ContentScale.Crop
-                        )
+                        val mediaModifier = Modifier
+                            .fillMaxWidth()
+                            .aspectRatio(1f)
+                            .combinedClickable(
+                                onDoubleClick = {
+                                    if (isOwnPost) return@combinedClickable
+                                    // Drive the action from the server-backed like state
+                                    if (post.isLiked) viewModel.unlikePost() else viewModel.likePost()
+                                },
+                                onLongClick = {
+                                    viewModel.setShowActionSheetForPost(true)
+                                },
+                                onClick = {}
+                            )
+                        if (post.imageUrl == null) {
+                            // A text-only post (#307): the caption is the tile;
+                            // double-tap-to-like and long-press still work on it.
+                            CaptionTile(
+                                caption = post.caption,
+                                modifier = mediaModifier,
+                                maxLines = Int.MAX_VALUE
+                            )
+                        } else {
+                            // Falls back to the full-res original while the async
+                            // Lambda-generated compressed copy is still missing
+                            // (#252/#254), same as the grids.
+                            PostImageWithFallback(
+                                post = post,
+                                modifier = mediaModifier,
+                                contentScale = ContentScale.Crop
+                            )
+                        }
 
                         Column(modifier = Modifier.padding(16.dp)) {
                             Row(verticalAlignment = Alignment.CenterVertically) {

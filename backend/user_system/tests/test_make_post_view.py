@@ -222,6 +222,71 @@ class MakePostTests(PositiveOnlySocialTestCase):
         self.assertIn(f"maximum length of {MAX_CAPTION_LENGTH}", response.json().get('error', ''))
 
     @patch.dict(os.environ, {"TESTING": "True"}, clear=True)
+    def test_text_only_post_with_omitted_image_returns_good_response(self):
+        """
+        A post with no image_url at all is a text-only post (#307): it is
+        created successfully with a null image_url.
+        """
+        response = self.client.post(
+            self.url,
+            data={'caption': POSITIVE_TEXT},
+            content_type='application/json',
+            **self.valid_header
+        )
+
+        self.assertEqual(response.status_code, 201)
+        self.user.refresh_from_db()
+        post = self.user.post_set.first()
+        self.assertIsNone(post.image_url)
+        self.assertEqual(post.caption, POSITIVE_TEXT)
+
+    @patch.dict(os.environ, {"TESTING": "True"}, clear=True)
+    def test_text_only_post_with_null_image_returns_good_response(self):
+        """
+        An explicit `image_url: null` is treated the same as omitting it.
+        """
+        response = self.client.post(
+            self.url,
+            data={'image_url': None, 'caption': POSITIVE_TEXT},
+            content_type='application/json',
+            **self.valid_header
+        )
+
+        self.assertEqual(response.status_code, 201)
+        self.user.refresh_from_db()
+        self.assertIsNone(self.user.post_set.first().image_url)
+
+    @patch.dict(os.environ, {"TESTING": "True"}, clear=True)
+    def test_text_only_post_with_empty_image_returns_good_response(self):
+        """
+        An empty-string `image_url` is treated the same as omitting it.
+        """
+        response = self.client.post(
+            self.url,
+            data={'image_url': '', 'caption': POSITIVE_TEXT},
+            content_type='application/json',
+            **self.valid_header
+        )
+
+        self.assertEqual(response.status_code, 201)
+        self.user.refresh_from_db()
+        self.assertIsNone(self.user.post_set.first().image_url)
+
+    def test_text_only_post_without_caption_returns_bad_response(self):
+        """
+        The caption is still required: a post with neither image nor caption
+        is rejected.
+        """
+        response = self.client.post(
+            self.url,
+            data={},
+            content_type='application/json',
+            **self.valid_header
+        )
+
+        self.assertEqual(response.status_code, 400)
+
+    @patch.dict(os.environ, {"TESTING": "True"}, clear=True)
     def test_unicode_caption_at_max_length_returns_good_response(self):
         """
         A non-ASCII caption at exactly MAX_CAPTION_LENGTH code points must be accepted,
