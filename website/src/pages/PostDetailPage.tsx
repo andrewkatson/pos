@@ -381,6 +381,10 @@ function PostDetailView({ postId }: { postId: string }) {
     )
   }
 
+  // Compute the relative post time once: '' when creation_time is missing or
+  // unparseable, so a single value drives both the guard and the rendered label.
+  const postTime = post.creation_time ? formatRelativeTime(post.creation_time) : ''
+
   return (
     <div className="app-shell">
       <DetailBar onBack={() => navigate(-1)} />
@@ -463,12 +467,9 @@ function PostDetailView({ postId }: { postId: string }) {
         </p>
 
         {/* When the post was made, at the same coarse granularity as comment
-            times (issue #174). Older backend responses omit creation_time, and
-            formatRelativeTime returns '' for an unparseable value — omit the
-            label in both cases rather than render an empty line. */}
-        {post.creation_time && formatRelativeTime(post.creation_time) && (
-          <p className="detail-time">{formatRelativeTime(post.creation_time)}</p>
-        )}
+            times (issue #174). postTime is '' when creation_time is missing or
+            unparseable — omit the label rather than render an empty line. */}
+        {postTime && <p className="detail-time">{postTime}</p>}
 
         <div className="comment-form">
           <button
