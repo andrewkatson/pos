@@ -36,9 +36,25 @@ test('shows the destination address and verification instructions', () => {
   expect(screen.getByText(/ada@example\.com/)).toBeInTheDocument()
 })
 
-test('redirects to register when opened without an email in state', () => {
+test('without navigation state, offers a username/email input instead of turning the user away', async () => {
+  // Navigation state is lost on refresh / direct open, but the account exists
+  // and the user still needs the resend button.
+  mockResend.mockResolvedValueOnce({ message: 'Verification email sent' })
   renderCheckEmailPage()
-  expect(screen.getByText('Register page')).toBeInTheDocument()
+
+  expect(screen.getByRole('heading', { name: 'Check Your Email' })).toBeInTheDocument()
+  expect(screen.getByRole('button', { name: 'Resend Verification Email' })).toBeDisabled()
+
+  await userEvent.type(screen.getByLabelText('Username or Email'), 'ada@example.com')
+  await userEvent.click(screen.getByRole('button', { name: 'Resend Verification Email' }))
+
+  expect(await screen.findByRole('status')).toHaveTextContent(/on its way/)
+  expect(mockResend).toHaveBeenCalledWith({ username_or_email: 'ada@example.com' })
+})
+
+test('with an email in state, no input is shown', () => {
+  renderCheckEmailPage('ada@example.com')
+  expect(screen.queryByLabelText('Username or Email')).not.toBeInTheDocument()
 })
 
 test('resend button requests a new verification email', async () => {

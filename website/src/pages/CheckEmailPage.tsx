@@ -1,5 +1,5 @@
-import { useState } from 'react'
-import { Navigate, useLocation, useNavigate } from 'react-router-dom'
+import { useState, type FormEvent } from 'react'
+import { useLocation, useNavigate } from 'react-router-dom'
 import Logo from '../components/Logo'
 import { apiClient } from '../api/client'
 import type { ApiError } from '../api/client'
@@ -10,20 +10,22 @@ import './LoginPage.css'
 function CheckEmailPage() {
   const navigate = useNavigate()
   const location = useLocation()
+  // Navigation state is lost on refresh or when the page is opened directly,
+  // so it is only a convenience — without it the page asks who to resend to
+  // instead of turning the user away (their account already exists).
   const email = (location.state as { email?: string } | null)?.email ?? ''
 
+  const [usernameOrEmail, setUsernameOrEmail] = useState(email)
   const [isResending, setIsResending] = useState(false)
   const [resendMessage, setResendMessage] = useState<string | null>(null)
 
-  if (!email) {
-    return <Navigate to="/register" replace />
-  }
-
-  async function handleResend() {
+  async function handleResend(e: FormEvent) {
+    e.preventDefault()
+    if (usernameOrEmail.trim().length === 0) return
     setIsResending(true)
     setResendMessage(null)
     try {
-      await apiClient.resendVerificationEmail({ username_or_email: email })
+      await apiClient.resendVerificationEmail({ username_or_email: usernameOrEmail.trim() })
       setResendMessage('A new verification email is on its way. Check your inbox.')
     } catch (err) {
       const apiErr = err as ApiError
@@ -43,25 +45,51 @@ function CheckEmailPage() {
         <h1 className="auth-title">Check Your Email</h1>
 
         <p style={{ color: 'rgba(255,255,255,0.8)', textAlign: 'center', lineHeight: 1.5, margin: 0 }}>
-          We sent a verification link to {email}. Click it to activate your account — you
-          won&apos;t be able to log in until your email is verified.
+          {email
+            ? `We sent a verification link to ${email}. Click it to activate your account — you won't be able to log in until your email is verified.`
+            : "We sent a verification link to the email address you registered with. Click it to activate your account — you won't be able to log in until your email is verified."}
         </p>
 
-        {resendMessage && (
-          <p style={{ color: 'rgba(255,255,255,0.8)', textAlign: 'center', margin: 0 }} role="status">
-            {resendMessage}
-          </p>
-        )}
+        <form className="auth-form" onSubmit={handleResend} noValidate>
+          {!email && (
+            <div className="auth-field">
+              <label className="auth-label" htmlFor="usernameOrEmail">
+                Username or Email
+              </label>
+              <input
+                id="usernameOrEmail"
+                className="auth-input"
+                type="text"
+                inputMode="email"
+                autoComplete="username"
+                autoCapitalize="none"
+                value={usernameOrEmail}
+                onChange={e => setUsernameOrEmail(e.target.value)}
+                disabled={isResending}
+              />
+            </div>
+          )}
 
-        {isResending ? (
-          <div className="auth-spinner" aria-label="Resending…">
-            <span className="spinner" />
-          </div>
-        ) : (
-          <button type="button" className="auth-button" onClick={handleResend}>
-            Resend Verification Email
-          </button>
-        )}
+          {resendMessage && (
+            <p style={{ color: 'rgba(255,255,255,0.8)', textAlign: 'center', margin: 0 }} role="status">
+              {resendMessage}
+            </p>
+          )}
+
+          {isResending ? (
+            <div className="auth-spinner" aria-label="Resending…">
+              <span className="spinner" />
+            </div>
+          ) : (
+            <button
+              type="submit"
+              className="auth-button"
+              disabled={usernameOrEmail.trim().length === 0}
+            >
+              Resend Verification Email
+            </button>
+          )}
+        </form>
 
         <button
           type="button"

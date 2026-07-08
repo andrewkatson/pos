@@ -344,7 +344,9 @@ def register(request):
         "Please verify your email address by clicking the link below:\n\n"
         f"{_email_verification_link(verification_token)}\n\n"
         f"The link expires in {EMAIL_VERIFICATION_TOKEN_HOURS} hours. "
-        "You won't be able to log in until your email is verified.",
+        "You won't be able to log in until your email is verified.\n\n"
+        "If you didn't create this account, ignore this email — without "
+        "verification the account stays unusable.",
         settings.EMAIL_HOST_USER,
         [new_user.email],
         fail_silently=False,
@@ -667,7 +669,7 @@ def resend_verification_email(request):
             not is_valid_pattern(username_or_email, Patterns.alphanumeric) and
             not is_valid_pattern(username_or_email, Patterns.email)):
         return log_and_return_json("resend_verification_email",
-                                   {'error': f"Invalid fields {Fields.username_or_email}"}, status=400)
+                                   {'error': f"Invalid fields ['{Params.username_or_email}']"}, status=400)
 
     user = get_user_with_username_or_email(username_or_email)
     if user is None:
@@ -685,7 +687,9 @@ def resend_verification_email(request):
             "Verify your email for Good Vibes Only",
             f"Hi {user.username},\n\nPlease verify your email address by clicking the link below:\n\n"
             f"{_email_verification_link(token)}\n\n"
-            f"The link expires in {EMAIL_VERIFICATION_TOKEN_HOURS} hours.",
+            f"The link expires in {EMAIL_VERIFICATION_TOKEN_HOURS} hours.\n\n"
+            "If you didn't request this, ignore this email — without "
+            "verification the account stays unusable.",
             settings.EMAIL_HOST_USER,
             [user.email],
         )
