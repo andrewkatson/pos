@@ -72,7 +72,8 @@ data class VerifyResetResponse(
 // --- Post DTOs ---
 
 data class CreatePostRequest(
-    @SerializedName("image_url") val imageUrl: String,
+    // Null for a text-only post (#307); Gson omits null fields from the body.
+    @SerializedName("image_url") val imageUrl: String? = null,
     val caption: String
 )
 
@@ -100,7 +101,8 @@ data class ReportRequest(
 // Renamed from PostDto to Post to match Swift
 data class Post(
     @SerializedName("post_identifier") val postIdentifier: String,
-    @SerializedName("image_url") val imageUrl: String,
+    // Null for a text-only post (#307), which renders as a caption tile.
+    @SerializedName("image_url") val imageUrl: String? = null,
     val caption: String,
     @SerializedName("author_username") val authorUsername: String,
     // Only the post-details endpoint returns the like count (as "post_likes");
@@ -205,7 +207,8 @@ data class RememberMeTokens(val seriesId: String, val cookieToken: String)
 
 data class PostDisplayData(
     val id: String, // postIdentifier
-    val imageURL: String,
+    // Null for a text-only post (#307).
+    val imageURL: String?,
     val caption: String,
     val likeCount: Int,
     val authorUsername: String
@@ -236,7 +239,8 @@ data class CommentThreadViewData(
 /** One of the signed-in user's hidden posts, from the appeals endpoint. */
 data class HiddenPost(
     @SerializedName("post_identifier") val postIdentifier: String,
-    @SerializedName("image_url") val imageUrl: String,
+    // Null for a text-only post (#307).
+    @SerializedName("image_url") val imageUrl: String? = null,
     val caption: String,
     @SerializedName("hidden_reason") val hiddenReason: String = "",
     @SerializedName("has_appeal") val hasAppeal: Boolean = false

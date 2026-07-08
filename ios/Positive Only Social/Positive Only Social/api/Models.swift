@@ -32,7 +32,8 @@ struct LoginResponseFields: Codable {
 struct Post: Codable, Identifiable, Hashable {
     var id: String { postIdentifier }
     let postIdentifier: String
-    let imageUrl: String
+    /// Nil for a text-only post (#307), which renders as a caption tile.
+    let imageUrl: String?
     /// The full-resolution original image URL, used as a fallback when the
     /// compressed `imageUrl` fails to load. The compressed copy is produced by
     /// an async Lambda, so a just-posted (or recently hidden-pending-appeal)
@@ -87,7 +88,8 @@ struct MakePostResponse: Codable {
 struct HiddenPost: Codable, Identifiable, Hashable {
     var id: String { postIdentifier }
     let postIdentifier: String
-    let imageUrl: String
+    /// Nil for a text-only post (#307).
+    let imageUrl: String?
     let caption: String
     let hiddenReason: String
     let hasAppeal: Bool
@@ -200,7 +202,8 @@ struct UserSession: Codable, Equatable {
 // A simple, identifiable struct representing the post in the post detail view
 struct PostDisplayData: Identifiable, Equatable {
     let id: String // postIdentifier
-    let imageURL: String
+    /// Nil for a text-only post (#307).
+    let imageURL: String?
     /// The full-resolution original image URL, used as a fallback when the
     /// compressed `imageURL` fails to load (see `Post.originalImageUrl`).
     /// Optional for backward compatibility with responses that predate the field.

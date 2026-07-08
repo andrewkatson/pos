@@ -472,6 +472,7 @@ function PostDetailView({ postId }: { postId: string }) {
         <PostThumbnail
           post={post}
           className="detail-image"
+          variant="detail"
           onDoubleClick={isOwnPost ? undefined : togglePostLike}
         />
 

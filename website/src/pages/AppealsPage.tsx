@@ -3,6 +3,7 @@ import { Navigate, useNavigate } from 'react-router-dom'
 import { apiClient } from '../api/client'
 import type { ApiError } from '../api/client'
 import type { AppealTargetType, HiddenComment, HiddenPost, MyAppeal } from '../api/types'
+import CaptionTile from '../components/CaptionTile'
 import './MainApp.css'
 
 /**
@@ -143,7 +144,11 @@ function AppealsView() {
 
               {hiddenPosts.map(post => (
                 <div key={post.post_identifier} className="appeal-item">
-                  <img className="appeal-item__thumb" src={post.image_url} alt={post.caption} />
+                  {post.image_url === null ? (
+                    <CaptionTile caption={post.caption} variant="thumb" />
+                  ) : (
+                    <img className="appeal-item__thumb" src={post.image_url} alt={post.caption} />
+                  )}
                   <div className="appeal-item__body">
                     <p className="appeal-item__text">{post.caption}</p>
                     <p className="muted">{hiddenReasonLabel(post.hidden_reason)}</p>

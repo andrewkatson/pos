@@ -109,6 +109,21 @@ class GetPostDetailsTests(PositiveOnlySocialTestCase):
         self.assertFalse(author_data[Fields.is_reported])
         self.assertIsNone(author_data[Fields.report_reason])
 
+    def test_text_only_post_returns_null_image_url(self):
+        """
+        A text-only post (#307) serializes with a null image_url (and null
+        original_image_url) rather than being broken or omitted.
+        """
+        self.post.image_url = None
+        self.post.save()
+
+        response = self.client.get(self.url, **self.header)
+
+        self.assertEqual(response.status_code, 200)
+        data = response.json()
+        self.assertIsNone(data[Fields.image_url])
+        self.assertEqual(data[Fields.caption], self.post.caption)
+
     def test_is_liked_true_when_requesting_user_liked_post(self):
         """
         Tests that is_liked is True when the authenticated requester has

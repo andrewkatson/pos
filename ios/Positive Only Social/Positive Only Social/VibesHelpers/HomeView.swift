@@ -115,7 +115,8 @@ struct MyPostsGridView: View {
                         .overlay {
                             GridPostImage(
                                 imageUrl: post.imageUrl,
-                                originalImageUrl: post.originalImageUrl
+                                originalImageUrl: post.originalImageUrl,
+                                caption: post.caption
                             )
                         }
                         .clipped()
@@ -152,8 +153,11 @@ struct MyPostsGridView: View {
 /// Shared by the Home, For You, Following, and Profile grids.
 /// See issues #252, #253, and #254.
 struct GridPostImage: View {
-    let imageUrl: String
+    /// Nil for a text-only post (#307), which renders as a caption tile.
+    let imageUrl: String?
     let originalImageUrl: String?
+    /// The post caption, rendered as the tile for a text-only post.
+    var caption: String = ""
     /// Shown while loading and when both the compressed and original images fail.
     /// Defaults to the grid's grey backing; callers (e.g. the feed) override it to
     /// match their own placeholder shade.
@@ -164,23 +168,27 @@ struct GridPostImage: View {
     @State private var useOriginal = false
 
     var body: some View {
-        let urlString = useOriginal ? (originalImageUrl ?? imageUrl) : imageUrl
-        KFImage(URL(string: urlString))
-            // Rides out the just-posted window where the compressed copy isn't
-            // in the bucket yet; only HTTP errors are retried, not cancellations.
-            .retry(maxCount: 2, interval: .seconds(1))
-            .placeholder { placeholderColor }
-            .onFailure { error in
-                // A cancelled load isn't a missing image — the tile reloads the
-                // same URL when it next appears, so save the fallback for real
-                // failures.
-                guard !error.isTaskCancelled else { return }
-                if !useOriginal, originalImageUrl != nil {
-                    useOriginal = true
+        if let imageUrl {
+            let urlString = useOriginal ? (originalImageUrl ?? imageUrl) : imageUrl
+            KFImage(URL(string: urlString))
+                // Rides out the just-posted window where the compressed copy isn't
+                // in the bucket yet; only HTTP errors are retried, not cancellations.
+                .retry(maxCount: 2, interval: .seconds(1))
+                .placeholder { placeholderColor }
+                .onFailure { error in
+                    // A cancelled load isn't a missing image — the tile reloads the
+                    // same URL when it next appears, so save the fallback for real
+                    // failures.
+                    guard !error.isTaskCancelled else { return }
+                    if !useOriginal, originalImageUrl != nil {
+                        useOriginal = true
+                    }
                 }
-            }
-            .resizable()
-            .scaledToFill()
+                .resizable()
+                .scaledToFill()
+        } else {
+            CaptionTileView(caption: caption)
+        }
     }
 }
 

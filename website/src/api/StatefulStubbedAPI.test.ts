@@ -93,6 +93,23 @@ test('a created post shows up in another user feed and can be liked', async () =
   expect(details.post_likes).toBe(1)
 })
 
+test('a text-only post round-trips with a null image_url (#307)', async () => {
+  const api = new StatefulStubbedAPI()
+
+  await register(api, 'author')
+  const created = await api.createPost({ caption: 'words only' })
+
+  await register(api, 'viewer')
+  const feed = await api.getFeed(0)
+  const post = feed.find((p) => p.post_identifier === created.post_identifier)
+  expect(post).toBeDefined()
+  expect(post?.image_url).toBeNull()
+
+  const details = await api.getPostDetails(created.post_identifier)
+  expect(details.image_url).toBeNull()
+  expect(details.caption).toBe('words only')
+})
+
 test('you cannot like your own post', async () => {
   const api = new StatefulStubbedAPI()
   await register(api, 'author')

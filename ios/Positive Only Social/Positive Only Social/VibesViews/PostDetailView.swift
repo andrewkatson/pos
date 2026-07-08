@@ -36,7 +36,8 @@ struct PostDetailView: View {
                 VStack(alignment: .center, spacing: 12) {
                     PostDetailImage(
                         imageUrl: post.imageURL,
-                        originalImageUrl: post.originalImageURL
+                        originalImageUrl: post.originalImageURL,
+                        caption: post.caption
                     )
                     .accessibilityElement(children: .ignore)  // Treat as single element
                     .accessibilityIdentifier("PostImage")
@@ -295,37 +296,45 @@ struct PostDetailView: View {
 /// after a failed or cancelled load); scaled to fit instead of fill, with the
 /// detail view's spinner placeholder. See issues #252, #253, and #254.
 struct PostDetailImage: View {
-    let imageUrl: String
+    let imageUrl: String?
     let originalImageUrl: String?
+    let caption: String
 
     // Once the compressed URL genuinely fails, switch to the original and let
     // Kingfisher load the new URL.
     @State private var useOriginal = false
 
     var body: some View {
-        let urlString = useOriginal ? (originalImageUrl ?? imageUrl) : imageUrl
-        KFImage(URL(string: urlString))
-            // Rides out the just-posted window where the compressed copy isn't
-            // in the bucket yet; only HTTP errors are retried, not cancellations.
-            .retry(maxCount: 2, interval: .seconds(1))
-            .placeholder {
-                Rectangle()
-                    .fill(Color.secondary.opacity(0.3))
-                    .aspectRatio(1, contentMode: .fit)
-                    .overlay(ProgressView())
-            }
-            .onFailure { error in
-                // A cancelled load isn't a missing image — the view reloads the
-                // same URL when it next appears, so save the fallback for real
-                // failures.
-                guard !error.isTaskCancelled else { return }
-                if !useOriginal, originalImageUrl != nil {
-                    useOriginal = true
+        if let imageUrl {
+            let urlString = useOriginal ? (originalImageUrl ?? imageUrl) : imageUrl
+            KFImage(URL(string: urlString))
+                // Rides out the just-posted window where the compressed copy isn't
+                // in the bucket yet; only HTTP errors are retried, not cancellations.
+                .retry(maxCount: 2, interval: .seconds(1))
+                .placeholder {
+                    Rectangle()
+                        .fill(Color.secondary.opacity(0.3))
+                        .aspectRatio(1, contentMode: .fit)
+                        .overlay(ProgressView())
                 }
-            }
-            .resizable()
-            .scaledToFit()
-            .aspectRatio(1, contentMode: .fit)
+                .onFailure { error in
+                    // A cancelled load isn't a missing image — the view reloads the
+                    // same URL when it next appears, so save the fallback for real
+                    // failures.
+                    guard !error.isTaskCancelled else { return }
+                    if !useOriginal, originalImageUrl != nil {
+                        useOriginal = true
+                    }
+                }
+                .resizable()
+                .scaledToFit()
+                .aspectRatio(1, contentMode: .fit)
+        } else {
+            // A text-only post (#307): the caption is the tile,
+            // with the same square footprint and gestures.
+            CaptionTileView(caption: caption, lineLimit: nil)
+                .aspectRatio(1, contentMode: .fit)
+        }
     }
 }
 

@@ -73,7 +73,8 @@ class StatefulStubbedAPI : PositiveOnlySocialAPI {
     private data class PostMock(
         val postIdentifier: String = UUID.randomUUID().toString(),
         val authorId: String,
-        val imageUrl: String,
+        // Null for a text-only post (#307).
+        val imageUrl: String?,
         val caption: String,
         val creationTime: Long = System.currentTimeMillis(),
         var hidden: Boolean = false,

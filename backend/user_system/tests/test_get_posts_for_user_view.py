@@ -64,6 +64,33 @@ class GetPostsForUserTests(PositiveOnlySocialTestCase):
         # Fails at the 'is_valid_pattern' check
         self.assertEqual(response.status_code, 400)
 
+    def test_text_only_post_returns_null_image_url_in_grid(self):
+        """
+        A text-only post (#307) appears in the user's post grid with null
+        image_url and original_image_url, alongside its caption.
+        """
+        user = get_user_with_username(self.username)
+        text_only = user.post_set.create(image_url=None, caption='text only post')
+
+        # The feed weighting decides ordering, so gather both batches (11 posts
+        # total across a batch size of 10) rather than assuming which batch the
+        # new post lands in.
+        posts = []
+        for batch in (0, 1):
+            url = reverse('get_posts_for_user', kwargs={
+                'username': self.username,
+                'batch': batch
+            })
+            response = self.client.get(url, **self.valid_header)
+            self.assertEqual(response.status_code, 200)
+            posts.extend(response.json())
+
+        match = [p for p in posts if p[Fields.post_identifier] == str(text_only.post_identifier)]
+        self.assertEqual(len(match), 1)
+        self.assertIsNone(match[0][Fields.image_url])
+        self.assertIsNone(match[0][Fields.original_image_url])
+        self.assertEqual(match[0][Fields.caption], 'text only post')
+
     def test_non_existent_username_returns_bad_response(self):
         """
         Tests that a valid but non-existent username in the URL

@@ -43,6 +43,18 @@ test('loads the For You feed by default and opens a post', async () => {
   expect(screen.getByText('Post page')).toBeInTheDocument()
 })
 
+test('renders a text-only post as a caption tile instead of an image (#307)', async () => {
+  mockGetFeed.mockResolvedValue([
+    { post_identifier: 'p1', image_url: null, author_username: 'ada', caption: 'words only' },
+  ])
+  mockGetFollowed.mockResolvedValue([])
+  renderTab()
+
+  const tile = await screen.findByRole('img', { name: 'words only' })
+  expect(tile.tagName).not.toBe('IMG')
+  expect(tile).toHaveTextContent('words only')
+})
+
 test('switches to the Following feed', async () => {
   mockGetFeed.mockResolvedValue([])
   mockGetFollowed.mockResolvedValue([

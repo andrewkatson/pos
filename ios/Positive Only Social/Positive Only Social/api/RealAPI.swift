@@ -96,7 +96,8 @@ final class RealAPI: Networking {
     }
     
     private struct MakePostBody: Encodable {
-        let image_url: String
+        // Nil for a text-only post (#307); JSONEncoder omits nil fields.
+        let image_url: String?
         let caption: String
     }
     
@@ -368,8 +369,8 @@ final class RealAPI: Networking {
         )
     }
 
-    /// Creates and stores a new post.
-    func makePost(sessionManagementToken: String, imageURL: String, caption: String) async throws -> Data {
+    /// Creates and stores a new post. A nil `imageURL` creates a text-only post (#307).
+    func makePost(sessionManagementToken: String, imageURL: String?, caption: String) async throws -> Data {
         let body = MakePostBody(image_url: imageURL, caption: caption)
         let requestBody = try encode(body)
         
