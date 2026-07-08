@@ -136,7 +136,7 @@ struct MockedAPI: Networking {
         return try JSONEncoder().encode(response)
     }
 
-    func makePost(sessionManagementToken: String, imageURL: String, caption: String) async throws -> Data {
+    func makePost(sessionManagementToken: String, imageURL: String?, caption: String) async throws -> Data {
         return try encodeGenericSuccess()
     }
 
@@ -159,7 +159,9 @@ struct MockedAPI: Networking {
     func getPostsInFeed(sessionManagementToken: String, batch: Int) async throws -> Data {
         let posts = [
             Post(postIdentifier: "1", imageUrl: "https://picsum.photos/400/300", originalImageUrl: nil, caption: "Beautiful sunset!", authorUsername: "nature_lover"),
-            Post(postIdentifier: "2", imageUrl: "https://picsum.photos/400/301", originalImageUrl: nil, caption: "My new puppy", authorUsername: "dog_fan")
+            Post(postIdentifier: "2", imageUrl: "https://picsum.photos/400/301", originalImageUrl: nil, caption: "My new puppy", authorUsername: "dog_fan"),
+            // A text-only post (#307) so previews exercise the caption tile.
+            Post(postIdentifier: "5", imageUrl: nil, originalImageUrl: nil, caption: "Words only today — feeling grateful!", authorUsername: "text_poster")
         ]
         return try encode(posts)
     }

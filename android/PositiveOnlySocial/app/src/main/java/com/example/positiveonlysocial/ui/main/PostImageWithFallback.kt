@@ -9,6 +9,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.layout.ContentScale
 import coil.compose.AsyncImage
 import com.example.positiveonlysocial.data.model.Post
+import com.example.positiveonlysocial.ui.components.CaptionTile
 
 /**
  * A post thumbnail that loads the compressed [Post.imageUrl] and falls back to
@@ -25,6 +26,11 @@ fun PostImageWithFallback(
     modifier: Modifier = Modifier,
     contentScale: ContentScale = ContentScale.Crop,
 ) {
+    if (post.imageUrl == null) {
+        // A text-only post (#307) has no image; render its caption as the tile.
+        CaptionTile(caption = post.caption, modifier = modifier)
+        return
+    }
     // Once the compressed URL errors, switch to the original. Keyed to the post id
     // so a recycled grid cell resets when it's reused for a different post.
     var useOriginal by remember(post.postIdentifier) { mutableStateOf(false) }

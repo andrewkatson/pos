@@ -198,11 +198,17 @@ class PositiveOnlySocialIntegrationTests {
             response.body()?.sessionToken ?: throw IllegalStateException("Failed to login via API")
         }
 
-    private fun makePostViaApi(username: String, password: String, caption: String) =
+    private fun makePostViaApi(
+        username: String,
+        password: String,
+        caption: String,
+        // Null creates a text-only post (#307).
+        imageUrl: String? = "https://example.com/image.jpg"
+    ) =
         kotlinx.coroutines.runBlocking {
             val token = loginUserViaApi(username, password)
             val request = com.example.positiveonlysocial.data.model.CreatePostRequest(
-                imageUrl = "https://example.com/image.jpg",
+                imageUrl = imageUrl,
                 caption = caption
             )
             com.example.positiveonlysocial.di.DependencyProvider.api.makePost(token, request)
@@ -376,6 +382,24 @@ class PositiveOnlySocialIntegrationTests {
             composeTestRule.onAllNodesWithContentDescription("Post Image").fetchSemanticsNodes().isNotEmpty()
         }
         composeTestRule.onAllNodesWithContentDescription("Post Image").onFirst().performClick()
+
+        assertOnPostDetailView()
+    }
+
+    @Test
+    fun testTextOnlyPostShowsCaptionTileInHomeGrid() {
+        // A text-only post (#307) renders its caption as the grid tile instead
+        // of an image, and still opens the detail view.
+        registerUserViaApi(testUsername, strongPassword)
+        makePostViaApi(testUsername, strongPassword, "Text Only Post", imageUrl = null)
+
+        loginUser(testUsername, strongPassword, rememberMe = false)
+        assertOnHomeView()
+
+        composeTestRule.waitUntil(timeoutMillis = 5000) {
+            composeTestRule.onAllNodesWithText("Text Only Post").fetchSemanticsNodes().isNotEmpty()
+        }
+        composeTestRule.onAllNodesWithText("Text Only Post").onFirst().performClick()
 
         assertOnPostDetailView()
     }

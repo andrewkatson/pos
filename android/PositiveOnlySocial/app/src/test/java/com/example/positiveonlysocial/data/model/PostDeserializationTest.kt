@@ -2,6 +2,8 @@ package com.example.positiveonlysocial.data.model
 
 import com.google.gson.Gson
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -52,5 +54,36 @@ class PostDeserializationTest {
 
         assertEquals("p2", post.postIdentifier)
         assertEquals(false, post.isLiked)
+    }
+
+    @Test
+    fun `text-only post json with null image_url deserializes to null imageUrl`() {
+        // A text-only post (#307): the backend serializes image_url as null.
+        val json = """
+            {
+              "post_identifier": "p3",
+              "image_url": null,
+              "original_image_url": null,
+              "caption": "words only",
+              "author_username": "carol"
+            }
+        """.trimIndent()
+
+        val post = gson.fromJson(json, Post::class.java)
+
+        assertEquals("p3", post.postIdentifier)
+        assertNull(post.imageUrl)
+        assertNull(post.originalImageUrl)
+        assertEquals("words only", post.caption)
+    }
+
+    @Test
+    fun `text-only create request omits image_url from the body`() {
+        // The wire convention for #307: clients omit image_url rather than
+        // sending null (Gson drops null fields by default).
+        val body = gson.toJson(CreatePostRequest(caption = "words only"))
+
+        assertFalse(body.contains("image_url"))
+        assertTrue(body.contains("words only"))
     }
 }

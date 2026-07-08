@@ -148,6 +148,14 @@ class MockPositiveOnlySocialAPI : PositiveOnlySocialAPI {
                     caption = "My new puppy",
                     authorUsername = "dog_fan",
                     likeCount = 350
+                ),
+                // A text-only post (#307) so previews exercise the caption tile.
+                Post(
+                    postIdentifier = "5",
+                    imageUrl = null,
+                    caption = "Words only today — feeling grateful!",
+                    authorUsername = "text_poster",
+                    likeCount = 12
                 )
             )
         )

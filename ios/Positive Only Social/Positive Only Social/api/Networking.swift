@@ -66,8 +66,8 @@ protocol Networking {
     /// (the backend scopes the object key to the authenticated user).
     func createUploadUrl(sessionManagementToken: String) async throws -> Data
 
-    /// Creates and stores a new post.
-    func makePost(sessionManagementToken: String, imageURL: String, caption: String) async throws -> Data
+    /// Creates and stores a new post. A nil `imageURL` creates a text-only post (#307).
+    func makePost(sessionManagementToken: String, imageURL: String?, caption: String) async throws -> Data
 
     /// Deletes a post.
     func deletePost(sessionManagementToken: String, postIdentifier: String) async throws -> Data

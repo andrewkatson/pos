@@ -79,7 +79,8 @@ export interface CreateUploadUrlResponse {
 }
 
 export interface CreatePostRequest {
-  image_url: string
+  /** Omitted for a text-only post (#307). */
+  image_url?: string
   caption: string
 }
 
@@ -96,14 +97,15 @@ export interface CreatePostResponse {
 /** A post as returned by the feed/listing endpoints. */
 export interface FeedPost {
   post_identifier: string
-  image_url: string
+  /** Null for a text-only post (#307), which renders as a caption tile. */
+  image_url: string | null
   /** The full-resolution original image URL, used as a fallback when the
    * compressed `image_url` fails to load. The compressed copy is produced by an
    * async Lambda, so a just-posted (or recently hidden-pending-appeal) image may
    * not exist in the compressed bucket yet; without this fallback those grid
    * tiles render as broken images until the user re-logs in (issues #252/#254).
    * Older responses that predate the field omit it. */
-  original_image_url?: string
+  original_image_url?: string | null
   author_username: string
   caption: string
 }
@@ -111,11 +113,12 @@ export interface FeedPost {
 /** A post as returned by the post-details endpoint. */
 export interface PostDetails {
   post_identifier: string
-  image_url: string
+  /** Null for a text-only post (#307), which renders as a caption tile. */
+  image_url: string | null
   /** The full-resolution original image URL, used as a fallback when the
    * compressed `image_url` fails to load (see `FeedPost.original_image_url`).
    * Older responses that predate the field omit it. */
-  original_image_url?: string
+  original_image_url?: string | null
   caption: string
   post_likes: number
   author_username: string
@@ -169,7 +172,8 @@ export type AppealTargetType = 'post' | 'comment'
 /** One of the signed-in user's hidden posts. */
 export interface HiddenPost {
   post_identifier: string
-  image_url: string
+  /** Null for a text-only post (#307). */
+  image_url: string | null
   caption: string
   /** Why it was hidden: 'classifier', 'reports', or '' (unspecified). */
   hidden_reason: string
