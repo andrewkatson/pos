@@ -463,8 +463,10 @@ function PostDetailView({ postId }: { postId: string }) {
         </p>
 
         {/* When the post was made, at the same coarse granularity as comment
-            times (issue #174). Older backend responses omit creation_time. */}
-        {post.creation_time && (
+            times (issue #174). Older backend responses omit creation_time, and
+            formatRelativeTime returns '' for an unparseable value — omit the
+            label in both cases rather than render an empty line. */}
+        {post.creation_time && formatRelativeTime(post.creation_time) && (
           <p className="detail-time">{formatRelativeTime(post.creation_time)}</p>
         )}
 
