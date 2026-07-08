@@ -21,9 +21,9 @@ test('renders the privacy policy heading and text without requiring auth', () =>
   expect(screen.getByText(PRIVACY_POLICY_TEXT)).toBeInTheDocument()
 })
 
-test('logo links back to the landing page', async () => {
+test('logo links back to the landing page', () => {
   renderWithRouter()
 
-  const homeLink = screen.getByRole('link')
+  const homeLink = screen.getByRole('link', { name: 'Good Vibes Only smiley logo' })
   expect(homeLink).toHaveAttribute('href', '/')
 })
