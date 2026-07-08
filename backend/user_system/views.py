@@ -22,6 +22,7 @@ from django_ratelimit.decorators import ratelimit
 from django_ratelimit.exceptions import Ratelimited
 
 from .classifiers import image_classifier, text_classifier
+from .classifiers.classifier_utils import ClassificationResult
 from .constants import Patterns, Params, POST_BATCH_SIZE, MAX_BEFORE_HIDING_POST, MAX_BEFORE_HIDING_COMMENT, \
     MAX_CAPTION_LENGTH, MAX_COMMENT_LENGTH, \
     COMMENT_BATCH_SIZE, Fields, COMMENT_THREAD_BATCH_SIZE, \
@@ -811,15 +812,27 @@ def make_post(request):
     if data is None:
         return log_and_return_json("make_post", {'error': "Invalid JSON data"}, status=400)
 
-    image_url = data.get(Fields.image_url)
-    caption = data.get(Fields.caption)
-
+    # The image is optional (#307): missing, null, and "" all mean a text-only
+    # post. A provided image must still pass pattern and user-scoping checks.
+    raw_image_url = data.get(Fields.image_url)
+    
     invalid_fields = []
-    if not image_url or not is_valid_pattern(image_url, Patterns.image_url):
+    
+    if raw_image_url in (None, ""):
+        image_url = None
+    elif not isinstance(raw_image_url, str):
+        image_url = None
         invalid_fields.append(Params.image)
     else:
+        image_url = raw_image_url
+    
+    caption = data.get(Fields.caption)
+    
+    if image_url:
+        if not is_valid_pattern(image_url, Patterns.image_url):
+            invalid_fields.append(Params.image)
         # The key must be scoped to this user (clients upload to `{user_id}/...`).
-        if not image_url_to_key(image_url).startswith(f"{request.user.id}/"):
+        elif not image_url_to_key(image_url).startswith(f"{request.user.id}/"):
             invalid_fields.append(Params.image)
     if not caption or not is_valid_pattern(caption, Patterns.alphanumeric_with_special_chars):
         invalid_fields.append(Params.caption)
@@ -842,7 +855,8 @@ def make_post(request):
     # appealable rejection still creates the post but hides it pending appeal
     # (handled below).
     text_future = _CLASSIFICATION_EXECUTOR.submit(text_classifier_class.is_text_positive, caption)
-    image_future = _CLASSIFICATION_EXECUTOR.submit(image_classifier_class.is_image_positive, image_url)
+    image_future = (_CLASSIFICATION_EXECUTOR.submit(image_classifier_class.is_image_positive, image_url)
+                    if image_url else None)
     text_result = text_future.result()
 
     # Text rejection takes precedence in the message shown to the user, matching
@@ -856,7 +870,8 @@ def make_post(request):
         logger.warning(f"Make post failed: Caption not positive (final) for user_id: {request.user.id}")
         # The post is never created, so clean up the image the client already
         # uploaded rather than orphaning it in S3.
-        delete_image(image_url)
+        if image_url:
+            delete_image(image_url)
         return log_and_return_json("make_post", {
             'error': f"Text is not positive because your caption {text_result.public_reason()}. "
                      "This decision is final and cannot be appealed.",
@@ -866,7 +881,9 @@ def make_post(request):
 
     # Text passed (or is appealable), so the image outcome is now needed to
     # decide between rejection, an appealable hidden post, or a clean post.
-    image_result = image_future.result()
+    # A text-only post has no image to classify, so it is treated as allowed
+    # and visibility depends solely on the text result.
+    image_result = image_future.result() if image_future else ClassificationResult(allowed=True)
 
     if not image_result and not image_result.appealable:
         logger.warning(f"Make post failed: Image not positive (final) for user_id: {request.user.id}")

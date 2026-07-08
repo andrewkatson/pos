@@ -4,7 +4,7 @@ POSITIVE_IMAGE_URL = f'https://test-bucket.s3.amazonaws.com/{POSITIVE_IMAGE_FILE
 NEGATIVE_IMAGE_URL = f'https://test-bucket.s3.amazonaws.com/{NEGATIVE_IMAGE_FILENAME}'
 POSITIVE_TEXT = 'positive'
 NEGATIVE_TEXT = 'negative'
-GEMINI_MODEL = 'gemini-2.5-flash'
+GEMINI_MODEL = 'gemini-3.5-flash'
 CLAUDE_MODEL = 'claude-haiku-4-5-20251001'
 OPENAI_MODEL = 'gpt-4o-mini'
 
