@@ -73,4 +73,5 @@ import Foundation
     static let post = "POST"
     static let requesrFailed = "The network request failed."
     static let requestType = "application/json"
+    static let privacyPolicyText = "We collect your username, email address, and password for authentication; your password is stored as a salted hash, never in plain text. We do not store your date of birth itself, only whether you are an adult and whether your identity has been verified, derived from it at signup. We store your posts, comments, and related metadata such as like counts and reports. We also track follower/following relationships and blocked users to maintain the social environment, and the IP address of your login sessions and known devices so we can alert you to logins from a new device."
 }
