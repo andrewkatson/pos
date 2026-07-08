@@ -152,7 +152,7 @@ final class PostDetailViewModel: ObservableObject {
                     likeCount: postFields.post_likes,
                     isLiked: postFields.is_liked,
                     authorUsername: postFields.author_username,
-                    createdDate: postFields.creation_time.map { Self.parseDate($0) }
+                    createdDate: postFields.creation_time.flatMap { Self.parseOptionalDate($0) }
                 )
 
                 // 2. Fetch the list of comment thread IDs for this post
@@ -599,7 +599,9 @@ final class PostDetailViewModel: ObservableObject {
     /// Falls back to parsing without fractional seconds for older rows, then to `Date()`.
     /// Uses `Date.ISO8601FormatStyle` (a value type) to avoid allocating `NSObject`-backed
     /// formatters on each call — safe to call from any isolation domain without extra cost.
-    private nonisolated static func parseDate(_ string: String) -> Date {
+    /// Parses an ISO-8601 timestamp, returning nil when the string can't be parsed
+    /// so callers can omit a relative-time label rather than showing a bogus "now".
+    private nonisolated static func parseOptionalDate(_ string: String) -> Date? {
         if let date = try? Date(string, strategy: .iso8601.year().month().day()
             .time(includingFractionalSeconds: true)
             .timeZone(separator: .omitted)) {
@@ -610,6 +612,10 @@ final class PostDetailViewModel: ObservableObject {
             .timeZone(separator: .omitted)) {
             return date
         }
-        return Date()
+        return nil
+    }
+
+    private nonisolated static func parseDate(_ string: String) -> Date {
+        parseOptionalDate(string) ?? Date()
     }
 }
