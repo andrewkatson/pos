@@ -36,15 +36,23 @@ function VerifyEmailPage() {
   useEffect(() => {
     if (!token || requestedToken.current === token) return
     requestedToken.current = token
+    // Only the latest-requested token may write the result: a slow response
+    // for a token the user has since navigated away from would otherwise
+    // overwrite the current outcome and strand the page on "verifying".
+    const isCurrent = () => requestedToken.current === token
     apiClient
       .verifyEmail({ verification_token: token })
-      .then(() => setResult({ token, state: 'success' }))
+      .then(() => {
+        if (isCurrent()) setResult({ token, state: 'success' })
+      })
       .catch((err: ApiError) => {
-        setResult({
-          token,
-          state: 'error',
-          message: err.message ?? 'Verification failed. The link may have expired.',
-        })
+        if (isCurrent()) {
+          setResult({
+            token,
+            state: 'error',
+            message: err.message ?? 'Verification failed. The link may have expired.',
+          })
+        }
       })
   }, [token])
 

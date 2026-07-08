@@ -57,7 +57,7 @@ fun NavGraph(
             LoginScreen(navController, api, keychainHelper, authManager)
         }
         composable(Screen.Register.route) {
-            RegisterScreen(navController, api, keychainHelper, authManager)
+            RegisterScreen(navController, api)
         }
         composable(
             route = Screen.CheckEmail.route,

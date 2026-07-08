@@ -21,9 +21,7 @@ import androidx.navigation.compose.rememberNavController
 import com.example.positiveonlysocial.ui.preview.PreviewHelpers
 import com.example.positiveonlysocial.api.ApiErrors
 import com.example.positiveonlysocial.api.PositiveOnlySocialAPI
-import com.example.positiveonlysocial.data.auth.AuthenticationManager
 import com.example.positiveonlysocial.data.model.RegisterRequest
-import com.example.positiveonlysocial.data.security.KeychainHelperProtocol
 import com.example.positiveonlysocial.ui.dismissKeyboardOnTap
 import com.example.positiveonlysocial.ui.navigation.Screen
 import com.example.positiveonlysocial.ui.theme.PositiveOnlySocialTheme
@@ -32,9 +30,7 @@ import kotlinx.coroutines.launch
 @Composable
 fun RegisterScreen(
     navController: NavController,
-    api: PositiveOnlySocialAPI,
-    keychainHelper: KeychainHelperProtocol,
-    authManager: AuthenticationManager
+    api: PositiveOnlySocialAPI
 ) {
     PositiveOnlySocialTheme {
         var username by remember { mutableStateOf("") }
@@ -240,8 +236,6 @@ fun RegisterScreen(
 fun RegisterScreenPreview() {
     RegisterScreen(
         navController = rememberNavController(),
-        api = PreviewHelpers.mockApi,
-        keychainHelper = PreviewHelpers.mockKeychainHelper,
-        authManager = PreviewHelpers.mockAuthManager
+        api = PreviewHelpers.mockApi
     )
 }

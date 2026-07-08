@@ -1,4 +1,4 @@
-import { render, screen } from '@testing-library/react'
+import { act, render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { MemoryRouter, Routes, Route, useNavigate } from 'react-router-dom'
 import { vi, beforeEach } from 'vitest'
@@ -84,6 +84,57 @@ test('navigating to a different token while mounted verifies the new token', asy
   expect(await screen.findByText(/has been verified/)).toBeInTheDocument()
   expect(mockVerifyEmail).toHaveBeenCalledTimes(2)
   expect(mockVerifyEmail).toHaveBeenLastCalledWith({ verification_token: SECOND_TOKEN })
+})
+
+test('a slow response for a superseded token does not overwrite the latest result', async () => {
+  const SECOND_TOKEN = 'c'.repeat(43)
+  let resolveFirst: (value: { message: string }) => void = () => {}
+  // First token's request hangs until we resolve it manually.
+  mockVerifyEmail.mockReturnValueOnce(
+    new Promise(resolve => {
+      resolveFirst = resolve
+    }),
+  )
+  mockVerifyEmail.mockRejectedValueOnce({ message: 'Invalid or expired verification token' })
+
+  function NavigateToSecondToken() {
+    const navigate = useNavigate()
+    return (
+      <button onClick={() => navigate(`/verify-email?token=${SECOND_TOKEN}`)}>
+        Open second link
+      </button>
+    )
+  }
+
+  render(
+    <MemoryRouter initialEntries={[`/verify-email?token=${VALID_TOKEN}`]}>
+      <Routes>
+        <Route
+          path="/verify-email"
+          element={
+            <>
+              <VerifyEmailPage />
+              <NavigateToSecondToken />
+            </>
+          }
+        />
+      </Routes>
+    </MemoryRouter>,
+  )
+
+  // Navigate to the second token while the first request is still in flight;
+  // the second fails and the error UI shows.
+  await userEvent.click(screen.getByRole('button', { name: 'Open second link' }))
+  await screen.findByRole('alert')
+
+  // The first token's success arrives late — it must not overwrite the
+  // current token's outcome.
+  await act(async () => {
+    resolveFirst({ message: 'Email verified' })
+  })
+
+  expect(screen.getByRole('alert')).toBeInTheDocument()
+  expect(screen.queryByText(/has been verified/)).not.toBeInTheDocument()
 })
 
 test('shows an explanation when the token is missing from the URL', () => {
