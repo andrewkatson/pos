@@ -9,6 +9,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material.icons.filled.FavoriteBorder
 import androidx.compose.material.icons.filled.Flag
@@ -162,10 +163,25 @@ fun PostDetailScreen(
             )
         }
 
+        // Top bar with a back button, since this screen is always pushed onto
+        // the root nav stack with no other way back (issue #260). Title matches
+        // iOS's PostDetailView navigationTitle.
+        Scaffold(
+            topBar = {
+                TopAppBar(
+                    title = { Text("Post") },
+                    navigationIcon = {
+                        IconButton(onClick = { navController.popBackStack() }) {
+                            Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
+                        }
+                    }
+                )
+            }
+        ) { scaffoldPadding ->
         PullToRefreshBox(
             isRefreshing = isRefreshing,
             onRefresh = { viewModel.refresh() },
-            modifier = Modifier.fillMaxSize()
+            modifier = Modifier.fillMaxSize().padding(scaffoldPadding)
         ) {
         LazyColumn(
             modifier = Modifier.fillMaxSize().dismissKeyboardOnTap(),
@@ -292,6 +308,7 @@ fun PostDetailScreen(
                     Text("Post not found.", modifier = Modifier.padding(16.dp))
                 }
             }
+        }
         }
         }
     }
