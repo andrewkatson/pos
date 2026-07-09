@@ -117,6 +117,8 @@ class Fields:
     verification_token = "verification_token"
     hidden = "hidden"
     hidden_reason = "hidden_reason"
+    reason_code = "reason_code"
+    appealable = "appealable"
     appeal_identifier = "appeal_identifier"
     status = "status"
     resolution_note = "resolution_note"

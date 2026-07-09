@@ -303,9 +303,16 @@ def register(request):
         return log_and_return_json("register", {'error': "User already exists"}, status=400)
 
     # Classify text fields for positivity
-    if not text_classifier_class.is_text_positive(username):
+    username_result = text_classifier_class.is_text_positive(username)
+    if not username_result:
         logger.warning(f"Registration failed: Username not positive")
-        return log_and_return_json("register", {'error': "Username is not positive"}, status=400)
+        return log_and_return_json("register", {
+            'error': f"Username is not positive because it {username_result.public_reason()}.",
+            Fields.reason_code: username_result.public_reason_code(),
+            # There is no account yet to appeal from; the user can simply retry
+            # with a different username, so the rejection is never appealable.
+            Fields.appealable: False,
+        }, status=400)
 
     new_user = get_user_model().objects.create_user(username=username, email=email)
     new_user.set_password(password)
@@ -865,7 +872,12 @@ def make_post(request):
         # uploaded rather than orphaning it in S3.
         if image_url:
             delete_image(image_url)
-        return log_and_return_json("make_post", {'error': "Text is not positive"}, status=400)
+        return log_and_return_json("make_post", {
+            'error': f"Text is not positive because your caption {text_result.public_reason()}. "
+                     "This decision is final and cannot be appealed.",
+            Fields.reason_code: text_result.public_reason_code(),
+            Fields.appealable: False,
+        }, status=400)
 
     # Text passed (or is appealable), so the image outcome is now needed to
     # decide between rejection, an appealable hidden post, or a clean post.
@@ -876,7 +888,12 @@ def make_post(request):
     if not image_result and not image_result.appealable:
         logger.warning(f"Make post failed: Image not positive (final) for user_id: {request.user.id}")
         delete_image(image_url)
-        return log_and_return_json("make_post", {'error': "Image is not positive"}, status=400)
+        return log_and_return_json("make_post", {
+            'error': f"Image is not positive because it {image_result.public_reason()}. "
+                     "This decision is final and cannot be appealed.",
+            Fields.reason_code: image_result.public_reason_code(),
+            Fields.appealable: False,
+        }, status=400)
 
     # Any remaining rejection is appealable, so post it but hide it pending
     # appeal. The visibility layer already shows authors their own hidden posts
@@ -890,9 +907,20 @@ def make_post(request):
     response = {Fields.post_identifier: new_post.post_identifier}
     if hidden:
         logger.info(f"Post created hidden pending appeal: post_id: {new_post.post_identifier} for user_id: {request.user.id}")
+        blocked_parts = []
+        if not text_result:
+            blocked_parts.append(f"your caption {text_result.public_reason()}")
+        if not image_result:
+            blocked_parts.append(f"your image {image_result.public_reason()}")
+        # Text precedence for the machine-readable code, matching the final-
+        # rejection paths above.
+        reason_result = text_result if not text_result else image_result
         response[Fields.hidden] = True
         response[Fields.hidden_reason] = HIDDEN_REASON_CLASSIFIER
-        response['message'] = ("Your post did not pass automated review. It is hidden for now "
+        response[Fields.reason_code] = reason_result.public_reason_code()
+        response[Fields.appealable] = True
+        response['message'] = (f"Your post did not pass automated review because "
+                               f"{' and '.join(blocked_parts)}. It is hidden for now "
                                "but you can appeal the decision.")
     else:
         logger.info(f"Post created successfully: post_id: {new_post.post_identifier} for user_id: {request.user.id}")
@@ -1227,7 +1255,12 @@ def comment_on_post(request, post_identifier):
     # creates it hidden pending appeal.
     text_result = text_classifier_class.is_text_positive(comment_text)
     if not text_result and not text_result.appealable:
-        return log_and_return_json("comment_on_post", {'error': "Text is not positive"}, status=400)
+        return log_and_return_json("comment_on_post", {
+            'error': f"Text is not positive because your comment {text_result.public_reason()}. "
+                     "This decision is final and cannot be appealed.",
+            Fields.reason_code: text_result.public_reason_code(),
+            Fields.appealable: False,
+        }, status=400)
 
     hidden = not text_result
 
@@ -1245,7 +1278,10 @@ def comment_on_post(request, post_identifier):
         logger.info(f"Comment on post created hidden pending appeal: comment_id: {new_comment.comment_identifier} for user_id: {request.user.id}")
         response_data[Fields.hidden] = True
         response_data[Fields.hidden_reason] = HIDDEN_REASON_CLASSIFIER
-        response_data['message'] = ("Your comment did not pass automated review. It is hidden for now "
+        response_data[Fields.reason_code] = text_result.public_reason_code()
+        response_data[Fields.appealable] = True
+        response_data['message'] = (f"Your comment did not pass automated review because it "
+                                    f"{text_result.public_reason()}. It is hidden for now "
                                     "but you can appeal the decision.")
     else:
         logger.info(f"Comment on post successful: post_id: {post_identifier}, comment_id: {new_comment.comment_identifier} for user_id: {request.user.id}")
@@ -1299,7 +1335,12 @@ def reply_to_comment_thread(request, post_identifier, comment_thread_identifier)
     # creates it hidden pending appeal.
     text_result = text_classifier_class.is_text_positive(comment_text)
     if not text_result and not text_result.appealable:
-        return log_and_return_json("reply_to_comment_thread", {'error': "Text is not positive"}, status=400)
+        return log_and_return_json("reply_to_comment_thread", {
+            'error': f"Text is not positive because your reply {text_result.public_reason()}. "
+                     "This decision is final and cannot be appealed.",
+            Fields.reason_code: text_result.public_reason_code(),
+            Fields.appealable: False,
+        }, status=400)
 
     hidden = not text_result
     new_comment = comment_thread.comment_set.create(
@@ -1311,7 +1352,10 @@ def reply_to_comment_thread(request, post_identifier, comment_thread_identifier)
         logger.info(f"Reply created hidden pending appeal: comment_id: {new_comment.comment_identifier} for user_id: {request.user.id}")
         response_data[Fields.hidden] = True
         response_data[Fields.hidden_reason] = HIDDEN_REASON_CLASSIFIER
-        response_data['message'] = ("Your reply did not pass automated review. It is hidden for now "
+        response_data[Fields.reason_code] = text_result.public_reason_code()
+        response_data[Fields.appealable] = True
+        response_data['message'] = (f"Your reply did not pass automated review because it "
+                                    f"{text_result.public_reason()}. It is hidden for now "
                                     "but you can appeal the decision.")
     else:
         logger.info(f"Reply to comment successful: comment_thread_id: {comment_thread_identifier}, comment_id: {new_comment.comment_identifier} for user_id: {request.user.id}")
