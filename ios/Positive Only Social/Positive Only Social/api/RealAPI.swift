@@ -396,7 +396,7 @@ final class RealAPI: Networking {
     func reportPost(sessionManagementToken: String, postIdentifier: String, reason: String) async throws -> Data {
         let body = ReportBody(reason: reason)
         let requestBody = try encode(body)
-
+        
         return try await performRequest(
             pathSegments: [GVOAppConstants.pathSegmentPosts, postIdentifier, GVOAppConstants.pathSegmentReport],
             method: .post,
@@ -524,7 +524,7 @@ final class RealAPI: Networking {
     func reportComment(sessionManagementToken: String, postIdentifier: String, commentThreadIdentifier: String, commentIdentifier: String, reason: String) async throws -> Data {
         let body = ReportBody(reason: reason)
         let requestBody = try encode(body)
-
+        
         return try await performRequest(
             pathSegments: [GVOAppConstants.pathSegmentPosts, postIdentifier, GVOAppConstants.pathSegmentThreads, commentThreadIdentifier, GVOAppConstants.pathSegmentComments, commentIdentifier, GVOAppConstants.pathSegmentReport],
             method: .post,

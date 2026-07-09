@@ -567,15 +567,15 @@ final class StatefulStubbedAPI: Networking {
             let report_reason: String?
             let author_username: String
         }
-        let myReport = post.reports.first(where: { $0.username == user.username })
+        let userReport = post.reports.first(where: { $0.username == user.username })
         let fields = Fields(
             post_identifier: post.postIdentifier,
             image_url: post.imageURL,
             caption: post.caption,
             post_likes: post.likes.count,
             is_liked: post.likes.contains(user.username),
-            is_reported: myReport != nil,
-            report_reason: myReport?.reason,
+            is_reported: userReport != nil,
+            report_reason: userReport?.reason,
             author_username: users.first(where: {$0.id == post.authorId})?.username ?? "Unknown User"
         )
         return try createSerializedResponse(fields: fields)
@@ -712,14 +712,14 @@ final class StatefulStubbedAPI: Networking {
 
         let dateFormatter = ISO8601DateFormatter()
         let fieldObjects = relevantComments.map { comment in
-            let myReport = comment.reports.first(where: { $0.username == user.username })
+            let userReport = comment.reports.first(where: { $0.username == user.username })
             return Fields(comment_identifier: comment.commentIdentifier, body: comment.body, author_username: comment.authorUsername,
                    creation_time: dateFormatter.string(from: comment.createdDate),
                    updated_time: dateFormatter.string(from: comment.updatedDate),
                    comment_likes: comment.likes.count,
                    is_liked: comment.likes.contains(user.username),
-                   is_reported: myReport != nil,
-                   report_reason: myReport?.reason)
+                   is_reported: userReport != nil,
+                   report_reason: userReport?.reason)
         }
         return try createSerializedListResponse(fieldsList: fieldObjects)
     }
