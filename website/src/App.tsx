@@ -9,10 +9,11 @@ import HomePage from './pages/HomePage'
 import PostDetailPage from './pages/PostDetailPage'
 import ProfilePage from './pages/ProfilePage'
 import AppealsPage from './pages/AppealsPage'
+import PrivacyPolicyPage from './pages/PrivacyPolicyPage'
 
 function App() {
   return (
-    <Routes> 
+    <Routes>
       <Route path="/" element={<LandingPage />} />
       <Route path="/login" element={<LoginPage />} />
       <Route path="/register" element={<RegisterPage />} />
@@ -23,6 +24,7 @@ function App() {
       <Route path="/post/:postId" element={<PostDetailPage />} />
       <Route path="/profile/:username" element={<ProfilePage />} />
       <Route path="/appeals" element={<AppealsPage />} />
+      <Route path="/privacy-policy" element={<PrivacyPolicyPage />} />
     </Routes>
   )
 }
