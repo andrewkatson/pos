@@ -14,6 +14,7 @@ from django.contrib.auth import login, logout, get_user_model
 from django.contrib.auth.hashers import check_password
 from django.core.mail import send_mail
 from django.db import transaction, IntegrityError
+from django.db.models import Count
 from django.http import JsonResponse
 from django.utils import timezone
 from django.views.decorators.csrf import csrf_exempt
@@ -33,8 +34,8 @@ from .constants import Patterns, Params, POST_BATCH_SIZE, MAX_BEFORE_HIDING_POST
     MAX_APPEAL_REASON_LENGTH
 from .feed_algorithm import feed_algorithm
 from .input_validator import is_valid_pattern
-from .models import LoginCookie, Session, Post, CommentThread, PositiveOnlySocialUser, Comment, UserBlock, UserBan, \
-    KnownDevice, Appeal
+from .models import LoginCookie, Session, Post, CommentThread, PositiveOnlySocialUser, Comment, CommentLike, UserBlock, \
+    UserBan, KnownDevice, Appeal
 from .utils import convert_to_bool, generate_login_cookie_token, generate_management_token, generate_series_identifier, \
     get_batch, get_queryset_batch, get_compressed_image_url
 from .s3 import delete_image, generate_presigned_upload, image_url_to_key
@@ -980,8 +981,11 @@ def report_post(request, post_identifier):
 def retract_report_post(request, post_identifier):
     logger.info("Endpoint retract_report_post invoked by IP or User")
     # user is on request.user
+    invalid_fields = []
     if not is_valid_pattern(post_identifier, Patterns.uuid4):
-        return log_and_return_json("retract_report_post", {'error': f"Invalid fields {Fields.post_identifier}"}, status=400)
+        invalid_fields.append(Params.post_identifier)
+    if len(invalid_fields) > 0:
+        return log_and_return_json("retract_report_post", {'error': f"Invalid fields {invalid_fields}"}, status=400)
 
     post = get_post_with_identifier(post_identifier)
     if post is None:
@@ -1642,6 +1646,15 @@ def get_comments_for_thread(request, comment_thread_identifier, batch):
         .filter(comment__in=batched_comments)
         .values_list('comment_id', 'reason')
     )
+    # Like counts for the whole batch in one grouped query, so we avoid a
+    # per-comment COUNT (N+1) inside the comprehension below.
+    like_counts = dict(
+        CommentLike.objects
+        .filter(comment__in=batched_comments)
+        .values('comment_id')
+        .annotate(count=Count('comment_id'))
+        .values_list('comment_id', 'count')
+    )
     comments_data = [
         {
             Fields.comment_identifier: comment.comment_identifier,
@@ -1649,7 +1662,7 @@ def get_comments_for_thread(request, comment_thread_identifier, batch):
             Fields.author_username: comment.author.username,
             Fields.creation_time: comment.creation_time,
             Fields.updated_time: comment.updated_time,
-            Fields.comment_likes: comment.commentlike_set.count(),
+            Fields.comment_likes: like_counts.get(comment.comment_identifier, 0),
             Fields.is_liked: comment.comment_identifier in liked_comment_ids,
             Fields.is_reported: comment.comment_identifier in my_report_reasons,
             Fields.report_reason: my_report_reasons.get(comment.comment_identifier)
