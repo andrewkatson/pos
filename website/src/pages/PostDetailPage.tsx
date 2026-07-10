@@ -122,6 +122,10 @@ function PostDetailView({ postId }: { postId: string }) {
   // state wins when present.
   const likedCommentIds = useRef<Set<string>>(new Set())
   const reportedCommentIds = useRef<Set<string>>(new Set())
+  // The reason the user gave when reporting a comment this session, so the
+  // retract dialog can pre-fill it even if a reload rebuilds the comment from
+  // an older API response that omits report_reason.
+  const reportedCommentReasons = useRef<Map<string, string>>(new Map())
 
   // Single in-flight guard shared by every loadAll() caller (initial load,
   // pull-to-refresh, and the post-comment/reply reloads) so two loads can't
@@ -151,7 +155,7 @@ function PostDetailView({ postId }: { postId: string }) {
         likeCount: c.comment_likes,
         isLiked: c.is_liked ?? likedCommentIds.current.has(c.comment_identifier),
         isReported: c.is_reported ?? reportedCommentIds.current.has(c.comment_identifier),
-        reportReason: c.report_reason ?? null,
+        reportReason: c.report_reason ?? reportedCommentReasons.current.get(c.comment_identifier) ?? null,
         isOwn: c.author_username === currentUsername,
       })
 
@@ -373,6 +377,7 @@ function PostDetailView({ postId }: { postId: string }) {
           reason,
         )
         reportedCommentIds.current.add(target.comment.id)
+        reportedCommentReasons.current.set(target.comment.id, reason)
         mutateComment(target.comment.id, c => ({ ...c, isReported: true, reportReason: reason }))
       }
     } catch (err) {
@@ -396,6 +401,7 @@ function PostDetailView({ postId }: { postId: string }) {
       } else {
         await apiClient.retractReportComment(postId, target.comment.threadId, target.comment.id)
         reportedCommentIds.current.delete(target.comment.id)
+        reportedCommentReasons.current.delete(target.comment.id)
         mutateComment(target.comment.id, c => ({ ...c, isReported: false, reportReason: null }))
       }
     } catch (err) {

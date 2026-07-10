@@ -381,7 +381,7 @@ class StatefulStubbedAPI : PositiveOnlySocialAPI {
         val post = posts.find { it.postIdentifier == postId }
             ?: return error(404, "No post with that identifier")
 
-        if (!post.reports.contains(user.id)) return error(404, "Post not reported yet")
+        if (!post.reports.contains(user.id)) return error(400, "Post not reported yet")
 
         post.reports.remove(user.id)
         // Un-hide only when reports were what hid it, mirroring the backend.
@@ -574,7 +574,7 @@ class StatefulStubbedAPI : PositiveOnlySocialAPI {
         val user = getAuthorizedUser(token) ?: return error(401, "Unauthorized")
         val comment = findComment(postId, threadId, commentId) ?: return error(404, "Comment not found")
 
-        if (!comment.reports.contains(user.id)) return error(404, "Comment not reported yet")
+        if (!comment.reports.contains(user.id)) return error(400, "Comment not reported yet")
 
         comment.reports.remove(user.id)
         // Un-hide only when reports were what hid it, mirroring the backend.
