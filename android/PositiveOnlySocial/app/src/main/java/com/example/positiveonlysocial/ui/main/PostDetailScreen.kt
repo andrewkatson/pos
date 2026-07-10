@@ -67,10 +67,7 @@ fun PostDetailScreen(
         // The signed-in user; used to hide the like control on their own
         // post/comments since the backend rejects liking your own content.
         val currentUsername by viewModel.currentUsername.collectAsState()
-        
-        // Local state for interactions
-        var isPostReported by remember { mutableStateOf(false) }
-        
+
         // Sheets
         val showReportSheetForPost by viewModel.showReportSheetForPost.collectAsState()
         val commentToReport by viewModel.commentToReport.collectAsState()
@@ -108,7 +105,7 @@ fun PostDetailScreen(
             val isOwnPost = postDetail?.authorUsername == currentUsername
             ActionSheetDialog(
                 isOwn = isOwnPost,
-                isReported = postDetail?.isReported == true || isPostReported,
+                isReported = postDetail?.isReported == true,
                 itemLabel = "Post",
                 onDismiss = { viewModel.setShowActionSheetForPost(false) },
                 onReport = { viewModel.setShowReportSheetForPost(true) },
@@ -139,10 +136,7 @@ fun PostDetailScreen(
             RetractReportDialog(
                 reason = postDetail?.reportReason ?: "",
                 onDismiss = { viewModel.setShowRetractDialogForPost(false) },
-                onRetract = {
-                    viewModel.retractReportPost()
-                    isPostReported = false
-                }
+                onRetract = { viewModel.retractReportPost() }
             )
         }
 
@@ -158,10 +152,7 @@ fun PostDetailScreen(
         if (showReportSheetForPost) {
             ReportDialog(
                 onDismiss = { viewModel.setShowReportSheetForPost(false) },
-                onSubmit = {
-                    reason -> viewModel.reportPost(reason)
-                    isPostReported = true
-                }
+                onSubmit = { reason -> viewModel.reportPost(reason) }
             )
         }
 
@@ -262,7 +253,7 @@ fun PostDetailScreen(
                                 }
                                 Text("${post.likeCount} likes", fontWeight = FontWeight.Bold)
                                 Spacer(modifier = Modifier.weight(1f))
-                                if (post.isReported || isPostReported) {
+                                if (post.isReported) {
                                     Icon(Icons.Default.Flag, contentDescription = "Reported", tint = Color.Red)
                                 }
                                 // Three-dots menu: the discoverable alternative to
