@@ -146,6 +146,60 @@ class GetCommentsForThreadTests(PositiveOnlySocialTestCase):
             else:
                 self.assertFalse(comment[Fields.is_liked])
 
+    def test_comments_include_is_reported_defaulting_false(self):
+        """
+        Tests that every comment includes is_reported/report_reason fields,
+        defaulting to False/None for a requester who reported none of them.
+        """
+        url = reverse('get_comments_for_thread', kwargs={
+            'comment_thread_identifier': str(self.comment_thread_identifier),
+            'batch': 0
+        })
+
+        response = self.client.get(url, **self.valid_header)
+
+        self.assertEqual(response.status_code, 200)
+        comments = response.json()
+        self.assertTrue(len(comments) > 0)
+        for comment in comments:
+            self.assertIn(Fields.is_reported, comment)
+            self.assertFalse(comment[Fields.is_reported])
+            self.assertIsNone(comment[Fields.report_reason])
+
+    def test_is_reported_and_reason_set_for_comment_reported_by_requester(self):
+        """
+        Tests that is_reported/report_reason are set only on the comment the
+        requester reported, carrying their own reason.
+        """
+        url = reverse('get_comments_for_thread', kwargs={
+            'comment_thread_identifier': str(self.comment_thread_identifier),
+            'batch': 0
+        })
+
+        # The local user (a fresh user who authored none of the comments) reports one.
+        comments = self.client.get(url, **self.valid_header).json()
+        target_id = comments[0][Fields.comment_identifier]
+
+        report_url = reverse('report_comment', kwargs={
+            'post_identifier': str(self.post_identifier),
+            'comment_thread_identifier': str(self.comment_thread_identifier),
+            'comment_identifier': target_id
+        })
+        report_response = self.client.post(
+            report_url, data={'reason': 'Too negative'}, content_type='application/json', **self.valid_header
+        )
+        self.assertEqual(report_response.status_code, 200)
+
+        # Re-fetch and verify only the reported comment is marked.
+        comments_after = self.client.get(url, **self.valid_header).json()
+        for comment in comments_after:
+            if comment[Fields.comment_identifier] == target_id:
+                self.assertTrue(comment[Fields.is_reported])
+                self.assertEqual(comment[Fields.report_reason], 'Too negative')
+            else:
+                self.assertFalse(comment[Fields.is_reported])
+                self.assertIsNone(comment[Fields.report_reason])
+
     def test_last_batch_returns_good_response(self):
         """
         Tests that requesting the last full batch (batch 1) returns

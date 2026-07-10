@@ -14,6 +14,7 @@ from django.contrib.auth import login, logout, get_user_model
 from django.contrib.auth.hashers import check_password
 from django.core.mail import send_mail
 from django.db import transaction, IntegrityError
+from django.db.models import Count
 from django.http import JsonResponse
 from django.utils import timezone
 from django.views.decorators.csrf import csrf_exempt
@@ -33,8 +34,8 @@ from .constants import Patterns, Params, POST_BATCH_SIZE, MAX_BEFORE_HIDING_POST
     MAX_APPEAL_REASON_LENGTH
 from .feed_algorithm import feed_algorithm
 from .input_validator import is_valid_pattern
-from .models import LoginCookie, Session, Post, CommentThread, PositiveOnlySocialUser, Comment, UserBlock, UserBan, \
-    KnownDevice, Appeal
+from .models import LoginCookie, Session, Post, CommentThread, PositiveOnlySocialUser, Comment, CommentLike, UserBlock, \
+    UserBan, KnownDevice, Appeal
 from .utils import convert_to_bool, generate_login_cookie_token, generate_management_token, generate_series_identifier, \
     get_batch, get_queryset_batch, get_compressed_image_url
 from .s3 import delete_image, generate_presigned_upload, image_url_to_key
@@ -303,9 +304,16 @@ def register(request):
         return log_and_return_json("register", {'error': "User already exists"}, status=400)
 
     # Classify text fields for positivity
-    if not text_classifier_class.is_text_positive(username):
+    username_result = text_classifier_class.is_text_positive(username)
+    if not username_result:
         logger.warning(f"Registration failed: Username not positive")
-        return log_and_return_json("register", {'error': "Username is not positive"}, status=400)
+        return log_and_return_json("register", {
+            'error': f"Username is not positive because it {username_result.public_reason()}.",
+            Fields.reason_code: username_result.public_reason_code(),
+            # There is no account yet to appeal from; the user can simply retry
+            # with a different username, so the rejection is never appealable.
+            Fields.appealable: False,
+        }, status=400)
 
     new_user = get_user_model().objects.create_user(username=username, email=email)
     new_user.set_password(password)
@@ -865,7 +873,12 @@ def make_post(request):
         # uploaded rather than orphaning it in S3.
         if image_url:
             delete_image(image_url)
-        return log_and_return_json("make_post", {'error': "Text is not positive"}, status=400)
+        return log_and_return_json("make_post", {
+            'error': f"Text is not positive because your caption {text_result.public_reason()}. "
+                     "This decision is final and cannot be appealed.",
+            Fields.reason_code: text_result.public_reason_code(),
+            Fields.appealable: False,
+        }, status=400)
 
     # Text passed (or is appealable), so the image outcome is now needed to
     # decide between rejection, an appealable hidden post, or a clean post.
@@ -876,7 +889,12 @@ def make_post(request):
     if not image_result and not image_result.appealable:
         logger.warning(f"Make post failed: Image not positive (final) for user_id: {request.user.id}")
         delete_image(image_url)
-        return log_and_return_json("make_post", {'error': "Image is not positive"}, status=400)
+        return log_and_return_json("make_post", {
+            'error': f"Image is not positive because it {image_result.public_reason()}. "
+                     "This decision is final and cannot be appealed.",
+            Fields.reason_code: image_result.public_reason_code(),
+            Fields.appealable: False,
+        }, status=400)
 
     # Any remaining rejection is appealable, so post it but hide it pending
     # appeal. The visibility layer already shows authors their own hidden posts
@@ -890,9 +908,20 @@ def make_post(request):
     response = {Fields.post_identifier: new_post.post_identifier}
     if hidden:
         logger.info(f"Post created hidden pending appeal: post_id: {new_post.post_identifier} for user_id: {request.user.id}")
+        blocked_parts = []
+        if not text_result:
+            blocked_parts.append(f"your caption {text_result.public_reason()}")
+        if not image_result:
+            blocked_parts.append(f"your image {image_result.public_reason()}")
+        # Text precedence for the machine-readable code, matching the final-
+        # rejection paths above.
+        reason_result = text_result if not text_result else image_result
         response[Fields.hidden] = True
         response[Fields.hidden_reason] = HIDDEN_REASON_CLASSIFIER
-        response['message'] = ("Your post did not pass automated review. It is hidden for now "
+        response[Fields.reason_code] = reason_result.public_reason_code()
+        response[Fields.appealable] = True
+        response['message'] = (f"Your post did not pass automated review because "
+                               f"{' and '.join(blocked_parts)}. It is hidden for now "
                                "but you can appeal the decision.")
     else:
         logger.info(f"Post created successfully: post_id: {new_post.post_identifier} for user_id: {request.user.id}")
@@ -971,6 +1000,44 @@ def report_post(request, post_identifier):
     else:
         logger.warning(f"Report post failed: Post {post_identifier} not found")
         return log_and_return_json("report_post", {'error': "No post with that identifier"}, status=400)
+
+
+@csrf_exempt
+@api_login_required
+@ratelimit(key='user', rate='20/h', block=True)
+@require_POST
+def retract_report_post(request, post_identifier):
+    logger.info("Endpoint retract_report_post invoked by IP or User")
+    # user is on request.user
+    invalid_fields = []
+    if not is_valid_pattern(post_identifier, Patterns.uuid4):
+        invalid_fields.append(Params.post_identifier)
+    if len(invalid_fields) > 0:
+        return log_and_return_json("retract_report_post", {'error': f"Invalid fields {invalid_fields}"}, status=400)
+
+    post = get_post_with_identifier(post_identifier)
+    if post is None:
+        logger.warning(f"Retract report post failed: Post {post_identifier} not found")
+        return log_and_return_json("retract_report_post", {'error': "No post with that identifier"}, status=400)
+
+    deleted_count, _ = post.postreport_set.filter(user=request.user).delete()
+    if deleted_count == 0:
+        logger.warning(f"Retract report post failed: Post not reported by user_id: {request.user.id}")
+        return log_and_return_json("retract_report_post", {'error': "Post not reported yet"}, status=400)
+
+    logger.info(f"Post report retracted: post_id: {post_identifier} by user_id: {request.user.id}")
+
+    # If the retraction takes the report count back under the hiding threshold,
+    # un-hide the post — but only when reports were what hid it. Content hidden
+    # by the classifier or with no recorded reason stays hidden.
+    if post.hidden and post.hidden_reason == HIDDEN_REASON_REPORTS \
+            and post.postreport_set.count() <= MAX_BEFORE_HIDING_POST:
+        post.hidden = False
+        post.hidden_reason = HIDDEN_REASON_NONE
+        post.save()
+        logger.info(f"Post un-hidden after report retraction: post_id: {post_identifier}")
+
+    return log_and_return_json("retract_report_post", {'message': 'Post report retracted'})
 
 
 @csrf_exempt
@@ -1172,6 +1239,9 @@ def get_post_details(request, post_identifier):
     post = get_post_with_identifier(post_identifier)
     if post is not None and can_view_post(post, request.user):
         total_likes = post.postlike_set.count()
+        # The caller's own report (if any), so clients can offer "retract
+        # report" with the original reason pre-filled instead of "report".
+        my_report = post.postreport_set.filter(user=request.user).first()
         post_data = {
             Fields.post_identifier: post.post_identifier,
             Fields.image_url: get_compressed_image_url(post.image_url),
@@ -1182,6 +1252,8 @@ def get_post_details(request, post_identifier):
             Fields.creation_time: post.creation_time,
             Fields.post_likes: total_likes,
             Fields.is_liked: post.postlike_set.filter(user=request.user).exists(),
+            Fields.is_reported: my_report is not None,
+            Fields.report_reason: my_report.reason if my_report is not None else None,
             Fields.author_username: post.author.username
         }
         return log_and_return_json("get_post_details", post_data)
@@ -1228,7 +1300,12 @@ def comment_on_post(request, post_identifier):
     # creates it hidden pending appeal.
     text_result = text_classifier_class.is_text_positive(comment_text)
     if not text_result and not text_result.appealable:
-        return log_and_return_json("comment_on_post", {'error': "Text is not positive"}, status=400)
+        return log_and_return_json("comment_on_post", {
+            'error': f"Text is not positive because your comment {text_result.public_reason()}. "
+                     "This decision is final and cannot be appealed.",
+            Fields.reason_code: text_result.public_reason_code(),
+            Fields.appealable: False,
+        }, status=400)
 
     hidden = not text_result
 
@@ -1246,7 +1323,10 @@ def comment_on_post(request, post_identifier):
         logger.info(f"Comment on post created hidden pending appeal: comment_id: {new_comment.comment_identifier} for user_id: {request.user.id}")
         response_data[Fields.hidden] = True
         response_data[Fields.hidden_reason] = HIDDEN_REASON_CLASSIFIER
-        response_data['message'] = ("Your comment did not pass automated review. It is hidden for now "
+        response_data[Fields.reason_code] = text_result.public_reason_code()
+        response_data[Fields.appealable] = True
+        response_data['message'] = (f"Your comment did not pass automated review because it "
+                                    f"{text_result.public_reason()}. It is hidden for now "
                                     "but you can appeal the decision.")
     else:
         logger.info(f"Comment on post successful: post_id: {post_identifier}, comment_id: {new_comment.comment_identifier} for user_id: {request.user.id}")
@@ -1300,7 +1380,12 @@ def reply_to_comment_thread(request, post_identifier, comment_thread_identifier)
     # creates it hidden pending appeal.
     text_result = text_classifier_class.is_text_positive(comment_text)
     if not text_result and not text_result.appealable:
-        return log_and_return_json("reply_to_comment_thread", {'error': "Text is not positive"}, status=400)
+        return log_and_return_json("reply_to_comment_thread", {
+            'error': f"Text is not positive because your reply {text_result.public_reason()}. "
+                     "This decision is final and cannot be appealed.",
+            Fields.reason_code: text_result.public_reason_code(),
+            Fields.appealable: False,
+        }, status=400)
 
     hidden = not text_result
     new_comment = comment_thread.comment_set.create(
@@ -1312,7 +1397,10 @@ def reply_to_comment_thread(request, post_identifier, comment_thread_identifier)
         logger.info(f"Reply created hidden pending appeal: comment_id: {new_comment.comment_identifier} for user_id: {request.user.id}")
         response_data[Fields.hidden] = True
         response_data[Fields.hidden_reason] = HIDDEN_REASON_CLASSIFIER
-        response_data['message'] = ("Your reply did not pass automated review. It is hidden for now "
+        response_data[Fields.reason_code] = text_result.public_reason_code()
+        response_data[Fields.appealable] = True
+        response_data['message'] = (f"Your reply did not pass automated review because it "
+                                    f"{text_result.public_reason()}. It is hidden for now "
                                     "but you can appeal the decision.")
     else:
         logger.info(f"Reply to comment successful: comment_thread_id: {comment_thread_identifier}, comment_id: {new_comment.comment_identifier} for user_id: {request.user.id}")
@@ -1492,6 +1580,53 @@ def report_comment(request, post_identifier, comment_thread_identifier, comment_
     return log_and_return_json("report_comment", {'message': 'Comment reported'})
 
 
+@csrf_exempt
+@api_login_required
+@ratelimit(key='user', rate='20/h', block=True)
+@require_POST
+def retract_report_comment(request, post_identifier, comment_thread_identifier, comment_identifier):
+    logger.info("Endpoint retract_report_comment invoked by IP or User")
+    # user is on request.user
+    invalid_fields = []
+    if not is_valid_pattern(post_identifier, Patterns.uuid4):
+        invalid_fields.append(Params.post_identifier)
+    if not is_valid_pattern(comment_thread_identifier, Patterns.uuid4):
+        invalid_fields.append(Params.comment_thread_identifier)
+    if not is_valid_pattern(comment_identifier, Patterns.uuid4):
+        invalid_fields.append(Params.comment_identifier)
+    if len(invalid_fields) > 0:
+        return log_and_return_json("retract_report_comment", {'error': f"Invalid fields {invalid_fields}"}, status=400)
+
+    try:
+        comment = Comment.objects.get(
+            comment_identifier=comment_identifier,
+            comment_thread__comment_thread_identifier=comment_thread_identifier,
+            comment_thread__post__post_identifier=post_identifier
+        )
+    except Comment.DoesNotExist:
+        logger.warning(f"Retract report comment failed: Comment {comment_identifier} not found")
+        return log_and_return_json("retract_report_comment", {'error': "Comment not found"}, status=400)
+
+    deleted_count, _ = comment.commentreport_set.filter(user=request.user).delete()
+    if deleted_count == 0:
+        logger.warning(f"Retract report comment failed: Comment not reported by user_id: {request.user.id}")
+        return log_and_return_json("retract_report_comment", {'error': "Comment not reported yet"}, status=400)
+
+    logger.info(f"Comment report retracted: comment_id: {comment_identifier} by user_id: {request.user.id}")
+
+    # If the retraction takes the report count back under the hiding threshold,
+    # un-hide the comment — but only when reports were what hid it. Content
+    # hidden by the classifier or with no recorded reason stays hidden.
+    if comment.hidden and comment.hidden_reason == HIDDEN_REASON_REPORTS \
+            and comment.commentreport_set.count() <= MAX_BEFORE_HIDING_COMMENT:
+        comment.hidden = False
+        comment.hidden_reason = HIDDEN_REASON_NONE
+        comment.save()
+        logger.info(f"Comment un-hidden after report retraction: comment_id: {comment_identifier}")
+
+    return log_and_return_json("retract_report_comment", {'message': 'Comment report retracted'})
+
+
 @api_login_required  # Original had @login_required
 @ratelimit(key='user', rate='60/m', block=True)
 @require_GET
@@ -1548,6 +1683,23 @@ def get_comments_for_thread(request, comment_thread_identifier, batch):
         .filter(comment__in=batched_comments)
         .values_list('comment_id', flat=True)
     )
+    # The caller's own report reason per comment (single query, like the likes
+    # set above), so clients can offer "retract report" with the original
+    # reason pre-filled instead of "report".
+    my_report_reasons = dict(
+        request.user.commentreport_set
+        .filter(comment__in=batched_comments)
+        .values_list('comment_id', 'reason')
+    )
+    # Like counts for the whole batch in one grouped query, so we avoid a
+    # per-comment COUNT (N+1) inside the comprehension below.
+    like_counts = dict(
+        CommentLike.objects
+        .filter(comment__in=batched_comments)
+        .values('comment_id')
+        .annotate(count=Count('comment_id'))
+        .values_list('comment_id', 'count')
+    )
     comments_data = [
         {
             Fields.comment_identifier: comment.comment_identifier,
@@ -1555,8 +1707,10 @@ def get_comments_for_thread(request, comment_thread_identifier, batch):
             Fields.author_username: comment.author.username,
             Fields.creation_time: comment.creation_time,
             Fields.updated_time: comment.updated_time,
-            Fields.comment_likes: comment.commentlike_set.count(),
-            Fields.is_liked: comment.comment_identifier in liked_comment_ids
+            Fields.comment_likes: like_counts.get(comment.comment_identifier, 0),
+            Fields.is_liked: comment.comment_identifier in liked_comment_ids,
+            Fields.is_reported: comment.comment_identifier in my_report_reasons,
+            Fields.report_reason: my_report_reasons.get(comment.comment_identifier)
         }
         for comment in batched_comments
     ]

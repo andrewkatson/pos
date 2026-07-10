@@ -22,6 +22,7 @@ import com.example.positiveonlysocial.ui.preview.PreviewHelpers
 import com.example.positiveonlysocial.api.ApiErrors
 import com.example.positiveonlysocial.api.PositiveOnlySocialAPI
 import com.example.positiveonlysocial.data.auth.AuthenticationManager
+import com.example.positiveonlysocial.data.constants.Constants
 import com.example.positiveonlysocial.data.model.RegisterRequest
 import com.example.positiveonlysocial.data.model.UserSession
 import com.example.positiveonlysocial.data.security.KeychainHelperProtocol
@@ -65,7 +66,7 @@ fun RegisterScreen(
                 onDismissRequest = { showingPrivacyPolicy = false },
                 title = { Text("Privacy Policy") },
                 text = {
-                    Text("We collect your username and password for authentication. We do not store your date of birth or any other personal information. We store your posts, comments, and related metadata such as like counts and reports. We also track follower/following relationships and blocked users to maintain the social environment.")
+                    Text(Constants.PRIVACY_POLICY_TEXT)
                 },
                 confirmButton = {
                     Button(onClick = { 

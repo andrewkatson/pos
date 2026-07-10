@@ -8,6 +8,8 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material3.*
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.runtime.*
@@ -58,7 +60,22 @@ fun ProfileScreen(
             }
         }
 
-        Column(modifier = Modifier.fillMaxSize()) {
+        // Top bar carries the username as the title (like iOS's navigationTitle)
+        // and a back button, since this screen is always pushed onto the root
+        // nav stack with no other way back (issue #260).
+        Scaffold(
+            topBar = {
+                TopAppBar(
+                    title = { Text(username) },
+                    navigationIcon = {
+                        IconButton(onClick = { navController.popBackStack() }) {
+                            Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
+                        }
+                    }
+                )
+            }
+        ) { padding ->
+        Column(modifier = Modifier.fillMaxSize().padding(padding)) {
             // Header
             Column(
                 modifier = Modifier
@@ -66,14 +83,6 @@ fun ProfileScreen(
                     .padding(16.dp),
                 horizontalAlignment = Alignment.CenterHorizontally
             ) {
-                Text(
-                    text = username,
-                    style = MaterialTheme.typography.headlineMedium,
-                    fontWeight = FontWeight.Bold
-                )
-                
-                Spacer(modifier = Modifier.height(16.dp))
-                
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.SpaceEvenly
@@ -174,6 +183,7 @@ fun ProfileScreen(
                     }
                 }
             }
+        }
         }
     }
 }

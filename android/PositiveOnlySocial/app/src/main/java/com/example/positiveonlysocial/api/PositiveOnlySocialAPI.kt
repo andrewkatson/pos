@@ -101,6 +101,12 @@ interface PositiveOnlySocialAPI {
         @Body request: ReportRequest
     ): Response<GenericResponse>
 
+    @POST("posts/{post_id}/report/retract/")
+    suspend fun retractReportPost(
+        @Header("Authorization") token: String,
+        @Path("post_id") postId: String
+    ): Response<GenericResponse>
+
     @POST("posts/{post_id}/like/")
     suspend fun likePost(
         @Header("Authorization") token: String,
@@ -163,6 +169,14 @@ interface PositiveOnlySocialAPI {
         @Path("thread_id") threadId: String,
         @Path("comment_id") commentId: String,
         @Body request: ReportRequest
+    ): Response<GenericResponse>
+
+    @POST("posts/{post_id}/threads/{thread_id}/comments/{comment_id}/report/retract/")
+    suspend fun retractReportComment(
+        @Header("Authorization") token: String,
+        @Path("post_id") postId: String,
+        @Path("thread_id") threadId: String,
+        @Path("comment_id") commentId: String
     ): Response<GenericResponse>
 
     @GET("posts/{post_id}/comments/{batch}/")

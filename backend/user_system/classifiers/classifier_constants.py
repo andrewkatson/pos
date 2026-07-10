@@ -34,15 +34,48 @@ _CONTENT_RULES = (
     "8. No misinformation\n"
 )
 
+# User-facing explanations for blocked content, keyed by the rule numbers in
+# _CONTENT_RULES (0 means "no specific rule"). Models report only a rule
+# number; these fixed phrases are the only reason text a user ever sees, so no
+# model-generated prose (or anything an uploader smuggled into it) can reach
+# the client.
+RULE_REASON_CODES = {
+    1: 'profanity',
+    2: 'nudity',
+    3: 'sexual_content',
+    4: 'gore',
+    5: 'hate_speech',
+    6: 'harassment',
+    7: 'bullying',
+    8: 'misinformation',
+}
+
+GENERIC_REASON_CODE = 'guidelines'
+
+# Phrases complete a sentence like "your caption ..." or "it ...".
+REASON_PHRASES = {
+    'profanity': 'may contain profanity',
+    'nudity': 'may contain nudity',
+    'sexual_content': 'may contain sexually suggestive content',
+    'gore': 'may contain gore',
+    'hate_speech': 'may contain hate speech',
+    'harassment': 'may contain harassment',
+    'bullying': 'may contain bullying',
+    'misinformation': 'may contain misinformation',
+    GENERIC_REASON_CODE: 'did not meet our positivity guidelines',
+}
+
 _CONTENT_ALLOWANCES = (
     "Neutral content is acceptable. "
     "Content that begins sad but ends on a happy or hopeful note is also acceptable.\n"
 )
 
 _PROBABILITY_INSTRUCTION = (
-    "Answer with only a single number between 0.00 and 1.00 representing the "
-    "probability that the content is acceptable, where 1.00 means clearly "
-    "acceptable and 0.00 means clearly unacceptable.\n"
+    "Answer with only two numbers separated by a comma. The first is a number "
+    "between 0.00 and 1.00 representing the probability that the content is "
+    "acceptable, where 1.00 means clearly acceptable and 0.00 means clearly "
+    "unacceptable. The second is the number of the single rule above that the "
+    "content most risks violating, or 0 if none. For example: 0.95,0\n"
 )
 
 TEXT_CLASSIFIER_PROMPT = (

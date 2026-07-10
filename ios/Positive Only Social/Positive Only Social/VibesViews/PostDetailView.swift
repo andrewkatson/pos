@@ -81,8 +81,21 @@ struct PostDetailView: View {
                                     .foregroundColor(.red)
                                     .font(.caption) // Make it a bit smaller
                                     .accessibilityIdentifier("ReportedPostIcon")
-                                Spacer()
                             }
+                            Spacer()
+                            // Three-dots menu: the discoverable alternative to
+                            // long-pressing the image (issue #304). Opens the
+                            // same action menu (Report / Retract Report / Delete).
+                            Button {
+                                viewModel.showActionSheetForPost = true
+                            } label: {
+                                Image(systemName: "ellipsis")
+                                    .foregroundColor(.secondary)
+                                    .padding(.vertical, 4)
+                                    .contentShape(Rectangle())
+                            }
+                            .accessibilityLabel("Post options")
+                            .accessibilityIdentifier("PostOptionsButton")
                         }
                         HStack(alignment: .firstTextBaseline, spacing: 4) {
                             // Tap the author's name to open their profile, same
@@ -167,15 +180,21 @@ struct PostDetailView: View {
             // refresh starts) can't cancel the in-flight network requests.
             await Task { await viewModel.refresh() }.value
         }
-        // --- Action menus (long-press) ---
-        // The post's menu offers Delete on the user's own post and Report on
-        // everyone else's — so you can never report your own post.
+        // --- Action menus (three-dots button or long-press) ---
+        // The post's menu offers Delete on the user's own post, Report on
+        // everyone else's — or Retract Report when the user already has an
+        // active report against it (issues #304, #176).
         .confirmationDialog("Post", isPresented: $viewModel.showActionSheetForPost, titleVisibility: .hidden) {
             if viewModel.isOwnPost {
                 Button("Delete Post", role: .destructive) {
                     viewModel.deletePost()
                 }
                 .accessibilityIdentifier("DeletePostActionButton")
+            } else if viewModel.isPostReported {
+                Button("Retract Report") {
+                    viewModel.showRetractDialogForPost = true
+                }
+                .accessibilityIdentifier("RetractReportPostActionButton")
             } else {
                 Button("Report Post") {
                     viewModel.showReportSheetForPost = true
@@ -184,7 +203,7 @@ struct PostDetailView: View {
             }
         }
         // The comment menu mirrors the post menu: Delete for the user's own
-        // comments, Report for everyone else's.
+        // comments, Report / Retract Report for everyone else's.
         .confirmationDialog(
             "Comment",
             isPresented: Binding(
@@ -199,12 +218,43 @@ struct PostDetailView: View {
                     viewModel.deleteComment(comment)
                 }
                 .accessibilityIdentifier("DeleteCommentActionButton")
+            } else if viewModel.isCommentReported(comment) {
+                Button("Retract Report") {
+                    viewModel.commentToRetract = comment
+                }
+                .accessibilityIdentifier("RetractReportCommentActionButton")
             } else {
                 Button("Report Comment") {
                     viewModel.commentToReport = comment
                 }
                 .accessibilityIdentifier("ReportCommentActionButton")
             }
+        }
+        // --- Retract-report confirmations (issue #176) ---
+        // Each shows the user's original report reason pre-populated so they
+        // can see what they're retracting.
+        .alert("Retract Report?", isPresented: $viewModel.showRetractDialogForPost) {
+            Button("Retract Report", role: .destructive) {
+                viewModel.retractReportPost()
+            }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("You reported this post with the reason: “\(viewModel.postDetail?.reportReason ?? "")”. Retracting removes your report.")
+        }
+        .alert(
+            "Retract Report?",
+            isPresented: Binding(
+                get: { viewModel.commentToRetract != nil },
+                set: { if !$0 { viewModel.commentToRetract = nil } }
+            ),
+            presenting: viewModel.commentToRetract
+        ) { comment in
+            Button("Retract Report", role: .destructive) {
+                viewModel.retractReportComment(comment)
+            }
+            Button("Cancel", role: .cancel) {}
+        } message: { comment in
+            Text("You reported this comment with the reason: “\(comment.reportReason ?? "")”. Retracting removes your report.")
         }
         // --- Modals and Sheets ---
         .sheet(isPresented: $viewModel.showReportSheetForPost) {
