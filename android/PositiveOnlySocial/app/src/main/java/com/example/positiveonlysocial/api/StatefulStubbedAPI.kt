@@ -365,8 +365,8 @@ class StatefulStubbedAPI : PositiveOnlySocialAPI {
         val post = posts.find { it.postIdentifier == postId }
             ?: return error(404, "No post with that identifier")
 
-        if (post.authorId == user.id) return error(404, "Cannot report own post")
-        if (post.reports.contains(user.id)) return error(404, "Cannot report post twice")
+        if (post.authorId == user.id) return error(400, "Cannot report own post")
+        if (post.reports.contains(user.id)) return error(400, "Cannot report post twice")
 
         post.reports[user.id] = request.reason
         if (post.reports.size > MAX_BEFORE_HIDING_POST) {
@@ -558,8 +558,8 @@ class StatefulStubbedAPI : PositiveOnlySocialAPI {
         val user = getAuthorizedUser(token) ?: return error(401, "Unauthorized")
         val comment = findComment(postId, threadId, commentId) ?: return error(404, "Comment not found")
 
-        if (comment.authorId == user.id) return error(404, "Cannot report own comment")
-        if (comment.reports.contains(user.id)) return error(404, "Already reported")
+        if (comment.authorId == user.id) return error(400, "Cannot report own comment")
+        if (comment.reports.contains(user.id)) return error(400, "Cannot report comment twice")
 
         comment.reports[user.id] = request.reason
         if (comment.reports.size > 5) { // Stub limit
