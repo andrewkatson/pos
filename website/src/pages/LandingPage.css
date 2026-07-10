@@ -72,3 +72,20 @@
   font-size: clamp(1rem, 3vw, 1.25rem);
   color: rgba(255, 255, 255, 0.6);
 }
+
+.landing__footer {
+  display: flex;
+  justify-content: center;
+  padding: 1.5rem;
+}
+
+.landing__footer-link {
+  font-size: 0.85rem;
+  color: rgba(255, 255, 255, 0.5);
+  text-decoration: none;
+}
+
+.landing__footer-link:hover {
+  color: rgba(255, 255, 255, 0.8);
+  text-decoration: underline;
+}

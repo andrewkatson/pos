@@ -6,10 +6,8 @@ import type { ApiError } from '../api/client'
 import { clearSession } from '../api/session'
 import RequirementHints from '../auth/RequirementHints'
 import { getPasswordRequirements, getUsernameRequirements, allMet } from '../auth/requirements'
+import { PRIVACY_POLICY_TEXT } from '../privacyPolicy'
 import './LoginPage.css'
-
-const PRIVACY_POLICY_TEXT =
-  'We collect your username and password for authentication. We do not store your date of birth or any other personal information. We store your posts, comments, and related metadata such as like counts and reports. We also track follower/following relationships and blocked users to maintain the social environment.'
 
 function RegisterPage() {
   const navigate = useNavigate()
@@ -240,5 +238,3 @@ function RegisterPage() {
 }
 
 export default RegisterPage
-
-export { PRIVACY_POLICY_TEXT }

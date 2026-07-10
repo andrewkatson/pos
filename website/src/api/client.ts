@@ -398,6 +398,12 @@ export class ApiClient implements PositiveOnlySocialAPI {
     })
   }
 
+  retractReportPost(postIdentifier: string): Promise<MessageResponse> {
+    return this.request<MessageResponse>('POST', `/posts/${postIdentifier}/report/retract/`, {
+      auth: true,
+    })
+  }
+
   likePost(postIdentifier: string): Promise<MessageResponse> {
     return this.request<MessageResponse>('POST', `/posts/${postIdentifier}/like/`, { auth: true })
   }
@@ -513,6 +519,18 @@ export class ApiClient implements PositiveOnlySocialAPI {
       'POST',
       `/posts/${postIdentifier}/threads/${commentThreadIdentifier}/comments/${commentIdentifier}/report/`,
       { auth: true, body: { reason } },
+    )
+  }
+
+  retractReportComment(
+    postIdentifier: string,
+    commentThreadIdentifier: string,
+    commentIdentifier: string,
+  ): Promise<MessageResponse> {
+    return this.request<MessageResponse>(
+      'POST',
+      `/posts/${postIdentifier}/threads/${commentThreadIdentifier}/comments/${commentIdentifier}/report/retract/`,
+      { auth: true },
     )
   }
 

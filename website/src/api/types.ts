@@ -121,6 +121,13 @@ export interface PostDetails {
   original_image_url?: string | null
   caption: string
   post_likes: number
+  /** Whether the requesting user has liked this post. */
+  is_liked?: boolean
+  /** Whether the requesting user has an active report against this post. */
+  is_reported?: boolean
+  /** The requesting user's own report reason, so a retract dialog can show it
+   * pre-populated (issue #176). Null/absent when they haven't reported it. */
+  report_reason?: string | null
   author_username: string
 }
 
@@ -144,6 +151,13 @@ export interface Comment {
   creation_time: string
   updated_time: string
   comment_likes: number
+  /** Whether the requesting user has liked this comment. */
+  is_liked?: boolean
+  /** Whether the requesting user has an active report against this comment. */
+  is_reported?: boolean
+  /** The requesting user's own report reason, so a retract dialog can show it
+   * pre-populated (issue #176). Null/absent when they haven't reported it. */
+  report_reason?: string | null
 }
 
 export interface UserSearchResult {

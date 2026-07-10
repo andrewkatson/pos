@@ -75,6 +75,9 @@ protocol Networking {
     /// Reports a post for a specific reason.
     func reportPost(sessionManagementToken: String, postIdentifier: String, reason: String) async throws -> Data
 
+    /// Retracts the current user's report against a post (issue #176).
+    func retractReportPost(sessionManagementToken: String, postIdentifier: String) async throws -> Data
+
     /// Likes a post.
     func likePost(sessionManagementToken: String, postIdentifier: String) async throws -> Data
 
@@ -111,6 +114,9 @@ protocol Networking {
 
     /// Reports a comment for a specific reason.
     func reportComment(sessionManagementToken: String, postIdentifier: String, commentThreadIdentifier: String, commentIdentifier: String, reason: String) async throws -> Data
+
+    /// Retracts the current user's report against a comment (issue #176).
+    func retractReportComment(sessionManagementToken: String, postIdentifier: String, commentThreadIdentifier: String, commentIdentifier: String) async throws -> Data
 
     /// Gets a batch of comment threads for a post. Requires auth.
     func getCommentsForPost(sessionManagementToken: String, postIdentifier: String, batch: Int) async throws -> Data

@@ -5,8 +5,9 @@ from PIL import Image
 from ..classifiers.text_classifier import is_text_positive
 from ..classifiers.image_classifier import is_image_positive
 from ..classifiers.classifier_constants import POSITIVE_TEXT, POSITIVE_IMAGE_URL, TEXT_CLASSIFIER_PROMPT, IMAGE_CLASSIFIER_PROMPT
+from ..classifiers.classifier_constants import GENERIC_REASON_CODE, REASON_PHRASES
 from ..classifiers.classifier_utils import (
-    API_GEMINI, API_CLAUDE, API_OPENAI, parse_probability,
+    API_GEMINI, API_CLAUDE, API_OPENAI, parse_probability, parse_probability_and_rule,
 )
 from .test_parent_case import PositiveOnlySocialTestCase
 
@@ -67,6 +68,30 @@ class TestClassifiers(PositiveOnlySocialTestCase):
         self.assertIsNone(parse_probability(""))
         self.assertIsNone(parse_probability("100"))
         self.assertIsNone(parse_probability("1.5"))
+
+    def test_parse_probability_and_rule_pair_format(self):
+        self.assertEqual(parse_probability_and_rule("0.15,3"), (0.15, 3))
+        self.assertEqual(parse_probability_and_rule("0.15, 5"), (0.15, 5))
+        # A cited rule of 0 means "no specific rule".
+        self.assertEqual(parse_probability_and_rule("0.95,0"), (0.95, None))
+        self.assertEqual(parse_probability_and_rule("1.00,0"), (1.0, None))
+
+    def test_parse_probability_and_rule_takes_last_pair(self):
+        # A response that echoes the prompt's example before answering must
+        # parse the answer, not the echo.
+        self.assertEqual(parse_probability_and_rule("For example: 0.95,0 ... my answer is 0.2,6"), (0.2, 6))
+
+    def test_parse_probability_and_rule_falls_back_to_bare_score(self):
+        # A model that ignores the rule instruction still yields a probability.
+        self.assertEqual(parse_probability_and_rule("0.85"), (0.85, None))
+        self.assertEqual(parse_probability_and_rule("Probability: 0.4"), (0.4, None))
+        self.assertEqual(parse_probability_and_rule("yes"), (None, None))
+
+    def test_parse_probability_and_rule_skips_out_of_range_pairs(self):
+        # "10,3" is not a valid probability; the earlier valid pair wins.
+        self.assertEqual(parse_probability_and_rule("0.3,2 then 10,3"), (0.3, 2))
+        # A two-digit "rule" is not a rule citation at all.
+        self.assertEqual(parse_probability_and_rule("0.5,42"), (0.5, None))
 
     # ------------------------------------------------------------------ #
     # Text classifier – testing mode                                       #
@@ -244,6 +269,88 @@ class TestClassifiers(PositiveOnlySocialTestCase):
             result = is_text_positive("some text")
         self.assertFalse(result)
         self.assertFalse(result.appealable)
+
+    # ------------------------------------------------------------------ #
+    # Rejection reasons                                                    #
+    # ------------------------------------------------------------------ #
+
+    @patch.dict(os.environ, {"GEMINI_API_KEY": "fake_key"}, clear=True)
+    def test_rejection_reason_from_single_ai(self):
+        with patch.dict(_TEXT_DISPATCH, {API_GEMINI: MagicMock(return_value=(REJECT_SCORE, 5))}):
+            result = is_text_positive("some text")
+        self.assertFalse(result)
+        self.assertEqual(result.reason_code, 'hate_speech')
+        self.assertEqual(result.public_reason_code(), 'hate_speech')
+        self.assertEqual(result.public_reason(), 'may contain hate speech')
+
+    @patch.dict(os.environ, {"GEMINI_API_KEY": "fake_key"}, clear=True)
+    def test_rejection_without_cited_rule_uses_generic_reason(self):
+        # A bare score (legacy mocks / models that ignore the rule instruction)
+        # still rejects, with the generic reason.
+        with patch.dict(_TEXT_DISPATCH, {API_GEMINI: MagicMock(return_value=REJECT_SCORE)}):
+            result = is_text_positive("some text")
+        self.assertFalse(result)
+        self.assertIsNone(result.reason_code)
+        self.assertEqual(result.public_reason_code(), GENERIC_REASON_CODE)
+        self.assertEqual(result.public_reason(), REASON_PHRASES[GENERIC_REASON_CODE])
+
+    @patch.dict(os.environ, {"GEMINI_API_KEY": "fake_key"}, clear=True)
+    def test_allowed_result_has_no_reason(self):
+        with patch.dict(_TEXT_DISPATCH, {API_GEMINI: MagicMock(return_value=(ALLOW_SCORE, 2))}):
+            result = is_text_positive("some text")
+        self.assertTrue(result)
+        self.assertIsNone(result.reason_code)
+
+    @patch.dict(os.environ, _ALL_AI_KEYS, clear=True)
+    @patch("user_system.classifiers.classifier_utils.random")
+    def test_rejection_reason_majority_wins(self, mock_random):
+        mock_random.sample.return_value = [API_GEMINI, API_CLAUDE, API_OPENAI]
+        mocks = {
+            API_GEMINI: MagicMock(return_value=(MIDDLE_SCORE, 2)),
+            API_CLAUDE: MagicMock(return_value=(REJECT_SCORE, 5)),
+            API_OPENAI: MagicMock(return_value=(REJECT_SCORE, 5)),
+        }
+        with patch.dict(_TEXT_DISPATCH, mocks):
+            result = is_text_positive("some text")
+        self.assertFalse(result)
+        self.assertEqual(result.reason_code, 'hate_speech')
+
+    @patch.dict(os.environ, _ALL_AI_KEYS, clear=True)
+    @patch("user_system.classifiers.classifier_utils.random")
+    def test_rejection_reason_tie_broken_by_decisive_ai(self, mock_random):
+        mock_random.sample.return_value = [API_GEMINI, API_CLAUDE, API_OPENAI]
+        mocks = {
+            API_GEMINI: MagicMock(return_value=(MIDDLE_SCORE, 2)),
+            API_CLAUDE: MagicMock(return_value=(MIDDLE_SCORE, 6)),
+            API_OPENAI: MagicMock(return_value=(MIDDLE_SCORE, 6)),
+        }
+        with patch.dict(_TEXT_DISPATCH, mocks):
+            result = is_text_positive("some text")
+        self.assertFalse(result)
+        self.assertTrue(result.appealable)
+        self.assertEqual(result.reason_code, 'harassment')
+
+    @patch.dict(os.environ, _ALL_AI_KEYS, clear=True)
+    @patch("user_system.classifiers.classifier_utils.random")
+    def test_rejection_reason_single_citation_wins(self, mock_random):
+        # When only one AI cites a rule, that rule is the reason even though
+        # the others scored without citing anything.
+        mock_random.sample.return_value = [API_GEMINI, API_CLAUDE, API_OPENAI]
+        mocks = {
+            API_GEMINI: MagicMock(return_value=(MIDDLE_SCORE, None)),
+            API_CLAUDE: MagicMock(return_value=(MIDDLE_SCORE, 7)),
+            API_OPENAI: MagicMock(return_value=(MIDDLE_SCORE, None)),
+        }
+        with patch.dict(_TEXT_DISPATCH, mocks):
+            result = is_text_positive("some text")
+        self.assertFalse(result)
+        self.assertEqual(result.reason_code, 'bullying')
+
+    @patch.dict(os.environ, {"TESTING": "True"}, clear=True)
+    def test_testing_mode_rejection_has_generic_reason(self):
+        result = is_text_positive("negative random text")
+        self.assertFalse(result)
+        self.assertEqual(result.public_reason_code(), GENERIC_REASON_CODE)
 
     # ------------------------------------------------------------------ #
     # Text classifier – API errors are skipped                             #
@@ -494,6 +601,8 @@ class TestClassifiers(PositiveOnlySocialTestCase):
             "misinformation",
             "begins sad but ends on a happy or hopeful note",
             "between 0.00 and 1.00",
+            "separated by a comma",
+            "or 0 if none",
         ]:
             self.assertIn(phrase, TEXT_CLASSIFIER_PROMPT, msg=f"Missing in TEXT_CLASSIFIER_PROMPT: {phrase!r}")
 
@@ -504,5 +613,7 @@ class TestClassifiers(PositiveOnlySocialTestCase):
             "misinformation",
             "begins sad but ends on a happy or hopeful note",
             "between 0.00 and 1.00",
+            "separated by a comma",
+            "or 0 if none",
         ]:
             self.assertIn(phrase, IMAGE_CLASSIFIER_PROMPT, msg=f"Missing in IMAGE_CLASSIFIER_PROMPT: {phrase!r}")

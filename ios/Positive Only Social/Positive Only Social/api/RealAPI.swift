@@ -439,7 +439,16 @@ final class RealAPI: Networking {
             authToken: sessionManagementToken
         )
     }
-    
+
+    /// Retracts the current user's report against a post (issue #176).
+    func retractReportPost(sessionManagementToken: String, postIdentifier: String) async throws -> Data {
+        return try await performRequest(
+            pathSegments: [GVOAppConstants.pathSegmentPosts, postIdentifier, GVOAppConstants.pathSegmentReport, GVOAppConstants.pathSegmentRetract],
+            method: .post,
+            authToken: sessionManagementToken
+        )
+    }
+
     /// Likes a post.
     func likePost(sessionManagementToken: String, postIdentifier: String) async throws -> Data {
         // This is a POST request, no body, with auth. ID is in path.
@@ -555,6 +564,15 @@ final class RealAPI: Networking {
             pathSegments: [GVOAppConstants.pathSegmentPosts, postIdentifier, GVOAppConstants.pathSegmentThreads, commentThreadIdentifier, GVOAppConstants.pathSegmentComments, commentIdentifier, GVOAppConstants.pathSegmentReport],
             method: .post,
             body: requestBody,
+            authToken: sessionManagementToken
+        )
+    }
+
+    /// Retracts the current user's report against a comment (issue #176).
+    func retractReportComment(sessionManagementToken: String, postIdentifier: String, commentThreadIdentifier: String, commentIdentifier: String) async throws -> Data {
+        return try await performRequest(
+            pathSegments: [GVOAppConstants.pathSegmentPosts, postIdentifier, GVOAppConstants.pathSegmentThreads, commentThreadIdentifier, GVOAppConstants.pathSegmentComments, commentIdentifier, GVOAppConstants.pathSegmentReport, GVOAppConstants.pathSegmentRetract],
+            method: .post,
             authToken: sessionManagementToken
         )
     }

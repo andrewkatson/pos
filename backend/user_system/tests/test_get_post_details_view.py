@@ -81,6 +81,33 @@ class GetPostDetailsTests(PositiveOnlySocialTestCase):
         self.assertEqual(data[Fields.post_likes], 0)
         # The author has not liked their own post
         self.assertFalse(data[Fields.is_liked])
+        # The author cannot have reported their own post
+        self.assertFalse(data[Fields.is_reported])
+        self.assertIsNone(data[Fields.report_reason])
+
+    def test_is_reported_and_reason_reflect_requesters_own_report(self):
+        """
+        Tests that is_reported/report_reason surface the requesting user's own
+        report so clients can offer "retract report" with the reason pre-filled.
+        """
+        reporter = self.make_user_with_prefix(prefix='reporter')
+        reporter_header = {'HTTP_AUTHORIZATION': f'Bearer {reporter[Fields.session_management_token]}'}
+
+        report_url = reverse('report_post', kwargs={'post_identifier': str(self.post_identifier)})
+        report_response = self.client.post(
+            report_url, data={'reason': 'Too negative'}, content_type='application/json', **reporter_header
+        )
+        self.assertEqual(report_response.status_code, 200)
+
+        # The reporter sees their report reflected...
+        data = self.client.get(self.url, **reporter_header).json()
+        self.assertTrue(data[Fields.is_reported])
+        self.assertEqual(data[Fields.report_reason], 'Too negative')
+
+        # ...but the author (who did not report) does not.
+        author_data = self.client.get(self.url, **self.header).json()
+        self.assertFalse(author_data[Fields.is_reported])
+        self.assertIsNone(author_data[Fields.report_reason])
 
     def test_text_only_post_returns_null_image_url(self):
         """

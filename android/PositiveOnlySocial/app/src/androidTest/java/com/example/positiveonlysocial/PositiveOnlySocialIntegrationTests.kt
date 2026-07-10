@@ -480,7 +480,9 @@ class PositiveOnlySocialIntegrationTests {
         // Make comment via the composer dialog
         composeTestRule.onNodeWithText("Add a comment...").performClick()
         composeTestRule.onNodeWithText("Write a comment...").performTextInput("Comment On a Post")
-        composeTestRule.onNodeWithText("Post").performClick()
+        // Target the dialog's clickable Post button: the post-detail top bar
+        // title is also "Post", so text alone matches two nodes.
+        composeTestRule.onNode(hasText("Post") and hasClickAction()).performClick()
 
         // Verify comment appears
         composeTestRule.onNodeWithText("Comment On a Post").assertExists()
@@ -491,7 +493,7 @@ class PositiveOnlySocialIntegrationTests {
         // into view first so its tap isn't injected off-screen.
         composeTestRule.onNodeWithText("Reply").performScrollTo().performClick()
         composeTestRule.onNodeWithText("Write a comment...").performTextInput("Comment On a Thread")
-        composeTestRule.onNodeWithText("Post").performClick()
+        composeTestRule.onNode(hasText("Post") and hasClickAction()).performClick()
 
         // Now we logout
         Espresso.pressBack()

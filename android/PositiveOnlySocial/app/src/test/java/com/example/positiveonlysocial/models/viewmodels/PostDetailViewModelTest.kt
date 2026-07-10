@@ -145,6 +145,41 @@ class PostDetailViewModelTest {
     }
 
     @Test
+    fun `retractReportPost calls api and reloads data`() = runTest {
+        whenever(api.retractReportPost("token123", postIdentifier)).thenReturn(
+            Response.success(GenericResponse("Post report retracted", null))
+        )
+
+        viewModel.retractReportPost()
+
+        verify(api).retractReportPost("token123", postIdentifier)
+        // The reload refreshes the server-backed isReported/reportReason state
+        // (getPostDetails: once in init, once after the retraction).
+        verify(api, org.mockito.kotlin.times(2)).getPostDetails("token123", postIdentifier)
+    }
+
+    @Test
+    fun `retractReportComment calls api, clears the local flag, and reloads`() = runTest {
+        whenever(api.retractReportComment(any(), any(), any(), any())).thenReturn(
+            Response.success(GenericResponse("Comment report retracted", null))
+        )
+        whenever(api.reportComment(any(), any(), any(), any(), any())).thenReturn(
+            Response.success(GenericResponse("Comment reported", null))
+        )
+        val otherComment = CommentViewData("c1", "t1", "someoneelse", "body", 0, false, Date())
+
+        // Report first so the local reported flag is set...
+        viewModel.reportComment(otherComment, "t1", "negative")
+        assertEquals(setOf("c1"), viewModel.reportedCommentIds.value)
+
+        // ...then retracting clears it again.
+        viewModel.retractReportComment(otherComment, "t1")
+
+        verify(api).retractReportComment("token123", postIdentifier, "t1", "c1")
+        assertFalse(viewModel.reportedCommentIds.value.contains("c1"))
+    }
+
+    @Test
     fun `toggleCommentCollapsed adds then removes the comment id`() = runTest {
         // Starts uncollapsed.
         assertFalse(viewModel.collapsedCommentIds.value.contains("c1"))

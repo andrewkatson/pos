@@ -121,6 +121,11 @@ data class Post(
     // Whether the current user has liked this post. Only the post-details endpoint
     // populates this; feed endpoints omit it, so it defaults to false.
     @SerializedName("is_liked") val isLiked: Boolean = false,
+    // Whether the current user has an active report against this post, plus
+    // their own report reason so the retract dialog can show it pre-populated
+    // (issue #176). Only the post-details endpoint populates these.
+    @SerializedName("is_reported") val isReported: Boolean = false,
+    @SerializedName("report_reason") val reportReason: String? = null,
     // The full-resolution original image URL, used as a fallback when the
     // compressed `imageUrl` fails to load. The compressed copy is produced by an
     // async Lambda, so a just-posted (or recently hidden-pending-appeal) image may
@@ -152,7 +157,11 @@ data class CommentDto(
     @SerializedName("creation_time") val creationTime: String,
     @SerializedName("updated_time") val updatedTime: String,
     @SerializedName("comment_likes") val likeCount: Int,
-    @SerializedName("is_liked") val isLiked: Boolean = false
+    @SerializedName("is_liked") val isLiked: Boolean = false,
+    // Whether the current user has an active report against this comment, plus
+    // their own report reason for the pre-populated retract dialog (issue #176).
+    @SerializedName("is_reported") val isReported: Boolean = false,
+    @SerializedName("report_reason") val reportReason: String? = null
 )
 
 // --- User/Profile DTOs ---
@@ -222,7 +231,11 @@ data class CommentViewData(
     val body: String,
     val likeCount: Int,
     val isLiked: Boolean, // Whether the current user has liked this comment
-    val createdDate: Date // Using Date for now, might need conversion from String
+    val createdDate: Date, // Using Date for now, might need conversion from String
+    // Whether the current user has an active report against this comment, and
+    // their reason so the retract dialog can pre-populate it (issue #176).
+    val isReported: Boolean = false,
+    val reportReason: String? = null
 )
 
 data class CommentThreadViewData(
