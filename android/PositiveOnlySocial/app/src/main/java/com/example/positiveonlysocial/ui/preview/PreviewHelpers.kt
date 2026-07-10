@@ -230,6 +230,18 @@ class MockPositiveOnlySocialAPI : PositiveOnlySocialAPI {
         )
     }
 
+    override suspend fun retractReportPost(
+        token: String,
+        postId: String
+    ): Response<GenericResponse> {
+        return Response.success(
+            GenericResponse(
+                message = "Post report retracted",
+                error = null
+            )
+        )
+    }
+
     override suspend fun likePost(token: String, postId: String): Response<GenericResponse> {
         return Response.success(
             GenericResponse(
@@ -327,6 +339,20 @@ class MockPositiveOnlySocialAPI : PositiveOnlySocialAPI {
         return Response.success(
             GenericResponse(
                 message = "Comment reported",
+                error = null
+            )
+        )
+    }
+
+    override suspend fun retractReportComment(
+        token: String,
+        postId: String,
+        threadId: String,
+        commentId: String
+    ): Response<GenericResponse> {
+        return Response.success(
+            GenericResponse(
+                message = "Comment report retracted",
                 error = null
             )
         )

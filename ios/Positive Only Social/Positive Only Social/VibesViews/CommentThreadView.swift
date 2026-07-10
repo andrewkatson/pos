@@ -23,7 +23,7 @@ struct CommentThreadView: View {
                if let rootComment = visibleComments.first {
                    // Show the root comment
                    CommentRowView(comment: rootComment,
-                                  isReported: viewModel.reportedCommentIds.contains(rootComment.id),
+                                  isReported: viewModel.isCommentReported(rootComment),
                                   isOwn: viewModel.isOwnComment(rootComment),
                                   isCollapsed: viewModel.collapsedCommentIds.contains(rootComment.id),
                                   onToggleCollapse: {
@@ -59,7 +59,7 @@ struct CommentThreadView: View {
                    VStack(alignment: .leading, spacing: 0) {
                        ForEach(visibleComments.dropFirst()) { reply in
                            CommentRowView(comment: reply,
-                                          isReported: viewModel.reportedCommentIds.contains(reply.id),
+                                          isReported: viewModel.isCommentReported(reply),
                                           isOwn: viewModel.isOwnComment(reply),
                                           isCollapsed: viewModel.collapsedCommentIds.contains(reply.id),
                                           onToggleCollapse: {

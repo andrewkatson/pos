@@ -140,6 +140,10 @@ struct MockedAPI: Networking {
         return try encodeGenericSuccess()
     }
 
+    func retractReportPost(sessionManagementToken: String, postIdentifier: String) async throws -> Data {
+        return try encodeGenericSuccess()
+    }
+
     func likePost(sessionManagementToken: String, postIdentifier: String) async throws -> Data {
         return try encodeGenericSuccess()
     }
@@ -213,6 +217,10 @@ struct MockedAPI: Networking {
     }
 
     func reportComment(sessionManagementToken: String, postIdentifier: String, commentThreadIdentifier: String, commentIdentifier: String, reason: String) async throws -> Data {
+        return try encodeGenericSuccess()
+    }
+
+    func retractReportComment(sessionManagementToken: String, postIdentifier: String, commentThreadIdentifier: String, commentIdentifier: String) async throws -> Data {
         return try encodeGenericSuccess()
     }
 

@@ -65,6 +65,14 @@ class PostDetailViewModel(
     private val _commentForAction = MutableStateFlow<CommentViewData?>(null)
     val commentForAction: StateFlow<CommentViewData?> = _commentForAction.asStateFlow()
 
+    // Drives the retract-report confirmation for the post / a comment. The
+    // dialog shows the user's original report reason pre-populated (issue #176).
+    private val _showRetractDialogForPost = MutableStateFlow(false)
+    val showRetractDialogForPost: StateFlow<Boolean> = _showRetractDialogForPost.asStateFlow()
+
+    private val _commentToRetract = MutableStateFlow<CommentViewData?>(null)
+    val commentToRetract: StateFlow<CommentViewData?> = _commentToRetract.asStateFlow()
+
     // Set once the post has been deleted so the screen can pop back — the post
     // no longer exists to display.
     private val _postWasDeleted = MutableStateFlow(false)
@@ -138,6 +146,14 @@ class PostDetailViewModel(
 
     fun setCommentForAction(comment: CommentViewData?) {
         _commentForAction.value = comment
+    }
+
+    fun setShowRetractDialogForPost(show: Boolean) {
+        _showRetractDialogForPost.value = show
+    }
+
+    fun setCommentToRetract(comment: CommentViewData?) {
+        _commentToRetract.value = comment
     }
 
     fun dismissAlert() {
@@ -234,6 +250,8 @@ class PostDetailViewModel(
                                 body = c.body,
                                 likeCount = c.likeCount,
                                 isLiked = c.isLiked,
+                                isReported = c.isReported,
+                                reportReason = c.reportReason,
                                 createdDate = parseBackendDate(c.creationTime) ?: Date()
                             )
                         }
@@ -317,11 +335,41 @@ class PostDetailViewModel(
                 val response = api.reportPost(userSession.sessionToken, postIdentifier, ReportRequest(reason))
                 if (response.isSuccessful) {
                     _alertMessage.value = "Post reported successfully."
+                    // Reload so the server-backed isReported/reportReason state
+                    // (used by the action menu and retract dialog) refreshes.
+                    loadAllData()
                 } else {
                     _alertMessage.value = ApiErrors.messageFor(response, fallback = "Failed to report the post. Please try again.")
                 }
             } catch (e: Exception) {
                 Log.e(TAG, "Failed to report post", e)
+                _alertMessage.value = ApiErrors.messageFor(e, fallback = "Something went wrong. Please try again.")
+            }
+        }
+    }
+
+    /**
+     * Retracts the user's own report against the post (issue #176), then reloads
+     * so the isReported/reportReason state refreshes.
+     */
+    fun retractReportPost() {
+        viewModelScope.launch {
+            try {
+                val userSession = keychainHelper.load(UserSession::class.java, service, account)
+                if (userSession == null) {
+                    Log.e(TAG, "No active session found — cannot perform action")
+                    _alertMessage.value = "Not logged in."
+                    return@launch
+                }
+                val response = api.retractReportPost(userSession.sessionToken, postIdentifier)
+                if (response.isSuccessful) {
+                    _alertMessage.value = "Report retracted."
+                    loadAllData()
+                } else {
+                    _alertMessage.value = ApiErrors.messageFor(response, fallback = "Failed to retract the report. Please try again.")
+                }
+            } catch (e: Exception) {
+                Log.e(TAG, "Failed to retract post report", e)
                 _alertMessage.value = ApiErrors.messageFor(e, fallback = "Something went wrong. Please try again.")
             }
         }
@@ -441,11 +489,42 @@ class PostDetailViewModel(
                 if (response.isSuccessful) {
                     _reportedCommentIds.value = _reportedCommentIds.value + comment.id
                     _alertMessage.value = "Comment reported successfully."
+                    // Reload so the server-backed isReported/reportReason state
+                    // (used by the action menu and retract dialog) refreshes.
+                    loadAllData()
                 } else {
                     _alertMessage.value = ApiErrors.messageFor(response, fallback = "Failed to report the comment. Please try again.")
                 }
             } catch (e: Exception) {
                 Log.e(TAG, "Failed to report comment", e)
+                _alertMessage.value = ApiErrors.messageFor(e, fallback = "Something went wrong. Please try again.")
+            }
+        }
+    }
+
+    /**
+     * Retracts the user's own report against a comment (issue #176), then
+     * reloads so the isReported/reportReason state refreshes.
+     */
+    fun retractReportComment(comment: CommentViewData, threadId: String) {
+        viewModelScope.launch {
+            try {
+                val userSession = keychainHelper.load(UserSession::class.java, service, account)
+                if (userSession == null) {
+                    Log.e(TAG, "No active session found — cannot perform action")
+                    _alertMessage.value = "Not logged in."
+                    return@launch
+                }
+                val response = api.retractReportComment(userSession.sessionToken, postIdentifier, threadId, comment.id)
+                if (response.isSuccessful) {
+                    _reportedCommentIds.value = _reportedCommentIds.value - comment.id
+                    _alertMessage.value = "Report retracted."
+                    loadAllData()
+                } else {
+                    _alertMessage.value = ApiErrors.messageFor(response, fallback = "Failed to retract the report. Please try again.")
+                }
+            } catch (e: Exception) {
+                Log.e(TAG, "Failed to retract comment report", e)
                 _alertMessage.value = ApiErrors.messageFor(e, fallback = "Something went wrong. Please try again.")
             }
         }

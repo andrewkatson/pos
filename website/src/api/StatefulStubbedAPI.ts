@@ -79,7 +79,8 @@ interface PostMock {
   hidden: boolean
   hiddenReason: string
   likes: Set<string>
-  reports: Set<string>
+  /** Reporting user id -> their reason, so retract flows can show the reason. */
+  reports: Map<string, string>
 }
 
 interface CommentMock {
@@ -90,7 +91,8 @@ interface CommentMock {
   hidden: boolean
   hiddenReason: string
   likes: Set<string>
-  reports: Set<string>
+  /** Reporting user id -> their reason, so retract flows can show the reason. */
+  reports: Map<string, string>
 }
 
 interface AppealMock {
@@ -409,7 +411,7 @@ export class StatefulStubbedAPI implements PositiveOnlySocialAPI {
       hidden: false,
       hiddenReason: '',
       likes: new Set(),
-      reports: new Set(),
+      reports: new Map(),
     }
     this.posts.push(post)
     return { post_identifier: post.postIdentifier }
@@ -425,7 +427,7 @@ export class StatefulStubbedAPI implements PositiveOnlySocialAPI {
     return { message: 'Post deleted' }
   }
 
-  async reportPost(postIdentifier: string, _reason: string): Promise<MessageResponse> {
+  async reportPost(postIdentifier: string, reason: string): Promise<MessageResponse> {
     const user = this.requireUser()
     const post = this.findPost(postIdentifier)
     if (post.authorId === user.id) {
@@ -434,12 +436,31 @@ export class StatefulStubbedAPI implements PositiveOnlySocialAPI {
     if (post.reports.has(user.id)) {
       throw new ApiError(400, 'Cannot report post twice')
     }
-    post.reports.add(user.id)
+    post.reports.set(user.id, reason)
     if (post.reports.size > MAX_BEFORE_HIDING_POST) {
       post.hidden = true
       post.hiddenReason = 'reports'
     }
     return { message: 'Post reported' }
+  }
+
+  async retractReportPost(postIdentifier: string): Promise<MessageResponse> {
+    const user = this.requireUser()
+    const post = this.findPost(postIdentifier)
+    if (!post.reports.has(user.id)) {
+      throw new ApiError(400, 'Post not reported yet')
+    }
+    post.reports.delete(user.id)
+    // Un-hide only when reports were what hid it, mirroring the backend.
+    if (
+      post.hidden &&
+      post.hiddenReason === 'reports' &&
+      post.reports.size <= MAX_BEFORE_HIDING_POST
+    ) {
+      post.hidden = false
+      post.hiddenReason = ''
+    }
+    return { message: 'Post report retracted' }
   }
 
   async likePost(postIdentifier: string): Promise<MessageResponse> {
@@ -520,6 +541,7 @@ export class StatefulStubbedAPI implements PositiveOnlySocialAPI {
   }
 
   async getPostDetails(postIdentifier: string): Promise<PostDetails> {
+    const user = this.requireUser()
     const post = this.findPost(postIdentifier)
     const author = this.users.find((u) => u.id === post.authorId)
     return {
@@ -528,6 +550,9 @@ export class StatefulStubbedAPI implements PositiveOnlySocialAPI {
       original_image_url: post.imageUrl,
       caption: post.caption,
       post_likes: post.likes.size,
+      is_liked: post.likes.has(user.id),
+      is_reported: post.reports.has(user.id),
+      report_reason: post.reports.get(user.id) ?? null,
       author_username: author ? author.username : '',
     }
   }
@@ -556,7 +581,7 @@ export class StatefulStubbedAPI implements PositiveOnlySocialAPI {
       hidden: false,
       hiddenReason: '',
       likes: new Set(),
-      reports: new Set(),
+      reports: new Map(),
     }
     thread.comments.push(comment)
     return {
@@ -585,7 +610,7 @@ export class StatefulStubbedAPI implements PositiveOnlySocialAPI {
       hidden: false,
       hiddenReason: '',
       likes: new Set(),
-      reports: new Set(),
+      reports: new Map(),
     }
     thread.comments.push(comment)
     return { comment_identifier: comment.commentIdentifier }
@@ -606,7 +631,7 @@ export class StatefulStubbedAPI implements PositiveOnlySocialAPI {
     commentThreadIdentifier: string,
     batch: number,
   ): Promise<Comment[]> {
-    this.requireUser()
+    const user = this.requireUser()
     const thread = this.commentThreads.find(
       (t) => t.threadIdentifier === commentThreadIdentifier,
     )
@@ -626,6 +651,9 @@ export class StatefulStubbedAPI implements PositiveOnlySocialAPI {
         creation_time: time,
         updated_time: time,
         comment_likes: c.likes.size,
+        is_liked: c.likes.has(user.id),
+        is_reported: c.reports.has(user.id),
+        report_reason: c.reports.get(user.id) ?? null,
       }
     })
   }
@@ -685,7 +713,7 @@ export class StatefulStubbedAPI implements PositiveOnlySocialAPI {
     postIdentifier: string,
     commentThreadIdentifier: string,
     commentIdentifier: string,
-    _reason: string,
+    reason: string,
   ): Promise<MessageResponse> {
     const user = this.requireUser()
     const comment = this.findComment(postIdentifier, commentThreadIdentifier, commentIdentifier)
@@ -695,12 +723,35 @@ export class StatefulStubbedAPI implements PositiveOnlySocialAPI {
     if (comment.reports.has(user.id)) {
       throw new ApiError(400, 'Cannot report comment twice')
     }
-    comment.reports.add(user.id)
+    comment.reports.set(user.id, reason)
     if (comment.reports.size > MAX_BEFORE_HIDING_COMMENT) {
       comment.hidden = true
       comment.hiddenReason = 'reports'
     }
     return { message: 'Comment reported' }
+  }
+
+  async retractReportComment(
+    postIdentifier: string,
+    commentThreadIdentifier: string,
+    commentIdentifier: string,
+  ): Promise<MessageResponse> {
+    const user = this.requireUser()
+    const comment = this.findComment(postIdentifier, commentThreadIdentifier, commentIdentifier)
+    if (!comment.reports.has(user.id)) {
+      throw new ApiError(400, 'Comment not reported yet')
+    }
+    comment.reports.delete(user.id)
+    // Un-hide only when reports were what hid it, mirroring the backend.
+    if (
+      comment.hidden &&
+      comment.hiddenReason === 'reports' &&
+      comment.reports.size <= MAX_BEFORE_HIDING_COMMENT
+    ) {
+      comment.hidden = false
+      comment.hiddenReason = ''
+    }
+    return { message: 'Comment report retracted' }
   }
 
   // ---------------------------------------------------------------------------

@@ -375,6 +375,22 @@ final class StatefulStubbedAPI: Networking {
         return try createEmptySuccessResponse()
     }
 
+    func retractReportPost(sessionManagementToken: String, postIdentifier: String) async throws -> Data {
+        await simulateNetwork()
+        guard let retractor = findUser(bySessionToken: sessionManagementToken) else { throw APIError.badServerResponse(statusCode: 400) }
+        guard let postIndex = posts.firstIndex(where: { $0.postIdentifier == postIdentifier }) else { throw APIError.badServerResponse(statusCode: 400) }
+        guard let reportIndex = posts[postIndex].reports.firstIndex(where: { $0.username == retractor.username }) else { throw APIError.badServerResponse(statusCode: 400) }
+
+        posts[postIndex].reports.remove(at: reportIndex)
+        // Un-hide only when reports were what hid it, mirroring the backend.
+        if posts[postIndex].isHidden && posts[postIndex].hiddenReason == "reports"
+            && posts[postIndex].reports.count <= maxReportsBeforeHiding {
+            posts[postIndex].isHidden = false
+            posts[postIndex].hiddenReason = ""
+        }
+        return try createEmptySuccessResponse()
+    }
+
     func likePost(sessionManagementToken: String, postIdentifier: String) async throws -> Data {
         await simulateNetwork()
         guard let liker = findUser(bySessionToken: sessionManagementToken) else { throw APIError.badServerResponse(statusCode: 400) }
@@ -541,8 +557,27 @@ final class StatefulStubbedAPI: Networking {
         await simulateNetwork()
         guard let user = findUser(bySessionToken: sessionManagementToken) else { throw APIError.badServerResponse(statusCode: 401) }
         guard let post = findPost(byIdentifier: postIdentifier) else { throw APIError.badServerResponse(statusCode: 400) }
-        struct Fields: Codable { let post_identifier: String; let image_url: String?; let caption: String; let post_likes: Int; let is_liked: Bool; let author_username: String }
-        let fields = Fields(post_identifier: post.postIdentifier, image_url: post.imageURL, caption: post.caption, post_likes: post.likes.count, is_liked: post.likes.contains(user.username), author_username: users.first(where: {$0.id == post.authorId})?.username ?? "Unknown User")
+        struct Fields: Codable {
+            let post_identifier: String
+            let image_url: String?
+            let caption: String
+            let post_likes: Int
+            let is_liked: Bool
+            let is_reported: Bool
+            let report_reason: String?
+            let author_username: String
+        }
+        let userReport = post.reports.first(where: { $0.username == user.username })
+        let fields = Fields(
+            post_identifier: post.postIdentifier,
+            image_url: post.imageURL,
+            caption: post.caption,
+            post_likes: post.likes.count,
+            is_liked: post.likes.contains(user.username),
+            is_reported: userReport != nil,
+            report_reason: userReport?.reason,
+            author_username: users.first(where: {$0.id == post.authorId})?.username ?? "Unknown User"
+        )
         return try createSerializedResponse(fields: fields)
     }
 
@@ -625,6 +660,22 @@ final class StatefulStubbedAPI: Networking {
         return try createEmptySuccessResponse()
     }
 
+    func retractReportComment(sessionManagementToken: String, postIdentifier: String, commentThreadIdentifier: String, commentIdentifier: String) async throws -> Data {
+        await simulateNetwork()
+        guard let retractor = findUser(bySessionToken: sessionManagementToken) else { throw APIError.badServerResponse(statusCode: 400) }
+        guard let commentIndex = comments.firstIndex(where: { $0.commentIdentifier == commentIdentifier }) else { throw APIError.badServerResponse(statusCode: 400) }
+        guard let reportIndex = comments[commentIndex].reports.firstIndex(where: { $0.username == retractor.username }) else { throw APIError.badServerResponse(statusCode: 400) }
+
+        comments[commentIndex].reports.remove(at: reportIndex)
+        // Un-hide only when reports were what hid it, mirroring the backend.
+        if comments[commentIndex].isHidden && comments[commentIndex].hiddenReason == "reports"
+            && comments[commentIndex].reports.count <= maxReportsBeforeHiding {
+            comments[commentIndex].isHidden = false
+            comments[commentIndex].hiddenReason = ""
+        }
+        return try createEmptySuccessResponse()
+    }
+
     func getCommentsForPost(sessionManagementToken: String, postIdentifier: String, batch: Int) async throws -> Data {
         await simulateNetwork()
         guard findUser(bySessionToken: sessionManagementToken) != nil else { throw APIError.badServerResponse(statusCode: 401) }
@@ -655,15 +706,20 @@ final class StatefulStubbedAPI: Networking {
             let creation_time, updated_time: String
             let comment_likes: Int
             let is_liked: Bool
+            let is_reported: Bool
+            let report_reason: String?
         }
 
         let dateFormatter = ISO8601DateFormatter()
         let fieldObjects = relevantComments.map { comment in
-            Fields(comment_identifier: comment.commentIdentifier, body: comment.body, author_username: comment.authorUsername,
+            let userReport = comment.reports.first(where: { $0.username == user.username })
+            return Fields(comment_identifier: comment.commentIdentifier, body: comment.body, author_username: comment.authorUsername,
                    creation_time: dateFormatter.string(from: comment.createdDate),
                    updated_time: dateFormatter.string(from: comment.updatedDate),
                    comment_likes: comment.likes.count,
-                   is_liked: comment.likes.contains(user.username))
+                   is_liked: comment.likes.contains(user.username),
+                   is_reported: userReport != nil,
+                   report_reason: userReport?.reason)
         }
         return try createSerializedListResponse(fieldsList: fieldObjects)
     }
