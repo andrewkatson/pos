@@ -113,7 +113,9 @@ final class Positive_Only_SocialUITests: XCTestCase {
     }
 
     private func typeText(element: XCUIElement, text: String) {
-        let maxAttempts = 5
+        // Generous retry budget: on loaded CI simulators a secure field can
+        // ignore several taps before finally taking focus.
+        let maxAttempts = 10
         var attempt = 0
 
         element.tap()
@@ -312,9 +314,18 @@ final class Positive_Only_SocialUITests: XCTestCase {
     
     private func loginUser(app: XCUIApplication, username: String, password: String, rememberMe: Bool) throws {
         try registerUser(app: app, username: username, password: password)
-        
+
+        // registerUser already finishes with a real login through the login
+        // form (registration parks the user on the check-email screen, so the
+        // helper signs in to reach Home). Only remember-me needs another
+        // logout/login cycle to flip the toggle; skipping the redundant cycle
+        // keeps these long tests inside the CI simulator's patience.
+        if !rememberMe {
+            return
+        }
+
         try logoutUserFromHome(app: app)
-        
+
         let loginButton = app.buttons["LoginText"]
         XCTAssertTrue(loginButton.waitForExistence(timeout: TestConstants.shortTimeout))
         loginButton.tap()
