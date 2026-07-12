@@ -254,8 +254,14 @@ def _issue_email_verification_token(user):
 
     Only the SHA-256 hash is persisted; the raw token is returned so it can be
     embedded in the link emailed to the user (same scheme as password reset).
+
+    Issuing a token means the address is not yet verified, so this is also the
+    single place that flips ``email_verified`` to False. The model default is
+    True (grandfathered-safe), so being explicit here is what actually gates the
+    account created during registration.
     """
     token = secrets.token_urlsafe(32)
+    user.email_verified = False
     user.email_verification_token = hashlib.sha256(token.encode()).hexdigest()
     user.email_verification_token_expires = timezone.now() + timedelta(hours=EMAIL_VERIFICATION_TOKEN_HOURS)
     user.save()
