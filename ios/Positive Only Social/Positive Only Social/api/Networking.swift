@@ -42,7 +42,6 @@ protocol Networking {
     /// Sends a fresh email-verification link, invalidating the previous one.
     func resendVerificationEmail(usernameOrEmail: String) async throws -> Data
 
-    /// Logs the user out.
     func logoutUser(sessionManagementToken: String) async throws -> Data
 
     /// Deletes the user account.
