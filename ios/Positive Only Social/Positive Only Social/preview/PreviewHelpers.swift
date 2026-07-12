@@ -182,17 +182,23 @@ struct MockedAPI: Networking {
             let post_identifier: String
             let image_url: String
             let caption: String
-            let creation_time: String
+            let creationTime: String
             let post_likes: Int
             let is_liked: Bool
             let author_username: String
+
+            enum CodingKeys: String, CodingKey {
+                case post_identifier, image_url, caption
+                case creationTime = "creation_time"
+                case post_likes, is_liked, author_username
+            }
         }
 
         let detail = PostDetailsResponse(
             post_identifier: postIdentifier,
             image_url: "https://picsum.photos/400/400",
             caption: "Detailed view of the post",
-            creation_time: ISO8601DateFormatter().string(from: Date().addingTimeInterval(-2 * 60 * 60)),
+            creationTime: ISO8601DateFormatter().string(from: Date().addingTimeInterval(-2 * 60 * 60)),
             post_likes: 100,
             is_liked: false,
             author_username: "mock_author"

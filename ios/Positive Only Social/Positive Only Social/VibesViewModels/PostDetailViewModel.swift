@@ -164,7 +164,7 @@ final class PostDetailViewModel: ObservableObject {
                     likeCount: postFields.post_likes,
                     isLiked: postFields.is_liked,
                     authorUsername: postFields.author_username,
-                    createdDate: postFields.creation_time.flatMap { Self.parseOptionalDate($0) },
+                    createdDate: postFields.creationTime.flatMap { Self.parseOptionalDate($0) },
                     isReported: postFields.is_reported ?? false,
                     reportReason: postFields.report_reason
                 )
@@ -643,7 +643,7 @@ final class PostDetailViewModel: ObservableObject {
         let caption: String
         /// When the post was created. Optional so responses that predate the
         /// field still decode.
-        let creation_time: String?
+        let creationTime: String?
         let post_likes: Int
         let is_liked: Bool
         /// Whether the current user has an active report against this post, and
@@ -651,6 +651,12 @@ final class PostDetailViewModel: ObservableObject {
         let is_reported: Bool?
         let report_reason: String?
         let author_username: String
+
+        enum CodingKeys: String, CodingKey {
+            case post_identifier, image_url, original_image_url, caption
+            case creationTime = "creation_time"
+            case post_likes, is_liked, is_reported, report_reason, author_username
+        }
     }
     
     private struct ThreadIDFields: Decodable {

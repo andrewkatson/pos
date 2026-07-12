@@ -561,19 +561,25 @@ final class StatefulStubbedAPI: Networking {
             let post_identifier: String
             let image_url: String?
             let caption: String
-            let creation_time: String
+            let creationTime: String
             let post_likes: Int
             let is_liked: Bool
             let is_reported: Bool
             let report_reason: String?
             let author_username: String
+
+            enum CodingKeys: String, CodingKey {
+                case post_identifier, image_url, caption
+                case creationTime = "creation_time"
+                case post_likes, is_liked, is_reported, report_reason, author_username
+            }
         }
         let userReport = post.reports.first(where: { $0.username == user.username })
         let fields = Fields(
             post_identifier: post.postIdentifier,
             image_url: post.imageURL,
             caption: post.caption,
-            creation_time: ISO8601DateFormatter().string(from: post.createdDate),
+            creationTime: ISO8601DateFormatter().string(from: post.createdDate),
             post_likes: post.likes.count,
             is_liked: post.likes.contains(user.username),
             is_reported: userReport != nil,
