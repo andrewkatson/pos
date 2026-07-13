@@ -200,3 +200,16 @@ test('shows suspension message when redirected with the suspended flag', async (
 
   expect(screen.getByText(ACCOUNT_SUSPENDED_MESSAGE)).toBeInTheDocument()
 })
+
+test('shows verify-your-email message when redirected with the verify_email flag', async () => {
+  const { EMAIL_NOT_VERIFIED_MESSAGE } = await import('../api/client')
+  render(
+    <MemoryRouter initialEntries={['/login?verify_email=1']}>
+      <Routes>
+        <Route path="/login" element={<LoginPage />} />
+      </Routes>
+    </MemoryRouter>,
+  )
+
+  expect(screen.getByText(EMAIL_NOT_VERIFIED_MESSAGE)).toBeInTheDocument()
+})

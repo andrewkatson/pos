@@ -14,16 +14,20 @@ import './LoginPage.css'
 
 function LoginPage() {
   const navigate = useNavigate()
-  // Set when a banned account's session was force-cleared and the user was
-  // redirected here (see main.tsx).
+  // Set when a session was force-cleared and the user was redirected here
+  // (see main.tsx): a banned account, or one whose email is unverified.
   const [searchParams] = useSearchParams()
   const [usernameOrEmail, setUsernameOrEmail] = useState('')
   const [password, setPassword] = useState('')
   const [rememberMe, setRememberMe] = useState(false)
-  const [isLoading, setIsLoading] = useState(false)
   const [errorMessage, setErrorMessage] = useState<string | null>(
-    searchParams.has('suspended') ? ACCOUNT_SUSPENDED_MESSAGE : null,
+    searchParams.has('suspended')
+      ? ACCOUNT_SUSPENDED_MESSAGE
+      : searchParams.has('verify_email')
+        ? EMAIL_NOT_VERIFIED_MESSAGE
+        : null,
   )
+  const [isLoading, setIsLoading] = useState(false)
 
   const isFormValid = usernameOrEmail.trim().length > 0 && password.length > 0
 

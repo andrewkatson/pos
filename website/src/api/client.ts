@@ -206,6 +206,7 @@ export class ApiClient implements PositiveOnlySocialAPI {
   private readonly fetchFn: typeof fetch
   private token: string | null
   private onAccountBanned: (() => void) | null = null
+  private onEmailNotVerified: (() => void) | null = null
 
   constructor(options: ApiClientOptions = {}) {
     const envBaseUrl =
@@ -237,6 +238,15 @@ export class ApiClient implements PositiveOnlySocialAPI {
    */
   setOnAccountBanned(handler: (() => void) | null): void {
     this.onAccountBanned = handler
+  }
+
+  /**
+   * Handler invoked when an authenticated request is rejected because the
+   * account's email address is unverified. The session can't do anything
+   * until the emailed link is used, so the app should drop it like a ban.
+   */
+  setOnEmailNotVerified(handler: (() => void) | null): void {
+    this.onEmailNotVerified = handler
   }
 
   private async request<T>(
@@ -292,6 +302,9 @@ export class ApiClient implements PositiveOnlySocialAPI {
           : friendlyStatusMessage(response.status)
       if (options.auth && rawMessage === ACCOUNT_BANNED) {
         this.onAccountBanned?.()
+      }
+      if (options.auth && rawMessage === EMAIL_NOT_VERIFIED) {
+        this.onEmailNotVerified?.()
       }
       const message = sanitizeErrorMessage(rawMessage)
       throw new ApiError(response.status, message)

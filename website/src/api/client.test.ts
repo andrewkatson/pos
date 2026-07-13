@@ -1,5 +1,11 @@
 import { vi, expect, test, describe } from 'vitest'
-import { ACCOUNT_BANNED, ApiClient, ApiError, sanitizeErrorMessage } from './client'
+import {
+  ACCOUNT_BANNED,
+  EMAIL_NOT_VERIFIED,
+  ApiClient,
+  ApiError,
+  sanitizeErrorMessage,
+} from './client'
 
 function jsonResponse(status: number, body: unknown): Response {
   return new Response(JSON.stringify(body), {
@@ -42,6 +48,43 @@ describe('account_banned handling', () => {
     await expect(client.getFeed(0)).rejects.toThrow(ApiError)
 
     expect(onBanned).not.toHaveBeenCalled()
+  })
+})
+
+describe('email_not_verified handling', () => {
+  test('fires onEmailNotVerified when an authenticated call is rejected with email_not_verified', async () => {
+    const fetchFn = vi.fn().mockResolvedValue(jsonResponse(403, { error: EMAIL_NOT_VERIFIED }))
+    const client = new ApiClient({ token: 'sometoken', fetchFn })
+    const onEmailNotVerified = vi.fn()
+    client.setOnEmailNotVerified(onEmailNotVerified)
+
+    await expect(client.getFeed(0)).rejects.toThrow(EMAIL_NOT_VERIFIED)
+
+    expect(onEmailNotVerified).toHaveBeenCalledTimes(1)
+  })
+
+  test('does not fire onEmailNotVerified for unauthenticated calls like login', async () => {
+    const fetchFn = vi.fn().mockResolvedValue(jsonResponse(403, { error: EMAIL_NOT_VERIFIED }))
+    const client = new ApiClient({ fetchFn })
+    const onEmailNotVerified = vi.fn()
+    client.setOnEmailNotVerified(onEmailNotVerified)
+
+    await expect(
+      client.login({ username_or_email: 'ada', password: 'pw', remember_me: false }),
+    ).rejects.toThrow(EMAIL_NOT_VERIFIED)
+
+    expect(onEmailNotVerified).not.toHaveBeenCalled()
+  })
+
+  test('does not fire onEmailNotVerified for other authenticated errors', async () => {
+    const fetchFn = vi.fn().mockResolvedValue(jsonResponse(401, { error: 'Invalid session token' }))
+    const client = new ApiClient({ token: 'sometoken', fetchFn })
+    const onEmailNotVerified = vi.fn()
+    client.setOnEmailNotVerified(onEmailNotVerified)
+
+    await expect(client.getFeed(0)).rejects.toThrow(ApiError)
+
+    expect(onEmailNotVerified).not.toHaveBeenCalled()
   })
 })
 
