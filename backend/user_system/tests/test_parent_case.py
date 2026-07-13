@@ -93,7 +93,13 @@ class PositiveOnlySocialTestCase(TestCase):
         self.assertEqual(response.status_code, 201)
 
         if verify_email:
-            get_user_model().objects.filter(username=username).update(email_verified=True)
+            # Mirror the real verified state: verify_email clears the token
+            # fields when it flips the flag, so the helper does too.
+            get_user_model().objects.filter(username=username).update(
+                email_verified=True,
+                email_verification_token=None,
+                email_verification_token_expires=None,
+            )
 
         response_data = response.json()
         self._store_user_in_dict(username, password, email, response_data)

@@ -184,7 +184,10 @@ struct RegisterView: View {
                 formatter.dateFormat = "yyyy-MM-dd"
                 let dateString = formatter.string(from: dateOfBirth)
                 
-                let responseData = try await api.register(
+                // The response body isn't decoded: the session it carries is
+                // deliberately not kept, and a decode failure would strand a
+                // successfully registered user on the form.
+                _ = try await api.register(
                     username: username,
                     email: email,
                     password: password,
@@ -192,8 +195,6 @@ struct RegisterView: View {
                     ip: "127.0.0.1",
                     dateOfBirth: dateString
                 )
-
-                _ = try JSONDecoder().decode(LoginResponseFields.self, from: responseData)
 
                 // The account can't do anything until the emailed verification
                 // link is used (issue #237), so don't keep the registration
