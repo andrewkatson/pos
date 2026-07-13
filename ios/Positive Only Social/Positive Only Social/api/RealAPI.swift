@@ -95,16 +95,13 @@ final class RealAPI: Networking {
         let verification_token: String
     }
 
-    // TODO: Follow iOS naming conventions — rename `verification_token` to the
-    // camelCase `verificationToken` and add `CodingKeys` (or a
-    // `keyEncodingStrategy`) to map it back to the backend's snake_case JSON.
+    // TODO(#331): adopt camelCase + CodingKeys across every request-body struct
+    // in this file in one pass, mapping back to the backend's snake_case JSON.
     private struct VerifyEmailBody: Encodable {
         let verification_token: String
     }
 
-    // TODO: Follow iOS naming conventions — rename `username_or_email` to the
-    // camelCase `usernameOrEmail` and add `CodingKeys` (or a
-    // `keyEncodingStrategy`) to map it back to the backend's snake_case JSON.
+    // TODO(#331): see above — covered by the same file-wide naming refactor.
     private struct ResendVerificationEmailBody: Encodable {
         let username_or_email: String
     }
@@ -309,10 +306,8 @@ final class RealAPI: Networking {
 
     /// Verifies the account's email address with the token from the welcome email.
     func verifyEmail(verificationToken: String) async throws -> Data {
-        // TODO: Update this initializer label once `VerifyEmailBody` adopts
-        // camelCase field names per iOS naming conventions (see struct above).
-        let body = VerifyEmailBody(verification_token: verificationToken)
-        let requestBody = try encode(body)
+        let verifyEmailBody = VerifyEmailBody(verification_token: verificationToken)
+        let requestBody = try encode(verifyEmailBody)
         return try await performRequest(
             pathSegments: [GVOAppConstants.pathSegmentVerifyEmail],
             method: .post,
@@ -322,10 +317,8 @@ final class RealAPI: Networking {
 
     /// Sends a fresh email-verification link, invalidating the previous one.
     func resendVerificationEmail(usernameOrEmail: String) async throws -> Data {
-        // TODO: Update this initializer label once `ResendVerificationEmailBody`
-        // adopts camelCase field names per iOS naming conventions (see struct above).
-        let body = ResendVerificationEmailBody(username_or_email: usernameOrEmail)
-        let requestBody = try encode(body)
+        let resendVerificationEmailBody = ResendVerificationEmailBody(username_or_email: usernameOrEmail)
+        let requestBody = try encode(resendVerificationEmailBody)
         return try await performRequest(
             pathSegments: [GVOAppConstants.pathSegmentResendVerificationEmail],
             method: .post,
