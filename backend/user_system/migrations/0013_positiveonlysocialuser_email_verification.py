@@ -7,9 +7,10 @@ def mark_existing_users_verified(apps, schema_editor):
 
     The column default below is already True, so existing rows are verified when
     the field is added; this makes the grandfathering explicit and independent of
-    that default."""
+    that default. Filtering to False rows keeps it a no-op in practice instead
+    of rewriting the whole table during deploy."""
     user_model = apps.get_model('user_system', 'PositiveOnlySocialUser')
-    user_model.objects.update(email_verified=True)
+    user_model.objects.filter(email_verified=False).update(email_verified=True)
 
 
 class Migration(migrations.Migration):
