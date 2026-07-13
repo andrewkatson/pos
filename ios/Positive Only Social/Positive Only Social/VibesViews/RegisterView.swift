@@ -184,7 +184,10 @@ struct RegisterView: View {
                 formatter.dateFormat = "yyyy-MM-dd"
                 let dateString = formatter.string(from: dateOfBirth)
                 
-                let responseData = try await api.register(
+                // The response body isn't decoded: the session it carries is
+                // deliberately not kept, and a decode failure would strand a
+                // successfully registered user on the form.
+                _ = try await api.register(
                     username: username,
                     email: email,
                     password: password,
@@ -193,19 +196,12 @@ struct RegisterView: View {
                     dateOfBirth: dateString
                 )
 
-                let loginDetails = try JSONDecoder().decode(LoginResponseFields.self, from: responseData)
-
-                guard let userId = loginDetails.userId else {
-                    throw NSError(domain: "RegisterError", code: 0, userInfo: [NSLocalizedDescriptionKey: "Registration failed: server did not return a user ID."])
-                }
-
-                // Securely save the new session token to the Keychain
-                authManager.login(with: UserSession(sessionToken: loginDetails.sessionManagementToken, username: username, userId: userId, isIdentityVerified: false))
-
-                NSLog("%@", "✅ Registration successful. Session token stored.")
-
-                // Navigate to Home, replacing the stack so the user can't go back.
-                path = NavigationPath(["HomeView"])
+                // The account can't do anything until the emailed verification
+                // link is used (issue #237), so don't keep the registration
+                // session — send the user to the "check your email" screen and
+                // have them log in after verifying.
+                NSLog("%@", "✅ Registration successful. Awaiting email verification.")
+                path.append(CheckEmailRoute(email: email))
 
             } catch let error as APIError {
                 if case .serverError(_, let message) = error {

@@ -62,6 +62,9 @@ struct WelcomeView: View {
                     Text("Unknown Route")
                 }
             }
+            .navigationDestination(for: CheckEmailRoute.self) { route in
+                CheckEmailView(api: api, email: route.email, path: $path)
+            }
         }
         .onAppear(perform: checkRememberMeStatus)
     }

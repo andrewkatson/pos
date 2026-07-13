@@ -28,7 +28,7 @@ from .constants import Patterns, Params, POST_BATCH_SIZE, MAX_BEFORE_HIDING_POST
     MAX_CAPTION_LENGTH, MAX_COMMENT_LENGTH, \
     COMMENT_BATCH_SIZE, Fields, COMMENT_THREAD_BATCH_SIZE, \
     VERIFY_RESET_MAX_ATTEMPTS, VERIFY_RESET_LOCKOUT_MINUTES, \
-    ACCOUNT_BANNED, BAN_TYPE_OUTRIGHT, \
+    ACCOUNT_BANNED, EMAIL_NOT_VERIFIED, EMAIL_VERIFICATION_TOKEN_HOURS, BAN_TYPE_OUTRIGHT, \
     HIDDEN_REASON_NONE, HIDDEN_REASON_REPORTS, HIDDEN_REASON_CLASSIFIER, \
     APPEAL_TARGET_POST, APPEAL_TARGET_COMMENT, APPEAL_TARGET_BAN, \
     MAX_APPEAL_REASON_LENGTH
@@ -202,6 +202,12 @@ def api_login_required(view_func):
             logger.warning(f"Request rejected: Account banned for user_id: {user.id}")
             return JsonResponse({'error': ACCOUNT_BANNED}, status=403)
 
+        # Registration issues a session before the email is verified, so the
+        # verification gate must sit here too, not just on the login views.
+        if not user.email_verified:
+            logger.warning(f"Request rejected: Email not verified for user_id: {user.id}")
+            return JsonResponse({'error': EMAIL_NOT_VERIFIED}, status=403)
+
         # Attach user and token to the request for the view to use
         request.user = user
         request.token = token
@@ -241,6 +247,29 @@ def _record_device_and_maybe_notify(user, ip, notify=True):
         )
     except Exception:
         logger.exception(f"Failed to send new-device login email for user_id {user.id}")
+
+
+def _issue_email_verification_token(user):
+    """Generate and store a fresh email-verification token for ``user``.
+
+    Only the SHA-256 hash is persisted; the raw token is returned so it can be
+    embedded in the link emailed to the user (same scheme as password reset).
+
+    Issuing a token means the address is not yet verified, so this is also the
+    single place that flips ``email_verified`` to False. The model default is
+    True (grandfathered-safe), so being explicit here is what actually gates the
+    account created during registration.
+    """
+    token = secrets.token_urlsafe(32)
+    user.email_verified = False
+    user.email_verification_token = hashlib.sha256(token.encode()).hexdigest()
+    user.email_verification_token_expires = timezone.now() + timedelta(hours=EMAIL_VERIFICATION_TOKEN_HOURS)
+    user.save()
+    return token
+
+
+def _email_verification_link(token):
+    return f"{settings.FRONTEND_BASE_URL}/verify-email?token={token}"
 
 
 # =============================================================================
@@ -321,10 +350,17 @@ def register(request):
     new_user.is_adult = is_adult
     new_user.save()
    
+    verification_token = _issue_email_verification_token(new_user)
     try:
         send_mail(
         "Welcome to Good Vibes Only",
-        f"Hi{new_user.username},\n\n Thank you for registering",
+        f"Hi {new_user.username},\n\nThank you for registering. "
+        "Please verify your email address by clicking the link below:\n\n"
+        f"{_email_verification_link(verification_token)}\n\n"
+        f"The link expires in {EMAIL_VERIFICATION_TOKEN_HOURS} hours. "
+        "You won't be able to log in until your email is verified.\n\n"
+        "If you didn't create this account, ignore this email — without "
+        "verification the account stays unusable.",
         settings.EMAIL_HOST_USER,
         [new_user.email],
         fail_silently=False,
@@ -434,6 +470,10 @@ def login_user(request):
             logger.warning(f"Login failed: Account banned for user_id: {existing.id}")
             return log_and_return_json("login_user", {'error': ACCOUNT_BANNED}, status=403)
 
+        if not existing.email_verified:
+            logger.warning(f"Login failed: Email not verified for user_id: {existing.id}")
+            return log_and_return_json("login_user", {'error': EMAIL_NOT_VERIFIED}, status=403)
+
         login(request, existing)  # Logs into Django's session auth
 
         new_login_cookie = None
@@ -519,6 +559,10 @@ def login_user_with_remember_me(request):
         logger.warning(f"Login with remember me failed: Account banned for user_id: {existing.id}")
         return log_and_return_json("login_user_with_remember_me", {'error': ACCOUNT_BANNED}, status=403)
 
+    if not existing.email_verified:
+        logger.warning(f"Login with remember me failed: Email not verified for user_id: {existing.id}")
+        return log_and_return_json("login_user_with_remember_me", {'error': EMAIL_NOT_VERIFIED}, status=403)
+
     # Issue a new login cookie token (token rotation)
     new_login_cookie_token = generate_login_cookie_token()
     matching_login_cookie.token = new_login_cookie_token
@@ -578,6 +622,95 @@ def delete_user(request):
     except Exception as e:
         logger.error(f"Error deleting user {request.user.id}: {e}")
         return log_and_return_json("delete_user", {'error': f"Error deleting user {e}"}, status=400)
+
+
+# =============================================================================
+# EMAIL VERIFICATION VIEWS
+# =============================================================================
+
+@ratelimit(key=_get_client_ip, rate='10/h', block=True)
+@csrf_exempt
+@require_POST
+def verify_email(request):
+    logger.info("Endpoint verify_email invoked by IP or User")
+    data = _get_json_body(request)
+    if data is None:
+        return log_and_return_json("verify_email", {'error': "Invalid JSON data"}, status=400)
+
+    verification_token = data.get(Fields.verification_token)
+
+    _URLSAFE_TOKEN_LEN = 43
+    _URLSAFE_TOKEN_CHARS = frozenset('ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789_-')
+    if (not verification_token or not isinstance(verification_token, str)
+            or len(verification_token) != _URLSAFE_TOKEN_LEN
+            or not all(c in _URLSAFE_TOKEN_CHARS for c in verification_token)):
+        return log_and_return_json("verify_email", {'error': f"Invalid fields ['{Params.verification_token}']"},
+                                   status=400)
+
+    submitted_hash = hashlib.sha256(verification_token.encode()).hexdigest()
+
+    # The token is looked up by its hash rather than paired with a username, so
+    # the emailed link works on its own. Guessing a 256-bit token is infeasible,
+    # and the endpoint is IP rate-limited on top.
+    with transaction.atomic():
+        user = get_user_model().objects.select_for_update().filter(
+            email_verification_token=submitted_hash).first()
+        if (user is None or user.email_verification_token_expires is None
+                or timezone.now() > user.email_verification_token_expires):
+            logger.warning("Email verification failed: Invalid or expired token")
+            return log_and_return_json("verify_email", {'error': "Invalid or expired verification token"}, status=400)
+
+        user.email_verified = True
+        user.email_verification_token = None
+        user.email_verification_token_expires = None
+        user.save()
+
+    logger.info(f"Email verification successful for user_id: {user.id}")
+    return log_and_return_json("verify_email", {'message': 'Email verified'})
+
+
+@ratelimit(key=_get_client_ip, rate='3/h', block=True)
+@csrf_exempt
+@require_POST
+def resend_verification_email(request):
+    logger.info("Endpoint resend_verification_email invoked by IP or User")
+    data = _get_json_body(request)
+    if data is None:
+        return log_and_return_json("resend_verification_email", {'error': "Invalid JSON data"}, status=400)
+
+    username_or_email = data.get(Fields.username_or_email)
+    if not username_or_email or (
+            not is_valid_pattern(username_or_email, Patterns.alphanumeric) and
+            not is_valid_pattern(username_or_email, Patterns.email)):
+        return log_and_return_json("resend_verification_email",
+                                   {'error': f"Invalid fields ['{Params.username_or_email}']"}, status=400)
+
+    user = get_user_with_username_or_email(username_or_email)
+    if user is None:
+        logger.warning("Resend verification failed: No user with that username or email")
+        return log_and_return_json("resend_verification_email",
+                                   {'error': "No user with that username or email"}, status=400)
+
+    if user.email_verified:
+        logger.warning(f"Resend verification failed: Email already verified for user_id: {user.id}")
+        return log_and_return_json("resend_verification_email", {'error': "Email already verified"}, status=400)
+
+    token = _issue_email_verification_token(user)
+    try:
+        send_mail(
+            "Verify your email for Good Vibes Only",
+            f"Hi {user.username},\n\nPlease verify your email address by clicking the link below:\n\n"
+            f"{_email_verification_link(token)}\n\n"
+            f"The link expires in {EMAIL_VERIFICATION_TOKEN_HOURS} hours.\n\n"
+            "If you didn't request this, ignore this email — without "
+            "verification the account stays unusable.",
+            settings.EMAIL_HOST_USER,
+            [user.email],
+        )
+    except Exception:
+        logger.exception("Failed to send verification email for user: %s", user.id)
+    logger.info(f"Resent verification email for user_id: {user.id}")
+    return log_and_return_json("resend_verification_email", {'message': 'Verification email sent'})
 
 
 # =============================================================================

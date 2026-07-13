@@ -106,6 +106,12 @@ class PositiveOnlySocialIntegrationTests {
         composeTestRule.onNodeWithText("Add a comment...").assertExists()
     }
 
+    private fun assertOnCheckEmailView() {
+        composeTestRule.onNodeWithText("Check Your Email").assertExists()
+        composeTestRule.onNodeWithText("Resend Verification Email").assertExists()
+        composeTestRule.onNodeWithText("Go to Login").assertExists()
+    }
+
     private fun registerUser(username: String, password: String) {
         composeTestRule.onNodeWithText("Register").performClick()
         assertOnRegisterView()
@@ -121,6 +127,17 @@ class PositiveOnlySocialIntegrationTests {
         // Privacy Policy Dialog
         composeTestRule.onNodeWithText("Privacy Policy").assertExists()
         composeTestRule.onNodeWithText("Ok").performClick()
+
+        // Registration parks the user on the "check your email" screen
+        // (issue #237). The stub API pre-verifies accounts, so continue to
+        // Login and sign in to reach Home.
+        assertOnCheckEmailView()
+        composeTestRule.onNodeWithText("Go to Login").performClick()
+        assertOnLoginView()
+
+        composeTestRule.onNodeWithText("Username or Email").performTextInput(username)
+        composeTestRule.onNodeWithText("Password").performTextInput(password)
+        composeTestRule.onNodeWithText("Login").performClick()
 
         assertOnHomeView()
     }

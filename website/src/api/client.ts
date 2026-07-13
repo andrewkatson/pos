@@ -30,10 +30,12 @@ import type {
   RegisterRequest,
   ReplyResponse,
   RequestResetRequest,
+  ResendVerificationEmailRequest,
   ResetPasswordRequest,
   SubmitAppealRequest,
   SubmitAppealResponse,
   UserSearchResult,
+  VerifyEmailRequest,
   VerifyResetRequest,
   VerifyResetResponse,
 } from './types'
@@ -46,6 +48,13 @@ export const ACCOUNT_BANNED = 'account_banned'
 /** User-facing message shown wherever the account_banned error surfaces. */
 export const ACCOUNT_SUSPENDED_MESSAGE =
   'Your account has been suspended for violating our community guidelines.'
+
+/** Error code the backend returns when the account's email address is unverified. */
+export const EMAIL_NOT_VERIFIED = 'email_not_verified'
+
+/** User-facing message shown wherever the email_not_verified error surfaces. */
+export const EMAIL_NOT_VERIFIED_MESSAGE =
+  'Please verify your email address first — check your inbox for the verification link.'
 
 /**
  * Friendly, user-facing copy for an HTTP status code, used when the backend did
@@ -197,6 +206,7 @@ export class ApiClient implements PositiveOnlySocialAPI {
   private readonly fetchFn: typeof fetch
   private token: string | null
   private onAccountBanned: (() => void) | null = null
+  private onEmailNotVerified: (() => void) | null = null
 
   constructor(options: ApiClientOptions = {}) {
     const envBaseUrl =
@@ -228,6 +238,15 @@ export class ApiClient implements PositiveOnlySocialAPI {
    */
   setOnAccountBanned(handler: (() => void) | null): void {
     this.onAccountBanned = handler
+  }
+
+  /**
+   * Handler invoked when an authenticated request is rejected because the
+   * account's email address is unverified. The session can't do anything
+   * until the emailed link is used, so the app should drop it like a ban.
+   */
+  setOnEmailNotVerified(handler: (() => void) | null): void {
+    this.onEmailNotVerified = handler
   }
 
   private async request<T>(
@@ -284,6 +303,9 @@ export class ApiClient implements PositiveOnlySocialAPI {
       if (options.auth && rawMessage === ACCOUNT_BANNED) {
         this.onAccountBanned?.()
       }
+      if (options.auth && rawMessage === EMAIL_NOT_VERIFIED) {
+        this.onEmailNotVerified?.()
+      }
       const message = sanitizeErrorMessage(rawMessage)
       throw new ApiError(response.status, message)
     }
@@ -334,6 +356,18 @@ export class ApiClient implements PositiveOnlySocialAPI {
     const result = await this.request<MessageResponse>('POST', '/user/delete/', { auth: true })
     this.setToken(null)
     return result
+  }
+
+  // ===========================================================================
+  // EMAIL VERIFICATION
+  // ===========================================================================
+
+  verifyEmail(body: VerifyEmailRequest): Promise<MessageResponse> {
+    return this.request<MessageResponse>('POST', '/verify-email/', { body })
+  }
+
+  resendVerificationEmail(body: ResendVerificationEmailRequest): Promise<MessageResponse> {
+    return this.request<MessageResponse>('POST', '/resend-verification-email/', { body })
   }
 
   // ===========================================================================

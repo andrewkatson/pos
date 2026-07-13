@@ -26,10 +26,12 @@ import type {
   RegisterRequest,
   ReplyResponse,
   RequestResetRequest,
+  ResendVerificationEmailRequest,
   ResetPasswordRequest,
   SubmitAppealRequest,
   SubmitAppealResponse,
   UserSearchResult,
+  VerifyEmailRequest,
   VerifyResetRequest,
   VerifyResetResponse,
 } from './types'
@@ -50,6 +52,8 @@ interface UserMock {
   passwordHash: string
   verificationToken: string | null
   resetToken: string | null
+  emailVerified: boolean
+  emailVerificationToken: string | null
   following: Set<string>
   followers: Set<string>
   isVerified: boolean
@@ -227,6 +231,11 @@ export class StatefulStubbedAPI implements PositiveOnlySocialAPI {
       passwordHash: body.password,
       verificationToken: null,
       resetToken: null,
+      // The real backend starts accounts unverified and gates everything on
+      // the emailed link; the stub has no inbox, so accounts start verified to
+      // keep offline/demo mode usable.
+      emailVerified: true,
+      emailVerificationToken: null,
       following: new Set(),
       followers: new Set(),
       isVerified: Boolean(body.date_of_birth),
@@ -345,6 +354,32 @@ export class StatefulStubbedAPI implements PositiveOnlySocialAPI {
   // ---------------------------------------------------------------------------
   // Password reset
   // ---------------------------------------------------------------------------
+
+  async verifyEmail(body: VerifyEmailRequest): Promise<MessageResponse> {
+    const user = this.users.find(
+      (u) => u.emailVerificationToken !== null && u.emailVerificationToken === body.verification_token,
+    )
+    if (!user) {
+      throw new ApiError(400, 'Invalid or expired verification token')
+    }
+    user.emailVerified = true
+    user.emailVerificationToken = null
+    return { message: 'Email verified' }
+  }
+
+  async resendVerificationEmail(body: ResendVerificationEmailRequest): Promise<MessageResponse> {
+    const user = this.users.find(
+      (u) => u.username === body.username_or_email || u.email === body.username_or_email,
+    )
+    if (!user) {
+      throw new ApiError(400, 'No user with that username or email')
+    }
+    if (user.emailVerified) {
+      throw new ApiError(400, 'Email already verified')
+    }
+    user.emailVerificationToken = `stub_email_verification_token_${user.username}`
+    return { message: 'Verification email sent' }
+  }
 
   async requestReset(body: RequestResetRequest): Promise<MessageResponse> {
     const user = this.users.find(

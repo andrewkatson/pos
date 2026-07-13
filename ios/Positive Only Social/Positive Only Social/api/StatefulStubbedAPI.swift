@@ -16,6 +16,11 @@ struct MockUser {
     var passwordHash: String // Storing plain text for mock purposes.
     var verificationToken: String? = nil
     var resetToken: String? = nil
+    // The real backend starts accounts unverified and gates everything on the
+    // emailed link; the stub has no inbox, so accounts start verified to keep
+    // offline/demo mode usable.
+    var emailVerified: Bool = true
+    var emailVerificationToken: String? = nil
     var identityIsVerified: Bool = false
     var isAdult: Bool = false
     var blocked: [UUID] = []
@@ -242,6 +247,30 @@ final class StatefulStubbedAPI: Networking {
         ))
     }
 
+
+    func verifyEmail(verificationToken: String) async throws -> Data {
+        await simulateNetwork()
+        guard let userIndex = users.firstIndex(where: { $0.emailVerificationToken != nil && $0.emailVerificationToken == verificationToken }) else {
+            throw APIError.serverError(statusCode: 400, serverMessage: "Invalid or expired verification token")
+        }
+        users[userIndex].emailVerified = true
+        users[userIndex].emailVerificationToken = nil
+        return try createEmptySuccessResponse()
+    }
+
+    func resendVerificationEmail(usernameOrEmail: String) async throws -> Data {
+        await simulateNetwork()
+        guard let userIndex = users.firstIndex(where: { $0.username == usernameOrEmail || $0.email == usernameOrEmail }) else {
+            throw APIError.serverError(statusCode: 400, serverMessage: "No user with that username or email")
+        }
+        guard !users[userIndex].emailVerified else {
+            throw APIError.serverError(statusCode: 400, serverMessage: "Email already verified")
+        }
+        let stubToken = "stub_email_verification_token_\(users[userIndex].username)"
+        users[userIndex].emailVerificationToken = stubToken
+        NSLog("%@", "Email verification token for \(users[userIndex].username) is: \(stubToken)")
+        return try createEmptySuccessResponse()
+    }
 
     func requestPasswordReset(usernameOrEmail: String) async throws -> Data {
         await simulateNetwork()

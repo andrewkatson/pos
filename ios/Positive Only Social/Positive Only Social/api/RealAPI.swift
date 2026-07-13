@@ -94,6 +94,17 @@ final class RealAPI: Networking {
         let username_or_email: String
         let verification_token: String
     }
+
+    // TODO(#331): adopt camelCase + CodingKeys across every request-body struct
+    // in this file in one pass, mapping back to the backend's snake_case JSON.
+    private struct VerifyEmailBody: Encodable {
+        let verification_token: String
+    }
+
+    // TODO(#331): see above — covered by the same file-wide naming refactor.
+    private struct ResendVerificationEmailBody: Encodable {
+        let username_or_email: String
+    }
     
     private struct MakePostBody: Encodable {
         // Nil for a text-only post (#307); JSONEncoder omits nil fields.
@@ -196,6 +207,11 @@ final class RealAPI: Networking {
                     if authToken != nil && message == GVOAppConstants.accountBannedError {
                         NotificationCenter.default.post(name: .accountBanned, object: nil)
                     }
+                    // An unverified email blocks every authenticated endpoint,
+                    // so the local session is useless — drop it like a ban.
+                    if authToken != nil && message == GVOAppConstants.emailNotVerifiedError {
+                        NotificationCenter.default.post(name: .emailNotVerified, object: nil)
+                    }
                     throw APIError.serverError(statusCode: httpResponse.statusCode, serverMessage: sanitizeErrorMessage(message))
                 }
                 throw APIError.badServerResponse(statusCode: httpResponse.statusCode)
@@ -283,6 +299,28 @@ final class RealAPI: Networking {
         let requestBody = try encode(body)
         return try await performRequest(
             pathSegments: [GVOAppConstants.pathSegmentPassword, GVOAppConstants.pathSegmentVerifyReset],
+            method: .post,
+            body: requestBody
+        )
+    }
+
+    /// Verifies the account's email address with the token from the welcome email.
+    func verifyEmail(verificationToken: String) async throws -> Data {
+        let verifyEmailBody = VerifyEmailBody(verification_token: verificationToken)
+        let requestBody = try encode(verifyEmailBody)
+        return try await performRequest(
+            pathSegments: [GVOAppConstants.pathSegmentVerifyEmail],
+            method: .post,
+            body: requestBody
+        )
+    }
+
+    /// Sends a fresh email-verification link, invalidating the previous one.
+    func resendVerificationEmail(usernameOrEmail: String) async throws -> Data {
+        let resendVerificationEmailBody = ResendVerificationEmailBody(username_or_email: usernameOrEmail)
+        let requestBody = try encode(resendVerificationEmailBody)
+        return try await performRequest(
+            pathSegments: [GVOAppConstants.pathSegmentResendVerificationEmail],
             method: .post,
             body: requestBody
         )

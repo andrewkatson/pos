@@ -88,6 +88,32 @@ struct Positive_Only_SocialTests_ErrorHelpers {
         #expect(error.isAccountBanned == false)
     }
 
+    // --- Email-not-verified detection ---
+
+    @Test func testServerErrorWithEmailNotVerified_IsEmailNotVerified() {
+        let error = APIError.serverError(statusCode: 403, serverMessage: GVOAppConstants.emailNotVerifiedError)
+        #expect(error.isEmailNotVerified == true)
+    }
+
+    @Test func testRequestFailedWrappingEmailNotVerified_IsEmailNotVerified() {
+        let emailNotVerifiedError = APIError.serverError(statusCode: 403, serverMessage: GVOAppConstants.emailNotVerifiedError)
+        #expect(APIError.requestFailed(emailNotVerifiedError).isEmailNotVerified == true)
+    }
+
+    @Test func testServerErrorWithOtherMessage_IsNotEmailNotVerified() {
+        let error = APIError.serverError(statusCode: 403, serverMessage: "Forbidden")
+        #expect(error.isEmailNotVerified == false)
+    }
+
+    @Test func testBadServerResponse_IsNotEmailNotVerified() {
+        #expect(APIError.badServerResponse(statusCode: 403).isEmailNotVerified == false)
+    }
+
+    @Test func testNonAPIError_IsNotEmailNotVerified() {
+        let error = NSError(domain: "SomeDomain", code: 403)
+        #expect(error.isEmailNotVerified == false)
+    }
+
     // --- User-facing message mapping ---
 
     @Test func testServerError_PassesBackendMessageThrough() {

@@ -113,7 +113,9 @@ final class Positive_Only_SocialUITests: XCTestCase {
     }
 
     private func typeText(element: XCUIElement, text: String) {
-        let maxAttempts = 5
+        // Generous retry budget: on loaded CI simulators a secure field can
+        // ignore several taps before finally taking focus.
+        let maxAttempts = 10
         var attempt = 0
 
         element.tap()
@@ -175,6 +177,12 @@ final class Positive_Only_SocialUITests: XCTestCase {
         XCTAssertTrue(app.buttons["ForgotPasswordButton"].waitForExistence(timeout: TestConstants.shortTimeout), "Forgot password button not present")
     }
     
+    private func assertOnCheckEmailView(app: XCUIApplication) {
+        XCTAssertTrue(app.staticTexts["CheckEmailInstructions"].waitForExistence(timeout: TestConstants.shortTimeout), "Check-email instructions not present")
+        XCTAssertTrue(app.buttons["ResendVerificationEmailButton"].waitForExistence(timeout: TestConstants.shortTimeout), "Resend verification email button not present")
+        XCTAssertTrue(app.buttons["GoToLoginButton"].waitForExistence(timeout: TestConstants.shortTimeout), "Go to login button not present")
+    }
+
     private func assertOnHomeView(app: XCUIApplication) {
         XCTAssertTrue(app.buttons["Home"].waitForExistence(timeout: TestConstants.shortTimeout), "Home tab not present")
         XCTAssertTrue(app.buttons["Feed"].waitForExistence(timeout: TestConstants.shortTimeout), "Feed tab not present")
@@ -262,9 +270,38 @@ final class Positive_Only_SocialUITests: XCTestCase {
         XCTAssertTrue(privacyPolicyAlert.waitForExistence(timeout: TestConstants.shortTimeout))
         XCTAssertTrue(privacyPolicyAlert.buttons["Ok"].waitForExistence(timeout: TestConstants.shortTimeout))
         privacyPolicyAlert.buttons["Ok"].tap()
-        
+
+        // Registration parks the user on the "check your email" screen
+        // (issue #237). The stub API pre-verifies accounts, so continue to
+        // Login and sign in to reach Home.
+        assertOnCheckEmailView(app: app)
+
+        let goToLoginButton = app.buttons["GoToLoginButton"]
+        XCTAssertTrue(goToLoginButton.waitForExistence(timeout: TestConstants.shortTimeout))
+        goToLoginButton.tap()
+
+        assertOnLoginView(app: app)
+
+        dismissKeyboardIfPresent(app)
+
+        let usernameOrEmailTextField = app.textFields["UsernameOrEmailTextField"]
+        XCTAssertTrue(usernameOrEmailTextField.waitForExistence(timeout: TestConstants.shortTimeout))
+        usernameOrEmailTextField.tap()
+        typeText(element: usernameOrEmailTextField, text: username)
+
+        let loginPasswordField = app.secureTextFields["PasswordSecureField"]
+        XCTAssertTrue(loginPasswordField.waitForExistence(timeout: TestConstants.shortTimeout))
+        loginPasswordField.tap()
+        typeText(element: loginPasswordField, text: password)
+
+        dismissKeyboardIfPresent(app)
+
+        let loginButton = app.buttons["LoginButton"]
+        XCTAssertTrue(loginButton.waitForExistence(timeout: TestConstants.shortTimeout))
+        loginButton.tap()
+
         assertOnHomeView(app: app)
-        
+
         dismissSavePassword(app: app)
     }
     
@@ -277,9 +314,18 @@ final class Positive_Only_SocialUITests: XCTestCase {
     
     private func loginUser(app: XCUIApplication, username: String, password: String, rememberMe: Bool) throws {
         try registerUser(app: app, username: username, password: password)
-        
+
+        // registerUser already finishes with a real login through the login
+        // form (registration parks the user on the check-email screen, so the
+        // helper signs in to reach Home). Only remember-me needs another
+        // logout/login cycle to flip the toggle; skipping the redundant cycle
+        // keeps these long tests inside the CI simulator's patience.
+        if !rememberMe {
+            return
+        }
+
         try logoutUserFromHome(app: app)
-        
+
         let loginButton = app.buttons["LoginText"]
         XCTAssertTrue(loginButton.waitForExistence(timeout: TestConstants.shortTimeout))
         loginButton.tap()

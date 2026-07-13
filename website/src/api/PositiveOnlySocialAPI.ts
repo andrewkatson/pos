@@ -24,10 +24,12 @@ import type {
   RegisterRequest,
   ReplyResponse,
   RequestResetRequest,
+  ResendVerificationEmailRequest,
   ResetPasswordRequest,
   SubmitAppealRequest,
   SubmitAppealResponse,
   UserSearchResult,
+  VerifyEmailRequest,
   VerifyResetRequest,
   VerifyResetResponse,
 } from './types'
@@ -46,6 +48,10 @@ export interface PositiveOnlySocialAPI {
   logout(): Promise<MessageResponse>
   verifyIdentity(dateOfBirth: string): Promise<MessageResponse>
   deleteAccount(): Promise<MessageResponse>
+
+  // Email verification
+  verifyEmail(body: VerifyEmailRequest): Promise<MessageResponse>
+  resendVerificationEmail(body: ResendVerificationEmailRequest): Promise<MessageResponse>
 
   // Password reset
   requestReset(body: RequestResetRequest): Promise<MessageResponse>

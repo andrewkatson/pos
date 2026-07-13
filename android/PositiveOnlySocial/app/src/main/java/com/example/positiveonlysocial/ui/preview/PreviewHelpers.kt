@@ -114,6 +114,24 @@ class MockPositiveOnlySocialAPI : PositiveOnlySocialAPI {
         )
     }
 
+    override suspend fun verifyEmail(request: VerifyEmailRequest): Response<GenericResponse> {
+        return Response.success(
+            GenericResponse(
+                message = "Email verified",
+                error = null
+            )
+        )
+    }
+
+    override suspend fun resendVerificationEmail(request: ResendVerificationEmailRequest): Response<GenericResponse> {
+        return Response.success(
+            GenericResponse(
+                message = "Verification email sent",
+                error = null
+            )
+        )
+    }
+
     override suspend fun getPostsInFeed(token: String, batch: Int): Response<List<Post>> {
         return Response.success(
             listOf(

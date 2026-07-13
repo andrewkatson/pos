@@ -67,6 +67,14 @@ apiClient.setOnAccountBanned(() => {
   window.location.assign('/login?suspended=1')
 })
 
+// An unverified email blocks every authenticated endpoint, so a restored
+// session that hits email_not_verified is useless — drop it and land on the
+// login page, which explains the verification requirement.
+apiClient.setOnEmailNotVerified(() => {
+  clearSession()
+  window.location.assign('/login?verify_email=1')
+})
+
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
     <BrowserRouter>

@@ -51,6 +51,28 @@ and is independent of the ban type. A temporary ban lifts itself once
 job is needed. Escalation for ordinary users follows the ladder: warning
 (content hidden by reports) → temporary outright ban → permanent outright ban.
 
+## Email verification
+
+Registering does not prove you own the email address you signed up with, so
+every new account starts unverified and must click a verification link before
+it can be used. This stops someone from creating an account with another
+person's email address (issue #237).
+
+At registration a random token is generated (`secrets.token_urlsafe`, stored
+only as a SHA-256 hash with a 24-hour expiry, like the password-reset flow)
+and the welcome email carries a link to
+`https://smiling.social/verify-email?token=...` (base URL configurable via
+`FRONTEND_BASE_URL`). The website page POSTs the token to `verify-email/`,
+which marks the account verified and clears the token. Sending the email is
+best-effort and never blocks registration; `resend-verification-email/`
+(rate-limited) issues a fresh token, invalidating the old one.
+
+Until the address is verified, the account is rejected with an
+`email_not_verified` error at every entry point: password login, remember-me
+login, and every authenticated endpoint (the session issued at registration
+is therefore unusable until verification). Accounts created before this
+feature existed are grandfathered in as verified by the migration.
+
 ## New-device login emails
 
 When a user logs in from a device we have not seen before, they get an email

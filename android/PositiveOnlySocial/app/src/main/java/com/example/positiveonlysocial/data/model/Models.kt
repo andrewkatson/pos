@@ -69,6 +69,16 @@ data class VerifyResetResponse(
     @SerializedName("reset_token") val resetToken: String?
 )
 
+// --- Email Verification DTOs ---
+
+data class VerifyEmailRequest(
+    @SerializedName("verification_token") val verificationToken: String
+)
+
+data class ResendVerificationEmailRequest(
+    @SerializedName("username_or_email") val usernameOrEmail: String
+)
+
 // --- Post DTOs ---
 
 data class CreatePostRequest(

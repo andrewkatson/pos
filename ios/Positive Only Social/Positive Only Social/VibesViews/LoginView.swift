@@ -96,6 +96,8 @@ struct LoginView: View {
             } catch let error as APIError {
                 if error.isAccountBanned {
                     errorMessage = GVOAppConstants.accountSuspendedMessage
+                } else if error.isEmailNotVerified {
+                    errorMessage = GVOAppConstants.emailNotVerifiedMessage
                 } else if case .serverError(_, let message) = error {
                     errorMessage = message
                 } else {

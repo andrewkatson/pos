@@ -127,6 +127,17 @@ class RememberMeLoginTest {
         composeTestRule.onNodeWithText("Privacy Policy").assertExists()
         composeTestRule.onNodeWithText("Ok").performClick()
 
+        // Registration parks the user on the "check your email" screen
+        // (issue #237). The stub API pre-verifies accounts, so continue to
+        // Login and sign in to reach Home.
+        composeTestRule.onNodeWithText("Check Your Email").assertExists()
+        composeTestRule.onNodeWithText("Go to Login").performClick()
+        assertOnLoginView()
+
+        composeTestRule.onNodeWithText("Username or Email").performTextInput(username)
+        composeTestRule.onNodeWithText("Password").performTextInput(password)
+        composeTestRule.onNodeWithText("Login").performClick()
+
         assertOnHomeView()
     }
 

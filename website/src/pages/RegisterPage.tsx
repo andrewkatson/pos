@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom'
 import Logo from '../components/Logo'
 import { apiClient } from '../api/client'
 import type { ApiError } from '../api/client'
+import { clearSession } from '../api/session'
 import RequirementHints from '../auth/RequirementHints'
 import { getPasswordRequirements, getUsernameRequirements, allMet } from '../auth/requirements'
 import { PRIVACY_POLICY_TEXT } from '../privacyPolicy'
@@ -43,17 +44,19 @@ function RegisterPage() {
     setShowPrivacyPolicy(false)
     setIsLoading(true)
     try {
-      const response = await apiClient.register({
+      await apiClient.register({
         username: username.trim(),
         email: email.trim(),
         password,
         remember_me: false,
         date_of_birth: dateOfBirth,
       })
-      localStorage.setItem('session_token', response.session_management_token)
-      localStorage.setItem('user_id', response.user_id)
-      localStorage.setItem('username', username.trim())
-      navigate('/home')
+      // The account can't do anything until the emailed verification link is
+      // used, so don't keep the registration session — and drop any persisted
+      // session/remember-me tokens from a previous login, which main.tsx would
+      // otherwise restore on reload. The user logs in after verifying.
+      clearSession()
+      navigate('/check-email', { state: { email: email.trim() } })
     } catch (err) {
       const apiErr = err as ApiError
       setErrorMessage(apiErr.message ?? 'Registration failed. Username or email may be taken.')

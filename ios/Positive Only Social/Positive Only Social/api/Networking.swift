@@ -34,7 +34,14 @@ protocol Networking {
     /// Verifies the password reset by submitting the opaque verification token received via email.
     func verifyPasswordReset(usernameOrEmail: String, verificationToken: String) async throws -> Data
 
-    /// Logs the user out.
+    /// Verifies the account's email address by submitting the token from the
+    /// verification link in the welcome email. Until this succeeds, login and
+    /// every authenticated endpoint reject the account with `email_not_verified`.
+    func verifyEmail(verificationToken: String) async throws -> Data
+
+    /// Sends a fresh email-verification link, invalidating the previous one.
+    func resendVerificationEmail(usernameOrEmail: String) async throws -> Data
+
     func logoutUser(sessionManagementToken: String) async throws -> Data
 
     /// Deletes the user account.

@@ -15,6 +15,12 @@ urlpatterns = [
     # POST /verify-identity/ (Token in header)
     path('verify-identity/', views.verify_identity, name='verify_identity'),
 
+    # POST /verify-email/
+    path('verify-email/', views.verify_email, name='verify_email'),
+
+    # POST /resend-verification-email/
+    path('resend-verification-email/', views.resend_verification_email, name='resend_verification_email'),
+
 
     # POST /login/
     path('login/', views.login_user, name='login_user'),

@@ -22,6 +22,17 @@ class ApiErrorsTest {
         Response.error(code, body.toResponseBody("application/json".toMediaTypeOrNull()))
 
     @Test
+    fun `email_not_verified error code passes through unchanged`() {
+        // LoginScreen matches this code exactly to show the verify-your-email
+        // message, so sanitization must not rewrite it.
+        val response = errorResponse(403, """{"error":"email_not_verified"}""")
+        assertEquals(
+            "email_not_verified",
+            ApiErrors.messageFor(response, fallback = "fallback")
+        )
+    }
+
+    @Test
     fun `backend error message is passed through`() {
         val response = errorResponse(400, """{"error":"Text is not positive"}""")
         assertEquals(
