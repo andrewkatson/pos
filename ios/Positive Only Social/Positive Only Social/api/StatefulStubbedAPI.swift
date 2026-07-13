@@ -574,7 +574,14 @@ final class StatefulStubbedAPI: Networking {
             post_identifier: post.postIdentifier,
             image_url: post.imageURL,
             caption: post.caption,
-            creation_time: ISO8601DateFormatter().string(from: post.createdDate),
+            // Mirror Django's DjangoJSONEncoder, which emits a colon-separated UTC
+            // offset with fractional seconds (e.g. "…+00:00"), not a "Z" suffix, so
+            // the client's date parsing is exercised against the real backend format.
+            creation_time: post.createdDate.formatted(
+                Date.ISO8601FormatStyle().year().month().day()
+                    .time(includingFractionalSeconds: true)
+                    .timeZone(separator: .colon)
+            ),
             post_likes: post.likes.count,
             is_liked: post.likes.contains(user.username),
             is_reported: userReport != nil,

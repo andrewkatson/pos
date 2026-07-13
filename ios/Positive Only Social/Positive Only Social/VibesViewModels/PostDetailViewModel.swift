@@ -682,25 +682,30 @@ final class PostDetailViewModel: ObservableObject {
 
     // MARK: - Date Parsing
 
-    /// Parses an ISO8601 date string produced by Django, which typically includes
-    /// fractional seconds and a `+00:00` timezone offset (e.g. "2024-01-15T10:30:45.123456+00:00"),
-    /// falling back to parsing without fractional seconds for older rows. Returns nil
-    /// when the string can't be parsed so callers can omit a relative-time label rather
-    /// than showing a bogus "now".
+    /// Parses an ISO8601 date string produced by Django, whose `DjangoJSONEncoder`
+    /// emits a colon-separated UTC offset (e.g. "2024-01-15T10:30:45.123456+00:00"),
+    /// while the in-memory stub emits a "Z" suffix. Tries colon- and omitted-separator
+    /// variants, with and without fractional seconds, so both real and stubbed
+    /// timestamps decode. Returns nil when nothing matches so callers can omit a
+    /// relative-time label rather than showing a bogus "now".
     ///
     /// Uses `Date.ISO8601FormatStyle` (a value type) rather than an `NSObject`-backed
     /// formatter, so it's cheap and safe to call `nonisolated` from async task groups
     /// without actor hopping or sharing non-Sendable state across isolation domains.
     private nonisolated static func parseOptionalDate(_ string: String) -> Date? {
-        if let date = try? Date(string, strategy: .iso8601.year().month().day()
-            .time(includingFractionalSeconds: true)
-            .timeZone(separator: .omitted)) {
-            return date
-        }
-        if let date = try? Date(string, strategy: .iso8601.year().month().day()
-            .time(includingFractionalSeconds: false)
-            .timeZone(separator: .omitted)) {
-            return date
+        // `.colon` matches the real backend's "+00:00"; `.omitted` matches "+0000"
+        // and the stub's "Z". Django usually includes fractional seconds, but older
+        // rows may not, so try both.
+        let separators: [Date.ISO8601FormatStyle.TimeZoneSeparator] = [.colon, .omitted]
+        for separator in separators {
+            for includingFractionalSeconds in [true, false] {
+                let strategy = Date.ISO8601FormatStyle().year().month().day()
+                    .time(includingFractionalSeconds: includingFractionalSeconds)
+                    .timeZone(separator: separator)
+                if let date = try? Date(string, strategy: strategy) {
+                    return date
+                }
+            }
         }
         return nil
     }
