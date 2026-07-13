@@ -212,6 +212,9 @@ struct PostDisplayData: Identifiable, Equatable {
     let likeCount: Int
     let isLiked: Bool // Whether the current user has liked this post
     let authorUsername: String // Added for context
+    /// When the post was created. Optional for backward compatibility with
+    /// backend responses that predate the field.
+    let createdDate: Date?
     /// Whether the current user has an active report against this post, and
     /// their own report reason so the retract dialog can show it pre-populated
     /// (issue #176).

@@ -561,6 +561,8 @@ final class StatefulStubbedAPI: Networking {
             let post_identifier: String
             let image_url: String?
             let caption: String
+            //TODO: eBlender rename to camelCase creationTime (via CodingKeys).
+            let creation_time: String
             let post_likes: Int
             let is_liked: Bool
             let is_reported: Bool
@@ -572,6 +574,14 @@ final class StatefulStubbedAPI: Networking {
             post_identifier: post.postIdentifier,
             image_url: post.imageURL,
             caption: post.caption,
+            // Mirror Django's DjangoJSONEncoder, which emits a colon-separated UTC
+            // offset with fractional seconds (e.g. "…+00:00"), not a "Z" suffix, so
+            // the client's date parsing is exercised against the real backend format.
+            creation_time: post.createdDate.formatted(
+                Date.ISO8601FormatStyle().year().month().day()
+                    .time(includingFractionalSeconds: true)
+                    .timeZone(separator: .colon)
+            ),
             post_likes: post.likes.count,
             is_liked: post.likes.contains(user.username),
             is_reported: userReport != nil,

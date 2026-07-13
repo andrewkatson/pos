@@ -164,6 +164,7 @@ final class PostDetailViewModel: ObservableObject {
                     likeCount: postFields.post_likes,
                     isLiked: postFields.is_liked,
                     authorUsername: postFields.author_username,
+                    createdDate: postFields.creation_time.flatMap { Self.parseOptionalDate($0) },
                     isReported: postFields.is_reported ?? false,
                     reportReason: postFields.report_reason
                 )
@@ -249,6 +250,7 @@ final class PostDetailViewModel: ObservableObject {
                 likeCount: post.likeCount + 1, // Optimistic update
                 isLiked: true,
                 authorUsername: post.authorUsername,
+                createdDate: post.createdDate,
                 isReported: post.isReported,
                 reportReason: post.reportReason
             )
@@ -285,6 +287,7 @@ final class PostDetailViewModel: ObservableObject {
                 likeCount: max(0, post.likeCount - 1), // Optimistic update
                 isLiked: false,
                 authorUsername: post.authorUsername,
+                createdDate: post.createdDate,
                 isReported: post.isReported,
                 reportReason: post.reportReason
             )
@@ -638,6 +641,10 @@ final class PostDetailViewModel: ObservableObject {
         /// Optional so responses that predate the field still decode.
         let original_image_url: String?
         let caption: String
+        /// When the post was created. Optional so responses that predate the
+        /// field still decode.
+        //TODO: eBlender rename to camelCase creationTime (via CodingKeys).
+        let creation_time: String?
         let post_likes: Int
         let is_liked: Bool
         /// Whether the current user has an active report against this post, and
@@ -675,27 +682,35 @@ final class PostDetailViewModel: ObservableObject {
 
     // MARK: - Date Parsing
 
-    /// Parses an ISO8601 date string produced by Django, which typically includes
-    /// fractional seconds and a `+00:00` timezone offset (e.g. "2024-01-15T10:30:45.123456+00:00").
-    /// Falls back to parsing without fractional seconds for older rows, then to `Date()`.
-    /// Marked `nonisolated` so it can be called from async task groups without actor hopping.
-    /// Formatters are created locally to avoid sharing non-Sendable NSObject state across isolation domains.
-    /// Parses an ISO8601 date string produced by Django, which typically includes
-    /// fractional seconds and a `+00:00` timezone offset (e.g. "2024-01-15T10:30:45.123456+00:00").
-    /// Falls back to parsing without fractional seconds for older rows, then to `Date()`.
-    /// Uses `Date.ISO8601FormatStyle` (a value type) to avoid allocating `NSObject`-backed
-    /// formatters on each call — safe to call from any isolation domain without extra cost.
+    /// Parses an ISO8601 date string produced by Django, whose `DjangoJSONEncoder`
+    /// emits a colon-separated UTC offset (e.g. "2024-01-15T10:30:45.123456+00:00"),
+    /// while the in-memory stub emits a "Z" suffix. Tries colon- and omitted-separator
+    /// variants, with and without fractional seconds, so both real and stubbed
+    /// timestamps decode. Returns nil when nothing matches so callers can omit a
+    /// relative-time label rather than showing a bogus "now".
+    ///
+    /// Uses `Date.ISO8601FormatStyle` (a value type) rather than an `NSObject`-backed
+    /// formatter, so it's cheap and safe to call `nonisolated` from async task groups
+    /// without actor hopping or sharing non-Sendable state across isolation domains.
+    private nonisolated static func parseOptionalDate(_ string: String) -> Date? {
+        // `.colon` matches the real backend's "+00:00"; `.omitted` matches "+0000"
+        // and the stub's "Z". Django usually includes fractional seconds, but older
+        // rows may not, so try both.
+        let separators: [Date.ISO8601FormatStyle.TimeZoneSeparator] = [.colon, .omitted]
+        for separator in separators {
+            for includingFractionalSeconds in [true, false] {
+                let strategy = Date.ISO8601FormatStyle().year().month().day()
+                    .time(includingFractionalSeconds: includingFractionalSeconds)
+                    .timeZone(separator: separator)
+                if let date = try? Date(string, strategy: strategy) {
+                    return date
+                }
+            }
+        }
+        return nil
+    }
+
     private nonisolated static func parseDate(_ string: String) -> Date {
-        if let date = try? Date(string, strategy: .iso8601.year().month().day()
-            .time(includingFractionalSeconds: true)
-            .timeZone(separator: .omitted)) {
-            return date
-        }
-        if let date = try? Date(string, strategy: .iso8601.year().month().day()
-            .time(includingFractionalSeconds: false)
-            .timeZone(separator: .omitted)) {
-            return date
-        }
-        return Date()
+        parseOptionalDate(string) ?? Date()
     }
 }

@@ -111,6 +111,10 @@ export interface PostDetails {
    * Older responses that predate the field omit it. */
   original_image_url?: string | null
   caption: string
+  /** ISO-8601 timestamp of when the post was created. The backend column is
+   * nullable, so this can be null; older responses that predate the field
+   * omit it entirely. */
+  creation_time?: string | null
   post_likes: number
   /** Whether the requesting user has liked this post. */
   is_liked?: boolean

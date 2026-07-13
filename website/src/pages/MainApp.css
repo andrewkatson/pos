@@ -744,6 +744,13 @@
   margin-right: 0.4rem;
 }
 
+/* How long ago the post was made, shown under the caption (issue #174). */
+.detail-time {
+  margin: -0.5rem 0 1rem;
+  font-size: 0.78rem;
+  color: rgba(255, 255, 255, 0.5);
+}
+
 .comment-form {
   display: flex;
   gap: 0.5rem;

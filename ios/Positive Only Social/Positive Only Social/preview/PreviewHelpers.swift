@@ -182,6 +182,8 @@ struct MockedAPI: Networking {
             let post_identifier: String
             let image_url: String
             let caption: String
+            //TODO: eBlender rename to camelCase creationTime (via CodingKeys).
+            let creation_time: String
             let post_likes: Int
             let is_liked: Bool
             let author_username: String
@@ -191,6 +193,7 @@ struct MockedAPI: Networking {
             post_identifier: postIdentifier,
             image_url: "https://picsum.photos/400/400",
             caption: "Detailed view of the post",
+            creation_time: ISO8601DateFormatter().string(from: Date().addingTimeInterval(-2 * 60 * 60)),
             post_likes: 100,
             is_liked: false,
             author_username: "mock_author"

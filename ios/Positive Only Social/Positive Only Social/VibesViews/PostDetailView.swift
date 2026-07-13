@@ -109,6 +109,15 @@ struct PostDetailView: View {
                             .accessibilityIdentifier("PostAuthor")
                             Text(post.caption)
                         }
+                        // When the post was made, at the same coarse granularity
+                        // as comment times (issue #174). Older backend responses
+                        // omit the timestamp.
+                        if let created = post.createdDate {
+                            Text(RelativeTime.string(from: created))
+                                .font(.caption)
+                                .foregroundColor(.secondary)
+                                .accessibilityIdentifier("PostCreatedTime")
+                        }
                     }
                     .padding(.horizontal)
                     Divider()
