@@ -66,15 +66,19 @@ if [ ! -d dist ]; then
     exit 1
 fi
 
-# Sync to S3. --delete removes files no longer in the build. index.html is
-# uploaded with a no-cache header so the CDN/browsers always re-check the entry
-# point, while the fingerprinted /assets/ files can be cached forever.
-print_status "Syncing dist/ to s3://$BUCKET/ ..."
-aws s3 sync dist/ "s3://$BUCKET/" --delete \
-    --cache-control "public,max-age=31536000,immutable" \
-    --exclude index.html
+# Sync to S3 in two passes so each file's Cache-Control matches its cacheability:
+#  1) Vite's /assets/* are content-hashed (fingerprinted), so cache them forever.
+#  2) Everything else (index.html, favicon.svg, robots.txt, ...) is NOT
+#     fingerprinted and must revalidate — otherwise a redeploy can't dislodge a
+#     stale cached copy (e.g. an old favicon lingering for up to a year).
+# --delete in pass 1 prunes only within assets/; pass 2 excludes assets/ so it
+# prunes the rest without deleting what pass 1 just uploaded.
+print_status "Syncing fingerprinted assets to s3://$BUCKET/assets/ (immutable)..."
+aws s3 sync dist/assets/ "s3://$BUCKET/assets/" --delete \
+    --cache-control "public,max-age=31536000,immutable"
 
-aws s3 cp dist/index.html "s3://$BUCKET/index.html" \
+print_status "Syncing the rest to s3://$BUCKET/ (no-cache)..."
+aws s3 sync dist/ "s3://$BUCKET/" --delete --exclude "assets/*" \
     --cache-control "no-cache"
 
 if [ "$SKIP_INVALIDATION" = "true" ]; then
