@@ -4,6 +4,7 @@ google-genai
 openai
 Pillow
 django
+django-cors-headers
 pytest
 pytest-django
 gunicorn

@@ -41,6 +41,17 @@ CSRF_TRUSTED_ORIGINS = [
     if origin
 ]
 
+# CORS: the website (e.g. https://smiling.social) is a different origin than the
+# API (https://api.smiling.social), so browser XHR needs these headers. Comma-
+# separated exact origins in CORS_ALLOWED_ORIGINS; credentials are enabled so the
+# session cookie is sent (the two share the registrable domain, so it is same-site
+# and SameSite=Lax still delivers the cookie). Native mobile clients are unaffected.
+CORS_ALLOWED_ORIGINS = [
+    origin for origin in os.environ.get("CORS_ALLOWED_ORIGINS", "").split(",")
+    if origin
+]
+CORS_ALLOW_CREDENTIALS = True
+
 # Security settings for production
 SECURE_SSL_REDIRECT = os.environ.get("SECURE_SSL_REDIRECT", "False").lower() == "true"
 SECURE_PROXY_SSL_HEADER = ("HTTP_X_FORWARDED_PROTO", "https")
@@ -53,6 +64,7 @@ SECURE_CONTENT_TYPE_NOSNIFF = True
 
 INSTALLED_APPS = [
     'user_system',
+    'corsheaders',
     'django.contrib.admin',
     'django.contrib.auth',
     'django.contrib.contenttypes',
@@ -63,6 +75,10 @@ INSTALLED_APPS = [
 
 MIDDLEWARE = [
     'django.middleware.security.SecurityMiddleware',
+    # CorsMiddleware must sit above CommonMiddleware (and any middleware that can
+    # short-circuit a response) so the CORS headers are attached to browser
+    # requests from the website origin. Native mobile clients ignore CORS.
+    'corsheaders.middleware.CorsMiddleware',
     'pos_backend.middleware.AdminIPAllowlistMiddleware',
     'django_ratelimit.middleware.RatelimitMiddleware',
     'django.contrib.sessions.middleware.SessionMiddleware',
