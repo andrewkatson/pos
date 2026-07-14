@@ -1,19 +1,21 @@
 #!/bin/bash
 
 ###############################################################################
-# EC2 Setup Script for smiling.social
+# EC2 Setup Script for the Django API (api.smiling.social)
 #
-# Provisions a fresh Ubuntu EC2 instance to serve BOTH:
-#   * the Django API  at  api.smiling.social  (gunicorn + nginx, unix socket)
-#   * the React/Vite website at smiling.social (static SPA built to website/dist,
-#     served by nginx on the same box)
+# Provisions a fresh Ubuntu EC2 instance to run the Django API with gunicorn
+# behind nginx (unix socket). In production this EC2 sits behind an ALB
+# (alb.smiling.social) which is fronted by CloudFront (api.smiling.social), so
+# TLS terminates at the edge and nginx here listens on plain HTTP :80.
+#
+# The WEBSITE is NOT served from this host — smiling.social / www are a static
+# SPA in S3 (bucket smiling-social-web) behind CloudFront. Publish it with
+# website/deploy-web.sh, not this script.
 #
 # Repo layout on the host (matches production): the repo is cloned into
 #   $APP_DIR/pos              -> REPO_DIR
 # so Django lives at
 #   $APP_DIR/pos/backend      -> BACKEND_DIR   (manage.py, requirements.txt, venv, .env)
-# and the website at
-#   $APP_DIR/pos/website      -> FRONTEND_DIR  (built into website/dist)
 #
 # Usage:
 #   ./setup-django.sh \
@@ -24,8 +26,8 @@
 #     --aws-access-key-id "your-aws-access-key" \
 #     --aws-secret-access-key "your-aws-secret-key" \
 #     --aws-region "us-east-1" \
-#     --aws-storage-bucket "bucket-name" \
-#     --aws-compressed-bucket "compressed-bucket-name" \
+#     --aws-storage-bucket "goodvibesonly-images" \
+#     --aws-compressed-bucket "goodvibesonly-imagescompressed" \
 #     --db-name "smilingdb" \
 #     --db-user "smilingapp" \
 #     --db-password "db-password" \
@@ -48,16 +50,15 @@ YELLOW='\033[1;33m'
 NC='\033[0m' # No Color
 
 # Default Configuration Variables
-DOMAIN="api.smiling.social"           # backend/API host
-FRONTEND_DOMAIN="smiling.social"      # website host (apex; www is added too)
+DOMAIN="api.smiling.social"           # API host (public, via CloudFront -> ALB)
+FRONTEND_DOMAIN="smiling.social"      # website host; used only to build CORS/CSRF origins
 APP_DIR="/var/www/smiling-social"
 REPO_DIR="$APP_DIR/pos"               # repo is cloned here (nested, matches prod)
 BACKEND_DIR="$REPO_DIR/backend"       # Django project root (manage.py lives here)
-FRONTEND_DIR="$REPO_DIR/website"      # Vite SPA root
 GIT_REPO=""
 PROJECT_NAME=""                       # Django project package, e.g. pos_backend
 APP_USER="ubuntu"
-ADMIN_EMAIL="admin@smiling.social"    # used for Let's Encrypt notifications
+ADMIN_EMAIL="admin@smiling.social"    # used for Let's Encrypt notifications (standalone only)
 
 # Environment Variables (from command line)
 DJANGO_SECRET_KEY=""
@@ -125,29 +126,11 @@ Required Options:
 
 Optional:
   --db-port PORT                Database port (default: 5432)
-  --domain DOMAIN               API/backend host (default: api.smiling.social)
-  --frontend-domain DOMAIN      Website host (default: smiling.social)
+  --domain DOMAIN               API host (default: api.smiling.social)
+  --frontend-domain DOMAIN      Website host, for CORS/CSRF origins (default: smiling.social)
   --admin-ip-allowlist IPS      Comma-separated exact IPs allowed to reach /admin
-  --admin-email EMAIL           Admin email for Let's Encrypt
+  --admin-email EMAIL           Admin email for Let's Encrypt (standalone TLS only)
   --help                        Show this help message
-
-Example:
-  $0 \\
-    --django-secret-key "your-secret-key" \\
-    --email-user "app@gmail.com" \\
-    --email-pass "app-password" \\
-    --gemini-api-key "your-key" \\
-    --aws-access-key-id "AKIA..." \\
-    --aws-secret-access-key "secret..." \\
-    --aws-region "us-east-1" \\
-    --aws-storage-bucket "goodvibesonly-images" \\
-    --aws-compressed-bucket "goodvibesonly-imagescompressed" \\
-    --db-name "smilingdb" \\
-    --db-user "smilingapp" \\
-    --db-password "db-pass" \\
-    --db-host "cluster.xxxxx.rds.amazonaws.com" \\
-    --git-repo "https://github.com/user/repo.git" \\
-    --project-name "pos_backend"
 EOF
     exit 0
 }
@@ -155,93 +138,28 @@ EOF
 parse_arguments() {
     while [[ $# -gt 0 ]]; do
         case $1 in
-            --django-secret-key)
-                DJANGO_SECRET_KEY="$2"
-                shift 2
-                ;;
-            --email-user)
-                EMAIL_USER="$2"
-                shift 2
-                ;;
-            --email-pass)
-                EMAIL_PASS="$2"
-                shift 2
-                ;;
-            --gemini-api-key)
-                GEMINI_API_KEY="$2"
-                shift 2
-                ;;
-            --aws-access-key-id)
-                AWS_ACCESS_KEY_ID="$2"
-                shift 2
-                ;;
-            --aws-secret-access-key)
-                AWS_SECRET_ACCESS_KEY="$2"
-                shift 2
-                ;;
-            --aws-region)
-                AWS_REGION="$2"
-                shift 2
-                ;;
-            --aws-storage-bucket)
-                AWS_STORAGE_BUCKET_NAME="$2"
-                shift 2
-                ;;
-            --aws-compressed-bucket)
-                AWS_COMPRESSED_STORAGE_BUCKET_NAME="$2"
-                shift 2
-                ;;
-            --db-name)
-                DATABASE_NAME="$2"
-                shift 2
-                ;;
-            --db-user)
-                DATABASE_USER="$2"
-                shift 2
-                ;;
-            --db-password)
-                DATABASE_PASSWORD="$2"
-                shift 2
-                ;;
-            --db-host)
-                DATABASE_HOST="$2"
-                shift 2
-                ;;
-            --db-port)
-                DATABASE_PORT="$2"
-                shift 2
-                ;;
-            --git-repo)
-                GIT_REPO="$2"
-                shift 2
-                ;;
-            --project-name)
-                PROJECT_NAME="$2"
-                shift 2
-                ;;
-            --domain)
-                DOMAIN="$2"
-                shift 2
-                ;;
-            --frontend-domain)
-                FRONTEND_DOMAIN="$2"
-                shift 2
-                ;;
-            --admin-ip-allowlist)
-                ADMIN_IP_ALLOWLIST="$2"
-                shift 2
-                ;;
-            --admin-email)
-                ADMIN_EMAIL="$2"
-                shift 2
-                ;;
-            --help)
-                print_usage
-                ;;
-            *)
-                print_error "Unknown option: $1"
-                print_usage
-                ;;
+            --django-secret-key)     DJANGO_SECRET_KEY="$2"; shift 2 ;;
+            --email-user)            EMAIL_USER="$2"; shift 2 ;;
+            --email-pass)            EMAIL_PASS="$2"; shift 2 ;;
+            --gemini-api-key)        GEMINI_API_KEY="$2"; shift 2 ;;
+            --aws-access-key-id)     AWS_ACCESS_KEY_ID="$2"; shift 2 ;;
+            --aws-secret-access-key) AWS_SECRET_ACCESS_KEY="$2"; shift 2 ;;
+            --aws-region)            AWS_REGION="$2"; shift 2 ;;
+            --aws-storage-bucket)    AWS_STORAGE_BUCKET_NAME="$2"; shift 2 ;;
+            --aws-compressed-bucket) AWS_COMPRESSED_STORAGE_BUCKET_NAME="$2"; shift 2 ;;
+            --db-name)               DATABASE_NAME="$2"; shift 2 ;;
+            --db-user)               DATABASE_USER="$2"; shift 2 ;;
+            --db-password)           DATABASE_PASSWORD="$2"; shift 2 ;;
+            --db-host)               DATABASE_HOST="$2"; shift 2 ;;
+            --db-port)               DATABASE_PORT="$2"; shift 2 ;;
+            --git-repo)              GIT_REPO="$2"; shift 2 ;;
+            --project-name)          PROJECT_NAME="$2"; shift 2 ;;
+            --domain)                DOMAIN="$2"; shift 2 ;;
+            --frontend-domain)       FRONTEND_DOMAIN="$2"; shift 2 ;;
+            --admin-ip-allowlist)    ADMIN_IP_ALLOWLIST="$2"; shift 2 ;;
+            --admin-email)           ADMIN_EMAIL="$2"; shift 2 ;;
+            --help)                  print_usage ;;
+            *) print_error "Unknown option: $1"; print_usage ;;
         esac
     done
 
@@ -274,6 +192,17 @@ parse_arguments() {
     fi
 }
 
+# Quote a value for a KEY="value" line in the generated .env. Secrets/passwords
+# commonly contain spaces or '#', which python-dotenv and systemd EnvironmentFile
+# both truncate/misparse when unquoted. We escape backslashes and double quotes
+# so the double-quoted form is safe; both dotenv and systemd strip the quotes.
+env_quote() {
+    local v="$1"
+    v="${v//\\/\\\\}"   # escape backslashes first
+    v="${v//\"/\\\"}"   # then escape double quotes
+    printf '"%s"' "$v"
+}
+
 ###############################################################################
 # Main Setup Functions
 ###############################################################################
@@ -299,14 +228,6 @@ install_dependencies() {
         libpq-dev \
         curl \
         ufw
-
-    # Node.js (for building the Vite SPA). Vite 8 needs Node 20+, so pull a
-    # current LTS from NodeSource rather than Ubuntu's older packaged node.
-    if ! command -v node > /dev/null 2>&1; then
-        print_status "Installing Node.js 22 (NodeSource)..."
-        curl -fsSL https://deb.nodesource.com/setup_22.x | sudo -E bash -
-        sudo apt install -y nodejs
-    fi
 }
 
 setup_firewall() {
@@ -329,7 +250,7 @@ clone_repository() {
     sudo chown $APP_USER:$APP_USER "$APP_DIR"
 
     # Clone into the nested pos/ directory so paths match production:
-    #   $APP_DIR/pos/backend, $APP_DIR/pos/website
+    #   $APP_DIR/pos/backend
     git clone "$GIT_REPO" "$REPO_DIR"
 }
 
@@ -360,44 +281,50 @@ create_env_file() {
     # Host headers Django accepts (missing => 400 DisallowedHost). CSRF/CORS lists
     # let the website origin log in and call the API cross-origin. FRONTEND_BASE_URL
     # is where the email-verification link points.
+    #
+    # SECURE_SSL_REDIRECT stays False: TLS is enforced at CloudFront/ALB, and nginx
+    # here forwards X-Forwarded-Proto as its own ($scheme=http) to gunicorn, so a
+    # Django-level redirect would loop. HTTPS is guaranteed by the CloudFront viewer
+    # protocol policy, not by Django.
     local allowed_hosts="$DOMAIN,localhost,127.0.0.1"
     local csrf_origins="https://$DOMAIN,https://$FRONTEND_DOMAIN,https://www.$FRONTEND_DOMAIN"
     local cors_origins="https://$FRONTEND_DOMAIN,https://www.$FRONTEND_DOMAIN"
     local frontend_base_url="https://$FRONTEND_DOMAIN"
 
+    # Values are double-quoted (see env_quote) so spaces/'#' in secrets survive.
     cat > "$BACKEND_DIR/.env" << EOF
 # Django Settings
-DJANGO_SECRET_KEY=$DJANGO_SECRET_KEY
-DJANGO_DEBUG=$DJANGO_DEBUG
+DJANGO_SECRET_KEY=$(env_quote "$DJANGO_SECRET_KEY")
+DJANGO_DEBUG=$(env_quote "$DJANGO_DEBUG")
 
 # Public site config
-ALLOWED_HOSTS=$allowed_hosts
-CSRF_TRUSTED_ORIGINS=$csrf_origins
-CORS_ALLOWED_ORIGINS=$cors_origins
-FRONTEND_BASE_URL=$frontend_base_url
-SECURE_SSL_REDIRECT=True
-ADMIN_IP_ALLOWLIST=$ADMIN_IP_ALLOWLIST
+ALLOWED_HOSTS=$(env_quote "$allowed_hosts")
+CSRF_TRUSTED_ORIGINS=$(env_quote "$csrf_origins")
+CORS_ALLOWED_ORIGINS=$(env_quote "$cors_origins")
+FRONTEND_BASE_URL=$(env_quote "$frontend_base_url")
+SECURE_SSL_REDIRECT=$(env_quote "False")
+ADMIN_IP_ALLOWLIST=$(env_quote "$ADMIN_IP_ALLOWLIST")
 
 # Email Configuration (Gmail SMTP; app password)
-EMAIL_USER=$EMAIL_USER
-EMAIL_PASS=$EMAIL_PASS
+EMAIL_USER=$(env_quote "$EMAIL_USER")
+EMAIL_PASS=$(env_quote "$EMAIL_PASS")
 
 # Gemini API
-GEMINI_API_KEY=$GEMINI_API_KEY
+GEMINI_API_KEY=$(env_quote "$GEMINI_API_KEY")
 
 # AWS Configuration
-AWS_ACCESS_KEY_ID=$AWS_ACCESS_KEY_ID
-AWS_SECRET_ACCESS_KEY=$AWS_SECRET_ACCESS_KEY
-AWS_REGION=$AWS_REGION
-AWS_STORAGE_BUCKET_NAME=$AWS_STORAGE_BUCKET_NAME
-AWS_COMPRESSED_STORAGE_BUCKET_NAME=$AWS_COMPRESSED_STORAGE_BUCKET_NAME
+AWS_ACCESS_KEY_ID=$(env_quote "$AWS_ACCESS_KEY_ID")
+AWS_SECRET_ACCESS_KEY=$(env_quote "$AWS_SECRET_ACCESS_KEY")
+AWS_REGION=$(env_quote "$AWS_REGION")
+AWS_STORAGE_BUCKET_NAME=$(env_quote "$AWS_STORAGE_BUCKET_NAME")
+AWS_COMPRESSED_STORAGE_BUCKET_NAME=$(env_quote "$AWS_COMPRESSED_STORAGE_BUCKET_NAME")
 
 # Database Configuration
-DATABASE_NAME=$DATABASE_NAME
-DATABASE_USER=$DATABASE_USER
-DATABASE_PASSWORD=$DATABASE_PASSWORD
-DATABASE_HOST=$DATABASE_HOST
-DATABASE_PORT=$DATABASE_PORT
+DATABASE_NAME=$(env_quote "$DATABASE_NAME")
+DATABASE_USER=$(env_quote "$DATABASE_USER")
+DATABASE_PASSWORD=$(env_quote "$DATABASE_PASSWORD")
+DATABASE_HOST=$(env_quote "$DATABASE_HOST")
+DATABASE_PORT=$(env_quote "$DATABASE_PORT")
 EOF
 
     chmod 600 "$BACKEND_DIR/.env"
@@ -420,12 +347,9 @@ run_django_setup() {
     cd "$BACKEND_DIR"
     source venv/bin/activate
 
-    # Load .env safely: `set -a` exports everything sourced, and `source` ignores
-    # comment/blank lines (unlike `export $(cat .env | xargs)`, which chokes on
-    # the "# ..." comment lines above).
-    set -a
-    source "$BACKEND_DIR/.env"
-    set +a
+    # No manual env loading: manage.py calls dotenv.load_dotenv(), which reads
+    # $BACKEND_DIR/.env from the cwd and parses KEY="value" the same way systemd
+    # does — without shell-evaluating the file (so '$' in secrets is safe).
 
     # Create static/media dirs at the ABSOLUTE paths settings.py pins them to
     # (STATIC_ROOT=$APP_DIR/staticfiles, MEDIA_ROOT=$APP_DIR/media) — collectstatic
@@ -439,23 +363,6 @@ run_django_setup() {
     python manage.py collectstatic --noinput
 
     deactivate
-}
-
-build_frontend() {
-    print_status "Building the website (Vite SPA)..."
-    cd "$FRONTEND_DIR"
-
-    # Reproducible install from package-lock.json, then a production build. The
-    # API base URL is baked in at build time; point it at the backend host.
-    npm ci
-    VITE_API_BASE_URL="https://$DOMAIN/user_index" npm run build
-
-    if [ -d "$FRONTEND_DIR/dist" ]; then
-        print_status "Website built to $FRONTEND_DIR/dist"
-    else
-        print_error "Website build did not produce a dist/ directory."
-        exit 1
-    fi
 }
 
 setup_gunicorn_service() {
@@ -542,6 +449,9 @@ EOF
 setup_nginx() {
     print_status "Configuring Nginx for the API ($DOMAIN)..."
 
+    # Plain HTTP on :80 — the ALB/CloudFront in front terminate TLS and forward
+    # here. If you run this EC2 standalone (no ALB), add TLS with:
+    #   sudo certbot --nginx -d $DOMAIN
     sudo tee /etc/nginx/sites-available/$DOMAIN > /dev/null << EOF
 server {
     listen 80;
@@ -571,67 +481,15 @@ server {
 }
 EOF
 
-    print_status "Configuring Nginx for the website ($FRONTEND_DOMAIN)..."
-
-    sudo tee /etc/nginx/sites-available/$FRONTEND_DOMAIN > /dev/null << EOF
-server {
-    listen 80;
-    server_name $FRONTEND_DOMAIN www.$FRONTEND_DOMAIN;
-
-    root $FRONTEND_DIR/dist;
-    index index.html;
-
-    # Long-cache the fingerprinted assets Vite emits under /assets/.
-    location /assets/ {
-        expires 1y;
-        add_header Cache-Control "public, immutable";
-    }
-
-    # SPA fallback: unknown paths serve index.html so client-side routing (e.g.
-    # /verify-email) works on a hard refresh or a link straight from an email.
-    location / {
-        try_files \$uri \$uri/ /index.html;
-    }
-}
-EOF
-
-    # Enable both sites
+    # Enable site, remove default
     sudo ln -sf /etc/nginx/sites-available/$DOMAIN /etc/nginx/sites-enabled/
-    sudo ln -sf /etc/nginx/sites-available/$FRONTEND_DOMAIN /etc/nginx/sites-enabled/
-
-    # Remove default site
     sudo rm -f /etc/nginx/sites-enabled/default
 
-    # Test configuration
     sudo nginx -t
-
-    # Restart Nginx
     sudo systemctl restart nginx
     sudo systemctl enable nginx
 
     print_status "Nginx configured successfully"
-}
-
-setup_ssl() {
-    print_status "Setting up SSL certificates with Let's Encrypt..."
-    print_warning "Make sure DNS for BOTH $DOMAIN and $FRONTEND_DOMAIN points to this server before continuing!"
-
-    read -p "Is DNS configured and pointing to this server? (yes/no): " dns_ready
-
-    if [ "$dns_ready" = "yes" ]; then
-        if sudo certbot --nginx \
-            -d $DOMAIN \
-            -d $FRONTEND_DOMAIN -d www.$FRONTEND_DOMAIN \
-            --non-interactive --agree-tos --redirect -m $ADMIN_EMAIL; then
-            print_status "SSL certificates installed successfully"
-        else
-            print_error "SSL certificate installation failed. You can run it manually later with:"
-            echo "sudo certbot --nginx -d $DOMAIN -d $FRONTEND_DOMAIN -d www.$FRONTEND_DOMAIN"
-        fi
-    else
-        print_warning "Skipping SSL setup. Run this command when DNS is ready:"
-        echo "sudo certbot --nginx -d $DOMAIN -d $FRONTEND_DOMAIN -d www.$FRONTEND_DOMAIN"
-    fi
 }
 
 setup_log_rotation() {
@@ -656,36 +514,16 @@ EOF
     print_status "Log rotation configured"
 }
 
-create_health_check_script() {
-    print_status "Creating health check script..."
-
-    cat > ~/status_check.sh << EOF
-#!/bin/bash
-
-echo "=== Checking Gunicorn ==="
-sudo systemctl status gunicorn --no-pager | head -n 3
-
-echo -e "\n=== Checking Nginx ==="
-sudo systemctl status nginx --no-pager | head -n 3
-
-echo -e "\n=== Checking Socket ==="
-ls -l $APP_DIR/gunicorn.sock 2>/dev/null || echo "Socket not found"
-
-echo -e "\n=== Checking Nginx Ports ==="
-sudo ss -tlnp | grep nginx
-
-echo -e "\n=== Testing API locally ==="
-curl -I -H "Host: $DOMAIN" http://localhost 2>/dev/null | head -n 1 || echo "Connection failed"
-
-echo -e "\n=== Testing website locally ==="
-curl -I -H "Host: $FRONTEND_DOMAIN" http://localhost 2>/dev/null | head -n 1 || echo "Connection failed"
-
-echo -e "\n=== Recent Gunicorn Logs ==="
-sudo journalctl -u gunicorn -n 5 --no-pager
-EOF
-
-    chmod +x ~/status_check.sh
-    print_status "Health check script created at ~/status_check.sh"
+install_health_check_script() {
+    print_status "Installing health check script..."
+    # Reuse the repo's status_check.sh rather than duplicating it.
+    if [ -f "$BACKEND_DIR/tools/status_check.sh" ]; then
+        cp "$BACKEND_DIR/tools/status_check.sh" ~/status_check.sh
+        chmod +x ~/status_check.sh
+        print_status "Health check script installed at ~/status_check.sh"
+    else
+        print_warning "status_check.sh not found in repo; skipping."
+    fi
 }
 
 set_permissions() {
@@ -693,6 +531,9 @@ set_permissions() {
     sudo chown -R $APP_USER:www-data "$APP_DIR"
     sudo chmod -R 755 "$APP_DIR"
     sudo chmod 660 "$APP_DIR/gunicorn.sock" 2>/dev/null || true
+    # Re-assert 600 on the secrets file — the recursive chmod above would have
+    # made it world-readable.
+    sudo chmod 600 "$BACKEND_DIR/.env"
 }
 
 create_update_script() {
@@ -702,36 +543,27 @@ create_update_script() {
 #!/bin/bash
 set -e
 
-echo "Updating application..."
+echo "Updating API..."
 
 # Pull latest code
 cd $REPO_DIR
 git pull origin main
 
-# --- Backend ---
+# Backend
 cd $BACKEND_DIR
 source venv/bin/activate
 pip install -r requirements.txt
 
-# Load environment variables (ignores comments/blank lines)
-set -a
-source $BACKEND_DIR/.env
-set +a
-
+# manage.py loads .env via python-dotenv (no shell 'source' of secrets).
 python manage.py migrate --noinput
 python manage.py collectstatic --noinput
 deactivate
 
-# --- Frontend ---
-cd $FRONTEND_DIR
-npm ci
-VITE_API_BASE_URL="https://$DOMAIN/user_index" npm run build
-
-# --- Restart services ---
+# Restart services
 sudo systemctl restart gunicorn
 sudo systemctl reload nginx
 
-echo "Application updated successfully!"
+echo "API updated successfully!"
 EOF
 
     chmod +x ~/update-app.sh
@@ -744,22 +576,22 @@ print_summary() {
     echo -e "${GREEN}Setup Complete!${NC}"
     echo "========================================================================="
     echo ""
-    echo "API:     https://$DOMAIN"
-    echo "Website: https://$FRONTEND_DOMAIN"
+    echo "API host: $DOMAIN  (public via CloudFront -> ALB -> this nginx:80 -> gunicorn)"
+    echo ""
+    echo "The WEBSITE ($FRONTEND_DOMAIN) is served separately from S3 + CloudFront."
+    echo "Publish it with: website/deploy-web.sh"
     echo ""
     echo "Useful Commands:"
     echo "  - Check server status: ~/status_check.sh"
     echo "  - Update application: ~/update-app.sh"
     echo "  - View Gunicorn logs: sudo journalctl -u gunicorn -f"
     echo "  - View Nginx logs: sudo tail -f /var/log/nginx/error.log"
-    echo "  - Restart Gunicorn: sudo systemctl restart gunicorn"
-    echo "  - Restart Nginx: sudo systemctl restart nginx"
     echo ""
     echo "Next Steps:"
-    echo "  1. Create Django superuser:"
+    echo "  1. Confirm the ALB target group points at this instance on :80 and is healthy."
+    echo "  2. Create Django superuser:"
     echo "       cd $BACKEND_DIR && source venv/bin/activate && python manage.py createsuperuser"
-    echo "  2. Confirm both hosts resolve to this server and load over HTTPS."
-    echo "  3. Register a test user and click the verification link in the email."
+    echo "  3. Register a test user via the website and click the verification email link."
     echo ""
     echo "========================================================================="
 }
@@ -771,11 +603,10 @@ print_summary() {
 main() {
     clear
     echo "========================================================================="
-    echo "EC2 Setup Script for smiling.social (API + website)"
+    echo "EC2 Setup Script for the Django API (api.smiling.social)"
     echo "========================================================================="
     echo ""
 
-    # Parse command line arguments
     parse_arguments "$@"
 
     check_root
@@ -783,7 +614,7 @@ main() {
     echo ""
     print_status "Starting setup process..."
     print_status "API domain: $DOMAIN"
-    print_status "Website domain: $FRONTEND_DOMAIN"
+    print_status "Website (CORS/CSRF origin): $FRONTEND_DOMAIN"
     print_status "Database: $DATABASE_HOST"
     print_status "Git Repo: $GIT_REPO"
     echo ""
@@ -796,13 +627,11 @@ main() {
     create_env_file
     test_database_connection
     run_django_setup
-    build_frontend
     setup_gunicorn_service
     setup_cleanup_timer
     setup_nginx
-    setup_ssl
     setup_log_rotation
-    create_health_check_script
+    install_health_check_script
     create_update_script
     set_permissions
 

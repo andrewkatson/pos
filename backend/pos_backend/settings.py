@@ -47,10 +47,10 @@ CSRF_TRUSTED_ORIGINS = [
 # session cookie is sent (the two share the registrable domain, so it is same-site
 # and SameSite=Lax still delivers the cookie). Native mobile clients are unaffected.
 CORS_ALLOWED_ORIGINS = [
-    origin for origin in os.environ.get("CORS_ALLOWED_ORIGINS", "").split(",")
-    if origin
+    origin.strip() for origin in os.environ.get("CORS_ALLOWED_ORIGINS", "").split(",")
+    if origin.strip()
 ]
-CORS_ALLOW_CREDENTIALS = True
+CORS_ALLOW_CREDENTIALS = os.environ.get("CORS_ALLOW_CREDENTIALS", "True").lower() == "true"
 
 # Security settings for production
 SECURE_SSL_REDIRECT = os.environ.get("SECURE_SSL_REDIRECT", "False").lower() == "true"

@@ -1,7 +1,10 @@
 #!/bin/bash
 
-# Health check for the smiling.social box: the API (gunicorn behind nginx) and
-# the website (static SPA served by nginx). Override the hosts if yours differ.
+# Health check for the smiling.social stack.
+#   * API  : gunicorn behind nginx on THIS EC2 (CloudFront -> ALB -> nginx:80).
+#   * Website: static SPA in S3 behind CloudFront (NOT served from this host) —
+#     checked end-to-end over HTTPS only.
+# Override the hosts/socket if yours differ.
 DOMAIN="${DOMAIN:-api.smiling.social}"
 FRONTEND_DOMAIN="${FRONTEND_DOMAIN:-smiling.social}"
 SOCKET="${SOCKET:-/var/www/smiling-social/gunicorn.sock}"
@@ -30,23 +33,13 @@ curl --unix-socket "$SOCKET" \
   http://localhost/health/ \
   || echo "API local health check FAILED (see output above)"
 
-echo -e "\n=== Testing API over HTTPS ==="
+echo -e "\n=== Testing API over HTTPS (via CloudFront -> ALB) ==="
 curl -w "\nHTTP %{http_code}\n" \
   --fail-with-body \
   "https://$DOMAIN/health/" \
   || echo "API HTTPS health check FAILED (see output above)"
 
-echo -e "\n=== Testing website locally (nginx vhost) ==="
-# Confirm nginx has the website server block wired up. With the HTTPS redirect in
-# place this returns 301 to https; -I keeps it to headers only.
-curl -sI \
-  -H "Host: $FRONTEND_DOMAIN" \
-  -w "HTTP %{http_code}\n" \
-  http://localhost/ \
-  | tail -n 1 \
-  || echo "Website local check FAILED"
-
-echo -e "\n=== Testing website over HTTPS ==="
+echo -e "\n=== Testing website over HTTPS (CloudFront -> S3) ==="
 # The homepage must return 200 and serve the SPA shell.
 curl -sw "\nHTTP %{http_code}\n" \
   --fail-with-body \
@@ -56,11 +49,12 @@ curl -sw "\nHTTP %{http_code}\n" \
   || echo "Website HTTPS check FAILED (no SPA shell in response)"
 
 echo -e "\n=== Testing website SPA fallback (/verify-email) ==="
-# A deep client-side route must fall back to index.html (200), not 404 — this is
-# the path the email-verification link hits.
+# A deep client-side route must return 200 with the SPA shell, not 404 — this is
+# the path the email-verification link hits. With S3+CloudFront this relies on a
+# CloudFront custom error response mapping 403/404 -> /index.html (200).
 code=$(curl -s -o /dev/null -w "%{http_code}" "https://$FRONTEND_DOMAIN/verify-email")
 if [ "$code" = "200" ]; then
   echo "SPA fallback OK (HTTP 200 for /verify-email)"
 else
-  echo "SPA fallback FAILED (HTTP $code for /verify-email — check try_files)"
+  echo "SPA fallback FAILED (HTTP $code for /verify-email — check CloudFront custom error responses)"
 fi
