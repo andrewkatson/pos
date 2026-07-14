@@ -619,7 +619,9 @@ print_summary() {
 ###############################################################################
 
 main() {
-    clear
+    # `clear` can exit non-zero when $TERM is unset (cloud-init/SSM provisioning),
+    # which would abort under `set -e`; ignore its failure.
+    clear 2>/dev/null || true
     echo "========================================================================="
     echo "EC2 Setup Script for the Django API (api.smiling.social)"
     echo "========================================================================="

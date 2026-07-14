@@ -30,15 +30,19 @@ SECRET_KEY = os.environ.get("DJANGO_SECRET_KEY", dev_key)
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = False
 
-# ALLOWED_HOSTS
-ALLOWED_HOSTS = os.environ.get('ALLOWED_HOSTS', '').split(',')
+# ALLOWED_HOSTS — strip whitespace and drop empties so a value like
+# "api.smiling.social, localhost" doesn't yield a " localhost" that fails matching.
+ALLOWED_HOSTS = [
+    host.strip() for host in os.environ.get('ALLOWED_HOSTS', '').split(',')
+    if host.strip()
+]
 # CSRF settings
 CSRF_TRUSTED_ORIGINS = [
-    origin for origin in os.environ.get(
+    origin.strip() for origin in os.environ.get(
         "CSRF_TRUSTED_ORIGINS",
         "http://localhost,https://localhost"
     ).split(",")
-    if origin
+    if origin.strip()
 ]
 
 # CORS: the website (e.g. https://smiling.social) is a different origin than the
