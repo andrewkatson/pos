@@ -40,13 +40,18 @@ curl -w "\nHTTP %{http_code}\n" \
   || echo "API HTTPS health check FAILED (see output above)"
 
 echo -e "\n=== Testing website over HTTPS (CloudFront -> S3) ==="
-# The homepage must return 200 and serve the SPA shell.
-curl -sw "\nHTTP %{http_code}\n" \
-  --fail-with-body \
-  "https://$FRONTEND_DOMAIN/" \
-  | grep -Eqi '<div id="root"|<title' \
-  && echo "Website HTTPS OK (index.html served)" \
-  || echo "Website HTTPS check FAILED (no SPA shell in response)"
+# Require BOTH a 200 status AND the SPA shell. Checking only the body is unsafe:
+# error pages (403/404/500) still contain a <title>, and a piped grep's exit code
+# would mask the HTTP failure. Capture the body with the status code appended, then
+# assert on both.
+web_resp=$(curl -s -w $'\n%{http_code}' "https://$FRONTEND_DOMAIN/")
+web_code=$(printf '%s' "$web_resp" | tail -n1)
+web_html=$(printf '%s' "$web_resp" | sed '$d')
+if [ "$web_code" = "200" ] && printf '%s' "$web_html" | grep -Eqi 'id="root"'; then
+  echo "Website HTTPS OK (HTTP 200, SPA shell served)"
+else
+  echo "Website HTTPS check FAILED (HTTP $web_code, or SPA shell missing)"
+fi
 
 echo -e "\n=== Testing website SPA fallback (/verify-email) ==="
 # A deep client-side route must return 200 with the SPA shell, not 404 — this is

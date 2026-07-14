@@ -77,9 +77,6 @@ DATABASE_HOST=""
 DATABASE_PORT="5432"
 ADMIN_IP_ALLOWLIST=""                 # optional: exact public IP(s) allowed to reach /admin
 
-# Django Settings
-DJANGO_DEBUG="False"
-
 ###############################################################################
 # Helper Functions
 ###############################################################################
@@ -282,10 +279,13 @@ create_env_file() {
     # let the website origin log in and call the API cross-origin. FRONTEND_BASE_URL
     # is where the email-verification link points.
     #
-    # SECURE_SSL_REDIRECT stays False: TLS is enforced at CloudFront/ALB, and nginx
-    # here forwards X-Forwarded-Proto as its own ($scheme=http) to gunicorn, so a
-    # Django-level redirect would loop. HTTPS is guaranteed by the CloudFront viewer
-    # protocol policy, not by Django.
+    # SECURE_SSL_REDIRECT stays False: with the nginx X-Forwarded-Proto map below,
+    # Django correctly sees viewer-HTTPS, but the ALB health check hits nginx over
+    # plain HTTP with no X-Forwarded-Proto — SECURE_SSL_REDIRECT=True would 301 that
+    # probe and mark the target unhealthy. HTTPS is enforced at the CloudFront viewer
+    # protocol policy, so a Django-level redirect is unnecessary.
+    #
+    # (DJANGO_DEBUG is intentionally not written: settings.py hard-codes DEBUG=False.)
     local allowed_hosts="$DOMAIN,localhost,127.0.0.1"
     local csrf_origins="https://$DOMAIN,https://$FRONTEND_DOMAIN,https://www.$FRONTEND_DOMAIN"
     local cors_origins="https://$FRONTEND_DOMAIN,https://www.$FRONTEND_DOMAIN"
@@ -295,12 +295,12 @@ create_env_file() {
     cat > "$BACKEND_DIR/.env" << EOF
 # Django Settings
 DJANGO_SECRET_KEY=$(env_quote "$DJANGO_SECRET_KEY")
-DJANGO_DEBUG=$(env_quote "$DJANGO_DEBUG")
 
 # Public site config
 ALLOWED_HOSTS=$(env_quote "$allowed_hosts")
 CSRF_TRUSTED_ORIGINS=$(env_quote "$csrf_origins")
 CORS_ALLOWED_ORIGINS=$(env_quote "$cors_origins")
+CORS_ALLOW_CREDENTIALS=$(env_quote "True")
 FRONTEND_BASE_URL=$(env_quote "$frontend_base_url")
 SECURE_SSL_REDIRECT=$(env_quote "False")
 ADMIN_IP_ALLOWLIST=$(env_quote "$ADMIN_IP_ALLOWLIST")
@@ -329,6 +329,12 @@ EOF
 
     chmod 600 "$BACKEND_DIR/.env"
     print_status ".env file created successfully"
+
+    if [ -z "$ADMIN_IP_ALLOWLIST" ]; then
+        print_warning "ADMIN_IP_ALLOWLIST is empty — AdminIPAllowlistMiddleware default-denies,"
+        print_warning "so /admin will 404 for everyone (by design) until you set your public IP in"
+        print_warning "$BACKEND_DIR/.env and restart gunicorn. Re-run with --admin-ip-allowlist to set it now."
+    fi
 }
 
 test_database_connection() {
@@ -452,7 +458,19 @@ setup_nginx() {
     # Plain HTTP on :80 — the ALB/CloudFront in front terminate TLS and forward
     # here. If you run this EC2 standalone (no ALB), add TLS with:
     #   sudo certbot --nginx -d $DOMAIN
+    #
+    # The `map` (valid at http context — sites-enabled/* is included there) honors
+    # the X-Forwarded-Proto the ALB sets for real viewers (https) and falls back to
+    # nginx's own scheme when the header is absent (e.g. an ALB health check hitting
+    # :80 directly). Overwriting with \$scheme, as before, made Django see every
+    # request as http — breaking is_secure()/CSRF referer checks and producing
+    # http:// absolute URLs behind CloudFront.
     sudo tee /etc/nginx/sites-available/$DOMAIN > /dev/null << EOF
+map \$http_x_forwarded_proto \$forwarded_proto {
+    default \$http_x_forwarded_proto;
+    ""      \$scheme;
+}
+
 server {
     listen 80;
     server_name $DOMAIN;
@@ -475,7 +493,7 @@ server {
     location / {
         include proxy_params;
         proxy_pass http://unix:$APP_DIR/gunicorn.sock;
-        proxy_set_header X-Forwarded-Proto \$scheme;
+        proxy_set_header X-Forwarded-Proto \$forwarded_proto;
         proxy_set_header Host \$host;
     }
 }
