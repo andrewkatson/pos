@@ -64,7 +64,7 @@ class RetractReportCommentTests(PositiveOnlySocialTestCase):
         Tests that a malformed comment_identifier in the URL is rejected.
         """
         invalid_url = (
-            f'posts/{self.post_identifier}/threads/{self.comment_thread_identifier}'
+            f'/posts/{self.post_identifier}/threads/{self.comment_thread_identifier}'
             f'/comments/{invalid_comment_identifier}/report/retract/'
         )
 
