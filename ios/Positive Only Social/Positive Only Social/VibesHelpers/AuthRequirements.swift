@@ -19,6 +19,9 @@ enum AuthRequirements {
     struct Requirement: Identifiable {
         let label: String
         let didMeetRequirement: Bool
+        /// Optional suggestions don't gate form validity (see allMet) and render in a
+        /// neutral state rather than as a pass/fail requirement.
+        var optional: Bool = false
         var id: String { label }
     }
 
@@ -33,7 +36,9 @@ enum AuthRequirements {
             Requirement(label: "At least one lowercase letter", didMeetRequirement: matches(pwd, "[a-z]")),
             Requirement(label: "At least one uppercase letter", didMeetRequirement: matches(pwd, "[A-Z]")),
             Requirement(label: "At least one dash (-)", didMeetRequirement: matches(pwd, "-")),
-            Requirement(label: "Adding other special characters (like !) is suggested", didMeetRequirement: true),
+            // Any non-alphanumeric character other than the already-required dash.
+            // Unicode-aware so it doesn't flag accented letters as "special".
+            Requirement(label: "Adding other special characters (like !) is suggested", didMeetRequirement: matches(pwd, "[^\\p{L}\\p{N}\\s-]"), optional: true),
             Requirement(label: "No spaces", didMeetRequirement: !pwd.isEmpty && !matches(pwd, "\\s")),
         ]
     }
@@ -46,27 +51,39 @@ enum AuthRequirements {
     }
 
     static func allMet(_ requirements: [Requirement]) -> Bool {
-        requirements.allSatisfy { $0.didMeetRequirement }
+        // Optional suggestions are advisory only and never block submission.
+        requirements.filter { !$0.optional }.allSatisfy { $0.didMeetRequirement }
     }
 }
 
-/// Renders a checklist of validation requirements. The met/unmet state is shown
-/// with color + an SF Symbol, and conveyed to assistive tech via a per-row
-/// accessibility label. Shared across the auth screens so the labels, colors,
-/// and accessibility behavior can't drift.
+/// Renders a checklist of validation requirements. Required rows show a met/unmet
+/// state with color + an SF Symbol and a per-row accessibility label. Optional
+/// suggestions never render as "failed": until satisfied they sit in a neutral
+/// state announced as "optional", switching to "met" once present. Shared across
+/// the auth screens so the labels, colors, and accessibility behavior can't drift.
 struct RequirementHints: View {
     let requirements: [AuthRequirements.Requirement]
+
+    private func symbol(for requirement: AuthRequirements.Requirement) -> String {
+        if requirement.didMeetRequirement { return "checkmark.circle.fill" }
+        return requirement.optional ? "circle" : "xmark.circle"
+    }
+
+    private func status(for requirement: AuthRequirements.Requirement) -> String {
+        if requirement.didMeetRequirement { return "met" }
+        return requirement.optional ? "optional" : "not met"
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 3) {
             ForEach(requirements) { requirement in
                 Label(
                     requirement.label,
-                    systemImage: requirement.didMeetRequirement ? "checkmark.circle.fill" : "xmark.circle"
+                    systemImage: symbol(for: requirement)
                 )
                 .foregroundColor(requirement.didMeetRequirement ? .green : .secondary)
                 .font(.caption)
-                .accessibilityLabel("\(requirement.label): \(requirement.didMeetRequirement ? "met" : "not met")")
+                .accessibilityLabel("\(requirement.label): \(status(for: requirement))")
             }
         }
     }
