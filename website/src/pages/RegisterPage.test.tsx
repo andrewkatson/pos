@@ -95,6 +95,23 @@ test('password hints appear when password is typed', async () => {
   expect(screen.getByText('No spaces')).toBeInTheDocument()
 })
 
+test('special-character suggestion is neutral (optional) until a special char is present', async () => {
+  renderRegisterPage()
+  const suggestionText = 'Adding other special characters (like !) is suggested'
+
+  // No extra special character yet: advisory, not a failed requirement.
+  await userEvent.type(screen.getByLabelText('Password'), 'StrongPass1-')
+  let suggestion = screen.getAllByRole('listitem').find(h => h.textContent === suggestionText)
+  expect(suggestion).toHaveClass('auth-hint--optional')
+  expect(suggestion).toHaveAttribute('aria-label', `${suggestionText}: optional`)
+
+  // Add a special character: now shown as met.
+  await userEvent.type(screen.getByLabelText('Password'), '!')
+  suggestion = screen.getAllByRole('listitem').find(h => h.textContent === suggestionText)
+  expect(suggestion).toHaveClass('auth-hint--met')
+  expect(suggestion).toHaveAttribute('aria-label', `${suggestionText}: met`)
+})
+
 test('shows password mismatch warning in real time', async () => {
   renderRegisterPage()
   await userEvent.type(screen.getByLabelText('Password'), 'pass1')

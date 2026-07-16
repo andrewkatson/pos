@@ -281,12 +281,20 @@
   color: rgba(255, 255, 255, 0.4);
 }
 
+.auth-hint--optional {
+  color: rgba(255, 255, 255, 0.4);
+}
+
 .auth-hint--met::before {
   content: '✓';
 }
 
 .auth-hint--unmet::before {
   content: '✗';
+}
+
+.auth-hint--optional::before {
+  content: '•';
 }
 
 /* ---- Modal overlay ---- */

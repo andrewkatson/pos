@@ -9,6 +9,9 @@
 export interface Requirement {
   label: string
   didMeetRequirement: boolean
+  // Optional suggestions don't gate form validity (see allMet) and render in a
+  // neutral state rather than as a pass/fail requirement.
+  optional?: boolean
 }
 
 export function getPasswordRequirements(password: string): Requirement[] {
@@ -23,7 +26,10 @@ export function getPasswordRequirements(password: string): Requirement[] {
     },
     {
       label: 'Adding other special characters (like !) is suggested',
-      didMeetRequirement: true,
+      // Any non-alphanumeric character other than the already-required dash.
+      // Unicode-aware so it doesn't flag accented letters as "special".
+      didMeetRequirement: /[^\p{L}\p{N}\s-]/u.test(password),
+      optional: true,
     },
     { label: 'No spaces', didMeetRequirement: password.length > 0 && !/\s/.test(password) },
   ]
@@ -46,7 +52,8 @@ export function getUsernameRequirements(username: string): Requirement[] {
 }
 
 export function allMet(requirements: Requirement[]): boolean {
-  return requirements.every(r => r.didMeetRequirement)
+  // Optional suggestions are advisory only and never block submission.
+  return requirements.filter(r => !r.optional).every(r => r.didMeetRequirement)
 }
 
 // Maximum lengths for user-authored text, mirroring MAX_CAPTION_LENGTH /
