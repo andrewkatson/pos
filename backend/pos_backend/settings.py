@@ -30,16 +30,31 @@ SECRET_KEY = os.environ.get("DJANGO_SECRET_KEY", dev_key)
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = False
 
-# ALLOWED_HOSTS
-ALLOWED_HOSTS = os.environ.get('ALLOWED_HOSTS', '').split(',')
+# ALLOWED_HOSTS — strip whitespace and drop empties so a value like
+# "api.smiling.social, localhost" doesn't yield a " localhost" that fails matching.
+ALLOWED_HOSTS = [
+    host.strip() for host in os.environ.get('ALLOWED_HOSTS', '').split(',')
+    if host.strip()
+]
 # CSRF settings
 CSRF_TRUSTED_ORIGINS = [
-    origin for origin in os.environ.get(
+    origin.strip() for origin in os.environ.get(
         "CSRF_TRUSTED_ORIGINS",
         "http://localhost,https://localhost"
     ).split(",")
-    if origin
+    if origin.strip()
 ]
+
+# CORS: the website (e.g. https://smiling.social) is a different origin than the
+# API (https://api.smiling.social), so browser XHR needs these headers. Comma-
+# separated exact origins in CORS_ALLOWED_ORIGINS; credentials are enabled so the
+# session cookie is sent (the two share the registrable domain, so it is same-site
+# and SameSite=Lax still delivers the cookie). Native mobile clients are unaffected.
+CORS_ALLOWED_ORIGINS = [
+    origin.strip() for origin in os.environ.get("CORS_ALLOWED_ORIGINS", "").split(",")
+    if origin.strip()
+]
+CORS_ALLOW_CREDENTIALS = os.environ.get("CORS_ALLOW_CREDENTIALS", "True").lower() == "true"
 
 # Security settings for production
 SECURE_SSL_REDIRECT = os.environ.get("SECURE_SSL_REDIRECT", "False").lower() == "true"
@@ -53,6 +68,7 @@ SECURE_CONTENT_TYPE_NOSNIFF = True
 
 INSTALLED_APPS = [
     'user_system',
+    'corsheaders',
     'django.contrib.admin',
     'django.contrib.auth',
     'django.contrib.contenttypes',
@@ -63,6 +79,10 @@ INSTALLED_APPS = [
 
 MIDDLEWARE = [
     'django.middleware.security.SecurityMiddleware',
+    # CorsMiddleware must sit above CommonMiddleware (and any middleware that can
+    # short-circuit a response) so the CORS headers are attached to browser
+    # requests from the website origin. Native mobile clients ignore CORS.
+    'corsheaders.middleware.CorsMiddleware',
     'pos_backend.middleware.AdminIPAllowlistMiddleware',
     'django_ratelimit.middleware.RatelimitMiddleware',
     'django.contrib.sessions.middleware.SessionMiddleware',
