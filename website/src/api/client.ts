@@ -444,7 +444,7 @@ export class ApiClient implements PositiveOnlySocialAPI {
   }
 
   getPostDetails(postIdentifier: string): Promise<PostDetails> {
-    return this.request<PostDetails>('GET', `/posts/${postIdentifier}/details/`)
+    return this.request<PostDetails>('GET', `/posts/${postIdentifier}/details/`, { auth: true })
   }
 
   // ===========================================================================
