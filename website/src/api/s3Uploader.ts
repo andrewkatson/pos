@@ -1,62 +1,45 @@
 // Uploads a picked photo to S3 and returns its public URL, mirroring the native
 // clients' uploader (ios/.../uploader/AWSManager.swift and
-// android/.../data/uploader/AWSManager.kt).
+// android/.../data/uploader/ImageUploader.kt).
 //
-// Like the apps, this uses an unauthenticated AWS Cognito Identity Pool to mint
-// temporary credentials in the browser, then PUTs the (JPEG-compressed) image
-// directly to the shared bucket. The object key is scoped to the signed-in
-// user's id, matching `\(userId)/\(uuid).jpeg` on iOS.
+// The site used to hold unauthenticated Cognito guest credentials and write to
+// the bucket with the AWS SDK, but that identity pool allowed anonymous writes
+// to arbitrary keys (issue #310). Now the backend picks the object key (scoped
+// to the authenticated user) and signs a short-lived presigned PUT URL for
+// exactly that key and content type, so the browser holds no AWS credentials.
 //
 // NOTE: a browser PUT requires the S3 bucket to allow the site's origin via CORS
 // (the native SDKs aren't subject to CORS). The bucket's CORS policy must permit
 // PUT from wherever the web app is served.
 
-import { S3Client, PutObjectCommand } from '@aws-sdk/client-s3'
-// The dedicated Cognito provider is browser-safe; the umbrella
-// `@aws-sdk/credential-providers` pulls in the Node-only IMDS provider, which
-// can't be bundled for the browser.
-import { fromCognitoIdentityPool } from '@aws-sdk/credential-provider-cognito-identity'
+import { apiClient } from './client'
 
-const AWS_REGION = 'us-east-2'
-const IDENTITY_POOL_ID = 'us-east-2:445cf6ff-6f59-4cff-94c9-51db170ad81e'
-const BUCKET_NAME = 'goodvibesonly-images'
 const MAX_SIZE_BYTES = 10 * 1024 * 1024 // 10 MB, matching the native uploaders.
 
-let cachedClient: S3Client | null = null
-
-function getClient(): S3Client {
-  if (!cachedClient) {
-    cachedClient = new S3Client({
-      region: AWS_REGION,
-      credentials: fromCognitoIdentityPool({
-        identityPoolId: IDENTITY_POOL_ID,
-        clientConfig: { region: AWS_REGION },
-      }),
-    })
-  }
-  return cachedClient
-}
+// The presigned URL is signed over this exact content type; sending anything
+// else makes S3 reject the signature.
+const CONTENT_TYPE = 'image/jpeg'
 
 /**
- * Uploads an image file to S3 and returns the public URL of the object.
+ * Uploads an image file to S3 via a backend-issued presigned PUT URL and
+ * returns the public URL of the object.
  *
- * @param file   The image picked by the user.
- * @param userId The signed-in user's id, used to scope the object key.
+ * @param file The image picked by the user.
  */
-export async function uploadImage(file: File, userId: string): Promise<string> {
+export async function uploadImage(file: File): Promise<string> {
   const body = await compressImage(file, MAX_SIZE_BYTES)
-  const key = `${userId}/${crypto.randomUUID()}.jpeg`
+  const { upload_url, image_url } = await apiClient.createUploadUrl()
 
-  await getClient().send(
-    new PutObjectCommand({
-      Bucket: BUCKET_NAME,
-      Key: key,
-      Body: body,
-      ContentType: 'image/jpeg',
-    }),
-  )
+  const response = await fetch(upload_url, {
+    method: 'PUT',
+    headers: { 'Content-Type': CONTENT_TYPE },
+    body,
+  })
+  if (!response.ok) {
+    throw new Error(`The image upload was rejected (HTTP ${response.status}).`)
+  }
 
-  return `https://${BUCKET_NAME}.s3.${AWS_REGION}.amazonaws.com/${key}`
+  return image_url
 }
 
 /**

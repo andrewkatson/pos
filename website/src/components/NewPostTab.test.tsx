@@ -41,15 +41,29 @@ afterEach(() => {
   vi.unstubAllGlobals()
 })
 
-test('share button is disabled until a photo and caption are provided', async () => {
+test('share button is enabled by a caption alone — the photo is optional (#307)', async () => {
   render(<NewPostTab onPosted={() => {}} />)
   const button = screen.getByRole('button', { name: 'Share Post' })
   expect(button).toBeDisabled()
 
-  await userEvent.upload(screen.getByLabelText('Choose a photo'), makeFile())
-  expect(button).toBeDisabled()
   await userEvent.type(screen.getByLabelText('Caption'), 'great day')
   expect(button).toBeEnabled()
+})
+
+test('creates a text-only post without uploading to S3 (#307)', async () => {
+  mockCreatePost.mockResolvedValue({ post_identifier: 'p1' })
+  const onPosted = vi.fn()
+  render(<NewPostTab onPosted={onPosted} />)
+
+  await userEvent.type(screen.getByLabelText('Caption'), 'words only today')
+  await userEvent.click(screen.getByRole('button', { name: 'Share Post' }))
+
+  await waitFor(() =>
+    expect(mockCreatePost).toHaveBeenCalledWith({ caption: 'words only today' }),
+  )
+  expect(mockUploadImage).not.toHaveBeenCalled()
+  expect(await screen.findByText('Your post was shared successfully!')).toBeInTheDocument()
+  expect(onPosted).toHaveBeenCalled()
 })
 
 test('disables the share button and shows the over-limit counter past 125 characters', async () => {
@@ -77,7 +91,7 @@ test('uploads the photo to S3 and creates the post on success', async () => {
   await userEvent.type(screen.getByLabelText('Caption'), 'great day')
   await userEvent.click(screen.getByRole('button', { name: 'Share Post' }))
 
-  await waitFor(() => expect(mockUploadImage).toHaveBeenCalledWith(file, 'user-123'))
+  await waitFor(() => expect(mockUploadImage).toHaveBeenCalledWith(file))
   expect(mockCreatePost).toHaveBeenCalledWith({
     image_url: 'https://goodvibesonly-images.s3.us-east-2.amazonaws.com/user-123/abc.jpeg',
     caption: 'great day',

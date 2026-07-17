@@ -69,10 +69,21 @@ data class VerifyResetResponse(
     @SerializedName("reset_token") val resetToken: String?
 )
 
+// --- Email Verification DTOs ---
+
+data class VerifyEmailRequest(
+    @SerializedName("verification_token") val verificationToken: String
+)
+
+data class ResendVerificationEmailRequest(
+    @SerializedName("username_or_email") val usernameOrEmail: String
+)
+
 // --- Post DTOs ---
 
 data class CreatePostRequest(
-    @SerializedName("image_url") val imageUrl: String,
+    // Null for a text-only post (#307); Gson omits null fields from the body.
+    @SerializedName("image_url") val imageUrl: String? = null,
     val caption: String
 )
 
@@ -86,6 +97,13 @@ data class CreatePostResponse(
     val message: String? = null
 )
 
+data class CreateUploadUrlResponse(
+    // Short-lived presigned S3 PUT URL to send the JPEG bytes to.
+    @SerializedName("upload_url") val uploadUrl: String,
+    // The canonical object URL (no signing query) to pass to makePost.
+    @SerializedName("image_url") val imageUrl: String
+)
+
 data class ReportRequest(
     val reason: String
 )
@@ -93,7 +111,8 @@ data class ReportRequest(
 // Renamed from PostDto to Post to match Swift
 data class Post(
     @SerializedName("post_identifier") val postIdentifier: String,
-    @SerializedName("image_url") val imageUrl: String,
+    // Null for a text-only post (#307), which renders as a caption tile.
+    @SerializedName("image_url") val imageUrl: String? = null,
     val caption: String,
     @SerializedName("author_username") val authorUsername: String,
     // Only the post-details endpoint returns the like count (as "post_likes");
@@ -102,13 +121,22 @@ data class Post(
     // Whether the current user has liked this post. Only the post-details endpoint
     // populates this; feed endpoints omit it, so it defaults to false.
     @SerializedName("is_liked") val isLiked: Boolean = false,
+    // Whether the current user has an active report against this post, plus
+    // their own report reason so the retract dialog can show it pre-populated
+    // (issue #176). Only the post-details endpoint populates these.
+    @SerializedName("is_reported") val isReported: Boolean = false,
+    @SerializedName("report_reason") val reportReason: String? = null,
     // The full-resolution original image URL, used as a fallback when the
     // compressed `imageUrl` fails to load. The compressed copy is produced by an
     // async Lambda, so a just-posted (or recently hidden-pending-appeal) image may
     // not exist in the compressed bucket yet; without this fallback those grid
     // tiles render as empty black boxes until the user re-logs in (issues #252/#254).
     // Feed/details endpoints that predate the field omit it, so it defaults to null.
-    @SerializedName("original_image_url") val originalImageUrl: String? = null
+    @SerializedName("original_image_url") val originalImageUrl: String? = null,
+    // When the post was created. Only the post-details endpoint returns it
+    // (ISO-8601 from the real backend, epoch-millis from the stub — see
+    // parseBackendDate); feed endpoints omit it, so it defaults to null.
+    @SerializedName("creation_time") val creationTime: String? = null
 )
 
 // --- Comment DTOs ---
@@ -133,7 +161,11 @@ data class CommentDto(
     @SerializedName("creation_time") val creationTime: String,
     @SerializedName("updated_time") val updatedTime: String,
     @SerializedName("comment_likes") val likeCount: Int,
-    @SerializedName("is_liked") val isLiked: Boolean = false
+    @SerializedName("is_liked") val isLiked: Boolean = false,
+    // Whether the current user has an active report against this comment, plus
+    // their own report reason for the pre-populated retract dialog (issue #176).
+    @SerializedName("is_reported") val isReported: Boolean = false,
+    @SerializedName("report_reason") val reportReason: String? = null
 )
 
 // --- User/Profile DTOs ---
@@ -189,7 +221,8 @@ data class RememberMeTokens(val seriesId: String, val cookieToken: String)
 
 data class PostDisplayData(
     val id: String, // postIdentifier
-    val imageURL: String,
+    // Null for a text-only post (#307).
+    val imageURL: String?,
     val caption: String,
     val likeCount: Int,
     val authorUsername: String
@@ -202,7 +235,11 @@ data class CommentViewData(
     val body: String,
     val likeCount: Int,
     val isLiked: Boolean, // Whether the current user has liked this comment
-    val createdDate: Date // Using Date for now, might need conversion from String
+    val createdDate: Date, // Using Date for now, might need conversion from String
+    // Whether the current user has an active report against this comment, and
+    // their reason so the retract dialog can pre-populate it (issue #176).
+    val isReported: Boolean = false,
+    val reportReason: String? = null
 )
 
 data class CommentThreadViewData(
@@ -216,7 +253,8 @@ data class CommentThreadViewData(
 /** One of the signed-in user's hidden posts, from the appeals endpoint. */
 data class HiddenPost(
     @SerializedName("post_identifier") val postIdentifier: String,
-    @SerializedName("image_url") val imageUrl: String,
+    // Null for a text-only post (#307).
+    @SerializedName("image_url") val imageUrl: String? = null,
     val caption: String,
     @SerializedName("hidden_reason") val hiddenReason: String = "",
     @SerializedName("has_appeal") val hasAppeal: Boolean = false

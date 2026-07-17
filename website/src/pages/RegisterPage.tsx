@@ -3,12 +3,11 @@ import { useNavigate } from 'react-router-dom'
 import Logo from '../components/Logo'
 import { apiClient } from '../api/client'
 import type { ApiError } from '../api/client'
+import { clearSession } from '../api/session'
 import RequirementHints from '../auth/RequirementHints'
 import { getPasswordRequirements, getUsernameRequirements, allMet } from '../auth/requirements'
+import { PRIVACY_POLICY_TEXT } from '../privacyPolicy'
 import './LoginPage.css'
-
-const PRIVACY_POLICY_TEXT =
-  'We collect your username and password for authentication. We do not store your date of birth or any other personal information. We store your posts, comments, and related metadata such as like counts and reports. We also track follower/following relationships and blocked users to maintain the social environment.'
 
 function RegisterPage() {
   const navigate = useNavigate()
@@ -45,17 +44,19 @@ function RegisterPage() {
     setShowPrivacyPolicy(false)
     setIsLoading(true)
     try {
-      const response = await apiClient.register({
+      await apiClient.register({
         username: username.trim(),
         email: email.trim(),
         password,
         remember_me: false,
         date_of_birth: dateOfBirth,
       })
-      localStorage.setItem('session_token', response.session_management_token)
-      localStorage.setItem('user_id', response.user_id)
-      localStorage.setItem('username', username.trim())
-      navigate('/home')
+      // The account can't do anything until the emailed verification link is
+      // used, so don't keep the registration session — and drop any persisted
+      // session/remember-me tokens from a previous login, which main.tsx would
+      // otherwise restore on reload. The user logs in after verifying.
+      clearSession()
+      navigate('/check-email', { state: { email: email.trim() } })
     } catch (err) {
       const apiErr = err as ApiError
       setErrorMessage(apiErr.message ?? 'Registration failed. Username or email may be taken.')
@@ -237,5 +238,3 @@ function RegisterPage() {
 }
 
 export default RegisterPage
-
-export { PRIVACY_POLICY_TEXT }

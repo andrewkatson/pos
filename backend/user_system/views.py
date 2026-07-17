@@ -3,6 +3,7 @@ import ipaddress
 import json
 import logging
 import secrets
+import uuid
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, date, timedelta
 
@@ -13,6 +14,7 @@ from django.contrib.auth import login, logout, get_user_model
 from django.contrib.auth.hashers import check_password
 from django.core.mail import send_mail
 from django.db import transaction, IntegrityError
+from django.db.models import Count
 from django.http import JsonResponse
 from django.utils import timezone
 from django.views.decorators.csrf import csrf_exempt
@@ -21,21 +23,22 @@ from django_ratelimit.decorators import ratelimit
 from django_ratelimit.exceptions import Ratelimited
 
 from .classifiers import image_classifier, text_classifier
+from .classifiers.classifier_utils import ClassificationResult
 from .constants import Patterns, Params, POST_BATCH_SIZE, MAX_BEFORE_HIDING_POST, MAX_BEFORE_HIDING_COMMENT, \
     MAX_CAPTION_LENGTH, MAX_COMMENT_LENGTH, \
     COMMENT_BATCH_SIZE, Fields, COMMENT_THREAD_BATCH_SIZE, \
     VERIFY_RESET_MAX_ATTEMPTS, VERIFY_RESET_LOCKOUT_MINUTES, \
-    ACCOUNT_BANNED, BAN_TYPE_OUTRIGHT, \
+    ACCOUNT_BANNED, EMAIL_NOT_VERIFIED, EMAIL_VERIFICATION_TOKEN_HOURS, BAN_TYPE_OUTRIGHT, \
     HIDDEN_REASON_NONE, HIDDEN_REASON_REPORTS, HIDDEN_REASON_CLASSIFIER, \
     APPEAL_TARGET_POST, APPEAL_TARGET_COMMENT, APPEAL_TARGET_BAN, \
     MAX_APPEAL_REASON_LENGTH
 from .feed_algorithm import feed_algorithm
 from .input_validator import is_valid_pattern
-from .models import LoginCookie, Session, Post, CommentThread, PositiveOnlySocialUser, Comment, UserBlock, UserBan, \
-    KnownDevice, Appeal
+from .models import LoginCookie, Session, Post, CommentThread, PositiveOnlySocialUser, Comment, CommentLike, UserBlock, \
+    UserBan, KnownDevice, Appeal
 from .utils import convert_to_bool, generate_login_cookie_token, generate_management_token, generate_series_identifier, \
     get_batch, get_queryset_batch, get_compressed_image_url
-from .s3 import delete_image, image_url_to_key
+from .s3 import delete_image, generate_presigned_upload, image_url_to_key
 from .visibility import can_view_post, searchable_users, visible_comment_threads, visible_comments, visible_posts
 
 image_classifier_class = image_classifier
@@ -199,6 +202,12 @@ def api_login_required(view_func):
             logger.warning(f"Request rejected: Account banned for user_id: {user.id}")
             return JsonResponse({'error': ACCOUNT_BANNED}, status=403)
 
+        # Registration issues a session before the email is verified, so the
+        # verification gate must sit here too, not just on the login views.
+        if not user.email_verified:
+            logger.warning(f"Request rejected: Email not verified for user_id: {user.id}")
+            return JsonResponse({'error': EMAIL_NOT_VERIFIED}, status=403)
+
         # Attach user and token to the request for the view to use
         request.user = user
         request.token = token
@@ -238,6 +247,29 @@ def _record_device_and_maybe_notify(user, ip, notify=True):
         )
     except Exception:
         logger.exception(f"Failed to send new-device login email for user_id {user.id}")
+
+
+def _issue_email_verification_token(user):
+    """Generate and store a fresh email-verification token for ``user``.
+
+    Only the SHA-256 hash is persisted; the raw token is returned so it can be
+    embedded in the link emailed to the user (same scheme as password reset).
+
+    Issuing a token means the address is not yet verified, so this is also the
+    single place that flips ``email_verified`` to False. The model default is
+    True (grandfathered-safe), so being explicit here is what actually gates the
+    account created during registration.
+    """
+    token = secrets.token_urlsafe(32)
+    user.email_verified = False
+    user.email_verification_token = hashlib.sha256(token.encode()).hexdigest()
+    user.email_verification_token_expires = timezone.now() + timedelta(hours=EMAIL_VERIFICATION_TOKEN_HOURS)
+    user.save()
+    return token
+
+
+def _email_verification_link(token):
+    return f"{settings.FRONTEND_BASE_URL}/verify-email?token={token}"
 
 
 # =============================================================================
@@ -301,9 +333,16 @@ def register(request):
         return log_and_return_json("register", {'error': "User already exists"}, status=400)
 
     # Classify text fields for positivity
-    if not text_classifier_class.is_text_positive(username):
+    username_result = text_classifier_class.is_text_positive(username)
+    if not username_result:
         logger.warning(f"Registration failed: Username not positive")
-        return log_and_return_json("register", {'error': "Username is not positive"}, status=400)
+        return log_and_return_json("register", {
+            'error': f"Username is not positive because it {username_result.public_reason()}.",
+            Fields.reason_code: username_result.public_reason_code(),
+            # There is no account yet to appeal from; the user can simply retry
+            # with a different username, so the rejection is never appealable.
+            Fields.appealable: False,
+        }, status=400)
 
     new_user = get_user_model().objects.create_user(username=username, email=email)
     new_user.set_password(password)
@@ -311,10 +350,17 @@ def register(request):
     new_user.is_adult = is_adult
     new_user.save()
    
+    verification_token = _issue_email_verification_token(new_user)
     try:
         send_mail(
         "Welcome to Good Vibes Only",
-        f"Hi{new_user.username},\n\n Thank you for registering",
+        f"Hi {new_user.username},\n\nThank you for registering. "
+        "Please verify your email address by clicking the link below:\n\n"
+        f"{_email_verification_link(verification_token)}\n\n"
+        f"The link expires in {EMAIL_VERIFICATION_TOKEN_HOURS} hours. "
+        "You won't be able to log in until your email is verified.\n\n"
+        "If you didn't create this account, ignore this email — without "
+        "verification the account stays unusable.",
         settings.EMAIL_HOST_USER,
         [new_user.email],
         fail_silently=False,
@@ -403,7 +449,7 @@ def login_user(request):
             not is_valid_pattern(username_or_email, Patterns.alphanumeric) and not is_valid_pattern(username_or_email,
                                                                                                     Patterns.email)):
         invalid_fields.append(Params.username_or_email)
-    if not password or not is_valid_pattern(password, Patterns.password):
+    if not password or not is_valid_pattern(password, Patterns.login_password):
         invalid_fields.append(Params.password)
 
     try:
@@ -423,6 +469,10 @@ def login_user(request):
         if has_active_outright_ban(existing):
             logger.warning(f"Login failed: Account banned for user_id: {existing.id}")
             return log_and_return_json("login_user", {'error': ACCOUNT_BANNED}, status=403)
+
+        if not existing.email_verified:
+            logger.warning(f"Login failed: Email not verified for user_id: {existing.id}")
+            return log_and_return_json("login_user", {'error': EMAIL_NOT_VERIFIED}, status=403)
 
         login(request, existing)  # Logs into Django's session auth
 
@@ -509,6 +559,10 @@ def login_user_with_remember_me(request):
         logger.warning(f"Login with remember me failed: Account banned for user_id: {existing.id}")
         return log_and_return_json("login_user_with_remember_me", {'error': ACCOUNT_BANNED}, status=403)
 
+    if not existing.email_verified:
+        logger.warning(f"Login with remember me failed: Email not verified for user_id: {existing.id}")
+        return log_and_return_json("login_user_with_remember_me", {'error': EMAIL_NOT_VERIFIED}, status=403)
+
     # Issue a new login cookie token (token rotation)
     new_login_cookie_token = generate_login_cookie_token()
     matching_login_cookie.token = new_login_cookie_token
@@ -568,6 +622,95 @@ def delete_user(request):
     except Exception as e:
         logger.error(f"Error deleting user {request.user.id}: {e}")
         return log_and_return_json("delete_user", {'error': f"Error deleting user {e}"}, status=400)
+
+
+# =============================================================================
+# EMAIL VERIFICATION VIEWS
+# =============================================================================
+
+@ratelimit(key=_get_client_ip, rate='10/h', block=True)
+@csrf_exempt
+@require_POST
+def verify_email(request):
+    logger.info("Endpoint verify_email invoked by IP or User")
+    data = _get_json_body(request)
+    if data is None:
+        return log_and_return_json("verify_email", {'error': "Invalid JSON data"}, status=400)
+
+    verification_token = data.get(Fields.verification_token)
+
+    _URLSAFE_TOKEN_LEN = 43
+    _URLSAFE_TOKEN_CHARS = frozenset('ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789_-')
+    if (not verification_token or not isinstance(verification_token, str)
+            or len(verification_token) != _URLSAFE_TOKEN_LEN
+            or not all(c in _URLSAFE_TOKEN_CHARS for c in verification_token)):
+        return log_and_return_json("verify_email", {'error': f"Invalid fields ['{Params.verification_token}']"},
+                                   status=400)
+
+    submitted_hash = hashlib.sha256(verification_token.encode()).hexdigest()
+
+    # The token is looked up by its hash rather than paired with a username, so
+    # the emailed link works on its own. Guessing a 256-bit token is infeasible,
+    # and the endpoint is IP rate-limited on top.
+    with transaction.atomic():
+        user = get_user_model().objects.select_for_update().filter(
+            email_verification_token=submitted_hash).first()
+        if (user is None or user.email_verification_token_expires is None
+                or timezone.now() > user.email_verification_token_expires):
+            logger.warning("Email verification failed: Invalid or expired token")
+            return log_and_return_json("verify_email", {'error': "Invalid or expired verification token"}, status=400)
+
+        user.email_verified = True
+        user.email_verification_token = None
+        user.email_verification_token_expires = None
+        user.save()
+
+    logger.info(f"Email verification successful for user_id: {user.id}")
+    return log_and_return_json("verify_email", {'message': 'Email verified'})
+
+
+@ratelimit(key=_get_client_ip, rate='3/h', block=True)
+@csrf_exempt
+@require_POST
+def resend_verification_email(request):
+    logger.info("Endpoint resend_verification_email invoked by IP or User")
+    data = _get_json_body(request)
+    if data is None:
+        return log_and_return_json("resend_verification_email", {'error': "Invalid JSON data"}, status=400)
+
+    username_or_email = data.get(Fields.username_or_email)
+    if not username_or_email or (
+            not is_valid_pattern(username_or_email, Patterns.alphanumeric) and
+            not is_valid_pattern(username_or_email, Patterns.email)):
+        return log_and_return_json("resend_verification_email",
+                                   {'error': f"Invalid fields ['{Params.username_or_email}']"}, status=400)
+
+    user = get_user_with_username_or_email(username_or_email)
+    if user is None:
+        logger.warning("Resend verification failed: No user with that username or email")
+        return log_and_return_json("resend_verification_email",
+                                   {'error': "No user with that username or email"}, status=400)
+
+    if user.email_verified:
+        logger.warning(f"Resend verification failed: Email already verified for user_id: {user.id}")
+        return log_and_return_json("resend_verification_email", {'error': "Email already verified"}, status=400)
+
+    token = _issue_email_verification_token(user)
+    try:
+        send_mail(
+            "Verify your email for Good Vibes Only",
+            f"Hi {user.username},\n\nPlease verify your email address by clicking the link below:\n\n"
+            f"{_email_verification_link(token)}\n\n"
+            f"The link expires in {EMAIL_VERIFICATION_TOKEN_HOURS} hours.\n\n"
+            "If you didn't request this, ignore this email — without "
+            "verification the account stays unusable.",
+            settings.EMAIL_HOST_USER,
+            [user.email],
+        )
+    except Exception:
+        logger.exception("Failed to send verification email for user: %s", user.id)
+    logger.info(f"Resent verification email for user_id: {user.id}")
+    return log_and_return_json("resend_verification_email", {'message': 'Verification email sent'})
 
 
 # =============================================================================
@@ -769,6 +912,31 @@ def reset_password(request):
 
 @csrf_exempt
 @api_login_required
+@ratelimit(key='user', rate='20/h', block=True)
+@require_POST
+def create_upload_url(request):
+    """Issue a short-lived presigned S3 PUT URL for a new post image.
+
+    The backend generates the object key under the authenticated user's
+    `{user_id}/` prefix, so key ownership is enforced server-side and clients
+    need no AWS credentials of their own (the Cognito guest-role upload path
+    allowed anonymous writes to the whole bucket — issue #310). The rate is
+    double make_post's 10/h so a failed upload can be retried without burning
+    a post slot.
+    """
+    logger.info("Endpoint create_upload_url invoked by IP or User")
+    key = f"{request.user.id}/{uuid.uuid4()}.jpeg"
+    upload_url, image_url = generate_presigned_upload(key)
+    if not upload_url:
+        return log_and_return_json("create_upload_url", {'error': "Could not create an upload URL"}, status=503)
+    return log_and_return_json("create_upload_url", {
+        Fields.upload_url: upload_url,
+        Fields.image_url: image_url,
+    })
+
+
+@csrf_exempt
+@api_login_required
 @ratelimit(key='user', rate='10/h', block=True)
 @require_POST
 def make_post(request):
@@ -778,15 +946,27 @@ def make_post(request):
     if data is None:
         return log_and_return_json("make_post", {'error': "Invalid JSON data"}, status=400)
 
-    image_url = data.get(Fields.image_url)
-    caption = data.get(Fields.caption)
-
+    # The image is optional (#307): missing, null, and "" all mean a text-only
+    # post. A provided image must still pass pattern and user-scoping checks.
+    raw_image_url = data.get(Fields.image_url)
+    
     invalid_fields = []
-    if not image_url or not is_valid_pattern(image_url, Patterns.image_url):
+    
+    if raw_image_url in (None, ""):
+        image_url = None
+    elif not isinstance(raw_image_url, str):
+        image_url = None
         invalid_fields.append(Params.image)
     else:
+        image_url = raw_image_url
+    
+    caption = data.get(Fields.caption)
+    
+    if image_url:
+        if not is_valid_pattern(image_url, Patterns.image_url):
+            invalid_fields.append(Params.image)
         # The key must be scoped to this user (clients upload to `{user_id}/...`).
-        if not image_url_to_key(image_url).startswith(f"{request.user.id}/"):
+        elif not image_url_to_key(image_url).startswith(f"{request.user.id}/"):
             invalid_fields.append(Params.image)
     if not caption or not is_valid_pattern(caption, Patterns.alphanumeric_with_special_chars):
         invalid_fields.append(Params.caption)
@@ -809,7 +989,8 @@ def make_post(request):
     # appealable rejection still creates the post but hides it pending appeal
     # (handled below).
     text_future = _CLASSIFICATION_EXECUTOR.submit(text_classifier_class.is_text_positive, caption)
-    image_future = _CLASSIFICATION_EXECUTOR.submit(image_classifier_class.is_image_positive, image_url)
+    image_future = (_CLASSIFICATION_EXECUTOR.submit(image_classifier_class.is_image_positive, image_url)
+                    if image_url else None)
     text_result = text_future.result()
 
     # Text rejection takes precedence in the message shown to the user, matching
@@ -823,17 +1004,30 @@ def make_post(request):
         logger.warning(f"Make post failed: Caption not positive (final) for user_id: {request.user.id}")
         # The post is never created, so clean up the image the client already
         # uploaded rather than orphaning it in S3.
-        delete_image(image_url)
-        return log_and_return_json("make_post", {'error': "Text is not positive"}, status=400)
+        if image_url:
+            delete_image(image_url)
+        return log_and_return_json("make_post", {
+            'error': f"Text is not positive because your caption {text_result.public_reason()}. "
+                     "This decision is final and cannot be appealed.",
+            Fields.reason_code: text_result.public_reason_code(),
+            Fields.appealable: False,
+        }, status=400)
 
     # Text passed (or is appealable), so the image outcome is now needed to
     # decide between rejection, an appealable hidden post, or a clean post.
-    image_result = image_future.result()
+    # A text-only post has no image to classify, so it is treated as allowed
+    # and visibility depends solely on the text result.
+    image_result = image_future.result() if image_future else ClassificationResult(allowed=True)
 
     if not image_result and not image_result.appealable:
         logger.warning(f"Make post failed: Image not positive (final) for user_id: {request.user.id}")
         delete_image(image_url)
-        return log_and_return_json("make_post", {'error': "Image is not positive"}, status=400)
+        return log_and_return_json("make_post", {
+            'error': f"Image is not positive because it {image_result.public_reason()}. "
+                     "This decision is final and cannot be appealed.",
+            Fields.reason_code: image_result.public_reason_code(),
+            Fields.appealable: False,
+        }, status=400)
 
     # Any remaining rejection is appealable, so post it but hide it pending
     # appeal. The visibility layer already shows authors their own hidden posts
@@ -847,9 +1041,20 @@ def make_post(request):
     response = {Fields.post_identifier: new_post.post_identifier}
     if hidden:
         logger.info(f"Post created hidden pending appeal: post_id: {new_post.post_identifier} for user_id: {request.user.id}")
+        blocked_parts = []
+        if not text_result:
+            blocked_parts.append(f"your caption {text_result.public_reason()}")
+        if not image_result:
+            blocked_parts.append(f"your image {image_result.public_reason()}")
+        # Text precedence for the machine-readable code, matching the final-
+        # rejection paths above.
+        reason_result = text_result if not text_result else image_result
         response[Fields.hidden] = True
         response[Fields.hidden_reason] = HIDDEN_REASON_CLASSIFIER
-        response['message'] = ("Your post did not pass automated review. It is hidden for now "
+        response[Fields.reason_code] = reason_result.public_reason_code()
+        response[Fields.appealable] = True
+        response['message'] = (f"Your post did not pass automated review because "
+                               f"{' and '.join(blocked_parts)}. It is hidden for now "
                                "but you can appeal the decision.")
     else:
         logger.info(f"Post created successfully: post_id: {new_post.post_identifier} for user_id: {request.user.id}")
@@ -928,6 +1133,44 @@ def report_post(request, post_identifier):
     else:
         logger.warning(f"Report post failed: Post {post_identifier} not found")
         return log_and_return_json("report_post", {'error': "No post with that identifier"}, status=400)
+
+
+@csrf_exempt
+@api_login_required
+@ratelimit(key='user', rate='20/h', block=True)
+@require_POST
+def retract_report_post(request, post_identifier):
+    logger.info("Endpoint retract_report_post invoked by IP or User")
+    # user is on request.user
+    invalid_fields = []
+    if not is_valid_pattern(post_identifier, Patterns.uuid4):
+        invalid_fields.append(Params.post_identifier)
+    if len(invalid_fields) > 0:
+        return log_and_return_json("retract_report_post", {'error': f"Invalid fields {invalid_fields}"}, status=400)
+
+    post = get_post_with_identifier(post_identifier)
+    if post is None:
+        logger.warning(f"Retract report post failed: Post {post_identifier} not found")
+        return log_and_return_json("retract_report_post", {'error': "No post with that identifier"}, status=400)
+
+    deleted_count, _ = post.postreport_set.filter(user=request.user).delete()
+    if deleted_count == 0:
+        logger.warning(f"Retract report post failed: Post not reported by user_id: {request.user.id}")
+        return log_and_return_json("retract_report_post", {'error': "Post not reported yet"}, status=400)
+
+    logger.info(f"Post report retracted: post_id: {post_identifier} by user_id: {request.user.id}")
+
+    # If the retraction takes the report count back under the hiding threshold,
+    # un-hide the post — but only when reports were what hid it. Content hidden
+    # by the classifier or with no recorded reason stays hidden.
+    if post.hidden and post.hidden_reason == HIDDEN_REASON_REPORTS \
+            and post.postreport_set.count() <= MAX_BEFORE_HIDING_POST:
+        post.hidden = False
+        post.hidden_reason = HIDDEN_REASON_NONE
+        post.save()
+        logger.info(f"Post un-hidden after report retraction: post_id: {post_identifier}")
+
+    return log_and_return_json("retract_report_post", {'message': 'Post report retracted'})
 
 
 @csrf_exempt
@@ -1129,6 +1372,9 @@ def get_post_details(request, post_identifier):
     post = get_post_with_identifier(post_identifier)
     if post is not None and can_view_post(post, request.user):
         total_likes = post.postlike_set.count()
+        # The caller's own report (if any), so clients can offer "retract
+        # report" with the original reason pre-filled instead of "report".
+        my_report = post.postreport_set.filter(user=request.user).first()
         post_data = {
             Fields.post_identifier: post.post_identifier,
             Fields.image_url: get_compressed_image_url(post.image_url),
@@ -1136,8 +1382,11 @@ def get_post_details(request, post_identifier):
             # Lambda-generated compressed copy is still missing (#252/#254).
             Fields.original_image_url: post.image_url,
             Fields.caption: post.caption,
+            Fields.creation_time: post.creation_time,
             Fields.post_likes: total_likes,
             Fields.is_liked: post.postlike_set.filter(user=request.user).exists(),
+            Fields.is_reported: my_report is not None,
+            Fields.report_reason: my_report.reason if my_report is not None else None,
             Fields.author_username: post.author.username
         }
         return log_and_return_json("get_post_details", post_data)
@@ -1184,7 +1433,12 @@ def comment_on_post(request, post_identifier):
     # creates it hidden pending appeal.
     text_result = text_classifier_class.is_text_positive(comment_text)
     if not text_result and not text_result.appealable:
-        return log_and_return_json("comment_on_post", {'error': "Text is not positive"}, status=400)
+        return log_and_return_json("comment_on_post", {
+            'error': f"Text is not positive because your comment {text_result.public_reason()}. "
+                     "This decision is final and cannot be appealed.",
+            Fields.reason_code: text_result.public_reason_code(),
+            Fields.appealable: False,
+        }, status=400)
 
     hidden = not text_result
 
@@ -1202,7 +1456,10 @@ def comment_on_post(request, post_identifier):
         logger.info(f"Comment on post created hidden pending appeal: comment_id: {new_comment.comment_identifier} for user_id: {request.user.id}")
         response_data[Fields.hidden] = True
         response_data[Fields.hidden_reason] = HIDDEN_REASON_CLASSIFIER
-        response_data['message'] = ("Your comment did not pass automated review. It is hidden for now "
+        response_data[Fields.reason_code] = text_result.public_reason_code()
+        response_data[Fields.appealable] = True
+        response_data['message'] = (f"Your comment did not pass automated review because it "
+                                    f"{text_result.public_reason()}. It is hidden for now "
                                     "but you can appeal the decision.")
     else:
         logger.info(f"Comment on post successful: post_id: {post_identifier}, comment_id: {new_comment.comment_identifier} for user_id: {request.user.id}")
@@ -1256,7 +1513,12 @@ def reply_to_comment_thread(request, post_identifier, comment_thread_identifier)
     # creates it hidden pending appeal.
     text_result = text_classifier_class.is_text_positive(comment_text)
     if not text_result and not text_result.appealable:
-        return log_and_return_json("reply_to_comment_thread", {'error': "Text is not positive"}, status=400)
+        return log_and_return_json("reply_to_comment_thread", {
+            'error': f"Text is not positive because your reply {text_result.public_reason()}. "
+                     "This decision is final and cannot be appealed.",
+            Fields.reason_code: text_result.public_reason_code(),
+            Fields.appealable: False,
+        }, status=400)
 
     hidden = not text_result
     new_comment = comment_thread.comment_set.create(
@@ -1268,7 +1530,10 @@ def reply_to_comment_thread(request, post_identifier, comment_thread_identifier)
         logger.info(f"Reply created hidden pending appeal: comment_id: {new_comment.comment_identifier} for user_id: {request.user.id}")
         response_data[Fields.hidden] = True
         response_data[Fields.hidden_reason] = HIDDEN_REASON_CLASSIFIER
-        response_data['message'] = ("Your reply did not pass automated review. It is hidden for now "
+        response_data[Fields.reason_code] = text_result.public_reason_code()
+        response_data[Fields.appealable] = True
+        response_data['message'] = (f"Your reply did not pass automated review because it "
+                                    f"{text_result.public_reason()}. It is hidden for now "
                                     "but you can appeal the decision.")
     else:
         logger.info(f"Reply to comment successful: comment_thread_id: {comment_thread_identifier}, comment_id: {new_comment.comment_identifier} for user_id: {request.user.id}")
@@ -1448,6 +1713,53 @@ def report_comment(request, post_identifier, comment_thread_identifier, comment_
     return log_and_return_json("report_comment", {'message': 'Comment reported'})
 
 
+@csrf_exempt
+@api_login_required
+@ratelimit(key='user', rate='20/h', block=True)
+@require_POST
+def retract_report_comment(request, post_identifier, comment_thread_identifier, comment_identifier):
+    logger.info("Endpoint retract_report_comment invoked by IP or User")
+    # user is on request.user
+    invalid_fields = []
+    if not is_valid_pattern(post_identifier, Patterns.uuid4):
+        invalid_fields.append(Params.post_identifier)
+    if not is_valid_pattern(comment_thread_identifier, Patterns.uuid4):
+        invalid_fields.append(Params.comment_thread_identifier)
+    if not is_valid_pattern(comment_identifier, Patterns.uuid4):
+        invalid_fields.append(Params.comment_identifier)
+    if len(invalid_fields) > 0:
+        return log_and_return_json("retract_report_comment", {'error': f"Invalid fields {invalid_fields}"}, status=400)
+
+    try:
+        comment = Comment.objects.get(
+            comment_identifier=comment_identifier,
+            comment_thread__comment_thread_identifier=comment_thread_identifier,
+            comment_thread__post__post_identifier=post_identifier
+        )
+    except Comment.DoesNotExist:
+        logger.warning(f"Retract report comment failed: Comment {comment_identifier} not found")
+        return log_and_return_json("retract_report_comment", {'error': "Comment not found"}, status=400)
+
+    deleted_count, _ = comment.commentreport_set.filter(user=request.user).delete()
+    if deleted_count == 0:
+        logger.warning(f"Retract report comment failed: Comment not reported by user_id: {request.user.id}")
+        return log_and_return_json("retract_report_comment", {'error': "Comment not reported yet"}, status=400)
+
+    logger.info(f"Comment report retracted: comment_id: {comment_identifier} by user_id: {request.user.id}")
+
+    # If the retraction takes the report count back under the hiding threshold,
+    # un-hide the comment — but only when reports were what hid it. Content
+    # hidden by the classifier or with no recorded reason stays hidden.
+    if comment.hidden and comment.hidden_reason == HIDDEN_REASON_REPORTS \
+            and comment.commentreport_set.count() <= MAX_BEFORE_HIDING_COMMENT:
+        comment.hidden = False
+        comment.hidden_reason = HIDDEN_REASON_NONE
+        comment.save()
+        logger.info(f"Comment un-hidden after report retraction: comment_id: {comment_identifier}")
+
+    return log_and_return_json("retract_report_comment", {'message': 'Comment report retracted'})
+
+
 @api_login_required  # Original had @login_required
 @ratelimit(key='user', rate='60/m', block=True)
 @require_GET
@@ -1504,6 +1816,23 @@ def get_comments_for_thread(request, comment_thread_identifier, batch):
         .filter(comment__in=batched_comments)
         .values_list('comment_id', flat=True)
     )
+    # The caller's own report reason per comment (single query, like the likes
+    # set above), so clients can offer "retract report" with the original
+    # reason pre-filled instead of "report".
+    my_report_reasons = dict(
+        request.user.commentreport_set
+        .filter(comment__in=batched_comments)
+        .values_list('comment_id', 'reason')
+    )
+    # Like counts for the whole batch in one grouped query, so we avoid a
+    # per-comment COUNT (N+1) inside the comprehension below.
+    like_counts = dict(
+        CommentLike.objects
+        .filter(comment__in=batched_comments)
+        .values('comment_id')
+        .annotate(count=Count('comment_id'))
+        .values_list('comment_id', 'count')
+    )
     comments_data = [
         {
             Fields.comment_identifier: comment.comment_identifier,
@@ -1511,8 +1840,10 @@ def get_comments_for_thread(request, comment_thread_identifier, batch):
             Fields.author_username: comment.author.username,
             Fields.creation_time: comment.creation_time,
             Fields.updated_time: comment.updated_time,
-            Fields.comment_likes: comment.commentlike_set.count(),
-            Fields.is_liked: comment.comment_identifier in liked_comment_ids
+            Fields.comment_likes: like_counts.get(comment.comment_identifier, 0),
+            Fields.is_liked: comment.comment_identifier in liked_comment_ids,
+            Fields.is_reported: comment.comment_identifier in my_report_reasons,
+            Fields.report_reason: my_report_reasons.get(comment.comment_identifier)
         }
         for comment in batched_comments
     ]

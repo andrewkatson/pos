@@ -5,7 +5,7 @@ import { vi, beforeEach, afterEach } from 'vitest'
 import RegisterPage from './RegisterPage'
 
 vi.mock('../api/client', () => ({
-  apiClient: { register: vi.fn() },
+  apiClient: { register: vi.fn(), setToken: vi.fn() },
 }))
 
 import { apiClient } from '../api/client'
@@ -14,7 +14,7 @@ const mockRegister = vi.mocked(apiClient.register)
 // Credentials that satisfy the backend patterns mirrored on the client:
 // username = ^\w{10,500}$, password requires upper/lower/digit/special/no-space.
 const VALID_USERNAME = 'adalovelace'
-const VALID_PASSWORD = 'StrongPass1@'
+const VALID_PASSWORD = 'StrongPass1-'
 
 function renderRegisterPage() {
   return render(
@@ -23,6 +23,7 @@ function renderRegisterPage() {
         <Route path="/register" element={<RegisterPage />} />
         <Route path="/" element={<div> Landing</div>}/>
         <Route path="/home" element={<div>Home</div>} />
+        <Route path="/check-email" element={<div>Check Email</div>} />
       </Routes>
     </MemoryRouter>,
   )
@@ -36,9 +37,16 @@ async function fillValidForm() {
   await userEvent.type(screen.getByLabelText('Confirm Password'), VALID_PASSWORD)
 }
 
+let localStorageMock: { setItem: ReturnType<typeof vi.fn>; getItem: ReturnType<typeof vi.fn>; removeItem: ReturnType<typeof vi.fn>; clear: ReturnType<typeof vi.fn> }
+let sessionStorageMock: typeof localStorageMock
+
 beforeEach(() => {
   mockRegister.mockReset()
-  vi.stubGlobal('localStorage', { setItem: vi.fn(), getItem: vi.fn(), removeItem: vi.fn(), clear: vi.fn() })
+  vi.mocked(apiClient.setToken).mockReset()
+  localStorageMock = { setItem: vi.fn(), getItem: vi.fn(), removeItem: vi.fn(), clear: vi.fn() }
+  sessionStorageMock = { setItem: vi.fn(), getItem: vi.fn(), removeItem: vi.fn(), clear: vi.fn() }
+  vi.stubGlobal('localStorage', localStorageMock)
+  vi.stubGlobal('sessionStorage', sessionStorageMock)
 })
 
 afterEach(() => {
@@ -82,8 +90,26 @@ test('password hints appear when password is typed', async () => {
   expect(screen.getByText('At least one number')).toBeInTheDocument()
   expect(screen.getByText('At least one lowercase letter')).toBeInTheDocument()
   expect(screen.getByText('At least one uppercase letter')).toBeInTheDocument()
-  expect(screen.getByText('At least one special character (@#$%^&+=_)')).toBeInTheDocument()
+  expect(screen.getByText('At least one dash (-)')).toBeInTheDocument()
+  expect(screen.getByText('Adding other special characters (like !) is suggested')).toBeInTheDocument()
   expect(screen.getByText('No spaces')).toBeInTheDocument()
+})
+
+test('special-character suggestion is neutral (optional) until a special char is present', async () => {
+  renderRegisterPage()
+  const suggestionText = 'Adding other special characters (like !) is suggested'
+
+  // No extra special character yet: advisory, not a failed requirement.
+  await userEvent.type(screen.getByLabelText('Password'), 'StrongPass1-')
+  let suggestion = screen.getAllByRole('listitem').find(h => h.textContent === suggestionText)
+  expect(suggestion).toHaveClass('auth-hint--optional')
+  expect(suggestion).toHaveAttribute('aria-label', `${suggestionText}: optional`)
+
+  // Add a special character: now shown as met.
+  await userEvent.type(screen.getByLabelText('Password'), '!')
+  suggestion = screen.getAllByRole('listitem').find(h => h.textContent === suggestionText)
+  expect(suggestion).toHaveClass('auth-hint--met')
+  expect(suggestion).toHaveAttribute('aria-label', `${suggestionText}: met`)
 })
 
 test('shows password mismatch warning in real time', async () => {
@@ -172,7 +198,7 @@ test('shows error banner on failed registration', async () => {
   expect(await screen.findByRole('alert')).toHaveTextContent('Username already taken')
 })
 
-test('navigates to home on successful registration', async () => {
+test('navigates to check-email on successful registration', async () => {
   mockRegister.mockResolvedValueOnce({
     session_management_token: 'tok',
     user_id: 'uuid-abc',
@@ -182,5 +208,14 @@ test('navigates to home on successful registration', async () => {
   await fillValidForm()
   await userEvent.click(screen.getByRole('button', { name: 'Register' }))
   await userEvent.click(screen.getByRole('button', { name: 'Ok' }))
-  expect(await screen.findByText('Home')).toBeInTheDocument()
+  expect(await screen.findByText('Check Email')).toBeInTheDocument()
+  // The registration session must not be kept: the account can't act until
+  // the email is verified, so the user logs in afterwards instead. Any
+  // persisted session from a previous login must be dropped too, or main.tsx
+  // would restore it on reload.
+  expect(vi.mocked(apiClient.setToken)).toHaveBeenCalledWith(null)
+  expect(localStorageMock.removeItem).toHaveBeenCalledWith('session_token')
+  expect(sessionStorageMock.removeItem).toHaveBeenCalledWith('session_token')
+  expect(localStorageMock.removeItem).toHaveBeenCalledWith('series_identifier')
+  expect(localStorageMock.removeItem).toHaveBeenCalledWith('login_cookie_token')
 })

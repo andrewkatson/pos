@@ -50,6 +50,11 @@ class StatefulStubbedAPI : PositiveOnlySocialAPI {
         var passwordHash: String, // Storing plain text for stub simplicity, or simple hash
         var verificationToken: String? = null,
         var resetToken: String? = null,
+        // The real backend starts accounts unverified and gates everything on
+        // the emailed link; the stub has no inbox, so accounts start verified
+        // to keep offline/demo mode usable.
+        var emailVerified: Boolean = true,
+        var emailVerificationToken: String? = null,
         val following: MutableList<String> = mutableListOf(), // List of User IDs
         val followers: MutableList<String> = mutableListOf(),
         var isVerified: Boolean = false,
@@ -73,13 +78,15 @@ class StatefulStubbedAPI : PositiveOnlySocialAPI {
     private data class PostMock(
         val postIdentifier: String = UUID.randomUUID().toString(),
         val authorId: String,
-        val imageUrl: String,
+        // Null for a text-only post (#307).
+        val imageUrl: String?,
         val caption: String,
         val creationTime: Long = System.currentTimeMillis(),
         var hidden: Boolean = false,
         var hiddenReason: String = "",
         val likes: MutableSet<String> = mutableSetOf(), // Set of User IDs
-        val reports: MutableSet<String> = mutableSetOf() // Set of User IDs
+        // Reporting user id -> their reason, so retract flows can show the reason.
+        val reports: MutableMap<String, String> = mutableMapOf()
     )
 
     private data class AppealMock(
@@ -106,7 +113,8 @@ class StatefulStubbedAPI : PositiveOnlySocialAPI {
         var hidden: Boolean = false,
         var hiddenReason: String = "",
         val likes: MutableSet<String> = mutableSetOf(),
-        val reports: MutableSet<String> = mutableSetOf()
+        // Reporting user id -> their reason, so retract flows can show the reason.
+        val reports: MutableMap<String, String> = mutableMapOf()
     )
 
     // ============================================================================================
@@ -310,8 +318,44 @@ class StatefulStubbedAPI : PositiveOnlySocialAPI {
     }
 
     // ============================================================================================
+    // email verification
+    // ============================================================================================
+
+    override suspend fun verifyEmail(request: VerifyEmailRequest): Response<GenericResponse> {
+        val user = users.find { it.emailVerificationToken != null && it.emailVerificationToken == request.verificationToken }
+            ?: return errorGeneric(400, "Invalid or expired verification token")
+        user.emailVerified = true
+        user.emailVerificationToken = null
+        return Response.success(GenericResponse("Email verified", null))
+    }
+
+    override suspend fun resendVerificationEmail(request: ResendVerificationEmailRequest): Response<GenericResponse> {
+        val user = users.find { it.username == request.usernameOrEmail || it.email == request.usernameOrEmail }
+            ?: return errorGeneric(400, "No user with that username or email")
+        if (user.emailVerified) {
+            return errorGeneric(400, "Email already verified")
+        }
+        user.emailVerificationToken = "stub_email_verification_token_${user.username}"
+        return Response.success(GenericResponse("Verification email sent", null))
+    }
+
+    // ============================================================================================
     // posts
     // ============================================================================================
+
+    override suspend fun createUploadUrl(token: String): Response<CreateUploadUrlResponse> {
+        val user = getAuthorizedUser(token) ?: return errorGeneric(401, "Unauthorized")
+        // Mirror the backend: a fresh key under the user's prefix, returned as
+        // both a "presigned" upload URL and the canonical image URL.
+        val key = "${user.id}/stub-${java.util.UUID.randomUUID()}.jpeg"
+        val imageUrl = "https://stub-bucket.s3.us-east-2.amazonaws.com/$key"
+        return Response.success(
+            CreateUploadUrlResponse(
+                uploadUrl = "$imageUrl?X-Amz-Signature=stub",
+                imageUrl = imageUrl
+            )
+        )
+    }
 
     override suspend fun makePost(token: String, request: CreatePostRequest): Response<CreatePostResponse> {
         val user = getAuthorizedUser(token) ?: return errorGeneric(401, "Unauthorized")
@@ -348,15 +392,31 @@ class StatefulStubbedAPI : PositiveOnlySocialAPI {
         val post = posts.find { it.postIdentifier == postId }
             ?: return error(404, "No post with that identifier")
 
-        if (post.authorId == user.id) return error(404, "Cannot report own post")
-        if (post.reports.contains(user.id)) return error(404, "Cannot report post twice")
+        if (post.authorId == user.id) return error(400, "Cannot report own post")
+        if (post.reports.contains(user.id)) return error(400, "Cannot report post twice")
 
-        post.reports.add(user.id)
+        post.reports[user.id] = request.reason
         if (post.reports.size > MAX_BEFORE_HIDING_POST) {
             post.hidden = true
             post.hiddenReason = "reports"
         }
         return Response.success(GenericResponse("Post reported", null))
+    }
+
+    override suspend fun retractReportPost(token: String, postId: String): Response<GenericResponse> {
+        val user = getAuthorizedUser(token) ?: return error(401, "Unauthorized")
+        val post = posts.find { it.postIdentifier == postId }
+            ?: return error(404, "No post with that identifier")
+
+        if (!post.reports.contains(user.id)) return error(400, "Post not reported yet")
+
+        post.reports.remove(user.id)
+        // Un-hide only when reports were what hid it, mirroring the backend.
+        if (post.hidden && post.hiddenReason == "reports" && post.reports.size <= MAX_BEFORE_HIDING_POST) {
+            post.hidden = false
+            post.hiddenReason = ""
+        }
+        return Response.success(GenericResponse("Post report retracted", null))
     }
 
     override suspend fun likePost(token: String, postId: String): Response<GenericResponse> {
@@ -452,7 +512,10 @@ class StatefulStubbedAPI : PositiveOnlySocialAPI {
             post.caption,
             authorUsername = author.username,
             likeCount = post.likes.count(),
-            isLiked = post.likes.contains(user.id)
+            isLiked = post.likes.contains(user.id),
+            creationTime = post.creationTime.toString(),
+            isReported = post.reports.contains(user.id),
+            reportReason = post.reports[user.id]
         ))
     }
 
@@ -523,16 +586,31 @@ class StatefulStubbedAPI : PositiveOnlySocialAPI {
         val user = getAuthorizedUser(token) ?: return error(401, "Unauthorized")
         val comment = findComment(postId, threadId, commentId) ?: return error(404, "Comment not found")
 
-        if (comment.authorId == user.id) return error(404, "Cannot report own comment")
-        if (comment.reports.contains(user.id)) return error(404, "Already reported")
+        if (comment.authorId == user.id) return error(400, "Cannot report own comment")
+        if (comment.reports.contains(user.id)) return error(400, "Cannot report comment twice")
 
-        comment.reports.add(user.id)
+        comment.reports[user.id] = request.reason
         if (comment.reports.size > 5) { // Stub limit
             comment.hidden = true
             comment.hiddenReason = "reports"
         }
 
         return Response.success(GenericResponse("Comment reported", null))
+    }
+
+    override suspend fun retractReportComment(token: String, postId: String, threadId: String, commentId: String): Response<GenericResponse> {
+        val user = getAuthorizedUser(token) ?: return error(401, "Unauthorized")
+        val comment = findComment(postId, threadId, commentId) ?: return error(404, "Comment not found")
+
+        if (!comment.reports.contains(user.id)) return error(400, "Comment not reported yet")
+
+        comment.reports.remove(user.id)
+        // Un-hide only when reports were what hid it, mirroring the backend.
+        if (comment.hidden && comment.hiddenReason == "reports" && comment.reports.size <= 5) { // Stub limit
+            comment.hidden = false
+            comment.hiddenReason = ""
+        }
+        return Response.success(GenericResponse("Comment report retracted", null))
     }
 
     override suspend fun getCommentsForPost(token: String, postId: String, batch: Int): Response<List<CommentThreadDto>> {
@@ -559,7 +637,9 @@ class StatefulStubbedAPI : PositiveOnlySocialAPI {
                 c.creationTime.toString(),
                 c.creationTime.toString(),
                 c.likes.size,
-                isLiked = c.likes.contains(user.id)
+                isLiked = c.likes.contains(user.id),
+                isReported = c.reports.contains(user.id),
+                reportReason = c.reports[user.id]
             )
         }
         return Response.success(dtos)

@@ -2,6 +2,7 @@ import os
 
 from unittest.mock import patch
 
+from django.contrib.auth import get_user_model
 from django.test import TestCase, Client, override_settings
 from django.urls import reverse
 
@@ -70,10 +71,14 @@ class PositiveOnlySocialTestCase(TestCase):
         self.users[UserFields.TOKEN].append(token)
 
     @patch.dict(os.environ, {"TESTING": "True"}, clear=True)
-    def _register_user(self, username, email, password, remember_me=false):
+    def _register_user(self, username, email, password, remember_me=false, verify_email=True):
         """
         Calls the 'register' endpoint and returns the parsed JSON response.
         Asserts that the registration was successful (201 Created).
+
+        Email verification gates login and every authenticated endpoint, so by
+        default the new user's address is marked verified directly in the DB.
+        Tests that exercise the verification flow itself pass verify_email=False.
         """
         url = reverse('register')
         data = {
@@ -86,6 +91,15 @@ class PositiveOnlySocialTestCase(TestCase):
 
         # 201 Created is the standard for successful creation
         self.assertEqual(response.status_code, 201)
+
+        if verify_email:
+            # Mirror the real verified state: verify_email clears the token
+            # fields when it flips the flag, so the helper does too.
+            get_user_model().objects.filter(username=username).update(
+                email_verified=True,
+                email_verification_token=None,
+                email_verification_token_expires=None,
+            )
 
         response_data = response.json()
         self._store_user_in_dict(username, password, email, response_data)
@@ -181,7 +195,7 @@ class PositiveOnlySocialTestCase(TestCase):
         """
         local_email = f'{local_username}_email@email.com'
         if not local_password:
-            local_password = f'{local_username}_Password123!'
+            local_password = f'{local_username}_Password123-'
 
         return self._register_user(local_username, local_email, local_password, remember_me)
 
@@ -191,7 +205,7 @@ class PositiveOnlySocialTestCase(TestCase):
         Returns their username and token.
         """
         username = self._get_unique_username(f"{prefix}_other_user")
-        password = "OtherPassword123$"
+        password = "OtherPassword123-"
         email = f"{username}@email.com"
 
         data = self._register_user(username, email, password)
@@ -209,7 +223,7 @@ class PositiveOnlySocialTestCase(TestCase):
         self.local_... attributes (username, token, etc.).
         """
         username = self._get_unique_username(f'testuser_{remember_me}')
-        password = f'Password_{self.prefix}123!'
+        password = f'Password_{self.prefix}123-'
         email = f'{username}@email.com'
 
         register_fields = self._register_user(username, email, password, remember_me)
@@ -271,7 +285,7 @@ class PositiveOnlySocialTestCase(TestCase):
         """
         for i in range(num):
             username = self._get_unique_username(f'user{i}')
-            password = f'Password_{i}_{self.prefix}!'
+            password = f'Password_{i}_{self.prefix}-'
             email = f'{username}@email.com'
 
             data = self._register_user(username, email, password)
@@ -292,7 +306,7 @@ class PositiveOnlySocialTestCase(TestCase):
         """
         for i in range(num):
             username = self._get_unique_username(f'user{i}')
-            password = f'Password_{i}_{self.prefix}!'
+            password = f'Password_{i}_{self.prefix}-'
             email = f'{username}@email.com'
 
             data = self._register_user(username, email, password)
@@ -316,7 +330,7 @@ class PositiveOnlySocialTestCase(TestCase):
         """
         for i in range(num):
             username = self._get_unique_username(f'user{i}')
-            password = f'Password_{i}_{self.prefix}!'
+            password = f'Password_{i}_{self.prefix}-'
             email = f'{username}@email.com'
 
             data = self._register_user(username, email, password)

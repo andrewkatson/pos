@@ -55,7 +55,7 @@ class LoginUserTests(PositiveOnlySocialTestCase):
         Tests that a correctly formatted but incorrect password fails.
         """
         data = self.valid_data.copy()
-        data['password'] = "CorrectFormatButWrongPassword123$"
+        data['password'] = "CorrectFormatButWrongPassword123-"
 
         response = self.client.post(self.url, data=data, content_type='application/json')
 

@@ -16,6 +16,11 @@ struct MockUser {
     var passwordHash: String // Storing plain text for mock purposes.
     var verificationToken: String? = nil
     var resetToken: String? = nil
+    // The real backend starts accounts unverified and gates everything on the
+    // emailed link; the stub has no inbox, so accounts start verified to keep
+    // offline/demo mode usable.
+    var emailVerified: Bool = true
+    var emailVerificationToken: String? = nil
     var identityIsVerified: Bool = false
     var isAdult: Bool = false
     var blocked: [UUID] = []
@@ -49,7 +54,8 @@ fileprivate struct MockLoginCookie {
 fileprivate struct MockPost {
     let postIdentifier = UUID().uuidString
     let authorId: UUID
-    var imageURL: String
+    // Nil for a text-only post (#307).
+    var imageURL: String?
     var caption: String
     var likes: [String] = [] // Usernames of likers
     var reports: [(username: String, reason: String)] = []
@@ -106,6 +112,7 @@ final class StatefulStubbedAPI: Networking {
     // MARK: - Configuration
     public var simulatedLatency: TimeInterval = 0.1
     private let maxReportsBeforeHiding = 5
+    private let awsStubBucket = "https://stub-bucket.s3.us-east-2.amazonaws.com/"
     public var pageSize = 2 // Make this small for easier testing
     public private(set) var getPostsInFeedCallCount = 0
     public private(set) var getPostsForFollowedUsersCallCount = 0
@@ -241,6 +248,30 @@ final class StatefulStubbedAPI: Networking {
     }
 
 
+    func verifyEmail(verificationToken: String) async throws -> Data {
+        await simulateNetwork()
+        guard let userIndex = users.firstIndex(where: { $0.emailVerificationToken != nil && $0.emailVerificationToken == verificationToken }) else {
+            throw APIError.serverError(statusCode: 400, serverMessage: "Invalid or expired verification token")
+        }
+        users[userIndex].emailVerified = true
+        users[userIndex].emailVerificationToken = nil
+        return try createEmptySuccessResponse()
+    }
+
+    func resendVerificationEmail(usernameOrEmail: String) async throws -> Data {
+        await simulateNetwork()
+        guard let userIndex = users.firstIndex(where: { $0.username == usernameOrEmail || $0.email == usernameOrEmail }) else {
+            throw APIError.serverError(statusCode: 400, serverMessage: "No user with that username or email")
+        }
+        guard !users[userIndex].emailVerified else {
+            throw APIError.serverError(statusCode: 400, serverMessage: "Email already verified")
+        }
+        let stubToken = "stub_email_verification_token_\(users[userIndex].username)"
+        users[userIndex].emailVerificationToken = stubToken
+        NSLog("%@", "Email verification token for \(users[userIndex].username) is: \(stubToken)")
+        return try createEmptySuccessResponse()
+    }
+
     func requestPasswordReset(usernameOrEmail: String) async throws -> Data {
         await simulateNetwork()
         guard let userIndex = users.firstIndex(where: { $0.username == usernameOrEmail || $0.email == usernameOrEmail }) else { throw APIError.badServerResponse(statusCode: 400) }
@@ -331,7 +362,17 @@ final class StatefulStubbedAPI: Networking {
         return try createEmptySuccessResponse()
     }
         
-    func makePost(sessionManagementToken: String, imageURL: String, caption: String) async throws -> Data {
+    func createUploadUrl(sessionManagementToken: String) async throws -> Data {
+        await simulateNetwork()
+        guard let user = findUser(bySessionToken: sessionManagementToken) else { throw APIError.badServerResponse(statusCode: 400) }
+        // Mirror the backend: a fresh key under the user's prefix, returned as
+        // both a "presigned" upload URL and the canonical image URL.
+        let imageUrl = "\(awsStubBucket)\(user.id)/stub-\(UUID().uuidString).jpeg"
+        struct Fields: Codable { let upload_url: String; let image_url: String }
+        return try createSerializedResponse(fields: Fields(upload_url: "\(imageUrl)?X-Amz-Signature=stub", image_url: imageUrl))
+    }
+
+    func makePost(sessionManagementToken: String, imageURL: String?, caption: String) async throws -> Data {
         await simulateNetwork()
         guard let user = findUser(bySessionToken: sessionManagementToken) else { throw APIError.badServerResponse(statusCode: 400) }
         let newPost = MockPost(authorId: user.id, imageURL: imageURL, caption: caption)
@@ -359,6 +400,22 @@ final class StatefulStubbedAPI: Networking {
         if posts[postIndex].reports.count > maxReportsBeforeHiding {
             posts[postIndex].isHidden = true
             posts[postIndex].hiddenReason = "reports"
+        }
+        return try createEmptySuccessResponse()
+    }
+
+    func retractReportPost(sessionManagementToken: String, postIdentifier: String) async throws -> Data {
+        await simulateNetwork()
+        guard let retractor = findUser(bySessionToken: sessionManagementToken) else { throw APIError.badServerResponse(statusCode: 400) }
+        guard let postIndex = posts.firstIndex(where: { $0.postIdentifier == postIdentifier }) else { throw APIError.badServerResponse(statusCode: 400) }
+        guard let reportIndex = posts[postIndex].reports.firstIndex(where: { $0.username == retractor.username }) else { throw APIError.badServerResponse(statusCode: 400) }
+
+        posts[postIndex].reports.remove(at: reportIndex)
+        // Un-hide only when reports were what hid it, mirroring the backend.
+        if posts[postIndex].isHidden && posts[postIndex].hiddenReason == "reports"
+            && posts[postIndex].reports.count <= maxReportsBeforeHiding {
+            posts[postIndex].isHidden = false
+            posts[postIndex].hiddenReason = ""
         }
         return try createEmptySuccessResponse()
     }
@@ -414,14 +471,14 @@ final class StatefulStubbedAPI: Networking {
         let endIndex = min(startIndex + pageSize, relevantPosts.count)
         let paginatedPosts = Array(relevantPosts[startIndex..<endIndex])
 
-        struct Fields: Codable { let post_identifier: String; let image_url: String; let caption: String; let author_username: String }
-        
+        struct Fields: Codable { let post_identifier: String; let image_url: String?; let caption: String; let author_username: String }
+
         let fieldObjects = paginatedPosts.map {
             let post = $0
             let authorUsername = users.first(where: { $0.id == post.authorId })?.username ?? "Unknown User"
             return Fields(post_identifier: $0.postIdentifier, image_url: $0.imageURL, caption: $0.caption, author_username: authorUsername)
         }
-        
+
         return try createSerializedListResponse(fieldsList: fieldObjects)
     }
 
@@ -462,7 +519,7 @@ final class StatefulStubbedAPI: Networking {
         let paginatedPosts = Array(relevantPosts[startIndex..<endIndex])
 
         // 5. Format the response (matching getPostsInFeed)
-        struct Fields: Codable { let post_identifier: String; let image_url: String; let caption: String; let author_username: String }
+        struct Fields: Codable { let post_identifier: String; let image_url: String?; let caption: String; let author_username: String }
         
         let fieldObjects = paginatedPosts.map {
             let post = $0
@@ -506,7 +563,7 @@ final class StatefulStubbedAPI: Networking {
         // (Note: Added `caption` to prevent decoding errors)
         struct Fields: Codable {
             let post_identifier: String
-            let image_url: String
+            let image_url: String?
             let caption: String
             let author_username: String
         }
@@ -529,8 +586,37 @@ final class StatefulStubbedAPI: Networking {
         await simulateNetwork()
         guard let user = findUser(bySessionToken: sessionManagementToken) else { throw APIError.badServerResponse(statusCode: 401) }
         guard let post = findPost(byIdentifier: postIdentifier) else { throw APIError.badServerResponse(statusCode: 400) }
-        struct Fields: Codable { let post_identifier, image_url, caption: String; let post_likes: Int; let is_liked: Bool; let author_username: String }
-        let fields = Fields(post_identifier: post.postIdentifier, image_url: post.imageURL, caption: post.caption, post_likes: post.likes.count, is_liked: post.likes.contains(user.username), author_username: users.first(where: {$0.id == post.authorId})?.username ?? "Unknown User")
+        struct Fields: Codable {
+            let post_identifier: String
+            let image_url: String?
+            let caption: String
+            //TODO: eBlender rename to camelCase creationTime (via CodingKeys).
+            let creation_time: String
+            let post_likes: Int
+            let is_liked: Bool
+            let is_reported: Bool
+            let report_reason: String?
+            let author_username: String
+        }
+        let userReport = post.reports.first(where: { $0.username == user.username })
+        let fields = Fields(
+            post_identifier: post.postIdentifier,
+            image_url: post.imageURL,
+            caption: post.caption,
+            // Mirror Django's DjangoJSONEncoder, which emits a colon-separated UTC
+            // offset with fractional seconds (e.g. "…+00:00"), not a "Z" suffix, so
+            // the client's date parsing is exercised against the real backend format.
+            creation_time: post.createdDate.formatted(
+                Date.ISO8601FormatStyle().year().month().day()
+                    .time(includingFractionalSeconds: true)
+                    .timeZone(separator: .colon)
+            ),
+            post_likes: post.likes.count,
+            is_liked: post.likes.contains(user.username),
+            is_reported: userReport != nil,
+            report_reason: userReport?.reason,
+            author_username: users.first(where: {$0.id == post.authorId})?.username ?? "Unknown User"
+        )
         return try createSerializedResponse(fields: fields)
     }
 
@@ -613,6 +699,22 @@ final class StatefulStubbedAPI: Networking {
         return try createEmptySuccessResponse()
     }
 
+    func retractReportComment(sessionManagementToken: String, postIdentifier: String, commentThreadIdentifier: String, commentIdentifier: String) async throws -> Data {
+        await simulateNetwork()
+        guard let retractor = findUser(bySessionToken: sessionManagementToken) else { throw APIError.badServerResponse(statusCode: 400) }
+        guard let commentIndex = comments.firstIndex(where: { $0.commentIdentifier == commentIdentifier }) else { throw APIError.badServerResponse(statusCode: 400) }
+        guard let reportIndex = comments[commentIndex].reports.firstIndex(where: { $0.username == retractor.username }) else { throw APIError.badServerResponse(statusCode: 400) }
+
+        comments[commentIndex].reports.remove(at: reportIndex)
+        // Un-hide only when reports were what hid it, mirroring the backend.
+        if comments[commentIndex].isHidden && comments[commentIndex].hiddenReason == "reports"
+            && comments[commentIndex].reports.count <= maxReportsBeforeHiding {
+            comments[commentIndex].isHidden = false
+            comments[commentIndex].hiddenReason = ""
+        }
+        return try createEmptySuccessResponse()
+    }
+
     func getCommentsForPost(sessionManagementToken: String, postIdentifier: String, batch: Int) async throws -> Data {
         await simulateNetwork()
         guard findUser(bySessionToken: sessionManagementToken) != nil else { throw APIError.badServerResponse(statusCode: 401) }
@@ -643,15 +745,20 @@ final class StatefulStubbedAPI: Networking {
             let creation_time, updated_time: String
             let comment_likes: Int
             let is_liked: Bool
+            let is_reported: Bool
+            let report_reason: String?
         }
 
         let dateFormatter = ISO8601DateFormatter()
         let fieldObjects = relevantComments.map { comment in
-            Fields(comment_identifier: comment.commentIdentifier, body: comment.body, author_username: comment.authorUsername,
+            let userReport = comment.reports.first(where: { $0.username == user.username })
+            return Fields(comment_identifier: comment.commentIdentifier, body: comment.body, author_username: comment.authorUsername,
                    creation_time: dateFormatter.string(from: comment.createdDate),
                    updated_time: dateFormatter.string(from: comment.updatedDate),
                    comment_likes: comment.likes.count,
-                   is_liked: comment.likes.contains(user.username))
+                   is_liked: comment.likes.contains(user.username),
+                   is_reported: userReport != nil,
+                   report_reason: userReport?.reason)
         }
         return try createSerializedListResponse(fieldsList: fieldObjects)
     }
@@ -841,7 +948,7 @@ final class StatefulStubbedAPI: Networking {
         let startIndex = batch * pageSize
         struct Fields: Codable {
             let post_identifier: String
-            let image_url: String
+            let image_url: String?
             let caption: String
             let hidden_reason: String
             let has_appeal: Bool

@@ -76,11 +76,58 @@ class GetPostDetailsTests(PositiveOnlySocialTestCase):
         self.assertEqual(data[Fields.original_image_url], self.post.image_url)
         self.assertEqual(data[Fields.caption], self.post.caption)
         self.assertEqual(data[Fields.author_username], self.local_username)
+        # The creation timestamp is serialized as ISO-8601 (DjangoJSONEncoder
+        # keeps microseconds); compare only down to the second to stay robust
+        # against sub-second precision and formatting differences.
+        self.assertTrue(data[Fields.creation_time].startswith(
+            self.post.creation_time.strftime('%Y-%m-%dT%H:%M:%S')))
 
         # Check default/calculated values
         self.assertEqual(data[Fields.post_likes], 0)
         # The author has not liked their own post
         self.assertFalse(data[Fields.is_liked])
+        # The author cannot have reported their own post
+        self.assertFalse(data[Fields.is_reported])
+        self.assertIsNone(data[Fields.report_reason])
+
+    def test_is_reported_and_reason_reflect_requesters_own_report(self):
+        """
+        Tests that is_reported/report_reason surface the requesting user's own
+        report so clients can offer "retract report" with the reason pre-filled.
+        """
+        reporter = self.make_user_with_prefix(prefix='reporter')
+        reporter_header = {'HTTP_AUTHORIZATION': f'Bearer {reporter[Fields.session_management_token]}'}
+
+        report_url = reverse('report_post', kwargs={'post_identifier': str(self.post_identifier)})
+        report_response = self.client.post(
+            report_url, data={'reason': 'Too negative'}, content_type='application/json', **reporter_header
+        )
+        self.assertEqual(report_response.status_code, 200)
+
+        # The reporter sees their report reflected...
+        data = self.client.get(self.url, **reporter_header).json()
+        self.assertTrue(data[Fields.is_reported])
+        self.assertEqual(data[Fields.report_reason], 'Too negative')
+
+        # ...but the author (who did not report) does not.
+        author_data = self.client.get(self.url, **self.header).json()
+        self.assertFalse(author_data[Fields.is_reported])
+        self.assertIsNone(author_data[Fields.report_reason])
+
+    def test_text_only_post_returns_null_image_url(self):
+        """
+        A text-only post (#307) serializes with a null image_url (and null
+        original_image_url) rather than being broken or omitted.
+        """
+        self.post.image_url = None
+        self.post.save()
+
+        response = self.client.get(self.url, **self.header)
+
+        self.assertEqual(response.status_code, 200)
+        data = response.json()
+        self.assertIsNone(data[Fields.image_url])
+        self.assertEqual(data[Fields.caption], self.post.caption)
 
     def test_is_liked_true_when_requesting_user_liked_post(self):
         """

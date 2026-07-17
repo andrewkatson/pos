@@ -2,7 +2,7 @@ import { useState, type ReactNode } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { apiClient } from '../api/client'
 import { clearSession } from '../api/session'
-import { PRIVACY_POLICY_TEXT } from '../pages/RegisterPage'
+import { PRIVACY_POLICY_TEXT } from '../privacyPolicy'
 
 type ActiveModal = 'logout' | 'delete' | 'verify' | 'privacy' | null
 

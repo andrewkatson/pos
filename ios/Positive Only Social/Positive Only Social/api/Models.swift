@@ -32,7 +32,8 @@ struct LoginResponseFields: Codable {
 struct Post: Codable, Identifiable, Hashable {
     var id: String { postIdentifier }
     let postIdentifier: String
-    let imageUrl: String
+    /// Nil for a text-only post (#307), which renders as a caption tile.
+    let imageUrl: String?
     /// The full-resolution original image URL, used as a fallback when the
     /// compressed `imageUrl` fails to load. The compressed copy is produced by
     /// an async Lambda, so a just-posted (or recently hidden-pending-appeal)
@@ -52,7 +53,20 @@ struct Post: Codable, Identifiable, Hashable {
     }
 }
 
-// MARK: - Appeals (backend appeal endpoints)
+// MARK: - Post Creation (upload-url and create endpoints)
+
+/// The response from createUploadUrl: a short-lived presigned S3 PUT URL to
+/// send the JPEG bytes to, and the canonical object URL (no signing query)
+/// to hand back to makePost.
+struct UploadUrlResponse: Codable {
+    let uploadUrl: String
+    let imageUrl: String
+
+    enum CodingKeys: String, CodingKey {
+        case uploadUrl = "upload_url"
+        case imageUrl = "image_url"
+    }
+}
 
 /// The response from makePost. `hidden` is true when the post was created
 /// hidden pending appeal (classifier flagged it but it is appealable).
@@ -68,11 +82,14 @@ struct MakePostResponse: Codable {
     }
 }
 
+// MARK: - Appeals (backend appeal endpoints)
+
 /// One of the signed-in user's hidden posts, from the appeals endpoint.
 struct HiddenPost: Codable, Identifiable, Hashable {
     var id: String { postIdentifier }
     let postIdentifier: String
-    let imageUrl: String
+    /// Nil for a text-only post (#307).
+    let imageUrl: String?
     let caption: String
     let hiddenReason: String
     let hasAppeal: Bool
@@ -185,7 +202,8 @@ struct UserSession: Codable, Equatable {
 // A simple, identifiable struct representing the post in the post detail view
 struct PostDisplayData: Identifiable, Equatable {
     let id: String // postIdentifier
-    let imageURL: String
+    /// Nil for a text-only post (#307).
+    let imageURL: String?
     /// The full-resolution original image URL, used as a fallback when the
     /// compressed `imageURL` fails to load (see `Post.originalImageUrl`).
     /// Optional for backward compatibility with responses that predate the field.
@@ -194,6 +212,14 @@ struct PostDisplayData: Identifiable, Equatable {
     let likeCount: Int
     let isLiked: Bool // Whether the current user has liked this post
     let authorUsername: String // Added for context
+    /// When the post was created. Optional for backward compatibility with
+    /// backend responses that predate the field.
+    let createdDate: Date?
+    /// Whether the current user has an active report against this post, and
+    /// their own report reason so the retract dialog can show it pre-populated
+    /// (issue #176).
+    var isReported: Bool = false
+    var reportReason: String? = nil
 }
 
 // A struct representing a single comment, for use in the view
@@ -205,6 +231,10 @@ struct CommentViewData: Identifiable, Equatable {
     let likeCount: Int
     let isLiked: Bool // Whether the current user has liked this comment
     let createdDate: Date
+    /// Whether the current user has an active report against this comment, and
+    /// their own report reason for the pre-populated retract dialog (issue #176).
+    var isReported: Bool = false
+    var reportReason: String? = nil
 }
 
 // A struct representing a full thread, which is just a list of comments

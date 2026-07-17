@@ -20,6 +20,14 @@ object APIProvider {
      */
     @Volatile
     var onAccountBanned: (() -> Unit)? = null
+
+    /**
+     * Invoked when an authenticated request is rejected because the account's
+     * email address is unverified. The session can't do anything until the
+     * emailed link is used, so it is dropped like a ban.
+     */
+    @Volatile
+    var onEmailNotVerified: (() -> Unit)? = null
     
     @Volatile
     private var realService: PositiveOnlySocialAPI? = null
@@ -82,14 +90,14 @@ object APIProvider {
                 val response = chain.proceed(request)
                 if (response.code == 403 && request.header("Authorization") != null) {
                     // Peek so the body stays readable for the Retrofit consumer.
-                    val isBanned = try {
-                        JSONObject(response.peekBody(1024).string())
-                            .getString("error") == Constants.ACCOUNT_BANNED
+                    val errorCode = try {
+                        JSONObject(response.peekBody(1024).string()).getString("error")
                     } catch (e: Exception) {
-                        false
+                        null
                     }
-                    if (isBanned) {
-                        onAccountBanned?.invoke()
+                    when (errorCode) {
+                        Constants.ACCOUNT_BANNED -> onAccountBanned?.invoke()
+                        Constants.EMAIL_NOT_VERIFIED -> onEmailNotVerified?.invoke()
                     }
                 }
                 response

@@ -186,10 +186,10 @@ fun LoginScreen(
                                     }
                                 } else {
                                     val errorMsg = ApiErrors.messageFor(response, fallback = "Login failed. Please check your credentials.")
-                                    errorMessage = if (errorMsg == Constants.ACCOUNT_BANNED) {
-                                        Constants.ACCOUNT_SUSPENDED_MESSAGE
-                                    } else {
-                                        errorMsg
+                                    errorMessage = when (errorMsg) {
+                                        Constants.ACCOUNT_BANNED -> Constants.ACCOUNT_SUSPENDED_MESSAGE
+                                        Constants.EMAIL_NOT_VERIFIED -> Constants.EMAIL_NOT_VERIFIED_MESSAGE
+                                        else -> errorMsg
                                     }
                                     showingErrorAlert = true
                                 }

@@ -36,7 +36,8 @@ struct PostDetailView: View {
                 VStack(alignment: .center, spacing: 12) {
                     PostDetailImage(
                         imageUrl: post.imageURL,
-                        originalImageUrl: post.originalImageURL
+                        originalImageUrl: post.originalImageURL,
+                        caption: post.caption
                     )
                     .accessibilityElement(children: .ignore)  // Treat as single element
                     .accessibilityIdentifier("PostImage")
@@ -80,8 +81,21 @@ struct PostDetailView: View {
                                     .foregroundColor(.red)
                                     .font(.caption) // Make it a bit smaller
                                     .accessibilityIdentifier("ReportedPostIcon")
-                                Spacer()
                             }
+                            Spacer()
+                            // Three-dots menu: the discoverable alternative to
+                            // long-pressing the image (issue #304). Opens the
+                            // same action menu (Report / Retract Report / Delete).
+                            Button {
+                                viewModel.showActionSheetForPost = true
+                            } label: {
+                                Image(systemName: "ellipsis")
+                                    .foregroundColor(.secondary)
+                                    .padding(.vertical, 4)
+                                    .contentShape(Rectangle())
+                            }
+                            .accessibilityLabel("Post options")
+                            .accessibilityIdentifier("PostOptionsButton")
                         }
                         HStack(alignment: .firstTextBaseline, spacing: 4) {
                             // Tap the author's name to open their profile, same
@@ -94,6 +108,15 @@ struct PostDetailView: View {
                             .buttonStyle(.plain) // Keeps the text style
                             .accessibilityIdentifier("PostAuthor")
                             Text(post.caption)
+                        }
+                        // When the post was made, at the same coarse granularity
+                        // as comment times (issue #174). Older backend responses
+                        // omit the timestamp.
+                        if let created = post.createdDate {
+                            Text(RelativeTime.string(from: created))
+                                .font(.caption)
+                                .foregroundColor(.secondary)
+                                .accessibilityIdentifier("PostCreatedTime")
                         }
                     }
                     .padding(.horizontal)
@@ -157,15 +180,21 @@ struct PostDetailView: View {
             // refresh starts) can't cancel the in-flight network requests.
             await Task { await viewModel.refresh() }.value
         }
-        // --- Action menus (long-press) ---
-        // The post's menu offers Delete on the user's own post and Report on
-        // everyone else's — so you can never report your own post.
+        // --- Action menus (three-dots button or long-press) ---
+        // The post's menu offers Delete on the user's own post, Report on
+        // everyone else's — or Retract Report when the user already has an
+        // active report against it (issues #304, #176).
         .confirmationDialog("Post", isPresented: $viewModel.showActionSheetForPost, titleVisibility: .hidden) {
             if viewModel.isOwnPost {
                 Button("Delete Post", role: .destructive) {
                     viewModel.deletePost()
                 }
                 .accessibilityIdentifier("DeletePostActionButton")
+            } else if viewModel.isPostReported {
+                Button("Retract Report") {
+                    viewModel.showRetractDialogForPost = true
+                }
+                .accessibilityIdentifier("RetractReportPostActionButton")
             } else {
                 Button("Report Post") {
                     viewModel.showReportSheetForPost = true
@@ -174,7 +203,7 @@ struct PostDetailView: View {
             }
         }
         // The comment menu mirrors the post menu: Delete for the user's own
-        // comments, Report for everyone else's.
+        // comments, Report / Retract Report for everyone else's.
         .confirmationDialog(
             "Comment",
             isPresented: Binding(
@@ -189,12 +218,43 @@ struct PostDetailView: View {
                     viewModel.deleteComment(comment)
                 }
                 .accessibilityIdentifier("DeleteCommentActionButton")
+            } else if viewModel.isCommentReported(comment) {
+                Button("Retract Report") {
+                    viewModel.commentToRetract = comment
+                }
+                .accessibilityIdentifier("RetractReportCommentActionButton")
             } else {
                 Button("Report Comment") {
                     viewModel.commentToReport = comment
                 }
                 .accessibilityIdentifier("ReportCommentActionButton")
             }
+        }
+        // --- Retract-report confirmations (issue #176) ---
+        // Each shows the user's original report reason pre-populated so they
+        // can see what they're retracting.
+        .alert("Retract Report?", isPresented: $viewModel.showRetractDialogForPost) {
+            Button("Retract Report", role: .destructive) {
+                viewModel.retractReportPost()
+            }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("You reported this post with the reason: “\(viewModel.postDetail?.reportReason ?? "")”. Retracting removes your report.")
+        }
+        .alert(
+            "Retract Report?",
+            isPresented: Binding(
+                get: { viewModel.commentToRetract != nil },
+                set: { if !$0 { viewModel.commentToRetract = nil } }
+            ),
+            presenting: viewModel.commentToRetract
+        ) { comment in
+            Button("Retract Report", role: .destructive) {
+                viewModel.retractReportComment(comment)
+            }
+            Button("Cancel", role: .cancel) {}
+        } message: { comment in
+            Text("You reported this comment with the reason: “\(comment.reportReason ?? "")”. Retracting removes your report.")
         }
         // --- Modals and Sheets ---
         .sheet(isPresented: $viewModel.showReportSheetForPost) {
@@ -245,37 +305,45 @@ struct PostDetailView: View {
 /// after a failed or cancelled load); scaled to fit instead of fill, with the
 /// detail view's spinner placeholder. See issues #252, #253, and #254.
 struct PostDetailImage: View {
-    let imageUrl: String
+    let imageUrl: String?
     let originalImageUrl: String?
+    let caption: String
 
     // Once the compressed URL genuinely fails, switch to the original and let
     // Kingfisher load the new URL.
     @State private var useOriginal = false
 
     var body: some View {
-        let urlString = useOriginal ? (originalImageUrl ?? imageUrl) : imageUrl
-        KFImage(URL(string: urlString))
-            // Rides out the just-posted window where the compressed copy isn't
-            // in the bucket yet; only HTTP errors are retried, not cancellations.
-            .retry(maxCount: 2, interval: .seconds(1))
-            .placeholder {
-                Rectangle()
-                    .fill(Color.secondary.opacity(0.3))
-                    .aspectRatio(1, contentMode: .fit)
-                    .overlay(ProgressView())
-            }
-            .onFailure { error in
-                // A cancelled load isn't a missing image — the view reloads the
-                // same URL when it next appears, so save the fallback for real
-                // failures.
-                guard !error.isTaskCancelled else { return }
-                if !useOriginal, originalImageUrl != nil {
-                    useOriginal = true
+        if let imageUrl {
+            let urlString = useOriginal ? (originalImageUrl ?? imageUrl) : imageUrl
+            KFImage(URL(string: urlString))
+                // Rides out the just-posted window where the compressed copy isn't
+                // in the bucket yet; only HTTP errors are retried, not cancellations.
+                .retry(maxCount: 2, interval: .seconds(1))
+                .placeholder {
+                    Rectangle()
+                        .fill(Color.secondary.opacity(0.3))
+                        .aspectRatio(1, contentMode: .fit)
+                        .overlay(ProgressView())
                 }
-            }
-            .resizable()
-            .scaledToFit()
-            .aspectRatio(1, contentMode: .fit)
+                .onFailure { error in
+                    // A cancelled load isn't a missing image — the view reloads the
+                    // same URL when it next appears, so save the fallback for real
+                    // failures.
+                    guard !error.isTaskCancelled else { return }
+                    if !useOriginal, originalImageUrl != nil {
+                        useOriginal = true
+                    }
+                }
+                .resizable()
+                .scaledToFit()
+                .aspectRatio(1, contentMode: .fit)
+        } else {
+            // A text-only post (#307): the caption is the tile,
+            // with the same square footprint and gestures.
+            CaptionTileView(caption: caption, lineLimit: nil)
+                .aspectRatio(1, contentMode: .fit)
+        }
     }
 }
 

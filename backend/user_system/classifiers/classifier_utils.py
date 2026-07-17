@@ -3,6 +3,7 @@ import re
 import random
 import logging
 import base64
+from collections import Counter
 from io import BytesIO
 from dataclasses import dataclass, field
 from google import genai
@@ -11,6 +12,7 @@ import openai as openai_lib
 from .classifier_constants import (
     GEMINI_MODEL, CLAUDE_MODEL, OPENAI_MODEL,
     REJECT_THRESHOLD, ALLOW_THRESHOLD, LLM_TIMEOUT_SECONDS,
+    RULE_REASON_CODES, GENERIC_REASON_CODE, REASON_PHRASES,
 )
 
 logger = logging.getLogger(__name__)
@@ -40,14 +42,24 @@ class ClassificationResult:
 
     Truthy when the content is allowed, so existing `if not is_text_positive(...)`
     call sites keep working. `appealable` only matters when `allowed` is False;
-    the appeal system itself is a future feature.
+    the appeal system itself is a future feature. `reason_code` is set on
+    rejections when at least one AI cited a content rule; None otherwise.
     """
     allowed: bool
     appealable: bool = False
     scores: list = field(default_factory=list)
+    reason_code: str = None
 
     def __bool__(self):
         return self.allowed
+
+    def public_reason_code(self):
+        """Stable machine-readable reason for clients."""
+        return self.reason_code or GENERIC_REASON_CODE
+
+    def public_reason(self):
+        """User-facing phrase completing a sentence like "your caption ..."."""
+        return REASON_PHRASES[self.public_reason_code()]
 
 
 def get_zone(score):
@@ -73,6 +85,53 @@ def parse_probability(text):
     return in_range[-1]
 
 
+def parse_probability_and_rule(text):
+    """Extracts a "probability,rule" answer from a model response.
+
+    Returns (probability, rule_number) where rule_number is None when the model
+    cited no rule (0) or did not use the pair format. Takes the last well-formed
+    pair so a response that echoes the prompt's example before answering still
+    parses the answer. Falls back to parse_probability for responses containing
+    only a bare score, so a model that ignores the rule instruction still yields
+    a usable probability.
+    """
+    pairs = re.findall(r'(\d+(?:\.\d+)?|\.\d+)\s*,\s*([0-8])(?!\d)', str(text))
+    for prob_str, rule_str in reversed(pairs):
+        prob = float(prob_str)
+        if prob <= 1.0:
+            return prob, int(rule_str) or None
+    return parse_probability(text), None
+
+
+def _normalize_call_result(value):
+    """Maps a call_fn result to (score, reason_code).
+
+    Providers return (score, rule_number) pairs, but tests and legacy callers
+    may still return a bare score; both are accepted. Unknown rule numbers
+    (including 0/None) normalize to no reason.
+    """
+    if isinstance(value, tuple):
+        score, rule = value
+    else:
+        score, rule = value, None
+    return score, RULE_REASON_CODES.get(rule)
+
+
+def _pick_rejection_reason(scores, cited_codes):
+    """One reason to show the user for a rejection: the rule cited most often
+    by the AIs that scored the content below the allow zone, tie-broken in
+    favor of the most recent (decisive) citation. Scores, model identities,
+    and per-model votes are never exposed.
+    """
+    cited = [code for score, code in zip(scores, cited_codes)
+             if code and get_zone(score) != ZONE_ALLOW]
+    if not cited:
+        return None
+    counts = Counter(cited)
+    best = max(counts.values())
+    return next(code for code in reversed(cited) if counts[code] == best)
+
+
 def classify_with_thresholds(available_apis, call_fn):
     """
     Cascades through up to 3 AIs using probability zones.
@@ -94,24 +153,32 @@ def classify_with_thresholds(available_apis, call_fn):
 
     order = random.sample(available_apis, len(available_apis))
     scores = []
+    cited_codes = []
+
+    def rejection(appealable):
+        return ClassificationResult(
+            allowed=False, appealable=appealable, scores=scores,
+            reason_code=_pick_rejection_reason(scores, cited_codes))
 
     for api_name in order:
-        score = call_fn(api_name)
+        score, reason_code = _normalize_call_result(call_fn(api_name))
         if score is None:
             logger.warning("API %s returned no usable score; skipping it.", api_name)
             continue
 
         scores.append(score)
+        cited_codes.append(reason_code)
         zone = get_zone(score)
         stage = len(scores)
-        logger.info("AI #%d (%s) scored %.2f -> %s zone", stage, api_name, score, zone)
+        logger.info("AI #%d (%s) scored %.2f (cited rule: %s) -> %s zone",
+                    stage, api_name, score, reason_code, zone)
 
         if zone == ZONE_ALLOW:
             return ClassificationResult(allowed=True, scores=scores)
         if stage == 1 and zone == ZONE_REJECT:
-            return ClassificationResult(allowed=False, appealable=False, scores=scores)
+            return rejection(appealable=False)
         if stage == 3:
-            return ClassificationResult(allowed=False, appealable=(zone == ZONE_MIDDLE), scores=scores)
+            return rejection(appealable=(zone == ZONE_MIDDLE))
         # Middle zone (or reject zone at stage 2): escalate to the next AI.
 
     if not scores:
@@ -120,7 +187,7 @@ def classify_with_thresholds(available_apis, call_fn):
 
     appealable = get_zone(scores[-1]) == ZONE_MIDDLE
     logger.info("Cascade exhausted available AIs. Rejecting (appealable=%s).", appealable)
-    return ClassificationResult(allowed=False, appealable=appealable, scores=scores)
+    return rejection(appealable=appealable)
 
 
 def call_text_gemini(text, prompt_template):
@@ -129,7 +196,7 @@ def call_text_gemini(text, prompt_template):
     client = genai.Client(api_key=api_key, http_options={'timeout': LLM_TIMEOUT_SECONDS * 1000})
     prompt = prompt_template.format(text=text)
     response = client.models.generate_content(model=GEMINI_MODEL, contents=prompt)
-    return parse_probability(response.text)
+    return parse_probability_and_rule(response.text)
 
 
 def call_text_claude(text, prompt_template):
@@ -138,10 +205,10 @@ def call_text_claude(text, prompt_template):
     prompt = prompt_template.format(text=text)
     response = client.messages.create(
         model=CLAUDE_MODEL,
-        max_tokens=10,
+        max_tokens=16,
         messages=[{"role": "user", "content": prompt}]
     )
-    return parse_probability(response.content[0].text)
+    return parse_probability_and_rule(response.content[0].text)
 
 
 def call_text_openai(text, prompt_template):
@@ -150,10 +217,10 @@ def call_text_openai(text, prompt_template):
     prompt = prompt_template.format(text=text)
     response = client.chat.completions.create(
         model=OPENAI_MODEL,
-        max_tokens=10,
+        max_tokens=16,
         messages=[{"role": "user", "content": prompt}]
     )
-    return parse_probability(response.choices[0].message.content)
+    return parse_probability_and_rule(response.choices[0].message.content)
 
 
 def _image_to_base64_png(image):
@@ -167,7 +234,7 @@ def call_image_gemini(image, prompt):
     # google-genai expects the timeout in milliseconds.
     client = genai.Client(api_key=api_key, http_options={'timeout': LLM_TIMEOUT_SECONDS * 1000})
     response = client.models.generate_content(model=GEMINI_MODEL, contents=[prompt, image])
-    return parse_probability(response.text)
+    return parse_probability_and_rule(response.text)
 
 
 def call_image_claude(image, prompt):
@@ -176,7 +243,7 @@ def call_image_claude(image, prompt):
     image_data = _image_to_base64_png(image)
     response = client.messages.create(
         model=CLAUDE_MODEL,
-        max_tokens=10,
+        max_tokens=16,
         messages=[{
             "role": "user",
             "content": [
@@ -185,7 +252,7 @@ def call_image_claude(image, prompt):
             ]
         }]
     )
-    return parse_probability(response.content[0].text)
+    return parse_probability_and_rule(response.content[0].text)
 
 
 def call_image_openai(image, prompt):
@@ -194,7 +261,7 @@ def call_image_openai(image, prompt):
     image_data = _image_to_base64_png(image)
     response = client.chat.completions.create(
         model=OPENAI_MODEL,
-        max_tokens=10,
+        max_tokens=16,
         messages=[{
             "role": "user",
             "content": [
@@ -203,7 +270,7 @@ def call_image_openai(image, prompt):
             ]
         }]
     )
-    return parse_probability(response.choices[0].message.content)
+    return parse_probability_and_rule(response.choices[0].message.content)
 
 
 TEXT_API_DISPATCH = {

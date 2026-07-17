@@ -15,6 +15,12 @@ urlpatterns = [
     # POST /verify-identity/ (Token in header)
     path('verify-identity/', views.verify_identity, name='verify_identity'),
 
+    # POST /verify-email/
+    path('verify-email/', views.verify_email, name='verify_email'),
+
+    # POST /resend-verification-email/
+    path('resend-verification-email/', views.resend_verification_email, name='resend_verification_email'),
+
 
     # POST /login/
     path('login/', views.login_user, name='login_user'),
@@ -43,6 +49,9 @@ urlpatterns = [
     # =========================================================================
     # POSTS
     # =========================================================================
+    # POST /posts/upload-url/ (Token in header)
+    path('posts/upload-url/', views.create_upload_url, name='create_upload_url'),
+
     # POST /posts/create/ (Token in header)
     path('posts/create/', views.make_post, name='make_post'),
 
@@ -51,6 +60,9 @@ urlpatterns = [
 
     # POST /posts/<uuid:post_identifier>/report/ (Token in header)
     path('posts/<uuid:post_identifier>/report/', views.report_post, name='report_post'),
+
+    # POST /posts/<uuid:post_identifier>/report/retract/ (Token in header)
+    path('posts/<uuid:post_identifier>/report/retract/', views.retract_report_post, name='retract_report_post'),
 
     # POST /posts/<uuid:post_identifier>/like/ (Token in header)
     path('posts/<uuid:post_identifier>/like/', views.like_post, name='like_post'),
@@ -110,6 +122,11 @@ urlpatterns = [
     path(
         'posts/<uuid:post_identifier>/threads/<uuid:comment_thread_identifier>/comments/<uuid:comment_identifier>/report/',
         views.report_comment, name='report_comment'),
+
+    # POST /.../comments/<uuid:comment_identifier>/report/retract/ (Token in header)
+    path(
+        'posts/<uuid:post_identifier>/threads/<uuid:comment_thread_identifier>/comments/<uuid:comment_identifier>/report/retract/',
+        views.retract_report_comment, name='retract_report_comment'),
 
     # =========================================================================
     # USER & PROFILE

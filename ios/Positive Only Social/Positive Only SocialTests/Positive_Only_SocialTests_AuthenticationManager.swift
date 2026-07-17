@@ -143,4 +143,20 @@ struct Positive_Only_SocialTests_AuthenticationManager {
         #expect(sut.session == nil)
         #expect(sut.logoutCallCount == 1)
     }
+
+    @Test mutating func testEmailNotVerifiedNotification_LogsOut() async throws {
+        // Given: A logged-in manager
+        sut = AuthenticationManager(shouldAutoLogin: false, keychainHelper: keychain, notificationCenter: notificationCenter)
+        sut.login(with: UserSession(sessionToken: "token", username: "unverifieduser", userId: "user-id", isIdentityVerified: false))
+        #expect(sut.isLoggedIn == true)
+
+        // When: The API layer reports the account's email is unverified
+        notificationCenter.post(name: .emailNotVerified, object: nil)
+        try await Task.sleep(for: .seconds(TestConstants.shortTimeout))
+
+        // Then: The session is dropped — it can't do anything until verification
+        #expect(sut.isLoggedIn == false, "An email_not_verified rejection must log the user out")
+        #expect(sut.session == nil)
+        #expect(sut.logoutCallCount == 1)
+    }
 }

@@ -190,7 +190,10 @@ class RegisterTests(PositiveOnlySocialTestCase):
 
         response = self.client.post(self.url, data=data, content_type='application/json')
         self.assertEqual(response.status_code, 400)
-        self.assertIn("Username is not positive", response.json().get('error', ''))
+        body = response.json()
+        self.assertIn("Username is not positive", body.get('error', ''))
+        self.assertEqual(body[Fields.reason_code], 'guidelines')
+        self.assertFalse(body[Fields.appealable])
 
     @patch.dict(os.environ, {"TESTING": "True"}, clear=True)
     def test_register_nonpositive_email_succeeds(self):
@@ -210,7 +213,7 @@ class RegisterTests(PositiveOnlySocialTestCase):
         """
         data = self.valid_data.copy()
         data['email'] = f'{self.local_email[:-10]}_pwtest@email.com'  # Unique email to avoid collision
-        data['password'] = 'Nonpositive_Password_123!'
+        data['password'] = 'Nonpositive_Password_123-'
 
         response = self.client.post(self.url, data=data, content_type='application/json')
         self.assertEqual(response.status_code, 201)

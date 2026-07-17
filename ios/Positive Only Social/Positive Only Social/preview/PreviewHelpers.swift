@@ -34,6 +34,7 @@ class MockKeychainHelper: KeychainHelperProtocol {
 // MARK: - Mocked API
 
 struct MockedAPI: Networking {
+    private let previewS3Bucket = "https://example-bucket.s3.us-east-2.amazonaws.com/"
 
     // MARK: - Encoding Helpers
 
@@ -96,6 +97,14 @@ struct MockedAPI: Networking {
         return try encode(["message": "ok", "reset_token": "preview_reset_token"])
     }
 
+    func verifyEmail(verificationToken: String) async throws -> Data {
+        return try encodeGenericSuccess()
+    }
+
+    func resendVerificationEmail(usernameOrEmail: String) async throws -> Data {
+        return try encodeGenericSuccess()
+    }
+
     func logoutUser(sessionManagementToken: String) async throws -> Data {
         return try encodeGenericSuccess()
     }
@@ -118,7 +127,16 @@ struct MockedAPI: Networking {
     
     // MARK: - Post Management
 
-    func makePost(sessionManagementToken: String, imageURL: String, caption: String) async throws -> Data {
+    func createUploadUrl(sessionManagementToken: String) async throws -> Data {
+        let imageUrl = "\(previewS3Bucket)preview-user/preview.jpeg"
+        let response = UploadUrlResponse(
+            uploadUrl: "\(imageUrl)?X-Amz-Signature=preview",
+            imageUrl: imageUrl
+        )
+        return try JSONEncoder().encode(response)
+    }
+
+    func makePost(sessionManagementToken: String, imageURL: String?, caption: String) async throws -> Data {
         return try encodeGenericSuccess()
     }
 
@@ -127,6 +145,10 @@ struct MockedAPI: Networking {
     }
 
     func reportPost(sessionManagementToken: String, postIdentifier: String, reason: String) async throws -> Data {
+        return try encodeGenericSuccess()
+    }
+
+    func retractReportPost(sessionManagementToken: String, postIdentifier: String) async throws -> Data {
         return try encodeGenericSuccess()
     }
 
@@ -141,7 +163,9 @@ struct MockedAPI: Networking {
     func getPostsInFeed(sessionManagementToken: String, batch: Int) async throws -> Data {
         let posts = [
             Post(postIdentifier: "1", imageUrl: "https://picsum.photos/400/300", originalImageUrl: nil, caption: "Beautiful sunset!", authorUsername: "nature_lover"),
-            Post(postIdentifier: "2", imageUrl: "https://picsum.photos/400/301", originalImageUrl: nil, caption: "My new puppy", authorUsername: "dog_fan")
+            Post(postIdentifier: "2", imageUrl: "https://picsum.photos/400/301", originalImageUrl: nil, caption: "My new puppy", authorUsername: "dog_fan"),
+            // A text-only post (#307) so previews exercise the caption tile.
+            Post(postIdentifier: "5", imageUrl: nil, originalImageUrl: nil, caption: "Words only today — feeling grateful!", authorUsername: "text_poster")
         ]
         return try encode(posts)
     }
@@ -166,6 +190,8 @@ struct MockedAPI: Networking {
             let post_identifier: String
             let image_url: String
             let caption: String
+            //TODO: eBlender rename to camelCase creationTime (via CodingKeys).
+            let creation_time: String
             let post_likes: Int
             let is_liked: Bool
             let author_username: String
@@ -175,6 +201,7 @@ struct MockedAPI: Networking {
             post_identifier: postIdentifier,
             image_url: "https://picsum.photos/400/400",
             caption: "Detailed view of the post",
+            creation_time: ISO8601DateFormatter().string(from: Date().addingTimeInterval(-2 * 60 * 60)),
             post_likes: 100,
             is_liked: false,
             author_username: "mock_author"
@@ -201,6 +228,10 @@ struct MockedAPI: Networking {
     }
 
     func reportComment(sessionManagementToken: String, postIdentifier: String, commentThreadIdentifier: String, commentIdentifier: String, reason: String) async throws -> Data {
+        return try encodeGenericSuccess()
+    }
+
+    func retractReportComment(sessionManagementToken: String, postIdentifier: String, commentThreadIdentifier: String, commentIdentifier: String) async throws -> Data {
         return try encodeGenericSuccess()
     }
 

@@ -32,6 +32,16 @@ interface PositiveOnlySocialAPI {
     ): Response<GenericResponse>
 
     // ============================================================================================
+    // EMAIL VERIFICATION
+    // ============================================================================================
+
+    @POST("verify-email/")
+    suspend fun verifyEmail(@Body request: VerifyEmailRequest): Response<GenericResponse>
+
+    @POST("resend-verification-email/")
+    suspend fun resendVerificationEmail(@Body request: ResendVerificationEmailRequest): Response<GenericResponse>
+
+    // ============================================================================================
     // PASSWORD RESET
     // ============================================================================================
 
@@ -77,6 +87,11 @@ interface PositiveOnlySocialAPI {
     // POSTS
     // ============================================================================================
 
+    @POST("posts/upload-url/")
+    suspend fun createUploadUrl(
+        @Header("Authorization") token: String
+    ): Response<CreateUploadUrlResponse>
+
     @POST("posts/create/")
     suspend fun makePost(
         @Header("Authorization") token: String,
@@ -94,6 +109,12 @@ interface PositiveOnlySocialAPI {
         @Header("Authorization") token: String,
         @Path("post_id") postId: String,
         @Body request: ReportRequest
+    ): Response<GenericResponse>
+
+    @POST("posts/{post_id}/report/retract/")
+    suspend fun retractReportPost(
+        @Header("Authorization") token: String,
+        @Path("post_id") postId: String
     ): Response<GenericResponse>
 
     @POST("posts/{post_id}/like/")
@@ -158,6 +179,14 @@ interface PositiveOnlySocialAPI {
         @Path("thread_id") threadId: String,
         @Path("comment_id") commentId: String,
         @Body request: ReportRequest
+    ): Response<GenericResponse>
+
+    @POST("posts/{post_id}/threads/{thread_id}/comments/{comment_id}/report/retract/")
+    suspend fun retractReportComment(
+        @Header("Authorization") token: String,
+        @Path("post_id") postId: String,
+        @Path("thread_id") threadId: String,
+        @Path("comment_id") commentId: String
     ): Response<GenericResponse>
 
     @GET("posts/{post_id}/comments/{batch}/")

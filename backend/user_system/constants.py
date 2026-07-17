@@ -29,9 +29,17 @@ APPEAL_TARGET_TYPES = (APPEAL_TARGET_POST, APPEAL_TARGET_COMMENT, APPEAL_TARGET_
 # Error code returned when an outright-banned user attempts to authenticate
 ACCOUNT_BANNED = "account_banned"
 
+# Error code returned when a user whose email address has not been verified
+# attempts to authenticate or call an authenticated endpoint
+EMAIL_NOT_VERIFIED = "email_not_verified"
+
+# How long an email verification link stays valid
+EMAIL_VERIFICATION_TOKEN_HOURS = 24
+
 # Regex Patterns to check against
 class Patterns:
-    password = r"^(?=.*[0-9])(?=.*[a-z])(?=.*[A-Z])(?=.*[@#$%^&+=_])(?=\S+$).{8,}$"
+    password = r"^(?=.*[0-9])(?=.*[a-z])(?=.*[A-Z])(?=.*-)(?=\S+$).{8,}$"
+    login_password = r"^(?=\S+$).{8,}$"
     double = r"^\d{1,100}[.,]{0,1}\d{0,100}$"
     paragraph_of_chars = r"^[\w \n]{5,3000}$"
     alphanumeric = r"^\w{10,500}$"
@@ -88,6 +96,7 @@ class Fields:
     post_identifier = "post_identifier"
     image_url = "image_url"
     original_image_url = "original_image_url"
+    upload_url = "upload_url"
     caption = "caption"
     post_likes = "post_likes"
     comment_thread_identifier = "comment_thread_identifier"
@@ -98,6 +107,8 @@ class Fields:
     follower_count = "follower_count"
     is_following = "is_following"
     is_liked = "is_liked"
+    is_reported = "is_reported"
+    report_reason = "report_reason"
     author_username = "author_username"
     email = "email"
     password = "password"
@@ -115,6 +126,8 @@ class Fields:
     verification_token = "verification_token"
     hidden = "hidden"
     hidden_reason = "hidden_reason"
+    reason_code = "reason_code"
+    appealable = "appealable"
     appeal_identifier = "appeal_identifier"
     status = "status"
     resolution_note = "resolution_note"

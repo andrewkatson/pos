@@ -114,6 +114,24 @@ class MockPositiveOnlySocialAPI : PositiveOnlySocialAPI {
         )
     }
 
+    override suspend fun verifyEmail(request: VerifyEmailRequest): Response<GenericResponse> {
+        return Response.success(
+            GenericResponse(
+                message = "Email verified",
+                error = null
+            )
+        )
+    }
+
+    override suspend fun resendVerificationEmail(request: ResendVerificationEmailRequest): Response<GenericResponse> {
+        return Response.success(
+            GenericResponse(
+                message = "Verification email sent",
+                error = null
+            )
+        )
+    }
+
     override suspend fun getPostsInFeed(token: String, batch: Int): Response<List<Post>> {
         return Response.success(
             listOf(
@@ -130,6 +148,14 @@ class MockPositiveOnlySocialAPI : PositiveOnlySocialAPI {
                     caption = "My new puppy",
                     authorUsername = "dog_fan",
                     likeCount = 350
+                ),
+                // A text-only post (#307) so previews exercise the caption tile.
+                Post(
+                    postIdentifier = "5",
+                    imageUrl = null,
+                    caption = "Words only today — feeling grateful!",
+                    authorUsername = "text_poster",
+                    likeCount = 12
                 )
             )
         )
@@ -180,6 +206,15 @@ class MockPositiveOnlySocialAPI : PositiveOnlySocialAPI {
         )
     }
 
+    override suspend fun createUploadUrl(token: String): Response<CreateUploadUrlResponse> {
+        return Response.success(
+            CreateUploadUrlResponse(
+                uploadUrl = "https://example-bucket.s3.us-east-2.amazonaws.com/mock-user/mock-image.jpeg?X-Amz-Signature=mock",
+                imageUrl = "https://example-bucket.s3.us-east-2.amazonaws.com/mock-user/mock-image.jpeg"
+            )
+        )
+    }
+
     override suspend fun makePost(
         token: String,
         request: CreatePostRequest
@@ -208,6 +243,18 @@ class MockPositiveOnlySocialAPI : PositiveOnlySocialAPI {
         return Response.success(
             GenericResponse(
                 message = "Post reported",
+                error = null
+            )
+        )
+    }
+
+    override suspend fun retractReportPost(
+        token: String,
+        postId: String
+    ): Response<GenericResponse> {
+        return Response.success(
+            GenericResponse(
+                message = "Post report retracted",
                 error = null
             )
         )
@@ -310,6 +357,20 @@ class MockPositiveOnlySocialAPI : PositiveOnlySocialAPI {
         return Response.success(
             GenericResponse(
                 message = "Comment reported",
+                error = null
+            )
+        )
+    }
+
+    override suspend fun retractReportComment(
+        token: String,
+        postId: String,
+        threadId: String,
+        commentId: String
+    ): Response<GenericResponse> {
+        return Response.success(
+            GenericResponse(
+                message = "Comment report retracted",
                 error = null
             )
         )

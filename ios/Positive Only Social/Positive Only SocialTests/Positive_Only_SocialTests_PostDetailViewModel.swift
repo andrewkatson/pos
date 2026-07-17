@@ -130,6 +130,8 @@ struct Positive_Only_SocialTests_PostDetailViewModel {
         #expect(sut.postDetail?.authorUsername == "postOwner")
         // And: The current user has not liked the post, so it seeds as not-liked
         #expect(sut.postDetail?.isLiked == false)
+        // And: The post's creation timestamp is populated (issue #174)
+        #expect(sut.postDetail?.createdDate != nil)
 
         // And: The comment threads should be loaded
         #expect(sut.commentThreads.count == 1, "Should be 1 comment thread")
@@ -450,6 +452,69 @@ struct Positive_Only_SocialTests_PostDetailViewModel {
         // Then: The number of comments should NOT change (reload was not called)
         #expect(sut.commentThreads.first?.comments.count == 2, "Thread should still have 2 comments")
         #expect(sut.alertMessage == nil, "No alert should be shown for an empty guard")
+    }
+
+    // --- Report / Retract-Report Tests (issues #304, #176) ---
+
+    @Test func testReportPost_ThenRetract_ClearsReportedState() async throws {
+        // Given: A fully loaded SUT viewing someone else's post
+        let (sut, _, _, _) = try await setupTestEnvironment(account: "retractPost_account")
+        #expect(sut.isPostReported == false, "Pre-condition: post not reported")
+
+        // When: The post is reported
+        sut.reportPost(reason: "Not positive at all")
+        await yield()
+
+        // Then: The reported flag and the user's own reason are surfaced so the
+        // retract dialog can pre-populate it.
+        #expect(sut.isPostReported == true)
+        #expect(sut.postDetail?.isReported == true)
+        #expect(sut.postDetail?.reportReason == "Not positive at all")
+
+        // When: The report is retracted
+        sut.retractReportPost()
+        await yield()
+
+        // Then: The reported state clears
+        #expect(sut.isPostReported == false)
+        #expect(sut.postDetail?.isReported == false)
+        #expect(sut.postDetail?.reportReason == nil)
+    }
+
+    @Test func testReportComment_ThenRetract_ClearsReportedState() async throws {
+        // Given: A fully loaded SUT viewing someone else's comment
+        let (sut, _, _, commentID) = try await setupTestEnvironment(account: "retractComment_account")
+        guard let comment = sut.commentThreads.first?.comments.first(where: { $0.id == commentID }) else {
+            #expect(Bool(false), "Test setup error: Could not find comment")
+            return
+        }
+        #expect(sut.isCommentReported(comment) == false, "Pre-condition: comment not reported")
+
+        // When: The comment is reported
+        sut.reportComment(comment, reason: "Unkind words")
+        await yield()
+
+        // Then: The reload surfaces the reported flag and the user's own reason.
+        guard let reported = sut.commentThreads.first?.comments.first(where: { $0.id == commentID }) else {
+            #expect(Bool(false), "Could not find comment after report")
+            return
+        }
+        #expect(sut.isCommentReported(reported) == true)
+        #expect(reported.isReported == true)
+        #expect(reported.reportReason == "Unkind words")
+
+        // When: The report is retracted
+        sut.retractReportComment(reported)
+        await yield()
+
+        // Then: The reported state clears, and re-reporting is possible again.
+        guard let retracted = sut.commentThreads.first?.comments.first(where: { $0.id == commentID }) else {
+            #expect(Bool(false), "Could not find comment after retract")
+            return
+        }
+        #expect(sut.isCommentReported(retracted) == false)
+        #expect(retracted.isReported == false)
+        #expect(retracted.reportReason == nil)
     }
 
     @Test func testToggleCommentCollapsed_AddsThenRemovesId() async throws {

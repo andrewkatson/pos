@@ -23,14 +23,18 @@ import com.example.positiveonlysocial.data.model.CreatePostRequest
 import com.example.positiveonlysocial.ui.components.CharacterCounter
 import com.example.positiveonlysocial.ui.components.isWithinLength
 import com.example.positiveonlysocial.data.security.KeychainHelperProtocol
-import com.example.positiveonlysocial.data.uploader.S3Uploader
-import java.util.UUID
+import com.example.positiveonlysocial.data.uploader.ImageUploader
+import com.example.positiveonlysocial.di.DependencyProvider
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.navigation.compose.rememberNavController
 import com.example.positiveonlysocial.ui.dismissKeyboardOnTap
 import com.example.positiveonlysocial.ui.preview.PreviewHelpers
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import com.example.positiveonlysocial.ui.theme.PositiveOnlySocialTheme
+
 
 @Composable
 fun NewPostScreen(
@@ -119,7 +123,7 @@ fun NewPostScreen(
                 )
                 Spacer(modifier = Modifier.width(8.dp))
                 Text(
-                    text = if (selectedImageUri == null) "Select a Photo" else "Change Photo",
+                    text = if (selectedImageUri == null) "Select a Photo (Optional)" else "Change Photo",
                     style = MaterialTheme.typography.titleMedium
                 )
             }
@@ -159,16 +163,6 @@ fun NewPostScreen(
                         scope.launch {
                             isLoading = true
                             try {
-                                val uri = selectedImageUri ?: return@launch
-                                val inputStream = context.contentResolver.openInputStream(uri)
-                                val bytes = inputStream?.use { it.readBytes() }
-                                
-                                if (bytes == null) {
-                                    failureMessage = "Failed to read image data."
-                                    showFailureAlert = true
-                                    return@launch
-                                }
-
                                 // Load session first so we can scope the S3 key to the authenticated user.
                                 val session = keychainHelper.load(
                                     com.example.positiveonlysocial.data.model.UserSession::class.java,
@@ -188,23 +182,78 @@ fun NewPostScreen(
                                     return@launch
                                 }
 
-                                val fileName = "${session.userId}/${UUID.randomUUID()}.jpg"
-                                val s3Uploader = S3Uploader()
+                                // The photo is optional (#307): with no image
+                                // selected the whole read/upload step is skipped
+                                // and a text-only post is created.
+                                val uri = selectedImageUri
+                                var imageUrl: String? = null
+                                if (uri != null) {
+                                    // Reading the picked photo can throw (e.g. a
+                                    // SecurityException on a lapsed picker grant),
+                                    // not just return null — and that must not fall
+                                    // through to the generic "post failed" message.
+                                    val bytes = try {
+                                        withContext(Dispatchers.IO) {
+                                            context.contentResolver.openInputStream(uri)?.use { it.readBytes() }
+                                        }
+                                    } catch (e: CancellationException) {
+                                        throw e
+                                    } catch (e: Exception) {
+                                        android.util.Log.e("NewPostScreen", "Failed to read picked image $uri", e)
+                                        null
+                                    }
 
-                                val uploadUrl = s3Uploader.upload(bytes, fileName)
+                                    if (bytes == null) {
+                                        failureMessage = "Failed to read image data."
+                                        showFailureAlert = true
+                                        return@launch
+                                    }
+
+                                    // The upload failing must be distinguishable from
+                                    // the backend call failing: both used to surface
+                                    // the same generic message, which made issue #292
+                                    // undiagnosable from the dialog alone. The backend
+                                    // issues a presigned PUT URL for a key it scopes to
+                                    // this user, so the app holds no AWS credentials
+                                    // (issue #310).
+                                    var uploadedImageUrl = "https://picsum.photos/id/237/400/400"
+                                    if (!DependencyProvider.isUITesting) {
+                                        try {
+                                            val uploadUrlResponse = api.createUploadUrl(token = session.sessionToken)
+                                            val uploadUrlBody = uploadUrlResponse.body()
+                                            if (!uploadUrlResponse.isSuccessful || uploadUrlBody == null) {
+                                                android.util.Log.e("NewPostScreen", "create_upload_url rejected: HTTP ${uploadUrlResponse.code()} - ${uploadUrlResponse.message()}")
+                                                failureMessage = "We couldn't upload your image. Please try again."
+                                                showFailureAlert = true
+                                                return@launch
+                                            }
+                                            ImageUploader().upload(bytes, uploadUrlBody.uploadUrl)
+                                            uploadedImageUrl = uploadUrlBody.imageUrl
+                                        } catch (e: CancellationException) {
+                                            throw e
+                                        } catch (e: Exception) {
+                                            android.util.Log.e("NewPostScreen", "Image upload to S3 failed", e)
+                                            failureMessage = "We couldn't upload your image. Please try again."
+                                            showFailureAlert = true
+                                            return@launch
+                                        }
+                                    }
+                                    imageUrl = uploadedImageUrl
+                                }
 
                                 val request = CreatePostRequest(
-                                    imageUrl = uploadUrl.toString(),
+                                    imageUrl = imageUrl,
                                     caption = caption
                                 )
                                 val response = api.makePost(
                                     token = session.sessionToken,
                                     request = request
                                 )
-                                if (!response.isSuccessful) {
-                                    // A non-2xx (e.g. final classifier rejection)
-                                    // must not show a success dialog.
-                                    failureMessage = ApiErrors.messageFor(response, fallback = "Failed to share post. Please try again.")
+                                 if (!response.isSuccessful) {
+                                     // A non-2xx (e.g. final classifier rejection)
+                                     // must not show a success dialog.
+                                     android.util.Log.e("NewPostScreen", "make_post rejected: HTTP ${response.code()} - ${response.message()}")
+                                     failureMessage = ApiErrors.messageFor(response, fallback = "Failed to share post. Please try again.")
                                     showFailureAlert = true
                                     return@launch
                                 }
@@ -220,16 +269,19 @@ fun NewPostScreen(
                                 }
                                 showSuccessAlert = true
 
-                            } catch (e: Exception) {
-                                failureMessage = ApiErrors.messageFor(e, fallback = "Failed to share post. Please try again.")
-                                showFailureAlert = true
+                             } catch (e: CancellationException) {
+                                 throw e
+                             } catch (e: Exception) {
+                                 android.util.Log.e("NewPostScreen", "Post creation failed", e)
+                                 failureMessage = ApiErrors.messageFor(e, fallback = "Failed to share post. Please try again.")
+                                 showFailureAlert = true
                             } finally {
                                 isLoading = false
                             }
                         }
                     },
                     modifier = Modifier.fillMaxWidth(),
-                    enabled = selectedImageUri != null && caption.isNotEmpty() && isWithinLength(caption, Constants.MAX_CAPTION_LENGTH)
+                    enabled = caption.isNotEmpty() && isWithinLength(caption, Constants.MAX_CAPTION_LENGTH)
                 ) {
                     Text("Share Post")
                 }

@@ -36,7 +36,7 @@ struct NewPostView: View {
                     // A prominent, full-width button reads as the primary call to
                     // action rather than looking like plain tappable text.
                     let pickerLabel = Label(
-                        selectedImageData == nil ? "Select a Photo" : "Change Photo",
+                        selectedImageData == nil ? "Select a Photo (Optional)" : "Change Photo",
                         systemImage: "photo.on.rectangle.angled"
                     )
                     .font(.headline)
@@ -104,7 +104,7 @@ struct NewPostView: View {
                     }
                 } else {
                     Button(action: makePost) { Text("Share Post") }
-                        .disabled(selectedImageData == nil || caption.isEmpty || !isWithinLength(caption, max: GVOAppConstants.maxCaptionLength))
+                        .disabled(caption.isEmpty || !isWithinLength(caption, max: GVOAppConstants.maxCaptionLength))
                         .accessibilityIdentifier("SharePostButton")
                 }
             }
@@ -138,16 +138,10 @@ struct NewPostView: View {
     }
     
     private func makePost() {
-        guard let imageData = selectedImageData else {
-            failureAlertMessage = "Please select an image before posting."
-            showFailureAlert = true
-            return
-        }
-        
         Task {
             isLoading = true
             do {
-                // 1. LOAD SESSION (needed for the scoped S3 key)
+                // Load session
                 let userSession: UserSession
                 if isTesting() {
                     userSession = try keychainHelper.load(UserSession.self, from: GVOAppConstants.keychainService, account: "userSessionToken") ?? UserSession(sessionToken: "123", username: "test", userId: "", isIdentityVerified: false)
@@ -161,21 +155,31 @@ struct NewPostView: View {
                     userSession = loaded
                 }
 
-                // 2. UPLOAD IMAGE TO S3 — key scoped to the authenticated user
-                let uniqueFileName = "\(userSession.userId)/\(UUID().uuidString).jpeg"
-
-                var imageURL: URL! = URL(string: "https://picsum.photos/400/400")!
-                if !isTesting() {
-                    imageURL = try await s3Uploader.upload(
-                        data: imageData,
-                        fileName: uniqueFileName
-                    )
+                // 2. UPLOAD IMAGE using a backend-issued presigned S3 URL (#310).
+                // The photo is optional (#307): with no image selected the upload
+                // is skipped entirely and a text-only post is created.
+                var imageURLString: String? = nil
+                if let imageData = selectedImageData {
+                    var uploadedURLString = "https://picsum.photos/400/400"
+                    if !isTesting() {
+                        let uploadUrlData = try await api.createUploadUrl(
+                            sessionManagementToken: userSession.sessionToken
+                        )
+                        let uploadUrlResponse = try JSONDecoder().decode(UploadUrlResponse.self, from: uploadUrlData)
+                        guard let uploadURL = URL(string: uploadUrlResponse.uploadUrl) else {
+                            throw ImageUploadError.invalidUploadURL
+                        }
+                        try await s3Uploader.upload(data: imageData, to: uploadURL)
+                        uploadedURLString = uploadUrlResponse.imageUrl
+                    }
+                    imageURLString = uploadedURLString
                 }
 
-                // 3. SEND THE S3 URL TO YOUR BACKEND
+                // 3. SEND THE IMAGE URL (IF ANY) TO THE BACKEND
+
                 let responseData = try await api.makePost(
                     sessionManagementToken: userSession.sessionToken,
-                    imageURL: imageURL.absoluteString,
+                    imageURL: imageURLString,
                     caption: caption
                 )
 

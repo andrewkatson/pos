@@ -88,6 +88,32 @@ struct Positive_Only_SocialTests_ErrorHelpers {
         #expect(error.isAccountBanned == false)
     }
 
+    // --- Email-not-verified detection ---
+
+    @Test func testServerErrorWithEmailNotVerified_IsEmailNotVerified() {
+        let error = APIError.serverError(statusCode: 403, serverMessage: GVOAppConstants.emailNotVerifiedError)
+        #expect(error.isEmailNotVerified == true)
+    }
+
+    @Test func testRequestFailedWrappingEmailNotVerified_IsEmailNotVerified() {
+        let emailNotVerifiedError = APIError.serverError(statusCode: 403, serverMessage: GVOAppConstants.emailNotVerifiedError)
+        #expect(APIError.requestFailed(emailNotVerifiedError).isEmailNotVerified == true)
+    }
+
+    @Test func testServerErrorWithOtherMessage_IsNotEmailNotVerified() {
+        let error = APIError.serverError(statusCode: 403, serverMessage: "Forbidden")
+        #expect(error.isEmailNotVerified == false)
+    }
+
+    @Test func testBadServerResponse_IsNotEmailNotVerified() {
+        #expect(APIError.badServerResponse(statusCode: 403).isEmailNotVerified == false)
+    }
+
+    @Test func testNonAPIError_IsNotEmailNotVerified() {
+        let error = NSError(domain: "SomeDomain", code: 403)
+        #expect(error.isEmailNotVerified == false)
+    }
+
     // --- User-facing message mapping ---
 
     @Test func testServerError_PassesBackendMessageThrough() {
@@ -139,5 +165,18 @@ struct Positive_Only_SocialTests_ErrorHelpers {
     @Test func testUnknownError_FallsBackToGeneric() {
         let error = NSError(domain: "SomeDomain", code: 1)
         #expect(error.userFacingMessage == "Something went wrong. Please try again.")
+    }
+
+    @Test func testSanitizeErrorMessage() {
+        #expect(sanitizeErrorMessage("Text is not positive") == "Text is not positive")
+        #expect(sanitizeErrorMessage("User already exists") == "User already exists")
+        #expect(sanitizeErrorMessage("Invalid fields ['USERNAME']") == "Username is incorrect")
+        #expect(sanitizeErrorMessage("Invalid fields ['PASSWORD']") == "Password is incorrect")
+        #expect(sanitizeErrorMessage("Invalid fields ['USERNAME', 'PASSWORD']") == "Username and Password are incorrect")
+        #expect(sanitizeErrorMessage("Invalid fields ['USERNAME', 'PASSWORD', 'EMAIL']") == "Username, Password, and Email are incorrect")
+        #expect(sanitizeErrorMessage("Invalid post_identifier") == "Post identifier is incorrect")
+        #expect(sanitizeErrorMessage("Invalid target_type") == "Target type is incorrect")
+        #expect(sanitizeErrorMessage("Invalid comment text") == "Invalid comment text")
+        #expect(sanitizeErrorMessage("Invalid batch parameter") == "Invalid batch parameter")
     }
 }

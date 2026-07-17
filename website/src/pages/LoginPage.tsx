@@ -1,23 +1,33 @@
 import { useState, type FormEvent } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 import Logo from '../components/Logo'
-import { ACCOUNT_BANNED, ACCOUNT_SUSPENDED_MESSAGE, apiClient } from '../api/client'
+import {
+  ACCOUNT_BANNED,
+  ACCOUNT_SUSPENDED_MESSAGE,
+  EMAIL_NOT_VERIFIED,
+  EMAIL_NOT_VERIFIED_MESSAGE,
+  apiClient,
+} from '../api/client'
 import type { ApiError } from '../api/client'
 import { clearRememberMeTokens, persistSession, saveRememberMeTokens } from '../api/session'
 import './LoginPage.css'
 
 function LoginPage() {
   const navigate = useNavigate()
-  // Set when a banned account's session was force-cleared and the user was
-  // redirected here (see main.tsx).
+  // Set when a session was force-cleared and the user was redirected here
+  // (see main.tsx): a banned account, or one whose email is unverified.
   const [searchParams] = useSearchParams()
   const [usernameOrEmail, setUsernameOrEmail] = useState('')
   const [password, setPassword] = useState('')
   const [rememberMe, setRememberMe] = useState(false)
-  const [isLoading, setIsLoading] = useState(false)
   const [errorMessage, setErrorMessage] = useState<string | null>(
-    searchParams.has('suspended') ? ACCOUNT_SUSPENDED_MESSAGE : null,
+    searchParams.has('suspended')
+      ? ACCOUNT_SUSPENDED_MESSAGE
+      : searchParams.has('verify_email')
+        ? EMAIL_NOT_VERIFIED_MESSAGE
+        : null,
   )
+  const [isLoading, setIsLoading] = useState(false)
 
   const isFormValid = usernameOrEmail.trim().length > 0 && password.length > 0
 
@@ -50,6 +60,8 @@ function LoginPage() {
       const apiErr = err as ApiError
       if (apiErr.message === ACCOUNT_BANNED) {
         setErrorMessage(ACCOUNT_SUSPENDED_MESSAGE)
+      } else if (apiErr.message === EMAIL_NOT_VERIFIED) {
+        setErrorMessage(EMAIL_NOT_VERIFIED_MESSAGE)
       } else {
         setErrorMessage(apiErr.message ?? 'Login failed. Please check your credentials.')
       }

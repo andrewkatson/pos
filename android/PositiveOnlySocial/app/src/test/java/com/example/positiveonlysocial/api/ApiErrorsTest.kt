@@ -22,6 +22,17 @@ class ApiErrorsTest {
         Response.error(code, body.toResponseBody("application/json".toMediaTypeOrNull()))
 
     @Test
+    fun `email_not_verified error code passes through unchanged`() {
+        // LoginScreen matches this code exactly to show the verify-your-email
+        // message, so sanitization must not rewrite it.
+        val response = errorResponse(403, """{"error":"email_not_verified"}""")
+        assertEquals(
+            "email_not_verified",
+            ApiErrors.messageFor(response, fallback = "fallback")
+        )
+    }
+
+    @Test
     fun `backend error message is passed through`() {
         val response = errorResponse(400, """{"error":"Text is not positive"}""")
         assertEquals(
@@ -86,5 +97,41 @@ class ApiErrorsTest {
             "fallback",
             ApiErrors.messageFor(IllegalStateException("boom"), fallback = "fallback")
         )
+    }
+
+    @Test
+    fun `sanitizeErrorMessage handles unrelated error messages`() {
+        assertEquals("Text is not positive", ApiErrors.sanitizeErrorMessage("Text is not positive"))
+        assertEquals("User already exists", ApiErrors.sanitizeErrorMessage("User already exists"))
+    }
+
+    @Test
+    fun `sanitizeErrorMessage handles single token invalid fields`() {
+        assertEquals("Username is incorrect", ApiErrors.sanitizeErrorMessage("Invalid fields ['USERNAME']"))
+        assertEquals("Password is incorrect", ApiErrors.sanitizeErrorMessage("Invalid fields ['PASSWORD']"))
+    }
+
+    @Test
+    fun `sanitizeErrorMessage handles multiple token invalid fields`() {
+        assertEquals(
+            "Username and Password are incorrect",
+            ApiErrors.sanitizeErrorMessage("Invalid fields ['USERNAME', 'PASSWORD']")
+        )
+        assertEquals(
+            "Username, Password, and Email are incorrect",
+            ApiErrors.sanitizeErrorMessage("Invalid fields ['USERNAME', 'PASSWORD', 'EMAIL']")
+        )
+    }
+
+    @Test
+    fun `sanitizeErrorMessage handles single token without brackets`() {
+        assertEquals("Post identifier is incorrect", ApiErrors.sanitizeErrorMessage("Invalid post_identifier"))
+        assertEquals("Target type is incorrect", ApiErrors.sanitizeErrorMessage("Invalid target_type"))
+    }
+
+    @Test
+    fun `sanitizeErrorMessage leaves human-readable invalid messages untouched`() {
+        assertEquals("Invalid comment text", ApiErrors.sanitizeErrorMessage("Invalid comment text"))
+        assertEquals("Invalid batch parameter", ApiErrors.sanitizeErrorMessage("Invalid batch parameter"))
     }
 }

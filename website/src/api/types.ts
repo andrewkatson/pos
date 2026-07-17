@@ -45,6 +45,15 @@ export interface RequestResetRequest {
   username_or_email: string
 }
 
+export interface VerifyEmailRequest {
+  /** The raw token from the verification link in the welcome email. */
+  verification_token: string
+}
+
+export interface ResendVerificationEmailRequest {
+  username_or_email: string
+}
+
 export interface VerifyResetRequest {
   username_or_email: string
   verification_token: string
@@ -62,8 +71,16 @@ export interface ResetPasswordRequest {
   reset_token: string
 }
 
-export interface CreatePostRequest {
+export interface CreateUploadUrlResponse {
+  /** Short-lived presigned S3 PUT URL to send the JPEG bytes to. */
+  upload_url: string
+  /** The canonical object URL (no signing query) to pass to createPost. */
   image_url: string
+}
+
+export interface CreatePostRequest {
+  /** Omitted for a text-only post (#307). */
+  image_url?: string
   caption: string
 }
 
@@ -80,14 +97,15 @@ export interface CreatePostResponse {
 /** A post as returned by the feed/listing endpoints. */
 export interface FeedPost {
   post_identifier: string
-  image_url: string
+  /** Null for a text-only post (#307), which renders as a caption tile. */
+  image_url: string | null
   /** The full-resolution original image URL, used as a fallback when the
    * compressed `image_url` fails to load. The compressed copy is produced by an
    * async Lambda, so a just-posted (or recently hidden-pending-appeal) image may
    * not exist in the compressed bucket yet; without this fallback those grid
    * tiles render as broken images until the user re-logs in (issues #252/#254).
    * Older responses that predate the field omit it. */
-  original_image_url?: string
+  original_image_url?: string | null
   author_username: string
   caption: string
 }
@@ -95,13 +113,25 @@ export interface FeedPost {
 /** A post as returned by the post-details endpoint. */
 export interface PostDetails {
   post_identifier: string
-  image_url: string
+  /** Null for a text-only post (#307), which renders as a caption tile. */
+  image_url: string | null
   /** The full-resolution original image URL, used as a fallback when the
    * compressed `image_url` fails to load (see `FeedPost.original_image_url`).
    * Older responses that predate the field omit it. */
-  original_image_url?: string
+  original_image_url?: string | null
   caption: string
+  /** ISO-8601 timestamp of when the post was created. The backend column is
+   * nullable, so this can be null; older responses that predate the field
+   * omit it entirely. */
+  creation_time?: string | null
   post_likes: number
+  /** Whether the requesting user has liked this post. */
+  is_liked?: boolean
+  /** Whether the requesting user has an active report against this post. */
+  is_reported?: boolean
+  /** The requesting user's own report reason, so a retract dialog can show it
+   * pre-populated (issue #176). Null/absent when they haven't reported it. */
+  report_reason?: string | null
   author_username: string
 }
 
@@ -125,6 +155,13 @@ export interface Comment {
   creation_time: string
   updated_time: string
   comment_likes: number
+  /** Whether the requesting user has liked this comment. */
+  is_liked?: boolean
+  /** Whether the requesting user has an active report against this comment. */
+  is_reported?: boolean
+  /** The requesting user's own report reason, so a retract dialog can show it
+   * pre-populated (issue #176). Null/absent when they haven't reported it. */
+  report_reason?: string | null
 }
 
 export interface UserSearchResult {
@@ -153,7 +190,8 @@ export type AppealTargetType = 'post' | 'comment'
 /** One of the signed-in user's hidden posts. */
 export interface HiddenPost {
   post_identifier: string
-  image_url: string
+  /** Null for a text-only post (#307). */
+  image_url: string | null
   caption: string
   /** Why it was hidden: 'classifier', 'reports', or '' (unspecified). */
   hidden_reason: string

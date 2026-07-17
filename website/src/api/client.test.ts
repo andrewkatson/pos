@@ -1,5 +1,11 @@
 import { vi, expect, test, describe } from 'vitest'
-import { ACCOUNT_BANNED, ApiClient, ApiError } from './client'
+import {
+  ACCOUNT_BANNED,
+  EMAIL_NOT_VERIFIED,
+  ApiClient,
+  ApiError,
+  sanitizeErrorMessage,
+} from './client'
 
 function jsonResponse(status: number, body: unknown): Response {
   return new Response(JSON.stringify(body), {
@@ -45,6 +51,43 @@ describe('account_banned handling', () => {
   })
 })
 
+describe('email_not_verified handling', () => {
+  test('fires onEmailNotVerified when an authenticated call is rejected with email_not_verified', async () => {
+    const fetchFn = vi.fn().mockResolvedValue(jsonResponse(403, { error: EMAIL_NOT_VERIFIED }))
+    const client = new ApiClient({ token: 'sometoken', fetchFn })
+    const onEmailNotVerified = vi.fn()
+    client.setOnEmailNotVerified(onEmailNotVerified)
+
+    await expect(client.getFeed(0)).rejects.toThrow(EMAIL_NOT_VERIFIED)
+
+    expect(onEmailNotVerified).toHaveBeenCalledTimes(1)
+  })
+
+  test('does not fire onEmailNotVerified for unauthenticated calls like login', async () => {
+    const fetchFn = vi.fn().mockResolvedValue(jsonResponse(403, { error: EMAIL_NOT_VERIFIED }))
+    const client = new ApiClient({ fetchFn })
+    const onEmailNotVerified = vi.fn()
+    client.setOnEmailNotVerified(onEmailNotVerified)
+
+    await expect(
+      client.login({ username_or_email: 'ada', password: 'pw', remember_me: false }),
+    ).rejects.toThrow(EMAIL_NOT_VERIFIED)
+
+    expect(onEmailNotVerified).not.toHaveBeenCalled()
+  })
+
+  test('does not fire onEmailNotVerified for other authenticated errors', async () => {
+    const fetchFn = vi.fn().mockResolvedValue(jsonResponse(401, { error: 'Invalid session token' }))
+    const client = new ApiClient({ token: 'sometoken', fetchFn })
+    const onEmailNotVerified = vi.fn()
+    client.setOnEmailNotVerified(onEmailNotVerified)
+
+    await expect(client.getFeed(0)).rejects.toThrow(ApiError)
+
+    expect(onEmailNotVerified).not.toHaveBeenCalled()
+  })
+})
+
 describe('friendly error messages', () => {
   test('passes the backend error message through unchanged', async () => {
     const fetchFn = vi.fn().mockResolvedValue(jsonResponse(400, { error: 'Text is not positive' }))
@@ -85,3 +128,31 @@ describe('friendly error messages', () => {
     )
   })
 })
+
+describe('sanitizeErrorMessage', () => {
+  test('does not modify unrelated error messages', () => {
+    expect(sanitizeErrorMessage('Text is not positive')).toBe('Text is not positive')
+    expect(sanitizeErrorMessage('User already exists')).toBe('User already exists')
+  })
+
+  test('sanitizes single token invalid fields', () => {
+    expect(sanitizeErrorMessage("Invalid fields ['USERNAME']")).toBe('Username is incorrect')
+    expect(sanitizeErrorMessage("Invalid fields ['PASSWORD']")).toBe('Password is incorrect')
+  })
+
+  test('sanitizes multiple token invalid fields with and', () => {
+    expect(sanitizeErrorMessage("Invalid fields ['USERNAME', 'PASSWORD']")).toBe('Username and Password are incorrect')
+    expect(sanitizeErrorMessage("Invalid fields ['USERNAME', 'PASSWORD', 'EMAIL']")).toBe('Username, Password, and Email are incorrect')
+  })
+
+  test('sanitizes single token messages without brackets', () => {
+    expect(sanitizeErrorMessage('Invalid post_identifier')).toBe('Post identifier is incorrect')
+    expect(sanitizeErrorMessage('Invalid target_type')).toBe('Target type is incorrect')
+  })
+
+  test('leaves human-readable invalid messages untouched', () => {
+    expect(sanitizeErrorMessage('Invalid comment text')).toBe('Invalid comment text')
+    expect(sanitizeErrorMessage('Invalid batch parameter')).toBe('Invalid batch parameter')
+  })
+})
+

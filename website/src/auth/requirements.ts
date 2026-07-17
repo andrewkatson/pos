@@ -3,12 +3,15 @@
 // requirement hints and the form-validity checks share a single source of
 // truth so they can never drift apart.
 //
-//   password    = ^(?=.*[0-9])(?=.*[a-z])(?=.*[A-Z])(?=.*[@#$%^&+=_])(?=\S+$).{8,}$
+//   password    = ^(?=.*[0-9])(?=.*[a-z])(?=.*[A-Z])(?=.*-)(?=\S+$).{8,}$
 //   alphanumeric = ^\w{10,500}$   (used for usernames)
 
 export interface Requirement {
   label: string
   didMeetRequirement: boolean
+  // Optional suggestions don't gate form validity (see allMet) and render in a
+  // neutral state rather than as a pass/fail requirement.
+  optional?: boolean
 }
 
 export function getPasswordRequirements(password: string): Requirement[] {
@@ -18,8 +21,15 @@ export function getPasswordRequirements(password: string): Requirement[] {
     { label: 'At least one lowercase letter', didMeetRequirement: /[a-z]/.test(password) },
     { label: 'At least one uppercase letter', didMeetRequirement: /[A-Z]/.test(password) },
     {
-      label: 'At least one special character (@#$%^&+=_)',
-      didMeetRequirement: /[@#$%^&+=_]/.test(password),
+      label: 'At least one dash (-)',
+      didMeetRequirement: /-/.test(password),
+    },
+    {
+      label: 'Adding other special characters (like !) is suggested',
+      // Any non-alphanumeric character other than the already-required dash.
+      // Unicode-aware so it doesn't flag accented letters as "special".
+      didMeetRequirement: /[^\p{L}\p{N}\s-]/u.test(password),
+      optional: true,
     },
     { label: 'No spaces', didMeetRequirement: password.length > 0 && !/\s/.test(password) },
   ]
@@ -42,7 +52,8 @@ export function getUsernameRequirements(username: string): Requirement[] {
 }
 
 export function allMet(requirements: Requirement[]): boolean {
-  return requirements.every(r => r.didMeetRequirement)
+  // Optional suggestions are advisory only and never block submission.
+  return requirements.filter(r => !r.optional).every(r => r.didMeetRequirement)
 }
 
 // Maximum lengths for user-authored text, mirroring MAX_CAPTION_LENGTH /

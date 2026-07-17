@@ -1,4 +1,4 @@
-import { useNavigate } from 'react-router-dom'
+import { Link, useNavigate } from 'react-router-dom'
 import Logo from '../components/Logo'
 import './LandingPage.css'
 
@@ -31,6 +31,12 @@ function LandingPage() {
           <p className="landing__subtitle">A positive-only social network.</p>
         </div>
       </main>
+
+      <footer className="landing__footer">
+        <Link to="/privacy-policy" className="landing__footer-link">
+          Privacy Policy
+        </Link>
+      </footer>
     </div>
   )
 }

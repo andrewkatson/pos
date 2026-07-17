@@ -12,6 +12,7 @@ import type {
   CommentThreadRef,
   CreatePostRequest,
   CreatePostResponse,
+  CreateUploadUrlResponse,
   FeedPost,
   HiddenComment,
   HiddenPost,
@@ -25,10 +26,12 @@ import type {
   RegisterRequest,
   ReplyResponse,
   RequestResetRequest,
+  ResendVerificationEmailRequest,
   ResetPasswordRequest,
   SubmitAppealRequest,
   SubmitAppealResponse,
   UserSearchResult,
+  VerifyEmailRequest,
   VerifyResetRequest,
   VerifyResetResponse,
 } from './types'
@@ -49,6 +52,8 @@ interface UserMock {
   passwordHash: string
   verificationToken: string | null
   resetToken: string | null
+  emailVerified: boolean
+  emailVerificationToken: string | null
   following: Set<string>
   followers: Set<string>
   isVerified: boolean
@@ -71,13 +76,15 @@ interface LoginCookieMock {
 interface PostMock {
   postIdentifier: string
   authorId: string
-  imageUrl: string
+  /** Null for a text-only post (#307). */
+  imageUrl: string | null
   caption: string
   creationTime: number
   hidden: boolean
   hiddenReason: string
   likes: Set<string>
-  reports: Set<string>
+  /** Reporting user id -> their reason, so retract flows can show the reason. */
+  reports: Map<string, string>
 }
 
 interface CommentMock {
@@ -88,7 +95,8 @@ interface CommentMock {
   hidden: boolean
   hiddenReason: string
   likes: Set<string>
-  reports: Set<string>
+  /** Reporting user id -> their reason, so retract flows can show the reason. */
+  reports: Map<string, string>
 }
 
 interface AppealMock {
@@ -223,6 +231,11 @@ export class StatefulStubbedAPI implements PositiveOnlySocialAPI {
       passwordHash: body.password,
       verificationToken: null,
       resetToken: null,
+      // The real backend starts accounts unverified and gates everything on
+      // the emailed link; the stub has no inbox, so accounts start verified to
+      // keep offline/demo mode usable.
+      emailVerified: true,
+      emailVerificationToken: null,
       following: new Set(),
       followers: new Set(),
       isVerified: Boolean(body.date_of_birth),
@@ -342,6 +355,32 @@ export class StatefulStubbedAPI implements PositiveOnlySocialAPI {
   // Password reset
   // ---------------------------------------------------------------------------
 
+  async verifyEmail(body: VerifyEmailRequest): Promise<MessageResponse> {
+    const user = this.users.find(
+      (u) => u.emailVerificationToken !== null && u.emailVerificationToken === body.verification_token,
+    )
+    if (!user) {
+      throw new ApiError(400, 'Invalid or expired verification token')
+    }
+    user.emailVerified = true
+    user.emailVerificationToken = null
+    return { message: 'Email verified' }
+  }
+
+  async resendVerificationEmail(body: ResendVerificationEmailRequest): Promise<MessageResponse> {
+    const user = this.users.find(
+      (u) => u.username === body.username_or_email || u.email === body.username_or_email,
+    )
+    if (!user) {
+      throw new ApiError(400, 'No user with that username or email')
+    }
+    if (user.emailVerified) {
+      throw new ApiError(400, 'Email already verified')
+    }
+    user.emailVerificationToken = `stub_email_verification_token_${user.username}`
+    return { message: 'Verification email sent' }
+  }
+
   async requestReset(body: RequestResetRequest): Promise<MessageResponse> {
     const user = this.users.find(
       (u) => u.email === body.username_or_email || u.username === body.username_or_email,
@@ -384,6 +423,14 @@ export class StatefulStubbedAPI implements PositiveOnlySocialAPI {
   // Posts
   // ---------------------------------------------------------------------------
 
+  async createUploadUrl(): Promise<CreateUploadUrlResponse> {
+    const user = this.requireUser()
+    // Mirror the backend: a fresh key under the user's prefix, returned as
+    // both a "presigned" upload URL and the canonical image URL.
+    const imageUrl = `https://stub-bucket.s3.us-east-2.amazonaws.com/${user.id}/stub-${newId()}.jpeg`
+    return { upload_url: `${imageUrl}?X-Amz-Signature=stub`, image_url: imageUrl }
+  }
+
   async createPost(body: CreatePostRequest): Promise<CreatePostResponse> {
     const user = this.requireUser()
     // Stub "positivity" check, mirroring the native stubs.
@@ -393,13 +440,13 @@ export class StatefulStubbedAPI implements PositiveOnlySocialAPI {
     const post: PostMock = {
       postIdentifier: newId(),
       authorId: user.id,
-      imageUrl: body.image_url,
+      imageUrl: body.image_url ?? null,
       caption: body.caption,
       creationTime: Date.now(),
       hidden: false,
       hiddenReason: '',
       likes: new Set(),
-      reports: new Set(),
+      reports: new Map(),
     }
     this.posts.push(post)
     return { post_identifier: post.postIdentifier }
@@ -415,7 +462,7 @@ export class StatefulStubbedAPI implements PositiveOnlySocialAPI {
     return { message: 'Post deleted' }
   }
 
-  async reportPost(postIdentifier: string, _reason: string): Promise<MessageResponse> {
+  async reportPost(postIdentifier: string, reason: string): Promise<MessageResponse> {
     const user = this.requireUser()
     const post = this.findPost(postIdentifier)
     if (post.authorId === user.id) {
@@ -424,12 +471,31 @@ export class StatefulStubbedAPI implements PositiveOnlySocialAPI {
     if (post.reports.has(user.id)) {
       throw new ApiError(400, 'Cannot report post twice')
     }
-    post.reports.add(user.id)
+    post.reports.set(user.id, reason)
     if (post.reports.size > MAX_BEFORE_HIDING_POST) {
       post.hidden = true
       post.hiddenReason = 'reports'
     }
     return { message: 'Post reported' }
+  }
+
+  async retractReportPost(postIdentifier: string): Promise<MessageResponse> {
+    const user = this.requireUser()
+    const post = this.findPost(postIdentifier)
+    if (!post.reports.has(user.id)) {
+      throw new ApiError(400, 'Post not reported yet')
+    }
+    post.reports.delete(user.id)
+    // Un-hide only when reports were what hid it, mirroring the backend.
+    if (
+      post.hidden &&
+      post.hiddenReason === 'reports' &&
+      post.reports.size <= MAX_BEFORE_HIDING_POST
+    ) {
+      post.hidden = false
+      post.hiddenReason = ''
+    }
+    return { message: 'Post report retracted' }
   }
 
   async likePost(postIdentifier: string): Promise<MessageResponse> {
@@ -510,6 +576,7 @@ export class StatefulStubbedAPI implements PositiveOnlySocialAPI {
   }
 
   async getPostDetails(postIdentifier: string): Promise<PostDetails> {
+    const user = this.requireUser()
     const post = this.findPost(postIdentifier)
     const author = this.users.find((u) => u.id === post.authorId)
     return {
@@ -517,7 +584,11 @@ export class StatefulStubbedAPI implements PositiveOnlySocialAPI {
       image_url: post.imageUrl,
       original_image_url: post.imageUrl,
       caption: post.caption,
+      creation_time: new Date(post.creationTime).toISOString(),
       post_likes: post.likes.size,
+      is_liked: post.likes.has(user.id),
+      is_reported: post.reports.has(user.id),
+      report_reason: post.reports.get(user.id) ?? null,
       author_username: author ? author.username : '',
     }
   }
@@ -546,7 +617,7 @@ export class StatefulStubbedAPI implements PositiveOnlySocialAPI {
       hidden: false,
       hiddenReason: '',
       likes: new Set(),
-      reports: new Set(),
+      reports: new Map(),
     }
     thread.comments.push(comment)
     return {
@@ -575,7 +646,7 @@ export class StatefulStubbedAPI implements PositiveOnlySocialAPI {
       hidden: false,
       hiddenReason: '',
       likes: new Set(),
-      reports: new Set(),
+      reports: new Map(),
     }
     thread.comments.push(comment)
     return { comment_identifier: comment.commentIdentifier }
@@ -596,7 +667,7 @@ export class StatefulStubbedAPI implements PositiveOnlySocialAPI {
     commentThreadIdentifier: string,
     batch: number,
   ): Promise<Comment[]> {
-    this.requireUser()
+    const user = this.requireUser()
     const thread = this.commentThreads.find(
       (t) => t.threadIdentifier === commentThreadIdentifier,
     )
@@ -616,6 +687,9 @@ export class StatefulStubbedAPI implements PositiveOnlySocialAPI {
         creation_time: time,
         updated_time: time,
         comment_likes: c.likes.size,
+        is_liked: c.likes.has(user.id),
+        is_reported: c.reports.has(user.id),
+        report_reason: c.reports.get(user.id) ?? null,
       }
     })
   }
@@ -675,7 +749,7 @@ export class StatefulStubbedAPI implements PositiveOnlySocialAPI {
     postIdentifier: string,
     commentThreadIdentifier: string,
     commentIdentifier: string,
-    _reason: string,
+    reason: string,
   ): Promise<MessageResponse> {
     const user = this.requireUser()
     const comment = this.findComment(postIdentifier, commentThreadIdentifier, commentIdentifier)
@@ -685,12 +759,35 @@ export class StatefulStubbedAPI implements PositiveOnlySocialAPI {
     if (comment.reports.has(user.id)) {
       throw new ApiError(400, 'Cannot report comment twice')
     }
-    comment.reports.add(user.id)
+    comment.reports.set(user.id, reason)
     if (comment.reports.size > MAX_BEFORE_HIDING_COMMENT) {
       comment.hidden = true
       comment.hiddenReason = 'reports'
     }
     return { message: 'Comment reported' }
+  }
+
+  async retractReportComment(
+    postIdentifier: string,
+    commentThreadIdentifier: string,
+    commentIdentifier: string,
+  ): Promise<MessageResponse> {
+    const user = this.requireUser()
+    const comment = this.findComment(postIdentifier, commentThreadIdentifier, commentIdentifier)
+    if (!comment.reports.has(user.id)) {
+      throw new ApiError(400, 'Comment not reported yet')
+    }
+    comment.reports.delete(user.id)
+    // Un-hide only when reports were what hid it, mirroring the backend.
+    if (
+      comment.hidden &&
+      comment.hiddenReason === 'reports' &&
+      comment.reports.size <= MAX_BEFORE_HIDING_COMMENT
+    ) {
+      comment.hidden = false
+      comment.hiddenReason = ''
+    }
+    return { message: 'Comment report retracted' }
   }
 
   // ---------------------------------------------------------------------------

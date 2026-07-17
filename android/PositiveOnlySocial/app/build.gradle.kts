@@ -12,8 +12,8 @@ android {
         applicationId = "io.github.andrewkatson.positiveonlysocial"
         minSdk = 26
         targetSdk = 36
-        versionCode = 1
-        versionName = "1.0"
+        versionCode = 7
+        versionName = "1.01.06"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
@@ -66,8 +66,6 @@ dependencies {
     implementation(libs.retrofit)
     implementation(libs.converter.gson)
     implementation(libs.androidx.security.crypto)
-    implementation(libs.s3)
-    implementation(libs.cognitoidentity)
     implementation(libs.kotlinx.coroutines.core)
     implementation(libs.androidx.navigation.compose)
     implementation(libs.io.coil.compose)

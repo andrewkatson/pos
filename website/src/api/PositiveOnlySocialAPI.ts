@@ -10,6 +10,7 @@ import type {
   CommentThreadRef,
   CreatePostRequest,
   CreatePostResponse,
+  CreateUploadUrlResponse,
   FeedPost,
   HiddenComment,
   HiddenPost,
@@ -23,10 +24,12 @@ import type {
   RegisterRequest,
   ReplyResponse,
   RequestResetRequest,
+  ResendVerificationEmailRequest,
   ResetPasswordRequest,
   SubmitAppealRequest,
   SubmitAppealResponse,
   UserSearchResult,
+  VerifyEmailRequest,
   VerifyResetRequest,
   VerifyResetResponse,
 } from './types'
@@ -46,15 +49,21 @@ export interface PositiveOnlySocialAPI {
   verifyIdentity(dateOfBirth: string): Promise<MessageResponse>
   deleteAccount(): Promise<MessageResponse>
 
+  // Email verification
+  verifyEmail(body: VerifyEmailRequest): Promise<MessageResponse>
+  resendVerificationEmail(body: ResendVerificationEmailRequest): Promise<MessageResponse>
+
   // Password reset
   requestReset(body: RequestResetRequest): Promise<MessageResponse>
   verifyReset(body: VerifyResetRequest): Promise<VerifyResetResponse>
   resetPassword(body: ResetPasswordRequest): Promise<MessageResponse>
 
   // Posts
+  createUploadUrl(): Promise<CreateUploadUrlResponse>
   createPost(body: CreatePostRequest): Promise<CreatePostResponse>
   deletePost(postIdentifier: string): Promise<MessageResponse>
   reportPost(postIdentifier: string, reason: string): Promise<MessageResponse>
+  retractReportPost(postIdentifier: string): Promise<MessageResponse>
   likePost(postIdentifier: string): Promise<MessageResponse>
   unlikePost(postIdentifier: string): Promise<MessageResponse>
 
@@ -93,6 +102,11 @@ export interface PositiveOnlySocialAPI {
     commentThreadIdentifier: string,
     commentIdentifier: string,
     reason: string,
+  ): Promise<MessageResponse>
+  retractReportComment(
+    postIdentifier: string,
+    commentThreadIdentifier: string,
+    commentIdentifier: string,
   ): Promise<MessageResponse>
 
   // Users & profiles

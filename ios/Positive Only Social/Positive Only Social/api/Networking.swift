@@ -34,7 +34,14 @@ protocol Networking {
     /// Verifies the password reset by submitting the opaque verification token received via email.
     func verifyPasswordReset(usernameOrEmail: String, verificationToken: String) async throws -> Data
 
-    /// Logs the user out.
+    /// Verifies the account's email address by submitting the token from the
+    /// verification link in the welcome email. Until this succeeds, login and
+    /// every authenticated endpoint reject the account with `email_not_verified`.
+    func verifyEmail(verificationToken: String) async throws -> Data
+
+    /// Sends a fresh email-verification link, invalidating the previous one.
+    func resendVerificationEmail(usernameOrEmail: String) async throws -> Data
+
     func logoutUser(sessionManagementToken: String) async throws -> Data
 
     /// Deletes the user account.
@@ -54,14 +61,21 @@ protocol Networking {
     
     // MARK: - Post Management
 
-    /// Creates and stores a new post.
-    func makePost(sessionManagementToken: String, imageURL: String, caption: String) async throws -> Data
+    /// Requests a backend-issued presigned S3 PUT URL for a new post image
+    /// (the backend scopes the object key to the authenticated user).
+    func createUploadUrl(sessionManagementToken: String) async throws -> Data
+
+    /// Creates and stores a new post. A nil `imageURL` creates a text-only post (#307).
+    func makePost(sessionManagementToken: String, imageURL: String?, caption: String) async throws -> Data
 
     /// Deletes a post.
     func deletePost(sessionManagementToken: String, postIdentifier: String) async throws -> Data
 
     /// Reports a post for a specific reason.
     func reportPost(sessionManagementToken: String, postIdentifier: String, reason: String) async throws -> Data
+
+    /// Retracts the current user's report against a post (issue #176).
+    func retractReportPost(sessionManagementToken: String, postIdentifier: String) async throws -> Data
 
     /// Likes a post.
     func likePost(sessionManagementToken: String, postIdentifier: String) async throws -> Data
@@ -99,6 +113,9 @@ protocol Networking {
 
     /// Reports a comment for a specific reason.
     func reportComment(sessionManagementToken: String, postIdentifier: String, commentThreadIdentifier: String, commentIdentifier: String, reason: String) async throws -> Data
+
+    /// Retracts the current user's report against a comment (issue #176).
+    func retractReportComment(sessionManagementToken: String, postIdentifier: String, commentThreadIdentifier: String, commentIdentifier: String) async throws -> Data
 
     /// Gets a batch of comment threads for a post. Requires auth.
     func getCommentsForPost(sessionManagementToken: String, postIdentifier: String, batch: Int) async throws -> Data

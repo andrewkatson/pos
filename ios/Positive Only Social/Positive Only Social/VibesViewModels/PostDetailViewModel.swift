@@ -33,6 +33,11 @@ final class PostDetailViewModel: ObservableObject {
     /// post action menu, it offers "Report" or "Delete" depending on ownership.
     @Published var commentForAction: CommentViewData?
 
+    /// Drives the retract-report confirmation for the post / a comment. The
+    /// dialog shows the user's original report reason pre-populated (issue #176).
+    @Published var showRetractDialogForPost = false
+    @Published var commentToRetract: CommentViewData?
+
     /// Set once the post has been deleted so the view can pop back — the post no
     /// longer exists to display.
     @Published var postWasDeleted = false
@@ -79,6 +84,13 @@ final class PostDetailViewModel: ObservableObject {
     /// Whether the given comment was authored by the signed-in user.
     func isOwnComment(_ comment: CommentViewData) -> Bool {
         comment.authorUsername == currentUsername
+    }
+
+    /// Whether the signed-in user has an active report against the comment —
+    /// from the server-backed flag, or the local set for reports made this
+    /// session before the next reload.
+    func isCommentReported(_ comment: CommentViewData) -> Bool {
+        comment.isReported || reportedCommentIds.contains(comment.id)
     }
     
     // MARK: - Private Properties
@@ -151,8 +163,13 @@ final class PostDetailViewModel: ObservableObject {
                     caption: postFields.caption,
                     likeCount: postFields.post_likes,
                     isLiked: postFields.is_liked,
-                    authorUsername: postFields.author_username
+                    authorUsername: postFields.author_username,
+                    createdDate: postFields.creation_time.flatMap { Self.parseOptionalDate($0) },
+                    isReported: postFields.is_reported ?? false,
+                    reportReason: postFields.report_reason
                 )
+                // Server truth for the reported flag, so it survives reloads.
+                self.isPostReported = postFields.is_reported ?? false
 
                 // 2. Fetch the list of comment thread IDs for this post
                 let threadListData = try await api.getCommentsForPost(sessionManagementToken: token, postIdentifier: postIdentifier, batch: 0)
@@ -179,7 +196,9 @@ final class PostDetailViewModel: ObservableObject {
                                     body: field.body,
                                     likeCount: field.comment_likes,
                                     isLiked: field.is_liked,
-                                    createdDate: Self.parseDate(field.creation_time)
+                                    createdDate: Self.parseDate(field.creation_time),
+                                    isReported: field.is_reported ?? false,
+                                    reportReason: field.report_reason
                                 )
                             }
                         }
@@ -230,7 +249,10 @@ final class PostDetailViewModel: ObservableObject {
                 caption: post.caption,
                 likeCount: post.likeCount + 1, // Optimistic update
                 isLiked: true,
-                authorUsername: post.authorUsername
+                authorUsername: post.authorUsername,
+                createdDate: post.createdDate,
+                isReported: post.isReported,
+                reportReason: post.reportReason
             )
             self.postDetail = post
         }
@@ -264,7 +286,10 @@ final class PostDetailViewModel: ObservableObject {
                 caption: post.caption,
                 likeCount: max(0, post.likeCount - 1), // Optimistic update
                 isLiked: false,
-                authorUsername: post.authorUsername
+                authorUsername: post.authorUsername,
+                createdDate: post.createdDate,
+                isReported: post.isReported,
+                reportReason: post.reportReason
             )
             self.postDetail = post
         }
@@ -301,6 +326,9 @@ final class PostDetailViewModel: ObservableObject {
                 await MainActor.run {
                     isPostReported = true
                 }
+                // Reload so the server-backed isReported/reportReason state
+                // (used by the action menu and retract dialog) refreshes.
+                self.loadAllData()
             } catch {
                 NSLog("%@", "Failed to report post: \(error)")
                 await MainActor.run {
@@ -310,6 +338,32 @@ final class PostDetailViewModel: ObservableObject {
         }
     }
     
+    /// Retracts the current user's report against the post (issue #176), then
+    /// reloads so the isReported/reportReason state refreshes.
+    func retractReportPost() {
+        NSLog("%@", "ACTION: Retract report on post \(postIdentifier)")
+        Task {
+            do {
+                guard let userSession = try keychainHelper.load(UserSession.self, from: keychainService, account: account) else {
+                    NSLog("%@", "No active session — cannot retract post report")
+                    self.alertMessage = "Session not found."
+                    return
+                }
+                let token = userSession.sessionToken
+                _ = try await api.retractReportPost(sessionManagementToken: token, postIdentifier: postIdentifier)
+                await MainActor.run {
+                    isPostReported = false
+                }
+                self.loadAllData()
+            } catch {
+                NSLog("%@", "Failed to retract post report: \(error)")
+                await MainActor.run {
+                    self.alertMessage = "Failed to retract report: \(error.userFacingMessage)"
+                }
+            }
+        }
+    }
+
     /// Deletes the user's own post, then signals the view to pop back since the
     /// post no longer exists. Only reachable from the action menu on an own post.
     func deletePost() {
@@ -389,7 +443,9 @@ final class PostDetailViewModel: ObservableObject {
             body: oldComment.body,
             likeCount: oldComment.likeCount + 1, // The update
             isLiked: true,
-            createdDate: oldComment.createdDate
+            createdDate: oldComment.createdDate,
+            isReported: oldComment.isReported,
+            reportReason: oldComment.reportReason
         )
         
         // Replace the old comment with the new one in the published array
@@ -437,7 +493,9 @@ final class PostDetailViewModel: ObservableObject {
             body: oldComment.body,
             likeCount: newLikeCount, // The update
             isLiked: false,
-            createdDate: oldComment.createdDate
+            createdDate: oldComment.createdDate,
+            isReported: oldComment.isReported,
+            reportReason: oldComment.reportReason
         )
         
         commentThreads[threadIndex].comments[commentIndex] = newComment
@@ -471,10 +529,13 @@ final class PostDetailViewModel: ObservableObject {
                 }
                 let token = userSession.sessionToken
                 _ = try await api.reportComment(sessionManagementToken: token, postIdentifier: postIdentifier, commentThreadIdentifier: comment.threadId, commentIdentifier: comment.id, reason: reason)
-                
+
                 await MainActor.run {
                     _ = reportedCommentIds.insert(comment.id)
                 }
+                // Reload so the server-backed isReported/reportReason state
+                // (used by the action menu and retract dialog) refreshes.
+                self.loadAllData()
             } catch {
                 NSLog("%@", "Failed to report comment: \(error)")
                 await MainActor.run {
@@ -483,6 +544,32 @@ final class PostDetailViewModel: ObservableObject {
             }
         }
     }
+    /// Retracts the current user's report against a comment (issue #176), then
+    /// reloads so the isReported/reportReason state refreshes.
+    func retractReportComment(_ comment: CommentViewData) {
+        NSLog("%@", "ACTION: Retract report on comment \(comment.id)")
+        Task {
+            do {
+                guard let userSession = try keychainHelper.load(UserSession.self, from: keychainService, account: account) else {
+                    NSLog("%@", "No active session — cannot retract comment report")
+                    self.alertMessage = "Session not found."
+                    return
+                }
+                let token = userSession.sessionToken
+                _ = try await api.retractReportComment(sessionManagementToken: token, postIdentifier: postIdentifier, commentThreadIdentifier: comment.threadId, commentIdentifier: comment.id)
+                await MainActor.run {
+                    reportedCommentIds.remove(comment.id)
+                }
+                self.loadAllData()
+            } catch {
+                NSLog("%@", "Failed to retract comment report: \(error)")
+                await MainActor.run {
+                    self.alertMessage = "Failed to retract report: \(error.userFacingMessage)"
+                }
+            }
+        }
+    }
+
     /// Creates a new comment (and thus a new thread) on the post.
     func commentOnPost(commentText: String) {
         guard !commentText.isEmpty else { return }
@@ -548,13 +635,22 @@ final class PostDetailViewModel: ObservableObject {
     // These match the 'Fields' structs in your stub API
     private struct PostDetailsFields: Decodable {
         let post_identifier: String
-        let image_url: String
+        // Nil for a text-only post (#307).
+        let image_url: String?
         /// Full-res original for the compressed→original fallback (#252/#254).
         /// Optional so responses that predate the field still decode.
         let original_image_url: String?
         let caption: String
+        /// When the post was created. Optional so responses that predate the
+        /// field still decode.
+        //TODO: eBlender rename to camelCase creationTime (via CodingKeys).
+        let creation_time: String?
         let post_likes: Int
         let is_liked: Bool
+        /// Whether the current user has an active report against this post, and
+        /// their own reason (#176). Optional so older responses still decode.
+        let is_reported: Bool?
+        let report_reason: String?
         let author_username: String
     }
     
@@ -570,6 +666,10 @@ final class PostDetailViewModel: ObservableObject {
         let updated_time: String
         let comment_likes: Int
         let is_liked: Bool
+        /// Whether the current user has an active report against this comment,
+        /// and their own reason (#176). Optional so older responses still decode.
+        let is_reported: Bool?
+        let report_reason: String?
     }
 
     private func decodeSingle<T: Decodable>(from data: Data, type: T.Type) throws -> T {
@@ -582,27 +682,35 @@ final class PostDetailViewModel: ObservableObject {
 
     // MARK: - Date Parsing
 
-    /// Parses an ISO8601 date string produced by Django, which typically includes
-    /// fractional seconds and a `+00:00` timezone offset (e.g. "2024-01-15T10:30:45.123456+00:00").
-    /// Falls back to parsing without fractional seconds for older rows, then to `Date()`.
-    /// Marked `nonisolated` so it can be called from async task groups without actor hopping.
-    /// Formatters are created locally to avoid sharing non-Sendable NSObject state across isolation domains.
-    /// Parses an ISO8601 date string produced by Django, which typically includes
-    /// fractional seconds and a `+00:00` timezone offset (e.g. "2024-01-15T10:30:45.123456+00:00").
-    /// Falls back to parsing without fractional seconds for older rows, then to `Date()`.
-    /// Uses `Date.ISO8601FormatStyle` (a value type) to avoid allocating `NSObject`-backed
-    /// formatters on each call — safe to call from any isolation domain without extra cost.
+    /// Parses an ISO8601 date string produced by Django, whose `DjangoJSONEncoder`
+    /// emits a colon-separated UTC offset (e.g. "2024-01-15T10:30:45.123456+00:00"),
+    /// while the in-memory stub emits a "Z" suffix. Tries colon- and omitted-separator
+    /// variants, with and without fractional seconds, so both real and stubbed
+    /// timestamps decode. Returns nil when nothing matches so callers can omit a
+    /// relative-time label rather than showing a bogus "now".
+    ///
+    /// Uses `Date.ISO8601FormatStyle` (a value type) rather than an `NSObject`-backed
+    /// formatter, so it's cheap and safe to call `nonisolated` from async task groups
+    /// without actor hopping or sharing non-Sendable state across isolation domains.
+    private nonisolated static func parseOptionalDate(_ string: String) -> Date? {
+        // `.colon` matches the real backend's "+00:00"; `.omitted` matches "+0000"
+        // and the stub's "Z". Django usually includes fractional seconds, but older
+        // rows may not, so try both.
+        let separators: [Date.ISO8601FormatStyle.TimeZoneSeparator] = [.colon, .omitted]
+        for separator in separators {
+            for includingFractionalSeconds in [true, false] {
+                let strategy = Date.ISO8601FormatStyle().year().month().day()
+                    .time(includingFractionalSeconds: includingFractionalSeconds)
+                    .timeZone(separator: separator)
+                if let date = try? Date(string, strategy: strategy) {
+                    return date
+                }
+            }
+        }
+        return nil
+    }
+
     private nonisolated static func parseDate(_ string: String) -> Date {
-        if let date = try? Date(string, strategy: .iso8601.year().month().day()
-            .time(includingFractionalSeconds: true)
-            .timeZone(separator: .omitted)) {
-            return date
-        }
-        if let date = try? Date(string, strategy: .iso8601.year().month().day()
-            .time(includingFractionalSeconds: false)
-            .timeZone(separator: .omitted)) {
-            return date
-        }
-        return Date()
+        parseOptionalDate(string) ?? Date()
     }
 }

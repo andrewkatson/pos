@@ -31,7 +31,7 @@ class RememberMeLoginTest {
     val composeTestRule = createEmptyComposeRule()
 
     private val testUsername = "remember_user_${UUID.randomUUID().toString().take(5)}"
-    private val strongPassword = "StrongPassword123@"
+    private val strongPassword = "StrongPassword123-"
 
     // Matches the identifiers used by WelcomeScreen / AuthenticationManager.
     private val keychainService = "positive-only-social.Positive-Only-Social"
@@ -126,6 +126,17 @@ class RememberMeLoginTest {
         // Privacy Policy dialog.
         composeTestRule.onNodeWithText("Privacy Policy").assertExists()
         composeTestRule.onNodeWithText("Ok").performClick()
+
+        // Registration parks the user on the "check your email" screen
+        // (issue #237). The stub API pre-verifies accounts, so continue to
+        // Login and sign in to reach Home.
+        composeTestRule.onNodeWithText("Check Your Email").assertExists()
+        composeTestRule.onNodeWithText("Go to Login").performClick()
+        assertOnLoginView()
+
+        composeTestRule.onNodeWithText("Username or Email").performTextInput(username)
+        composeTestRule.onNodeWithText("Password").performTextInput(password)
+        composeTestRule.onNodeWithText("Login").performClick()
 
         assertOnHomeView()
     }

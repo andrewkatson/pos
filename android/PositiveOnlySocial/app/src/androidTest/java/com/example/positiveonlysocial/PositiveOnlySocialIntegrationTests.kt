@@ -31,8 +31,8 @@ class PositiveOnlySocialIntegrationTests {
     private val testUsername = "test_user_${UUID.randomUUID().toString().take(5)}"
     private val otherTestUsername = "other_user_${UUID.randomUUID().toString().take(5)}"
     private val newTestUsername = "new_user_${UUID.randomUUID().toString().take(5)}"
-    private val strongPassword = "StrongPassword123@"
-    private val newStrongPassword = "NewStrongPassword456@"
+    private val strongPassword = "StrongPassword123-"
+    private val newStrongPassword = "NewStrongPassword456-"
 
     // MARK: Helpers
 
@@ -106,6 +106,12 @@ class PositiveOnlySocialIntegrationTests {
         composeTestRule.onNodeWithText("Add a comment...").assertExists()
     }
 
+    private fun assertOnCheckEmailView() {
+        composeTestRule.onNodeWithText("Check Your Email").assertExists()
+        composeTestRule.onNodeWithText("Resend Verification Email").assertExists()
+        composeTestRule.onNodeWithText("Go to Login").assertExists()
+    }
+
     private fun registerUser(username: String, password: String) {
         composeTestRule.onNodeWithText("Register").performClick()
         assertOnRegisterView()
@@ -121,6 +127,17 @@ class PositiveOnlySocialIntegrationTests {
         // Privacy Policy Dialog
         composeTestRule.onNodeWithText("Privacy Policy").assertExists()
         composeTestRule.onNodeWithText("Ok").performClick()
+
+        // Registration parks the user on the "check your email" screen
+        // (issue #237). The stub API pre-verifies accounts, so continue to
+        // Login and sign in to reach Home.
+        assertOnCheckEmailView()
+        composeTestRule.onNodeWithText("Go to Login").performClick()
+        assertOnLoginView()
+
+        composeTestRule.onNodeWithText("Username or Email").performTextInput(username)
+        composeTestRule.onNodeWithText("Password").performTextInput(password)
+        composeTestRule.onNodeWithText("Login").performClick()
 
         assertOnHomeView()
     }
@@ -181,11 +198,17 @@ class PositiveOnlySocialIntegrationTests {
             response.body()?.sessionToken ?: throw IllegalStateException("Failed to login via API")
         }
 
-    private fun makePostViaApi(username: String, password: String, caption: String) =
+    private fun makePostViaApi(
+        username: String,
+        password: String,
+        caption: String,
+        // Null creates a text-only post (#307).
+        imageUrl: String? = "https://example.com/image.jpg"
+    ) =
         kotlinx.coroutines.runBlocking {
             val token = loginUserViaApi(username, password)
             val request = com.example.positiveonlysocial.data.model.CreatePostRequest(
-                imageUrl = "https://example.com/image.jpg",
+                imageUrl = imageUrl,
                 caption = caption
             )
             com.example.positiveonlysocial.di.DependencyProvider.api.makePost(token, request)
@@ -364,6 +387,24 @@ class PositiveOnlySocialIntegrationTests {
     }
 
     @Test
+    fun testTextOnlyPostShowsCaptionTileInHomeGrid() {
+        // A text-only post (#307) renders its caption as the grid tile instead
+        // of an image, and still opens the detail view.
+        registerUserViaApi(testUsername, strongPassword)
+        makePostViaApi(testUsername, strongPassword, "Text Only Post", imageUrl = null)
+
+        loginUser(testUsername, strongPassword, rememberMe = false)
+        assertOnHomeView()
+
+        composeTestRule.waitUntil(timeoutMillis = 5000) {
+            composeTestRule.onAllNodesWithText("Text Only Post").fetchSemanticsNodes().isNotEmpty()
+        }
+        composeTestRule.onAllNodesWithText("Text Only Post").onFirst().performClick()
+
+        assertOnPostDetailView()
+    }
+
+    @Test
     fun testOpenPostDetailFromProfileGrid() {
         // Setup: an author with one post.
         registerUserViaApi(testUsername, strongPassword)
@@ -439,7 +480,9 @@ class PositiveOnlySocialIntegrationTests {
         // Make comment via the composer dialog
         composeTestRule.onNodeWithText("Add a comment...").performClick()
         composeTestRule.onNodeWithText("Write a comment...").performTextInput("Comment On a Post")
-        composeTestRule.onNodeWithText("Post").performClick()
+        // Target the dialog's clickable Post button: the post-detail top bar
+        // title is also "Post", so text alone matches two nodes.
+        composeTestRule.onNode(hasText("Post") and hasClickAction()).performClick()
 
         // Verify comment appears
         composeTestRule.onNodeWithText("Comment On a Post").assertExists()
@@ -450,7 +493,7 @@ class PositiveOnlySocialIntegrationTests {
         // into view first so its tap isn't injected off-screen.
         composeTestRule.onNodeWithText("Reply").performScrollTo().performClick()
         composeTestRule.onNodeWithText("Write a comment...").performTextInput("Comment On a Thread")
-        composeTestRule.onNodeWithText("Post").performClick()
+        composeTestRule.onNode(hasText("Post") and hasClickAction()).performClick()
 
         // Now we logout
         Espresso.pressBack()

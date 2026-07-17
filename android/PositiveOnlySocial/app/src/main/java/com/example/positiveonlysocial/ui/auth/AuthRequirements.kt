@@ -17,20 +17,36 @@ import androidx.compose.ui.unit.dp
  * requirement hints and the form-validity checks share a single source of
  * truth so they can never drift apart.
  *
- *   password     = ^(?=.*[0-9])(?=.*[a-z])(?=.*[A-Z])(?=.*[@#$%^&+=_])(?=\S+$).{8,}$
+ *   password     = ^(?=.*[0-9])(?=.*[a-z])(?=.*[A-Z])(?=.*-)(?=\S+$).{8,}$
  *   alphanumeric = ^\w{10,500}$   (used for usernames)
  */
-data class Requirement(val label: String, val didMeetRequirement: Boolean)
+/**
+ * A single labelled validation rule. [optional] suggestions don't gate form
+ * validity (see [AuthRequirements.allMet]) and render in a neutral state rather
+ * than as a pass/fail requirement.
+ */
+data class Requirement(
+    val label: String,
+    val didMeetRequirement: Boolean,
+    val optional: Boolean = false,
+)
 
 object AuthRequirements {
-    private const val SPECIAL_CHARS = "@#\$%^&+=_"
+
 
     fun password(password: String): List<Requirement> = listOf(
         Requirement("At least 8 characters", password.length >= 8),
         Requirement("At least one number", password.any { it.isDigit() }),
         Requirement("At least one lowercase letter", password.any { it.isLowerCase() }),
         Requirement("At least one uppercase letter", password.any { it.isUpperCase() }),
-        Requirement("At least one special character ($SPECIAL_CHARS)", password.any { it in SPECIAL_CHARS }),
+        Requirement("At least one dash (-)", password.any { it == '-' }),
+        // Any non-alphanumeric character other than the already-required dash.
+        // isLetterOrDigit is Unicode-aware so accented letters aren't flagged.
+        Requirement(
+            "Adding other special characters (like !) is suggested",
+            password.any { !it.isLetterOrDigit() && !it.isWhitespace() && it != '-' },
+            optional = true,
+        ),
         Requirement("No spaces", password.isNotEmpty() && password.none { it.isWhitespace() }),
     )
 
@@ -42,26 +58,38 @@ object AuthRequirements {
         ),
     )
 
-    fun allMet(requirements: List<Requirement>): Boolean = requirements.all { it.didMeetRequirement }
+    // Optional suggestions are advisory only and never block submission.
+    fun allMet(requirements: List<Requirement>): Boolean =
+        requirements.filterNot { it.optional }.all { it.didMeetRequirement }
 }
 
 /**
- * Renders a checklist of validation requirements. The met/unmet state is shown
- * with color + a ✓/✗ glyph, and conveyed to assistive tech via a per-row
- * content description.
+ * Renders a checklist of validation requirements. Required rows show a met/unmet
+ * state with color + a ✓/✗ glyph and a per-row content description. Optional
+ * suggestions never render as "failed": until satisfied they sit in a neutral
+ * state (• / "optional"), switching to met once present.
  */
 @Composable
 fun RequirementHints(requirements: List<Requirement>) {
     Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
         requirements.forEach { requirement ->
+            val glyph = when {
+                requirement.didMeetRequirement -> "✓"
+                requirement.optional -> "•"
+                else -> "✗"
+            }
+            val status = when {
+                requirement.didMeetRequirement -> "met"
+                requirement.optional -> "optional"
+                else -> "not met"
+            }
             Text(
-                text = "${if (requirement.didMeetRequirement) "✓" else "✗"} ${requirement.label}",
+                text = "$glyph ${requirement.label}",
                 color = if (requirement.didMeetRequirement) Color(0xFF4CAF50)
                         else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.4f),
                 style = MaterialTheme.typography.bodySmall,
                 modifier = Modifier.semantics {
-                    contentDescription =
-                        "${requirement.label}: ${if (requirement.didMeetRequirement) "met" else "not met"}"
+                    contentDescription = "${requirement.label}: $status"
                 },
             )
         }

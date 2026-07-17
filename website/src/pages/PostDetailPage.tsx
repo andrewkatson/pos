@@ -9,7 +9,7 @@ import CharacterCounter from '../components/CharacterCounter'
 import { formatRelativeTime } from '../utils/relativeTime'
 import './MainApp.css'
 
-/** A comment enriched with the local like/report state the API doesn't return. */
+/** A comment enriched with per-user like/report state for the UI. */
 interface CommentView {
   id: string
   threadId: string
@@ -19,6 +19,9 @@ interface CommentView {
   likeCount: number
   isLiked: boolean
   isReported: boolean
+  /** The current user's own report reason, shown pre-populated in the retract
+   * dialog (issue #176). Null when they haven't reported this comment. */
+  reportReason: string | null
   // The backend rejects liking your own comment, so the UI hides the like
   // control for comments the current user authored.
   isOwn: boolean
@@ -31,17 +34,20 @@ interface ThreadView {
 
 type ReportTarget = { type: 'post' } | { type: 'comment'; comment: CommentView }
 type DeleteTarget = { type: 'post' } | { type: 'comment'; comment: CommentView }
+// The three-dots menu next to the post caption / each comment (issue #304).
+type MenuTarget = { type: 'post' } | { type: 'comment'; comment: CommentView }
 // The comment composer is shared between a brand-new post comment and a reply
 // to an existing thread, so both go through the same character-limit dialog.
 type ComposerTarget = { type: 'post' } | { type: 'reply'; thread: ThreadView }
 
 /**
  * Full post view: image, like count, caption, and threaded comments with
- * replies. Supports liking/reporting the post and each comment, and adding new
- * comments or replies. Mirrors iOS PostDetailView / PostDetailViewModel.
+ * replies. Supports liking the post and each comment, adding new comments or
+ * replies, and a three-dots menu per item offering Report / Retract Report /
+ * Delete (issues #304, #176). Mirrors iOS PostDetailView / PostDetailViewModel.
  *
- * The web API doesn't report whether the current user has liked a post/comment,
- * so like state is tracked locally and applied optimistically.
+ * Per-user like/report state comes from the API (is_liked / is_reported /
+ * report_reason); local refs only backstop responses that omit those fields.
  *
  * The inner view is keyed by postId so navigating to a different post fully
  * resets its state instead of briefly showing the previous post's data.
@@ -76,6 +82,9 @@ function PostDetailView({ postId }: { postId: string }) {
   const [postLikeCount, setPostLikeCount] = useState(0)
   const [postLiked, setPostLiked] = useState(false)
   const [postReported, setPostReported] = useState(false)
+  // The current user's own report reason for the post, pre-populated in the
+  // retract dialog (issue #176).
+  const [postReportReason, setPostReportReason] = useState<string | null>(null)
   const [threads, setThreads] = useState<ThreadView[]>([])
   const [isLoading, setIsLoading] = useState(true)
   const [isRefreshing, setIsRefreshing] = useState(false)
@@ -89,6 +98,10 @@ function PostDetailView({ postId }: { postId: string }) {
   const [reportTarget, setReportTarget] = useState<ReportTarget | null>(null)
   const [reportReason, setReportReason] = useState('')
   const [deleteTarget, setDeleteTarget] = useState<DeleteTarget | null>(null)
+  // Which item's three-dots action menu is open, and which already-reported
+  // item a retract confirmation is showing for (issues #304, #176).
+  const [menuTarget, setMenuTarget] = useState<MenuTarget | null>(null)
+  const [retractTarget, setRetractTarget] = useState<ReportTarget | null>(null)
   const [errorMessage, setErrorMessage] = useState<string | null>(null)
   // Ids of comments whose thread below them is collapsed. Tapping a comment's
   // username/time header toggles it (issue #243).
@@ -104,11 +117,15 @@ function PostDetailView({ postId }: { postId: string }) {
   }
 
   // Local like/report state, kept in refs so the in-app reload after posting a
-  // comment/reply doesn't drop it (the API only returns server-side counts,
-  // never per-user like flags). This is in-memory only and resets on a full
-  // page reload.
+  // comment/reply doesn't drop it. The API now returns per-user is_liked /
+  // is_reported flags, so these only backstop responses that omit them; server
+  // state wins when present.
   const likedCommentIds = useRef<Set<string>>(new Set())
   const reportedCommentIds = useRef<Set<string>>(new Set())
+  // The reason the user gave when reporting a comment this session, so the
+  // retract dialog can pre-fill it even if a reload rebuilds the comment from
+  // an older API response that omits report_reason.
+  const reportedCommentReasons = useRef<Map<string, string>>(new Map())
 
   // Single in-flight guard shared by every loadAll() caller (initial load,
   // pull-to-refresh, and the post-comment/reply reloads) so two loads can't
@@ -136,8 +153,9 @@ function PostDetailView({ postId }: { postId: string }) {
         body: c.body,
         createdTime: c.creation_time,
         likeCount: c.comment_likes,
-        isLiked: likedCommentIds.current.has(c.comment_identifier),
-        isReported: reportedCommentIds.current.has(c.comment_identifier),
+        isLiked: c.is_liked ?? likedCommentIds.current.has(c.comment_identifier),
+        isReported: c.is_reported ?? reportedCommentIds.current.has(c.comment_identifier),
+        reportReason: c.report_reason ?? reportedCommentReasons.current.get(c.comment_identifier) ?? null,
         isOwn: c.author_username === currentUsername,
       })
 
@@ -157,6 +175,11 @@ function PostDetailView({ postId }: { postId: string }) {
       if (!isMounted.current) return
       setPost(details)
       setPostLikeCount(details.post_likes)
+      // Like/report state comes from the server so it survives reloads; older
+      // responses without the fields leave the current local state alone.
+      if (details.is_liked !== undefined) setPostLiked(details.is_liked)
+      if (details.is_reported !== undefined) setPostReported(details.is_reported)
+      if (details.report_reason !== undefined) setPostReportReason(details.report_reason)
 
       try {
         const refs = await apiClient.getCommentsForPost(postId, 0)
@@ -308,6 +331,33 @@ function PostDetailView({ postId }: { postId: string }) {
     }
   }
 
+  // ---- The three-dots action menu (issue #304) ----
+
+  // What the menu offers for its target: Delete for your own content, Report
+  // for someone else's, or Retract Report when you already reported it (#176).
+  function menuState(target: MenuTarget) {
+    if (target.type === 'post') {
+      return { isOwn: isOwnPost, isReported: postReported }
+    }
+    return { isOwn: target.comment.isOwn, isReported: target.comment.isReported }
+  }
+
+  function menuReport(target: MenuTarget) {
+    setMenuTarget(null)
+    setReportReason('')
+    setReportTarget(target)
+  }
+
+  function menuRetract(target: MenuTarget) {
+    setMenuTarget(null)
+    setRetractTarget(target)
+  }
+
+  function menuDelete(target: MenuTarget) {
+    setMenuTarget(null)
+    setDeleteTarget(target)
+  }
+
   // ---- Reporting ----
 
   async function submitReport() {
@@ -318,6 +368,7 @@ function PostDetailView({ postId }: { postId: string }) {
       if (target.type === 'post') {
         await apiClient.reportPost(postId, reason)
         setPostReported(true)
+        setPostReportReason(reason)
       } else {
         await apiClient.reportComment(
           postId,
@@ -326,13 +377,37 @@ function PostDetailView({ postId }: { postId: string }) {
           reason,
         )
         reportedCommentIds.current.add(target.comment.id)
-        mutateComment(target.comment.id, c => ({ ...c, isReported: true }))
+        reportedCommentReasons.current.set(target.comment.id, reason)
+        mutateComment(target.comment.id, c => ({ ...c, isReported: true, reportReason: reason }))
       }
     } catch (err) {
       setErrorMessage((err as Error).message ?? 'Failed to report.')
     } finally {
       setReportReason('')
       setReportTarget(null)
+    }
+  }
+
+  // ---- Retracting a report (issue #176) ----
+
+  async function submitRetract() {
+    const target = retractTarget
+    if (!target) return
+    try {
+      if (target.type === 'post') {
+        await apiClient.retractReportPost(postId)
+        setPostReported(false)
+        setPostReportReason(null)
+      } else {
+        await apiClient.retractReportComment(postId, target.comment.threadId, target.comment.id)
+        reportedCommentIds.current.delete(target.comment.id)
+        reportedCommentReasons.current.delete(target.comment.id)
+        mutateComment(target.comment.id, c => ({ ...c, isReported: false, reportReason: null }))
+      }
+    } catch (err) {
+      setErrorMessage((err as Error).message ?? 'Failed to retract report.')
+    } finally {
+      setRetractTarget(null)
     }
   }
 
@@ -381,6 +456,10 @@ function PostDetailView({ postId }: { postId: string }) {
     )
   }
 
+  // Compute the relative post time once: '' when creation_time is missing or
+  // unparseable, so a single value drives both the guard and the rendered label.
+  const postTime = post.creation_time ? formatRelativeTime(post.creation_time) : ''
+
   return (
     <div className="app-shell">
       <DetailBar onBack={() => navigate(-1)} />
@@ -403,6 +482,7 @@ function PostDetailView({ postId }: { postId: string }) {
         <PostThumbnail
           post={post}
           className="detail-image"
+          variant="detail"
           onDoubleClick={isOwnPost ? undefined : togglePostLike}
         />
 
@@ -424,29 +504,18 @@ function PostDetailView({ postId }: { postId: string }) {
               ⚑
             </span>
           )}
-          {/* You can't report your own post — own posts offer Delete instead. */}
-          {isOwnPost ? (
-            <button
-              type="button"
-              className="app-bar__back"
-              style={{ marginLeft: 'auto' }}
-              onClick={() => setDeleteTarget({ type: 'post' })}
-            >
-              Delete
-            </button>
-          ) : (
-            <button
-              type="button"
-              className="app-bar__back"
-              style={{ marginLeft: 'auto' }}
-              onClick={() => {
-                setReportReason('')
-                setReportTarget({ type: 'post' })
-              }}
-            >
-              Report
-            </button>
-          )}
+          {/* Three-dots menu: Delete for your own post, Report / Retract Report
+              for someone else's (issues #304, #176). */}
+          <button
+            type="button"
+            className="app-bar__back"
+            style={{ marginLeft: 'auto' }}
+            aria-label="Post options"
+            aria-haspopup="dialog"
+            onClick={() => setMenuTarget({ type: 'post' })}
+          >
+            ⋯
+          </button>
         </div>
 
         <p className="detail-caption">
@@ -460,6 +529,11 @@ function PostDetailView({ postId }: { postId: string }) {
           </button>{' '}
           {post.caption}
         </p>
+
+        {/* When the post was made, at the same coarse granularity as comment
+            times (issue #174). postTime is '' when creation_time is missing or
+            unparseable — omit the label rather than render an empty line. */}
+        {postTime && <p className="detail-time">{postTime}</p>}
 
         <div className="comment-form">
           <button
@@ -504,11 +578,7 @@ function PostDetailView({ postId }: { postId: string }) {
                     isCollapsed={collapsedIds.has(root.id)}
                     onToggleCollapse={() => toggleCollapsed(root.id)}
                     onToggleLike={() => toggleCommentLike(root)}
-                    onReport={() => {
-                      setReportReason('')
-                      setReportTarget({ type: 'comment', comment: root })
-                    }}
-                    onDelete={() => setDeleteTarget({ type: 'comment', comment: root })}
+                    onMenu={() => setMenuTarget({ type: 'comment', comment: root })}
                     onNavigate={() =>
                       navigate(`/profile/${encodeURIComponent(root.authorUsername)}`)
                     }
@@ -530,11 +600,7 @@ function PostDetailView({ postId }: { postId: string }) {
                         isCollapsed={collapsedIds.has(reply.id)}
                         onToggleCollapse={() => toggleCollapsed(reply.id)}
                         onToggleLike={() => toggleCommentLike(reply)}
-                        onReport={() => {
-                          setReportReason('')
-                          setReportTarget({ type: 'comment', comment: reply })
-                        }}
-                        onDelete={() => setDeleteTarget({ type: 'comment', comment: reply })}
+                        onMenu={() => setMenuTarget({ type: 'comment', comment: reply })}
                         onNavigate={() =>
                           navigate(`/profile/${encodeURIComponent(reply.authorUsername)}`)
                         }
@@ -586,6 +652,86 @@ function PostDetailView({ postId }: { postId: string }) {
                 onClick={submitComposer}
               >
                 {composer.type === 'reply' ? 'Send' : 'Post'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {menuTarget && (
+        <div className="modal-overlay">
+          <div
+            className="modal"
+            role="dialog"
+            aria-modal="true"
+            aria-label={menuTarget.type === 'post' ? 'Post options' : 'Comment options'}
+          >
+            <h2 className="modal__title">
+              {menuTarget.type === 'post' ? 'Post options' : 'Comment options'}
+            </h2>
+            <div className="modal__actions">
+              <button type="button" className="modal__cancel" onClick={() => setMenuTarget(null)}>
+                Cancel
+              </button>
+              {menuState(menuTarget).isOwn ? (
+                <button
+                  type="button"
+                  className="modal__confirm"
+                  onClick={() => menuDelete(menuTarget)}
+                >
+                  Delete
+                </button>
+              ) : menuState(menuTarget).isReported ? (
+                <button
+                  type="button"
+                  className="modal__confirm"
+                  onClick={() => menuRetract(menuTarget)}
+                >
+                  Retract Report
+                </button>
+              ) : (
+                <button
+                  type="button"
+                  className="modal__confirm"
+                  onClick={() => menuReport(menuTarget)}
+                >
+                  Report
+                </button>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {retractTarget && (
+        <div className="modal-overlay">
+          <div className="modal" role="dialog" aria-modal="true" aria-label="Retract report">
+            <h2 className="modal__title">Retract Report?</h2>
+            <p className="muted">
+              You reported this {retractTarget.type === 'post' ? 'post' : 'comment'} with the
+              reason below. Retracting removes your report.
+            </p>
+            <input
+              className="search-bar"
+              type="text"
+              readOnly
+              aria-label="Your report reason"
+              value={
+                (retractTarget.type === 'post'
+                  ? postReportReason
+                  : retractTarget.comment.reportReason) ?? ''
+              }
+            />
+            <div className="modal__actions">
+              <button
+                type="button"
+                className="modal__cancel"
+                onClick={() => setRetractTarget(null)}
+              >
+                Cancel
+              </button>
+              <button type="button" className="modal__confirm" onClick={submitRetract}>
+                Retract Report
               </button>
             </div>
           </div>
@@ -670,8 +816,7 @@ interface CommentRowProps {
   isCollapsed: boolean
   onToggleCollapse: () => void
   onToggleLike: () => void
-  onReport: () => void
-  onDelete: () => void
+  onMenu: () => void
   onNavigate: () => void
 }
 
@@ -680,8 +825,7 @@ function CommentRow({
   isCollapsed,
   onToggleCollapse,
   onToggleLike,
-  onReport,
-  onDelete,
+  onMenu,
   onNavigate,
 }: CommentRowProps) {
   return (
@@ -709,6 +853,21 @@ function CommentRow({
             <span className="comment-row__author">{comment.authorUsername}</span>
           </button>
           <span className="comment-row__time">{formatRelativeTime(comment.createdTime)}</span>
+          {/* Three-dots menu next to the timestamp: Delete for your own
+              comment, Report / Retract Report for someone else's (issue #304). */}
+          <button
+            type="button"
+            className="comment-row__collapse"
+            style={{ marginLeft: 0 }}
+            aria-label={`Options for comment by ${comment.authorUsername}`}
+            aria-haspopup="dialog"
+            onClick={e => {
+              e.stopPropagation()
+              onMenu()
+            }}
+          >
+            ⋯
+          </button>
           <button
             type="button"
             className="comment-row__collapse"
@@ -737,16 +896,6 @@ function CommentRow({
             </button>
           )}
           <span>{comment.likeCount} likes</span>
-          {/* You can't report your own comment — own comments offer Delete. */}
-          {comment.isOwn ? (
-            <button type="button" className="comment-reply-btn" style={{ padding: 0 }} onClick={onDelete}>
-              Delete
-            </button>
-          ) : (
-            <button type="button" className="comment-reply-btn" style={{ padding: 0 }} onClick={onReport}>
-              Report
-            </button>
-          )}
           {comment.isReported && (
             <span className="flag-icon" aria-label="Reported">
               ⚑
