@@ -42,7 +42,7 @@ object AuthRequirements {
         // Any non-alphanumeric character counts (the backend accepts them all).
         // isLetterOrDigit is Unicode-aware so accented letters aren't flagged.
         Requirement(
-            "Adding special characters (like ! @ # $ % ^ & * - _) is suggested",
+            "Adding special characters (like ! @ # \$ % ^ & * - _) is suggested",
             password.any { !it.isLetterOrDigit() && !it.isWhitespace() },
             optional = true,
         ),
