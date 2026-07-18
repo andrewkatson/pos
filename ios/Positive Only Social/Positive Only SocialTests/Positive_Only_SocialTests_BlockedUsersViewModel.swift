@@ -14,8 +14,8 @@ import Foundation
 struct Positive_Only_SocialTests_BlockedUsersViewModel {
 
     // --- SUT & Stub ---
-    var stubAPI: StatefulStubbedAPI!
-    var keychainHelper: KeychainHelperProtocol!
+    let stubAPI: StatefulStubbedAPI
+    let keychainHelper: KeychainHelperProtocol
 
     // --- Test Setup ---
     init() {
@@ -76,7 +76,7 @@ struct Positive_Only_SocialTests_BlockedUsersViewModel {
         await sut.load()
 
         // Then: Both blocked users are listed, sorted by username
-        #expect(sut.blockedUsers.map(\.username) == ["appleUser", "zebraUser"])
+        #expect(sut.blockedUsers.map { $0.username } == ["appleUser", "zebraUser"])
     }
 
     @Test func testUnblock_RemovesUserFromListAndBackend() async throws {
