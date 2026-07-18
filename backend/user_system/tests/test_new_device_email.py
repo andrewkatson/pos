@@ -10,7 +10,8 @@ from ..models import KnownDevice, PositiveOnlySocialUser
 REGISTRATION_IP = '127.0.0.1'
 NEW_IP = '203.0.113.7'
 ANOTHER_NEW_IP = '198.51.100.9'
-
+IOS_USER_AGENT = 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X)'
+ANDROID_USER_AGENT = 'Mozilla/5.0 (Linux; Android 14; Pixel 7)'
 
 class NewDeviceEmailTests(PositiveOnlySocialTestCase):
 
@@ -20,7 +21,7 @@ class NewDeviceEmailTests(PositiveOnlySocialTestCase):
         self.login_url = reverse('login_user')
         self.registration_email= list(mail.outbox)
         mail.outbox.clear()
-    def _login(self, remote_addr, remember_me=false):
+    def _login(self, remote_addr, remember_me=false, user_agent=''):
         data = {
             'username_or_email': self.local_username,
             'password': self.local_password,
@@ -28,7 +29,8 @@ class NewDeviceEmailTests(PositiveOnlySocialTestCase):
         }
         response = self.client.post(self.login_url, data=data,
                                     content_type='application/json',
-                                    REMOTE_ADDR=remote_addr)
+                                    REMOTE_ADDR=remote_addr,
+                                    HTTP_USER_AGENT=user_agent)
         self.assertEqual(response.status_code, 200)
         return response.json()
 
@@ -57,6 +59,30 @@ class NewDeviceEmailTests(PositiveOnlySocialTestCase):
         # Same IP that registration recorded -> not a new device.
         self._login(REGISTRATION_IP)
         self.assertEqual(len(mail.outbox), 0)
+    def test_login_from_same_ip_with_different_user_agent_sends_email(self):
+        user = PositiveOnlySocialUser.objects.get(username=self.local_username)
+
+        KnownDevice.objects.filter(
+        user=user,
+        ip=REGISTRATION_IP,
+        ).update(user_agent=IOS_USER_AGENT)
+
+        self._login(REGISTRATION_IP, user_agent=ANDROID_USER_AGENT)
+
+        self.assertEqual(len(mail.outbox), 1)
+
+        message = mail.outbox[0]
+        self.assertIn(self.local_email, message.to)
+        self.assertIn(REGISTRATION_IP, message.body)
+        self.assertIn('Android', message.body)
+
+        self.assertTrue(
+        KnownDevice.objects.filter(
+            user=user,
+            ip=REGISTRATION_IP,
+            user_agent=ANDROID_USER_AGENT,
+        ).exists()
+        )
 
     def test_repeated_login_from_same_new_ip_emails_only_once(self):
         self._login(NEW_IP)

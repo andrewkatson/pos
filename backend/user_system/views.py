@@ -222,25 +222,55 @@ def api_login_required(view_func):
     return _wrapped_view
 
 
-def _record_device_and_maybe_notify(user, ip, notify=True):
-    """Record that ``user`` has logged in from ``ip``.
+def _get_device_type(user_agent):
+    user_agent = user_agent.lower()
 
-    The first time we see an IP for a user (a brand-new device) we email them
-    so they are alerted to the login. ``notify`` is set False for registration,
-    where the user is plainly the one establishing the account and a "new login"
-    alert would only be noise. A failure to send the email must never block the
-    login itself, so it is logged and swallowed.
+    if 'android' in user_agent:
+        return 'Android'
+    if 'iphone' in user_agent or 'ipad' in user_agent or 'ipod' in user_agent:
+        return 'iOS'
+    if 'windows' in user_agent:
+        return 'Windows'
+    if 'macintosh' in user_agent or 'mac os x' in user_agent:
+        return 'macOS'
+    if 'linux' in user_agent:
+        return 'Linux'
+
+    return 'Unknown device'
+
+
+def _record_device_and_maybe_notify(user, ip, request=None, notify=True):
+    """Record that user has logged in from this IP and User-Agent.
+
+    Registration passes notify=False so the first device is saved without
+    sending a new-login alert. Later logins from a new IP/User-Agent pair
+    trigger the email.
     """
     if not ip:
         return
-    _, created = KnownDevice.objects.get_or_create(user=user, ip=ip)
+
+    user_agent = ''
+    if request is not None:
+        user_agent = request.META.get('HTTP_USER_AGENT', '')
+
+    _, created = KnownDevice.objects.get_or_create(
+        user=user,
+        ip=ip,
+        user_agent=user_agent,
+    )
+
     if not (created and notify):
         return
+
+    device_type = _get_device_type(user_agent)
+
     try:
         send_mail(
             "New login to your account",
-            "We noticed a login to your account from a new device "
-            f"(IP address {ip}).\n\nIf this was you, you can ignore this email. "
+            "We noticed a login to your account from a new device.\n\n"
+            f"Device type: {device_type}\n"
+            f"IP address: {ip}\n\n"
+            "If this was you, you can ignore this email. "
             "If you don't recognize this activity, please reset your password right away.",
             settings.EMAIL_HOST_USER,
             [user.email],
@@ -263,7 +293,9 @@ def _issue_email_verification_token(user):
     token = secrets.token_urlsafe(32)
     user.email_verified = False
     user.email_verification_token = hashlib.sha256(token.encode()).hexdigest()
-    user.email_verification_token_expires = timezone.now() + timedelta(hours=EMAIL_VERIFICATION_TOKEN_HOURS)
+    user.email_verification_token_expires = timezone.now() + timedelta(
+        hours=EMAIL_VERIFICATION_TOKEN_HOURS
+    )
     user.save()
     return token
 
@@ -272,6 +304,9 @@ def _email_verification_link(token):
     return f"{settings.FRONTEND_BASE_URL}/verify-email?token={token}"
 
 
+# =============================================================================
+# AUTHENTICATION VIEWS
+# =============================================================================
 # =============================================================================
 # AUTHENTICATION VIEWS
 # =============================================================================
@@ -378,7 +413,7 @@ def register(request):
 
     # Record the registering device as known so the user's first real login
     # from it is not flagged as new, but don't email them about it.
-    _record_device_and_maybe_notify(new_user, ip, notify=False)
+    _record_device_and_maybe_notify(new_user, ip, request=request, notify=False)
 
     response_data = {
         Fields.session_management_token: new_session.management_token,
@@ -485,7 +520,7 @@ def login_user(request):
 
         # Alert the user by email if this login is from a device (IP) we have
         # not seen for them before.
-        _record_device_and_maybe_notify(existing, ip)
+        _record_device_and_maybe_notify(existing, ip, request=request)
 
         response_data = {
             Fields.session_management_token: new_session.management_token,
@@ -572,9 +607,9 @@ def login_user_with_remember_me(request):
     new_session_management_token = generate_management_token()
     _ = existing.session_set.create(management_token=new_session_management_token, ip=ip)
 
-    # Alert the user by email if this remember-me login is from a device (IP)
+    # Alert the user by email if this remember-me login is from a device (IP+user-agent)
     # we have not seen for them before.
-    _record_device_and_maybe_notify(existing, ip)
+    _record_device_and_maybe_notify(existing, ip,request=request)
 
     response_data = {
         Fields.login_cookie_token: new_login_cookie_token,
