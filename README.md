@@ -100,6 +100,18 @@ ever reaches the source bucket. Any orientation is baked into the pixels first
 so the picture still displays upright. The compression Lambda likewise re-saves
 without EXIF, so the compressed bucket is metadata-free too.
 
+Images uploaded before clients stripped metadata can be cleaned in place with
+the `strip_image_metadata` management command. It sweeps both buckets and
+rewrites, losslessly (pixel data is copied verbatim, never re-encoded), any
+JPEG that carries metadata: EXIF/XMP, IPTC, comments, and post-EOI trailers
+are dropped, keeping only the EXIF Orientation tag so old photos — whose
+pixels were never rotated upright by a client — still display correctly.
+Already-clean objects are left untouched, so re-running it is cheap and safe.
+Use `--dry-run` to preview. It needs the backend's AWS credentials with
+`s3:ListBucket`, `s3:GetObject`, and `s3:PutObject` on both buckets, and
+rewriting a source-bucket object re-triggers the compression Lambda (harmless
+— it just refreshes the compressed copy).
+
 Because the upload
 happens before the backend ever sees the post, images can be left behind:
 when a post is rejected outright by the classifier, deleted, or its appeal is
