@@ -17,7 +17,7 @@ import androidx.compose.ui.unit.dp
  * requirement hints and the form-validity checks share a single source of
  * truth so they can never drift apart.
  *
- *   password     = ^(?=.*[0-9])(?=.*[a-z])(?=.*[A-Z])(?=.*-)(?=\S+$).{8,}$
+ *   password     = ^(?=.*[0-9])(?=.*[a-z])(?=.*[A-Z])(?=\S+$).{8,}$
  *   alphanumeric = ^\w{10,500}$   (used for usernames)
  */
 /**
@@ -39,12 +39,11 @@ object AuthRequirements {
         Requirement("At least one number", password.any { it.isDigit() }),
         Requirement("At least one lowercase letter", password.any { it.isLowerCase() }),
         Requirement("At least one uppercase letter", password.any { it.isUpperCase() }),
-        Requirement("At least one dash (-)", password.any { it == '-' }),
-        // Any non-alphanumeric character other than the already-required dash.
+        // Any non-alphanumeric character counts (the backend accepts them all).
         // isLetterOrDigit is Unicode-aware so accented letters aren't flagged.
         Requirement(
-            "Adding other special characters (like !) is suggested",
-            password.any { !it.isLetterOrDigit() && !it.isWhitespace() && it != '-' },
+            "Adding special characters (like ! @ # $ % ^ & * - _) is suggested",
+            password.any { !it.isLetterOrDigit() && !it.isWhitespace() },
             optional = true,
         ),
         Requirement("No spaces", password.isNotEmpty() && password.none { it.isWhitespace() }),

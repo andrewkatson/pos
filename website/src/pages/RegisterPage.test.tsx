@@ -90,17 +90,16 @@ test('password hints appear when password is typed', async () => {
   expect(screen.getByText('At least one number')).toBeInTheDocument()
   expect(screen.getByText('At least one lowercase letter')).toBeInTheDocument()
   expect(screen.getByText('At least one uppercase letter')).toBeInTheDocument()
-  expect(screen.getByText('At least one dash (-)')).toBeInTheDocument()
-  expect(screen.getByText('Adding other special characters (like !) is suggested')).toBeInTheDocument()
+  expect(screen.getByText('Adding special characters (like ! @ # $ % ^ & * - _) is suggested')).toBeInTheDocument()
   expect(screen.getByText('No spaces')).toBeInTheDocument()
 })
 
 test('special-character suggestion is neutral (optional) until a special char is present', async () => {
   renderRegisterPage()
-  const suggestionText = 'Adding other special characters (like !) is suggested'
+  const suggestionText = 'Adding special characters (like ! @ # $ % ^ & * - _) is suggested'
 
-  // No extra special character yet: advisory, not a failed requirement.
-  await userEvent.type(screen.getByLabelText('Password'), 'StrongPass1-')
+  // No special character yet: advisory, not a failed requirement.
+  await userEvent.type(screen.getByLabelText('Password'), 'StrongPass1')
   let suggestion = screen.getAllByRole('listitem').find(h => h.textContent === suggestionText)
   expect(suggestion).toHaveClass('auth-hint--optional')
   expect(suggestion).toHaveAttribute('aria-label', `${suggestionText}: optional`)
