@@ -90,7 +90,17 @@ email is best-effort — a mail failure is logged but never blocks the login.
 
 Post images live in two S3 buckets: clients upload the original to the source
 bucket (`AWS_STORAGE_BUCKET_NAME`) and a Lambda mirrors a compressed copy to
-`AWS_COMPRESSED_STORAGE_BUCKET_NAME` under the same key. Because the upload
+`AWS_COMPRESSED_STORAGE_BUCKET_NAME` under the same key.
+
+Every client strips image metadata before uploading. Each uploader (web
+`s3Uploader.ts`, iOS `AWSManager.swift`, Android `ImageUploader.kt`) always
+decodes the picked photo and re-encodes it as a fresh JPEG rather than sending
+the original file, so no EXIF — most importantly the camera's GPS coordinates —
+ever reaches the source bucket. Any orientation is baked into the pixels first
+so the picture still displays upright. The compression Lambda likewise re-saves
+without EXIF, so the compressed bucket is metadata-free too.
+
+Because the upload
 happens before the backend ever sees the post, images can be left behind:
 when a post is rejected outright by the classifier, deleted, or its appeal is
 denied. Cleanup happens at two levels (see `backend/user_system/s3.py`):

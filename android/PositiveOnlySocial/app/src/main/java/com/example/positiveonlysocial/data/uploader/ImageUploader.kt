@@ -60,10 +60,6 @@ class ImageUploader {
         Log.d("ImageUploader", "Successfully uploaded image via presigned URL")
     }
 
-    private fun isJpeg(data: ByteArray): Boolean {
-        return data.size >= 2 && data[0] == 0xFF.toByte() && data[1] == 0xD8.toByte()
-    }
-
     private fun rotateImageIfRequired(data: ByteArray, bitmap: Bitmap): Bitmap {
         try {
             val exifInterface = ExifInterface(ByteArrayInputStream(data))
@@ -88,24 +84,30 @@ class ImageUploader {
     }
 
     /**
-     * Compresses the image data to be within the specified max size.
+     * Compresses the image data to be within the specified max size and strips
+     * all metadata.
+     *
+     * We always decode to a [Bitmap] and re-encode, even when the input is
+     * already a small JPEG. Returning the original bytes untouched would upload
+     * the camera's EXIF metadata — including GPS coordinates — to the source
+     * bucket (issue #346). Decoding into a bitmap and re-encoding produces a
+     * JPEG carrying no EXIF at all; [rotateImageIfRequired] first bakes any
+     * orientation into the pixels so the picture still displays upright.
+     *
      * @param data The original image data
      * @param maxSizeBytes The maximum allowed size in bytes
-     * @return The compressed image data
+     * @return The compressed, metadata-free image data
      */
     private fun compressImage(data: ByteArray, maxSizeBytes: Long): ByteArray {
-        if (data.size <= maxSizeBytes && isJpeg(data)) {
-            Log.d("ImageUploader", "Image is already JPEG and size (${data.size} bytes) is within limits.")
-            return data
-        }
-
-        Log.d("ImageUploader", "Transcoding/compressing image to JPEG... Original size: ${data.size} bytes")
+        Log.d("ImageUploader", "Transcoding image to a metadata-free JPEG... Original size: ${data.size} bytes")
 
         var bitmap = BitmapFactory.decodeByteArray(data, 0, data.size) ?: throw IllegalArgumentException("Failed to decode image data for transcoding")
 
         bitmap = rotateImageIfRequired(data, bitmap)
 
-        var quality = 90
+        // Small inputs start from a high quality so re-encoding barely touches
+        // the picture; the loop below only steps down if the result is too big.
+        var quality = 95
         val stream = ByteArrayOutputStream()
         bitmap.compress(Bitmap.CompressFormat.JPEG, quality, stream)
         var compressedData = stream.toByteArray()

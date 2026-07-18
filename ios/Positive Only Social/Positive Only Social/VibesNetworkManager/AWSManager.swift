@@ -58,37 +58,35 @@ final class S3Uploader {
         NSLog("✅ Successfully uploaded image via presigned URL.")
     }
 
-    private func isJpeg(data: Data) -> Bool {
-        guard data.count >= 2 else { return false }
-        return data.prefix(2) == Data([0xFF, 0xD8])
-    }
-
-    /// Compresses the image data to be within the specified maximum size, and ensures it is in JPEG format.
+    /// Compresses the image data to be within the specified maximum size, ensures
+    /// it is in JPEG format, and strips its metadata.
+    ///
+    /// We always decode to a `UIImage` and re-encode, even when the input is
+    /// already a small JPEG. Returning the original bytes untouched would upload
+    /// the camera's EXIF metadata — including GPS coordinates — to the source
+    /// bucket (issue #346). Re-encoding through `UIImage.jpegData` bakes any
+    /// orientation into the pixels and drops that metadata.
     ///
     /// - Parameters:
     ///   - data: The original image data.
     ///   - maxSizeBytes: The maximum allowed size in bytes.
-    /// - Returns: The compressed image data.
+    /// - Returns: The compressed, metadata-free image data.
     func compressImage(data: Data, maxSizeBytes: Int) -> Data {
-        // 1. Check if already within limits and is already JPEG
-        if data.count <= maxSizeBytes && isJpeg(data: data) {
-            NSLog("✅ Good news, Image size (\(data.count) bytes) is within limits.")
-            return data
-        }
-
-        // 2. Convert Data to UIImage
+        // 1. Convert Data to UIImage
         guard let image = UIImage(data: data) else {
             NSLog("❌ Oops,Error: Could not decode image data")
             return data // Return original data if conversion fails
         }
 
-        // 3. Compress using JPEG (PNG does not support compression levels)
-        var compression: CGFloat = 0.9
+        // 2. Compress using JPEG (PNG does not support compression levels). Start
+        // near-lossless so an already-small photo is barely touched; the loop
+        // below only steps quality down when the result exceeds the size limit.
+        var compression: CGFloat = 0.95
         guard var imageData = image.jpegData(compressionQuality: compression) else {
             return data
         }
 
-        // 4. Iteratively reduce quality until size is met
+        // 3. Iteratively reduce quality until size is met
         while imageData.count > maxSizeBytes && compression > 0.1 {
             compression -= 0.1
             if let compressedImage = image.jpegData(compressionQuality: compression) {
@@ -96,7 +94,7 @@ final class S3Uploader {
             }
         }
 
-        // 5. If still too large at minimum quality, progressively downscale the image
+        // 4. If still too large at minimum quality, progressively downscale the image
         if imageData.count > maxSizeBytes {
             var currentImage = image
             var currentSize = currentImage.size
