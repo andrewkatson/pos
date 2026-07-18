@@ -131,7 +131,10 @@ protocol Networking {
 
     /// Gets users with a username matching the provided fragment.
     func getUsersMatchingFragment(sessionManagementToken: String, usernameFragment: String) async throws -> Data
-    
+
+    /// Gets every user the signed-in user has blocked.
+    func getBlockedUsers(sessionManagementToken: String) async throws -> Data
+
     /// Gets the details of a profile
     func getProfileDetails(sessionManagementToken: String, username: String) async throws -> Data
 

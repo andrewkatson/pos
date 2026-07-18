@@ -862,6 +862,14 @@ export class StatefulStubbedAPI implements PositiveOnlySocialAPI {
     return { message: 'User blocked' }
   }
 
+  async getBlockedUsers(): Promise<UserSearchResult[]> {
+    const user = this.requireUser()
+    return this.users
+      .filter((u) => user.blocked.has(u.id))
+      .sort((a, b) => a.username.localeCompare(b.username))
+      .map((u) => ({ username: u.username, identity_is_verified: u.isVerified }))
+  }
+
   async getProfile(username: string): Promise<ProfileDetails> {
     const user = this.requireUser()
     const target = this.findUserByName(username)
