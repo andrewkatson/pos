@@ -84,7 +84,7 @@ final class S3Uploader {
     func compressImage(data: Data, maxSizeBytes: Int) throws -> Data {
         // 1. Convert Data to UIImage
         guard let image = UIImage(data: data) else {
-            NSLog("❌ Oops,Error: Could not decode image data")
+            NSLog("❌ Oops, Error: Could not decode image data")
             throw ImageUploadError.imageProcessingFailed
         }
 
@@ -93,7 +93,7 @@ final class S3Uploader {
         // below only steps quality down when the result exceeds the size limit.
         var compression: CGFloat = 0.95
         guard var imageData = image.jpegData(compressionQuality: compression) else {
-            NSLog("❌ Oops,Error: Could not re-encode image as JPEG")
+            NSLog("❌ Oops, Error: Could not re-encode image as JPEG")
             throw ImageUploadError.imageProcessingFailed
         }
 

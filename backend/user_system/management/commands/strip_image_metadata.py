@@ -38,43 +38,43 @@ class Command(BaseCommand):
         for bucket in (settings.AWS_STORAGE_BUCKET_NAME, settings.AWS_COMPRESSED_STORAGE_BUCKET_NAME):
             if not bucket:
                 continue
+            # Iterate the paginator directly so memory stays bounded on large
+            # buckets. Per-object failures are caught inside the loop, so the
+            # outer except only fires when the listing itself breaks.
             try:
-                objects = list(s3.iter_bucket_objects(bucket, client))
+                for obj in s3.iter_bucket_objects(bucket, client):
+                    key = obj['Key']
+                    try:
+                        body = client.get_object(Bucket=bucket, Key=key)['Body'].read()
+                        stripped = strip_jpeg_metadata(body)
+                        if stripped == body:
+                            # Not a JPEG, unparseable, or already metadata-free —
+                            # either way there is nothing to rewrite.
+                            clean += 1
+                            continue
+                        if dry_run:
+                            self.stdout.write(f"[dry-run] would rewrite s3://{bucket}/{key}")
+                        else:
+                            # Mirrors how the compression Lambda writes objects.
+                            # Note: rewriting a source-bucket object re-triggers
+                            # that Lambda, which refreshes the compressed copy —
+                            # harmless, since its output is already metadata-free.
+                            client.put_object(
+                                Bucket=bucket,
+                                Key=key,
+                                Body=stripped,
+                                ContentType=s3.UPLOAD_CONTENT_TYPE,
+                            )
+                            logger.info("Stripped metadata from s3://%s/%s", bucket, key)
+                        rewritten += 1
+                    except Exception:
+                        logger.exception("Failed to strip s3://%s/%s; continuing.", bucket, key)
+                        self.stderr.write(f"Failed to strip s3://{bucket}/{key}; continuing.")
+                        failed += 1
             except Exception:
                 logger.exception("Failed to list bucket %s; skipping it.", bucket)
                 self.stderr.write(f"Failed to list bucket {bucket}; skipping it.")
                 failed += 1
-                continue
-
-            for obj in objects:
-                key = obj['Key']
-                try:
-                    body = client.get_object(Bucket=bucket, Key=key)['Body'].read()
-                    stripped = strip_jpeg_metadata(body)
-                    if stripped == body:
-                        # Not a JPEG, unparseable, or already metadata-free —
-                        # either way there is nothing to rewrite.
-                        clean += 1
-                        continue
-                    if dry_run:
-                        self.stdout.write(f"[dry-run] would rewrite s3://{bucket}/{key}")
-                    else:
-                        # Mirrors how the compression Lambda writes objects.
-                        # Note: rewriting a source-bucket object re-triggers
-                        # that Lambda, which refreshes the compressed copy —
-                        # harmless, since its output is already metadata-free.
-                        client.put_object(
-                            Bucket=bucket,
-                            Key=key,
-                            Body=stripped,
-                            ContentType=s3.UPLOAD_CONTENT_TYPE,
-                        )
-                        logger.info("Stripped metadata from s3://%s/%s", bucket, key)
-                    rewritten += 1
-                except Exception:
-                    logger.exception("Failed to strip s3://%s/%s; continuing.", bucket, key)
-                    self.stderr.write(f"Failed to strip s3://{bucket}/{key}; continuing.")
-                    failed += 1
 
         verb = "Would rewrite" if dry_run else "Rewrote"
         summary = (f"{verb} {rewritten} object(s); {clean} already clean; "
