@@ -100,9 +100,12 @@ final class S3Uploader {
             throw ImageUploadError.imageProcessingFailed
         }
 
-        // 3. Iteratively reduce quality until size is met
+        // 3. Iteratively reduce quality until size is met, clamping at the 0.1
+        // floor so the last step encodes at exactly 0.1 rather than below it
+        // (the downscale loop reuses `compression`, so undershooting would
+        // degrade every downscaled attempt too).
         while imageData.count > maxSizeBytes && compression > 0.1 {
-            compression -= 0.1
+            compression = max(compression - 0.1, 0.1)
             if let compressedImage = image.jpegData(compressionQuality: compression) {
                 imageData = compressedImage
             }

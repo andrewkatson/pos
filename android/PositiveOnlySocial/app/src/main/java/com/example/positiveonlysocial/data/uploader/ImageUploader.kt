@@ -116,10 +116,13 @@ class ImageUploader {
         bitmap.compress(Bitmap.CompressFormat.JPEG, quality, stream)
         var compressedData = stream.toByteArray()
 
-        // Iteratively reduce quality until size is under limit or quality is too low
+        // Iteratively reduce quality until size is under limit, clamping at the
+        // quality-10 floor so the last step encodes at exactly 10 rather than
+        // below it (the downscale loop reuses `quality`, so undershooting would
+        // degrade every downscaled attempt too).
         while (compressedData.size > maxSizeBytes && quality > 10) {
             val nextStream = ByteArrayOutputStream()
-            quality -= 10
+            quality = maxOf(quality - 10, 10)
             bitmap.compress(Bitmap.CompressFormat.JPEG, quality, nextStream)
             compressedData = nextStream.toByteArray()
             Log.d("ImageUploader", "Compressed to quality $quality, size: ${compressedData.size} bytes")
