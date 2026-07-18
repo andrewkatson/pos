@@ -94,6 +94,10 @@ class ImageUploader {
      * JPEG carrying no EXIF at all; [rotateImageIfRequired] first bakes any
      * orientation into the pixels so the picture still displays upright.
      *
+     * If the image exceeds [maxSizeBytes], quality is lowered step by step and
+     * then the image is progressively downscaled until it fits — the same
+     * strategy the web and iOS uploaders use.
+     *
      * @param data The original image data
      * @param maxSizeBytes The maximum allowed size in bytes
      * @return The compressed, metadata-free image data
@@ -119,6 +123,23 @@ class ImageUploader {
             bitmap.compress(Bitmap.CompressFormat.JPEG, quality, nextStream)
             compressedData = nextStream.toByteArray()
             Log.d("ImageUploader", "Compressed to quality $quality, size: ${compressedData.size} bytes")
+        }
+
+        // Still too big at the lowest quality — progressively downscale until it
+        // fits, the same strategy the web and iOS uploaders use.
+        while (compressedData.size > maxSizeBytes && bitmap.width > 1 && bitmap.height > 1) {
+            val scaled = Bitmap.createScaledBitmap(
+                bitmap,
+                maxOf(1, (bitmap.width * 0.9).toInt()),
+                maxOf(1, (bitmap.height * 0.9).toInt()),
+                true
+            )
+            bitmap.recycle()
+            bitmap = scaled
+            val nextStream = ByteArrayOutputStream()
+            bitmap.compress(Bitmap.CompressFormat.JPEG, quality, nextStream)
+            compressedData = nextStream.toByteArray()
+            Log.d("ImageUploader", "Downscaled to ${bitmap.width}x${bitmap.height}, size: ${compressedData.size} bytes")
         }
 
         bitmap.recycle() // Free memory
