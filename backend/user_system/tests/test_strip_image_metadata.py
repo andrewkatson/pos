@@ -86,6 +86,21 @@ class StripJpegMetadataTests(TestCase):
         stripped = strip_jpeg_metadata(original)
         self.assertIsNone(exif_of(stripped).get(ORIENTATION_TAG))
 
+    def test_fill_bytes_are_preserved(self):
+        # Padding 0xFF fill bytes before a marker are legal; a clean JPEG
+        # containing them must round-trip byte-identically so the backfill
+        # command does not rewrite objects that carry no metadata.
+        clean = make_jpeg()
+        padded = clean[:2] + b'\xff' + clean[2:]
+        self.assertEqual(strip_jpeg_metadata(padded), padded)
+
+    def test_stray_soi_marker_is_a_parse_failure(self):
+        # SOI is only valid at the very start; mid-stream it is malformed, so
+        # the stripper must fall back to returning the input unchanged.
+        clean = make_jpeg()
+        malformed = clean[:2] + b'\xff\xd8' + clean[2:]
+        self.assertEqual(strip_jpeg_metadata(malformed), malformed)
+
     def test_non_jpeg_is_returned_unchanged(self):
         img = Image.new('RGB', (4, 4))
         buf = io.BytesIO()

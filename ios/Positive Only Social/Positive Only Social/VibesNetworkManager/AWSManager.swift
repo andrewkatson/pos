@@ -65,8 +65,11 @@ final class S3Uploader {
         NSLog("✅ Successfully uploaded image via presigned URL.")
     }
 
-    /// Compresses the image data to be within the specified maximum size, ensures
-    /// it is in JPEG format, and strips its metadata.
+    /// Compresses the image data to fit within the specified maximum size,
+    /// ensures it is in JPEG format, and strips its metadata. The size limit is
+    /// best-effort: if re-encoding fails partway through the downscaling loop,
+    /// the smallest JPEG produced so far is returned even if it still exceeds
+    /// `maxSizeBytes`.
     ///
     /// We always decode to a `UIImage` and re-encode, even when the input is
     /// already a small JPEG. Returning the original bytes untouched would upload

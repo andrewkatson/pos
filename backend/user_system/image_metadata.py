@@ -72,13 +72,17 @@ def _rebuild(data, orientation):
         if data[i] != 0xFF:
             raise ValueError(f"expected a marker at offset {i}")
         marker = data[i + 1]
-        if marker == 0xFF:  # padding fill byte before a marker
+        if marker == 0xFF:  # padding fill byte before a marker — copy it
+            # through so an already-clean JPEG round-trips byte-identically.
+            out += b'\xff'
             i += 1
             continue
+        if marker == 0xD8:  # SOI is only valid at the very start
+            raise ValueError(f"unexpected SOI marker at offset {i}")
         if marker == 0xD9:  # EOI — done; drop any trailer after it.
             out += b'\xff\xd9'
             return bytes(out)
-        if marker == 0x01 or 0xD0 <= marker <= 0xD8:  # standalone markers
+        if marker == 0x01 or 0xD0 <= marker <= 0xD7:  # standalone markers
             out += data[i:i + 2]
             i += 2
             continue
