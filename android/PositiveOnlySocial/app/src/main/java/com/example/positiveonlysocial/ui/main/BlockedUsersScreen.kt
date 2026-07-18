@@ -44,7 +44,7 @@ fun BlockedUsersScreen(
         val blockedUsers by viewModel.blockedUsers.collectAsState()
         val isLoading by viewModel.isLoading.collectAsState()
         val errorMessage by viewModel.errorMessage.collectAsState()
-        val unblockingUsername by viewModel.unblockingUsername.collectAsState()
+        val unblockingUsernames by viewModel.unblockingUsernames.collectAsState()
 
         LaunchedEffect(Unit) { viewModel.load() }
 
@@ -99,7 +99,7 @@ fun BlockedUsersScreen(
                         Spacer(Modifier.weight(1f))
                         Button(
                             onClick = { viewModel.unblock(user.username) },
-                            enabled = unblockingUsername != user.username,
+                            enabled = user.username !in unblockingUsernames,
                             modifier = Modifier.testTag("unblockButton")
                         ) {
                             Text("Unblock")

@@ -36,7 +36,7 @@ struct BlockedUsersView: View {
                     }
                     .buttonStyle(.borderedProminent)
                     .controlSize(.small)
-                    .disabled(viewModel.unblockingUsername == user.username)
+                    .disabled(viewModel.unblockingUsernames.contains(user.username))
                     .accessibilityIdentifier("UnblockButton")
                 }
             }

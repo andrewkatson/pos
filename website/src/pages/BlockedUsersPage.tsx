@@ -30,8 +30,9 @@ function BlockedUsersView() {
   const [blockedUsers, setBlockedUsers] = useState<UserSearchResult[]>([])
   const [isLoading, setIsLoading] = useState(true)
   const [errorMessage, setErrorMessage] = useState<string | null>(null)
-  // The username currently being unblocked, so its button can be disabled.
-  const [unblocking, setUnblocking] = useState<string | null>(null)
+  // The usernames with an unblock request in flight, so each row's button can
+  // be disabled independently (several unblocks may overlap).
+  const [unblocking, setUnblocking] = useState<ReadonlySet<string>>(new Set())
 
   const load = useCallback(async () => {
     try {
@@ -51,7 +52,7 @@ function BlockedUsersView() {
   }, [load])
 
   async function unblock(username: string) {
-    setUnblocking(username)
+    setUnblocking(current => new Set(current).add(username))
     setErrorMessage(null)
     try {
       await apiClient.toggleBlock(username)
@@ -61,7 +62,12 @@ function BlockedUsersView() {
       if (isMounted.current)
         setErrorMessage((err as ApiError).message ?? 'Failed to unblock user.')
     } finally {
-      if (isMounted.current) setUnblocking(null)
+      if (isMounted.current)
+        setUnblocking(current => {
+          const next = new Set(current)
+          next.delete(username)
+          return next
+        })
     }
   }
 
@@ -113,7 +119,7 @@ function BlockedUsersView() {
                   <button
                     type="button"
                     className="btn btn-primary appeal-item__action"
-                    disabled={unblocking === user.username}
+                    disabled={unblocking.has(user.username)}
                     onClick={() => void unblock(user.username)}
                   >
                     Unblock

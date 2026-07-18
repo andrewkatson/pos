@@ -35,9 +35,12 @@ class BlockedUsersViewModel(
     private val _errorMessage = MutableStateFlow<String?>(null)
     val errorMessage: StateFlow<String?> = _errorMessage.asStateFlow()
 
-    /** The username currently being unblocked, so its button can be disabled. */
-    private val _unblockingUsername = MutableStateFlow<String?>(null)
-    val unblockingUsername: StateFlow<String?> = _unblockingUsername.asStateFlow()
+    /**
+     * The usernames with an unblock request in flight, so each row's button
+     * can be disabled independently (several unblocks may overlap).
+     */
+    private val _unblockingUsernames = MutableStateFlow<Set<String>>(emptySet())
+    val unblockingUsernames: StateFlow<Set<String>> = _unblockingUsernames.asStateFlow()
 
     private val service = "positive-only-social.Positive-Only-Social"
 
@@ -84,7 +87,7 @@ class BlockedUsersViewModel(
 
     /** Unblocks a user via toggle_block and removes them from the list. */
     fun unblock(username: String) {
-        _unblockingUsername.value = username
+        _unblockingUsernames.value = _unblockingUsernames.value + username
         _errorMessage.value = null
         viewModelScope.launch {
             try {
@@ -103,7 +106,7 @@ class BlockedUsersViewModel(
                 _errorMessage.value = ApiErrors.messageFor(e, fallback = "Request failed. Please try again.")
                 Log.e(TAG, "Error unblocking user", e)
             } finally {
-                _unblockingUsername.value = null
+                _unblockingUsernames.value = _unblockingUsernames.value - username
             }
         }
     }

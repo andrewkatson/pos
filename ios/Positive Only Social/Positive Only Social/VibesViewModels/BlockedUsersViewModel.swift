@@ -19,8 +19,9 @@ final class BlockedUsersViewModel: ObservableObject {
     @Published var blockedUsers: [User] = []
     @Published var isLoading = false
     @Published var errorMessage: String?
-    /// The username currently being unblocked, so its button can be disabled.
-    @Published var unblockingUsername: String?
+    /// The usernames with an unblock request in flight, so each row's button
+    /// can be disabled independently (several unblocks may overlap).
+    @Published var unblockingUsernames: Set<String> = []
 
     init(api: Networking, keychainHelper: KeychainHelperProtocol, account: String = "userSessionToken") {
         self.api = api
@@ -56,9 +57,9 @@ final class BlockedUsersViewModel: ObservableObject {
 
     /// Unblocks a user via toggle_block and removes them from the list.
     func unblock(username: String) async {
-        unblockingUsername = username
+        unblockingUsernames.insert(username)
         errorMessage = nil
-        defer { unblockingUsername = nil }
+        defer { unblockingUsernames.remove(username) }
         do {
             guard let session = try loadSession() else {
                 errorMessage = "You must be logged in to unblock a user."

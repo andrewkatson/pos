@@ -80,7 +80,7 @@ class BlockedUsersViewModelTest {
 
         assertEquals(listOf(User("bob", false)), viewModel.blockedUsers.value)
         assertNull(viewModel.errorMessage.value)
-        assertNull(viewModel.unblockingUsername.value)
+        assertEquals(emptySet<String>(), viewModel.unblockingUsernames.value)
     }
 
     @Test
