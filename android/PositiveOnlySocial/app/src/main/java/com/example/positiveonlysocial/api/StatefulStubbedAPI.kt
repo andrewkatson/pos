@@ -398,8 +398,9 @@ class StatefulStubbedAPI : PositiveOnlySocialAPI {
 
         // Stub pre-filter, mirroring the backend's cheap inline check (#282): a
         // blatant hit is rejected immediately and the post is never created.
+        // 400, matching the real backend's validation/moderation rejection.
         if (request.caption.contains("negative")) {
-            return errorGeneric(404, "Text is not positive")
+            return errorGeneric(400, "Text is not positive")
         }
 
         val newPost = PostMock(

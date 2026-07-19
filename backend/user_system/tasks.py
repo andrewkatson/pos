@@ -24,7 +24,6 @@ from django.db import transaction
 from django.db.models import F
 
 from .classifiers import image_classifier, text_classifier
-from .classifiers.classifier_constants import REASON_PHRASES
 from .classifiers.classifier_utils import ClassificationResult
 from .constants import (
     HIDDEN_REASON_NONE, HIDDEN_REASON_CLASSIFIER,
