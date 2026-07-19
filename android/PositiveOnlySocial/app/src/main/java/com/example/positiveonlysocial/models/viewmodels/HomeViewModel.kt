@@ -11,6 +11,8 @@ import com.example.positiveonlysocial.data.model.UserSession
 import com.example.positiveonlysocial.data.security.KeychainHelperProtocol
 import com.example.positiveonlysocial.util.PostEvents
 import kotlinx.coroutines.FlowPreview
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -50,6 +52,23 @@ class HomeViewModel(
     private var canLoadMorePosts = true
     private var currentPage = 0
     private val service = "positive-only-social.Positive-Only-Social"
+
+    // Reconciling async post classification (issue #282): a short bounded poll
+    // runs while any of the user's own posts is pending, then stops; the
+    // ordinary mount/pull-to-refresh reload is the backstop after that. A
+    // rejection surfaces once through `reviewNotice`.
+    private val _reviewNotice = MutableStateFlow<String?>(null)
+    val reviewNotice: StateFlow<String?> = _reviewNotice.asStateFlow()
+
+    private var statusPollJob: Job? = null
+    private var statusPollAttempts = 0
+    // ~30s of checks, 3s apart. Internal so tests can shorten the interval.
+    var statusPollIntervalMs = 3000L
+    private val statusPollMaxAttempts = 10
+
+    fun dismissReviewNotice() {
+        _reviewNotice.value = null
+    }
 
     init {
         viewModelScope.launch {
@@ -99,6 +118,9 @@ class HomeViewModel(
                     _userPosts.value = newPosts
                     canLoadMorePosts = newPosts.isNotEmpty()
                     currentPage = if (newPosts.isEmpty()) 0 else 1
+                    // A fresh first page grants a fresh reconcile-poll budget (#282).
+                    statusPollAttempts = 0
+                    startStatusPollIfNeeded()
                 } else {
                     _errorMessage.value = ApiErrors.messageFor(response, fallback = "Something went wrong. Please try again.")
                 }
@@ -137,6 +159,7 @@ class HomeViewModel(
                         _userPosts.value += newPosts
                         currentPage += 1
                     }
+                    startStatusPollIfNeeded()
                 } else {
                     _errorMessage.value = ApiErrors.messageFor(response, fallback = "Something went wrong. Please try again.")
                 }
@@ -146,6 +169,58 @@ class HomeViewModel(
             } finally {
                 _isLoadingNextPage.value = false
             }
+        }
+    }
+
+    /**
+     * Starts (or continues) the short bounded status poll (#282) when any of
+     * the user's own posts is still pending classification. No-op when nothing
+     * is pending, a poll is already scheduled, or the budget is spent.
+     */
+    private fun startStatusPollIfNeeded() {
+        val pendingIds = _userPosts.value.filter { it.status == "pending" }.map { it.postIdentifier }
+        if (pendingIds.isEmpty() || statusPollJob != null || statusPollAttempts >= statusPollMaxAttempts) return
+
+        statusPollJob = viewModelScope.launch {
+            delay(statusPollIntervalMs)
+            // Clear before polling so the poll round itself can re-arm the
+            // next round (directly or via the reload it triggers).
+            statusPollJob = null
+            statusPollAttempts += 1
+            pollPendingStatuses(pendingIds)
+        }
+    }
+
+    /**
+     * One poll round (#282): check each pending post's status. When any has
+     * resolved, reload the grid (approved posts lose their badge; final
+     * rejections drop out) and surface a rejection notice; otherwise re-arm
+     * the timer within the budget.
+     */
+    private suspend fun pollPendingStatuses(pendingIds: List<String>) {
+        val userSession = keychainHelper.load(UserSession::class.java, service, account) ?: return
+
+        var anyResolved = false
+        for (postId in pendingIds) {
+            try {
+                val response = api.getPostStatus(userSession.sessionToken, postId)
+                val body = response.body()
+                if (response.isSuccessful && body != null && body.status != "pending") {
+                    anyResolved = true
+                    if (body.status == "rejected" || body.status == "rejected_final") {
+                        _reviewNotice.value = body.message
+                            ?: "One of your recent posts did not pass automated review."
+                    }
+                }
+            } catch (e: Exception) {
+                Log.e(TAG, "Error polling post status for $postId", e)
+            }
+        }
+
+        if (anyResolved) {
+            refreshMyPosts()
+        } else {
+            startStatusPollIfNeeded()
         }
     }
 

@@ -4,13 +4,17 @@ from django.urls import reverse
 
 from .test_parent_case import PositiveOnlySocialTestCase
 from ..classifiers.classifier_constants import POSITIVE_IMAGE_URL, POSITIVE_IMAGE_FILENAME, NEGATIVE_IMAGE_FILENAME, POSITIVE_TEXT, NEGATIVE_TEXT, NEGATIVE_IMAGE_URL
-from ..constants import Fields, MAX_CAPTION_LENGTH
+from ..constants import Fields, MAX_CAPTION_LENGTH, \
+    HIDDEN_REASON_CLASSIFIER_FINAL, HIDDEN_REASON_PENDING_CLASSIFICATION, \
+    POST_STATUS_PENDING
 from ..views import get_user_with_username
 
 # --- Constants ---
 invalid_session_management_token = '?'
 invalid_image_url = '?'
-invalid_caption = 'DROP TABLE x;'
+# Trips the local pre-filter (issue #282), so it is rejected inline without
+# the post ever being created.
+profane_caption = 'what a shit day'
 
 class MakePostTests(PositiveOnlySocialTestCase):
 
@@ -63,12 +67,13 @@ class MakePostTests(PositiveOnlySocialTestCase):
 
         self.assertEqual(response.status_code, 400)
 
-    def test_invalid_caption_returns_bad_response(self):
+    def test_profane_caption_fails_the_prefilter_inline(self):
         """
-        Tests that a malformed caption is rejected.
+        A caption that trips the local pre-filter (issue #282) is rejected
+        immediately — no post is created and the rejection is final.
         """
         data = self.valid_data.copy()
-        data['caption'] = invalid_caption
+        data['caption'] = profane_caption
 
         response = self.client.post(
             self.url,
@@ -78,13 +83,39 @@ class MakePostTests(PositiveOnlySocialTestCase):
         )
 
         self.assertEqual(response.status_code, 400)
+        body = response.json()
+        self.assertIn("Text is not positive", body.get('error', ''))
+        self.assertFalse(body[Fields.appealable])
+        self.assertEqual(self.user.post_set.count(), 0)
+
+    def test_provider_failure_leaves_post_pending(self):
+        """
+        With no AI provider keys configured (this test sets no TESTING env and
+        no API keys), classification is a provider failure, not a verdict. The
+        post must fail closed: created but stuck hidden in the pending state
+        rather than published or falsely rejected (issue #282).
+        """
+        with patch.dict(os.environ, {}, clear=True):
+            response = self.client.post(
+                self.url,
+                data=self.valid_data,
+                content_type='application/json',
+                **self.valid_header
+            )
+
+        self.assertEqual(response.status_code, 201)
+        post = self.user.post_set.get()
+        self.assertTrue(post.hidden)
+        self.assertEqual(post.hidden_reason, HIDDEN_REASON_PENDING_CLASSIFICATION)
 
     # The reason this test isn't "negative" in title is because the classifier looks for "negative" in tests
     # in the username and will fail this test
     @patch.dict(os.environ, {"TESTING": "True"}, clear=True)
-    def test_not_positive_image_returns_bad_response(self):
+    def test_not_positive_image_resolves_to_final_rejection(self):
         """
-        Tests that a negative image (as per the fake classifier) is rejected.
+        A negative image (as per the fake classifier) is accepted as pending
+        (classification is async, issue #282) and then resolved by the eager
+        worker into a non-appealable final-rejection tombstone.
         """
         data = {'image_url': f'https://test-bucket.s3.amazonaws.com/{self.user.id}/{NEGATIVE_IMAGE_FILENAME}', 'caption': POSITIVE_TEXT}
 
@@ -95,15 +126,19 @@ class MakePostTests(PositiveOnlySocialTestCase):
             **self.valid_header
         )
 
-        self.assertEqual(response.status_code, 400)
-        self.assertIn("Image is not positive", response.json().get('error', ''))
+        self.assertEqual(response.status_code, 201)
+        self.assertEqual(response.json()[Fields.status], POST_STATUS_PENDING)
+        post = self.user.post_set.get()
+        self.assertTrue(post.hidden)
+        self.assertEqual(post.hidden_reason, HIDDEN_REASON_CLASSIFIER_FINAL)
 
     # The reason this test isn't "negative" in title is because the classifier looks for "negative" in tests
     # in the username and will fail this test
     @patch.dict(os.environ, {"TESTING": "True"}, clear=True)
-    def test_not_positive_caption_returns_bad_response(self):
+    def test_not_positive_caption_resolves_to_final_rejection(self):
         """
-        Tests that a negative caption (as per the fake classifier) is rejected.
+        A negative caption (as per the fake classifier) is accepted as pending
+        and then resolved into a final-rejection tombstone by the worker.
         """
         data = self.valid_data.copy()
         data['caption'] = NEGATIVE_TEXT
@@ -115,8 +150,10 @@ class MakePostTests(PositiveOnlySocialTestCase):
             **self.valid_header
         )
 
-        self.assertEqual(response.status_code, 400)
-        self.assertIn("Text is not positive", response.json().get('error', ''))
+        self.assertEqual(response.status_code, 201)
+        post = self.user.post_set.get()
+        self.assertTrue(post.hidden)
+        self.assertEqual(post.hidden_reason, HIDDEN_REASON_CLASSIFIER_FINAL)
 
     @patch.dict(os.environ, {"TESTING": "True"}, clear=True)
     def test_make_post_returns_good_response_and_adds_post_to_user(self):
@@ -152,10 +189,11 @@ class MakePostTests(PositiveOnlySocialTestCase):
     @patch.dict(os.environ, {"TESTING": "True"}, clear=True)
     def test_text_rejection_takes_precedence_over_image(self):
         """
-        When the caption fails the text classifier, the request is rejected with
-        the text-not-positive error regardless of the image result. The text and
-        image classifiers now run concurrently (so the image classifier may be
-        invoked), but a final text rejection still wins the user-facing message.
+        When the caption fails the text classifier, the recorded rejection
+        carries the text reason regardless of the image result (text
+        precedence, matching the old synchronous ordering). Classification is
+        async (issue #282), so the outcome lands on the post row, not the
+        response.
         """
         data = self.valid_data.copy()
         data['caption'] = NEGATIVE_TEXT
@@ -167,8 +205,9 @@ class MakePostTests(PositiveOnlySocialTestCase):
             **self.valid_header
         )
 
-        self.assertEqual(response.status_code, 400)
-        self.assertIn("Text is not positive", response.json().get('error', ''))
+        self.assertEqual(response.status_code, 201)
+        post = self.user.post_set.get()
+        self.assertEqual(post.hidden_reason, HIDDEN_REASON_CLASSIFIER_FINAL)
 
     def test_image_url_with_wrong_user_prefix_returns_bad_response(self):
         """

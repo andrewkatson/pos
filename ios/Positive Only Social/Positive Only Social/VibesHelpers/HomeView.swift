@@ -80,6 +80,20 @@ struct MyPostsGridView: View {
             .navigationTitle("Your Posts")
             // The searchable modifier provides the search bar UI and manages its state.
             .searchable(text: $viewModel.searchText, prompt: "Search for Users")
+            // Surfaces the outcome when a post's async review (#282) resolves
+            // to a rejection while this grid is visible.
+            .alert(
+                "Post Review",
+                isPresented: Binding(
+                    get: { viewModel.reviewNotice != nil },
+                    set: { if !$0 { viewModel.reviewNotice = nil } }
+                )
+            ) {
+                Button("OK") { viewModel.reviewNotice = nil }
+                    .accessibilityIdentifier("OkButtonReviewNotice")
+            } message: {
+                Text(viewModel.reviewNotice ?? "")
+            }
             .refreshable {
                 // Pull-to-refresh: reload the newest posts from the backend.
                 // Run the reload in an unstructured Task so SwiftUI cancelling
@@ -119,6 +133,20 @@ struct MyPostsGridView: View {
                                 caption: post.caption
                             )
                         }
+                        .overlay(alignment: .bottom) {
+                            // Author-only classification state (#282): "In
+                            // review" while the async classifier runs, or the
+                            // appeal hint on a rejection.
+                            if let badge = statusBadgeLabel(for: post) {
+                                Text(badge)
+                                    .font(.caption2)
+                                    .foregroundColor(.white)
+                                    .frame(maxWidth: .infinity)
+                                    .padding(.vertical, 3)
+                                    .background(Color.black.opacity(0.72))
+                                    .accessibilityIdentifier("PostStatusBadge")
+                            }
+                        }
                         .clipped()
                 }
 
@@ -134,6 +162,15 @@ struct MyPostsGridView: View {
         }
         // Black backing shows through the 1pt gaps as thin borders between posts.
         .background(Color.black)
+    }
+
+    /// Overlay label for the author's own pending/rejected grid tiles (#282).
+    private func statusBadgeLabel(for post: Post) -> String? {
+        switch post.status {
+        case "pending": return "In review"
+        case "rejected": return "Hidden — you can appeal"
+        default: return nil
+        }
     }
 }
 

@@ -26,6 +26,7 @@ import type {
   MessageResponse,
   MyAppeal,
   PostDetails,
+  PostStatusResponse,
   ProfileDetails,
   RegisterRequest,
   ReplyResponse,
@@ -445,6 +446,12 @@ export class ApiClient implements PositiveOnlySocialAPI {
 
   getPostDetails(postIdentifier: string): Promise<PostDetails> {
     return this.request<PostDetails>('GET', `/posts/${postIdentifier}/details/`, { auth: true })
+  }
+
+  getPostStatus(postIdentifier: string): Promise<PostStatusResponse> {
+    return this.request<PostStatusResponse>('GET', `/posts/${postIdentifier}/status/`, {
+      auth: true,
+    })
   }
 
   // ===========================================================================

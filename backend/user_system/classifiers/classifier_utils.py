@@ -44,11 +44,16 @@ class ClassificationResult:
     call sites keep working. `appealable` only matters when `allowed` is False;
     the appeal system itself is a future feature. `reason_code` is set on
     rejections when at least one AI cited a content rule; None otherwise.
+    `provider_failure` marks a rejection that reflects infrastructure rather
+    than content — no provider produced a usable score (no keys, all calls
+    errored, or the image could not even be fetched). The async classification
+    worker retries those instead of recording a real rejection.
     """
     allowed: bool
     appealable: bool = False
     scores: list = field(default_factory=list)
     reason_code: str = None
+    provider_failure: bool = False
 
     def __bool__(self):
         return self.allowed
@@ -149,7 +154,7 @@ def classify_with_thresholds(available_apis, call_fn):
     all the content is rejected and not appealable.
     """
     if not available_apis:
-        return ClassificationResult(allowed=False)
+        return ClassificationResult(allowed=False, provider_failure=True)
 
     order = random.sample(available_apis, len(available_apis))
     scores = []
@@ -183,7 +188,7 @@ def classify_with_thresholds(available_apis, call_fn):
 
     if not scores:
         logger.warning("No AI produced a usable score. Rejecting without appeal.")
-        return ClassificationResult(allowed=False)
+        return ClassificationResult(allowed=False, provider_failure=True)
 
     appealable = get_zone(scores[-1]) == ZONE_MIDDLE
     logger.info("Cascade exhausted available AIs. Rejecting (appealable=%s).", appealable)

@@ -20,6 +20,7 @@ import type {
   MessageResponse,
   MyAppeal,
   PostDetails,
+  PostStatusResponse,
   ProfileDetails,
   RegisterRequest,
   ReplyResponse,
@@ -72,6 +73,8 @@ export interface PositiveOnlySocialAPI {
   getFollowedFeed(batch: number): Promise<FeedPost[]>
   getPostsForUser(username: string, batch: number): Promise<FeedPost[]>
   getPostDetails(postIdentifier: string): Promise<PostDetails>
+  /** Classification status of one of the caller's own posts (issue #282). */
+  getPostStatus(postIdentifier: string): Promise<PostStatusResponse>
 
   // Comments
   commentOnPost(postIdentifier: string, commentText: string): Promise<CommentOnPostResponse>
