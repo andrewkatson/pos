@@ -168,8 +168,16 @@ def classify_post(post_identifier):
         return
 
     # Count the attempt before doing the (fallible) external work, so the
-    # sweep's alerting sees every try including ones that raised.
-    Post.objects.filter(pk=post.pk).update(classification_attempts=F('classification_attempts') + 1)
+    # sweep's alerting sees every try including ones that raised. The pending
+    # filter makes the re-check and the increment one atomic UPDATE: a
+    # duplicate delivery that lost the race neither burns retry budget nor
+    # runs the (billable) cascades below.
+    still_pending = Post.objects.filter(
+        pk=post.pk, hidden_reason=HIDDEN_REASON_PENDING_CLASSIFICATION,
+    ).update(classification_attempts=F('classification_attempts') + 1)
+    if not still_pending:
+        logger.info("classify_post: post %s was resolved concurrently; nothing to do.", post_identifier)
+        return
 
     # The cascades run outside any DB transaction/lock: they can take minutes
     # in the worst case and must never pin a row lock while they do.
