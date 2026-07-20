@@ -117,23 +117,28 @@ class SettingsViewModel(
 
     // MARK: - Two-Factor Authentication (issue #348)
 
-    // Guards against repeated taps launching concurrent setup coroutines that
-    // would race to overwrite _totpSetup.
-    private var totpSetupInFlight = false
+    // Monotonic id for the current enrollment attempt. Bumped on every start
+    // and on cancel, so a late setup response from a superseded or cancelled
+    // attempt is ignored rather than overwriting state (which also stops repeated
+    // taps from racing, and prevents a cancel-then-reopen from getting stuck).
+    private var totpSetupGeneration = 0
 
     /** Starts TOTP enrollment: fetches a fresh secret + otpauth:// URI. */
     fun startTotpSetup() {
-        if (totpSetupInFlight) return
-        totpSetupInFlight = true
+        val generation = ++totpSetupGeneration
         viewModelScope.launch {
             try {
                 val userSession = keychainHelper.load(UserSession::class.java, service, account)
                 if (userSession == null) {
-                    _errorMessage.value = "Session not found."
-                    _showingErrorAlert.value = true
+                    if (generation == totpSetupGeneration) {
+                        _errorMessage.value = "Session not found."
+                        _showingErrorAlert.value = true
+                    }
                     return@launch
                 }
                 val response = api.setupTotp(userSession.sessionToken)
+                // Ignore the result if a newer attempt started or the user cancelled.
+                if (generation != totpSetupGeneration) return@launch
                 if (response.isSuccessful) {
                     _totpSetup.value = response.body()
                 } else {
@@ -141,10 +146,10 @@ class SettingsViewModel(
                     _showingErrorAlert.value = true
                 }
             } catch (e: Exception) {
-                _errorMessage.value = ApiErrors.messageFor(e, fallback = "Could not start two-factor setup.")
-                _showingErrorAlert.value = true
-            } finally {
-                totpSetupInFlight = false
+                if (generation == totpSetupGeneration) {
+                    _errorMessage.value = ApiErrors.messageFor(e, fallback = "Could not start two-factor setup.")
+                    _showingErrorAlert.value = true
+                }
             }
         }
     }
@@ -196,6 +201,9 @@ class SettingsViewModel(
 
     /** Abandons a not-yet-confirmed enrollment (the pending secret is inert). */
     fun cancelTotpEnrollment() {
+        // Invalidate any in-flight setup so its late response is ignored and a
+        // quick reopen isn't left stuck waiting on the abandoned request.
+        totpSetupGeneration++
         _totpSetup.value = null
         _recoveryCodes.value = null
     }

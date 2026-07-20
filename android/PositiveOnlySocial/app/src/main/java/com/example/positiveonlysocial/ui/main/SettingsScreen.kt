@@ -164,6 +164,9 @@ fun SettingsScreen(
                             onValueChange = { disableCode = it },
                             label = { Text(if (disableUsesRecoveryCode) "Recovery code" else "Authenticator code") },
                             singleLine = true,
+                            keyboardOptions = KeyboardOptions(
+                                keyboardType = if (disableUsesRecoveryCode) KeyboardType.Ascii else KeyboardType.NumberPassword
+                            ),
                             modifier = Modifier.testTag("DisableTwoFactorCodeField")
                         )
                         TextButton(onClick = {
