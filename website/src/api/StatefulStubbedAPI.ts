@@ -458,12 +458,15 @@ export class StatefulStubbedAPI implements PositiveOnlySocialAPI {
     if (user.passwordHash !== body.password) {
       throw new ApiError(400, 'Invalid password')
     }
-    let codeOk = false
-    if (body.totp_code && !body.recovery_code) {
-      codeOk = body.totp_code === STUB_TOTP_CODE
-    } else if (body.recovery_code && !body.totp_code) {
-      codeOk = user.recoveryCodes.delete(body.recovery_code)
+    // Exactly one of totp_code / recovery_code must be supplied, matching the
+    // backend's field validation (both-or-neither is a bad request, not a
+    // wrong code).
+    if (Boolean(body.totp_code) === Boolean(body.recovery_code)) {
+      throw new ApiError(400, "Invalid fields ['TOTP_CODE', 'RECOVERY_CODE']")
     }
+    const codeOk = body.totp_code
+      ? body.totp_code === STUB_TOTP_CODE
+      : user.recoveryCodes.delete(body.recovery_code as string)
     if (!codeOk) {
       throw new ApiError(400, 'Invalid two-factor code')
     }
