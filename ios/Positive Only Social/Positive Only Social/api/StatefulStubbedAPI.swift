@@ -345,7 +345,10 @@ final class StatefulStubbedAPI: Networking {
             throw APIError.serverError(statusCode: 400, serverMessage: "Two-factor authentication is already enabled")
         }
         // Re-running setup before confirming simply replaces the pending secret.
-        let secret = "STUBSECRET" + String(generateToken().uppercased().prefix(22))
+        // Use the RFC 4648 Base32 alphabet (A-Z, 2-7) so the otpauth:// URI is a
+        // valid TOTP secret that real authenticator apps and QR parsers accept.
+        let base32Alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZ234567"
+        let secret = String((0..<32).map { _ in base32Alphabet.randomElement()! })
         users[userIndex].totpSecret = secret
 
         struct Fields: Codable { let totp_secret, otpauth_uri: String }

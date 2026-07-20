@@ -30,6 +30,11 @@ final class SettingsViewModel: ObservableObject {
     @Published var recoveryCodes: [String]?
     @Published var twoFactorStatusMessage = ""
     @Published var showingTwoFactorStatusAlert = false
+    // Errors raised while the enrollment sheet is open are shown inline on that
+    // sheet via this dedicated field, not the shared showingErrorAlert — two
+    // `.alert`s bound to the same flag (one on the List, one on the sheet) have
+    // undefined presentation in SwiftUI.
+    @Published var twoFactorErrorMessage: String?
     
     // Unique identifiers for Keychain
     private let keychainService = GVOAppConstants.keychainService
@@ -104,18 +109,17 @@ final class SettingsViewModel: ObservableObject {
     /// Starts TOTP enrollment: fetches a fresh secret + otpauth:// URI for the
     /// scan step of the enrollment sheet.
     func startTotpSetup() {
+        twoFactorErrorMessage = nil
         Task {
             do {
                 guard let userSession = try keychainHelper.load(UserSession.self, from: keychainService, account: account) else {
-                    errorMessage = "Session not found."
-                    showingErrorAlert = true
+                    twoFactorErrorMessage = "Session not found."
                     return
                 }
                 let data = try await api.setupTotp(sessionManagementToken: userSession.sessionToken)
                 totpSetup = try JSONDecoder().decode(TotpSetupFields.self, from: data)
             } catch {
-                errorMessage = "Could not start two-factor setup: \(error.userFacingMessage)"
-                showingErrorAlert = true
+                twoFactorErrorMessage = "Could not start two-factor setup: \(error.userFacingMessage)"
             }
         }
     }
@@ -126,16 +130,14 @@ final class SettingsViewModel: ObservableObject {
         Task {
             do {
                 guard let userSession = try keychainHelper.load(UserSession.self, from: keychainService, account: account) else {
-                    errorMessage = "Session not found."
-                    showingErrorAlert = true
+                    twoFactorErrorMessage = "Session not found."
                     return
                 }
                 let data = try await api.confirmTotp(sessionManagementToken: userSession.sessionToken, totpCode: code)
                 let fields = try JSONDecoder().decode(ConfirmTotpFields.self, from: data)
                 recoveryCodes = fields.recoveryCodes
             } catch {
-                errorMessage = "Verification failed: \(error.userFacingMessage)"
-                showingErrorAlert = true
+                twoFactorErrorMessage = "Verification failed: \(error.userFacingMessage)"
             }
         }
     }
@@ -144,6 +146,7 @@ final class SettingsViewModel: ObservableObject {
     func finishTotpEnrollment() {
         totpSetup = nil
         recoveryCodes = nil
+        twoFactorErrorMessage = nil
         twoFactorStatusMessage = "Two-factor authentication is now enabled."
         showingTwoFactorStatusAlert = true
     }
@@ -152,6 +155,7 @@ final class SettingsViewModel: ObservableObject {
     func cancelTotpEnrollment() {
         totpSetup = nil
         recoveryCodes = nil
+        twoFactorErrorMessage = nil
     }
 
     /// Turns two-factor authentication off. Requires the account password plus

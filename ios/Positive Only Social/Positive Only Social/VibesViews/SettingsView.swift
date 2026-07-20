@@ -203,6 +203,13 @@ struct SettingsView: View {
                 .font(.headline)
                 .padding(.top)
 
+            if let twoFactorError = viewModel.twoFactorErrorMessage {
+                Text(twoFactorError)
+                    .font(.subheadline)
+                    .foregroundColor(.red)
+                    .multilineTextAlignment(.center)
+            }
+
             if let recoveryCodes = viewModel.recoveryCodes {
                 Text("Two-factor authentication is on. Save these recovery codes somewhere safe — each works once, and they will not be shown again.")
                     .font(.subheadline)
@@ -272,13 +279,6 @@ struct SettingsView: View {
         }
         .padding()
         .presentationDetents([.large])
-        // Surface enrollment errors on the sheet itself, since the List's
-        // alert can't appear above it.
-        .alert("Error", isPresented: $viewModel.showingErrorAlert) {
-            Button("OK", role: .cancel) {}
-        } message: {
-            Text(viewModel.errorMessage)
-        }
     }
 
     /// Disabling requires the password plus a current or recovery code, so a
@@ -332,12 +332,16 @@ struct SettingsView: View {
         .presentationDetents([.medium])
     }
 
+    /// A single reused CIContext: creating one is comparatively expensive, so
+    /// keeping it static avoids churn each time the enrollment sheet recomputes.
+    private static let ciContext = CIContext()
+
     /// Renders an otpauth:// URI as a QR code via CoreImage — no dependency.
     private static func qrCodeImage(for string: String) -> UIImage? {
         let filter = CIFilter.qrCodeGenerator()
         filter.message = Data(string.utf8)
         guard let output = filter.outputImage?.transformed(by: CGAffineTransform(scaleX: 8, y: 8)),
-              let cgImage = CIContext().createCGImage(output, from: output.extent) else {
+              let cgImage = ciContext.createCGImage(output, from: output.extent) else {
             return nil
         }
         return UIImage(cgImage: cgImage)
