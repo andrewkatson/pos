@@ -464,7 +464,10 @@ private fun EnrollTwoFactorDialog(
     val isConfirmCodeValid = confirmCode.trim().length == 6 && confirmCode.trim().all { it.isDigit() }
 
     AlertDialog(
-        onDismissRequest = onCancel,
+        // A back press or tap-outside on the recovery-codes step means 2FA is
+        // already enabled, so finish (report enabled) rather than cancel;
+        // before codes are issued, dismissing abandons the pending enrollment.
+        onDismissRequest = { if (recoveryCodes != null) onDone() else onCancel() },
         title = { Text("Enable Two-Factor Authentication") },
         text = {
             Column(
