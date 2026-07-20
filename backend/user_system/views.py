@@ -578,14 +578,18 @@ def login_user(request):
             # login_user_2fa exchanges it for the real session. Delete every
             # existing challenge for the user first, so only one is ever valid
             # at a time — otherwise the per-challenge attempt limit could be
-            # multiplied by requesting several challenges at once.
-            existing.two_factor_challenges.all().delete()
+            # multiplied by requesting several challenges at once. The
+            # delete-then-create runs under a row lock so two concurrent logins
+            # can't interleave and leave more than one live challenge.
             raw_challenge = secrets.token_hex(32)
-            existing.two_factor_challenges.create(
-                token_hash=hashlib.sha256(raw_challenge.encode()).hexdigest(),
-                expires=timezone.now() + timedelta(minutes=TWO_FACTOR_CHALLENGE_MINUTES),
-                remember_me=remember_me,
-            )
+            with transaction.atomic():
+                locked = get_user_model().objects.select_for_update().get(pk=existing.pk)
+                locked.two_factor_challenges.all().delete()
+                locked.two_factor_challenges.create(
+                    token_hash=hashlib.sha256(raw_challenge.encode()).hexdigest(),
+                    expires=timezone.now() + timedelta(minutes=TWO_FACTOR_CHALLENGE_MINUTES),
+                    remember_me=remember_me,
+                )
             logger.info(f"Login requires two-factor code for user_id: {existing.id}")
             response = log_and_return_json("login_user", {
                 Fields.two_factor_required: True,

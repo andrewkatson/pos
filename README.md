@@ -84,7 +84,8 @@ passwords (issue #348). SMS is deliberately not offered.
 provisioning URI (rendered as a QR code by clients); nothing is enforced yet.
 `2fa/totp/confirm/` takes one code from the authenticator to prove it was
 added correctly, enables 2FA, and returns ten single-use recovery codes —
-shown exactly once and stored only as SHA-256 hashes. Re-running setup before
+shown exactly once and stored with Django's salted password hasher (so a
+database leak can't be brute-forced offline). Re-running setup before
 confirming just replaces the pending secret.
 
 **Login** becomes two steps for enrolled accounts. `login/` still checks the
