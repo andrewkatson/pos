@@ -28,6 +28,18 @@ urlpatterns = [
     # POST /login/remember/
     path('login/remember/', views.login_user_with_remember_me, name='login_user_with_remember_me'),
 
+    # POST /login/2fa/
+    path('login/2fa/', views.login_user_2fa, name='login_user_2fa'),
+
+    # POST /2fa/totp/setup/ (Token in header)
+    path('2fa/totp/setup/', views.setup_totp, name='setup_totp'),
+
+    # POST /2fa/totp/confirm/ (Token in header)
+    path('2fa/totp/confirm/', views.confirm_totp, name='confirm_totp'),
+
+    # POST /2fa/disable/ (Token in header)
+    path('2fa/disable/', views.disable_totp, name='disable_totp'),
+
     # POST /logout/ (Token in header)
     path('logout/', views.logout_user, name='logout_user'),
 

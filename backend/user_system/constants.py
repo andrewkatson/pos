@@ -36,6 +36,18 @@ EMAIL_NOT_VERIFIED = "email_not_verified"
 # How long an email verification link stays valid
 EMAIL_VERIFICATION_TOKEN_HOURS = 24
 
+# Two-factor authentication (TOTP). login_user returns a short-lived challenge
+# instead of a session when the account has 2FA enabled; the challenge is
+# exchanged for a session at login/2fa/ with a valid authenticator or recovery
+# code.
+TWO_FACTOR_CHALLENGE_MINUTES = 5
+TWO_FACTOR_MAX_ATTEMPTS = 5
+NUM_RECOVERY_CODES = 10
+LEN_RECOVERY_CODE_HEX = 10
+
+# Issuer label shown next to the account in authenticator apps
+TOTP_ISSUER = "Positive Only Social"
+
 # Regex Patterns to check against
 class Patterns:
     password = r"^(?=.*[0-9])(?=.*[a-z])(?=.*[A-Z])(?=.*-)(?=\S+$).{8,}$"
@@ -62,6 +74,9 @@ class Patterns:
         r"|s3(?:[.-][a-z0-9-]+)?\.amazonaws\.com/[A-Za-z0-9.-]+/)[^\s?#]+(?:\?[^\s#]*)?$"
     )
     alphanumeric_with_special_chars = r"^[\w\W]+$"
+    totp_code = r"^\d{6}$"
+    recovery_code = r"^[0-9a-f]{10}$"
+    hex_token = r"^[0-9a-f]{64}$"
 
 class Params:
     username = "USERNAME"
@@ -86,6 +101,9 @@ class Params:
     comment_thread_identifier = "COMMENT_THREAD_IDENTIFIER"
     comment_identifier = "COMMENT_IDENTIFIER"
     username_fragment = "USERNAME_FRAGMENT"
+    challenge_token = "CHALLENGE_TOKEN"
+    totp_code = "TOTP_CODE"
+    recovery_code = "RECOVERY_CODE"
 
 class Fields:
     is_adult = 'is_adult'
@@ -136,6 +154,14 @@ class Fields:
     target_type = "target_type"
     target_identifier = "target_identifier"
     has_appeal = "has_appeal"
+    two_factor_required = "two_factor_required"
+    challenge_token = "challenge_token"
+    totp_code = "totp_code"
+    recovery_code = "recovery_code"
+    totp_secret = "totp_secret"
+    otpauth_uri = "otpauth_uri"
+    recovery_codes = "recovery_codes"
+    totp_enabled = "totp_enabled"
 
 # Lengths of things
 LEN_LOGIN_COOKIE_TOKEN = 32

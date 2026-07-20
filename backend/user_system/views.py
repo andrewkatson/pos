@@ -9,6 +9,7 @@ from datetime import datetime, date, timedelta
 
 from functools import wraps
 
+import pyotp
 from django.conf import settings
 from django.contrib.auth import login, logout, get_user_model
 from django.contrib.auth.hashers import check_password
@@ -31,11 +32,13 @@ from .constants import Patterns, Params, POST_BATCH_SIZE, MAX_BEFORE_HIDING_POST
     ACCOUNT_BANNED, EMAIL_NOT_VERIFIED, EMAIL_VERIFICATION_TOKEN_HOURS, BAN_TYPE_OUTRIGHT, \
     HIDDEN_REASON_NONE, HIDDEN_REASON_REPORTS, HIDDEN_REASON_CLASSIFIER, \
     APPEAL_TARGET_POST, APPEAL_TARGET_COMMENT, APPEAL_TARGET_BAN, \
-    MAX_APPEAL_REASON_LENGTH
+    MAX_APPEAL_REASON_LENGTH, \
+    TWO_FACTOR_CHALLENGE_MINUTES, TWO_FACTOR_MAX_ATTEMPTS, NUM_RECOVERY_CODES, \
+    LEN_RECOVERY_CODE_HEX, TOTP_ISSUER
 from .feed_algorithm import feed_algorithm
 from .input_validator import is_valid_pattern
 from .models import LoginCookie, Session, Post, CommentThread, PositiveOnlySocialUser, Comment, CommentLike, UserBlock, \
-    UserBan, KnownDevice, Appeal
+    UserBan, KnownDevice, Appeal, TwoFactorChallenge, RecoveryCode
 from .utils import convert_to_bool, generate_login_cookie_token, generate_management_token, generate_series_identifier, \
     get_batch, get_queryset_batch, get_compressed_image_url
 from .s3 import delete_image, generate_presigned_upload, image_url_to_key
@@ -272,6 +275,86 @@ def _email_verification_link(token):
     return f"{settings.FRONTEND_BASE_URL}/verify-email?token={token}"
 
 
+_TOTP_PERIOD_SECONDS = 30
+
+
+def _verify_totp_code(user, code):
+    """Check a submitted TOTP code, allowing one 30-second step of clock drift
+    either way.
+
+    On success the matched time step is recorded, and any step at or before
+    the last accepted one is refused, so a code observed in transit cannot be
+    replayed inside its validity window.
+    """
+    totp = pyotp.TOTP(user.totp_secret)
+    now = timezone.now()
+    for offset in (-1, 0, 1):
+        step_time = now + timedelta(seconds=_TOTP_PERIOD_SECONDS * offset)
+        candidate_step = int(step_time.timestamp()) // _TOTP_PERIOD_SECONDS
+        if user.totp_last_used_step is not None and candidate_step <= user.totp_last_used_step:
+            continue
+        if secrets.compare_digest(totp.at(step_time), code):
+            user.totp_last_used_step = candidate_step
+            user.save(update_fields=['totp_last_used_step'])
+            return True
+    return False
+
+
+def _consume_recovery_code(user, code):
+    """Mark the matching unused recovery code as spent. Returns whether one matched."""
+    code_hash = hashlib.sha256(code.encode()).hexdigest()
+    recovery = user.recovery_codes.filter(code_hash=code_hash, used_at__isnull=True).first()
+    if recovery is None:
+        return False
+    recovery.used_at = timezone.now()
+    recovery.save(update_fields=['used_at'])
+    return True
+
+
+def _issue_recovery_codes(user):
+    """Replace the user's recovery codes with a fresh batch, returning the raw codes."""
+    user.recovery_codes.all().delete()
+    raw_codes = [secrets.token_hex(LEN_RECOVERY_CODE_HEX // 2) for _ in range(NUM_RECOVERY_CODES)]
+    RecoveryCode.objects.bulk_create([
+        RecoveryCode(user=user, code_hash=hashlib.sha256(code.encode()).hexdigest())
+        for code in raw_codes
+    ])
+    return raw_codes
+
+
+def _create_authenticated_session(view_name, request, user, ip, remember_me):
+    """Final step of a successful authentication: Django session login, the
+    remember-me cookie (when requested), the API session token, and the
+    new-device email. Shared by login_user and login_user_2fa so a login that
+    went through the two-factor challenge ends in exactly the same state as a
+    plain one.
+    """
+    login(request, user)  # Logs into Django's session auth
+
+    new_login_cookie = None
+    if remember_me:
+        new_login_cookie = user.logincookie_set.create(series_identifier=generate_series_identifier(),
+                                                       token=generate_login_cookie_token())
+
+    new_session = user.session_set.create(management_token=generate_management_token(), ip=ip)
+
+    # Alert the user by email if this login is from a device (IP) we have
+    # not seen for them before.
+    _record_device_and_maybe_notify(user, ip)
+
+    response_data = {
+        Fields.session_management_token: new_session.management_token,
+        Fields.username: user.username,
+        Fields.user_id: user.id,
+    }
+    if remember_me and new_login_cookie:
+        response_data[Fields.series_identifier] = new_login_cookie.series_identifier
+        response_data[Fields.login_cookie_token] = new_login_cookie.token
+
+    logger.info(f"Login successful for user_id: {user.id}")
+    return log_and_return_json(view_name, response_data)
+
+
 # =============================================================================
 # AUTHENTICATION VIEWS
 # =============================================================================
@@ -474,30 +557,28 @@ def login_user(request):
             logger.warning(f"Login failed: Email not verified for user_id: {existing.id}")
             return log_and_return_json("login_user", {'error': EMAIL_NOT_VERIFIED}, status=403)
 
-        login(request, existing)  # Logs into Django's session auth
+        if existing.totp_enabled:
+            # The password checked out, but the account requires a second
+            # factor: hand back a short-lived challenge instead of a session.
+            # login_user_2fa exchanges it for the real session. Sweeping the
+            # user's expired challenges here keeps the table from accumulating
+            # rows for logins that were never completed.
+            existing.two_factor_challenges.filter(expires__lt=timezone.now()).delete()
+            raw_challenge = secrets.token_hex(32)
+            existing.two_factor_challenges.create(
+                token_hash=hashlib.sha256(raw_challenge.encode()).hexdigest(),
+                expires=timezone.now() + timedelta(minutes=TWO_FACTOR_CHALLENGE_MINUTES),
+                remember_me=remember_me,
+            )
+            logger.info(f"Login requires two-factor code for user_id: {existing.id}")
+            response = log_and_return_json("login_user", {
+                Fields.two_factor_required: True,
+                Fields.challenge_token: raw_challenge,
+            })
+            response['Cache-Control'] = 'no-store'
+            return response
 
-        new_login_cookie = None
-        if remember_me:
-            new_login_cookie = existing.logincookie_set.create(series_identifier=generate_series_identifier(),
-                                                               token=generate_login_cookie_token())
-
-        new_session = existing.session_set.create(management_token=generate_management_token(), ip=ip)
-
-        # Alert the user by email if this login is from a device (IP) we have
-        # not seen for them before.
-        _record_device_and_maybe_notify(existing, ip)
-
-        response_data = {
-            Fields.session_management_token: new_session.management_token,
-            Fields.username: existing.username,
-            Fields.user_id: existing.id,
-        }
-        if remember_me and new_login_cookie:
-            response_data[Fields.series_identifier] = new_login_cookie.series_identifier
-            response_data[Fields.login_cookie_token] = new_login_cookie.token
-
-        logger.info(f"Login successful for user_id: {existing.id}")
-        return log_and_return_json("login_user", response_data)
+        return _create_authenticated_session("login_user", request, existing, ip, remember_me)
     else:
         logger.warning("Login failed: No user exists with that information")
         return log_and_return_json("login_user", {'error': "Invalid username or password"}, status=400)
@@ -622,6 +703,219 @@ def delete_user(request):
     except Exception as e:
         logger.error(f"Error deleting user {request.user.id}: {e}")
         return log_and_return_json("delete_user", {'error': f"Error deleting user {e}"}, status=400)
+
+
+# =============================================================================
+# TWO-FACTOR AUTHENTICATION VIEWS
+# =============================================================================
+
+@ratelimit(key=_get_client_ip, rate='10/m', block=True)
+@csrf_exempt
+@require_POST
+def login_user_2fa(request):
+    """Second step of a two-factor login: exchange the challenge token from
+    login_user plus a TOTP code (or a recovery code) for a real session."""
+    logger.info("Endpoint login_user_2fa invoked by IP or User")
+    data = _get_json_body(request)
+    if data is None:
+        return log_and_return_json("login_user_2fa", {'error': "Invalid JSON data"}, status=400)
+
+    challenge_token = data.get(Fields.challenge_token)
+    totp_code = data.get(Fields.totp_code)
+    recovery_code = data.get(Fields.recovery_code)
+    ip = _get_client_ip(None, request)
+
+    invalid_fields = []
+    if (not challenge_token or not isinstance(challenge_token, str)
+            or not is_valid_pattern(challenge_token, Patterns.hex_token)):
+        invalid_fields.append(Params.challenge_token)
+    # Exactly one of the two code kinds must be supplied.
+    if bool(totp_code) == bool(recovery_code):
+        invalid_fields.extend([Params.totp_code, Params.recovery_code])
+    elif totp_code and not (isinstance(totp_code, str) and is_valid_pattern(totp_code, Patterns.totp_code)):
+        invalid_fields.append(Params.totp_code)
+    elif recovery_code and not (isinstance(recovery_code, str)
+                                and is_valid_pattern(recovery_code, Patterns.recovery_code)):
+        invalid_fields.append(Params.recovery_code)
+    if len(invalid_fields) > 0:
+        return log_and_return_json("login_user_2fa", {'error': f"Invalid fields {invalid_fields}"}, status=400)
+
+    submitted_hash = hashlib.sha256(challenge_token.encode()).hexdigest()
+
+    with transaction.atomic():
+        challenge = TwoFactorChallenge.objects.select_for_update().filter(token_hash=submitted_hash).first()
+        if challenge is None or timezone.now() > challenge.expires:
+            if challenge is not None:
+                challenge.delete()
+            logger.warning("Two-factor login failed: Invalid or expired challenge")
+            return log_and_return_json("login_user_2fa", {'error': "Invalid or expired challenge"}, status=400)
+
+        # Lock the user row: the replay guard (totp_last_used_step) and the
+        # single-use recovery codes must not race a concurrent attempt on the
+        # same challenge.
+        user = get_user_model().objects.select_for_update().get(pk=challenge.user_id)
+
+        # Re-run the account gates from login_user; the account's state may
+        # have changed between the password step and this one.
+        if has_active_outright_ban(user):
+            logger.warning(f"Two-factor login failed: Account banned for user_id: {user.id}")
+            return log_and_return_json("login_user_2fa", {'error': ACCOUNT_BANNED}, status=403)
+        if not user.email_verified:
+            logger.warning(f"Two-factor login failed: Email not verified for user_id: {user.id}")
+            return log_and_return_json("login_user_2fa", {'error': EMAIL_NOT_VERIFIED}, status=403)
+
+        if totp_code:
+            code_ok = bool(user.totp_secret) and _verify_totp_code(user, totp_code)
+        else:
+            code_ok = _consume_recovery_code(user, recovery_code)
+
+        if not code_ok:
+            challenge.failed_attempts += 1
+            if challenge.failed_attempts >= TWO_FACTOR_MAX_ATTEMPTS:
+                challenge.delete()
+                logger.warning(
+                    f"Two-factor login invalidated after {TWO_FACTOR_MAX_ATTEMPTS} "
+                    f"failed attempts for user_id: {user.id}"
+                )
+                return log_and_return_json("login_user_2fa", {
+                    'error': "Too many failed attempts. Log in again."
+                }, status=429)
+            challenge.save(update_fields=['failed_attempts'])
+            logger.warning(f"Two-factor login failed: Invalid code for user_id: {user.id}")
+            return log_and_return_json("login_user_2fa", {'error': "Invalid two-factor code"}, status=400)
+
+        remember_me = challenge.remember_me
+        challenge.delete()
+
+    return _create_authenticated_session("login_user_2fa", request, user, ip, remember_me)
+
+
+@csrf_exempt
+@api_login_required
+@ratelimit(key='user', rate='10/h', block=True)
+@require_POST
+def setup_totp(request):
+    """Start TOTP enrollment: generate a secret and return it with the
+    otpauth:// provisioning URI. Nothing is enforced until confirm_totp
+    proves the authenticator works."""
+    logger.info("Endpoint setup_totp invoked by IP or User")
+    user = request.user
+
+    if user.totp_enabled:
+        return log_and_return_json("setup_totp",
+                                   {'error': "Two-factor authentication is already enabled"}, status=400)
+
+    # Re-running setup before confirming simply replaces the pending secret.
+    user.totp_secret = pyotp.random_base32()
+    user.totp_last_used_step = None
+    user.save(update_fields=['totp_secret', 'totp_last_used_step'])
+
+    uri = pyotp.totp.TOTP(user.totp_secret).provisioning_uri(name=user.email, issuer_name=TOTP_ISSUER)
+    response = log_and_return_json("setup_totp", {
+        Fields.totp_secret: user.totp_secret,
+        Fields.otpauth_uri: uri,
+    })
+    response['Cache-Control'] = 'no-store'
+    return response
+
+
+@csrf_exempt
+@api_login_required
+@ratelimit(key='user', rate='10/h', block=True)
+@require_POST
+def confirm_totp(request):
+    """Finish TOTP enrollment: verify one code from the authenticator, flip
+    totp_enabled, and hand back the single batch of recovery codes."""
+    logger.info("Endpoint confirm_totp invoked by IP or User")
+    user = request.user
+    data = _get_json_body(request)
+    if data is None:
+        return log_and_return_json("confirm_totp", {'error': "Invalid JSON data"}, status=400)
+
+    totp_code = data.get(Fields.totp_code)
+    if not totp_code or not isinstance(totp_code, str) or not is_valid_pattern(totp_code, Patterns.totp_code):
+        return log_and_return_json("confirm_totp", {'error': f"Invalid fields ['{Params.totp_code}']"}, status=400)
+
+    if user.totp_enabled:
+        return log_and_return_json("confirm_totp",
+                                   {'error': "Two-factor authentication is already enabled"}, status=400)
+    if not user.totp_secret:
+        return log_and_return_json("confirm_totp",
+                                   {'error': "Two-factor setup has not been started"}, status=400)
+
+    if not _verify_totp_code(user, totp_code):
+        logger.warning(f"TOTP confirmation failed: Invalid code for user_id: {user.id}")
+        return log_and_return_json("confirm_totp", {'error': "Invalid two-factor code"}, status=400)
+
+    user.totp_enabled = True
+    user.save(update_fields=['totp_enabled'])
+    raw_codes = _issue_recovery_codes(user)
+
+    logger.info(f"Two-factor authentication enabled for user_id: {user.id}")
+    response = log_and_return_json("confirm_totp", {
+        Fields.totp_enabled: True,
+        Fields.recovery_codes: raw_codes,
+    })
+    response['Cache-Control'] = 'no-store'
+    return response
+
+
+@csrf_exempt
+@api_login_required
+@ratelimit(key='user', rate='10/h', block=True)
+@require_POST
+def disable_totp(request):
+    """Turn two-factor authentication off. Requires the account password plus
+    a current TOTP code or an unused recovery code, so a stolen session alone
+    cannot strip the protection."""
+    logger.info("Endpoint disable_totp invoked by IP or User")
+    user = request.user
+    data = _get_json_body(request)
+    if data is None:
+        return log_and_return_json("disable_totp", {'error': "Invalid JSON data"}, status=400)
+
+    password = data.get(Fields.password)
+    totp_code = data.get(Fields.totp_code)
+    recovery_code = data.get(Fields.recovery_code)
+
+    invalid_fields = []
+    if not password or not is_valid_pattern(password, Patterns.login_password):
+        invalid_fields.append(Params.password)
+    if bool(totp_code) == bool(recovery_code):
+        invalid_fields.extend([Params.totp_code, Params.recovery_code])
+    elif totp_code and not (isinstance(totp_code, str) and is_valid_pattern(totp_code, Patterns.totp_code)):
+        invalid_fields.append(Params.totp_code)
+    elif recovery_code and not (isinstance(recovery_code, str)
+                                and is_valid_pattern(recovery_code, Patterns.recovery_code)):
+        invalid_fields.append(Params.recovery_code)
+    if len(invalid_fields) > 0:
+        return log_and_return_json("disable_totp", {'error': f"Invalid fields {invalid_fields}"}, status=400)
+
+    if not user.totp_enabled:
+        return log_and_return_json("disable_totp",
+                                   {'error': "Two-factor authentication is not enabled"}, status=400)
+
+    if not check_password(password, user.password):
+        logger.warning(f"TOTP disable failed: Password was not correct for user_id: {user.id}")
+        return log_and_return_json("disable_totp", {'error': "Invalid password"}, status=400)
+
+    if totp_code:
+        code_ok = _verify_totp_code(user, totp_code)
+    else:
+        code_ok = _consume_recovery_code(user, recovery_code)
+    if not code_ok:
+        logger.warning(f"TOTP disable failed: Invalid code for user_id: {user.id}")
+        return log_and_return_json("disable_totp", {'error': "Invalid two-factor code"}, status=400)
+
+    user.totp_secret = None
+    user.totp_enabled = False
+    user.totp_last_used_step = None
+    user.save(update_fields=['totp_secret', 'totp_enabled', 'totp_last_used_step'])
+    user.recovery_codes.all().delete()
+    user.two_factor_challenges.all().delete()
+
+    logger.info(f"Two-factor authentication disabled for user_id: {user.id}")
+    return log_and_return_json("disable_totp", {Fields.totp_enabled: False})
 
 
 # =============================================================================
