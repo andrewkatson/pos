@@ -155,8 +155,14 @@ class SettingsViewModel(
                     return@launch
                 }
                 val response = api.confirmTotp(userSession.sessionToken, ConfirmTotpRequest(code))
-                if (response.isSuccessful) {
-                    _recoveryCodes.value = response.body()?.recoveryCodes
+                val codes = response.body()?.recoveryCodes
+                if (response.isSuccessful && codes != null) {
+                    _recoveryCodes.value = codes
+                } else if (response.isSuccessful) {
+                    // 2xx with a null/empty body: surface an error rather than
+                    // leaving the enrollment dialog stuck on the confirm step.
+                    _errorMessage.value = "Two-factor setup did not complete. Please try again."
+                    _showingErrorAlert.value = true
                 } else {
                     _errorMessage.value = ApiErrors.messageFor(response, fallback = "Verification failed. Please try again.")
                     _showingErrorAlert.value = true
@@ -170,9 +176,14 @@ class SettingsViewModel(
 
     /** Dismisses the enrollment flow after the recovery codes have been shown. */
     fun finishTotpEnrollment() {
+        // Only report success if confirm actually produced recovery codes, so an
+        // accidental call while still mid-enrollment can't fake an enabled state.
+        val wasEnrolled = _recoveryCodes.value != null
         _totpSetup.value = null
         _recoveryCodes.value = null
-        _twoFactorStatusMessage.value = "Two-factor authentication is now enabled."
+        if (wasEnrolled) {
+            _twoFactorStatusMessage.value = "Two-factor authentication is now enabled."
+        }
     }
 
     /** Abandons a not-yet-confirmed enrollment (the pending secret is inert). */

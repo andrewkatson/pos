@@ -286,7 +286,10 @@ class StatefulStubbedAPI : PositiveOnlySocialAPI {
             return errorGeneric(400, "Two-factor authentication is already enabled")
         }
         // Re-running setup before confirming simply replaces the pending secret.
-        val secret = "STUBSECRET" + UUID.randomUUID().toString().replace("-", "").uppercase().take(22)
+        // Use the RFC 4648 Base32 alphabet (A-Z, 2-7) so the otpauth:// URI is a
+        // valid TOTP secret that real authenticator apps and QR parsers accept.
+        val base32Alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZ234567"
+        val secret = (1..32).map { base32Alphabet.random() }.joinToString("")
         user.totpSecret = secret
         return Response.success(
             TotpSetupResponse(

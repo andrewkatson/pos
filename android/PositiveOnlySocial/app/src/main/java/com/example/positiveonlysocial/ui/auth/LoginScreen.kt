@@ -204,9 +204,11 @@ fun LoginScreen(
                                         val errorMsg = ApiErrors.messageFor(response, fallback = "Verification failed. Please try again.")
                                         if (errorMsg == "Invalid or expired challenge") {
                                             // The challenge timed out (or was
-                                            // invalidated): start over.
+                                            // invalidated): start over from the
+                                            // default authenticator-code entry.
                                             twoFactorChallengeToken = null
                                             twoFactorCode = ""
+                                            useRecoveryCode = false
                                             errorMessage = "Your login expired. Please sign in again."
                                         } else {
                                             errorMessage = errorMsg
@@ -304,9 +306,11 @@ fun LoginScreen(
                                         val body = response.body()
                                         if (body?.twoFactorRequired == true && body.challengeToken != null) {
                                             // Password accepted, but the account
-                                            // needs its second factor.
+                                            // needs its second factor. Start in
+                                            // the default authenticator-code mode.
                                             twoFactorChallengeToken = body.challengeToken
                                             twoFactorCode = ""
+                                            useRecoveryCode = false
                                         } else {
                                             completeLogin(
                                                 sessionToken = body?.sessionToken,
