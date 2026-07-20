@@ -1,5 +1,6 @@
 import { ApiError } from './client'
 import { STUB_TOTP_CODE, StatefulStubbedAPI } from './StatefulStubbedAPI'
+import { isTwoFactorRequired } from './types'
 import type { RegisterRequest } from './types'
 
 function register(api: StatefulStubbedAPI, username: string) {
@@ -213,6 +214,7 @@ test('password reset flow updates the password', async () => {
     username_or_email: 'ada',
     password: 'newpassword1',
   })
+  if (isTwoFactorRequired(login)) throw new Error('expected a session, not a challenge')
   expect(login.username).toBe('ada')
 })
 
