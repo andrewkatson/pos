@@ -272,6 +272,7 @@ export function DisableTwoFactorModal({ onClose, onDisabled }: DisableTwoFactorM
       <button
         type="button"
         className="twofa-toggle-kind"
+        disabled={isBusy}
         onClick={() => {
           setUseRecoveryCode(v => !v)
           setCode('')

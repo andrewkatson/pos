@@ -201,6 +201,7 @@ function LoginPage() {
             <button
               type="button"
               className="auth-link auth-link--right"
+              disabled={isLoading}
               onClick={() => {
                 setUseRecoveryCode(v => !v)
                 setTwoFactorCode('')
