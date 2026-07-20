@@ -238,6 +238,10 @@ def classify_post(post_identifier):
         if allowed:
             claimed.hidden = False
             claimed.hidden_reason = HIDDEN_REASON_NONE
+            # Explicitly cleared (it is in update_fields below) so a stale
+            # value — e.g. a manual admin edit — can never survive an approval
+            # and leak into the author-visible status payloads.
+            claimed.classification_reason_code = None
         elif final:
             # Terminal rejection: keep the row as a tombstone (so the author's
             # client can reconcile the outcome) but strip the image reference;

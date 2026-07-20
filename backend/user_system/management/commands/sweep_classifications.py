@@ -66,12 +66,15 @@ class Command(BaseCommand):
         # not merely "old": a post that was just attempted or re-enqueued is
         # left alone until the window passes again.
         stuck_cutoff = now - timedelta(minutes=stuck_minutes)
+        # only() + iterator(): the sweep touches two columns per row, so a
+        # large backlog streams through in chunks instead of materializing
+        # full model instances for every stuck post.
         stuck = Post.objects.filter(
             hidden_reason=HIDDEN_REASON_PENDING_CLASSIFICATION,
             updated_time__lte=stuck_cutoff,
-        )
+        ).only('post_identifier', 'classification_attempts')
         requeued = exhausted = 0
-        for post in stuck:
+        for post in stuck.iterator():
             if post.classification_attempts >= CLASSIFICATION_MAX_ATTEMPTS:
                 # Fail closed: the post stays hidden-pending forever rather
                 # than ever publishing unclassified content. Log at error so
@@ -98,7 +101,7 @@ class Command(BaseCommand):
         # Count posts before deleting: delete() reports cascaded rows too.
         purged = tombstones.count()
         if dry_run:
-            for post in tombstones:
+            for post in tombstones.only('post_identifier').iterator():
                 self.stdout.write(f"[dry-run] would purge tombstone {post.post_identifier}")
         else:
             # The worker already stripped image_url on the transition, so no S3

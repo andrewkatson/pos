@@ -51,6 +51,16 @@ class ClassifyPostTaskTests(TestCase):
         self.assertEqual(len(mail.outbox), 0)
 
     @patch(IMAGE, return_value=ALLOWED)
+    @patch(TEXT, return_value=ALLOWED)
+    def test_approval_clears_a_stale_reason_code(self, _text, _image):
+        """A leftover reason code (e.g. a manual admin edit) must not survive
+        an approval and leak into the author-visible status payloads."""
+        Post.objects.filter(pk=self.post.pk).update(classification_reason_code='gore')
+        self._run()
+        self.assertFalse(self.post.hidden)
+        self.assertIsNone(self.post.classification_reason_code)
+
+    @patch(IMAGE, return_value=ALLOWED)
     @patch(TEXT, return_value=APPEALABLE)
     def test_appealable_rejection_hides_and_emails(self, _text, _image):
         self._run()
