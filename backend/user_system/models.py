@@ -177,8 +177,11 @@ class LoginCookie(models.Model):
 # opportunistically when the same user logs in again.
 class TwoFactorChallenge(models.Model):
     user = models.ForeignKey(PositiveOnlySocialUser, related_name='two_factor_challenges', on_delete=models.CASCADE)
-    token_hash = models.TextField()
-    expires = models.DateTimeField()
+    # Looked up by hash on every second login step, so it is indexed; unique
+    # because a challenge token is a fresh 256-bit random value. expires is
+    # indexed to keep the periodic expiry sweep cheap as the table grows.
+    token_hash = models.TextField(unique=True, db_index=True)
+    expires = models.DateTimeField(db_index=True)
     remember_me = models.BooleanField(default=False)
     failed_attempts = models.IntegerField(default=0)
     created = models.DateTimeField(auto_now_add=True)

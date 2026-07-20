@@ -12,7 +12,7 @@ from functools import wraps
 import pyotp
 from django.conf import settings
 from django.contrib.auth import login, logout, get_user_model
-from django.contrib.auth.hashers import check_password
+from django.contrib.auth.hashers import check_password, make_password
 from django.core.mail import send_mail
 from django.db import transaction, IntegrityError
 from django.db.models import Count
@@ -301,22 +301,33 @@ def _verify_totp_code(user, code):
 
 
 def _consume_recovery_code(user, code):
-    """Mark the matching unused recovery code as spent. Returns whether one matched."""
-    code_hash = hashlib.sha256(code.encode()).hexdigest()
-    recovery = user.recovery_codes.filter(code_hash=code_hash, used_at__isnull=True).first()
-    if recovery is None:
-        return False
-    recovery.used_at = timezone.now()
-    recovery.save(update_fields=['used_at'])
-    return True
+    """Mark the matching unused recovery code as spent. Returns whether one matched.
+
+    Codes are stored with Django's password hasher (per-code salt, deliberately
+    slow), so a database leak cannot be brute-forced offline the way a fast
+    unsalted digest could. That salt means there is no single hash to look up
+    by, so each unused code is checked in turn — there are only a handful. The
+    rows are locked FOR UPDATE so two concurrent attempts cannot both spend the
+    same code; callers therefore run this inside a transaction.
+    """
+    for recovery in user.recovery_codes.select_for_update().filter(used_at__isnull=True):
+        if check_password(code, recovery.code_hash):
+            recovery.used_at = timezone.now()
+            recovery.save(update_fields=['used_at'])
+            return True
+    return False
 
 
 def _issue_recovery_codes(user):
-    """Replace the user's recovery codes with a fresh batch, returning the raw codes."""
+    """Replace the user's recovery codes with a fresh batch, returning the raw codes.
+
+    Stored with Django's password hasher (salted + slow) rather than a bare
+    SHA-256, so the persisted rows resist offline brute-force if the DB leaks.
+    """
     user.recovery_codes.all().delete()
     raw_codes = [secrets.token_hex(LEN_RECOVERY_CODE_HEX // 2) for _ in range(NUM_RECOVERY_CODES)]
     RecoveryCode.objects.bulk_create([
-        RecoveryCode(user=user, code_hash=hashlib.sha256(code.encode()).hexdigest())
+        RecoveryCode(user=user, code_hash=make_password(code))
         for code in raw_codes
     ])
     return raw_codes
@@ -352,7 +363,11 @@ def _create_authenticated_session(view_name, request, user, ip, remember_me):
         response_data[Fields.login_cookie_token] = new_login_cookie.token
 
     logger.info(f"Login successful for user_id: {user.id}")
-    return log_and_return_json(view_name, response_data)
+    # The body carries the session token (and remember-me credentials), so keep
+    # it out of any intermediary/proxy cache.
+    response = log_and_return_json(view_name, response_data)
+    response['Cache-Control'] = 'no-store'
+    return response
 
 
 # =============================================================================
@@ -560,10 +575,11 @@ def login_user(request):
         if existing.totp_enabled:
             # The password checked out, but the account requires a second
             # factor: hand back a short-lived challenge instead of a session.
-            # login_user_2fa exchanges it for the real session. Sweeping the
-            # user's expired challenges here keeps the table from accumulating
-            # rows for logins that were never completed.
-            existing.two_factor_challenges.filter(expires__lt=timezone.now()).delete()
+            # login_user_2fa exchanges it for the real session. Delete every
+            # existing challenge for the user first, so only one is ever valid
+            # at a time — otherwise the per-challenge attempt limit could be
+            # multiplied by requesting several challenges at once.
+            existing.two_factor_challenges.all().delete()
             raw_challenge = secrets.token_hex(32)
             existing.two_factor_challenges.create(
                 token_hash=hashlib.sha256(raw_challenge.encode()).hexdigest(),
@@ -836,20 +852,25 @@ def confirm_totp(request):
     if not totp_code or not isinstance(totp_code, str) or not is_valid_pattern(totp_code, Patterns.totp_code):
         return log_and_return_json("confirm_totp", {'error': f"Invalid fields ['{Params.totp_code}']"}, status=400)
 
-    if user.totp_enabled:
-        return log_and_return_json("confirm_totp",
-                                   {'error': "Two-factor authentication is already enabled"}, status=400)
-    if not user.totp_secret:
-        return log_and_return_json("confirm_totp",
-                                   {'error': "Two-factor setup has not been started"}, status=400)
+    # Lock the user row so the replay guard in _verify_totp_code (which reads and
+    # writes totp_last_used_step) cannot race a concurrent confirm/verify.
+    with transaction.atomic():
+        user = get_user_model().objects.select_for_update().get(pk=user.pk)
 
-    if not _verify_totp_code(user, totp_code):
-        logger.warning(f"TOTP confirmation failed: Invalid code for user_id: {user.id}")
-        return log_and_return_json("confirm_totp", {'error': "Invalid two-factor code"}, status=400)
+        if user.totp_enabled:
+            return log_and_return_json("confirm_totp",
+                                       {'error': "Two-factor authentication is already enabled"}, status=400)
+        if not user.totp_secret:
+            return log_and_return_json("confirm_totp",
+                                       {'error': "Two-factor setup has not been started"}, status=400)
 
-    user.totp_enabled = True
-    user.save(update_fields=['totp_enabled'])
-    raw_codes = _issue_recovery_codes(user)
+        if not _verify_totp_code(user, totp_code):
+            logger.warning(f"TOTP confirmation failed: Invalid code for user_id: {user.id}")
+            return log_and_return_json("confirm_totp", {'error': "Invalid two-factor code"}, status=400)
+
+        user.totp_enabled = True
+        user.save(update_fields=['totp_enabled'])
+        raw_codes = _issue_recovery_codes(user)
 
     logger.info(f"Two-factor authentication enabled for user_id: {user.id}")
     response = log_and_return_json("confirm_totp", {
@@ -891,28 +912,33 @@ def disable_totp(request):
     if len(invalid_fields) > 0:
         return log_and_return_json("disable_totp", {'error': f"Invalid fields {invalid_fields}"}, status=400)
 
-    if not user.totp_enabled:
-        return log_and_return_json("disable_totp",
-                                   {'error': "Two-factor authentication is not enabled"}, status=400)
+    # Lock the user row for the whole check-and-disable so the TOTP replay guard
+    # and single-use recovery-code consumption cannot race a concurrent request.
+    with transaction.atomic():
+        user = get_user_model().objects.select_for_update().get(pk=user.pk)
 
-    if not check_password(password, user.password):
-        logger.warning(f"TOTP disable failed: Password was not correct for user_id: {user.id}")
-        return log_and_return_json("disable_totp", {'error': "Invalid password"}, status=400)
+        if not user.totp_enabled:
+            return log_and_return_json("disable_totp",
+                                       {'error': "Two-factor authentication is not enabled"}, status=400)
 
-    if totp_code:
-        code_ok = _verify_totp_code(user, totp_code)
-    else:
-        code_ok = _consume_recovery_code(user, recovery_code)
-    if not code_ok:
-        logger.warning(f"TOTP disable failed: Invalid code for user_id: {user.id}")
-        return log_and_return_json("disable_totp", {'error': "Invalid two-factor code"}, status=400)
+        if not check_password(password, user.password):
+            logger.warning(f"TOTP disable failed: Password was not correct for user_id: {user.id}")
+            return log_and_return_json("disable_totp", {'error': "Invalid password"}, status=400)
 
-    user.totp_secret = None
-    user.totp_enabled = False
-    user.totp_last_used_step = None
-    user.save(update_fields=['totp_secret', 'totp_enabled', 'totp_last_used_step'])
-    user.recovery_codes.all().delete()
-    user.two_factor_challenges.all().delete()
+        if totp_code:
+            code_ok = _verify_totp_code(user, totp_code)
+        else:
+            code_ok = _consume_recovery_code(user, recovery_code)
+        if not code_ok:
+            logger.warning(f"TOTP disable failed: Invalid code for user_id: {user.id}")
+            return log_and_return_json("disable_totp", {'error': "Invalid two-factor code"}, status=400)
+
+        user.totp_secret = None
+        user.totp_enabled = False
+        user.totp_last_used_step = None
+        user.save(update_fields=['totp_secret', 'totp_enabled', 'totp_last_used_step'])
+        user.recovery_codes.all().delete()
+        user.two_factor_challenges.all().delete()
 
     logger.info(f"Two-factor authentication disabled for user_id: {user.id}")
     return log_and_return_json("disable_totp", {Fields.totp_enabled: False})
