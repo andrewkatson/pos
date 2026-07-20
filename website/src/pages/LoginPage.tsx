@@ -101,12 +101,11 @@ function LoginPage() {
     setIsLoading(true)
     try {
       const code = twoFactorCode.trim()
-      const response = await apiClient.loginWithTwoFactor({
-        challenge_token: challengeToken,
-        ...(useRecoveryCode
-          ? { recovery_code: code.toLowerCase() }
-          : { totp_code: code }),
-      })
+      const response = await apiClient.loginWithTwoFactor(
+        useRecoveryCode
+          ? { challenge_token: challengeToken, recovery_code: code.toLowerCase() }
+          : { challenge_token: challengeToken, totp_code: code },
+      )
       completeLogin(response)
     } catch (err) {
       const apiErr = err as ApiError

@@ -46,12 +46,14 @@ export function isTwoFactorRequired(
   return 'two_factor_required' in response && response.two_factor_required === true
 }
 
-/** Second login step: exactly one of totp_code / recovery_code is set. */
-export interface LoginTwoFactorRequest {
-  challenge_token: string
-  totp_code?: string
-  recovery_code?: string
-}
+/** One of the two mutually-exclusive code kinds a 2FA step accepts. The `never`
+ * on the opposite field makes "exactly one of" a compile-time guarantee. */
+type OneOfTwoFactorCode =
+  | { totp_code: string; recovery_code?: never }
+  | { recovery_code: string; totp_code?: never }
+
+/** Second login step: challenge token plus exactly one of totp_code / recovery_code. */
+export type LoginTwoFactorRequest = { challenge_token: string } & OneOfTwoFactorCode
 
 export interface TwoFactorSetupResponse {
   /** Base32 TOTP secret, for manual entry into an authenticator app. */
@@ -71,11 +73,7 @@ export interface ConfirmTotpResponse {
 }
 
 /** Disabling requires the password plus exactly one of the two code kinds. */
-export interface DisableTotpRequest {
-  password: string
-  totp_code?: string
-  recovery_code?: string
-}
+export type DisableTotpRequest = { password: string } & OneOfTwoFactorCode
 
 export interface DisableTotpResponse {
   totp_enabled: boolean

@@ -219,12 +219,11 @@ export function DisableTwoFactorModal({ onClose, onDisabled }: DisableTwoFactorM
     setErrorMessage(null)
     try {
       const trimmed = code.trim()
-      await apiClient.disableTotp({
-        password,
-        ...(useRecoveryCode
-          ? { recovery_code: trimmed.toLowerCase() }
-          : { totp_code: trimmed }),
-      })
+      await apiClient.disableTotp(
+        useRecoveryCode
+          ? { password, recovery_code: trimmed.toLowerCase() }
+          : { password, totp_code: trimmed },
+      )
       onDisabled()
     } catch (err) {
       setErrorMessage((err as ApiError).message ?? 'Could not disable two-factor authentication.')
