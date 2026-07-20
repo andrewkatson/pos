@@ -25,6 +25,24 @@ protocol Networking {
     /// This is used if the user's series identifier and login cookie token exist and match what is on record.
     func loginUserWithRememberMe(sessionManagementToken: String, seriesIdentifier: String, loginCookieToken: String, ip: String) async throws -> Data
 
+    // MARK: - Two-Factor Authentication (issue #348)
+
+    /// Second step of a two-factor login: exchanges the challenge token from
+    /// loginUser plus exactly one of `totpCode` / `recoveryCode` for a session.
+    func loginUser2FA(challengeToken: String, totpCode: String?, recoveryCode: String?, ip: String) async throws -> Data
+
+    /// Starts TOTP enrollment: generates a secret and returns it with the
+    /// otpauth:// provisioning URI. Nothing is enforced until confirmTotp.
+    func setupTotp(sessionManagementToken: String) async throws -> Data
+
+    /// Finishes TOTP enrollment by proving one code from the authenticator
+    /// works. Returns the single batch of recovery codes.
+    func confirmTotp(sessionManagementToken: String, totpCode: String) async throws -> Data
+
+    /// Turns two-factor authentication off. Requires the account password plus
+    /// exactly one of `totpCode` / `recoveryCode`.
+    func disableTotp(sessionManagementToken: String, password: String, totpCode: String?, recoveryCode: String?) async throws -> Data
+
     /// Resets the user's password. Requires a reset token issued by verifyPasswordReset.
     func resetPassword(username: String, email: String, newPassword: String, resetToken: String) async throws -> Data
 

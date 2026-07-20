@@ -78,6 +78,25 @@ final class RealAPI: Networking {
         let login_cookie_token: String
         let ip: String
     }
+
+    // TODO(#331): see above — covered by the same file-wide naming refactor.
+    // Exactly one of totp_code / recovery_code is set; JSONEncoder omits the
+    // nil one, matching the backend's exactly-one-of validation.
+    private struct Login2FABody: Encodable {
+        let challenge_token: String
+        let totp_code: String?
+        let recovery_code: String?
+    }
+
+    private struct ConfirmTotpBody: Encodable {
+        let totp_code: String
+    }
+
+    private struct DisableTotpBody: Encodable {
+        let password: String
+        let totp_code: String?
+        let recovery_code: String?
+    }
     
     private struct ResetPasswordBody: Encodable {
         let username: String
@@ -269,6 +288,54 @@ final class RealAPI: Networking {
         )
     }
     
+    /// Second step of a two-factor login: exchanges the challenge for a session.
+    func loginUser2FA(challengeToken: String, totpCode: String?, recoveryCode: String?, ip: String) async throws -> Data {
+        let body = Login2FABody(challenge_token: challengeToken, totp_code: totpCode, recovery_code: recoveryCode)
+        let requestBody = try encode(body)
+
+        return try await performRequest(
+            pathSegments: [GVOAppConstants.pathSegmentLogin, GVOAppConstants.pathSegmentTwoFactor],
+            method: .post,
+            body: requestBody
+        )
+    }
+
+    /// Starts TOTP enrollment.
+    func setupTotp(sessionManagementToken: String) async throws -> Data {
+        // This is a POST request, no body, with auth.
+        return try await performRequest(
+            pathSegments: [GVOAppConstants.pathSegmentTwoFactor, GVOAppConstants.pathSegmentTotp, GVOAppConstants.pathSegmentSetup],
+            method: .post,
+            authToken: sessionManagementToken
+        )
+    }
+
+    /// Finishes TOTP enrollment with one working code.
+    func confirmTotp(sessionManagementToken: String, totpCode: String) async throws -> Data {
+        let body = ConfirmTotpBody(totp_code: totpCode)
+        let requestBody = try encode(body)
+
+        return try await performRequest(
+            pathSegments: [GVOAppConstants.pathSegmentTwoFactor, GVOAppConstants.pathSegmentTotp, GVOAppConstants.pathSegmentConfirm],
+            method: .post,
+            body: requestBody,
+            authToken: sessionManagementToken
+        )
+    }
+
+    /// Turns two-factor authentication off.
+    func disableTotp(sessionManagementToken: String, password: String, totpCode: String?, recoveryCode: String?) async throws -> Data {
+        let body = DisableTotpBody(password: password, totp_code: totpCode, recovery_code: recoveryCode)
+        let requestBody = try encode(body)
+
+        return try await performRequest(
+            pathSegments: [GVOAppConstants.pathSegmentTwoFactor, GVOAppConstants.pathSegmentDisable],
+            method: .post,
+            body: requestBody,
+            authToken: sessionManagementToken
+        )
+    }
+
     /// Resets the user's password.
     func resetPassword(username: String, email: String, newPassword: String, resetToken: String) async throws -> Data {
         let body = ResetPasswordBody(username: username, email: email, password: newPassword, reset_token: resetToken)

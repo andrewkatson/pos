@@ -6,16 +6,25 @@
 //
 
 import SwiftUI
+import CoreImage.CIFilterBuiltins
 
 struct SettingsView: View {
     // The AuthenticationManager is still needed to trigger the final UI change.
     @EnvironmentObject private var authManager: AuthenticationManager
-    
+
     // The ViewModel manages the state and logic for this view.
     @StateObject private var viewModel: SettingsViewModel
     @State private var dateOfBirth = Date()
     @State private var showingDatePicker = false
     @State private var showingPrivacyPolicy = false
+
+    // Two-factor authentication sheets (issue #348).
+    @State private var showingEnrollTwoFactor = false
+    @State private var showingDisableTwoFactor = false
+    @State private var twoFactorConfirmCode = ""
+    @State private var disablePassword = ""
+    @State private var disableCode = ""
+    @State private var disableUsesRecoveryCode = false
 
     // Kept so the appeals screen can be built with the same API/keychain.
     private let api: Networking
@@ -72,6 +81,27 @@ struct SettingsView: View {
                         Text("Hidden Content & Appeals")
                     }.accessibilityIdentifier("AppealsButton")
                 }
+
+                // MARK: - Security Section (issue #348)
+                Section(header: Text("Security")) {
+                    Button {
+                        twoFactorConfirmCode = ""
+                        viewModel.startTotpSetup()
+                        showingEnrollTwoFactor = true
+                    } label: {
+                        Text("Enable Two-Factor Authentication")
+                            .foregroundColor(.blue)
+                    }.accessibilityIdentifier("EnableTwoFactorButton")
+
+                    Button {
+                        disablePassword = ""
+                        disableCode = ""
+                        disableUsesRecoveryCode = false
+                        showingDisableTwoFactor = true
+                    } label: {
+                        Text("Disable Two-Factor Authentication")
+                    }.accessibilityIdentifier("DisableTwoFactorButton")
+                }
             
                 
                 // MARK: - Delete Account Section
@@ -116,6 +146,17 @@ struct SettingsView: View {
             } message: {
                 Text(GVOAppConstants.privacyPolicyText)
             }
+            .alert("Two-Factor Authentication", isPresented: $viewModel.showingTwoFactorStatusAlert) {
+                Button("OK", role: .cancel) { }
+            } message: {
+                Text(viewModel.twoFactorStatusMessage)
+            }
+            .sheet(isPresented: $showingEnrollTwoFactor, onDismiss: { viewModel.cancelTotpEnrollment() }) {
+                enrollTwoFactorSheet
+            }
+            .sheet(isPresented: $showingDisableTwoFactor) {
+                disableTwoFactorSheet
+            }
             .sheet(isPresented: $showingDatePicker) {
                 VStack(spacing: 20) {
                     Text("Verify Identity")
@@ -149,6 +190,157 @@ struct SettingsView: View {
                 .presentationDetents([.medium])
             }
         }
+    }
+
+    // MARK: - Two-Factor Sheets (issue #348)
+
+    /// Enrollment: scan the QR (or copy the secret), confirm one code, then
+    /// save the one-time recovery codes.
+    @ViewBuilder
+    private var enrollTwoFactorSheet: some View {
+        VStack(spacing: 16) {
+            Text("Enable Two-Factor Authentication")
+                .font(.headline)
+                .padding(.top)
+
+            if let recoveryCodes = viewModel.recoveryCodes {
+                Text("Two-factor authentication is on. Save these recovery codes somewhere safe — each works once, and they will not be shown again.")
+                    .font(.subheadline)
+                    .multilineTextAlignment(.center)
+                ScrollView {
+                    VStack(alignment: .leading, spacing: 4) {
+                        ForEach(recoveryCodes, id: \.self) { code in
+                            Text(code)
+                                .font(.system(.body, design: .monospaced))
+                                .textSelection(.enabled)
+                        }
+                    }
+                }
+                .frame(maxHeight: 220)
+                Button("Copy All") {
+                    UIPasteboard.general.string = recoveryCodes.joined(separator: "\n")
+                }
+                .accessibilityIdentifier("CopyRecoveryCodesButton")
+                Button("Done") {
+                    showingEnrollTwoFactor = false
+                    viewModel.finishTotpEnrollment()
+                }
+                .padding()
+                .background(Color.blue)
+                .foregroundColor(.white)
+                .cornerRadius(8)
+                .accessibilityIdentifier("FinishTwoFactorEnrollmentButton")
+            } else if let setup = viewModel.totpSetup {
+                Text("Scan this QR code with your authenticator app (Google Authenticator, 1Password, …), or enter the secret manually.")
+                    .font(.subheadline)
+                    .multilineTextAlignment(.center)
+                if let qrImage = Self.qrCodeImage(for: setup.otpauthUri) {
+                    Image(uiImage: qrImage)
+                        .interpolation(.none)
+                        .resizable()
+                        .scaledToFit()
+                        .frame(width: 180, height: 180)
+                        .background(Color.white)
+                        .accessibilityIdentifier("TwoFactorQRCode")
+                }
+                Text(setup.totpSecret)
+                    .font(.system(.footnote, design: .monospaced))
+                    .textSelection(.enabled)
+                    .accessibilityIdentifier("TwoFactorSecretText")
+                TextField("6-digit code", text: $twoFactorConfirmCode)
+                    .padding().background(Color(.systemGray6)).cornerRadius(10)
+                    .keyboardType(.numberPad)
+                    .textContentType(.oneTimeCode)
+                    .accessibilityIdentifier("TwoFactorConfirmCodeTextField")
+                Button("Verify") {
+                    viewModel.confirmTotp(code: twoFactorConfirmCode.trimmingCharacters(in: .whitespaces))
+                }
+                .disabled(!(twoFactorConfirmCode.trimmingCharacters(in: .whitespaces).count == 6
+                            && twoFactorConfirmCode.trimmingCharacters(in: .whitespaces).allSatisfy(\.isNumber)))
+                .padding()
+                .background(Color.blue)
+                .foregroundColor(.white)
+                .cornerRadius(8)
+                .accessibilityIdentifier("ConfirmTwoFactorButton")
+                Button("Cancel") {
+                    showingEnrollTwoFactor = false
+                }
+                .foregroundColor(.red)
+            } else {
+                ProgressView()
+            }
+        }
+        .padding()
+        .presentationDetents([.large])
+        // Surface enrollment errors on the sheet itself, since the List's
+        // alert can't appear above it.
+        .alert("Error", isPresented: $viewModel.showingErrorAlert) {
+            Button("OK", role: .cancel) {}
+        } message: {
+            Text(viewModel.errorMessage)
+        }
+    }
+
+    /// Disabling requires the password plus a current or recovery code, so a
+    /// stolen unlocked phone alone cannot strip the protection.
+    @ViewBuilder
+    private var disableTwoFactorSheet: some View {
+        VStack(spacing: 16) {
+            Text("Disable Two-Factor Authentication")
+                .font(.headline)
+                .padding(.top)
+
+            Text("Confirm your password and a current \(disableUsesRecoveryCode ? "recovery" : "authenticator") code.")
+                .font(.subheadline)
+                .multilineTextAlignment(.center)
+
+            SecureField("Password", text: $disablePassword)
+                .padding().background(Color(.systemGray6)).cornerRadius(10)
+                .accessibilityIdentifier("DisableTwoFactorPasswordField")
+            TextField(disableUsesRecoveryCode ? "Recovery code" : "Authenticator code", text: $disableCode)
+                .padding().background(Color(.systemGray6)).cornerRadius(10)
+                .keyboardType(disableUsesRecoveryCode ? .asciiCapable : .numberPad)
+                .autocapitalization(.none)
+                .accessibilityIdentifier("DisableTwoFactorCodeField")
+            Button(disableUsesRecoveryCode ? "Use an authenticator code instead" : "Use a recovery code instead") {
+                disableUsesRecoveryCode.toggle()
+                disableCode = ""
+            }
+            .accessibilityIdentifier("DisableToggleRecoveryCodeButton")
+
+            Button("Disable") {
+                showingDisableTwoFactor = false
+                viewModel.disableTotp(
+                    password: disablePassword,
+                    code: disableCode.trimmingCharacters(in: .whitespaces),
+                    isRecoveryCode: disableUsesRecoveryCode
+                )
+            }
+            .disabled(disablePassword.isEmpty || disableCode.isEmpty)
+            .padding()
+            .background(Color.blue)
+            .foregroundColor(.white)
+            .cornerRadius(8)
+            .accessibilityIdentifier("ConfirmDisableTwoFactorButton")
+
+            Button("Cancel") {
+                showingDisableTwoFactor = false
+            }
+            .foregroundColor(.red)
+        }
+        .padding()
+        .presentationDetents([.medium])
+    }
+
+    /// Renders an otpauth:// URI as a QR code via CoreImage — no dependency.
+    private static func qrCodeImage(for string: String) -> UIImage? {
+        let filter = CIFilter.qrCodeGenerator()
+        filter.message = Data(string.utf8)
+        guard let output = filter.outputImage?.transformed(by: CGAffineTransform(scaleX: 8, y: 8)),
+              let cgImage = CIContext().createCGImage(output, from: output.extent) else {
+            return nil
+        }
+        return UIImage(cgImage: cgImage)
     }
 }
 

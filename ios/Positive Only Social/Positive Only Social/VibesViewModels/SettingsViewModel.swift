@@ -22,6 +22,14 @@ final class SettingsViewModel: ObservableObject {
     @Published var showingVerificationAlert = false
     @Published var verificationMessage = ""
     @Published var showingVerificationInput = false
+
+    // Two-factor authentication state (issue #348). `totpSetup` drives the
+    // scan/confirm steps of the enrollment sheet; `recoveryCodes` (set once
+    // confirm succeeds) drives the final save-your-codes step.
+    @Published var totpSetup: TotpSetupFields?
+    @Published var recoveryCodes: [String]?
+    @Published var twoFactorStatusMessage = ""
+    @Published var showingTwoFactorStatusAlert = false
     
     // Unique identifiers for Keychain
     private let keychainService = GVOAppConstants.keychainService
@@ -91,6 +99,87 @@ final class SettingsViewModel: ObservableObject {
         }
     }
     
+    // MARK: - Two-Factor Authentication (issue #348)
+
+    /// Starts TOTP enrollment: fetches a fresh secret + otpauth:// URI for the
+    /// scan step of the enrollment sheet.
+    func startTotpSetup() {
+        Task {
+            do {
+                guard let userSession = try keychainHelper.load(UserSession.self, from: keychainService, account: account) else {
+                    errorMessage = "Session not found."
+                    showingErrorAlert = true
+                    return
+                }
+                let data = try await api.setupTotp(sessionManagementToken: userSession.sessionToken)
+                totpSetup = try JSONDecoder().decode(TotpSetupFields.self, from: data)
+            } catch {
+                errorMessage = "Could not start two-factor setup: \(error.userFacingMessage)"
+                showingErrorAlert = true
+            }
+        }
+    }
+
+    /// Finishes TOTP enrollment by verifying one code from the authenticator.
+    /// On success `recoveryCodes` is populated for the one-time display.
+    func confirmTotp(code: String) {
+        Task {
+            do {
+                guard let userSession = try keychainHelper.load(UserSession.self, from: keychainService, account: account) else {
+                    errorMessage = "Session not found."
+                    showingErrorAlert = true
+                    return
+                }
+                let data = try await api.confirmTotp(sessionManagementToken: userSession.sessionToken, totpCode: code)
+                let fields = try JSONDecoder().decode(ConfirmTotpFields.self, from: data)
+                recoveryCodes = fields.recoveryCodes
+            } catch {
+                errorMessage = "Verification failed: \(error.userFacingMessage)"
+                showingErrorAlert = true
+            }
+        }
+    }
+
+    /// Dismisses the enrollment flow after the recovery codes have been shown.
+    func finishTotpEnrollment() {
+        totpSetup = nil
+        recoveryCodes = nil
+        twoFactorStatusMessage = "Two-factor authentication is now enabled."
+        showingTwoFactorStatusAlert = true
+    }
+
+    /// Abandons a not-yet-confirmed enrollment (the pending secret is inert).
+    func cancelTotpEnrollment() {
+        totpSetup = nil
+        recoveryCodes = nil
+    }
+
+    /// Turns two-factor authentication off. Requires the account password plus
+    /// a current authenticator code or an unused recovery code.
+    func disableTotp(password: String, code: String, isRecoveryCode: Bool) {
+        Task {
+            do {
+                guard let userSession = try keychainHelper.load(UserSession.self, from: keychainService, account: account) else {
+                    errorMessage = "Session not found."
+                    showingErrorAlert = true
+                    return
+                }
+                // Recovery codes are sent lowercased to match the backend pattern.
+                _ = try await api.disableTotp(
+                    sessionManagementToken: userSession.sessionToken,
+                    password: password,
+                    totpCode: isRecoveryCode ? nil : code,
+                    recoveryCode: isRecoveryCode ? code.lowercased() : nil
+                )
+                twoFactorStatusMessage = "Two-factor authentication has been disabled."
+                showingTwoFactorStatusAlert = true
+            } catch {
+                errorMessage = "Could not disable two-factor authentication: \(error.userFacingMessage)"
+                showingErrorAlert = true
+            }
+        }
+    }
+
     /// Verifies the identity of the user
     func verifyIdentity(authManager: AuthenticationManager, dateOfBirth: Date) {
         Task {
