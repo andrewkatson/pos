@@ -107,9 +107,11 @@ struct MockedAPI: Networking {
     }
 
     func confirmTotp(sessionManagementToken: String, totpCode: String) async throws -> Data {
+        // 10-hex-character codes matching the format the UI validates, so the
+        // preview Disable / recovery-code login flows accept them.
         let response = ConfirmTotpFields(
             totpEnabled: true,
-            recoveryCodes: (0..<10).map { "recover\($0)ab" }
+            recoveryCodes: (0..<10).map { _ in String((0..<10).map { _ in "0123456789abcdef".randomElement()! }) }
         )
         return try encode(response)
     }

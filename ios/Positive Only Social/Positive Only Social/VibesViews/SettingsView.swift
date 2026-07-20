@@ -259,6 +259,7 @@ struct SettingsView: View {
                         .scaledToFit()
                         .frame(width: 180, height: 180)
                         .background(Color.white)
+                        .accessibilityLabel("Two-factor authentication QR code")
                         .accessibilityIdentifier("TwoFactorQRCode")
                 }
                 Text(setup.totpSecret)
