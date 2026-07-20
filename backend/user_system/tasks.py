@@ -213,11 +213,18 @@ def classify_post(post_identifier):
             f"(text failure={text_result.provider_failure}, image failure={image_result.provider_failure})")
 
     allowed = bool(text_result) and bool(image_result)
-    final = ((not text_result and not text_result.appealable)
-             or (not image_result and not image_result.appealable))
-    # Text precedence for the recorded machine-readable code, matching the old
-    # synchronous responses.
-    reason_result = text_result if not text_result else image_result
+    text_final = not text_result and not text_result.appealable
+    image_final = not image_result and not image_result.appealable
+    final = text_final or image_final
+    # The recorded machine-readable code comes from the decisive rejection:
+    # a final rejection outranks an appealable one (a final image rejection is
+    # what actually sank a post whose caption was merely appealable), and when
+    # both sides carry the same finality, text takes precedence — both rules
+    # matching the old synchronous responses.
+    if final:
+        reason_result = text_result if text_final else image_result
+    else:
+        reason_result = text_result if not text_result else image_result
 
     image_url_to_delete = None
     with transaction.atomic():

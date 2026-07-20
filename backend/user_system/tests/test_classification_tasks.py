@@ -17,6 +17,8 @@ ALLOWED = ClassificationResult(allowed=True)
 APPEALABLE = ClassificationResult(allowed=False, appealable=True)
 FINAL_REJECT = ClassificationResult(allowed=False, appealable=False)
 PROVIDER_FAILURE = ClassificationResult(allowed=False, provider_failure=True)
+APPEALABLE_HATE = ClassificationResult(allowed=False, appealable=True, reason_code='hate_speech')
+FINAL_REJECT_GORE = ClassificationResult(allowed=False, appealable=False, reason_code='gore')
 
 TEXT = 'user_system.tasks.text_classifier_class.is_text_positive'
 IMAGE = 'user_system.tasks.image_classifier_class.is_image_positive'
@@ -69,6 +71,25 @@ class ClassifyPostTaskTests(TestCase):
         mock_delete.assert_called_once_with(IMAGE_URL)
         self.assertEqual(len(mail.outbox), 1)
         self.assertIn('cannot be appealed', mail.outbox[0].body)
+
+    @patch('user_system.tasks.delete_image')
+    @patch(IMAGE, return_value=FINAL_REJECT_GORE)
+    @patch(TEXT, return_value=APPEALABLE_HATE)
+    def test_decisive_final_rejection_wins_the_recorded_reason(self, _text, _image, _delete):
+        """An appealable caption with a final image rejection is final, and the
+        recorded reason is the image's (the decisive rejection), matching the
+        old synchronous behavior."""
+        self._run()
+        self.assertEqual(self.post.hidden_reason, HIDDEN_REASON_CLASSIFIER_FINAL)
+        self.assertEqual(self.post.classification_reason_code, 'gore')
+
+    @patch(IMAGE, return_value=APPEALABLE_HATE)
+    @patch(TEXT, return_value=APPEALABLE)
+    def test_text_precedence_when_both_rejections_share_finality(self, _text, _image):
+        self._run()
+        self.assertEqual(self.post.hidden_reason, HIDDEN_REASON_CLASSIFIER)
+        # Text cited no rule, so its generic code wins over the image's.
+        self.assertEqual(self.post.classification_reason_code, 'guidelines')
 
     @patch(IMAGE, return_value=ALLOWED)
     @patch(TEXT, return_value=PROVIDER_FAILURE)
