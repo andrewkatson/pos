@@ -284,6 +284,13 @@ struct SettingsView: View {
                     showingEnrollTwoFactor = false
                 }
                 .foregroundColor(.red)
+            } else if viewModel.twoFactorErrorMessage != nil {
+                // Setup failed before a secret arrived (the error is shown above);
+                // offer a way out instead of an indefinite spinner.
+                Button("Close") {
+                    showingEnrollTwoFactor = false
+                }
+                .foregroundColor(.red)
             } else {
                 ProgressView()
             }
