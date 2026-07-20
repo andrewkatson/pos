@@ -76,7 +76,7 @@ fun LoginScreen(
         }
 
         /** Shared tail of both login steps: persist the session and enter the app. */
-        fun completeLogin(
+        suspend fun completeLogin(
             sessionToken: String?,
             username: String?,
             userId: String?,
