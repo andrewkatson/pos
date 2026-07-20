@@ -286,7 +286,7 @@ def _verify_totp_code(user, code):
     the last accepted one is refused, so a code observed in transit cannot be
     replayed inside its validity window.
     """
-    totp = pyotp.TOTP(user.totp_secret)
+    totp = pyotp.TOTP(user.totp_secret, interval=_TOTP_PERIOD_SECONDS)
     now = timezone.now()
     for offset in (-1, 0, 1):
         step_time = now + timedelta(seconds=_TOTP_PERIOD_SECONDS * offset)
@@ -762,18 +762,25 @@ def login_user_2fa(request):
 
     submitted_hash = hashlib.sha256(challenge_token.encode()).hexdigest()
 
+    # Find the challenge unlocked first, only to learn which user it belongs to.
+    # The locks are then taken in a consistent order — the user row first, then
+    # the challenge row — matching login_user and disable_totp, so these flows
+    # can never deadlock by grabbing the two locks in opposite orders.
+    challenge_ref = TwoFactorChallenge.objects.filter(token_hash=submitted_hash).first()
+    if challenge_ref is None:
+        logger.warning("Two-factor login failed: Invalid or expired challenge")
+        return log_and_return_json("login_user_2fa", {'error': "Invalid or expired challenge"}, status=400)
+
     with transaction.atomic():
-        challenge = TwoFactorChallenge.objects.select_for_update().filter(token_hash=submitted_hash).first()
+        # Lock the user row first: the replay guard (totp_last_used_step) and the
+        # single-use recovery codes must not race a concurrent attempt.
+        user = get_user_model().objects.select_for_update().get(pk=challenge_ref.user_id)
+        challenge = TwoFactorChallenge.objects.select_for_update().filter(pk=challenge_ref.pk).first()
         if challenge is None or timezone.now() > challenge.expires:
             if challenge is not None:
                 challenge.delete()
             logger.warning("Two-factor login failed: Invalid or expired challenge")
             return log_and_return_json("login_user_2fa", {'error': "Invalid or expired challenge"}, status=400)
-
-        # Lock the user row: the replay guard (totp_last_used_step) and the
-        # single-use recovery codes must not race a concurrent attempt on the
-        # same challenge.
-        user = get_user_model().objects.select_for_update().get(pk=challenge.user_id)
 
         # Re-run the account gates from login_user; the account's state may
         # have changed between the password step and this one.
@@ -830,7 +837,10 @@ def setup_totp(request):
     user.totp_last_used_step = None
     user.save(update_fields=['totp_secret', 'totp_last_used_step'])
 
-    uri = pyotp.totp.TOTP(user.totp_secret).provisioning_uri(name=user.email, issuer_name=TOTP_ISSUER)
+    # Set the interval explicitly so the otpauth:// period matches the
+    # server-side verification window in _verify_totp_code.
+    uri = pyotp.totp.TOTP(user.totp_secret, interval=_TOTP_PERIOD_SECONDS).provisioning_uri(
+        name=user.email, issuer_name=TOTP_ISSUER)
     response = log_and_return_json("setup_totp", {
         Fields.totp_secret: user.totp_secret,
         Fields.otpauth_uri: uri,
