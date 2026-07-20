@@ -33,6 +33,60 @@ data class LoginRequest(
     val ip: String
 )
 
+// --- Two-Factor Authentication DTOs (issue #348) ---
+
+/**
+ * The login response, which is one of two shapes: a session (same fields as
+ * AuthResponse) for ordinary accounts, or — when the account has two-factor
+ * authentication enabled — `twoFactorRequired` plus a short-lived
+ * `challengeToken` to exchange at login/2fa/. Every field is nullable so Gson
+ * can decode either shape safely.
+ */
+data class LoginResponse(
+    @SerializedName("two_factor_required") val twoFactorRequired: Boolean = false,
+    @SerializedName("challenge_token") val challengeToken: String? = null,
+    @SerializedName("session_management_token") val sessionToken: String? = null,
+    val username: String? = null,
+    @SerializedName("user_id") val userId: String? = null,
+    @SerializedName("series_identifier") val seriesIdentifier: String? = null,
+    @SerializedName("login_cookie_token") val loginCookieToken: String? = null
+)
+
+/** Second login step: exactly one of totpCode / recoveryCode is set (Gson omits nulls). */
+data class LoginTwoFactorRequest(
+    @SerializedName("challenge_token") val challengeToken: String,
+    @SerializedName("totp_code") val totpCode: String? = null,
+    @SerializedName("recovery_code") val recoveryCode: String? = null
+)
+
+data class TotpSetupResponse(
+    // Base32 TOTP secret, for manual entry into an authenticator app.
+    @SerializedName("totp_secret") val totpSecret: String,
+    // otpauth:// provisioning URI, rendered as a QR code for scanning.
+    @SerializedName("otpauth_uri") val otpauthUri: String
+)
+
+data class ConfirmTotpRequest(
+    @SerializedName("totp_code") val totpCode: String
+)
+
+data class ConfirmTotpResponse(
+    @SerializedName("totp_enabled") val totpEnabled: Boolean,
+    // Single-use recovery codes, shown exactly once at enrollment.
+    @SerializedName("recovery_codes") val recoveryCodes: List<String>
+)
+
+/** Disabling requires the password plus exactly one of the two code kinds. */
+data class DisableTotpRequest(
+    val password: String,
+    @SerializedName("totp_code") val totpCode: String? = null,
+    @SerializedName("recovery_code") val recoveryCode: String? = null
+)
+
+data class DisableTotpResponse(
+    @SerializedName("totp_enabled") val totpEnabled: Boolean
+)
+
 data class TokenRefreshRequest(
     @SerializedName("session_management_token") val sessionToken: String,
     @SerializedName("series_identifier") val seriesIdentifier: String,

@@ -11,10 +11,32 @@ interface PositiveOnlySocialAPI {
     // =============================================================================
 
     @POST("login/")
-    suspend fun loginUser(@Body request: LoginRequest): Response<AuthResponse>
+    suspend fun loginUser(@Body request: LoginRequest): Response<LoginResponse>
 
     @POST("login/remember/")
     suspend fun loginUserWithRememberMe(@Body request: TokenRefreshRequest): Response<TokenRefreshResponse>
+
+    // =============================================================================
+    // TWO-FACTOR AUTHENTICATION (issue #348)
+    // =============================================================================
+
+    @POST("login/2fa/")
+    suspend fun loginUser2FA(@Body request: LoginTwoFactorRequest): Response<AuthResponse>
+
+    @POST("2fa/totp/setup/")
+    suspend fun setupTotp(@Header("Authorization") token: String): Response<TotpSetupResponse>
+
+    @POST("2fa/totp/confirm/")
+    suspend fun confirmTotp(
+        @Header("Authorization") token: String,
+        @Body request: ConfirmTotpRequest
+    ): Response<ConfirmTotpResponse>
+
+    @POST("2fa/disable/")
+    suspend fun disableTotp(
+        @Header("Authorization") token: String,
+        @Body request: DisableTotpRequest
+    ): Response<DisableTotpResponse>
 
     @POST("register/")
     suspend fun register(@Body request: RegisterRequest): Response<AuthResponse>
