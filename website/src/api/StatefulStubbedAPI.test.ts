@@ -1,5 +1,5 @@
 import { ApiError } from './client'
-import { StatefulStubbedAPI } from './StatefulStubbedAPI'
+import { STUB_TOTP_CODE, StatefulStubbedAPI } from './StatefulStubbedAPI'
 import type { RegisterRequest } from './types'
 
 function register(api: StatefulStubbedAPI, username: string) {
@@ -300,4 +300,129 @@ test('rejects an invalid appeal target type', async () => {
     // 'ban' is not appealable in-app; cast past the type to exercise the guard.
     api.submitAppeal({ target_type: 'ban' as never, target_identifier: '1', reason: 'x' }),
   ).rejects.toThrow('Invalid target_type')
+})
+
+// ---------------------------------------------------------------------------
+// Two-factor authentication
+// ---------------------------------------------------------------------------
+
+async function enableTwoFactor(api: StatefulStubbedAPI) {
+  await api.setupTotp()
+  return api.confirmTotp({ totp_code: STUB_TOTP_CODE })
+}
+
+test('totp setup returns a secret and provisioning uri', async () => {
+  const api = new StatefulStubbedAPI()
+  await register(api, 'ada')
+
+  const setup = await api.setupTotp()
+
+  expect(setup.totp_secret.length).toBeGreaterThan(0)
+  expect(setup.otpauth_uri.startsWith('otpauth://totp/')).toBe(true)
+})
+
+test('confirming with the stub code enables 2fa and returns recovery codes', async () => {
+  const api = new StatefulStubbedAPI()
+  await register(api, 'ada')
+
+  const confirm = await enableTwoFactor(api)
+
+  expect(confirm.totp_enabled).toBe(true)
+  expect(confirm.recovery_codes).toHaveLength(10)
+})
+
+test('confirming with a wrong code fails and 2fa stays off', async () => {
+  const api = new StatefulStubbedAPI()
+  await register(api, 'ada')
+  await api.setupTotp()
+
+  await expect(api.confirmTotp({ totp_code: '000000' })).rejects.toThrow(
+    'Invalid two-factor code',
+  )
+
+  // Login still single-step.
+  const login = await api.login({ username_or_email: 'ada', password: 'password123' })
+  expect('session_management_token' in login).toBe(true)
+})
+
+test('login for an enrolled account returns a challenge, and the code exchanges it', async () => {
+  const api = new StatefulStubbedAPI()
+  await register(api, 'ada')
+  await enableTwoFactor(api)
+  await api.logout()
+
+  const login = await api.login({ username_or_email: 'ada', password: 'password123' })
+  if (!('two_factor_required' in login)) {
+    throw new Error('expected a two-factor challenge')
+  }
+  expect(api.isAuthenticated()).toBe(false)
+
+  const session = await api.loginWithTwoFactor({
+    challenge_token: login.challenge_token,
+    totp_code: STUB_TOTP_CODE,
+  })
+  expect(session.username).toBe('ada')
+  expect(api.isAuthenticated()).toBe(true)
+
+  // The challenge is single-use.
+  await expect(
+    api.loginWithTwoFactor({ challenge_token: login.challenge_token, totp_code: STUB_TOTP_CODE }),
+  ).rejects.toThrow('Invalid or expired challenge')
+})
+
+test('recovery codes work once each', async () => {
+  const api = new StatefulStubbedAPI()
+  await register(api, 'ada')
+  const confirm = await enableTwoFactor(api)
+  const recoveryCode = confirm.recovery_codes[0]
+  await api.logout()
+
+  const first = await api.login({ username_or_email: 'ada', password: 'password123' })
+  if (!('two_factor_required' in first)) throw new Error('expected challenge')
+  await api.loginWithTwoFactor({ challenge_token: first.challenge_token, recovery_code: recoveryCode })
+  await api.logout()
+
+  const second = await api.login({ username_or_email: 'ada', password: 'password123' })
+  if (!('two_factor_required' in second)) throw new Error('expected challenge')
+  await expect(
+    api.loginWithTwoFactor({ challenge_token: second.challenge_token, recovery_code: recoveryCode }),
+  ).rejects.toThrow('Invalid two-factor code')
+})
+
+test('remember_me is carried through the two-factor step', async () => {
+  const api = new StatefulStubbedAPI()
+  await register(api, 'ada')
+  await enableTwoFactor(api)
+  await api.logout()
+
+  const login = await api.login({
+    username_or_email: 'ada',
+    password: 'password123',
+    remember_me: true,
+  })
+  if (!('two_factor_required' in login)) throw new Error('expected challenge')
+
+  const session = await api.loginWithTwoFactor({
+    challenge_token: login.challenge_token,
+    totp_code: STUB_TOTP_CODE,
+  })
+  expect(session.series_identifier).toBeDefined()
+  expect(session.login_cookie_token).toBeDefined()
+})
+
+test('disabling requires the password and a valid code, then login is single-step', async () => {
+  const api = new StatefulStubbedAPI()
+  await register(api, 'ada')
+  await enableTwoFactor(api)
+
+  await expect(
+    api.disableTotp({ password: 'wrong', totp_code: STUB_TOTP_CODE }),
+  ).rejects.toThrow('Invalid password')
+
+  const result = await api.disableTotp({ password: 'password123', totp_code: STUB_TOTP_CODE })
+  expect(result.totp_enabled).toBe(false)
+
+  await api.logout()
+  const login = await api.login({ username_or_email: 'ada', password: 'password123' })
+  expect('session_management_token' in login).toBe(true)
 })

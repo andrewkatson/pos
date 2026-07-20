@@ -6,11 +6,12 @@ import LoginPage from './LoginPage'
 
 vi.mock('../api/client', async importOriginal => {
   const actual = await importOriginal<typeof import('../api/client')>()
-  return { ...actual, apiClient: { login: vi.fn() } }
+  return { ...actual, apiClient: { login: vi.fn(), loginWithTwoFactor: vi.fn() } }
 })
 
 import { apiClient } from '../api/client'
 const mockLogin = vi.mocked(apiClient.login)
+const mockLoginWithTwoFactor = vi.mocked(apiClient.loginWithTwoFactor)
 
 function makeStorageMock() {
   return { setItem: vi.fn(), getItem: vi.fn(), removeItem: vi.fn(), clear: vi.fn() }
@@ -33,11 +34,25 @@ function renderLoginPage() {
 
 beforeEach(() => {
   mockLogin.mockReset()
+  mockLoginWithTwoFactor.mockReset()
   localStorageMock = makeStorageMock()
   sessionStorageMock = makeStorageMock()
   vi.stubGlobal('localStorage', localStorageMock)
   vi.stubGlobal('sessionStorage', sessionStorageMock)
 })
+
+/** Logs in as a user whose account answers with a two-factor challenge. */
+async function loginIntoTwoFactorStep() {
+  mockLogin.mockResolvedValueOnce({
+    two_factor_required: true,
+    challenge_token: 'c'.repeat(64),
+  })
+  renderLoginPage()
+  await userEvent.type(screen.getByLabelText('Username or Email'), 'ada')
+  await userEvent.type(screen.getByLabelText('Password'), 'pass')
+  await userEvent.click(screen.getByRole('button', { name: 'Login' }))
+  await screen.findByRole('heading', { name: 'Two-Factor Authentication' })
+}
 
 afterEach(() => {
   vi.unstubAllGlobals()
@@ -212,4 +227,95 @@ test('shows verify-your-email message when redirected with the verify_email flag
   )
 
   expect(screen.getByText(EMAIL_NOT_VERIFIED_MESSAGE)).toBeInTheDocument()
+})
+
+test('a two-factor challenge swaps the form for the code step', async () => {
+  await loginIntoTwoFactorStep()
+
+  expect(screen.getByLabelText('Authenticator Code')).toBeInTheDocument()
+  expect(screen.queryByLabelText('Password')).not.toBeInTheDocument()
+  // No session was persisted from the challenge response.
+  expect(sessionStorageMock.setItem).not.toHaveBeenCalled()
+  expect(localStorageMock.setItem).not.toHaveBeenCalled()
+})
+
+test('verify is disabled until the code is six digits', async () => {
+  await loginIntoTwoFactorStep()
+
+  await userEvent.type(screen.getByLabelText('Authenticator Code'), '123')
+  expect(screen.getByRole('button', { name: 'Verify' })).toBeDisabled()
+  await userEvent.type(screen.getByLabelText('Authenticator Code'), '456')
+  expect(screen.getByRole('button', { name: 'Verify' })).toBeEnabled()
+})
+
+test('a valid authenticator code completes the login', async () => {
+  await loginIntoTwoFactorStep()
+  mockLoginWithTwoFactor.mockResolvedValueOnce({
+    session_management_token: 'tok',
+    user_id: 'uuid-abc',
+    username: 'ada',
+  })
+
+  await userEvent.type(screen.getByLabelText('Authenticator Code'), '123456')
+  await userEvent.click(screen.getByRole('button', { name: 'Verify' }))
+
+  expect(await screen.findByText('Home')).toBeInTheDocument()
+  expect(mockLoginWithTwoFactor).toHaveBeenCalledWith({
+    challenge_token: 'c'.repeat(64),
+    totp_code: '123456',
+  })
+  expect(sessionStorageMock.setItem).toHaveBeenCalledWith('session_token', 'tok')
+})
+
+test('the recovery-code toggle switches the input and sends recovery_code', async () => {
+  await loginIntoTwoFactorStep()
+  mockLoginWithTwoFactor.mockResolvedValueOnce({
+    session_management_token: 'tok',
+    user_id: 'uuid-abc',
+    username: 'ada',
+  })
+
+  await userEvent.click(screen.getByRole('button', { name: 'Use a recovery code instead' }))
+  await userEvent.type(screen.getByLabelText('Recovery Code'), 'ABCDEF0123')
+  await userEvent.click(screen.getByRole('button', { name: 'Verify' }))
+
+  await screen.findByText('Home')
+  // Recovery codes are sent lowercased to match the backend pattern.
+  expect(mockLoginWithTwoFactor).toHaveBeenCalledWith({
+    challenge_token: 'c'.repeat(64),
+    recovery_code: 'abcdef0123',
+  })
+})
+
+test('a wrong code shows the backend error and stays on the code step', async () => {
+  await loginIntoTwoFactorStep()
+  const { ApiError } = await import('../api/client')
+  mockLoginWithTwoFactor.mockRejectedValueOnce(new ApiError(400, 'Invalid two-factor code'))
+
+  await userEvent.type(screen.getByLabelText('Authenticator Code'), '000000')
+  await userEvent.click(screen.getByRole('button', { name: 'Verify' }))
+
+  expect(await screen.findByRole('alert')).toHaveTextContent('Invalid two-factor code')
+  expect(screen.getByLabelText('Authenticator Code')).toBeInTheDocument()
+})
+
+test('an expired challenge returns to the login form with an explanation', async () => {
+  await loginIntoTwoFactorStep()
+  const { ApiError } = await import('../api/client')
+  mockLoginWithTwoFactor.mockRejectedValueOnce(new ApiError(400, 'Invalid or expired challenge'))
+
+  await userEvent.type(screen.getByLabelText('Authenticator Code'), '123456')
+  await userEvent.click(screen.getByRole('button', { name: 'Verify' }))
+
+  expect(await screen.findByRole('heading', { name: 'Login' })).toBeInTheDocument()
+  expect(screen.getByRole('alert')).toHaveTextContent('Your login expired. Please sign in again.')
+})
+
+test('back from the code step returns to the login form', async () => {
+  await loginIntoTwoFactorStep()
+
+  await userEvent.click(screen.getByRole('button', { name: 'Back to login' }))
+
+  expect(screen.getByRole('heading', { name: 'Login' })).toBeInTheDocument()
+  expect(screen.getByLabelText('Password')).toBeInTheDocument()
 })

@@ -9,6 +9,8 @@ import {
   apiClient,
 } from '../api/client'
 import type { ApiError } from '../api/client'
+import type { AuthResponse } from '../api/types'
+import { isTwoFactorRequired } from '../api/types'
 import { clearRememberMeTokens, persistSession, saveRememberMeTokens } from '../api/session'
 import './LoginPage.css'
 
@@ -29,7 +31,38 @@ function LoginPage() {
   )
   const [isLoading, setIsLoading] = useState(false)
 
+  // Two-factor step. Set when login answered with a challenge instead of a
+  // session; the login form is replaced by the code-entry step until the
+  // challenge is exchanged (or the user goes back).
+  const [challengeToken, setChallengeToken] = useState<string | null>(null)
+  const [twoFactorCode, setTwoFactorCode] = useState('')
+  const [useRecoveryCode, setUseRecoveryCode] = useState(false)
+
   const isFormValid = usernameOrEmail.trim().length > 0 && password.length > 0
+  // Authenticator codes are 6 digits; recovery codes are 10 hex characters
+  // (backend/user_system/constants.py Patterns).
+  const isCodeValid = useRecoveryCode
+    ? /^[0-9a-fA-F]{10}$/.test(twoFactorCode.trim())
+    : /^\d{6}$/.test(twoFactorCode.trim())
+
+  /** Shared tail of both login steps: persist the session and enter the app. */
+  function completeLogin(response: AuthResponse) {
+    // When "Remember Me" is off the session goes to sessionStorage and is
+    // cleared when the browser/tab closes; when on it persists in localStorage.
+    persistSession(response, rememberMe)
+    // Persist the remember-me tokens (only returned when remember_me was
+    // requested) so the session can be rotated on the next browser start;
+    // otherwise drop any stale tokens from a previous "remember me" login.
+    if (rememberMe && response.series_identifier && response.login_cookie_token) {
+      saveRememberMeTokens({
+        seriesIdentifier: response.series_identifier,
+        loginCookieToken: response.login_cookie_token,
+      })
+    } else {
+      clearRememberMeTokens()
+    }
+    navigate('/home')
+  }
 
   async function handleLogin(e: FormEvent) {
     e.preventDefault()
@@ -41,21 +74,13 @@ function LoginPage() {
         password,
         remember_me: rememberMe,
       })
-      // When "Remember Me" is off the session goes to sessionStorage and is
-      // cleared when the browser/tab closes; when on it persists in localStorage.
-      persistSession(response, rememberMe)
-      // Persist the remember-me tokens (only returned when remember_me was
-      // requested) so the session can be rotated on the next browser start;
-      // otherwise drop any stale tokens from a previous "remember me" login.
-      if (rememberMe && response.series_identifier && response.login_cookie_token) {
-        saveRememberMeTokens({
-          seriesIdentifier: response.series_identifier,
-          loginCookieToken: response.login_cookie_token,
-        })
-      } else {
-        clearRememberMeTokens()
+      if (isTwoFactorRequired(response)) {
+        // Password accepted, but the account needs its second factor.
+        setChallengeToken(response.challenge_token)
+        setErrorMessage(null)
+        return
       }
-      navigate('/home')
+      completeLogin(response)
     } catch (err) {
       const apiErr = err as ApiError
       if (apiErr.message === ACCOUNT_BANNED) {
@@ -70,14 +95,49 @@ function LoginPage() {
     }
   }
 
+  async function handleTwoFactorSubmit(e: FormEvent) {
+    e.preventDefault()
+    if (!challengeToken || !isCodeValid) return
+    setIsLoading(true)
+    try {
+      const code = twoFactorCode.trim()
+      const response = await apiClient.loginWithTwoFactor({
+        challenge_token: challengeToken,
+        ...(useRecoveryCode
+          ? { recovery_code: code.toLowerCase() }
+          : { totp_code: code }),
+      })
+      completeLogin(response)
+    } catch (err) {
+      const apiErr = err as ApiError
+      if (apiErr.message === 'Invalid or expired challenge') {
+        // The challenge timed out (or was invalidated): start over.
+        setChallengeToken(null)
+        setTwoFactorCode('')
+        setErrorMessage('Your login expired. Please sign in again.')
+      } else {
+        setErrorMessage(apiErr.message ?? 'Verification failed. Please try again.')
+      }
+    } finally {
+      setIsLoading(false)
+    }
+  }
+
+  function backToLogin() {
+    setChallengeToken(null)
+    setTwoFactorCode('')
+    setUseRecoveryCode(false)
+    setErrorMessage(null)
+  }
+
   return (
     <div className="auth-page">
       <div className="auth-card">
         <button
           type="button"
           className="auth-back"
-          onClick={() => navigate('/')}
-          aria-label="Back to home"
+          onClick={() => (challengeToken ? backToLogin() : navigate('/'))}
+          aria-label={challengeToken ? 'Back to login' : 'Back to home'}
         >
           ← Back
         </button>
@@ -86,7 +146,7 @@ function LoginPage() {
           <Logo size={80} />
         </div>
 
-        <h1 className="auth-title">Login</h1>
+        <h1 className="auth-title">{challengeToken ? 'Two-Factor Authentication' : 'Login'}</h1>
 
         {errorMessage && (
           <div className="auth-error" role="alert">
@@ -102,74 +162,125 @@ function LoginPage() {
           </div>
         )}
 
-        <form className="auth-form" onSubmit={handleLogin} noValidate>
-          <div className="auth-field">
-            <label className="auth-label" htmlFor="usernameOrEmail">
-              Username or Email
-            </label>
-            <input
-              id="usernameOrEmail"
-              className="auth-input"
-              type="text"
-              inputMode="email"
-              autoComplete="username"
-              autoCapitalize="none"
-              value={usernameOrEmail}
-              onChange={e => setUsernameOrEmail(e.target.value)}
-              disabled={isLoading}
-            />
-          </div>
+        {challengeToken ? (
+          <form className="auth-form" onSubmit={handleTwoFactorSubmit} noValidate>
+            <p className="auth-instructions">
+              {useRecoveryCode
+                ? 'Enter one of your recovery codes. Each code works only once.'
+                : 'Enter the 6-digit code from your authenticator app.'}
+            </p>
 
-          <div className="auth-field">
-            <label className="auth-label" htmlFor="password">
-              Password
-            </label>
-            <input
-              id="password"
-              className="auth-input"
-              type="password"
-              autoComplete="current-password"
-              value={password}
-              onChange={e => setPassword(e.target.value)}
-              disabled={isLoading}
-            />
-          </div>
-
-          <div className="auth-toggle-row">
-            <span className="auth-label">Remember Me</span>
-            <label className="toggle" aria-label="Remember me">
+            <div className="auth-field">
+              <label className="auth-label" htmlFor="twoFactorCode">
+                {useRecoveryCode ? 'Recovery Code' : 'Authenticator Code'}
+              </label>
               <input
-                type="checkbox"
-                checked={rememberMe}
-                onChange={e => setRememberMe(e.target.checked)}
+                id="twoFactorCode"
+                className="auth-input"
+                type="text"
+                inputMode={useRecoveryCode ? 'text' : 'numeric'}
+                autoComplete="one-time-code"
+                autoCapitalize="none"
+                maxLength={useRecoveryCode ? 10 : 6}
+                value={twoFactorCode}
+                onChange={e => setTwoFactorCode(e.target.value)}
                 disabled={isLoading}
               />
-              <span className="toggle__track" />
-            </label>
-          </div>
-
-          {isLoading ? (
-            <div className="auth-spinner" aria-label="Logging in…">
-              <span className="spinner" />
             </div>
-          ) : (
-            <button
-              type="submit"
-              className="auth-button"
-              disabled={!isFormValid}
-            >
-              Login
-            </button>
-          )}
-        </form>
 
-        <button
-          type="button"
-          className="auth-link auth-link--right"
-          onClick={() => navigate('/request-reset')}
-        >
-          Forgot Password?
-        </button>
+            {isLoading ? (
+              <div className="auth-spinner" aria-label="Verifying…">
+                <span className="spinner" />
+              </div>
+            ) : (
+              <button type="submit" className="auth-button" disabled={!isCodeValid}>
+                Verify
+              </button>
+            )}
+
+            <button
+              type="button"
+              className="auth-link auth-link--right"
+              onClick={() => {
+                setUseRecoveryCode(v => !v)
+                setTwoFactorCode('')
+              }}
+            >
+              {useRecoveryCode ? 'Use an authenticator code instead' : 'Use a recovery code instead'}
+            </button>
+          </form>
+        ) : (
+          <>
+            <form className="auth-form" onSubmit={handleLogin} noValidate>
+              <div className="auth-field">
+                <label className="auth-label" htmlFor="usernameOrEmail">
+                  Username or Email
+                </label>
+                <input
+                  id="usernameOrEmail"
+                  className="auth-input"
+                  type="text"
+                  inputMode="email"
+                  autoComplete="username"
+                  autoCapitalize="none"
+                  value={usernameOrEmail}
+                  onChange={e => setUsernameOrEmail(e.target.value)}
+                  disabled={isLoading}
+                />
+              </div>
+
+              <div className="auth-field">
+                <label className="auth-label" htmlFor="password">
+                  Password
+                </label>
+                <input
+                  id="password"
+                  className="auth-input"
+                  type="password"
+                  autoComplete="current-password"
+                  value={password}
+                  onChange={e => setPassword(e.target.value)}
+                  disabled={isLoading}
+                />
+              </div>
+
+              <div className="auth-toggle-row">
+                <span className="auth-label">Remember Me</span>
+                <label className="toggle" aria-label="Remember me">
+                  <input
+                    type="checkbox"
+                    checked={rememberMe}
+                    onChange={e => setRememberMe(e.target.checked)}
+                    disabled={isLoading}
+                  />
+                  <span className="toggle__track" />
+                </label>
+              </div>
+
+              {isLoading ? (
+                <div className="auth-spinner" aria-label="Logging in…">
+                  <span className="spinner" />
+                </div>
+              ) : (
+                <button
+                  type="submit"
+                  className="auth-button"
+                  disabled={!isFormValid}
+                >
+                  Login
+                </button>
+              )}
+            </form>
+
+            <button
+              type="button"
+              className="auth-link auth-link--right"
+              onClick={() => navigate('/request-reset')}
+            >
+              Forgot Password?
+            </button>
+          </>
+        )}
       </div>
     </div>
   )

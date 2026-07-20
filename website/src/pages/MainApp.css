@@ -954,3 +954,65 @@
   color: #ff8a8a;
   background: rgba(255, 138, 138, 0.15);
 }
+
+/* ---- Two-factor authentication modals ---- */
+
+/* QR codes need a light, padded background to scan reliably on the dark UI. */
+.twofa-qr {
+  display: flex;
+  justify-content: center;
+  background: #ffffff;
+  border-radius: 8px;
+  padding: 0.75rem;
+  margin: 0 auto 0.75rem;
+  width: fit-content;
+}
+
+.twofa-secret-row {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  justify-content: center;
+  margin-bottom: 0.75rem;
+}
+
+.twofa-secret {
+  font-family: monospace;
+  font-size: 0.8rem;
+  overflow-wrap: anywhere;
+  user-select: all;
+}
+
+.twofa-codes {
+  list-style: none;
+  margin: 0 0 0.75rem;
+  padding: 0.5rem 0.75rem;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.3rem 1rem;
+  background: rgba(255, 255, 255, 0.06);
+  border-radius: 8px;
+  font-family: monospace;
+  font-size: 0.85rem;
+}
+
+.twofa-error {
+  color: #ff8a8a;
+  font-size: 0.85rem;
+  margin: 0 0 0.5rem;
+}
+
+.twofa-toggle-kind {
+  background: none;
+  border: none;
+  color: #5ba4dc;
+  font-size: 0.85rem;
+  cursor: pointer;
+  padding: 0;
+  margin-bottom: 0.75rem;
+  align-self: flex-start;
+}
+
+.twofa-toggle-kind:hover {
+  opacity: 0.75;
+}

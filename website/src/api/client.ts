@@ -14,13 +14,19 @@ import type {
   Comment,
   CommentOnPostResponse,
   CommentThreadRef,
+  ConfirmTotpRequest,
+  ConfirmTotpResponse,
   CreatePostRequest,
   CreatePostResponse,
   CreateUploadUrlResponse,
+  DisableTotpRequest,
+  DisableTotpResponse,
   FeedPost,
   HiddenComment,
   HiddenPost,
   LoginRequest,
+  LoginResponse,
+  LoginTwoFactorRequest,
   LoginWithRememberMeRequest,
   LoginWithRememberMeResponse,
   MessageResponse,
@@ -34,11 +40,13 @@ import type {
   ResetPasswordRequest,
   SubmitAppealRequest,
   SubmitAppealResponse,
+  TwoFactorSetupResponse,
   UserSearchResult,
   VerifyEmailRequest,
   VerifyResetRequest,
   VerifyResetResponse,
 } from './types'
+import { isTwoFactorRequired } from './types'
 
 const DEFAULT_BASE_URL = 'https://api.smiling.social/user_index'
 
@@ -323,10 +331,32 @@ export class ApiClient implements PositiveOnlySocialAPI {
     return result
   }
 
-  async login(body: LoginRequest): Promise<AuthResponse> {
-    const result = await this.request<AuthResponse>('POST', '/login/', { body })
+  async login(body: LoginRequest): Promise<LoginResponse> {
+    const result = await this.request<LoginResponse>('POST', '/login/', { body })
+    // A 2FA-enrolled account gets a challenge, not a session; the token only
+    // arrives after loginWithTwoFactor.
+    if (!isTwoFactorRequired(result)) {
+      this.setToken(result.session_management_token)
+    }
+    return result
+  }
+
+  async loginWithTwoFactor(body: LoginTwoFactorRequest): Promise<AuthResponse> {
+    const result = await this.request<AuthResponse>('POST', '/login/2fa/', { body })
     this.setToken(result.session_management_token)
     return result
+  }
+
+  setupTotp(): Promise<TwoFactorSetupResponse> {
+    return this.request<TwoFactorSetupResponse>('POST', '/2fa/totp/setup/', { auth: true })
+  }
+
+  confirmTotp(body: ConfirmTotpRequest): Promise<ConfirmTotpResponse> {
+    return this.request<ConfirmTotpResponse>('POST', '/2fa/totp/confirm/', { auth: true, body })
+  }
+
+  disableTotp(body: DisableTotpRequest): Promise<DisableTotpResponse> {
+    return this.request<DisableTotpResponse>('POST', '/2fa/disable/', { auth: true, body })
   }
 
   async loginWithRememberMe(

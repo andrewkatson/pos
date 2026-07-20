@@ -247,6 +247,14 @@
   opacity: 0.75;
 }
 
+/* ---- Two-factor step ---- */
+
+.auth-instructions {
+  font-size: 0.9rem;
+  color: rgba(255, 255, 255, 0.75);
+  margin: 0 0 0.25rem;
+}
+
 /* ---- Password mismatch warning ---- */
 
 .auth-mismatch {

@@ -26,6 +26,61 @@ export interface LoginRequest {
   remember_me?: boolean
 }
 
+/**
+ * Returned by login instead of a session when the account has two-factor
+ * authentication enabled. The challenge is exchanged (with a code) for the
+ * real session at login/2fa/ within a few minutes, before it expires.
+ */
+export interface TwoFactorRequiredResponse {
+  two_factor_required: true
+  challenge_token: string
+}
+
+/** login can answer with a session or, for 2FA-enrolled accounts, a challenge. */
+export type LoginResponse = AuthResponse | TwoFactorRequiredResponse
+
+/** Type guard for the two-factor branch of a login response. */
+export function isTwoFactorRequired(
+  response: LoginResponse,
+): response is TwoFactorRequiredResponse {
+  return 'two_factor_required' in response && response.two_factor_required === true
+}
+
+/** Second login step: exactly one of totp_code / recovery_code is set. */
+export interface LoginTwoFactorRequest {
+  challenge_token: string
+  totp_code?: string
+  recovery_code?: string
+}
+
+export interface TwoFactorSetupResponse {
+  /** Base32 TOTP secret, for manual entry into an authenticator app. */
+  totp_secret: string
+  /** otpauth:// provisioning URI, rendered as a QR code for scanning. */
+  otpauth_uri: string
+}
+
+export interface ConfirmTotpRequest {
+  totp_code: string
+}
+
+export interface ConfirmTotpResponse {
+  totp_enabled: boolean
+  /** Single-use recovery codes, shown exactly once at enrollment. */
+  recovery_codes: string[]
+}
+
+/** Disabling requires the password plus exactly one of the two code kinds. */
+export interface DisableTotpRequest {
+  password: string
+  totp_code?: string
+  recovery_code?: string
+}
+
+export interface DisableTotpResponse {
+  totp_enabled: boolean
+}
+
 export interface LoginWithRememberMeRequest {
   session_management_token: string
   series_identifier: string
