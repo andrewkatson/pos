@@ -91,6 +91,16 @@ export function EnableTwoFactorModal({ onClose, onEnabled }: EnableTwoFactorModa
 
       {step === 'loading' && !errorMessage && <p className="modal__body">Loading…</p>}
 
+      {step === 'loading' && errorMessage && (
+        // Setup failed before a secret arrived: there's nothing to act on, so
+        // give the user a way out of the modal.
+        <div className="modal__actions">
+          <button type="button" className="modal__confirm" onClick={onClose}>
+            Close
+          </button>
+        </div>
+      )}
+
       {step === 'scan' && (
         <>
           <p className="modal__body">
