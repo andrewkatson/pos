@@ -173,9 +173,11 @@ struct LoginView: View {
                 try completeLogin(with: loginDetails)
             } catch let error as APIError {
                 if case .serverError(_, let message) = error, message == "Invalid or expired challenge" {
-                    // The challenge timed out (or was invalidated): start over.
+                    // The challenge timed out (or was invalidated): start over
+                    // from the default authenticator-code entry.
                     twoFactorChallengeToken = nil
                     twoFactorCode = ""
+                    useRecoveryCode = false
                     errorMessage = "Your login expired. Please sign in again."
                     showingErrorAlert = true
                 } else {

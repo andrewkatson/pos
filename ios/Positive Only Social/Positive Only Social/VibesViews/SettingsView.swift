@@ -334,7 +334,7 @@ struct SettingsView: View {
                     isRecoveryCode: disableUsesRecoveryCode
                 )
             }
-            .disabled(disablePassword.isEmpty || disableCode.isEmpty)
+            .disabled(disablePassword.isEmpty || !disableCodeIsValid)
             .padding()
             .background(Color.blue)
             .foregroundColor(.white)
@@ -348,6 +348,17 @@ struct SettingsView: View {
         }
         .padding()
         .presentationDetents([.medium])
+    }
+
+    /// Whether the disable-flow code is well-formed: a 6-digit authenticator
+    /// code, or a 10-hex-character recovery code (backend Patterns), so clearly
+    /// invalid codes can't be submitted.
+    private var disableCodeIsValid: Bool {
+        let trimmed = disableCode.trimmingCharacters(in: .whitespaces)
+        if disableUsesRecoveryCode {
+            return trimmed.count == 10 && trimmed.lowercased().allSatisfy { "0123456789abcdef".contains($0) }
+        }
+        return trimmed.count == 6 && trimmed.allSatisfy(\.isNumber)
     }
 
     /// A single reused CIContext: creating one is comparatively expensive, so
