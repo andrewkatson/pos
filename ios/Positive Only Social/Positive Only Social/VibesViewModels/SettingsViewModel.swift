@@ -135,6 +135,8 @@ final class SettingsViewModel: ObservableObject {
                 }
                 let data = try await api.confirmTotp(sessionManagementToken: userSession.sessionToken, totpCode: code)
                 let fields = try JSONDecoder().decode(ConfirmTotpFields.self, from: data)
+                // Clear any error from a previous wrong attempt on success.
+                twoFactorErrorMessage = nil
                 recoveryCodes = fields.recoveryCodes
             } catch {
                 twoFactorErrorMessage = "Verification failed: \(error.userFacingMessage)"

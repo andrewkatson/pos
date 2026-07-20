@@ -86,6 +86,7 @@ final class RealAPI: Networking {
         let challenge_token: String
         let totp_code: String?
         let recovery_code: String?
+        let ip: String
     }
 
     private struct ConfirmTotpBody: Encodable {
@@ -290,7 +291,7 @@ final class RealAPI: Networking {
     
     /// Second step of a two-factor login: exchanges the challenge for a session.
     func loginUser2FA(challengeToken: String, totpCode: String?, recoveryCode: String?, ip: String) async throws -> Data {
-        let body = Login2FABody(challenge_token: challengeToken, totp_code: totpCode, recovery_code: recoveryCode)
+        let body = Login2FABody(challenge_token: challengeToken, totp_code: totpCode, recovery_code: recoveryCode, ip: ip)
         let requestBody = try encode(body)
 
         return try await performRequest(

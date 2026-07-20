@@ -151,7 +151,17 @@ struct SettingsView: View {
             } message: {
                 Text(viewModel.twoFactorStatusMessage)
             }
-            .sheet(isPresented: $showingEnrollTwoFactor, onDismiss: { viewModel.cancelTotpEnrollment() }) {
+            .sheet(isPresented: $showingEnrollTwoFactor, onDismiss: {
+                // A swipe-down (or the Done/Cancel buttons, which just close the
+                // sheet) ends enrollment here. If recovery codes were already
+                // issued the enrollment succeeded, so report it as enabled;
+                // otherwise it was abandoned before confirming.
+                if viewModel.recoveryCodes != nil {
+                    viewModel.finishTotpEnrollment()
+                } else {
+                    viewModel.cancelTotpEnrollment()
+                }
+            }) {
                 enrollTwoFactorSheet
             }
             .sheet(isPresented: $showingDisableTwoFactor) {
@@ -229,8 +239,9 @@ struct SettingsView: View {
                 }
                 .accessibilityIdentifier("CopyRecoveryCodesButton")
                 Button("Done") {
+                    // Just close; onDismiss finishes enrollment (recovery codes
+                    // are present), so the success path is handled in one place.
                     showingEnrollTwoFactor = false
-                    viewModel.finishTotpEnrollment()
                 }
                 .padding()
                 .background(Color.blue)
