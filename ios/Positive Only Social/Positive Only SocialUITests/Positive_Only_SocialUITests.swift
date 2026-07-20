@@ -1239,7 +1239,44 @@ final class Positive_Only_SocialUITests: XCTestCase {
         
         assertOnHomeView(app: app)
     }
-    
+
+    @MainActor
+    func testEnableTwoFactorAuthentication() throws {
+
+        try ifOnHomeDeleteAccount(app: app)
+
+        try loginUser(app: app, username: testUsername, password: strongPassword, rememberMe: false)
+
+        let settingsTab = app.buttons["Settings"]
+        XCTAssertTrue(settingsTab.waitForExistence(timeout: TestConstants.shortTimeout))
+        settingsTab.tap()
+
+        assertOnSettingsView(app: app)
+
+        let enableButton = app.buttons["EnableTwoFactorButton"]
+        XCTAssertTrue(enableButton.waitForExistence(timeout: TestConstants.shortTimeout), "Enable 2FA button should be present")
+        enableButton.tap()
+
+        // The enrollment sheet loads a (stubbed) secret, then shows the code field.
+        let codeField = app.textFields["TwoFactorConfirmCodeTextField"]
+        XCTAssertTrue(codeField.waitForExistence(timeout: TestConstants.shortTimeout), "Confirm-code field should appear on the enrollment sheet")
+        XCTAssertTrue(app.staticTexts["TwoFactorSecretText"].exists, "The scannable secret should be shown")
+        codeField.tap()
+        // The stubbed API accepts this fixed code (StatefulStubbedAPI.stubTotpCode).
+        codeField.typeText("123456")
+
+        app.buttons["ConfirmTwoFactorButton"].tap()
+
+        // Recovery codes are shown once; finishing reports 2FA enabled.
+        let finishButton = app.buttons["FinishTwoFactorEnrollmentButton"]
+        XCTAssertTrue(finishButton.waitForExistence(timeout: TestConstants.shortTimeout), "Recovery-codes step with Done button should appear")
+        finishButton.tap()
+
+        let statusAlert = app.alerts["Two-Factor Authentication"]
+        XCTAssertTrue(statusAlert.waitForExistence(timeout: TestConstants.shortTimeout), "Enabled confirmation alert should appear")
+        statusAlert.buttons["OK"].tap()
+    }
+
     @MainActor
     func testLikeAndUnlikeCommentOnPostAndThread() throws {
         

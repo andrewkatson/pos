@@ -112,12 +112,16 @@ struct LoginView: View {
             useRecoveryCode.toggle()
             twoFactorCode = ""
         }
+        .disabled(isLoading)
         .accessibilityIdentifier("ToggleRecoveryCodeButton")
         Button("Back to login") {
             twoFactorChallengeToken = nil
             twoFactorCode = ""
             useRecoveryCode = false
         }
+        // Disabled while a verification request is in flight so the task can't
+        // complete and log the user in after they've navigated back.
+        .disabled(isLoading)
         .accessibilityIdentifier("BackToLoginButton")
     }
 
