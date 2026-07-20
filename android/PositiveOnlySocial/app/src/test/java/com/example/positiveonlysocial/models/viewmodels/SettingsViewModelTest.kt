@@ -156,13 +156,28 @@ class SettingsViewModelTest {
         whenever(api.setupTotp("token123")).thenReturn(
             Response.success(TotpSetupResponse("SECRET", "otpauth://totp/x"))
         )
+        whenever(api.confirmTotp("token123", ConfirmTotpRequest("123456"))).thenReturn(
+            Response.success(ConfirmTotpResponse(totpEnabled = true, recoveryCodes = listOf("a", "b")))
+        )
+        // Enroll fully so recovery codes exist — finishTotpEnrollment only
+        // reports success when confirm actually produced them.
         viewModel.startTotpSetup()
+        viewModel.confirmTotp("123456")
 
         viewModel.finishTotpEnrollment()
 
         assertNull(viewModel.totpSetup.value)
         assertNull(viewModel.recoveryCodes.value)
         assertEquals("Two-factor authentication is now enabled.", viewModel.twoFactorStatusMessage.value)
+    }
+
+    @Test
+    fun `finishTotpEnrollment without recovery codes does not claim enabled`() = runTest {
+        // Called with no confirmed enrollment (recoveryCodes still null): must
+        // not fake a success state.
+        viewModel.finishTotpEnrollment()
+
+        assertNull(viewModel.twoFactorStatusMessage.value)
     }
 
     @Test
