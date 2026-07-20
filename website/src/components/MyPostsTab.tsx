@@ -237,7 +237,15 @@ function MyPostsTab() {
                     key={post.post_identifier}
                     type="button"
                     className="post-grid__cell"
-                    aria-label={`Post by ${post.author_username}`}
+                    // The explicit aria-label overrides the accessible-name
+                    // calculation, so the review state must be part of it for
+                    // assistive tech to announce it (the visual badge below is
+                    // otherwise invisible to screen readers).
+                    aria-label={
+                      badge
+                        ? `Post by ${post.author_username} — ${badge}`
+                        : `Post by ${post.author_username}`
+                    }
                     onClick={() => navigate(`/post/${post.post_identifier}`)}
                   >
                     <PostThumbnail post={post} />

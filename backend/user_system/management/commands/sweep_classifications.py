@@ -14,8 +14,12 @@ from user_system.models import Post
 
 logger = logging.getLogger(__name__)
 
-# A healthy classification finishes in under a minute, so anything pending
-# this long has fallen out of the queue (worker crash, deploy, Redis flush).
+# A healthy classification finishes in under a minute, so a pending post with
+# no classification activity for this long has fallen out of the queue
+# (worker crash, deploy, Redis flush). "Activity" is the post's updated_time,
+# which the worker bumps on every attempt — keying on it rather than
+# creation_time means back-to-back sweep runs don't pile duplicate jobs onto
+# a post that was attempted moments ago.
 DEFAULT_STUCK_MINUTES = 15
 
 # Final-rejection tombstones only exist so the author's client can reconcile
@@ -36,7 +40,8 @@ class Command(BaseCommand):
     def add_arguments(self, parser):
         parser.add_argument(
             '--stuck-minutes', type=int, default=DEFAULT_STUCK_MINUTES,
-            help=f"Re-enqueue posts pending longer than this (default {DEFAULT_STUCK_MINUTES}).",
+            help=("Re-enqueue pending posts with no classification activity for this many "
+                  f"minutes (default {DEFAULT_STUCK_MINUTES})."),
         )
         parser.add_argument(
             '--tombstone-days', type=int, default=DEFAULT_TOMBSTONE_DAYS,
@@ -56,10 +61,14 @@ class Command(BaseCommand):
         now = timezone.now()
 
         # --- Stuck pending posts: re-enqueue or alert. ---
+        # Keyed on updated_time (bumped by every worker attempt, and set at
+        # creation) so "stuck" means "no classification activity recently",
+        # not merely "old": a post that was just attempted or re-enqueued is
+        # left alone until the window passes again.
         stuck_cutoff = now - timedelta(minutes=stuck_minutes)
         stuck = Post.objects.filter(
             hidden_reason=HIDDEN_REASON_PENDING_CLASSIFICATION,
-            creation_time__lte=stuck_cutoff,
+            updated_time__lte=stuck_cutoff,
         )
         requeued = exhausted = 0
         for post in stuck:

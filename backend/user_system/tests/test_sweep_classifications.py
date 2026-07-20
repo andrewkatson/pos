@@ -15,9 +15,12 @@ from ..models import PositiveOnlySocialUser, Post
 
 
 def _backdate(post, **delta):
-    """creation_time is auto_now_add, so tests move it via a queryset update."""
-    Post.objects.filter(pk=post.pk).update(
-        creation_time=timezone.now() - timedelta(**delta))
+    """Move a post's timestamps into the past via a queryset update (they are
+    auto_now/auto_now_add fields, which ignore direct assignment). Both are
+    moved: the stuck sweep keys on updated_time (last classification
+    activity), the tombstone purge on creation_time."""
+    then = timezone.now() - timedelta(**delta)
+    Post.objects.filter(pk=post.pk).update(creation_time=then, updated_time=then)
 
 
 class SweepClassificationsTests(TestCase):
@@ -56,6 +59,17 @@ class SweepClassificationsTests(TestCase):
     @patch('user_system.tasks.enqueue_classification')
     def test_recent_pending_post_is_left_alone(self, mock_enqueue):
         self._pending_post()  # just created — within the stuck threshold
+        self._run()
+        mock_enqueue.assert_not_called()
+
+    @patch('user_system.tasks.enqueue_classification')
+    def test_recently_attempted_post_is_not_reenqueued(self, mock_enqueue):
+        """An old post whose worker attempt just bumped updated_time is not
+        stuck: back-to-back sweep runs must not pile duplicate jobs onto it."""
+        post = self._pending_post(attempts=1)
+        _backdate(post, minutes=30)
+        # Simulate the worker's attempt bookkeeping touching updated_time now.
+        Post.objects.filter(pk=post.pk).update(updated_time=timezone.now())
         self._run()
         mock_enqueue.assert_not_called()
 

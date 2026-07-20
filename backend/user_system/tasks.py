@@ -22,10 +22,12 @@ from django.conf import settings
 from django.core.mail import send_mail
 from django.db import transaction
 from django.db.models import F
+from django.utils import timezone
 
 from .classifiers import image_classifier, text_classifier
 from .classifiers.classifier_utils import ClassificationResult
 from .constants import (
+    CLASSIFICATION_MAX_ATTEMPTS,
     HIDDEN_REASON_NONE, HIDDEN_REASON_CLASSIFIER,
     HIDDEN_REASON_PENDING_CLASSIFICATION, HIDDEN_REASON_CLASSIFIER_FINAL,
 )
@@ -167,14 +169,28 @@ def classify_post(post_identifier):
                     post_identifier, post.hidden_reason)
         return
 
+    # Hard cap on the retry budget: once it is spent, return successfully
+    # (no raise) so RQ stops retrying, do no further (billable) provider
+    # work, and leave the post hidden-pending — the fail-closed terminal
+    # state the sweep alerts on.
+    if post.classification_attempts >= CLASSIFICATION_MAX_ATTEMPTS:
+        logger.error(
+            "classify_post: post %s has exhausted its %d classification attempts; "
+            "leaving it pending (fail closed) and dropping the job.",
+            post_identifier, post.classification_attempts)
+        return
+
     # Count the attempt before doing the (fallible) external work, so the
     # sweep's alerting sees every try including ones that raised. The pending
     # filter makes the re-check and the increment one atomic UPDATE: a
     # duplicate delivery that lost the race neither burns retry budget nor
-    # runs the (billable) cascades below.
+    # runs the (billable) cascades below. updated_time is bumped explicitly
+    # (queryset updates skip auto_now) so the sweep can tell "no recent
+    # classification activity" apart from merely "created a while ago".
     still_pending = Post.objects.filter(
         pk=post.pk, hidden_reason=HIDDEN_REASON_PENDING_CLASSIFICATION,
-    ).update(classification_attempts=F('classification_attempts') + 1)
+    ).update(classification_attempts=F('classification_attempts') + 1,
+             updated_time=timezone.now())
     if not still_pending:
         logger.info("classify_post: post %s was resolved concurrently; nothing to do.", post_identifier)
         return

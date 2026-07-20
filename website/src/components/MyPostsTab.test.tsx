@@ -171,6 +171,9 @@ test('shows an In review badge on a pending post and clears it once approved (#2
     renderTab()
 
     expect(await screen.findByText('In review')).toBeInTheDocument()
+    // The review state is part of the accessible name so assistive tech
+    // announces it (the visual badge alone is hidden behind the aria-label).
+    expect(screen.getByRole('button', { name: 'Post by ada — In review' })).toBeInTheDocument()
 
     await vi.advanceTimersByTimeAsync(3100)
     await waitFor(() => expect(mockGetPostStatus).toHaveBeenCalledWith('p1'))

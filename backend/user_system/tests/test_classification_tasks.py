@@ -104,6 +104,19 @@ class ClassifyPostTaskTests(TestCase):
         self.assertEqual(len(mail.outbox), 1)
 
     @patch(TEXT, return_value=ALLOWED)
+    def test_exhausted_retry_budget_drops_the_job_without_classifying(self, mock_text):
+        """Once the budget is spent the job returns successfully (so the queue
+        stops retrying) without any provider calls; the post stays pending
+        (fail closed) at exactly the budget, for the sweep to alert on."""
+        from ..constants import CLASSIFICATION_MAX_ATTEMPTS
+        Post.objects.filter(pk=self.post.pk).update(
+            classification_attempts=CLASSIFICATION_MAX_ATTEMPTS)
+        self._run()  # must not raise
+        self.assertEqual(self.post.hidden_reason, HIDDEN_REASON_PENDING_CLASSIFICATION)
+        self.assertEqual(self.post.classification_attempts, CLASSIFICATION_MAX_ATTEMPTS)
+        mock_text.assert_not_called()
+
+    @patch(TEXT, return_value=ALLOWED)
     def test_non_pending_post_is_left_alone(self, mock_text):
         """The job only ever acts on pending posts — e.g. a report-hidden post
         redelivered by mistake must not be touched (or reclassified)."""
