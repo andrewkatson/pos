@@ -10,6 +10,10 @@ const STATUS_POLL_INTERVAL_MS = 3000
 /** Poll budget: ~30s of checks after which reconciliation falls back to the
  * user's own Refresh (there is deliberately no standing timer in this app). */
 const STATUS_POLL_MAX_ATTEMPTS = 10
+/** At most this many pending posts are polled per round, keeping the worst
+ * case (3 posts every 3s = 60 requests/min) inside the status endpoint's
+ * 120/m per-user rate limit; older pending posts reconcile on refresh. */
+const STATUS_POLL_MAX_POSTS = 3
 
 /** Overlay label for the author's own pending/rejected grid tiles (#282). */
 function statusBadgeLabel(post: FeedPost): string | null {
@@ -99,7 +103,8 @@ function MyPostsTab() {
   // pending or the budget is spent; the ordinary mount/Refresh reload is the
   // backstop after that.
   useEffect(() => {
-    const pendingPosts = posts.filter(p => p.status === 'pending')
+    // The grid is newest-first, so this polls the most recent pending posts.
+    const pendingPosts = posts.filter(p => p.status === 'pending').slice(0, STATUS_POLL_MAX_POSTS)
     if (pendingPosts.length === 0 || pollAttempts.current >= STATUS_POLL_MAX_ATTEMPTS) return
     const id = setTimeout(async () => {
       pollAttempts.current += 1

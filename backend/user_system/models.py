@@ -273,6 +273,10 @@ class Post(models.Model):
     # request to respond to).
     classification_attempts = models.IntegerField(default=0)
     classification_reason_code = models.TextField(null=True, blank=True, default=None)
+    # Set by sweep_classifications after it error-logs a post whose retry
+    # budget is spent, so the operator alert fires exactly once per post
+    # instead of on every cron run.
+    classification_alerted = models.BooleanField(default=False)
 
     @property
     def classification_status(self):

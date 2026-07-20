@@ -65,6 +65,9 @@ class HomeViewModel(
     // ~30s of checks, 3s apart. Internal so tests can shorten the interval.
     var statusPollIntervalMs = 3000L
     private val statusPollMaxAttempts = 10
+    /** At most this many pending posts are polled per round (see
+     * startStatusPollIfNeeded for the rate-limit math). */
+    private val statusPollMaxPosts = 3
 
     fun dismissReviewNotice() {
         _reviewNotice.value = null
@@ -178,7 +181,13 @@ class HomeViewModel(
      * is pending, a poll is already scheduled, or the budget is spent.
      */
     private fun startStatusPollIfNeeded() {
-        val pendingIds = _userPosts.value.filter { it.status == "pending" }.map { it.postIdentifier }
+        // The grid is newest-first, so this polls the most recent pending
+        // posts; the cap keeps the worst case (3 posts every 3s = 60
+        // requests/min) inside the status endpoint's 120/m per-user rate
+        // limit, and older pending posts reconcile on refresh.
+        val pendingIds = _userPosts.value.filter { it.status == "pending" }
+            .take(statusPollMaxPosts)
+            .map { it.postIdentifier }
         if (pendingIds.isEmpty() || statusPollJob != null || statusPollAttempts >= statusPollMaxAttempts) return
 
         statusPollJob = viewModelScope.launch {

@@ -77,13 +77,31 @@ class SweepClassificationsTests(TestCase):
     def test_exhausted_pending_post_alerts_instead_of_reenqueueing(self, mock_enqueue):
         post = self._pending_post(attempts=CLASSIFICATION_MAX_ATTEMPTS)
         _backdate(post, minutes=30)
-        out = self._run()
+        with self.assertLogs('user_system.management.commands.sweep_classifications', level='ERROR'):
+            out = self._run()
         mock_enqueue.assert_not_called()
         self.assertIn('1 exhausted', out)
-        # Fail closed: the post stays hidden-pending, never published.
+        self.assertIn('1 newly alerted', out)
+        # Fail closed: the post stays hidden-pending, never published — and the
+        # alert is recorded as fired.
         post.refresh_from_db()
         self.assertEqual(post.hidden_reason, HIDDEN_REASON_PENDING_CLASSIFICATION)
         self.assertTrue(post.hidden)
+        self.assertTrue(post.classification_alerted)
+
+    @patch('user_system.tasks.enqueue_classification')
+    def test_exhausted_post_alerts_exactly_once_across_runs(self, mock_enqueue):
+        """The operator alert must not flood: a second sweep run over the same
+        exhausted post still counts it but emits no new error log."""
+        post = self._pending_post(attempts=CLASSIFICATION_MAX_ATTEMPTS)
+        _backdate(post, minutes=30)
+        self._run()
+
+        _backdate(post, minutes=30)  # the first run bumped nothing, but be explicit
+        with self.assertNoLogs('user_system.management.commands.sweep_classifications', level='ERROR'):
+            out = self._run()
+        self.assertIn('1 exhausted', out)
+        self.assertIn('0 newly alerted', out)
 
     def test_old_tombstone_is_purged(self):
         post = self._tombstone()

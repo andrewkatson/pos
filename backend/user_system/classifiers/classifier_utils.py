@@ -187,7 +187,8 @@ def classify_with_thresholds(available_apis, call_fn):
         # Middle zone (or reject zone at stage 2): escalate to the next AI.
 
     if not scores:
-        logger.warning("No AI produced a usable score. Rejecting without appeal.")
+        logger.warning("No AI produced a usable score; flagging a provider failure "
+                       "(not a content verdict) so the caller can retry.")
         return ClassificationResult(allowed=False, provider_failure=True)
 
     appealable = get_zone(scores[-1]) == ZONE_MIDDLE

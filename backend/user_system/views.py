@@ -1222,7 +1222,11 @@ def _author_status_fields(post, viewer):
 
 
 @api_login_required
-@ratelimit(key='user', rate='60/m', block=True)
+# Higher than the standard 60/m read limit: the post-submit reconcile poll
+# checks up to 3 pending posts every 3s (60 requests/min worst case), and the
+# ceiling must leave headroom for the user's other reads. The query is a cheap
+# author-only primary-key lookup.
+@ratelimit(key='user', rate='120/m', block=True)
 @require_GET
 def get_post_status(request, post_identifier):
     """Classification status of one of the caller's own posts.

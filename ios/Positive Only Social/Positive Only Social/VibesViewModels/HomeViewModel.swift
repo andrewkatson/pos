@@ -37,6 +37,11 @@ final class HomeViewModel: ObservableObject {
     /// ~30s of checks, 3s apart. Internal so tests can shorten the interval.
     var statusPollIntervalSeconds: TimeInterval = 3
     private let statusPollMaxAttempts = 10
+    /// At most this many pending posts are polled per round, keeping the
+    /// worst case (3 posts every 3s = 60 requests/min) inside the status
+    /// endpoint's 120/m per-user rate limit; older pending posts reconcile
+    /// on refresh.
+    private let statusPollMaxPosts = 3
     
     // For debouncing search text
     private var searchCancellable: AnyCancellable?
@@ -155,7 +160,8 @@ final class HomeViewModel: ObservableObject {
     /// user's own posts is still pending classification. No-op when nothing is
     /// pending, a poll is already running, or the budget is spent.
     private func startStatusPollIfNeeded() {
-        let pendingIds = userPosts.filter { $0.status == "pending" }.map { $0.id }
+        // The grid is newest-first, so this polls the most recent pending posts.
+        let pendingIds = userPosts.filter { $0.status == "pending" }.prefix(statusPollMaxPosts).map { $0.id }
         guard !pendingIds.isEmpty,
               statusPollTask == nil,
               statusPollAttempts < statusPollMaxAttempts else { return }

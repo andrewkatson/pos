@@ -72,18 +72,26 @@ class Command(BaseCommand):
         stuck = Post.objects.filter(
             hidden_reason=HIDDEN_REASON_PENDING_CLASSIFICATION,
             updated_time__lte=stuck_cutoff,
-        ).only('post_identifier', 'classification_attempts')
-        requeued = exhausted = 0
+        ).only('post_identifier', 'classification_attempts', 'classification_alerted')
+        requeued = exhausted = newly_alerted = 0
         for post in stuck.iterator():
             if post.classification_attempts >= CLASSIFICATION_MAX_ATTEMPTS:
                 # Fail closed: the post stays hidden-pending forever rather
-                # than ever publishing unclassified content. Log at error so
-                # monitoring surfaces it to an operator.
+                # than ever publishing unclassified content. The error log is
+                # the operator alert; classification_alerted persists that it
+                # fired so the same post cannot flood alerts on every cron run
+                # (the summary still counts it while it stays exhausted).
                 exhausted += 1
-                logger.error(
-                    "sweep_classifications: post %s has exhausted its %d classification "
-                    "attempts and needs operator attention.",
-                    post.post_identifier, post.classification_attempts)
+                if not post.classification_alerted:
+                    newly_alerted += 1
+                    if dry_run:
+                        self.stdout.write(f"[dry-run] would alert on exhausted post {post.post_identifier}")
+                    else:
+                        logger.error(
+                            "sweep_classifications: post %s has exhausted its %d classification "
+                            "attempts and needs operator attention.",
+                            post.post_identifier, post.classification_attempts)
+                        Post.objects.filter(pk=post.pk).update(classification_alerted=True)
                 continue
             requeued += 1
             if dry_run:
@@ -111,7 +119,7 @@ class Command(BaseCommand):
         verb = "Would re-enqueue" if dry_run else "Re-enqueued"
         purge_verb = "would purge" if dry_run else "purged"
         summary = (f"{verb} {requeued} stuck pending post(s); {exhausted} exhausted "
-                   f"(fail-closed, alerted); {purge_verb} {purged} tombstone(s) older "
-                   f"than {tombstone_days}d.")
+                   f"(fail-closed, {newly_alerted} newly alerted); {purge_verb} {purged} "
+                   f"tombstone(s) older than {tombstone_days}d.")
         self.stdout.write(summary)
         logger.info("sweep_classifications: %s", summary)
