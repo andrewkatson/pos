@@ -121,6 +121,9 @@ fun SettingsScreen(
                 confirmCode = twoFactorConfirmCode,
                 onConfirmCodeChange = { twoFactorConfirmCode = it },
                 onVerify = { viewModel.confirmTotp(twoFactorConfirmCode.trim()) },
+                onCopySecret = { secret ->
+                    clipboardManager.setText(AnnotatedString(secret))
+                },
                 onCopyRecoveryCodes = { codes ->
                     clipboardManager.setText(AnnotatedString(codes.joinToString("\n")))
                 },
@@ -450,6 +453,7 @@ private fun EnrollTwoFactorDialog(
     confirmCode: String,
     onConfirmCodeChange: (String) -> Unit,
     onVerify: () -> Unit,
+    onCopySecret: (String) -> Unit,
     onCopyRecoveryCodes: (List<String>) -> Unit,
     onDone: () -> Unit,
     onCancel: () -> Unit
@@ -490,7 +494,20 @@ private fun EnrollTwoFactorDialog(
                             )
                         }
                         Spacer(modifier = Modifier.height(8.dp))
-                        Text(totpSetup.totpSecret, fontFamily = FontFamily.Monospace, modifier = Modifier.testTag("TwoFactorSecret"))
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Text(
+                                totpSetup.totpSecret,
+                                fontFamily = FontFamily.Monospace,
+                                modifier = Modifier.testTag("TwoFactorSecret")
+                            )
+                            Spacer(modifier = Modifier.width(8.dp))
+                            TextButton(
+                                onClick = { onCopySecret(totpSetup.totpSecret) },
+                                modifier = Modifier.testTag("CopySecretButton")
+                            ) {
+                                Text("Copy")
+                            }
+                        }
                         Spacer(modifier = Modifier.height(12.dp))
                         TextField(
                             value = confirmCode,
@@ -539,13 +556,19 @@ private fun EnrollTwoFactorDialog(
 private fun qrCodeBitmap(content: String, size: Int = 512): android.graphics.Bitmap? {
     return try {
         val bitMatrix = QRCodeWriter().encode(content, BarcodeFormat.QR_CODE, size, size)
-        val bitmap = android.graphics.Bitmap.createBitmap(size, size, android.graphics.Bitmap.Config.RGB_565)
-        for (x in 0 until size) {
-            for (y in 0 until size) {
-                bitmap.setPixel(x, y, if (bitMatrix.get(x, y)) android.graphics.Color.BLACK else android.graphics.Color.WHITE)
+        // Fill an IntArray and blit it in one setPixels() call rather than
+        // ~260k individual setPixel() calls, which is far cheaper on the caller.
+        val pixels = IntArray(size * size)
+        for (y in 0 until size) {
+            val rowStart = y * size
+            for (x in 0 until size) {
+                pixels[rowStart + x] =
+                    if (bitMatrix.get(x, y)) android.graphics.Color.BLACK else android.graphics.Color.WHITE
             }
         }
-        bitmap
+        android.graphics.Bitmap.createBitmap(size, size, android.graphics.Bitmap.Config.RGB_565).apply {
+            setPixels(pixels, 0, size, 0, 0, size, size)
+        }
     } catch (e: Exception) {
         null
     }

@@ -122,6 +122,7 @@ class SettingsViewModelTest {
         val setup = viewModel.totpSetup.value
         assertNotNull(setup)
         assertEquals("SECRETBASE32", setup?.totpSecret)
+        assertEquals("otpauth://totp/x?secret=SECRETBASE32", setup?.otpauthUri)
         assertEquals(false, viewModel.showingErrorAlert.value)
     }
 

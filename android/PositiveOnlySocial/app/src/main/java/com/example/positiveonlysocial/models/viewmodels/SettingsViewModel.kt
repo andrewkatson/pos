@@ -117,8 +117,14 @@ class SettingsViewModel(
 
     // MARK: - Two-Factor Authentication (issue #348)
 
+    // Guards against repeated taps launching concurrent setup coroutines that
+    // would race to overwrite _totpSetup.
+    private var totpSetupInFlight = false
+
     /** Starts TOTP enrollment: fetches a fresh secret + otpauth:// URI. */
     fun startTotpSetup() {
+        if (totpSetupInFlight) return
+        totpSetupInFlight = true
         viewModelScope.launch {
             try {
                 val userSession = keychainHelper.load(UserSession::class.java, service, account)
@@ -137,6 +143,8 @@ class SettingsViewModel(
             } catch (e: Exception) {
                 _errorMessage.value = ApiErrors.messageFor(e, fallback = "Could not start two-factor setup.")
                 _showingErrorAlert.value = true
+            } finally {
+                totpSetupInFlight = false
             }
         }
     }

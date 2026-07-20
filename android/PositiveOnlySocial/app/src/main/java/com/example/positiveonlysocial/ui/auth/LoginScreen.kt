@@ -84,7 +84,7 @@ fun LoginScreen(
             loginCookieToken: String?
         ) {
             if (sessionToken == null || userId == null) {
-                errorMessage = "Login failed: server did not return a user ID."
+                errorMessage = "Login failed: the server response was missing a session token or user ID."
                 showingErrorAlert = true
                 return
             }
@@ -202,7 +202,7 @@ fun LoginScreen(
                                         )
                                     } else {
                                         val errorMsg = ApiErrors.messageFor(response, fallback = "Verification failed. Please try again.")
-                                        if (errorMsg == "Invalid or expired challenge") {
+                                        if (errorMsg == Constants.INVALID_OR_EXPIRED_CHALLENGE) {
                                             // The challenge timed out (or was
                                             // invalidated): start over from the
                                             // default authenticator-code entry.
