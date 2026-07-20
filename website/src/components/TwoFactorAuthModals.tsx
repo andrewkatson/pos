@@ -13,8 +13,11 @@ import type { ApiError } from '../api/client'
  */
 
 async function copyToClipboard(text: string): Promise<boolean> {
+  // The Clipboard API is unavailable in insecure contexts / older browsers;
+  // report failure rather than falsely showing "Copied".
+  if (!navigator.clipboard) return false
   try {
-    await navigator.clipboard?.writeText(text)
+    await navigator.clipboard.writeText(text)
     return true
   } catch {
     return false
@@ -36,7 +39,10 @@ export function EnableTwoFactorModal({ onClose, onEnabled }: EnableTwoFactorModa
   const [code, setCode] = useState('')
   const [recoveryCodes, setRecoveryCodes] = useState<string[]>([])
   const [errorMessage, setErrorMessage] = useState<string | null>(null)
-  const [copied, setCopied] = useState(false)
+  // Separate copy state per button so copying the secret on the scan step
+  // doesn't leave the recovery-codes "Copy all" button reading "Copied".
+  const [secretCopied, setSecretCopied] = useState(false)
+  const [codesCopied, setCodesCopied] = useState(false)
   const [isBusy, setIsBusy] = useState(false)
 
   useEffect(() => {
@@ -101,9 +107,9 @@ export function EnableTwoFactorModal({ onClose, onEnabled }: EnableTwoFactorModa
             <button
               type="button"
               className="modal__cancel"
-              onClick={async () => setCopied(await copyToClipboard(secret))}
+              onClick={async () => setSecretCopied(await copyToClipboard(secret))}
             >
-              {copied ? 'Copied' : 'Copy'}
+              {secretCopied ? 'Copied' : 'Copy'}
             </button>
           </div>
           <div className="modal__actions">
@@ -165,9 +171,9 @@ export function EnableTwoFactorModal({ onClose, onEnabled }: EnableTwoFactorModa
             <button
               type="button"
               className="modal__cancel"
-              onClick={async () => setCopied(await copyToClipboard(recoveryCodes.join('\n')))}
+              onClick={async () => setCodesCopied(await copyToClipboard(recoveryCodes.join('\n')))}
             >
-              {copied ? 'Copied' : 'Copy all'}
+              {codesCopied ? 'Copied' : 'Copy all'}
             </button>
             <button type="button" className="modal__confirm" onClick={onEnabled}>
               Done

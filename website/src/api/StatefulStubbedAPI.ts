@@ -57,6 +57,12 @@ const MAX_BEFORE_HIDING_COMMENT = 5
 export const STUB_TOTP_CODE = '123456'
 const STUB_RECOVERY_CODE_COUNT = 10
 
+// Recovery codes must match the 10-hex-character format the UI and backend
+// enforce (Patterns.recovery_code), so the stub is usable in demo mode.
+function stubRecoveryCode(): string {
+  return Array.from({ length: 10 }, () => Math.floor(Math.random() * 16).toString(16)).join('')
+}
+
 interface UserMock {
   id: string
   username: string
@@ -303,6 +309,9 @@ export class StatefulStubbedAPI implements PositiveOnlySocialAPI {
     // 2FA-enrolled accounts get a challenge instead of a session, mirroring
     // login_user in backend/user_system/views.py.
     if (user.totpEnabled) {
+      // No session is issued until the second factor is verified; clear any
+      // prior token so the stub doesn't look authenticated in the meantime.
+      this.setToken(null)
       const challengeToken = newId()
       this.twoFactorChallenges.push({
         challengeToken,
@@ -436,7 +445,7 @@ export class StatefulStubbedAPI implements PositiveOnlySocialAPI {
     }
     user.totpEnabled = true
     user.recoveryCodes = new Set(
-      Array.from({ length: STUB_RECOVERY_CODE_COUNT }, () => `recovery-${newId()}`),
+      Array.from({ length: STUB_RECOVERY_CODE_COUNT }, stubRecoveryCode),
     )
     return { totp_enabled: true, recovery_codes: [...user.recoveryCodes] }
   }

@@ -333,9 +333,12 @@ export class ApiClient implements PositiveOnlySocialAPI {
 
   async login(body: LoginRequest): Promise<LoginResponse> {
     const result = await this.request<LoginResponse>('POST', '/login/', { body })
-    // A 2FA-enrolled account gets a challenge, not a session; the token only
-    // arrives after loginWithTwoFactor.
-    if (!isTwoFactorRequired(result)) {
+    if (isTwoFactorRequired(result)) {
+      // A 2FA-enrolled account gets a challenge, not a session — clear any
+      // prior token so isAuthenticated() doesn't report true before the
+      // second factor is completed via loginWithTwoFactor.
+      this.setToken(null)
+    } else {
       this.setToken(result.session_management_token)
     }
     return result
