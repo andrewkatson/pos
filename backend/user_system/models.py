@@ -165,16 +165,17 @@ class LoginCookie(models.Model):
 class KnownDevice(models.Model):
     user = models.ForeignKey(PositiveOnlySocialUser, related_name='known_devices', on_delete=models.CASCADE)
     ip = models.TextField()
+    user_agent = models.CharField(max_length=512,default="", blank=True)
     first_seen = models.DateTimeField(auto_now_add=True)
 
     class Meta:
         app_label = 'user_system'
         constraints = [
-            models.UniqueConstraint(fields=['user', 'ip'], name='unique_user_device_ip')
+            models.UniqueConstraint(fields=['user', 'ip','user_agent'], name='unique_user_device_ip_user_agent')
         ]
 
     def __str__(self):
-        return f"{self.user} @ {self.ip}"
+        return f"{self.user} @ {self.ip}/{self.user_agent[:80]}"
 
 
 class UserBanManager(models.Manager):
