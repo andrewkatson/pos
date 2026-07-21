@@ -106,20 +106,32 @@ final class SettingsViewModel: ObservableObject {
     
     // MARK: - Two-Factor Authentication (issue #348)
 
+    // Monotonic id for the current enrollment request. Every start/confirm bumps
+    // it and captures the value; a response only applies if it still matches, so
+    // a late response from a superseded, finished, or cancelled attempt is
+    // dropped instead of overwriting newer state. (@MainActor makes the
+    // read-modify-write safe without a lock.)
+    private var totpRequestGeneration = 0
+
     /// Starts TOTP enrollment: fetches a fresh secret + otpauth:// URI for the
     /// scan step of the enrollment sheet.
     func startTotpSetup() {
         twoFactorErrorMessage = nil
+        totpRequestGeneration += 1
+        let generation = totpRequestGeneration
         Task {
             do {
                 guard let userSession = try keychainHelper.load(UserSession.self, from: keychainService, account: account) else {
-                    twoFactorErrorMessage = "Session not found."
+                    if generation == totpRequestGeneration { twoFactorErrorMessage = "Session not found." }
                     return
                 }
                 let data = try await api.setupTotp(sessionManagementToken: userSession.sessionToken)
+                guard generation == totpRequestGeneration else { return }
                 totpSetup = try JSONDecoder().decode(TotpSetupFields.self, from: data)
             } catch {
-                twoFactorErrorMessage = "Could not start two-factor setup: \(error.userFacingMessage)"
+                if generation == totpRequestGeneration {
+                    twoFactorErrorMessage = "Could not start two-factor setup: \(error.userFacingMessage)"
+                }
             }
         }
     }
@@ -127,25 +139,33 @@ final class SettingsViewModel: ObservableObject {
     /// Finishes TOTP enrollment by verifying one code from the authenticator.
     /// On success `recoveryCodes` is populated for the one-time display.
     func confirmTotp(code: String) {
+        totpRequestGeneration += 1
+        let generation = totpRequestGeneration
         Task {
             do {
                 guard let userSession = try keychainHelper.load(UserSession.self, from: keychainService, account: account) else {
-                    twoFactorErrorMessage = "Session not found."
+                    if generation == totpRequestGeneration { twoFactorErrorMessage = "Session not found." }
                     return
                 }
                 let data = try await api.confirmTotp(sessionManagementToken: userSession.sessionToken, totpCode: code)
+                guard generation == totpRequestGeneration else { return }
                 let fields = try JSONDecoder().decode(ConfirmTotpFields.self, from: data)
                 // Clear any error from a previous wrong attempt on success.
                 twoFactorErrorMessage = nil
                 recoveryCodes = fields.recoveryCodes
             } catch {
-                twoFactorErrorMessage = "Verification failed: \(error.userFacingMessage)"
+                if generation == totpRequestGeneration {
+                    twoFactorErrorMessage = "Verification failed: \(error.userFacingMessage)"
+                }
             }
         }
     }
 
     /// Dismisses the enrollment flow after the recovery codes have been shown.
     func finishTotpEnrollment() {
+        // Invalidate any in-flight setup/confirm so a late response can't
+        // repopulate state after the flow has ended.
+        totpRequestGeneration += 1
         totpSetup = nil
         recoveryCodes = nil
         twoFactorErrorMessage = nil
@@ -155,6 +175,7 @@ final class SettingsViewModel: ObservableObject {
 
     /// Abandons a not-yet-confirmed enrollment (the pending secret is inert).
     func cancelTotpEnrollment() {
+        totpRequestGeneration += 1
         totpSetup = nil
         recoveryCodes = nil
         twoFactorErrorMessage = nil
