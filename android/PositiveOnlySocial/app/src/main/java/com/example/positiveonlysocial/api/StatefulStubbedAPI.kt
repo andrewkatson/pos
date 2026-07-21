@@ -458,7 +458,7 @@ class StatefulStubbedAPI : PositiveOnlySocialAPI {
 
         val dtos = batched.map { post ->
             val author = users.find { it.id == post.authorId }!!
-            Post(post.postIdentifier, post.imageUrl, post.caption, authorUsername = author.username)
+            listingDto(post, author.username, user.id)
         }
         return Response.success(dtos)
     }
@@ -476,7 +476,7 @@ class StatefulStubbedAPI : PositiveOnlySocialAPI {
         val batched = getBatch(followedPosts, batch, POST_BATCH_SIZE)
         val dtos = batched.map { post ->
             val author = users.find { it.id == post.authorId }!!
-            Post(post.postIdentifier, post.imageUrl, post.caption, authorUsername = author.username)
+            listingDto(post, author.username, user.id)
         }
         return Response.success(dtos)
     }
@@ -495,10 +495,35 @@ class StatefulStubbedAPI : PositiveOnlySocialAPI {
 
         val batched = getBatch(userPosts, batch, POST_BATCH_SIZE)
         val dtos = batched.map { post ->
-            Post(post.postIdentifier, post.imageUrl, post.caption, authorUsername = targetUser.username)
+            listingDto(post, targetUser.username, user.id)
         }
         return Response.success(dtos)
     }
+
+    /**
+     * The DTO the three post-listing endpoints return. Like the real backend,
+     * they carry the same interaction state the post-details endpoint does —
+     * likes, whether the viewer liked/reported it and their reason (issue #267) —
+     * plus the comment count and creation time the feed rows show (issue #249).
+     */
+    private fun listingDto(post: PostMock, authorUsername: String, viewerId: String): Post =
+        Post(
+            post.postIdentifier,
+            post.imageUrl,
+            post.caption,
+            authorUsername = authorUsername,
+            likeCount = post.likes.count(),
+            isLiked = post.likes.contains(viewerId),
+            isReported = post.reports.contains(viewerId),
+            reportReason = post.reports[viewerId],
+            commentCount = visibleCommentCount(post.postIdentifier),
+            creationTime = post.creationTime.toString()
+        )
+
+    private fun visibleCommentCount(postIdentifier: String): Int =
+        commentThreads
+            .filter { it.postId == postIdentifier }
+            .sumOf { thread -> thread.comments.count { !it.hidden } }
 
     override suspend fun getPostDetails(token: String, postId: String): Response<Post> {
         val user = getAuthorizedUser(token) ?: return errorGeneric(401, "Unauthorized")

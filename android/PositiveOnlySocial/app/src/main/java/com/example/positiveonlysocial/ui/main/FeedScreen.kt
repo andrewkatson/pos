@@ -12,6 +12,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.NavController
 import com.example.positiveonlysocial.api.PositiveOnlySocialAPI
@@ -20,11 +21,15 @@ import com.example.positiveonlysocial.models.viewmodels.FeedViewModel
 import com.example.positiveonlysocial.models.viewmodels.FeedViewModelFactory
 import com.example.positiveonlysocial.models.viewmodels.FollowingFeedViewModel
 import com.example.positiveonlysocial.models.viewmodels.FollowingFeedViewModelFactory
+import com.example.positiveonlysocial.models.viewmodels.PostListActions
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.navigation.compose.rememberNavController
 import com.example.positiveonlysocial.ui.preview.PreviewHelpers
 import com.example.positiveonlysocial.ui.navigation.Screen
+import com.example.positiveonlysocial.ui.navigation.openProfileFor
 import com.example.positiveonlysocial.ui.theme.PositiveOnlySocialTheme
+import com.example.positiveonlysocial.util.RelativeTime
+import com.example.positiveonlysocial.util.parseBackendDate
 
 @Composable
 fun FeedScreen(
@@ -69,6 +74,9 @@ fun ForYouFeed(
     val isLoadingNextPage by viewModel.isLoadingNextPage.collectAsState()
     val isRefreshing by viewModel.isRefreshing.collectAsState()
 
+    val postActions = viewModel.postActions
+    val currentUsername by postActions.currentUsername.collectAsState()
+
     LaunchedEffect(Unit) {
         if (posts.isEmpty()) {
             viewModel.fetchFeed()
@@ -86,7 +94,12 @@ fun ForYouFeed(
             verticalArrangement = Arrangement.spacedBy(24.dp)
         ) {
             items(posts) { post ->
-                PostItem(post = post, navController = navController)
+                PostItem(
+                    post = post,
+                    navController = navController,
+                    actions = postActions,
+                    currentUsername = currentUsername
+                )
 
                 if (post == posts.lastOrNull()) {
                     LaunchedEffect(Unit) {
@@ -103,6 +116,9 @@ fun ForYouFeed(
                 }
             }
         }
+
+        // One set of confirmations for every post in the feed.
+        PostActionDialogs(postActions)
     }
 }
 
@@ -119,6 +135,9 @@ fun FollowingFeed(
     val posts by viewModel.followingPosts.collectAsState()
     val isLoadingNextPage by viewModel.isLoadingNextPage.collectAsState()
     val isRefreshing by viewModel.isRefreshing.collectAsState()
+
+    val postActions = viewModel.postActions
+    val currentUsername by postActions.currentUsername.collectAsState()
 
     LaunchedEffect(Unit) {
         if (posts.isEmpty()) {
@@ -137,7 +156,12 @@ fun FollowingFeed(
             verticalArrangement = Arrangement.spacedBy(24.dp)
         ) {
             items(posts) { post ->
-                PostItem(post = post, navController = navController)
+                PostItem(
+                    post = post,
+                    navController = navController,
+                    actions = postActions,
+                    currentUsername = currentUsername
+                )
 
                 if (post == posts.lastOrNull()) {
                     LaunchedEffect(Unit) {
@@ -154,13 +178,18 @@ fun FollowingFeed(
                 }
             }
         }
+
+        // One set of confirmations for every post in the feed.
+        PostActionDialogs(postActions)
     }
 }
 
 @Composable
 fun PostItem(
     post: com.example.positiveonlysocial.data.model.Post,
-    navController: NavController
+    navController: NavController,
+    actions: PostListActions,
+    currentUsername: String?
 ) {
     Column(
         modifier = Modifier.fillMaxWidth(),
@@ -170,7 +199,8 @@ fun PostItem(
             text = post.authorUsername,
             fontWeight = FontWeight.Bold,
             modifier = Modifier.clickable {
-                navController.navigate(Screen.Profile.createRoute(post.authorUsername))
+                // Your own name goes to the Profile tab, not a pushed copy of it.
+                navController.openProfileFor(post.authorUsername, currentUsername)
             }
         )
 
@@ -186,6 +216,30 @@ fun PostItem(
                     navController.navigate(Screen.PostDetail.createRoute(post.postIdentifier))
                 }
         )
+
+        // Like / comment count / report / retract / delete without leaving the
+        // feed (issues #267, #249). A sibling of the image, so it can't swallow
+        // the tap that opens the post.
+        PostActionBar(
+            post = post,
+            isOwnPost = post.authorUsername == currentUsername,
+            onToggleLike = { actions.toggleLike(post) },
+            onOpenMenu = { actions.setPostForAction(post) },
+            onOpenComments = {
+                navController.navigate(Screen.PostDetail.createRoute(post.postIdentifier))
+            }
+        )
+
+        // How long ago the post was made, at the same coarse granularity as the
+        // post detail screen and comment times (issues #249, #174). Older backend
+        // responses omit creation_time, in which case no label is shown at all.
+        post.creationTime?.let { parseBackendDate(it) }?.let { created ->
+            Text(
+                text = RelativeTime.format(created),
+                fontSize = 12.sp,
+                color = Color.Gray
+            )
+        }
     }
 }
 

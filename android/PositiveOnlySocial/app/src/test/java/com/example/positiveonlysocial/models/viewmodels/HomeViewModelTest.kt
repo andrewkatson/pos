@@ -2,18 +2,14 @@ package com.example.positiveonlysocial.models.viewmodels
 
 import com.example.positiveonlysocial.MainDispatcherRule
 import com.example.positiveonlysocial.api.PositiveOnlySocialAPI
-import com.example.positiveonlysocial.data.model.Post
 import com.example.positiveonlysocial.data.model.User
 import com.example.positiveonlysocial.data.model.UserSession
 import com.example.positiveonlysocial.data.security.KeychainHelperProtocol
-import com.example.positiveonlysocial.util.PostEvents
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.test.advanceTimeBy
-import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.runTest
-import okhttp3.ResponseBody.Companion.toResponseBody
 import org.junit.Assert.assertEquals
-import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Rule
@@ -40,104 +36,27 @@ class HomeViewModelTest {
     fun setup() {
         api = mock()
         keychainHelper = mock()
-        
+
         whenever(keychainHelper.load(any<Class<UserSession>>(), any(), any())).thenReturn(mockUserSession)
-        
+
         viewModel = HomeViewModel(api, keychainHelper)
     }
 
     @Test
-    fun `fetchMyPosts success updates userPosts`() = runTest {
-        val mockPosts = listOf(
-            Post("1", "url1", "caption1", "testuser", 1)
-        )
-        whenever(api.getPostsForUser("token123", "testuser", 0)).thenReturn(Response.success(mockPosts))
-
-        viewModel.fetchMyPosts()
-
-        assertEquals(mockPosts, viewModel.userPosts.value)
-        assertFalse(viewModel.isLoadingNextPage.value)
+    fun `currentUsername comes from the stored session`() = runTest {
+        // The first bottom-nav destination shows the signed-in user's own
+        // profile (issue #347), so it has to know who that is.
+        assertEquals("testuser", viewModel.currentUsername.value)
     }
 
     @Test
-    fun `fetchMyPosts failure updates errorMessage`() = runTest {
-        whenever(api.getPostsForUser("token123", "testuser", 0)).thenReturn(Response.error(400, "{\"error\":\"Server error\"}".toResponseBody()))
+    fun `currentUsername is null when there is no stored session`() = runTest {
+        val emptyKeychain = mock<KeychainHelperProtocol>()
+        whenever(emptyKeychain.load(any<Class<UserSession>>(), any(), any())).thenReturn(null)
 
-        viewModel.fetchMyPosts()
+        val signedOut = HomeViewModel(api, emptyKeychain)
 
-        assertTrue(viewModel.userPosts.value.isEmpty())
-        assertEquals("Server error", viewModel.errorMessage.value)
-    }
-
-    @Test
-    fun `refreshMyPosts replaces userPosts with fresh data`() = runTest {
-        val initialPosts = listOf(Post("1", "url1", "caption1", "testuser", 1))
-        whenever(api.getPostsForUser("token123", "testuser", 0)).thenReturn(Response.success(initialPosts))
-
-        viewModel.fetchMyPosts()
-        assertEquals(initialPosts, viewModel.userPosts.value)
-
-        val refreshedPosts = listOf(
-            Post("2", "url2", "caption2", "testuser", 1),
-            Post("3", "url3", "caption3", "testuser", 1)
-        )
-        whenever(api.getPostsForUser("token123", "testuser", 0)).thenReturn(Response.success(refreshedPosts))
-
-        viewModel.refreshMyPosts()
-
-        assertEquals(refreshedPosts, viewModel.userPosts.value)
-        assertFalse(viewModel.isRefreshing.value)
-    }
-
-    @Test
-    fun `refreshMyPosts resets pagination after it was exhausted`() = runTest {
-        whenever(api.getPostsForUser("token123", "testuser", 0)).thenReturn(Response.success(emptyList()))
-        viewModel.fetchMyPosts()
-        assertTrue(viewModel.userPosts.value.isEmpty())
-
-        val refreshedPosts = listOf(Post("1", "url1", "caption1", "testuser", 1))
-        whenever(api.getPostsForUser("token123", "testuser", 0)).thenReturn(Response.success(refreshedPosts))
-        viewModel.refreshMyPosts()
-        assertEquals(refreshedPosts, viewModel.userPosts.value)
-
-        val nextPage = listOf(Post("2", "url2", "caption2", "testuser", 1))
-        whenever(api.getPostsForUser("token123", "testuser", 1)).thenReturn(Response.success(nextPage))
-        viewModel.fetchMyPosts()
-        assertEquals(refreshedPosts + nextPage, viewModel.userPosts.value)
-    }
-
-    @Test
-    fun `refreshMyPosts failure keeps existing posts and sets errorMessage`() = runTest {
-        val initialPosts = listOf(Post("1", "url1", "caption1", "testuser", 1))
-        whenever(api.getPostsForUser("token123", "testuser", 0)).thenReturn(Response.success(initialPosts))
-        viewModel.fetchMyPosts()
-
-        whenever(api.getPostsForUser("token123", "testuser", 0)).thenReturn(Response.error(400, "{\"error\":\"Server error\"}".toResponseBody()))
-        viewModel.refreshMyPosts()
-
-        assertEquals(initialPosts, viewModel.userPosts.value)
-        assertEquals("Server error", viewModel.errorMessage.value)
-        assertFalse(viewModel.isRefreshing.value)
-    }
-
-    @Test
-    fun `post deleted event removes matching post from grid`() = runTest {
-        val mockPosts = listOf(
-            Post("1", "url1", "caption1", "testuser"),
-            Post("2", "url2", "caption2", "testuser")
-        )
-        whenever(api.getPostsForUser("token123", "testuser", 0)).thenReturn(Response.success(mockPosts))
-        viewModel.fetchMyPosts()
-        assertEquals(2, viewModel.userPosts.value.size)
-
-        // When a post is deleted from its detail screen, it announces the delete
-        // through PostEvents; the grid should drop it so the now-missing image
-        // doesn't linger as an empty black tile (issue #256).
-        PostEvents.postDeleted("1")
-        advanceUntilIdle()
-
-        assertEquals(1, viewModel.userPosts.value.size)
-        assertFalse(viewModel.userPosts.value.any { it.postIdentifier == "1" })
+        assertNull(signedOut.currentUsername.value)
     }
 
     @Test
@@ -146,7 +65,7 @@ class HomeViewModelTest {
         whenever(api.searchUsers("token123", "query")).thenReturn(Response.success(mockUsers))
 
         viewModel.updateSearchText("query")
-        
+
         // Advance time to trigger debounce
         advanceTimeBy(600)
 
@@ -156,7 +75,7 @@ class HomeViewModelTest {
     @Test
     fun `performSearch with short query clears searchedUsers`() = runTest {
         viewModel.updateSearchText("qu")
-        
+
         advanceTimeBy(600)
 
         assertTrue(viewModel.searchedUsers.value.isEmpty())

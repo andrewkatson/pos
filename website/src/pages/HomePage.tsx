@@ -1,35 +1,38 @@
 import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import MyPostsTab from '../components/MyPostsTab'
+import ProfileTab from '../components/ProfileTab'
 import FeedTab from '../components/FeedTab'
 import NewPostTab from '../components/NewPostTab'
 import SettingsTab from '../components/SettingsTab'
 import { apiClient } from '../api/client'
 import './MainApp.css'
 
-type Tab = 'home' | 'feed' | 'post' | 'settings'
+type Tab = 'profile' | 'feed' | 'post' | 'settings'
 
 const TAB_TITLES: Record<Tab, string> = {
-  home: 'Your Posts',
+  profile: 'Your Profile',
   feed: 'Feed',
   post: 'Create Post',
   settings: 'Settings',
 }
 
 const TABS: { id: Tab; label: string; icon: string }[] = [
-  { id: 'home', label: 'Home', icon: '🏠' },
+  { id: 'profile', label: 'Profile', icon: '👤' },
   { id: 'feed', label: 'Feed', icon: '📰' },
   { id: 'post', label: 'Post', icon: '➕' },
   { id: 'settings', label: 'Settings', icon: '⚙️' },
 ]
 
 /**
- * The signed-in app shell: a bottom tab bar switching between the My Posts grid,
+ * The signed-in app shell: a bottom tab bar switching between your own Profile,
  * the Feed, New Post creation, and Settings. Mirrors the iOS HomeView TabView.
+ *
+ * The first tab was formerly "Home" (the same post grid without the profile
+ * stats); it became "Profile" so your own profile is one tap away (issue #347).
  */
 function HomePage() {
   const navigate = useNavigate()
-  const [tab, setTab] = useState<Tab>('home')
+  const [tab, setTab] = useState<Tab>('profile')
 
   // Guard the authenticated surface: bounce to login if there's no session.
   useEffect(() => {
@@ -45,9 +48,9 @@ function HomePage() {
       </header>
 
       <main className="app-content">
-        {tab === 'home' && <MyPostsTab />}
+        {tab === 'profile' && <ProfileTab />}
         {tab === 'feed' && <FeedTab />}
-        {tab === 'post' && <NewPostTab onPosted={() => setTab('home')} />}
+        {tab === 'post' && <NewPostTab onPosted={() => setTab('profile')} />}
         {tab === 'settings' && <SettingsTab />}
       </main>
 

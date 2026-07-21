@@ -7,6 +7,7 @@ import { isWithinLimit, MAX_COMMENT_LENGTH } from '../auth/requirements'
 import PostThumbnail from '../components/PostThumbnail'
 import CharacterCounter from '../components/CharacterCounter'
 import { formatRelativeTime } from '../utils/relativeTime'
+import { profilePathFor } from '../utils/profilePath'
 import './MainApp.css'
 
 /** A comment enriched with per-user like/report state for the UI. */
@@ -523,7 +524,7 @@ function PostDetailView({ postId }: { postId: string }) {
             type="button"
             className="feed-post__author"
             style={{ display: 'inline', padding: 0 }}
-            onClick={() => navigate(`/profile/${encodeURIComponent(post.author_username)}`)}
+            onClick={() => navigate(profilePathFor(post.author_username))}
           >
             {post.author_username}
           </button>{' '}
@@ -580,7 +581,7 @@ function PostDetailView({ postId }: { postId: string }) {
                     onToggleLike={() => toggleCommentLike(root)}
                     onMenu={() => setMenuTarget({ type: 'comment', comment: root })}
                     onNavigate={() =>
-                      navigate(`/profile/${encodeURIComponent(root.authorUsername)}`)
+                      navigate(profilePathFor(root.authorUsername))
                     }
                   />
                 )}
@@ -602,7 +603,7 @@ function PostDetailView({ postId }: { postId: string }) {
                         onToggleLike={() => toggleCommentLike(reply)}
                         onMenu={() => setMenuTarget({ type: 'comment', comment: reply })}
                         onNavigate={() =>
-                          navigate(`/profile/${encodeURIComponent(reply.authorUsername)}`)
+                          navigate(profilePathFor(reply.authorUsername))
                         }
                       />
                     ))}

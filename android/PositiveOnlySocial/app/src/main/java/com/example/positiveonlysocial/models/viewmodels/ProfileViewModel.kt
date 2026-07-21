@@ -47,6 +47,14 @@ class ProfileViewModel(
     private val _isOwnProfile = MutableStateFlow(false)
     val isOwnProfile: StateFlow<Boolean> = _isOwnProfile.asStateFlow()
 
+    /**
+     * Like / report / retract-report / delete for the posts in this profile's
+     * grid, so they can be acted on without opening each one (issue #267).
+     * Deleting drops the post from [userPosts]; the Posts stat is rendered from
+     * that list, so the count follows automatically.
+     */
+    val postActions = PostListActions(api, keychainHelper, viewModelScope, _userPosts, account)
+
     private val service = "positive-only-social.Positive-Only-Social"
 
     // Pagination state

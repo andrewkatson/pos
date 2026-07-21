@@ -63,8 +63,9 @@ class PositiveOnlySocialIntegrationTests {
     }
 
     private fun assertOnHomeView() {
-        // Assuming Bottom Navigation items
-        composeTestRule.onNodeWithText("Home").assertExists()
+        // Bottom navigation items. The first destination is the signed-in user's
+        // own profile now, so it is labelled "Profile" (issue #347).
+        composeTestRule.onNodeWithText("Profile").assertExists()
         composeTestRule.onNodeWithText("Feed").assertExists()
         composeTestRule.onNodeWithText("Post")
             .assertExists() // "New Post" might be just "Post" or icon
@@ -657,6 +658,148 @@ class PositiveOnlySocialIntegrationTests {
         }
         composeTestRule.onNodeWithText("Comment to Delete").assertDoesNotExist()
     }
+    @Test
+    fun testProfileTabShowsOwnProfile() {
+        // The first bottom-nav destination is the signed-in user's own profile
+        // (issue #347): the same stats the pushed profile screen shows, but with
+        // no back arrow and no Follow/Block, and the search bar still on top.
+        registerUserViaApi(testUsername, strongPassword)
+        makePostViaApi(testUsername, strongPassword, "Own Profile Post")
+
+        loginUser(testUsername, strongPassword, rememberMe = false)
+        assertOnHomeView()
+
+        assertOnProfileView()
+        composeTestRule.onNodeWithText("Search for Users").assertExists()
+        composeTestRule.onNodeWithContentDescription("Back").assertDoesNotExist()
+        composeTestRule.onNode(hasText("Follow") and hasClickAction()).assertDoesNotExist()
+        composeTestRule.onNode(hasText("Block") and hasClickAction()).assertDoesNotExist()
+    }
+
+    @Test
+    fun testTappingOwnUsernameInFeedOpensProfileTab() {
+        // Tapping your own name selects the Profile tab instead of pushing a
+        // second, back-arrowed copy of your profile (issue #347).
+        registerUserViaApi(testUsername, strongPassword)
+        makePostViaApi(testUsername, strongPassword, "My Own Feed Post")
+
+        loginUser(testUsername, strongPassword, rememberMe = false)
+
+        composeTestRule.onNodeWithText("Feed").performClick()
+        assertOnFeedView()
+
+        composeTestRule.waitUntil(timeoutMillis = 5000) {
+            composeTestRule.onAllNodesWithText(testUsername).fetchSemanticsNodes().isNotEmpty()
+        }
+        composeTestRule.onAllNodesWithText(testUsername).onFirst().performClick()
+
+        assertOnProfileView()
+        composeTestRule.onNodeWithContentDescription("Back").assertDoesNotExist()
+        composeTestRule.onNodeWithText("Search for Users").assertExists()
+    }
+
+    @Test
+    fun testLikeAndUnlikePostFromFeed() {
+        // Liking straight from the feed, without opening the post (issue #267).
+        registerUserViaApi(testUsername, strongPassword)
+        makePostViaApi(testUsername, strongPassword, "Feed Like Post")
+
+        loginUser(otherTestUsername, strongPassword, rememberMe = false, registerToo = true)
+
+        composeTestRule.onNodeWithText("Feed").performClick()
+        assertOnFeedView()
+
+        composeTestRule.waitUntil(timeoutMillis = 5000) {
+            composeTestRule.onAllNodesWithContentDescription("Like post by $testUsername")
+                .fetchSemanticsNodes().isNotEmpty()
+        }
+        composeTestRule.onAllNodesWithContentDescription("Like post by $testUsername")
+            .onFirst().performClick()
+
+        composeTestRule.waitUntil(timeoutMillis = 5000) {
+            composeTestRule.onAllNodesWithContentDescription("Unlike post by $testUsername")
+                .fetchSemanticsNodes().isNotEmpty()
+        }
+
+        composeTestRule.onAllNodesWithContentDescription("Unlike post by $testUsername")
+            .onFirst().performClick()
+
+        composeTestRule.waitUntil(timeoutMillis = 5000) {
+            composeTestRule.onAllNodesWithContentDescription("Like post by $testUsername")
+                .fetchSemanticsNodes().isNotEmpty()
+        }
+    }
+
+    @Test
+    fun testReportPostFromFeed() {
+        // Reporting straight from the feed's overflow menu (issue #267).
+        registerUserViaApi(testUsername, strongPassword)
+        makePostViaApi(testUsername, strongPassword, "Feed Report Post")
+
+        loginUser(otherTestUsername, strongPassword, rememberMe = false, registerToo = true)
+
+        composeTestRule.onNodeWithText("Feed").performClick()
+        assertOnFeedView()
+
+        composeTestRule.waitUntil(timeoutMillis = 5000) {
+            composeTestRule.onAllNodesWithContentDescription("Options for post by $testUsername")
+                .fetchSemanticsNodes().isNotEmpty()
+        }
+        composeTestRule.onAllNodesWithContentDescription("Options for post by $testUsername")
+            .onFirst().performClick()
+
+        // Someone else's post, so the menu offers Report (not Delete).
+        composeTestRule.onNodeWithText("Delete Post").assertDoesNotExist()
+        composeTestRule.onNodeWithText("Report Post").performClick()
+
+        composeTestRule.onNodeWithText("Reason for reporting...").performTextInput("Reported from the feed")
+        composeTestRule.onNodeWithText("Submit").performClick()
+
+        composeTestRule.waitUntil(timeoutMillis = 5000) {
+            composeTestRule
+                .onAllNodesWithContentDescription("You reported the post by $testUsername")
+                .fetchSemanticsNodes().isNotEmpty()
+        }
+
+        // And the menu now offers to take the report back.
+        composeTestRule.onAllNodesWithContentDescription("Options for post by $testUsername")
+            .onFirst().performClick()
+        composeTestRule.onNodeWithText("Retract Report").assertExists()
+    }
+
+    @Test
+    fun testDeleteOwnPostFromFeed() {
+        // Your own post offers Delete (never Report), and deleting drops it from
+        // the feed in place rather than reloading it (issue #267).
+        registerUserViaApi(testUsername, strongPassword)
+        makePostViaApi(testUsername, strongPassword, "Feed Delete Post")
+
+        loginUser(testUsername, strongPassword, rememberMe = false)
+
+        composeTestRule.onNodeWithText("Feed").performClick()
+        assertOnFeedView()
+
+        composeTestRule.waitUntil(timeoutMillis = 5000) {
+            composeTestRule.onAllNodesWithContentDescription("Options for post by $testUsername")
+                .fetchSemanticsNodes().isNotEmpty()
+        }
+        // No like control on your own post — the backend rejects it.
+        composeTestRule.onAllNodesWithContentDescription("Like post by $testUsername")
+            .assertCountEquals(0)
+
+        composeTestRule.onAllNodesWithContentDescription("Options for post by $testUsername")
+            .onFirst().performClick()
+
+        composeTestRule.onNodeWithText("Report Post").assertDoesNotExist()
+        composeTestRule.onNodeWithText("Delete Post").performClick()
+
+        composeTestRule.waitUntil(timeoutMillis = 5_000) {
+            composeTestRule.onAllNodesWithContentDescription("Options for post by $testUsername")
+                .fetchSemanticsNodes().isEmpty()
+        }
+        assertOnFeedView()
+    }
+
     @Test
     fun testVerifyIdentity() {
         // Register and Login

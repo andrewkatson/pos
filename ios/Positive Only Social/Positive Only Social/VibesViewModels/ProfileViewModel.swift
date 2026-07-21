@@ -32,6 +32,13 @@ class ProfileViewModel: ObservableObject {
     // The logged-in user's username, loaded once at init for own-profile detection.
     private let currentLoggedInUsername: String?
 
+    // Listens for `.postDeleted` so a post deleted from this grid (or from its
+    // detail view) also disappears here, without reloading the whole list.
+    private var postDeletedCancellable: AnyCancellable?
+    // Listens for `.postCreated` so a brand new post shows up on the signed-in
+    // user's own profile grid right away (issue #347).
+    private var postCreatedCancellable: AnyCancellable?
+
     var isOwnProfile: Bool {
         user.username == (currentLoggedInUsername ?? "")
     }
@@ -40,14 +47,45 @@ class ProfileViewModel: ObservableObject {
         self.init(user: user, api: api, keychainHelper: keychainHelper, account: "userSessionToken")
     }
 
-    init(user: User, api: Networking, keychainHelper: KeychainHelperProtocol, account: String) {
+    /// Builds the view model for the signed-in user's own profile — the Profile
+    /// tab shows the same profile the rest of the app pushes for other users
+    /// (issue #347), so it needs the username from the stored session.
+    static func forCurrentUser(api: Networking,
+                               keychainHelper: KeychainHelperProtocol,
+                               account: String = "userSessionToken") -> ProfileViewModel {
+        let session = try? keychainHelper.load(UserSession.self, from: GVOAppConstants.keychainService, account: account)
+        let user = User(username: session?.username ?? "", identityIsVerified: session?.isIdentityVerified ?? false)
+        return ProfileViewModel(user: user, api: api, keychainHelper: keychainHelper, account: account)
+    }
+
+    init(user: User, api: Networking, keychainHelper: KeychainHelperProtocol, account: String,
+         notificationCenter: NotificationCenter = .default) {
         self.user = user
         self.api = api
         self.keychainHelper = keychainHelper
         self.account = account
         self.currentLoggedInUsername = try? keychainHelper.load(UserSession.self, from: GVOAppConstants.keychainService, account: account)?.username
+
+        // Drop a deleted post from the grid rather than reloading it — the list
+        // the user is looking at shouldn't reshuffle because of one deletion.
+        postDeletedCancellable = notificationCenter.publisher(for: .postDeleted)
+            .receive(on: RunLoop.main)
+            .sink { [weak self] notification in
+                guard let postIdentifier = notification.object as? String else { return }
+                self?.userPosts.removeAll { $0.id == postIdentifier }
+            }
+
+        // A newly created post only ever belongs on the author's own profile.
+        postCreatedCancellable = notificationCenter.publisher(for: .postCreated)
+            .receive(on: RunLoop.main)
+            .sink { [weak self] _ in
+                Task { @MainActor in
+                    guard let self, self.isOwnProfile else { return }
+                    await self.refreshUserPosts()
+                }
+            }
     }
-    
+
     /// Fetches the next batch of posts for the current user.
     func fetchUserPosts() {
         // Don't fetch if we're already loading or if we've reached the end

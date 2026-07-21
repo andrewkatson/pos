@@ -8,6 +8,16 @@ vi.mock('../api/client', () => ({
   apiClient: {
     isAuthenticated: vi.fn(() => true),
     getPostsForUser: vi.fn().mockResolvedValue([]),
+    getProfile: vi.fn().mockResolvedValue({
+      username: 'ada',
+      post_count: 0,
+      follower_count: 0,
+      following_count: 0,
+      is_following: false,
+      is_blocked: false,
+      identity_is_verified: false,
+      is_adult: true,
+    }),
     searchUsers: vi.fn().mockResolvedValue([]),
     getFeed: vi.fn().mockResolvedValue([]),
     getFollowedFeed: vi.fn().mockResolvedValue([]),
@@ -46,13 +56,26 @@ afterEach(() => {
   vi.unstubAllGlobals()
 })
 
-test('renders the Home tab title and bottom navigation', () => {
+test('opens on the Profile tab and renders the bottom navigation', () => {
   renderHome()
-  expect(screen.getByRole('heading', { name: 'Your Posts' })).toBeInTheDocument()
-  expect(screen.getByRole('button', { name: /Home/ })).toBeInTheDocument()
+  expect(screen.getByRole('heading', { name: 'Your Profile' })).toBeInTheDocument()
+  // Your own profile is one tap away from the bottom bar (issue #347).
+  expect(screen.getByRole('button', { name: /Profile/ })).toBeInTheDocument()
   expect(screen.getByRole('button', { name: /Feed/ })).toBeInTheDocument()
   expect(screen.getByRole('button', { name: /Post/ })).toBeInTheDocument()
   expect(screen.getByRole('button', { name: /Settings/ })).toBeInTheDocument()
+})
+
+test('the Profile tab shows the signed-in user stats', async () => {
+  renderHome()
+  // The follower/following counts are what distinguishes the tab from the old
+  // "Home" post grid it replaced (issue #347).
+  expect(await screen.findByText('Followers')).toBeInTheDocument()
+  expect(screen.getByText('Following')).toBeInTheDocument()
+  expect(screen.getByText('Posts')).toBeInTheDocument()
+  // Own profile has no follow/block controls.
+  expect(screen.queryByRole('button', { name: 'Follow' })).not.toBeInTheDocument()
+  expect(screen.queryByRole('button', { name: 'Block' })).not.toBeInTheDocument()
 })
 
 test('switches to the Feed tab', async () => {

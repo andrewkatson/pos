@@ -1,6 +1,5 @@
 package com.example.positiveonlysocial.ui.main
 
-import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.grid.GridCells
@@ -13,10 +12,8 @@ import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material3.*
-import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.input.ImeAction
@@ -34,7 +31,17 @@ import com.example.positiveonlysocial.ui.preview.PreviewHelpers
 import com.example.positiveonlysocial.ui.navigation.Screen
 import com.example.positiveonlysocial.ui.theme.PositiveOnlySocialTheme
 
-@OptIn(ExperimentalMaterial3Api::class)
+/**
+ * The first bottom-nav destination: the signed-in user's own profile, reachable
+ * in one tap from anywhere (issue #347). It renders the same [ProfileBody] the
+ * root-stack [ProfileScreen] does — stats, post grid and the in-place post
+ * actions — minus the back arrow, since this destination is not pushed onto
+ * anything. Follow/Block are already hidden for your own profile.
+ *
+ * The user-search bar stays on top exactly as before: typing at least three
+ * characters searches, and while a search is active the results replace the
+ * profile body.
+ */
 @Composable
 fun HomeScreen(
     navController: NavController,
@@ -45,20 +52,12 @@ fun HomeScreen(
         val viewModel: HomeViewModel = viewModel(
             factory = HomeViewModelFactory(api, keychainHelper)
         )
-        
-        val userPosts by viewModel.userPosts.collectAsState()
+
         val searchedUsers by viewModel.searchedUsers.collectAsState()
         val searchText by viewModel.searchText.collectAsState()
-        val isRefreshing by viewModel.isRefreshing.collectAsState()
+        val currentUsername by viewModel.currentUsername.collectAsState()
 
         val focusManager = LocalFocusManager.current
-
-        // Trigger initial fetch
-        LaunchedEffect(Unit) {
-            if (userPosts.isEmpty()) {
-                viewModel.fetchMyPosts()
-            }
-        }
 
         Column(modifier = Modifier.fillMaxSize().dismissKeyboardOnTap()) {
             // Search Bar
@@ -87,7 +86,14 @@ fun HomeScreen(
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .clickable {
-                                    navController.navigate(Screen.Profile.createRoute(user.username))
+                                    if (user.username == currentUsername) {
+                                        // You're already on your own profile —
+                                        // clearing the search reveals it rather
+                                        // than pushing a duplicate of it.
+                                        viewModel.updateSearchText("")
+                                    } else {
+                                        navController.navigate(Screen.Profile.createRoute(user.username))
+                                    }
                                 },
                             elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
                         ) {
@@ -122,41 +128,17 @@ fun HomeScreen(
                     }
                 }
             } else {
-                // User Posts Grid
-                PullToRefreshBox(
-                    isRefreshing = isRefreshing,
-                    onRefresh = { viewModel.refreshMyPosts() },
-                    modifier = Modifier.fillMaxSize()
-                ) {
-                    // Black backing shows through the 1dp gaps as thin borders between
-                    // posts; the 1dp contentPadding extends that border around the outer edge.
-                    LazyVerticalGrid(
-                        columns = GridCells.Fixed(3),
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .background(Color.Black),
-                        contentPadding = PaddingValues(1.dp),
-                        horizontalArrangement = Arrangement.spacedBy(1.dp),
-                        verticalArrangement = Arrangement.spacedBy(1.dp)
-                    ) {
-                        items(userPosts) { post ->
-                            PostImageWithFallback(
-                                post = post,
-                                modifier = Modifier
-                                    .aspectRatio(1f)
-                                    .clickable {
-                                        navController.navigate(Screen.PostDetail.createRoute(post.postIdentifier))
-                                    }
-                            )
-
-                            // Infinite scroll trigger
-                            if (post == userPosts.lastOrNull()) {
-                                LaunchedEffect(Unit) {
-                                    viewModel.fetchMyPosts()
-                                }
-                            }
-                        }
-                    }
+                // The signed-in user's own profile. Null only before the stored
+                // session has been read, which is effectively never once signed in.
+                currentUsername?.let { username ->
+                    ProfileBody(
+                        navController = navController,
+                        api = api,
+                        keychainHelper = keychainHelper,
+                        username = username,
+                        // Takes the space left under the search bar.
+                        modifier = Modifier.weight(1f)
+                    )
                 }
             }
         }

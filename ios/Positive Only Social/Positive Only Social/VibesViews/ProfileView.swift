@@ -26,33 +26,65 @@ struct StatItem: View {
     }
 }
 
+/// Another user's profile, pushed from a search result, a feed row or a post.
+///
+/// The profile itself lives in `ProfileBodyView`, which the Profile tab renders
+/// too — the signed-in user's own profile is the same view (issue #347).
 struct ProfileView: View {
-    
+
     // This view has its own ViewModel to manage its own state
     @StateObject private var viewModel: ProfileViewModel
-    
-    // Grid layout, same as in HomeView: 3 columns with a 1pt gap that shows the
-    // black grid background as a thin border between posts.
-    private let columns: [GridItem] = Array(repeating: GridItem(.flexible(), spacing: 1), count: 3)
-    
+    // Powers the like / report / delete controls on each post (issue #267).
+    @StateObject private var postActions: PostActionsViewModel
+
     private let api: Networking
     private let keychainHelper: KeychainHelperProtocol
-    
+
     init(user: User, api: Networking, keychainHelper: KeychainHelperProtocol) {
         // Initialize the StateObject with the user and API
         _viewModel = StateObject(wrappedValue: ProfileViewModel(user: user, api: api, keychainHelper: keychainHelper))
-        
+        _postActions = StateObject(wrappedValue: PostActionsViewModel(api: api, keychainHelper: keychainHelper))
+
         self.api = api
         self.keychainHelper = keychainHelper
     }
-    
+
+    var body: some View {
+        ProfileBodyView(viewModel: viewModel, postActions: postActions)
+            .navigationTitle(viewModel.user.username) // Set title to the user's name
+            .navigationDestination(for: Post.self) { post in
+                PostDetailView(postIdentifier: post.id, api: api, keychainHelper: keychainHelper)
+            }
+            .postActionDialogs(postActions)
+    }
+}
+
+/// The body of a profile: the stat header (and, for anyone but the signed-in
+/// user, the Follow / Block buttons) above that user's post grid.
+///
+/// Shared by `ProfileView` and the Profile tab so the stats have a single
+/// implementation. It deliberately declares neither a navigation title nor a
+/// navigation destination — the container owns those, since the two containers
+/// title the screen differently and register different destinations.
+struct ProfileBodyView: View {
+
+    @ObservedObject var viewModel: ProfileViewModel
+    @ObservedObject var postActions: PostActionsViewModel
+
+    /// The accessibility identifier for each grid tile. The Profile tab keeps
+    /// "MyPostImage" so your own grid stays distinguishable from someone else's.
+    var postAccessibilityIdentifier: String = "ProfilePostImage"
+
+    // Grid layout: 3 columns with a 1pt gap that shows the black grid
+    // background as a thin border between posts.
+    private let columns: [GridItem] = Array(repeating: GridItem(.flexible(), spacing: 1), count: 3)
+
     var body: some View {
         ScrollView {
             profileHeader.padding(.horizontal)
             Divider()
             postGrid
         }
-        .navigationTitle(viewModel.user.username) // Set title to the user's name
         .refreshable {
             // Pull-to-refresh: reload the newest posts and the profile stats /
             // follow-block status so neither goes stale.
@@ -73,11 +105,8 @@ struct ProfileView: View {
                 viewModel.fetchProfileDetails()
             }
         }
-        .navigationDestination(for: Post.self) { post in
-            PostDetailView(postIdentifier: post.id, api: api, keychainHelper: keychainHelper)
-        }
     }
-    
+
     /// A new sub-view for the profile header and follow button
     @ViewBuilder
     private var profileHeader: some View {
@@ -147,29 +176,40 @@ struct ProfileView: View {
         } else {
             LazyVGrid(columns: columns, spacing: 1) {
                 ForEach(viewModel.userPosts) { post in
-                    // Wrap each cell in a NavigationLink so tapping a post opens
-                    // its detail view (destination registered on the ScrollView).
-                    NavigationLink(value: post) {
-                        // Force every post into an identical square, cropping to fill
-                        // so images no longer keep their original dimensions.
-                        Color(.systemGray4)
-                            .aspectRatio(1, contentMode: .fit)
-                            .overlay {
-                                GridPostImage(
-                                    imageUrl: post.imageUrl,
-                                    originalImageUrl: post.originalImageUrl,
-                                    caption: post.caption
-                                )
-                            }
-                            .clipped()
+                    // The action bar sits below the tile, outside the link, so
+                    // it can't swallow the tap that opens the post (#267). The
+                    // square tiles have no room for the comment count or the
+                    // post's age, so those stay on the feed rows only (#249).
+                    VStack(spacing: 0) {
+                        // Wrap each cell in a NavigationLink so tapping a post opens
+                        // its detail view (destination registered by the container).
+                        NavigationLink(value: post) {
+                            // Force every post into an identical square, cropping to fill
+                            // so images no longer keep their original dimensions.
+                            Color(.systemGray4)
+                                .aspectRatio(1, contentMode: .fit)
+                                .overlay {
+                                    GridPostImage(
+                                        imageUrl: post.imageUrl,
+                                        originalImageUrl: post.originalImageUrl,
+                                        caption: post.caption
+                                    )
+                                }
+                                .clipped()
+                        }
+                        .accessibilityIdentifier(postAccessibilityIdentifier)
+
+                        PostActionBar(post: post, postActions: postActions)
                     }
+                    // Keeps the action bar off the grid's black backing, which
+                    // is only meant to show through as the 1pt tile borders.
+                    .background(Color(.systemBackground))
                     .onAppear {
                         // Trigger for infinite scrolling
                         if post.id == viewModel.userPosts.last?.id {
                             viewModel.fetchUserPosts()
                         }
                     }
-                    .accessibilityIdentifier("ProfilePostImage")
                 }
             }
             // Black backing shows through the 1pt gaps as thin borders between posts.

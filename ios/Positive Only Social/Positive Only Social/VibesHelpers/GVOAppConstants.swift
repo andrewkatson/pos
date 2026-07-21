@@ -30,6 +30,10 @@ import Foundation
     static let httpHeaderField = "Content-Type"
     static let invalidURL = "The URL provided was invalid."
     static let keychainService = "positive-only-social.Positive-Only-Social"
+    /// The tab index of the signed-in user's own profile (issue #347). Tapping
+    /// your own username anywhere in the app selects this tab instead of
+    /// pushing a second copy of your profile.
+    static let profileTabIndex = 0
     static let pathSegmenProfile = "profile"
     static let pathSegmenSearch = "search"
     static let pathSegmentAppeals = "appeals"

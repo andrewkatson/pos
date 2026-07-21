@@ -34,8 +34,8 @@ from .constants import Patterns, Params, POST_BATCH_SIZE, MAX_BEFORE_HIDING_POST
     MAX_APPEAL_REASON_LENGTH
 from .feed_algorithm import feed_algorithm
 from .input_validator import is_valid_pattern
-from .models import LoginCookie, Session, Post, CommentThread, PositiveOnlySocialUser, Comment, CommentLike, UserBlock, \
-    UserBan, KnownDevice, Appeal
+from .models import LoginCookie, Session, Post, CommentThread, PositiveOnlySocialUser, Comment, CommentLike, \
+    PostLike, UserBlock, UserBan, KnownDevice, Appeal
 from .utils import convert_to_bool, generate_login_cookie_token, generate_management_token, generate_series_identifier, \
     get_batch, get_queryset_batch, get_compressed_image_url
 from .s3 import delete_image, generate_presigned_upload, image_url_to_key
@@ -1236,6 +1236,61 @@ def unlike_post(request, post_identifier):
 # FEED / POST RETRIEVAL VIEWS
 # =============================================================================
 
+def build_post_interaction_state(user, posts):
+    """Bulk-load the per-post detail a client needs to render and act on a batch.
+
+    The listing endpoints below return rows the user can like, report, retract a
+    report on, or delete in place (issue #267), and which show the author, the
+    post time and a comment count (issue #249). So each row carries the same
+    interaction state the post-details endpoint returns, plus a comment count.
+    Everything is fetched in four grouped queries rather than per post,
+    mirroring get_comments_for_thread.
+
+    Returns a callable taking a Post and returning the dict of state fields to
+    merge into that post's payload.
+    """
+    liked_post_ids = set(
+        user.postlike_set
+        .filter(post__in=posts)
+        .values_list('post_id', flat=True)
+    )
+    # The caller's own report reason per post, so clients can offer "retract
+    # report" with the original reason pre-filled instead of "report".
+    my_report_reasons = dict(
+        user.postreport_set
+        .filter(post__in=posts)
+        .values_list('post_id', 'reason')
+    )
+    like_counts = dict(
+        PostLike.objects
+        .filter(post__in=posts)
+        .values('post_id')
+        .annotate(count=Count('post_id'))
+        .values_list('post_id', 'count')
+    )
+    # Comment counts respect the same visibility rule as the thread listing, so
+    # a row never advertises comments the viewer would not be shown (#249).
+    comment_counts = dict(
+        visible_comments(Comment.objects.filter(comment_thread__post__in=posts), user)
+        .values('comment_thread__post_id')
+        .annotate(count=Count('comment_identifier'))
+        .values_list('comment_thread__post_id', 'count')
+    )
+
+    def state_for(post):
+        return {
+            Fields.post_likes: like_counts.get(post.post_identifier, 0),
+            Fields.is_liked: post.post_identifier in liked_post_ids,
+            Fields.is_reported: post.post_identifier in my_report_reasons,
+            Fields.report_reason: my_report_reasons.get(post.post_identifier),
+            Fields.comment_count: comment_counts.get(post.post_identifier, 0),
+            # Drives the "3 hours ago" label under each post (#249).
+            Fields.creation_time: post.creation_time,
+        }
+
+    return state_for
+
+
 @api_login_required
 @ratelimit(key='user', rate='60/m', block=True)
 @require_GET
@@ -1256,6 +1311,7 @@ def get_posts_in_feed(request, batch):
 
     if relevant_posts.count() > 0:
         batched_posts = get_batch(batch, POST_BATCH_SIZE, relevant_posts)
+        interaction_state = build_post_interaction_state(request.user, batched_posts)
         posts_data = [
             {
                 Fields.post_identifier: post.post_identifier,
@@ -1264,7 +1320,8 @@ def get_posts_in_feed(request, batch):
                 # Lambda-generated compressed copy is still missing (#252/#254).
                 Fields.original_image_url: post.image_url,
                 Fields.author_username: post.author.username,
-                Fields.caption: post.caption
+                Fields.caption: post.caption,
+                **interaction_state(post)
             }
             for post in batched_posts
         ]
@@ -1296,6 +1353,7 @@ def get_posts_for_followed_users(request, batch):
         Post.objects.filter(author__in=followed_users), request.user
     ).order_by('-creation_time')
     posts_batch = get_batch(batch, POST_BATCH_SIZE, posts_queryset)
+    interaction_state = build_post_interaction_state(request.user, posts_batch)
 
     posts_data = [
         {
@@ -1305,7 +1363,8 @@ def get_posts_for_followed_users(request, batch):
             # Lambda-generated compressed copy is still missing (#252/#254).
             Fields.original_image_url: post.image_url,
             Fields.author_username: post.author.username,
-            Fields.caption: post.caption
+            Fields.caption: post.caption,
+            **interaction_state(post)
         }
         for post in posts_batch
     ]
@@ -1340,6 +1399,7 @@ def get_posts_for_user(request, username, batch):
 
     if relevant_posts.count() > 0:
         batched_posts = get_batch(batch, POST_BATCH_SIZE, relevant_posts)
+        interaction_state = build_post_interaction_state(request.user, batched_posts)
         posts_data = [
             {
                 Fields.post_identifier: post.post_identifier,
@@ -1352,7 +1412,8 @@ def get_posts_for_user(request, username, batch):
                 # user re-logs in. See issues #252 and #254.
                 Fields.original_image_url: post.image_url,
                 Fields.caption: post.caption,
-                Fields.author_username: target_user.username
+                Fields.author_username: target_user.username,
+                **interaction_state(post)
             }
             for post in batched_posts
         ]

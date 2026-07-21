@@ -13,6 +13,11 @@ vi.mock('../api/client', () => ({
     followUser: vi.fn(),
     unfollowUser: vi.fn(),
     toggleBlock: vi.fn(),
+    likePost: vi.fn(),
+    unlikePost: vi.fn(),
+    reportPost: vi.fn(),
+    retractReportPost: vi.fn(),
+    deletePost: vi.fn(),
   },
 }))
 
@@ -21,6 +26,10 @@ const mockGetProfile = vi.mocked(apiClient.getProfile)
 const mockGetPosts = vi.mocked(apiClient.getPostsForUser)
 const mockFollow = vi.mocked(apiClient.followUser)
 const mockUnfollow = vi.mocked(apiClient.unfollowUser)
+const mockLikePost = vi.mocked(apiClient.likePost)
+const mockUnlikePost = vi.mocked(apiClient.unlikePost)
+const mockReportPost = vi.mocked(apiClient.reportPost)
+const mockRetractReport = vi.mocked(apiClient.retractReportPost)
 
 const baseProfile: ProfileDetails = {
   username: 'bob',
@@ -49,6 +58,10 @@ beforeEach(() => {
   mockGetPosts.mockReset().mockResolvedValue([])
   mockFollow.mockReset().mockResolvedValue({ message: 'ok' })
   mockUnfollow.mockReset().mockResolvedValue({ message: 'ok' })
+  mockLikePost.mockReset().mockResolvedValue({ message: 'ok' })
+  mockUnlikePost.mockReset().mockResolvedValue({ message: 'ok' })
+  mockReportPost.mockReset().mockResolvedValue({ message: 'ok' })
+  mockRetractReport.mockReset().mockResolvedValue({ message: 'ok' })
 })
 
 test('renders profile stats and follow button', async () => {
@@ -102,6 +115,106 @@ test('shows "User not found" when the profile fails to load', async () => {
   mockGetProfile.mockRejectedValue(new Error('404'))
   renderProfile()
   expect(await screen.findByText('User not found.')).toBeInTheDocument()
+})
+
+// ---- In-place post actions on the grid (issue #267) ----
+
+test('likes a post straight from the grid and reflects the new count', async () => {
+  mockGetPosts.mockResolvedValue([
+    {
+      post_identifier: 'p1',
+      image_url: 'http://img/1.jpg',
+      author_username: 'bob',
+      caption: 'hi',
+      post_likes: 3,
+      is_liked: false,
+    },
+  ])
+  renderProfile()
+
+  const like = await screen.findByRole('button', { name: 'Like post' })
+  expect(screen.getByText('3')).toBeInTheDocument()
+  await userEvent.click(like)
+
+  await waitFor(() => expect(mockLikePost).toHaveBeenCalledWith('p1'))
+  // Optimistic: the control flips and the count climbs without a refetch.
+  expect(await screen.findByRole('button', { name: 'Unlike post' })).toBeInTheDocument()
+  expect(screen.getByText('4')).toBeInTheDocument()
+})
+
+test('reverts the like when the request fails', async () => {
+  mockGetPosts.mockResolvedValue([
+    {
+      post_identifier: 'p1',
+      image_url: 'http://img/1.jpg',
+      author_username: 'bob',
+      caption: 'hi',
+      post_likes: 3,
+      is_liked: false,
+    },
+  ])
+  mockLikePost.mockRejectedValue(new Error('nope'))
+  renderProfile()
+
+  await userEvent.click(await screen.findByRole('button', { name: 'Like post' }))
+
+  // Back to the pre-click state, with the failure surfaced.
+  expect(await screen.findByRole('alert')).toHaveTextContent('nope')
+  expect(screen.getByRole('button', { name: 'Like post' })).toBeInTheDocument()
+  expect(screen.getByText('3')).toBeInTheDocument()
+})
+
+test('reports a post from the grid', async () => {
+  mockGetPosts.mockResolvedValue([
+    { post_identifier: 'p1', image_url: 'http://img/1.jpg', author_username: 'bob', caption: 'hi' },
+  ])
+  renderProfile()
+
+  await userEvent.click(await screen.findByRole('button', { name: 'Options for post by bob' }))
+  await userEvent.click(screen.getByRole('button', { name: 'Report' }))
+  await userEvent.type(screen.getByLabelText('Reason for reporting'), 'mean')
+  await userEvent.click(screen.getByRole('button', { name: 'Submit Report' }))
+
+  await waitFor(() => expect(mockReportPost).toHaveBeenCalledWith('p1', 'mean'))
+  // The row now shows the reported flag.
+  expect(await screen.findByLabelText('You reported this post')).toBeInTheDocument()
+})
+
+test('offers retract report when the post is already reported', async () => {
+  // The listing endpoint carries is_reported/report_reason, so the grid knows
+  // to offer retraction without opening the post first (issues #267, #176).
+  mockGetPosts.mockResolvedValue([
+    {
+      post_identifier: 'p1',
+      image_url: 'http://img/1.jpg',
+      author_username: 'bob',
+      caption: 'hi',
+      is_reported: true,
+      report_reason: 'was mean',
+    },
+  ])
+  renderProfile()
+
+  await userEvent.click(await screen.findByRole('button', { name: 'Options for post by bob' }))
+  await userEvent.click(screen.getByRole('button', { name: 'Retract Report' }))
+  // The original reason is shown back to the user before they confirm.
+  expect(screen.getByLabelText('Your report reason')).toHaveValue('was mean')
+  await userEvent.click(screen.getByRole('button', { name: 'Retract Report' }))
+
+  await waitFor(() => expect(mockRetractReport).toHaveBeenCalledWith('p1'))
+  await waitFor(() =>
+    expect(screen.queryByLabelText('You reported this post')).not.toBeInTheDocument(),
+  )
+})
+
+test('does not offer delete on another user post', async () => {
+  mockGetPosts.mockResolvedValue([
+    { post_identifier: 'p1', image_url: 'http://img/1.jpg', author_username: 'bob', caption: 'hi' },
+  ])
+  renderProfile()
+
+  await userEvent.click(await screen.findByRole('button', { name: 'Options for post by bob' }))
+  expect(screen.queryByRole('button', { name: 'Delete' })).not.toBeInTheDocument()
 })
 
 test('redirects to login when unauthenticated', () => {

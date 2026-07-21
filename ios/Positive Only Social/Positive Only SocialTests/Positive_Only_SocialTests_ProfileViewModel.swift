@@ -256,5 +256,96 @@ struct Positive_Only_SocialTests_ProfileViewModel {
         #expect(sut.isFollowing == true)
         #expect(sut.profileDetails?.followerCount == 1, "Following again should not double-count to 2")
     }
+
+    // --- Own Profile (issue #347) ---
+
+    @Test func testForCurrentUser_BuildsTheSignedInUsersOwnProfile() async throws {
+        let (token, user) = try await registerUser(username: "ownProfileUser")
+        let account = "ownProfileUser_account"
+        try await setupLoggedInUser(user: user, token: token, account: account)
+
+        // The Profile tab builds its view model from the stored session rather
+        // than being handed a User, since there's nothing to navigate from.
+        let sut = ProfileViewModel.forCurrentUser(api: stubAPI, keychainHelper: keychainHelper, account: account)
+
+        #expect(sut.user.username == "ownProfileUser")
+        #expect(sut.isOwnProfile == true, "Follow/Block stay hidden on your own profile")
+    }
+
+    @Test func testPostCreatedNotification_RefreshesOwnProfileGrid() async throws {
+        let (token, user) = try await registerUser(username: "postCreatedOwner")
+        let account = "postCreatedOwner_account"
+        try await setupLoggedInUser(user: user, token: token, account: account)
+
+        // Inject a private NotificationCenter so this test's notification can't
+        // leak into (or be disturbed by) view models on `.default`.
+        let center = NotificationCenter()
+        let sut = ProfileViewModel(user: user, api: stubAPI, keychainHelper: keychainHelper, account: account,
+                                   notificationCenter: center)
+
+        _ = try await stubAPI.makePost(sessionManagementToken: token, imageURL: "own.image/1", caption: "Post 1")
+        sut.fetchUserPosts()
+        await yield()
+        #expect(sut.userPosts.count == 1)
+
+        // When: a new post is created elsewhere in the app
+        _ = try await stubAPI.makePost(sessionManagementToken: token, imageURL: "own.image/2", caption: "Post 2")
+        center.post(name: .postCreated, object: nil)
+        await yield()
+
+        // Then: it shows up without a manual pull-to-refresh
+        #expect(sut.userPosts.count == 2)
+        #expect(sut.userPosts.first?.imageUrl == "own.image/2", "Newest first")
+    }
+
+    @Test func testPostCreatedNotification_IgnoredOnSomeoneElsesProfile() async throws {
+        let (requestingUserToken, requestingUser) = try await registerUser(username: "otherProfileViewer")
+        let (profileUserToken, profileUser) = try await registerUser(username: "otherProfileOwner")
+        let account = "otherProfileViewer_account"
+        try await setupLoggedInUser(user: requestingUser, token: requestingUserToken, account: account)
+
+        let center = NotificationCenter()
+        let sut = ProfileViewModel(user: profileUser, api: stubAPI, keychainHelper: keychainHelper, account: account,
+                                   notificationCenter: center)
+
+        _ = try await stubAPI.makePost(sessionManagementToken: profileUserToken, imageURL: "other.image/1", caption: "Post 1")
+        sut.fetchUserPosts()
+        await yield()
+        #expect(stubAPI.getPostsForUserCallCount == 1)
+
+        // A post the signed-in user created doesn't belong on someone else's
+        // profile, so the grid isn't refetched.
+        center.post(name: .postCreated, object: nil)
+        await yield()
+        #expect(stubAPI.getPostsForUserCallCount == 1)
+    }
+
+    @Test func testPostDeletedNotification_RemovesPostFromProfileGrid() async throws {
+        stubAPI.pageSize = 10
+        let (token, user) = try await registerUser(username: "profileDeleter")
+        let account = "profileDeleter_account"
+        try await setupLoggedInUser(user: user, token: token, account: account)
+
+        let center = NotificationCenter()
+        let sut = ProfileViewModel(user: user, api: stubAPI, keychainHelper: keychainHelper, account: account,
+                                   notificationCenter: center)
+
+        _ = try await stubAPI.makePost(sessionManagementToken: token, imageURL: "del.image/1", caption: "Post 1")
+        _ = try await stubAPI.makePost(sessionManagementToken: token, imageURL: "del.image/2", caption: "Post 2")
+        sut.fetchUserPosts()
+        await yield()
+        #expect(sut.userPosts.count == 2)
+
+        // When: one of the loaded posts is deleted (announced by whichever list
+        // or detail view deleted it)
+        let deletedId = sut.userPosts.first!.id
+        center.post(name: .postDeleted, object: deletedId)
+        await yield()
+
+        // Then: it's dropped from the grid rather than the grid being reloaded
+        #expect(sut.userPosts.count == 1)
+        #expect(!sut.userPosts.contains { $0.id == deletedId })
+        #expect(stubAPI.getPostsForUserCallCount == 1)
+    }
 }
 

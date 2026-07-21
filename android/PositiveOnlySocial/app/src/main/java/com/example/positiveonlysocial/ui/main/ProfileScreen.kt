@@ -40,29 +40,11 @@ fun ProfileScreen(
     username: String
 ) {
     PositiveOnlySocialTheme {
-        val viewModel: ProfileViewModel = viewModel(
-            factory = ProfileViewModelFactory(api, keychainHelper)
-        )
-        
-        val userPosts by viewModel.userPosts.collectAsState()
-        val profileDetails by viewModel.profileDetails.collectAsState()
-        val isFollowing by viewModel.isFollowing.collectAsState()
-        val isLoading by viewModel.isLoading.collectAsState()
-        val isRefreshing by viewModel.isRefreshing.collectAsState()
-        val isOwnProfile by viewModel.isOwnProfile.collectAsState()
-
-        LaunchedEffect(Unit) {
-            if (userPosts.isEmpty()) {
-                viewModel.fetchUserPosts(username)
-            }
-            if (profileDetails == null) {
-                viewModel.fetchProfile(username)
-            }
-        }
-
         // Top bar carries the username as the title (like iOS's navigationTitle)
         // and a back button, since this screen is always pushed onto the root
-        // nav stack with no other way back (issue #260).
+        // nav stack with no other way back (issue #260). The app bar lives here
+        // rather than in ProfileBody because the bottom-nav Profile tab renders
+        // the same body with no back arrow (issue #347).
         Scaffold(
             topBar = {
                 TopAppBar(
@@ -75,108 +57,175 @@ fun ProfileScreen(
                 )
             }
         ) { padding ->
-        Column(modifier = Modifier.fillMaxSize().padding(padding)) {
-            // Header
-            Column(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(16.dp),
-                horizontalAlignment = Alignment.CenterHorizontally
+            ProfileBody(
+                navController = navController,
+                api = api,
+                keychainHelper = keychainHelper,
+                username = username,
+                modifier = Modifier.padding(padding)
+            )
+        }
+    }
+}
+
+/**
+ * A user's profile: the Posts / Followers / Following stats, the Follow and Block
+ * actions (hidden on your own profile), and their post grid with in-place like /
+ * report / retract-report / delete controls (issue #267).
+ *
+ * Shared by the root-stack [ProfileScreen] — anyone's profile, pushed with a back
+ * arrow — and by the bottom-nav Profile tab, which shows the signed-in user's own
+ * profile and must not show a back arrow (issue #347). The app bar is therefore
+ * the caller's responsibility, not part of this body.
+ */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun ProfileBody(
+    navController: NavController,
+    api: PositiveOnlySocialAPI,
+    keychainHelper: KeychainHelperProtocol,
+    username: String,
+    modifier: Modifier = Modifier
+) {
+    val viewModel: ProfileViewModel = viewModel(
+        factory = ProfileViewModelFactory(api, keychainHelper)
+    )
+
+    val userPosts by viewModel.userPosts.collectAsState()
+    val profileDetails by viewModel.profileDetails.collectAsState()
+    val isFollowing by viewModel.isFollowing.collectAsState()
+    val isLoading by viewModel.isLoading.collectAsState()
+    val isRefreshing by viewModel.isRefreshing.collectAsState()
+    val isOwnProfile by viewModel.isOwnProfile.collectAsState()
+
+    val postActions = viewModel.postActions
+    val currentUsername by postActions.currentUsername.collectAsState()
+
+    LaunchedEffect(username) {
+        if (userPosts.isEmpty()) {
+            viewModel.fetchUserPosts(username)
+        }
+        if (profileDetails == null) {
+            viewModel.fetchProfile(username)
+        }
+    }
+
+    Column(modifier = modifier.fillMaxSize()) {
+        // Header
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(16.dp),
+            horizontalAlignment = Alignment.CenterHorizontally
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceEvenly
             ) {
-                Row(
+                StatItem(count = userPosts.size, label = "Posts", modifier = Modifier.testTag("tag_Posts"))
+                StatItem(
+                    count = profileDetails?.followerCount ?: 0, label = "Followers",
+                    modifier = Modifier.testTag("tag_Followers"),
+                )
+                StatItem(count = profileDetails?.followingCount ?: 0, label = "Following", modifier = Modifier.testTag("tag_Following"))
+            }
+
+            Spacer(modifier = Modifier.height(16.dp))
+
+            if (!isOwnProfile) {
+                Button(
+                    onClick = { viewModel.toggleFollow(username) },
                     modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceEvenly
-                ) {
-                    StatItem(count = userPosts.size, label = "Posts", modifier = Modifier.testTag("tag_Posts"))
-                    StatItem(
-                        count = profileDetails?.followerCount ?: 0, label = "Followers",
-                        modifier = Modifier.testTag("tag_Followers"),
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = if (isFollowing) MaterialTheme.colorScheme.secondary else MaterialTheme.colorScheme.primary
                     )
-                    StatItem(count = profileDetails?.followingCount ?: 0, label = "Following", modifier = Modifier.testTag("tag_Following"))
+                ) {
+                    Text(if (isFollowing) "Following" else "Follow")
                 }
-                
-                Spacer(modifier = Modifier.height(16.dp))
 
-                if (!isOwnProfile) {
-                    Button(
-                        onClick = { viewModel.toggleFollow(username) },
-                        modifier = Modifier.fillMaxWidth(),
-                        colors = ButtonDefaults.buttonColors(
-                            containerColor = if (isFollowing) MaterialTheme.colorScheme.secondary else MaterialTheme.colorScheme.primary
-                        )
-                    ) {
-                        Text(if (isFollowing) "Following" else "Follow")
-                    }
+                Spacer(modifier = Modifier.height(8.dp))
 
-                    Spacer(modifier = Modifier.height(8.dp))
+                val isBlocked by viewModel.isBlocked.collectAsState()
 
-                    val isBlocked by viewModel.isBlocked.collectAsState()
-
-                    Button(
-                        onClick = { viewModel.toggleBlock(username) },
-                        modifier = Modifier.fillMaxWidth(),
-                        colors = ButtonDefaults.buttonColors(
-                            containerColor = if (isBlocked) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.surfaceVariant,
-                            contentColor = if (isBlocked) MaterialTheme.colorScheme.onError else MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                    ) {
-                        Text(if (isBlocked) "Unblock" else "Block")
-                    }
+                Button(
+                    onClick = { viewModel.toggleBlock(username) },
+                    modifier = Modifier.fillMaxWidth(),
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = if (isBlocked) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.surfaceVariant,
+                        contentColor = if (isBlocked) MaterialTheme.colorScheme.onError else MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                ) {
+                    Text(if (isBlocked) "Unblock" else "Block")
                 }
             }
-            
-            Divider()
-            
-            if (isLoading && userPosts.isEmpty()) {
-                Box(modifier = Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
-                    CircularProgressIndicator()
-                }
-            } else {
-                // Pull-to-refresh reloads the newest posts/details from the backend.
-                // It wraps both the empty state and the grid so the user can always
-                // pull to retry — even when the profile currently has no posts.
-                PullToRefreshBox(
-                    isRefreshing = isRefreshing,
-                    onRefresh = { viewModel.refreshProfile(username) },
-                    modifier = Modifier.fillMaxSize()
-                ) {
-                    if (userPosts.isEmpty()) {
-                        // Scrollable so the pull-to-refresh gesture works with no posts.
-                        Column(
-                            modifier = Modifier
-                                .fillMaxSize()
-                                .verticalScroll(rememberScrollState()),
-                            horizontalAlignment = Alignment.CenterHorizontally
-                        ) {
-                            Spacer(modifier = Modifier.height(48.dp))
-                            Text("$username hasn't posted anything yet.")
-                        }
-                    } else {
-                        // Black backing shows through the 1dp gaps as thin borders between
-                        // posts; the 1dp contentPadding extends that border around the outer edge.
-                        LazyVerticalGrid(
-                            columns = GridCells.Fixed(3),
-                            modifier = Modifier
-                                .fillMaxSize()
-                                .background(Color.Black),
-                            contentPadding = PaddingValues(1.dp),
-                            horizontalArrangement = Arrangement.spacedBy(1.dp),
-                            verticalArrangement = Arrangement.spacedBy(1.dp)
-                        ) {
-                            items(userPosts) { post ->
+        }
+
+        Divider()
+
+        if (isLoading && userPosts.isEmpty()) {
+            Box(modifier = Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
+                CircularProgressIndicator()
+            }
+        } else {
+            // Pull-to-refresh reloads the newest posts/details from the backend.
+            // It wraps both the empty state and the grid so the user can always
+            // pull to retry — even when the profile currently has no posts.
+            PullToRefreshBox(
+                isRefreshing = isRefreshing,
+                onRefresh = { viewModel.refreshProfile(username) },
+                modifier = Modifier.fillMaxSize()
+            ) {
+                if (userPosts.isEmpty()) {
+                    // Scrollable so the pull-to-refresh gesture works with no posts.
+                    Column(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .verticalScroll(rememberScrollState()),
+                        horizontalAlignment = Alignment.CenterHorizontally
+                    ) {
+                        Spacer(modifier = Modifier.height(48.dp))
+                        Text(
+                            if (isOwnProfile) "You haven't posted anything yet."
+                            else "$username hasn't posted anything yet."
+                        )
+                    }
+                } else {
+                    // Black backing shows through the 1dp gaps as thin borders between
+                    // posts; the 1dp contentPadding extends that border around the outer edge.
+                    LazyVerticalGrid(
+                        columns = GridCells.Fixed(3),
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .background(Color.Black),
+                        contentPadding = PaddingValues(1.dp),
+                        horizontalArrangement = Arrangement.spacedBy(1.dp),
+                        verticalArrangement = Arrangement.spacedBy(1.dp)
+                    ) {
+                        items(userPosts) { post ->
+                            // The action bar sits below the tile rather than over
+                            // it, so it can't swallow the tap that opens the post.
+                            Column(modifier = Modifier.background(MaterialTheme.colorScheme.surface)) {
                                 PostImageWithFallback(
                                     post = post,
                                     modifier = Modifier
+                                        .fillMaxWidth()
                                         .aspectRatio(1f)
                                         .clickable {
                                             navController.navigate(Screen.PostDetail.createRoute(post.postIdentifier))
                                         }
                                 )
+                                PostActionBar(
+                                    post = post,
+                                    isOwnPost = post.authorUsername == currentUsername,
+                                    onToggleLike = { postActions.toggleLike(post) },
+                                    onOpenMenu = { postActions.setPostForAction(post) },
+                                    compact = true
+                                )
+                            }
 
-                                if (post == userPosts.lastOrNull()) {
-                                    LaunchedEffect(Unit) {
-                                        viewModel.fetchUserPosts(username)
-                                    }
+                            if (post == userPosts.lastOrNull()) {
+                                LaunchedEffect(Unit) {
+                                    viewModel.fetchUserPosts(username)
                                 }
                             }
                         }
@@ -184,8 +233,10 @@ fun ProfileScreen(
                 }
             }
         }
-        }
     }
+
+    // One set of confirmations for the whole grid.
+    PostActionDialogs(postActions)
 }
 
 @Composable

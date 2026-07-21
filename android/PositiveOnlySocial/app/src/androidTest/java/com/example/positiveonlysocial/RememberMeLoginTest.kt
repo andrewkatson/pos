@@ -100,7 +100,8 @@ class RememberMeLoginTest {
     }
 
     private fun assertOnHomeView() {
-        composeTestRule.onNodeWithText("Home").assertExists()
+        // The first bottom-nav destination is now the user's own profile (#347).
+        composeTestRule.onNodeWithText("Profile").assertExists()
         composeTestRule.onNodeWithText("Feed").assertExists()
         composeTestRule.onNodeWithText("Post").assertExists()
         composeTestRule.onNodeWithText("Settings").assertExists()
