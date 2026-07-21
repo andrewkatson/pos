@@ -61,7 +61,7 @@ class Patterns:
         r"^https://(?:(?:[A-Za-z0-9.-]+)\.s3(?:[.-][a-z0-9-]+)?\.amazonaws\.com/"
         r"|s3(?:[.-][a-z0-9-]+)?\.amazonaws\.com/[A-Za-z0-9.-]+/)[^\s?#]+(?:\?[^\s#]*)?$"
     )
-    alphanumeric_with_special_chars = r"^[^;]+$"
+    alphanumeric_with_special_chars = r"^[\w\W]+$"
 
 class Params:
     username = "USERNAME"
