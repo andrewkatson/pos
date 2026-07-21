@@ -55,6 +55,9 @@ urlpatterns = [
     # POST /posts/create/ (Token in header)
     path('posts/create/', views.make_post, name='make_post'),
 
+    # GET /posts/<uuid:post_identifier>/status/ (Token in header)
+    path('posts/<uuid:post_identifier>/status/', views.get_post_status, name='get_post_status'),
+
     # POST /posts/<uuid:post_identifier>/delete/ (Token in header)
     path('posts/<uuid:post_identifier>/delete/', views.delete_post, name='delete_post'),
 

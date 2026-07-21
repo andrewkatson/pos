@@ -111,6 +111,9 @@ class TestClassifiers(PositiveOnlySocialTestCase):
         result = is_text_positive("some text")
         self.assertFalse(result)
         self.assertFalse(result.appealable)
+        # No provider could even be consulted — flagged so the async worker
+        # (issue #282) retries instead of recording a real rejection.
+        self.assertTrue(result.provider_failure)
 
     # ------------------------------------------------------------------ #
     # Text classifier – single API                                         #
@@ -372,6 +375,15 @@ class TestClassifiers(PositiveOnlySocialTestCase):
             result = is_text_positive("some text")
         self.assertFalse(result)
         self.assertFalse(result.appealable)
+        # No usable score at all is infrastructure, not a verdict (issue #282).
+        self.assertTrue(result.provider_failure)
+
+    @patch.dict(os.environ, {"GEMINI_API_KEY": "fake_key"}, clear=True)
+    def test_genuine_rejection_is_not_a_provider_failure(self):
+        with patch.dict(_TEXT_DISPATCH, {API_GEMINI: MagicMock(return_value=REJECT_SCORE)}):
+            result = is_text_positive("I am sad")
+        self.assertFalse(result)
+        self.assertFalse(result.provider_failure)
 
     # ------------------------------------------------------------------ #
     # Image classifier – testing mode                                      #
@@ -388,7 +400,9 @@ class TestClassifiers(PositiveOnlySocialTestCase):
 
     @patch.dict(os.environ, _AWS_KEYS, clear=True)
     def test_image_classifier_no_api_keys(self):
-        self.assertFalse(is_image_positive("some_image.png"))
+        result = is_image_positive("some_image.png")
+        self.assertFalse(result)
+        self.assertTrue(result.provider_failure)
 
     # ------------------------------------------------------------------ #
     # Image classifier – single API                                        #

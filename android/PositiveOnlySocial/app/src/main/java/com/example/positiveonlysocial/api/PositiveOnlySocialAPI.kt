@@ -83,6 +83,14 @@ interface PositiveOnlySocialAPI {
         @Path("post_id") postId: String
     ): Response<Post>
 
+    // Classification status of one of the signed-in user's own posts (issue
+    // #282): pending, approved, rejected, or rejected_final.
+    @GET("posts/{post_id}/status/")
+    suspend fun getPostStatus(
+        @Header("Authorization") token: String,
+        @Path("post_id") postId: String
+    ): Response<PostStatusResponse>
+
     // ============================================================================================
     // POSTS
     // ============================================================================================

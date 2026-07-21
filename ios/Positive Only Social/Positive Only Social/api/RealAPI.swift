@@ -512,6 +512,16 @@ final class RealAPI: Networking {
             authToken: sessionManagementToken
         )
     }
+
+    /// Gets the classification status of one of the signed-in user's own posts (issue #282).
+    func getPostStatus(sessionManagementToken: String, postIdentifier: String) async throws -> Data {
+        // Authenticated GET; author-only on the backend. ID is in path.
+        return try await performRequest(
+            pathSegments: [GVOAppConstants.pathSegmentPosts, postIdentifier, GVOAppConstants.pathSegmentStatus],
+            method: .get,
+            authToken: sessionManagementToken
+        )
+    }
     
     // MARK: - Comment Management
     

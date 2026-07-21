@@ -63,6 +63,7 @@ import Foundation
     static let pathSegmentResendVerificationEmail = "resend-verification-email"
     static let pathSegmentReset = "reset"
     static let pathSegmentRetract = "retract"
+    static let pathSegmentStatus = "status"
     static let pathSegmentThreads = "threads"
     static let pathSegmentUnblock = "unblock"
     static let pathSegmentUploadUrl = "upload-url"

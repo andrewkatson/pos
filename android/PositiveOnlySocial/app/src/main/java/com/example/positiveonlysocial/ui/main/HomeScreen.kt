@@ -50,6 +50,7 @@ fun HomeScreen(
         val searchedUsers by viewModel.searchedUsers.collectAsState()
         val searchText by viewModel.searchText.collectAsState()
         val isRefreshing by viewModel.isRefreshing.collectAsState()
+        val reviewNotice by viewModel.reviewNotice.collectAsState()
 
         val focusManager = LocalFocusManager.current
 
@@ -58,6 +59,22 @@ fun HomeScreen(
             if (userPosts.isEmpty()) {
                 viewModel.fetchMyPosts()
             }
+        }
+
+        // Surfaces the outcome when a post's async review (#282) resolves to a
+        // rejection while this grid is visible.
+        reviewNotice?.let { notice ->
+            AlertDialog(
+                onDismissRequest = { viewModel.dismissReviewNotice() },
+                title = { Text("Post Review") },
+                text = { Text(notice) },
+                confirmButton = {
+                    TextButton(
+                        onClick = { viewModel.dismissReviewNotice() },
+                        modifier = Modifier.testTag("OkButtonReviewNotice")
+                    ) { Text("OK") }
+                }
+            )
         }
 
         Column(modifier = Modifier.fillMaxSize().dismissKeyboardOnTap()) {
@@ -140,14 +157,35 @@ fun HomeScreen(
                         verticalArrangement = Arrangement.spacedBy(1.dp)
                     ) {
                         items(userPosts) { post ->
-                            PostImageWithFallback(
-                                post = post,
+                            Box(
                                 modifier = Modifier
                                     .aspectRatio(1f)
                                     .clickable {
                                         navController.navigate(Screen.PostDetail.createRoute(post.postIdentifier))
                                     }
-                            )
+                            ) {
+                                PostImageWithFallback(
+                                    post = post,
+                                    modifier = Modifier.fillMaxSize()
+                                )
+                                // Author-only classification state (#282): "In
+                                // review" while the async classifier runs, or
+                                // the appeal hint on a rejection.
+                                statusBadgeLabel(post.status)?.let { badge ->
+                                    Text(
+                                        text = badge,
+                                        color = Color.White,
+                                        style = MaterialTheme.typography.labelSmall,
+                                        textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+                                        modifier = Modifier
+                                            .align(androidx.compose.ui.Alignment.BottomCenter)
+                                            .fillMaxWidth()
+                                            .background(Color.Black.copy(alpha = 0.72f))
+                                            .padding(vertical = 2.dp)
+                                            .testTag("PostStatusBadge")
+                                    )
+                                }
+                            }
 
                             // Infinite scroll trigger
                             if (post == userPosts.lastOrNull()) {
@@ -161,6 +199,13 @@ fun HomeScreen(
             }
         }
     }
+}
+
+/** Overlay label for the author's own pending/rejected grid tiles (#282). */
+private fun statusBadgeLabel(status: String?): String? = when (status) {
+    "pending" -> "In review"
+    "rejected" -> "Hidden — you can appeal"
+    else -> null
 }
 
 @Preview(showBackground = true)

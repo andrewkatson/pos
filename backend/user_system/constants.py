@@ -10,10 +10,35 @@ BAN_TYPE_SHADOW = "shadow"
 # recorded — the content may still be hidden (e.g. report-based hiding that
 # predates this field) but without a recorded cause. "reports" is set when
 # enough users report it; "classifier" is set when the AI classifier rejected
-# it but the rejection is appealable.
+# it but the rejection is appealable. "pending_classification" marks a post
+# that has been created but not yet classified (nothing to appeal yet);
+# "classifier_final" is a terminal, non-appealable rejection kept as a
+# tombstone until the sweep purges it.
 HIDDEN_REASON_NONE = ""
 HIDDEN_REASON_REPORTS = "reports"
 HIDDEN_REASON_CLASSIFIER = "classifier"
+HIDDEN_REASON_PENDING_CLASSIFICATION = "pending_classification"
+HIDDEN_REASON_CLASSIFIER_FINAL = "classifier_final"
+
+# Hidden reasons that can never be appealed: a pending post has not been
+# rejected yet, and a final classifier rejection is terminal by definition.
+NON_APPEALABLE_HIDDEN_REASONS = (
+    HIDDEN_REASON_PENDING_CLASSIFICATION,
+    HIDDEN_REASON_CLASSIFIER_FINAL,
+)
+
+# Classification lifecycle of a post as reported to its author (the `status`
+# field of make_post/get_post_status). Derived from hidden_reason; see
+# Post.classification_status.
+POST_STATUS_PENDING = "pending"
+POST_STATUS_APPROVED = "approved"
+POST_STATUS_REJECTED = "rejected"
+POST_STATUS_REJECTED_FINAL = "rejected_final"
+
+# After this many worker attempts a post stuck in pending_classification is no
+# longer re-enqueued by the sweep; it stays hidden (fail closed) and the sweep
+# logs an error so an operator is alerted.
+CLASSIFICATION_MAX_ATTEMPTS = 5
 
 # Lifecycle of an appeal a user files against hidden content or a ban.
 APPEAL_STATUS_PENDING = "pending"

@@ -318,3 +318,61 @@ test('rejects an invalid appeal target type', async () => {
     api.submitAppeal({ target_type: 'ban' as never, target_identifier: '1', reason: 'x' }),
   ).rejects.toThrow('Invalid target_type')
 })
+
+// --- Async classification (#282) --------------------------------------------
+
+test('createPost reports pending and getPostStatus resolves to approved (#282)', async () => {
+  const api = new StatefulStubbedAPI()
+  await register(api, 'author')
+
+  const created = await api.createPost({ caption: 'a lovely day' })
+  expect(created.status).toBe('pending')
+  expect(created.hidden).toBe(true)
+  expect(created.hidden_reason).toBe('pending_classification')
+
+  // The stub classifies instantly (like the backend's eager dev mode), so the
+  // status endpoint already reports the outcome.
+  const status = await api.getPostStatus(created.post_identifier)
+  expect(status.status).toBe('approved')
+  expect(status.hidden).toBe(false)
+  expect(status.appealable).toBe(false)
+})
+
+test('a borderline caption resolves to an appealable rejection (#282)', async () => {
+  const api = new StatefulStubbedAPI()
+  await register(api, 'author')
+
+  const created = await api.createPost({ caption: 'a borderline take' })
+  const status = await api.getPostStatus(created.post_identifier)
+  expect(status.status).toBe('rejected')
+  expect(status.hidden).toBe(true)
+  expect(status.hidden_reason).toBe('classifier')
+  expect(status.appealable).toBe(true)
+
+  // It shows on the appeals screen and can be appealed.
+  const hidden = await api.getHiddenPosts(0)
+  expect(hidden.map((p) => p.post_identifier)).toContain(created.post_identifier)
+
+  // It is invisible to other users but present (with status) in the author's grid.
+  await register(api, 'viewer')
+  const feed = await api.getFeed(0)
+  expect(feed.map((p) => p.post_identifier)).not.toContain(created.post_identifier)
+  expect(await api.getPostsForUser('author', 0)).toEqual([])
+
+  await api.login({ username_or_email: 'author', password: 'password123' })
+  const own = await api.getPostsForUser('author', 0)
+  const ownPost = own.find((p) => p.post_identifier === created.post_identifier)
+  expect(ownPost?.status).toBe('rejected')
+  expect(ownPost?.appealable).toBe(true)
+})
+
+test('getPostStatus only answers for your own posts (#282)', async () => {
+  const api = new StatefulStubbedAPI()
+  await register(api, 'author')
+  const created = await api.createPost({ caption: 'mine' })
+
+  await register(api, 'other')
+  await expect(api.getPostStatus(created.post_identifier)).rejects.toThrow(
+    'No post with that identifier',
+  )
+})

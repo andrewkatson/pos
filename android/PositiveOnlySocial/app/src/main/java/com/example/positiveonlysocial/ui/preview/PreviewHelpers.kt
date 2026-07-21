@@ -226,6 +226,16 @@ class MockPositiveOnlySocialAPI : PositiveOnlySocialAPI {
         )
     }
 
+    override suspend fun getPostStatus(token: String, postId: String): Response<PostStatusResponse> {
+        // Previews treat every post as already approved (issue #282).
+        return Response.success(
+            PostStatusResponse(
+                postIdentifier = postId,
+                status = "approved"
+            )
+        )
+    }
+
     override suspend fun deletePost(token: String, postId: String): Response<GenericResponse> {
         return Response.success(
             GenericResponse(

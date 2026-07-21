@@ -100,6 +100,24 @@ test('uploads the photo to S3 and creates the post on success', async () => {
   expect(onPosted).toHaveBeenCalled()
 })
 
+test('shows the review-in-progress message for a pending post (#282)', async () => {
+  mockCreatePost.mockResolvedValue({
+    post_identifier: 'p1',
+    status: 'pending',
+    hidden: true,
+    hidden_reason: 'pending_classification',
+    message: 'Your post is being reviewed and will be visible to others once it is approved.',
+  })
+  const onPosted = vi.fn()
+  render(<NewPostTab onPosted={onPosted} />)
+
+  await userEvent.type(screen.getByLabelText('Caption'), 'great day')
+  await userEvent.click(screen.getByRole('button', { name: 'Share Post' }))
+
+  expect(await screen.findByText(/being reviewed/i)).toBeInTheDocument()
+  expect(onPosted).toHaveBeenCalled()
+})
+
 test('shows the appeal message when the post is hidden pending appeal', async () => {
   mockUploadImage.mockResolvedValue(
     'https://goodvibesonly-images.s3.us-east-2.amazonaws.com/user-123/abc.jpeg',

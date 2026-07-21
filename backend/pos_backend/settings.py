@@ -207,6 +207,16 @@ else:
 
 
 
+# Async post classification (issue #282). Jobs go to an RQ queue on the same
+# Redis used for rate limiting; run `python manage.py classification_worker`
+# to consume it. Without REDIS_URL (local dev, tests, CI) there is no queue to
+# reach, so the job runs eagerly in-process instead — tests patch or stub the
+# classifiers, and a single-host dev setup keeps working with no extra
+# services. Production must set REDIS_URL: eager mode puts the LLM latency
+# back on the request path, which is exactly what this feature removes.
+CLASSIFICATION_QUEUE_NAME = 'classification'
+CLASSIFICATION_EAGER = not bool(os.environ.get('REDIS_URL'))
+
 EMAIL_BACKEND = 'django.core.mail.backends.smtp.EmailBackend'
 EMAIL_HOST = 'smtp.gmail.com'
 EMAIL_PORT = 587

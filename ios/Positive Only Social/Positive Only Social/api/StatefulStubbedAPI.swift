@@ -62,6 +62,8 @@ fileprivate struct MockPost {
     var commentThreads: [MockCommentThread] = []
     var isHidden: Bool = false
     var hiddenReason: String = GVOAppConstants.emptyString
+    /// Public reason code recorded by the (stubbed) async classifier (#282).
+    var reasonCode: String? = nil
     let createdDate = Date()
 }
 
@@ -375,10 +377,115 @@ final class StatefulStubbedAPI: Networking {
     func makePost(sessionManagementToken: String, imageURL: String?, caption: String) async throws -> Data {
         await simulateNetwork()
         guard let user = findUser(bySessionToken: sessionManagementToken) else { throw APIError.badServerResponse(statusCode: 400) }
-        let newPost = MockPost(authorId: user.id, imageURL: imageURL, caption: caption)
+        // Stub pre-filter, mirroring the backend's cheap inline check (#282): a
+        // blatant hit is rejected immediately and the post is never created.
+        if caption.contains("negative") {
+            throw APIError.serverError(statusCode: 400, serverMessage: "Text is not positive because your caption did not meet our positivity guidelines. This decision is final and cannot be appealed.")
+        }
+        var newPost = MockPost(authorId: user.id, imageURL: imageURL, caption: caption)
+        newPost.isHidden = true
+        newPost.hiddenReason = "pending_classification"
+        // The real backend classifies asynchronously in a worker; the stub
+        // resolves instantly (like the backend's eager dev mode) but still
+        // returns the pending response, so clients exercise the reconcile
+        // path. Tests can set `deferClassification` to keep the post pending
+        // until resolvePendingClassifications() plays the worker's role.
+        if !deferClassification {
+            classify(&newPost)
+        }
         posts.append(newPost)
-        struct Fields: Codable { let post_identifier: String }
-        return try createSerializedResponse(fields: Fields(post_identifier: newPost.postIdentifier))
+        struct Fields: Codable {
+            let post_identifier: String
+            let status: String
+            let hidden: Bool
+            let hidden_reason: String
+            let message: String
+        }
+        return try createSerializedResponse(fields: Fields(
+            post_identifier: newPost.postIdentifier,
+            status: "pending",
+            hidden: true,
+            hidden_reason: "pending_classification",
+            message: "Your post is being reviewed and will be visible to others once it is approved."
+        ))
+    }
+
+    /// When true, makePost leaves new posts in pending_classification until
+    /// resolvePendingClassifications() is called, so tests can exercise the
+    /// clients' reconcile path (#282).
+    public var deferClassification = false
+
+    /// Plays the async worker's role for tests: classifies every post still
+    /// pending (#282).
+    public func resolvePendingClassifications() {
+        for index in posts.indices where posts[index].hiddenReason == "pending_classification" {
+            classify(&posts[index])
+        }
+    }
+
+    /// Stubbed async classifier (#282): a caption containing "borderline"
+    /// becomes an appealable rejection; everything else is approved.
+    private func classify(_ post: inout MockPost) {
+        if post.caption.contains("borderline") {
+            post.isHidden = true
+            post.hiddenReason = "classifier"
+            post.reasonCode = "guidelines"
+        } else {
+            post.isHidden = false
+            post.hiddenReason = ""
+        }
+    }
+
+    /// Author-facing classification status, mirroring Post.classification_status.
+    private func classificationStatus(_ post: MockPost) -> String {
+        switch post.hiddenReason {
+        case "pending_classification": return "pending"
+        case "classifier": return "rejected"
+        case "classifier_final": return "rejected_final"
+        default: return "approved"
+        }
+    }
+
+    private func isAppealable(_ post: MockPost) -> Bool {
+        post.isHidden && post.hiddenReason != "pending_classification" && post.hiddenReason != "classifier_final"
+    }
+
+    func getPostStatus(sessionManagementToken: String, postIdentifier: String) async throws -> Data {
+        await simulateNetwork()
+        guard let user = findUser(bySessionToken: sessionManagementToken) else { throw APIError.badServerResponse(statusCode: 400) }
+        guard let post = posts.first(where: { $0.postIdentifier == postIdentifier && $0.authorId == user.id }) else {
+            throw APIError.serverError(statusCode: 400, serverMessage: "No post with that identifier by that user")
+        }
+        let status = classificationStatus(post)
+        let message: String?
+        switch status {
+        case "pending":
+            message = "Your post is being reviewed and will be visible to others once it is approved."
+        case "rejected":
+            message = "Your post did not pass automated review. It is hidden for now but you can appeal the decision."
+        case "rejected_final":
+            message = "Your post did not pass automated review. This decision is final and cannot be appealed."
+        default:
+            message = nil
+        }
+        struct Fields: Codable {
+            let post_identifier: String
+            let status: String
+            let reason_code: String?
+            let appealable: Bool
+            let hidden: Bool
+            let hidden_reason: String
+            let message: String?
+        }
+        return try createSerializedResponse(fields: Fields(
+            post_identifier: post.postIdentifier,
+            status: status,
+            reason_code: post.reasonCode,
+            appealable: isAppealable(post),
+            hidden: post.isHidden,
+            hidden_reason: post.hiddenReason,
+            message: message
+        ))
     }
 
     func deletePost(sessionManagementToken: String, postIdentifier: String) async throws -> Data {
@@ -546,9 +653,15 @@ final class StatefulStubbedAPI: Networking {
         if user.blocked.contains(targetUser.id) || targetUser.blocked.contains(user.id) {
              return try createSerializedListResponse(fieldsList: [Fields]())
         }
-        
+
+        // Mirrors the backend's visible_posts: authors see their own hidden
+        // posts (pending, appealable, report-hidden) in their grid; everyone
+        // else only sees live ones. Final-rejection tombstones are visible to
+        // nobody (#282).
+        let isOwnGrid = user.id == targetUser.id
         let relevantPosts = posts
-            .filter { $0.authorId == targetUser.id && !$0.isHidden }
+            .filter { $0.authorId == targetUser.id && $0.hiddenReason != "classifier_final" }
+            .filter { isOwnGrid || !$0.isHidden }
             .sorted { $0.createdDate > $1.createdDate } // Sort newest first
 
         let startIndex = batch * pageSize
@@ -556,16 +669,21 @@ final class StatefulStubbedAPI: Networking {
             // Return an empty list, NOT an error
             return try createSerializedListResponse(fieldsList: [Fields]())
         }
-        
+
         let endIndex = min(startIndex + pageSize, relevantPosts.count)
         let paginatedPosts = Array(relevantPosts[startIndex..<endIndex])
 
-        // (Note: Added `caption` to prevent decoding errors)
+        // Author-only classification fields (#282) are included when viewing
+        // one's own grid, mirroring the backend payload.
         struct Fields: Codable {
             let post_identifier: String
             let image_url: String?
             let caption: String
             let author_username: String
+            let status: String?
+            let hidden: Bool?
+            let hidden_reason: String?
+            let appealable: Bool?
         }
 
         let fieldObjects = paginatedPosts.map {
@@ -575,10 +693,14 @@ final class StatefulStubbedAPI: Networking {
                 post_identifier: $0.postIdentifier,
                 image_url: $0.imageURL,
                 caption: $0.caption,
-                author_username: authorUsername
+                author_username: authorUsername,
+                status: isOwnGrid ? classificationStatus(post) : nil,
+                hidden: isOwnGrid ? post.isHidden : nil,
+                hidden_reason: isOwnGrid ? post.hiddenReason : nil,
+                appealable: isOwnGrid ? isAppealable(post) : nil
             )
         }
-        
+
         return try createSerializedListResponse(fieldsList: fieldObjects)
     }
 
@@ -955,8 +1077,10 @@ final class StatefulStubbedAPI: Networking {
         await simulateNetwork()
         guard let user = findUser(bySessionToken: sessionManagementToken) else { throw APIError.badServerResponse(statusCode: 401) }
 
+        // Pending posts have nothing to appeal yet and final rejections are
+        // terminal, so neither belongs on the appeals screen (#282).
         let hidden = posts
-            .filter { $0.authorId == user.id && $0.isHidden }
+            .filter { $0.authorId == user.id && $0.isHidden && isAppealable($0) }
             .sorted { $0.createdDate > $1.createdDate }
 
         let startIndex = batch * pageSize
@@ -1036,7 +1160,8 @@ final class StatefulStubbedAPI: Networking {
         let snapshot: String
         switch targetType {
         case "post":
-            guard let post = posts.first(where: { $0.postIdentifier == targetIdentifier && $0.authorId == user.id && $0.isHidden }) else {
+            // Pending and final-rejected posts are not appealable (#282).
+            guard let post = posts.first(where: { $0.postIdentifier == targetIdentifier && $0.authorId == user.id && $0.isHidden && isAppealable($0) }) else {
                 throw APIError.serverError(statusCode: 400, serverMessage: "No appealable item with that identifier")
             }
             snapshot = post.caption
