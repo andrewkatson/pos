@@ -165,7 +165,7 @@ class LoginCookie(models.Model):
 class KnownDevice(models.Model):
     user = models.ForeignKey(PositiveOnlySocialUser, related_name='known_devices', on_delete=models.CASCADE)
     ip = models.TextField()
-    user_agent = models.TextField(default='', blank=True)
+    user_agent = models.CharField(max_length=512,default="", blank=True)
     first_seen = models.DateTimeField(auto_now_add=True)
 
     class Meta:

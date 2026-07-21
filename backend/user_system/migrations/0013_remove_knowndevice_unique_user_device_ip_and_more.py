@@ -17,7 +17,7 @@ class Migration(migrations.Migration):
         migrations.AddField(
             model_name='knowndevice',
             name='user_agent',
-            field=models.TextField(blank=True, default=''),
+            field=models.CharField(blank=True, default='',max_length=512),
         ),
         migrations.AddConstraint(
             model_name='knowndevice',

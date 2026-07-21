@@ -59,6 +59,77 @@ class NewDeviceEmailTests(PositiveOnlySocialTestCase):
         # Same IP that registration recorded -> not a new device.
         self._login(REGISTRATION_IP)
         self.assertEqual(len(mail.outbox), 0)
+    def test_legacy_blank_user_agent_is_updated_without_emailing(self):
+        user = PositiveOnlySocialUser.objects.get(
+            username=self.local_username
+        )
+
+    # Simulate a KnownDevice row created before User-Agent tracking.
+        KnownDevice.objects.filter(
+            user=user,
+            ip=REGISTRATION_IP,
+        ).update(user_agent='')
+
+        self._login(
+        REGISTRATION_IP,
+        user_agent=IOS_USER_AGENT,
+        )
+
+    # The first login after deployment should not be treated as a new device.
+        self.assertEqual(len(mail.outbox), 0)
+
+        self.assertTrue(
+            KnownDevice.objects.filter(
+            user=user,
+            ip=REGISTRATION_IP,
+            user_agent=IOS_USER_AGENT,
+        ).exists()
+        )
+
+        self.assertFalse(
+            KnownDevice.objects.filter(
+            user=user,
+            ip=REGISTRATION_IP,
+            user_agent='',
+        ).exists()
+    )
+
+        self.assertEqual(
+            KnownDevice.objects.filter(
+            user=user,
+            ip=REGISTRATION_IP,
+        ).count(),
+        1,
+    )
+       
+    def test_long_user_agent_is_truncated_before_storage(self):
+        user = PositiveOnlySocialUser.objects.get(
+        username=self.local_username
+        )
+        long_user_agent = 'A' * 600
+        expected_user_agent = long_user_agent[:512]
+
+        self._login(
+        NEW_IP,
+        user_agent=long_user_agent,
+        )
+
+        self.assertEqual(len(mail.outbox), 1)
+
+        self.assertTrue(
+            KnownDevice.objects.filter(
+            user=user,
+            ip=NEW_IP,
+            user_agent=expected_user_agent,
+        ).exists()
+        )
+
+        stored_device = KnownDevice.objects.get(
+            user=user,
+            ip=NEW_IP,
+        )
+        self.assertEqual(len(stored_device.user_agent), 512) 
+       
     def test_login_from_same_ip_with_different_user_agent_sends_email(self):
         user = PositiveOnlySocialUser.objects.get(username=self.local_username)
 

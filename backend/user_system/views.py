@@ -240,7 +240,7 @@ def _get_device_type(user_agent):
 
 
 def _record_device_and_maybe_notify(user, ip, request=None, notify=True):
-    """Record that user has logged in from this IP and User-Agent.
+    """Record that a user has logged in from this IP and User-Agent.
 
     Registration passes notify=False so the first device is saved without
     sending a new-login alert. Later logins from a new IP/User-Agent pair
@@ -251,7 +251,35 @@ def _record_device_and_maybe_notify(user, ip, request=None, notify=True):
 
     user_agent = ''
     if request is not None:
-        user_agent = request.META.get('HTTP_USER_AGENT', '')
+        user_agent = (
+            request.META.get('HTTP_USER_AGENT', '') or ''
+        )[:512]
+
+    # Rows created before User-Agent tracking have a blank User-Agent.
+    # Upgrade the legacy row on the first login after deployment without
+    # treating that login as a new device.
+    if user_agent:
+        legacy_device = KnownDevice.objects.filter(
+            user=user,
+            ip=ip,
+            user_agent='',
+        ).first()
+
+        if legacy_device is not None:
+            try:
+                with transaction.atomic():
+                    legacy_device.user_agent = user_agent
+                    legacy_device.save(update_fields=['user_agent'])
+            except IntegrityError:
+                # Another request may already have created the same
+                # user/IP/User-Agent record. Remove the old blank row only
+                # if it is still blank.
+                KnownDevice.objects.filter(
+                    pk=legacy_device.pk,
+                    user_agent='',
+                ).delete()
+
+            return
 
     _, created = KnownDevice.objects.get_or_create(
         user=user,
@@ -271,13 +299,16 @@ def _record_device_and_maybe_notify(user, ip, request=None, notify=True):
             f"Device type: {device_type}\n"
             f"IP address: {ip}\n\n"
             "If this was you, you can ignore this email. "
-            "If you don't recognize this activity, please reset your password right away.",
+            "If you don't recognize this activity, please reset your "
+            "password right away.",
             settings.EMAIL_HOST_USER,
             [user.email],
         )
     except Exception:
-        logger.exception(f"Failed to send new-device login email for user_id {user.id}")
-
+        logger.exception(
+            "Failed to send new-device login email for user_id %s",
+            user.id,
+        )
 
 def _issue_email_verification_token(user):
     """Generate and store a fresh email-verification token for ``user``.
