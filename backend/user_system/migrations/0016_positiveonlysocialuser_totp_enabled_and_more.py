@@ -8,7 +8,7 @@ from django.db import migrations, models
 class Migration(migrations.Migration):
 
     dependencies = [
-        ('user_system', '0013_positiveonlysocialuser_email_verification'),
+        ('user_system', '0015_post_classification_alerted'),
     ]
 
     operations = [

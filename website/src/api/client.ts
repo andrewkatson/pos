@@ -26,6 +26,7 @@ import type {
   MessageResponse,
   MyAppeal,
   PostDetails,
+  PostStatusResponse,
   ProfileDetails,
   RegisterRequest,
   ReplyResponse,
@@ -447,6 +448,12 @@ export class ApiClient implements PositiveOnlySocialAPI {
     return this.request<PostDetails>('GET', `/posts/${postIdentifier}/details/`, { auth: true })
   }
 
+  getPostStatus(postIdentifier: string): Promise<PostStatusResponse> {
+    return this.request<PostStatusResponse>('GET', `/posts/${postIdentifier}/status/`, {
+      auth: true,
+    })
+  }
+
   // ===========================================================================
   // COMMENTS
   // ===========================================================================
@@ -567,6 +574,10 @@ export class ApiClient implements PositiveOnlySocialAPI {
 
   toggleBlock(username: string): Promise<MessageResponse> {
     return this.request<MessageResponse>('POST', `/users/${username}/block/`, { auth: true })
+  }
+
+  getBlockedUsers(): Promise<UserSearchResult[]> {
+    return this.request<UserSearchResult[]>('GET', '/users/blocked/', { auth: true })
   }
 
   getProfile(username: string): Promise<ProfileDetails> {

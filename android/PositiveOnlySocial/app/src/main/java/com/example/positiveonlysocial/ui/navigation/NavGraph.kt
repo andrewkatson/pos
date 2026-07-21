@@ -128,5 +128,9 @@ fun NavGraph(
         composable(Screen.Appeals.route) {
             AppealsScreen(navController, api, keychainHelper)
         }
+
+        composable(Screen.BlockedUsers.route) {
+            BlockedUsersScreen(navController, api, keychainHelper)
+        }
     }
 }

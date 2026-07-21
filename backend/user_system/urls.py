@@ -67,6 +67,9 @@ urlpatterns = [
     # POST /posts/create/ (Token in header)
     path('posts/create/', views.make_post, name='make_post'),
 
+    # GET /posts/<uuid:post_identifier>/status/ (Token in header)
+    path('posts/<uuid:post_identifier>/status/', views.get_post_status, name='get_post_status'),
+
     # POST /posts/<uuid:post_identifier>/delete/ (Token in header)
     path('posts/<uuid:post_identifier>/delete/', views.delete_post, name='delete_post'),
 
@@ -155,6 +158,9 @@ urlpatterns = [
 
     # POST /users/<str:username_to_toggle_block>/block/ (Token in header)
     path('users/<str:username_to_toggle_block>/block/', views.toggle_block, name='toggle_block'),
+
+    # GET /users/blocked/ (Token in header)
+    path('users/blocked/', views.get_blocked_users, name='get_blocked_users'),
 
     # GET /users/<str:username>/profile/ (Token in header)
     path('users/<str:username>/profile/', views.get_profile_details, name='get_profile_details'),

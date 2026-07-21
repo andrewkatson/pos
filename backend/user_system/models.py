@@ -10,6 +10,10 @@ from django.utils import timezone
 from .constants import (
     NEVER_RUN, BAN_TYPE_OUTRIGHT, BAN_TYPE_SHADOW,
     HIDDEN_REASON_NONE, HIDDEN_REASON_REPORTS, HIDDEN_REASON_CLASSIFIER,
+    HIDDEN_REASON_PENDING_CLASSIFICATION, HIDDEN_REASON_CLASSIFIER_FINAL,
+    NON_APPEALABLE_HIDDEN_REASONS,
+    POST_STATUS_PENDING, POST_STATUS_APPROVED, POST_STATUS_REJECTED,
+    POST_STATUS_REJECTED_FINAL,
     APPEAL_STATUS_PENDING, APPEAL_STATUS_APPROVED, APPEAL_STATUS_DENIED,
     APPEAL_TARGET_POST, APPEAL_TARGET_COMMENT, APPEAL_TARGET_BAN,
 )
@@ -290,6 +294,8 @@ HIDDEN_REASON_CHOICES = [
     (HIDDEN_REASON_NONE, 'Unspecified'),
     (HIDDEN_REASON_REPORTS, 'Reports'),
     (HIDDEN_REASON_CLASSIFIER, 'Classifier'),
+    (HIDDEN_REASON_PENDING_CLASSIFICATION, 'Pending classification'),
+    (HIDDEN_REASON_CLASSIFIER_FINAL, 'Classifier (final)'),
 ]
 
 
@@ -304,6 +310,39 @@ class Post(models.Model):
     author = models.ForeignKey(PositiveOnlySocialUser, on_delete=models.CASCADE)
     hidden = models.BooleanField(default=False)
     hidden_reason = models.TextField(choices=HIDDEN_REASON_CHOICES, default=HIDDEN_REASON_NONE, blank=True)
+
+    # Async classification bookkeeping (issue #282). classification_attempts
+    # counts worker runs so retries stay bounded and the sweep can alert on a
+    # stuck post; classification_reason_code stores the public reason code of a
+    # classifier rejection so the status endpoint can report it long after the
+    # worker ran (inline responses used to carry it, but the worker has no
+    # request to respond to).
+    classification_attempts = models.IntegerField(default=0)
+    classification_reason_code = models.TextField(null=True, blank=True, default=None)
+    # Set by sweep_classifications after it error-logs a post whose retry
+    # budget is spent, so the operator alert fires exactly once per post
+    # instead of on every cron run.
+    classification_alerted = models.BooleanField(default=False)
+
+    @property
+    def classification_status(self):
+        """The author-facing classification lifecycle state, derived from
+        hidden_reason. Report-hiding is orthogonal: a reported post already
+        passed classification, so it reads as approved here."""
+        if self.hidden_reason == HIDDEN_REASON_PENDING_CLASSIFICATION:
+            return POST_STATUS_PENDING
+        if self.hidden_reason == HIDDEN_REASON_CLASSIFIER:
+            return POST_STATUS_REJECTED
+        if self.hidden_reason == HIDDEN_REASON_CLASSIFIER_FINAL:
+            return POST_STATUS_REJECTED_FINAL
+        return POST_STATUS_APPROVED
+
+    @property
+    def appealable(self):
+        """Whether the author may appeal this post's hidden state. A pure
+        function of hidden_reason: pending posts have nothing to appeal and a
+        final rejection is terminal."""
+        return self.hidden and self.hidden_reason not in NON_APPEALABLE_HIDDEN_REASONS
 
 
 # A report on a post
