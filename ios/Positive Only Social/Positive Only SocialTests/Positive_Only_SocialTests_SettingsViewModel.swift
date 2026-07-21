@@ -214,7 +214,9 @@ struct Positive_Only_SocialTests_SettingsViewModel {
         sut.confirmTotp(code: "000000")
         await yield()
 
-        #expect(sut.showingErrorAlert == true)
+        // Enrollment-sheet errors surface inline via twoFactorErrorMessage, not
+        // the List's showingErrorAlert (two alerts on one flag are undefined).
+        #expect(sut.twoFactorErrorMessage != nil)
         #expect(sut.recoveryCodes == nil)
         #expect(stubAPI.findUser(byUsername: "totpWrongCodeUser")?.totpEnabled == false)
     }
