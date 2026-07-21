@@ -97,7 +97,10 @@ function LoginPage() {
 
   async function handleTwoFactorSubmit(e: FormEvent) {
     e.preventDefault()
-    if (!challengeToken || !isCodeValid) return
+    // Guard against re-entry while a request is already in flight, and clear
+    // any stale error banner as the new attempt starts.
+    if (!challengeToken || !isCodeValid || isLoading) return
+    setErrorMessage(null)
     setIsLoading(true)
     try {
       const code = twoFactorCode.trim()
@@ -135,6 +138,7 @@ function LoginPage() {
         <button
           type="button"
           className="auth-back"
+          disabled={isLoading}
           onClick={() => (challengeToken ? backToLogin() : navigate('/'))}
           aria-label={challengeToken ? 'Back to login' : 'Back to home'}
         >
