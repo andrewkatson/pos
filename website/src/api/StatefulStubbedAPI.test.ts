@@ -183,6 +183,23 @@ test('blocking a user hides their profile stats and severs following', async () 
   expect(profile.is_following).toBe(false)
 })
 
+test('getBlockedUsers lists blocks sorted by username and empties after unblock', async () => {
+  const api = new StatefulStubbedAPI()
+  await register(api, 'zed')
+  await register(api, 'amy')
+
+  await register(api, 'viewer')
+  expect(await api.getBlockedUsers()).toEqual([])
+
+  await api.toggleBlock('zed')
+  await api.toggleBlock('amy')
+  expect((await api.getBlockedUsers()).map((u) => u.username)).toEqual(['amy', 'zed'])
+
+  // Toggling again unblocks.
+  await api.toggleBlock('amy')
+  expect((await api.getBlockedUsers()).map((u) => u.username)).toEqual(['zed'])
+})
+
 test('logout clears the session token', async () => {
   const api = new StatefulStubbedAPI()
   await register(api, 'ada')

@@ -779,6 +779,20 @@ final class StatefulStubbedAPI: Networking {
         return try createSerializedListResponse(fieldsList: fieldObjects)
     }
     
+    func getBlockedUsers(sessionManagementToken: String) async throws -> Data {
+        await simulateNetwork()
+        guard let currentUser = findUser(bySessionToken: sessionManagementToken) else {
+            throw APIError.badServerResponse(statusCode: 400)
+        }
+        let blockedUsers = users
+            .filter { currentUser.blocked.contains($0.id) }
+            .sorted { $0.username < $1.username }
+
+        struct Fields: Codable { let username: String; let identity_is_verified: Bool }
+        let fieldObjects = blockedUsers.map { Fields(username: $0.username, identity_is_verified: $0.identityIsVerified) }
+        return try createSerializedListResponse(fieldsList: fieldObjects)
+    }
+
     func followUser(sessionManagementToken: String, username: String) async throws -> Data {
         await simulateNetwork()
         guard let currentUser = findUser(bySessionToken: sessionManagementToken) else {

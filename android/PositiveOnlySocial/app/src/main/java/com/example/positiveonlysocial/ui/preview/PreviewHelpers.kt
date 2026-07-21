@@ -466,6 +466,17 @@ class MockPositiveOnlySocialAPI : PositiveOnlySocialAPI {
         )
     }
 
+    override suspend fun getBlockedUsers(
+        token: String
+    ): Response<List<User>> {
+        return Response.success(
+            listOf(
+                User(username = "blocked_user_1", identityIsVerified = true),
+                User(username = "blocked_user_2", identityIsVerified = false)
+            )
+        )
+    }
+
     override suspend fun getProfileDetails(
         token: String,
         username: String

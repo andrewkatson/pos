@@ -30,4 +30,5 @@ sealed class Screen(val route: String) {
     }
     object Settings : Screen("settings")
     object Appeals : Screen("appeals")
+    object BlockedUsers : Screen("blocked_users")
 }

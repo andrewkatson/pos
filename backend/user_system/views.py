@@ -1972,6 +1972,25 @@ def toggle_block(request, username_to_toggle_block):
 @api_login_required
 @ratelimit(key='user', rate='30/m', block=True)
 @require_GET
+def get_blocked_users(request):
+    logger.info("Endpoint get_blocked_users invoked by IP or User")
+    # user is on request.user
+    blocked_users = request.user.blocked.order_by('username')
+
+    users_data = [
+        {
+            Fields.username: user.username,
+            Fields.identity_is_verified: user.identity_is_verified
+        }
+        for user in blocked_users
+    ]
+    logger.info(f"Get blocked users successful: count: {len(users_data)} for user_id: {request.user.id}")
+    return log_and_return_json("get_blocked_users", users_data, safe=False)
+
+
+@api_login_required
+@ratelimit(key='user', rate='30/m', block=True)
+@require_GET
 def get_profile_details(request, username):
     logger.info("Endpoint get_profile_details invoked by IP or User")
     # user is on request.user (requesting_user)

@@ -114,6 +114,7 @@ export interface PositiveOnlySocialAPI {
   followUser(username: string): Promise<MessageResponse>
   unfollowUser(username: string): Promise<MessageResponse>
   toggleBlock(username: string): Promise<MessageResponse>
+  getBlockedUsers(): Promise<UserSearchResult[]>
   getProfile(username: string): Promise<ProfileDetails>
 
   // Appeals

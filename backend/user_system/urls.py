@@ -144,6 +144,9 @@ urlpatterns = [
     # POST /users/<str:username_to_toggle_block>/block/ (Token in header)
     path('users/<str:username_to_toggle_block>/block/', views.toggle_block, name='toggle_block'),
 
+    # GET /users/blocked/ (Token in header)
+    path('users/blocked/', views.get_blocked_users, name='get_blocked_users'),
+
     # GET /users/<str:username>/profile/ (Token in header)
     path('users/<str:username>/profile/', views.get_profile_details, name='get_profile_details'),
 

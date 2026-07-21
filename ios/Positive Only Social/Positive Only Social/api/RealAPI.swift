@@ -625,6 +625,17 @@ final class RealAPI: Networking {
         )
     }
     
+    /// Gets every user the signed-in user has blocked.
+    func getBlockedUsers(sessionManagementToken: String) async throws -> Data {
+        // This is a GET request, no body, with auth.
+        // URL pattern: users/blocked/
+        return try await performRequest(
+            pathSegments: [GVOAppConstants.pathSegmentUsers, GVOAppConstants.pathSegmentBlocked],
+            method: .get,
+            authToken: sessionManagementToken
+        )
+    }
+
     /// Gets the profile details for a user
     func getProfileDetails(sessionManagementToken: String, username: String) async throws -> Data {
         // This is a GET request, no body, with auth. Username is in path.

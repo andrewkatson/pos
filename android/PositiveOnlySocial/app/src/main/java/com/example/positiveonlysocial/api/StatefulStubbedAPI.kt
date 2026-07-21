@@ -717,6 +717,15 @@ class StatefulStubbedAPI : PositiveOnlySocialAPI {
         }
     }
 
+    override suspend fun getBlockedUsers(token: String): Response<List<User>> {
+        val user = getAuthorizedUser(token) ?: return errorGeneric(401, "Unauthorized")
+        val blockedUsers = users
+            .filter { user.blocked.contains(it.id) }
+            .sortedBy { it.username }
+            .map { User(it.username, it.isVerified) }
+        return Response.success(blockedUsers)
+    }
+
     override suspend fun getProfileDetails(token: String, username: String): Response<ProfileDetailsResponse> {
         val user = getAuthorizedUser(token) // Can be null if public profile view? Python code required login.
         val target = users.find { it.username == username } ?: return errorGeneric(404, "User not found")

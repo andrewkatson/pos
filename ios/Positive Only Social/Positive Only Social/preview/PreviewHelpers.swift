@@ -297,6 +297,14 @@ struct MockedAPI: Networking {
         return try encode(users)
     }
     
+    func getBlockedUsers(sessionManagementToken: String) async throws -> Data {
+        let users = [
+            User(username: "blocked_user_1", identityIsVerified: true),
+            User(username: "blocked_user_2", identityIsVerified: false)
+        ]
+        return try encode(users)
+    }
+
     func getProfileDetails(sessionManagementToken: String, username: String) async throws -> Data {
         let profile = ProfileDetailsResponse(
             username: username,

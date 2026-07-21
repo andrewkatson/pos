@@ -51,6 +51,16 @@ and is independent of the ban type. A temporary ban lifts itself once
 job is needed. Escalation for ordinary users follows the ladder: warning
 (content hidden by reports) → temporary outright ban → permanent outright ban.
 
+## Blocking
+
+Users can block each other from a profile. Blocking is a toggle
+(`POST /users/<username>/block/`): blocking severs any follow relationship in
+both directions, hides each user's posts from the other's feeds, and stops the
+blocked user from finding the blocker in search (the blocker can still search
+for the blocked user). Every client has a "Blocked Users" page under Settings,
+backed by `GET /users/blocked/`, that lists everyone the signed-in user has
+blocked and lets them unblock (the same toggle endpoint).
+
 ## Email verification
 
 Registering does not prove you own the email address you signed up with, so

@@ -34,6 +34,7 @@ import Foundation
     static let pathSegmenSearch = "search"
     static let pathSegmentAppeals = "appeals"
     static let pathSegmentBlock = "block"
+    static let pathSegmentBlocked = "blocked"
     static let pathSegmentHidden = "hidden"
     static let pathSegmentMine = "mine"
     static let pathSegmentSubmit = "submit"

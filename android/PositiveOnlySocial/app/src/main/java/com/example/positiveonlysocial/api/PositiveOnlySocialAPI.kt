@@ -231,6 +231,11 @@ interface PositiveOnlySocialAPI {
         @Path("username") username: String
     ): Response<GenericResponse>
 
+    @GET("users/blocked/")
+    suspend fun getBlockedUsers(
+        @Header("Authorization") token: String
+    ): Response<List<User>>
+
     @GET("users/{username}/profile/")
     suspend fun getProfileDetails(
         @Header("Authorization") token: String,
