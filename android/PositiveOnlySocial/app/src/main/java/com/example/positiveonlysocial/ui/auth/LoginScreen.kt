@@ -318,13 +318,23 @@ fun LoginScreen(
 
                                     if (response.isSuccessful) {
                                         val body = response.body()
-                                        if (body?.twoFactorRequired == true && body.challengeToken != null) {
+                                        val challengeToken = body?.challengeToken
+                                        if (body?.twoFactorRequired == true && !challengeToken.isNullOrBlank()) {
                                             // Password accepted, but the account
                                             // needs its second factor. Start in
                                             // the default authenticator-code mode.
-                                            twoFactorChallengeToken = body.challengeToken
+                                            twoFactorChallengeToken = challengeToken
                                             twoFactorCode = ""
                                             useRecoveryCode = false
+                                        } else if (body?.twoFactorRequired == true) {
+                                            // 2FA was demanded but no usable
+                                            // challenge came back. Say so plainly
+                                            // instead of falling through to the
+                                            // session path, which would report a
+                                            // misleading "missing session token".
+                                            errorMessage =
+                                                "Two-factor authentication is required, but the server did not return a challenge. Please try again."
+                                            showingErrorAlert = true
                                         } else {
                                             completeLogin(
                                                 sessionToken = body?.sessionToken,
