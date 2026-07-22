@@ -2,6 +2,13 @@ import { useState, type ReactNode } from 'react'
 import { apiClient } from '../api/client'
 import type { FeedPost } from '../api/types'
 
+/** Anything can be thrown in JS, so never assume the caught value is an Error:
+ * reading `.message` off a string/null would lose the text or throw again. */
+function messageFrom(err: unknown, fallback: string): string {
+  if (err instanceof Error && err.message) return err.message
+  return fallback
+}
+
 /** Per-post state the user has changed locally since the list was fetched. */
 interface PostOverride {
   isLiked?: boolean
@@ -101,7 +108,7 @@ export function usePostActions({
     } catch (err) {
       // Revert to the pre-click values.
       setOverride(post.post_identifier, { isLiked, likeCount })
-      onError((err as Error).message ?? 'Action failed.')
+      onError(messageFrom(err, 'Action failed.'))
     }
   }
 
@@ -115,7 +122,7 @@ export function usePostActions({
       await apiClient.reportPost(post.post_identifier, reason)
       setOverride(post.post_identifier, { isReported: true, reportReason: reason })
     } catch (err) {
-      onError((err as Error).message ?? 'Failed to report.')
+      onError(messageFrom(err, 'Failed to report.'))
     }
   }
 
@@ -127,7 +134,7 @@ export function usePostActions({
       await apiClient.retractReportPost(post.post_identifier)
       setOverride(post.post_identifier, { isReported: false, reportReason: null })
     } catch (err) {
-      onError((err as Error).message ?? 'Failed to retract report.')
+      onError(messageFrom(err, 'Failed to retract report.'))
     }
   }
 
@@ -147,7 +154,7 @@ export function usePostActions({
       })
       onPostDeleted(post.post_identifier)
     } catch (err) {
-      onError((err as Error).message ?? 'Failed to delete.')
+      onError(messageFrom(err, 'Failed to delete.'))
     }
   }
 

@@ -19,12 +19,19 @@ vi.mock('../api/client', () => ({
       is_adult: true,
     }),
     searchUsers: vi.fn().mockResolvedValue([]),
-    getFeed: vi.fn().mockResolvedValue([]),
+    getFeed: vi.fn().mockResolvedValue([
+      { post_identifier: 'p1', image_url: 'http://img/1.jpg', author_username: 'ada', caption: 'mine' },
+    ]),
     getFollowedFeed: vi.fn().mockResolvedValue([]),
     logout: vi.fn().mockResolvedValue({ message: 'ok' }),
     deleteAccount: vi.fn().mockResolvedValue({ message: 'ok' }),
     verifyIdentity: vi.fn().mockResolvedValue({ message: 'ok' }),
     setToken: vi.fn(),
+    likePost: vi.fn(),
+    unlikePost: vi.fn(),
+    reportPost: vi.fn(),
+    retractReportPost: vi.fn(),
+    deletePost: vi.fn(),
   },
 }))
 
@@ -96,4 +103,19 @@ test('redirects to login when not authenticated', () => {
   mockIsAuthenticated.mockReturnValue(false)
   renderHome()
   expect(screen.getByText('Login page')).toBeInTheDocument()
+})
+
+test('tapping your own name in the feed switches back to the Profile tab', async () => {
+  // Regression guard for the whole path, not just FeedTab in isolation: the
+  // feed lives *inside* this shell at /home, so routing to /home has to select
+  // the Profile tab even though the pathname never changes. Local tab state
+  // couldn't do that — the tab is in the URL for exactly this reason (#347).
+  renderHome()
+
+  await userEvent.click(screen.getByRole('button', { name: /Feed/ }))
+  expect(screen.getByRole('heading', { name: 'Feed' })).toBeInTheDocument()
+
+  await userEvent.click(await screen.findByRole('button', { name: 'ada' }))
+
+  expect(await screen.findByRole('heading', { name: 'Your Profile' })).toBeInTheDocument()
 })
