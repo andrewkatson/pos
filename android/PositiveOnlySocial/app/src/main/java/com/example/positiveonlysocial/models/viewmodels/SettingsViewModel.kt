@@ -181,11 +181,12 @@ class SettingsViewModel(
                 val response = api.confirmTotp(userSession.sessionToken, ConfirmTotpRequest(code))
                 if (generation != totpSetupGeneration) return@launch
                 val codes = response.body()?.recoveryCodes
-                if (response.isSuccessful && codes != null) {
+                if (response.isSuccessful && !codes.isNullOrEmpty()) {
                     _recoveryCodes.value = codes
                 } else if (response.isSuccessful) {
                     // 2xx with a null/empty body: surface an error rather than
-                    // leaving the enrollment dialog stuck on the confirm step.
+                    // reporting success with no codes to save (or leaving the
+                    // enrollment dialog stuck on the confirm step).
                     _errorMessage.value = "Two-factor setup did not complete. Please try again."
                     _showingErrorAlert.value = true
                 } else {

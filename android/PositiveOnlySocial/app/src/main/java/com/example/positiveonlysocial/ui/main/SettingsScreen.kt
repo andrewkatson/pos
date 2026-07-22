@@ -21,6 +21,7 @@ import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.window.DialogProperties
 import com.example.positiveonlysocial.data.model.TotpSetupResponse
 import com.google.zxing.BarcodeFormat
 import com.google.zxing.qrcode.QRCodeWriter
@@ -483,9 +484,16 @@ private fun EnrollTwoFactorDialog(
     val isConfirmCodeValid = confirmCode.trim().length == 6 && confirmCode.trim().all { it.isDigit() }
 
     AlertDialog(
-        // A back press or tap-outside on the recovery-codes step means 2FA is
-        // already enabled, so finish (report enabled) rather than cancel;
-        // before codes are issued, dismissing abandons the pending enrollment.
+        // Recovery codes are shown exactly once and the backend can't re-issue
+        // them, so on that step the dialog can't be dismissed by a back press or
+        // a tap outside — the user has to choose Copy All / Done deliberately.
+        // Before codes exist, dismissing simply abandons the pending enrollment.
+        properties = DialogProperties(
+            dismissOnBackPress = recoveryCodes == null,
+            dismissOnClickOutside = recoveryCodes == null,
+        ),
+        // Defensive: if a dismissal ever does get through on the codes step, 2FA
+        // is already enabled server-side, so report it rather than cancelling.
         onDismissRequest = { if (recoveryCodes != null) onDone() else onCancel() },
         title = { Text("Enable Two-Factor Authentication") },
         text = {
