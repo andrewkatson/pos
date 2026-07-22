@@ -14,9 +14,8 @@ import kotlinx.coroutines.flow.asStateFlow
  * to a profile (the feed rows, the post detail screen, the search results) only
  * ever hold the *root* controller — and the post detail screen isn't even
  * composed at the same time as the bottom bar. So the request is parked here and
- * MainScreen consumes it, the same way [
- * com.example.positiveonlysocial.data.auth.AuthenticationManager.forcedLogout] is
- * consumed by the root nav graph.
+ * MainScreen consumes it, the same way the root nav graph consumes
+ * [com.example.positiveonlysocial.data.auth.AuthenticationManager.forcedLogout].
  */
 object ProfileTabNavigator {
 
