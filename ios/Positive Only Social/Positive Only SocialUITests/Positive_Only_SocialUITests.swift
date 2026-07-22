@@ -191,8 +191,13 @@ final class Positive_Only_SocialUITests: XCTestCase {
     }
     
     private func assertOnSettingsView(app: XCUIApplication) {
+        // Logout is near the top and always on screen, so it's the reliable
+        // marker that we're on Settings. Delete Account is deliberately not
+        // asserted here any more: Settings now runs past one screen (Blocked
+        // Users, Security) and SwiftUI's List only materializes rows near the
+        // viewport, so that row may not exist yet. It is asserted where it is
+        // used, after being scrolled into view.
         XCTAssertTrue(app.buttons["LogoutButton"].waitForExistence(timeout: TestConstants.shortTimeout), "Logout button not present")
-        XCTAssertTrue(app.buttons["DeleteAccountButton"].waitForExistence(timeout: TestConstants.shortTimeout), "Delete Account button not present")
     }
     
     private func assertOnProfileView(app: XCUIApplication) {
@@ -385,6 +390,19 @@ final class Positive_Only_SocialUITests: XCTestCase {
         assertOnWelcomeView(app: app)
     }
     
+    /// Scrolls a scrollable container until `element` is hittable.
+    ///
+    /// `waitForExistence` succeeds for rows that are in the accessibility tree
+    /// but scrolled out of view, and tapping those does nothing — so screens
+    /// taller than the device need this before interacting with a lower row.
+    private func scrollIntoView(app: XCUIApplication, element: XCUIElement, maxSwipes: Int = 5) {
+        var swipes = 0
+        while !element.isHittable && swipes < maxSwipes {
+            app.swipeUp()
+            swipes += 1
+        }
+    }
+
     private func deleteAccountFromHome(app: XCUIApplication) throws {
         let settingsTab = app.buttons["Settings"]
         XCTAssertTrue(settingsTab.waitForExistence(timeout: TestConstants.shortTimeout))
@@ -392,7 +410,12 @@ final class Positive_Only_SocialUITests: XCTestCase {
         
         assertOnSettingsView(app: app)
         
+        // Settings now runs past a single screen (Blocked Users, Security), and
+        // Delete Account is in the last section. SwiftUI's List only
+        // materializes rows near the viewport, so scroll first — the row may
+        // not exist (or be hittable) until then.
         let deleteAccountButton = app.buttons["DeleteAccountButton"]
+        scrollIntoView(app: app, element: deleteAccountButton)
         XCTAssertTrue(deleteAccountButton.waitForExistence(timeout: TestConstants.shortTimeout))
         deleteAccountButton.tap()
         
@@ -658,7 +681,12 @@ final class Positive_Only_SocialUITests: XCTestCase {
         
         assertOnSettingsView(app: app)
         
+        // Settings now runs past a single screen (Blocked Users, Security), and
+        // Delete Account is in the last section. SwiftUI's List only
+        // materializes rows near the viewport, so scroll first — the row may
+        // not exist (or be hittable) until then.
         let deleteAccountButton = app.buttons["DeleteAccountButton"]
+        scrollIntoView(app: app, element: deleteAccountButton)
         XCTAssertTrue(deleteAccountButton.waitForExistence(timeout: TestConstants.shortTimeout))
         deleteAccountButton.tap()
         
@@ -1253,7 +1281,10 @@ final class Positive_Only_SocialUITests: XCTestCase {
 
         assertOnSettingsView(app: app)
 
+        // The Security section is near the bottom of Settings, so scroll before
+        // asserting: the row may not be materialized until then.
         let enableButton = app.buttons["EnableTwoFactorButton"]
+        scrollIntoView(app: app, element: enableButton)
         XCTAssertTrue(enableButton.waitForExistence(timeout: TestConstants.shortTimeout), "Enable 2FA button should be present")
         enableButton.tap()
 
