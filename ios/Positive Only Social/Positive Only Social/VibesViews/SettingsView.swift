@@ -6,6 +6,7 @@
 //
 
 import SwiftUI
+import UIKit
 import CoreImage.CIFilterBuiltins
 import UniformTypeIdentifiers
 
@@ -182,7 +183,9 @@ struct SettingsView: View {
                     // request can succeed on the backend, and dismissing would
                     // drop the response along with the one-time recovery codes)
                     // and once those codes are on screen, since they're shown
-                    // exactly once and can't be re-issued. Cancel/Done remain.
+                    // exactly once and can't be re-issued. The Cancel button is
+                    // disabled for the same window; Done remains, since by then the
+                    // codes are already on screen.
                     .interactiveDismissDisabled(
                         viewModel.isConfirmingTotp || viewModel.recoveryCodes != nil
                     )
@@ -314,7 +317,11 @@ struct SettingsView: View {
                     viewModel.confirmTotp(password: twoFactorConfirmPassword,
                                           code: twoFactorConfirmCode.trimmingCharacters(in: .whitespaces))
                 }
-                .disabled(twoFactorConfirmPassword.isEmpty
+                // Also blocked while a confirm is in flight: a second tap would
+                // enqueue another enrollment whose response races the first, and
+                // the loser reports a spurious "already enabled" failure.
+                .disabled(viewModel.isConfirmingTotp
+                          || twoFactorConfirmPassword.isEmpty
                           || !(twoFactorConfirmCode.trimmingCharacters(in: .whitespaces).count == 6
                                && twoFactorConfirmCode.trimmingCharacters(in: .whitespaces).allSatisfy(\.isNumber)))
                 .padding()
@@ -325,6 +332,10 @@ struct SettingsView: View {
                 Button("Cancel") {
                     showingEnrollTwoFactor = false
                 }
+                // Same reason swipe-dismiss is blocked mid-confirm: enrollment may
+                // already have succeeded server-side, and tearing the sheet down
+                // discards the response carrying the only copy of the recovery codes.
+                .disabled(viewModel.isConfirmingTotp)
                 .foregroundColor(.red)
             } else if viewModel.twoFactorErrorMessage != nil {
                 // Setup failed before a secret arrived (the error is shown above);
