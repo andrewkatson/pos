@@ -7,6 +7,10 @@
 
 import SwiftUI
 import CoreImage.CIFilterBuiltins
+import UniformTypeIdentifiers
+
+/// How long copied recovery codes stay on the pasteboard before expiring.
+private let _recoveryCodeClipboardTTL: TimeInterval = 120
 
 struct SettingsView: View {
     // The AuthenticationManager is still needed to trigger the final UI change.
@@ -252,7 +256,16 @@ struct SettingsView: View {
                 }
                 .frame(maxHeight: 220)
                 Button("Copy All") {
-                    UIPasteboard.general.string = recoveryCodes.joined(separator: "\n")
+                    // Recovery codes are account keys, so keep them off other
+                    // devices' clipboards (Universal Clipboard) and let them
+                    // expire rather than sitting on the pasteboard indefinitely.
+                    UIPasteboard.general.setItems(
+                        [[UTType.plainText.identifier: recoveryCodes.joined(separator: "\n")]],
+                        options: [
+                            .localOnly: true,
+                            .expirationDate: Date().addingTimeInterval(_recoveryCodeClipboardTTL),
+                        ]
+                    )
                 }
                 .accessibilityIdentifier("CopyRecoveryCodesButton")
                 Button("Done") {

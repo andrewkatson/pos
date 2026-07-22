@@ -23,6 +23,10 @@ import Foundation
     static let bearer = "Bearer"
     static let decodingError = "Failed to decode the server response: "
     static let emailNotVerifiedError = "email_not_verified"
+    // Returned by login/2fa/ when the challenge is expired, used, or invalid.
+    // A stable code (like the two above) rather than prose, so the login screen
+    // can branch on it without depending on backend wording.
+    static let invalidTwoFactorChallengeError = "invalid_two_factor_challenge"
     static let emailNotVerifiedMessage = "Please verify your email address first — check your inbox for the verification link."
     static let encodingError = "Failed to encode the request body: "
     static let emptyString = ""

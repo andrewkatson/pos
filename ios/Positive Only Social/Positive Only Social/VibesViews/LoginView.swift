@@ -172,7 +172,7 @@ struct LoginView: View {
                 let loginDetails = try JSONDecoder().decode(LoginResponseFields.self, from: responseData)
                 try completeLogin(with: loginDetails)
             } catch let error as APIError {
-                if case .serverError(_, let message) = error, message == "Invalid or expired challenge" {
+                if case .serverError(_, let message) = error, message == GVOAppConstants.invalidTwoFactorChallengeError {
                     // The challenge timed out (or was invalidated): start over
                     // from the default authenticator-code entry.
                     twoFactorChallengeToken = nil

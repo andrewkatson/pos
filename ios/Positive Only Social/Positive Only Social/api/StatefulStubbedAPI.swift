@@ -292,7 +292,7 @@ final class StatefulStubbedAPI: Networking {
         guard let challengeIndex = twoFactorChallenges.firstIndex(where: { $0.challengeToken == challengeToken }),
               let userIndex = users.firstIndex(where: { $0.id == twoFactorChallenges[challengeIndex].userId })
         else {
-            throw APIError.serverError(statusCode: 400, serverMessage: "Invalid or expired challenge")
+            throw APIError.serverError(statusCode: 400, serverMessage: GVOAppConstants.invalidTwoFactorChallengeError)
         }
         let challenge = twoFactorChallenges[challengeIndex]
 
