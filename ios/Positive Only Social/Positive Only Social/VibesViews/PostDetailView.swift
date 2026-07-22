@@ -19,7 +19,11 @@ struct PostDetailView: View {
     // so the row's long-press (report/delete menu) and double-tap (like)
     // gestures aren't swallowed by a Button in the row.
     @State private var profileUser: User? = nil
-    
+
+    // Selects the Profile tab when the tapped name is the signed-in user's own,
+    // instead of pushing a second copy of their profile (issue #347).
+    @Environment(\.selectTab) private var selectTab
+
     // Public init
     init(postIdentifier: String, api: Networking, keychainHelper: KeychainHelperProtocol) {
         _viewModel = StateObject(wrappedValue: PostDetailViewModel(postIdentifier: postIdentifier, api: api, keychainHelper: keychainHelper))
@@ -100,12 +104,15 @@ struct PostDetailView: View {
                         HStack(alignment: .firstTextBaseline, spacing: 4) {
                             // Tap the author's name to open their profile, same
                             // as in the feed. The User destination is registered
-                            // on the parent NavigationStack.
-                            NavigationLink(value: User(username: post.authorUsername, identityIsVerified: false)) {
+                            // on the parent NavigationStack; your own name goes
+                            // to the Profile tab instead (issue #347).
+                            AuthorNameLink(
+                                username: post.authorUsername,
+                                isCurrentUser: viewModel.isOwnPost
+                            ) {
                                 Text(post.authorUsername)
                                     .fontWeight(.bold)
                             }
-                            .buttonStyle(.plain) // Keeps the text style
                             .accessibilityIdentifier("PostAuthor")
                             Text(post.caption)
                         }
@@ -149,7 +156,13 @@ struct PostDetailView: View {
                     LazyVStack(spacing: 16) {
                         ForEach(viewModel.commentThreads) { thread in
                             CommentThreadView(thread: thread, onAuthorTap: { username in
-                                profileUser = User(username: username, identityIsVerified: false)
+                                // Your own name lands on the Profile tab rather
+                                // than pushing your profile again (issue #347).
+                                if username == viewModel.currentUsername {
+                                    selectTab(GVOAppConstants.profileTabIndex)
+                                } else {
+                                    profileUser = User(username: username, identityIsVerified: false)
+                                }
                             })
                            
                             .padding(.horizontal)

@@ -2,7 +2,7 @@ package com.example.positiveonlysocial.ui.main
 
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Home
+import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.List
 import androidx.compose.material.icons.filled.AddBox
 import androidx.compose.material.icons.filled.Settings
@@ -18,6 +18,7 @@ import com.example.positiveonlysocial.data.auth.AuthenticationManager
 import com.example.positiveonlysocial.data.security.KeychainHelperProtocol
 import androidx.compose.ui.tooling.preview.Preview
 import com.example.positiveonlysocial.ui.preview.PreviewHelpers
+import com.example.positiveonlysocial.ui.navigation.ProfileTabNavigator
 import com.example.positiveonlysocial.ui.navigation.Screen
 import com.example.positiveonlysocial.ui.theme.PositiveOnlySocialTheme
 
@@ -29,16 +30,30 @@ fun MainScreen(
     authManager: AuthenticationManager
 ) {
     val bottomNavController = rememberNavController()
-    
+
+    // Tapping your own username anywhere in the app selects the Profile tab
+    // rather than pushing a second copy of your profile onto the root stack
+    // (issue #347). The request is parked in ProfileTabNavigator because the
+    // requesting screen may not even be composed alongside the bottom bar.
+    val openOwnProfileRequested by ProfileTabNavigator.openOwnProfileRequested.collectAsState()
+    LaunchedEffect(openOwnProfileRequested) {
+        if (openOwnProfileRequested) {
+            ProfileTabNavigator.clearRequest()
+            bottomNavController.navigate(Screen.Home.route) { launchSingleTop = true }
+        }
+    }
+
     PositiveOnlySocialTheme {
         Scaffold(
             bottomBar = {
                 NavigationBar {
                     val currentRoute = bottomNavController.currentBackStackEntryAsState().value?.destination?.route
                     
+                    // The first destination is the signed-in user's own profile,
+                    // so it's always one tap away (issue #347).
                     NavigationBarItem(
-                        icon = { Icon(Icons.Default.Home, contentDescription = "Home") },
-                        label = { Text("Home") },
+                        icon = { Icon(Icons.Default.Person, contentDescription = "Profile") },
+                        label = { Text("Profile") },
                         selected = currentRoute == Screen.Home.route,
                         onClick = { bottomNavController.navigate(Screen.Home.route) }
                     )

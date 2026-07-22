@@ -38,7 +38,7 @@ import com.example.positiveonlysocial.data.model.CommentViewData
 import com.example.positiveonlysocial.data.security.KeychainHelperProtocol
 import com.example.positiveonlysocial.models.viewmodels.PostDetailViewModel
 import com.example.positiveonlysocial.models.viewmodels.PostDetailViewModelFactory
-import com.example.positiveonlysocial.ui.navigation.Screen
+import com.example.positiveonlysocial.ui.navigation.openProfileFor
 import com.example.positiveonlysocial.util.RelativeTime
 import com.example.positiveonlysocial.util.parseBackendDate
 import androidx.compose.runtime.collectAsState
@@ -290,7 +290,9 @@ fun PostDetailScreen(
                                     fontWeight = FontWeight.Bold,
                                     style = MaterialTheme.typography.bodyMedium,
                                     modifier = Modifier.clickable {
-                                        navController.navigate(Screen.Profile.createRoute(post.authorUsername))
+                                        // Your own name goes back to the Profile
+                                        // bottom-nav destination (issue #347).
+                                        navController.openProfileFor(post.authorUsername, currentUsername)
                                     }
                                 )
                                 Spacer(modifier = Modifier.width(4.dp))
@@ -338,7 +340,7 @@ fun PostDetailScreen(
                         viewModel = viewModel,
                         currentUsername = currentUsername,
                         onAuthorClick = { username ->
-                            navController.navigate(Screen.Profile.createRoute(username))
+                            navController.openProfileFor(username, currentUsername)
                         }
                     )
                 }

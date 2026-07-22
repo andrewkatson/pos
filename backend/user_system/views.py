@@ -40,8 +40,8 @@ from .constants import Patterns, Params, POST_BATCH_SIZE, MAX_BEFORE_HIDING_POST
     LEN_RECOVERY_CODE_HEX, TOTP_ISSUER, INVALID_TWO_FACTOR_CHALLENGE
 from .feed_algorithm import feed_algorithm
 from .input_validator import is_valid_pattern
-from .models import LoginCookie, Session, Post, CommentThread, PositiveOnlySocialUser, Comment, CommentLike, UserBlock, \
-    UserBan, KnownDevice, Appeal, TwoFactorChallenge, RecoveryCode
+from .models import LoginCookie, Session, Post, CommentThread, PositiveOnlySocialUser, Comment, CommentLike, \
+    PostLike, UserBlock, UserBan, KnownDevice, Appeal, TwoFactorChallenge, RecoveryCode
 from .utils import convert_to_bool, generate_login_cookie_token, generate_management_token, generate_series_identifier, \
     get_batch, get_queryset_batch, get_compressed_image_url
 from .s3 import delete_image, generate_presigned_upload, image_url_to_key
@@ -1754,6 +1754,70 @@ def get_post_status(request, post_identifier):
 # FEED / POST RETRIEVAL VIEWS
 # =============================================================================
 
+def build_post_interaction_state(user, posts):
+    """Bulk-load the per-post detail a client needs to render and act on a batch.
+
+    The listing endpoints below return rows the user can like, report, retract a
+    report on, or delete in place (issue #267), and which show the author, the
+    post time and a comment count (issue #249). So each row carries the same
+    interaction state the post-details endpoint returns, plus a comment count.
+    Everything is fetched in four grouped queries rather than per post,
+    mirroring get_comments_for_thread.
+
+    Returns a callable taking a Post and returning the dict of state fields to
+    merge into that post's payload.
+    """
+    liked_post_ids = set()
+    my_report_reasons = {}
+    like_counts = {}
+    comment_counts = {}
+
+    # Paginating past the end is ordinary client behaviour, and the batch is
+    # then empty. Every grouped query below would return nothing, so skip them
+    # rather than spend four round trips confirming it.
+    if posts:
+        liked_post_ids = set(
+            user.postlike_set
+            .filter(post__in=posts)
+            .values_list('post_id', flat=True)
+        )
+        # The caller's own report reason per post, so clients can offer "retract
+        # report" with the original reason pre-filled instead of "report".
+        my_report_reasons = dict(
+            user.postreport_set
+            .filter(post__in=posts)
+            .values_list('post_id', 'reason')
+        )
+        like_counts = dict(
+            PostLike.objects
+            .filter(post__in=posts)
+            .values('post_id')
+            .annotate(count=Count('post_id'))
+            .values_list('post_id', 'count')
+        )
+        # Comment counts respect the same visibility rule as the thread listing,
+        # so a row never advertises comments the viewer would not be shown (#249).
+        comment_counts = dict(
+            visible_comments(Comment.objects.filter(comment_thread__post__in=posts), user)
+            .values('comment_thread__post_id')
+            .annotate(count=Count('comment_identifier'))
+            .values_list('comment_thread__post_id', 'count')
+        )
+
+    def state_for(post):
+        return {
+            Fields.post_likes: like_counts.get(post.post_identifier, 0),
+            Fields.is_liked: post.post_identifier in liked_post_ids,
+            Fields.is_reported: post.post_identifier in my_report_reasons,
+            Fields.report_reason: my_report_reasons.get(post.post_identifier),
+            Fields.comment_count: comment_counts.get(post.post_identifier, 0),
+            # Drives the "3 hours ago" label under each post (#249).
+            Fields.creation_time: post.creation_time,
+        }
+
+    return state_for
+
+
 @api_login_required
 @ratelimit(key='user', rate='60/m', block=True)
 @require_GET
@@ -1773,7 +1837,8 @@ def get_posts_in_feed(request, batch):
     relevant_posts = visible_posts(relevant_posts, request.user)
 
     if relevant_posts.count() > 0:
-        batched_posts = get_batch(batch, POST_BATCH_SIZE, relevant_posts)
+        batched_posts = get_queryset_batch(relevant_posts, batch, POST_BATCH_SIZE)
+        interaction_state = build_post_interaction_state(request.user, batched_posts)
         posts_data = [
             {
                 Fields.post_identifier: post.post_identifier,
@@ -1783,6 +1848,7 @@ def get_posts_in_feed(request, batch):
                 Fields.original_image_url: post.image_url,
                 Fields.author_username: post.author.username,
                 Fields.caption: post.caption,
+                **interaction_state(post),
                 # Authors see their own pending/hidden posts in feeds, so their
                 # payloads carry the classification state for the client to
                 # render (review-in-progress placeholder, appeal CTA, ...).
@@ -1817,7 +1883,8 @@ def get_posts_for_followed_users(request, batch):
     posts_queryset = visible_posts(
         Post.objects.filter(author__in=followed_users), request.user
     ).order_by('-creation_time')
-    posts_batch = get_batch(batch, POST_BATCH_SIZE, posts_queryset)
+    posts_batch = get_queryset_batch(posts_queryset, batch, POST_BATCH_SIZE)
+    interaction_state = build_post_interaction_state(request.user, posts_batch)
 
     posts_data = [
         {
@@ -1828,6 +1895,7 @@ def get_posts_for_followed_users(request, batch):
             Fields.original_image_url: post.image_url,
             Fields.author_username: post.author.username,
             Fields.caption: post.caption,
+            **interaction_state(post),
             **_author_status_fields(post, request.user),
         }
         for post in posts_batch
@@ -1862,7 +1930,8 @@ def get_posts_for_user(request, username, batch):
     )
 
     if relevant_posts.count() > 0:
-        batched_posts = get_batch(batch, POST_BATCH_SIZE, relevant_posts)
+        batched_posts = get_queryset_batch(relevant_posts, batch, POST_BATCH_SIZE)
+        interaction_state = build_post_interaction_state(request.user, batched_posts)
         posts_data = [
             {
                 Fields.post_identifier: post.post_identifier,
@@ -1876,6 +1945,7 @@ def get_posts_for_user(request, username, batch):
                 Fields.original_image_url: post.image_url,
                 Fields.caption: post.caption,
                 Fields.author_username: target_user.username,
+                **interaction_state(post),
                 # The author's own profile grid includes pending/hidden posts;
                 # these fields let the client render their state.
                 **_author_status_fields(post, request.user),

@@ -10,11 +10,14 @@ import kotlinx.coroutines.flow.asSharedFlow
  * (and ViewModel) boundaries — the Android analogue of the iOS `.postDeleted`
  * NotificationCenter notification.
  *
- * The Home grid's [com.example.positiveonlysocial.models.viewmodels.HomeViewModel]
- * lives in a different nav back-stack entry than the post detail screen, so a
- * delete performed in the detail screen can't otherwise reach the grid's cached
- * list. Without this, the deleted post's now-missing image lingers as an empty
- * black tile until the user logs out. See issue #256.
+ * The feeds and the profile grids live in different nav back-stack entries than
+ * the post detail screen, so a delete performed on one of them can't otherwise
+ * reach the others' cached lists. Without this, the deleted post's now-missing
+ * image lingers as an empty black tile until the user logs out. See issue #256.
+ *
+ * Every list picks these up through
+ * [com.example.positiveonlysocial.models.viewmodels.PostListActions], which also
+ * publishes here when a post is deleted from a list (issue #267).
  */
 object PostEvents {
     // extraBufferCapacity lets tryEmit succeed without a collector suspending the

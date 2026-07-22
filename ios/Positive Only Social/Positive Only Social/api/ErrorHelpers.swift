@@ -23,6 +23,11 @@ extension Notification.Name {
     /// post's now-missing image lingers as an empty grey tile until the user
     /// logs out. See issue #256.
     static let postDeleted = Notification.Name("postDeleted")
+
+    /// Posted after a new post is successfully created. The signed-in user's own
+    /// profile grid listens for this so the new post shows up there immediately,
+    /// without waiting for a manual pull-to-refresh (issue #347).
+    static let postCreated = Notification.Name("postCreated")
 }
 
 extension Error {

@@ -184,7 +184,7 @@ final class Positive_Only_SocialUITests: XCTestCase {
     }
 
     private func assertOnHomeView(app: XCUIApplication) {
-        XCTAssertTrue(app.buttons["Home"].waitForExistence(timeout: TestConstants.shortTimeout), "Home tab not present")
+        XCTAssertTrue(app.buttons["Profile"].waitForExistence(timeout: TestConstants.shortTimeout), "Profile tab not present")
         XCTAssertTrue(app.buttons["Feed"].waitForExistence(timeout: TestConstants.shortTimeout), "Feed tab not present")
         XCTAssertTrue(app.buttons["Post"].waitForExistence(timeout: TestConstants.shortTimeout), "New post tab not present")
         XCTAssertTrue(app.buttons["Settings"].waitForExistence(timeout: TestConstants.shortTimeout), "Settings tab not present")
@@ -218,7 +218,7 @@ final class Positive_Only_SocialUITests: XCTestCase {
     }
     
     private func ifOnHomeDeleteAccount(app: XCUIApplication) throws {
-        if (app.buttons["Home"].exists) {
+        if (app.buttons["Profile"].exists) {
             try deleteAccountFromHome(app: app)
         }
     }
@@ -873,7 +873,7 @@ final class Positive_Only_SocialUITests: XCTestCase {
         XCTAssertTrue(backButton.waitForExistence(timeout: TestConstants.shortTimeout))
         backButton.tap()
         
-        let homeButton = app.buttons["Home"]
+        let homeButton = app.buttons["Profile"]
         if homeButton.exists {
             XCTAssertTrue(homeButton.waitForExistence(timeout: TestConstants.shortTimeout))
             homeButton.tap()
@@ -1000,7 +1000,7 @@ final class Positive_Only_SocialUITests: XCTestCase {
         waitForExpectations(timeout: TestConstants.shortTimeout, handler: nil)
         XCTAssertEqual(allPostsQuery4.count, 1)
         
-        let homeButton = app.buttons["Home"]
+        let homeButton = app.buttons["Profile"]
         if homeButton.exists {
             XCTAssertTrue(homeButton.waitForExistence(timeout: TestConstants.shortTimeout))
             homeButton.tap()
@@ -1069,7 +1069,7 @@ final class Positive_Only_SocialUITests: XCTestCase {
         XCTAssertTrue(backButton.waitForExistence(timeout: TestConstants.shortTimeout))
         backButton.tap()
 
-        let homeButton = app.buttons["Home"]
+        let homeButton = app.buttons["Profile"]
         if homeButton.exists {
             XCTAssertTrue(homeButton.waitForExistence(timeout: TestConstants.shortTimeout))
             homeButton.tap()
@@ -1231,7 +1231,7 @@ final class Positive_Only_SocialUITests: XCTestCase {
         // Verify Identity submit button should be gone. This is a proxy for the dialog being gone.
         XCTAssertFalse(submitVerificationButton.exists, "Verify Identity submit button should disappear after verification")
         
-        let homeButton = app.buttons["Home"]
+        let homeButton = app.buttons["Profile"]
         if homeButton.exists {
             XCTAssertTrue(homeButton.waitForExistence(timeout: TestConstants.shortTimeout))
             homeButton.tap()
@@ -1261,7 +1261,7 @@ final class Positive_Only_SocialUITests: XCTestCase {
         
         assertOnFeedView(app: app)
         
-        let homeButton = app.buttons["Home"]
+        let homeButton = app.buttons["Profile"]
         XCTAssertTrue(homeButton.waitForExistence(timeout: TestConstants.shortTimeout))
         homeButton.tap()
         
@@ -1275,7 +1275,7 @@ final class Positive_Only_SocialUITests: XCTestCase {
         
         assertOnFeedView(app: app)
         
-        let homeButton2 = app.buttons["Home"]
+        let homeButton2 = app.buttons["Profile"]
         XCTAssertTrue(homeButton2.waitForExistence(timeout: TestConstants.shortTimeout))
         homeButton2.tap()
         
@@ -1365,7 +1365,7 @@ final class Positive_Only_SocialUITests: XCTestCase {
         XCTAssertTrue(backButton.waitForExistence(timeout: TestConstants.shortTimeout))
         backButton.tap()
         
-        let homeButton3 = app.buttons["Home"]
+        let homeButton3 = app.buttons["Profile"]
         if homeButton3.exists {
             XCTAssertTrue(homeButton3.waitForExistence(timeout: TestConstants.shortTimeout))
             homeButton3.tap()
@@ -1395,7 +1395,7 @@ final class Positive_Only_SocialUITests: XCTestCase {
         
         assertOnFeedView(app: app)
         
-        let homeButton = app.buttons["Home"]
+        let homeButton = app.buttons["Profile"]
         XCTAssertTrue(homeButton.waitForExistence(timeout: TestConstants.shortTimeout))
         homeButton.tap()
         
@@ -1453,7 +1453,7 @@ final class Positive_Only_SocialUITests: XCTestCase {
         XCTAssertTrue(backButton2.waitForExistence(timeout: TestConstants.shortTimeout))
         backButton2.tap()
         
-        let homeButton2 = app.buttons["Home"]
+        let homeButton2 = app.buttons["Profile"]
         if homeButton2.exists {
             XCTAssertTrue(homeButton2.waitForExistence(timeout: TestConstants.shortTimeout))
             homeButton2.tap()
@@ -1538,7 +1538,7 @@ final class Positive_Only_SocialUITests: XCTestCase {
         XCTAssertTrue(backButton.waitForExistence(timeout: TestConstants.shortTimeout))
         backButton.tap()
 
-        let homeButton = app.buttons["Home"]
+        let homeButton = app.buttons["Profile"]
         if homeButton.exists {
             homeButton.tap()
         }
@@ -1567,7 +1567,7 @@ final class Positive_Only_SocialUITests: XCTestCase {
         
         assertOnFeedView(app: app)
         
-        let homeButton = app.buttons["Home"]
+        let homeButton = app.buttons["Profile"]
         XCTAssertTrue(homeButton.waitForExistence(timeout: TestConstants.shortTimeout))
         homeButton.tap()
         
@@ -1658,7 +1658,7 @@ final class Positive_Only_SocialUITests: XCTestCase {
         XCTAssertTrue(backButton3.waitForExistence(timeout: TestConstants.shortTimeout))
         backButton3.tap()
         
-        let homeButton2 = app.buttons["Home"]
+        let homeButton2 = app.buttons["Profile"]
         if homeButton2.exists {
             XCTAssertTrue(homeButton2.waitForExistence(timeout: TestConstants.shortTimeout))
             homeButton2.tap()
@@ -1730,7 +1730,7 @@ final class Positive_Only_SocialUITests: XCTestCase {
         XCTAssertTrue(backButton.waitForExistence(timeout: TestConstants.shortTimeout))
         backButton.tap()
         
-        let homeButton = app.buttons["Home"]
+        let homeButton = app.buttons["Profile"]
         if homeButton.exists {
             XCTAssertTrue(homeButton.waitForExistence(timeout: TestConstants.shortTimeout))
             homeButton.tap()

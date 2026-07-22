@@ -28,26 +28,91 @@ class ProfileViewModel: ObservableObject {
     private let account: String
     private let keychainService = GVOAppConstants.keychainService
 
+    // Reconciling async post classification (issue #282): a short bounded poll
+    // runs while any of the *viewer's own* posts is pending, then stops; the
+    // ordinary mount/pull-to-refresh reload is the backstop after that. A
+    // rejection surfaces once through `reviewNotice`.
+    //
+    // This lives here rather than in HomeViewModel because the Profile tab's
+    // grid is this view model's (issue #347). Only your own posts ever carry a
+    // status, so a profile that isn't yours simply never has anything to poll.
+    @Published var reviewNotice: String?
+    private var statusPollTask: Task<Void, Never>?
+    private var statusPollAttempts = 0
+    /// ~30s of checks, 3s apart. Internal so tests can shorten the interval.
+    var statusPollIntervalSeconds: TimeInterval = 3
+    private let statusPollMaxAttempts = 10
+    /// At most this many pending posts are polled per round, keeping the
+    /// worst case (3 posts every 3s = 60 requests/min) inside the status
+    /// endpoint's 120/m per-user rate limit; older pending posts reconcile
+    /// on refresh.
+    private let statusPollMaxPosts = 3
+
     let user: User // The user this profile is for
     // The logged-in user's username, loaded once at init for own-profile detection.
     private let currentLoggedInUsername: String?
 
+    // Listens for `.postDeleted` so a post deleted from this grid (or from its
+    // detail view) also disappears here, without reloading the whole list.
+    private var postDeletedCancellable: AnyCancellable?
+    // Listens for `.postCreated` so a brand new post shows up on the signed-in
+    // user's own profile grid right away (issue #347).
+    private var postCreatedCancellable: AnyCancellable?
+
+    /// Whether this profile belongs to the signed-in user, which hides Follow /
+    /// Block and enables the classification poll.
+    ///
+    /// A missing session must never count as "own": `forCurrentUser` builds a
+    /// `User(username: "")` when it can't load one, and an empty-to-empty
+    /// comparison would otherwise silently claim an unknown profile as yours.
     var isOwnProfile: Bool {
-        user.username == (currentLoggedInUsername ?? "")
+        guard let currentLoggedInUsername, !currentLoggedInUsername.isEmpty else { return false }
+        return user.username == currentLoggedInUsername
     }
 
     convenience init(user: User, api: Networking, keychainHelper: KeychainHelperProtocol) {
         self.init(user: user, api: api, keychainHelper: keychainHelper, account: "userSessionToken")
     }
 
-    init(user: User, api: Networking, keychainHelper: KeychainHelperProtocol, account: String) {
+    /// Builds the view model for the signed-in user's own profile — the Profile
+    /// tab shows the same profile the rest of the app pushes for other users
+    /// (issue #347), so it needs the username from the stored session.
+    static func forCurrentUser(api: Networking,
+                               keychainHelper: KeychainHelperProtocol,
+                               account: String = "userSessionToken") -> ProfileViewModel {
+        let session = try? keychainHelper.load(UserSession.self, from: GVOAppConstants.keychainService, account: account)
+        let user = User(username: session?.username ?? "", identityIsVerified: session?.isIdentityVerified ?? false)
+        return ProfileViewModel(user: user, api: api, keychainHelper: keychainHelper, account: account)
+    }
+
+    init(user: User, api: Networking, keychainHelper: KeychainHelperProtocol, account: String,
+         notificationCenter: NotificationCenter = .default) {
         self.user = user
         self.api = api
         self.keychainHelper = keychainHelper
         self.account = account
         self.currentLoggedInUsername = try? keychainHelper.load(UserSession.self, from: GVOAppConstants.keychainService, account: account)?.username
+
+        // Drop a deleted post from the grid rather than reloading it — the list
+        // the user is looking at shouldn't reshuffle because of one deletion.
+        postDeletedCancellable = notificationCenter.publisher(for: .postDeleted)
+            .receive(on: RunLoop.main)
+            .sink { [weak self] notification in
+                guard let postIdentifier = notification.object as? String else { return }
+                self?.userPosts.removeAll { $0.id == postIdentifier }
+            }
+
+        // A newly created post only ever belongs on the author's own profile.
+        postCreatedCancellable = notificationCenter.publisher(for: .postCreated)
+            .receive(on: RunLoop.main)
+            .sink { [weak self] _ in
+                Task { @MainActor in
+                    guard let self, self.isOwnProfile else { return }
+                    await self.refreshUserPosts()
+                }
+            }
     }
-    
+
     /// Fetches the next batch of posts for the current user.
     func fetchUserPosts() {
         // Don't fetch if we're already loading or if we've reached the end
@@ -79,6 +144,7 @@ class ProfileViewModel: ObservableObject {
                     userPosts.append(contentsOf: newPosts)
                     batch += 1
                 }
+                startStatusPollIfNeeded()
             } catch {
                 NSLog("%@", "Error fetching user posts for \(user.username): \(error)")
                 // Optionally set an @Published error property to show an alert
@@ -116,8 +182,63 @@ class ProfileViewModel: ObservableObject {
             self.userPosts = newPosts
             self.canLoadMore = !newPosts.isEmpty
             self.batch = newPosts.isEmpty ? 0 : 1
+            // A fresh first page grants a fresh reconcile-poll budget (#282).
+            self.statusPollAttempts = 0
+            startStatusPollIfNeeded()
         } catch {
             NSLog("%@", "Error refreshing user posts for \(user.username): \(error)")
+        }
+    }
+
+    // MARK: - Async Classification Reconciliation (issue #282)
+
+    /// Starts (or continues) the short bounded status poll when any of the
+    /// viewer's own posts is still pending classification. No-op when nothing
+    /// is pending, a poll is already running, or the budget is spent.
+    private func startStatusPollIfNeeded() {
+        // The grid is newest-first, so this polls the most recent pending posts.
+        let pendingIds = userPosts.filter { $0.status == "pending" }.prefix(statusPollMaxPosts).map { $0.id }
+        guard !pendingIds.isEmpty,
+              statusPollTask == nil,
+              statusPollAttempts < statusPollMaxAttempts else { return }
+
+        // The interval is read up front and self is only strong-captured after
+        // the sleep: holding self across the wait would keep the view model —
+        // and its polling — alive after the profile has been dismissed.
+        statusPollTask = Task { [weak self, interval = statusPollIntervalSeconds] in
+            try? await Task.sleep(for: .seconds(interval))
+            guard !Task.isCancelled, let self else { return }
+            // Clear before polling so the poll round itself can re-arm the
+            // next round (directly or via the reload it triggers).
+            self.statusPollTask = nil
+            self.statusPollAttempts += 1
+            await self.pollPendingStatuses(pendingIds)
+        }
+    }
+
+    /// One poll round: check each pending post's status. When any has
+    /// resolved, reload the grid (approved posts lose their badge; final
+    /// rejections drop out) and surface a rejection notice; otherwise re-arm
+    /// the timer within the budget.
+    private func pollPendingStatuses(_ pendingIds: [String]) async {
+        guard let user = try? keychainHelper.load(UserSession.self, from: keychainService, account: account) else { return }
+
+        var anyResolved = false
+        for postId in pendingIds {
+            guard let data = try? await api.getPostStatus(sessionManagementToken: user.sessionToken, postIdentifier: postId),
+                  let status = try? JSONDecoder().decode(PostStatusResponse.self, from: data) else { continue }
+            if status.status != "pending" {
+                anyResolved = true
+                if status.status == "rejected" || status.status == "rejected_final" {
+                    reviewNotice = status.message ?? "One of your recent posts did not pass automated review."
+                }
+            }
+        }
+
+        if anyResolved {
+            await refreshUserPosts()
+        } else {
+            startStatusPollIfNeeded()
         }
     }
 

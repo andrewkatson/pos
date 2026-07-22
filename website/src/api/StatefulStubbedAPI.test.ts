@@ -327,7 +327,7 @@ test('rejects an invalid appeal target type', async () => {
 
 async function enableTwoFactor(api: StatefulStubbedAPI) {
   await api.setupTotp()
-  return api.confirmTotp({ totp_code: STUB_TOTP_CODE })
+  return api.confirmTotp({ password: 'password123', totp_code: STUB_TOTP_CODE })
 }
 
 test('totp setup returns a secret and provisioning uri', async () => {
@@ -355,9 +355,9 @@ test('confirming with a wrong code fails and 2fa stays off', async () => {
   await register(api, 'ada')
   await api.setupTotp()
 
-  await expect(api.confirmTotp({ totp_code: '000000' })).rejects.toThrow(
-    'Invalid two-factor code',
-  )
+  await expect(
+    api.confirmTotp({ password: 'password123', totp_code: '000000' }),
+  ).rejects.toThrow('Invalid two-factor code')
 
   // Login still single-step.
   const login = await api.login({ username_or_email: 'ada', password: 'password123' })

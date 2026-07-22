@@ -69,6 +69,7 @@ dependencies {
     implementation(libs.kotlinx.coroutines.core)
     implementation(libs.androidx.navigation.compose)
     implementation(libs.io.coil.compose)
+    implementation(libs.zxing.core)
     implementation(libs.androidx.material.icons.extended)
     testImplementation(libs.junit)
     testImplementation(libs.mockito.core)

@@ -14,10 +14,6 @@ struct NewPostView: View {
     // Create an instance of the S3Uploader
     private let s3Uploader = S3Uploader()
 
-    // Shared with the rest of HomeView so a new post shows up in the Home grid
-    // in real time (without waiting for a manual pull-to-refresh).
-    @EnvironmentObject private var homeViewModel: HomeViewModel
-    
     @State private var selectedItem: PhotosPickerItem?
     @State private var selectedImageData: Data?
     @State private var caption = ""
@@ -183,8 +179,9 @@ struct NewPostView: View {
                     caption: caption
                 )
 
-                // Reload the Home grid so the new post appears there immediately.
-                await homeViewModel.refreshMyPosts()
+                // Reload the Profile tab's grid so the new post appears there
+                // immediately, without waiting for a manual pull-to-refresh.
+                NotificationCenter.default.post(name: .postCreated, object: nil)
 
                 // Classification is asynchronous (issue #282): the backend
                 // accepts the post in a pending state and reviews it in the
@@ -222,5 +219,4 @@ struct NewPostView: View {
 
 #Preview {
     NewPostView(api: PreviewHelpers.api, keychainHelper: PreviewHelpers.keychainHelper, tabSelection: .constant(2))
-        .environmentObject(HomeViewModel(api: PreviewHelpers.api, keychainHelper: PreviewHelpers.keychainHelper))
 }
