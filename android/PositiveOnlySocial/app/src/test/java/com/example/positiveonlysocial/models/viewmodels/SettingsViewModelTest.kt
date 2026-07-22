@@ -129,23 +129,23 @@ class SettingsViewModelTest {
     @Test
     fun `confirmTotp success exposes recovery codes`() = runTest {
         val codes = (0 until 10).map { "code$it" }
-        whenever(api.confirmTotp("token123", ConfirmTotpRequest("123456"))).thenReturn(
+        whenever(api.confirmTotp("token123", ConfirmTotpRequest("pw12345", "123456"))).thenReturn(
             Response.success(ConfirmTotpResponse(totpEnabled = true, recoveryCodes = codes))
         )
 
-        viewModel.confirmTotp("123456")
+        viewModel.confirmTotp("pw12345", "123456")
 
-        verify(api).confirmTotp("token123", ConfirmTotpRequest("123456"))
+        verify(api).confirmTotp("token123", ConfirmTotpRequest("pw12345", "123456"))
         assertEquals(10, viewModel.recoveryCodes.value?.size)
     }
 
     @Test
     fun `confirmTotp failure surfaces error and no codes`() = runTest {
-        whenever(api.confirmTotp("token123", ConfirmTotpRequest("000000"))).thenReturn(
+        whenever(api.confirmTotp("token123", ConfirmTotpRequest("pw12345", "000000"))).thenReturn(
             Response.error(400, "{\"error\":\"Invalid two-factor code\"}".toResponseBody())
         )
 
-        viewModel.confirmTotp("000000")
+        viewModel.confirmTotp("pw12345", "000000")
 
         assertNull(viewModel.recoveryCodes.value)
         assertTrue(viewModel.showingErrorAlert.value)
@@ -156,13 +156,13 @@ class SettingsViewModelTest {
         whenever(api.setupTotp("token123")).thenReturn(
             Response.success(TotpSetupResponse("SECRET", "otpauth://totp/x"))
         )
-        whenever(api.confirmTotp("token123", ConfirmTotpRequest("123456"))).thenReturn(
+        whenever(api.confirmTotp("token123", ConfirmTotpRequest("pw12345", "123456"))).thenReturn(
             Response.success(ConfirmTotpResponse(totpEnabled = true, recoveryCodes = listOf("a", "b")))
         )
         // Enroll fully so recovery codes exist — finishTotpEnrollment only
         // reports success when confirm actually produced them.
         viewModel.startTotpSetup()
-        viewModel.confirmTotp("123456")
+        viewModel.confirmTotp("pw12345", "123456")
 
         viewModel.finishTotpEnrollment()
 

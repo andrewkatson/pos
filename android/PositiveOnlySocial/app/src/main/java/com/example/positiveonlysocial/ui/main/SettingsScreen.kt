@@ -93,6 +93,7 @@ fun SettingsScreen(
         var showingEnrollTwoFactor by remember { mutableStateOf(false) }
         var showingDisableTwoFactor by remember { mutableStateOf(false) }
         var twoFactorConfirmCode by remember { mutableStateOf("") }
+        var twoFactorConfirmPassword by remember { mutableStateOf("") }
         var disablePassword by remember { mutableStateOf("") }
         var disableCode by remember { mutableStateOf("") }
         var disableUsesRecoveryCode by remember { mutableStateOf(false) }
@@ -121,7 +122,9 @@ fun SettingsScreen(
                 recoveryCodes = recoveryCodes,
                 confirmCode = twoFactorConfirmCode,
                 onConfirmCodeChange = { twoFactorConfirmCode = it },
-                onVerify = { viewModel.confirmTotp(twoFactorConfirmCode.trim()) },
+                confirmPassword = twoFactorConfirmPassword,
+                onConfirmPasswordChange = { twoFactorConfirmPassword = it },
+                onVerify = { viewModel.confirmTotp(twoFactorConfirmPassword, twoFactorConfirmCode.trim()) },
                 onCopySecret = { secret ->
                     clipboardManager.setText(AnnotatedString(secret))
                 },
@@ -418,6 +421,7 @@ fun SettingsScreen(
 
             ListListItem(text = "Enable Two-Factor Authentication", textColor = Color.Blue) {
                 twoFactorConfirmCode = ""
+                twoFactorConfirmPassword = ""
                 viewModel.startTotpSetup()
                 showingEnrollTwoFactor = true
             }
@@ -475,6 +479,8 @@ private fun EnrollTwoFactorDialog(
     recoveryCodes: List<String>?,
     confirmCode: String,
     onConfirmCodeChange: (String) -> Unit,
+    confirmPassword: String,
+    onConfirmPasswordChange: (String) -> Unit,
     onVerify: () -> Unit,
     onCopySecret: (String) -> Unit,
     onCopyRecoveryCodes: (List<String>) -> Unit,
@@ -482,6 +488,9 @@ private fun EnrollTwoFactorDialog(
     onCancel: () -> Unit
 ) {
     val isConfirmCodeValid = confirmCode.trim().length == 6 && confirmCode.trim().all { it.isDigit() }
+    // The password is required too: without it a stolen session could enrol its
+    // own authenticator and lock the real owner out permanently.
+    val canConfirm = isConfirmCodeValid && confirmPassword.isNotEmpty()
 
     AlertDialog(
         // Recovery codes are shown exactly once and the backend can't re-issue
@@ -552,6 +561,16 @@ private fun EnrollTwoFactorDialog(
                             keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.NumberPassword),
                             modifier = Modifier.testTag("TwoFactorConfirmCodeField")
                         )
+                        Spacer(modifier = Modifier.height(12.dp))
+                        TextField(
+                            value = confirmPassword,
+                            onValueChange = onConfirmPasswordChange,
+                            label = { Text("Account password") },
+                            singleLine = true,
+                            visualTransformation = PasswordVisualTransformation(),
+                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
+                            modifier = Modifier.testTag("TwoFactorConfirmPasswordField")
+                        )
                     }
                     else -> {
                         CircularProgressIndicator()
@@ -573,7 +592,7 @@ private fun EnrollTwoFactorDialog(
                     }
                 }
                 totpSetup != null -> {
-                    Button(onClick = onVerify, enabled = isConfirmCodeValid, modifier = Modifier.testTag("ConfirmTwoFactorButton")) {
+                    Button(onClick = onVerify, enabled = canConfirm, modifier = Modifier.testTag("ConfirmTwoFactorButton")) {
                         Text("Verify")
                     }
                 }

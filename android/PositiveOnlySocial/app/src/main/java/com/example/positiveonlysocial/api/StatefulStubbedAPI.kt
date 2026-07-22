@@ -321,6 +321,9 @@ class StatefulStubbedAPI : PositiveOnlySocialAPI {
         if (user.totpSecret == null) {
             return errorGeneric(400, "Two-factor setup has not been started")
         }
+        if (user.passwordHash != request.password) {
+            return errorGeneric(400, "Invalid password")
+        }
         if (request.totpCode != STUB_TOTP_CODE) {
             return errorGeneric(400, "Invalid two-factor code")
         }

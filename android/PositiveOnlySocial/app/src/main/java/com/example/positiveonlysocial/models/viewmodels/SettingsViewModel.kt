@@ -160,10 +160,12 @@ class SettingsViewModel(
     }
 
     /**
-     * Finishes TOTP enrollment by verifying one code from the authenticator.
-     * On success `recoveryCodes` is populated for the one-time display.
+     * Finishes TOTP enrollment by verifying the account password and one code
+     * from the authenticator. On success `recoveryCodes` is populated for the
+     * one-time display. The password is what stops a stolen session from
+     * binding an attacker's authenticator and locking the real owner out.
      */
-    fun confirmTotp(code: String) {
+    fun confirmTotp(password: String, code: String) {
         // Share the enrollment generation with setup: a confirm response that
         // lands after the dialog was cancelled (or a newer attempt started) is
         // discarded, so it can't repopulate recoveryCodes for an abandoned run.
@@ -178,7 +180,7 @@ class SettingsViewModel(
                     }
                     return@launch
                 }
-                val response = api.confirmTotp(userSession.sessionToken, ConfirmTotpRequest(code))
+                val response = api.confirmTotp(userSession.sessionToken, ConfirmTotpRequest(password, code))
                 if (generation != totpSetupGeneration) return@launch
                 val codes = response.body()?.recoveryCodes
                 if (response.isSuccessful && !codes.isNullOrEmpty()) {

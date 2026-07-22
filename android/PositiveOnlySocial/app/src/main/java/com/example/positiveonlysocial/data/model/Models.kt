@@ -66,7 +66,13 @@ data class TotpSetupResponse(
     @SerializedName("otpauth_uri") val otpauthUri: String
 )
 
+/**
+ * Confirming requires the password as well as the code: a stolen session alone
+ * must not be able to bind an attacker's authenticator, which would hand them
+ * the recovery codes and lock the real owner out for good.
+ */
 data class ConfirmTotpRequest(
+    @SerializedName("password") val password: String,
     @SerializedName("totp_code") val totpCode: String
 )
 
