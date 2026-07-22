@@ -221,7 +221,10 @@ class ProfileViewModelTest {
     // HomeViewModel because the Profile tab's grid is this view model's
     // (issue #347). Only your own posts ever carry a status.
 
-    private fun stubOwnProfile(posts: List<Post>) {
+    // `suspend` because the API methods it stubs are themselves suspend
+    // functions, which Mockito's whenever() can only be handed from a
+    // coroutine context.
+    private suspend fun stubOwnProfile(posts: List<Post>) {
         whenever(api.getProfileDetails("token123", "testuser"))
             .thenReturn(Response.success(ProfileDetailsResponse("testuser", posts.size, 0, 0, false)))
         whenever(api.getPostsForUser("token123", "testuser", 0))

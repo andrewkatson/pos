@@ -259,6 +259,28 @@ class PostListingInteractionStateTests(PositiveOnlySocialTestCase):
 
         self.assertEqual(self._count_queries(url), baseline)
 
+    def test_batch_past_the_end_runs_no_interaction_queries(self):
+        """A batch past the end has no rows to look up, so the grouped queries
+        are skipped rather than run four times over an empty set."""
+        empty_batch_url = reverse('get_posts_for_user', kwargs={
+            'username': self.poster_username,
+            'batch': 5
+        })
+        first_batch_url = reverse('get_posts_for_user', kwargs={
+            'username': self.poster_username,
+            'batch': 0
+        })
+
+        with CaptureQueriesContext(connection) as context:
+            response = self.client.get(empty_batch_url, **self.viewer_header)
+            self.assertEqual(response.status_code, 200)
+            self.assertEqual(response.json(), [])
+        empty_queries = len(context.captured_queries)
+
+        # The populated batch pays for the four grouped lookups; the empty one
+        # must not.
+        self.assertLess(empty_queries, self._count_queries(first_batch_url))
+
     def _count_queries(self, url):
         with CaptureQueriesContext(connection) as context:
             response = self.client.get(url, **self.viewer_header)

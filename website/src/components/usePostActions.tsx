@@ -137,6 +137,14 @@ export function usePostActions({
     setDialog(null)
     try {
       await apiClient.deletePost(post.post_identifier)
+      // Drop any override for the deleted post: the row is gone from the
+      // caller's list, so the entry would just accumulate for the life of the
+      // session as the user pages through and acts on more posts.
+      setOverrides(prev => {
+        if (!(post.post_identifier in prev)) return prev
+        const { [post.post_identifier]: _removed, ...rest } = prev
+        return rest
+      })
       onPostDeleted(post.post_identifier)
     } catch (err) {
       onError((err as Error).message ?? 'Failed to delete.')

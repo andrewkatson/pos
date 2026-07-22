@@ -1275,33 +1275,42 @@ def build_post_interaction_state(user, posts):
     Returns a callable taking a Post and returning the dict of state fields to
     merge into that post's payload.
     """
-    liked_post_ids = set(
-        user.postlike_set
-        .filter(post__in=posts)
-        .values_list('post_id', flat=True)
-    )
-    # The caller's own report reason per post, so clients can offer "retract
-    # report" with the original reason pre-filled instead of "report".
-    my_report_reasons = dict(
-        user.postreport_set
-        .filter(post__in=posts)
-        .values_list('post_id', 'reason')
-    )
-    like_counts = dict(
-        PostLike.objects
-        .filter(post__in=posts)
-        .values('post_id')
-        .annotate(count=Count('post_id'))
-        .values_list('post_id', 'count')
-    )
-    # Comment counts respect the same visibility rule as the thread listing, so
-    # a row never advertises comments the viewer would not be shown (#249).
-    comment_counts = dict(
-        visible_comments(Comment.objects.filter(comment_thread__post__in=posts), user)
-        .values('comment_thread__post_id')
-        .annotate(count=Count('comment_identifier'))
-        .values_list('comment_thread__post_id', 'count')
-    )
+    liked_post_ids = set()
+    my_report_reasons = {}
+    like_counts = {}
+    comment_counts = {}
+
+    # Paginating past the end is ordinary client behaviour, and the batch is
+    # then empty. Every grouped query below would return nothing, so skip them
+    # rather than spend four round trips confirming it.
+    if posts:
+        liked_post_ids = set(
+            user.postlike_set
+            .filter(post__in=posts)
+            .values_list('post_id', flat=True)
+        )
+        # The caller's own report reason per post, so clients can offer "retract
+        # report" with the original reason pre-filled instead of "report".
+        my_report_reasons = dict(
+            user.postreport_set
+            .filter(post__in=posts)
+            .values_list('post_id', 'reason')
+        )
+        like_counts = dict(
+            PostLike.objects
+            .filter(post__in=posts)
+            .values('post_id')
+            .annotate(count=Count('post_id'))
+            .values_list('post_id', 'count')
+        )
+        # Comment counts respect the same visibility rule as the thread listing,
+        # so a row never advertises comments the viewer would not be shown (#249).
+        comment_counts = dict(
+            visible_comments(Comment.objects.filter(comment_thread__post__in=posts), user)
+            .values('comment_thread__post_id')
+            .annotate(count=Count('comment_identifier'))
+            .values_list('comment_thread__post_id', 'count')
+        )
 
     def state_for(post):
         return {
