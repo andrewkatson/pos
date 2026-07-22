@@ -29,14 +29,20 @@ class Command(BaseCommand):
 
         # Uses the index on `expires`.
         expired = TwoFactorChallenge.objects.filter(expires__lt=timezone.now())
-        count = expired.count()
 
         if dry_run:
-            self.stdout.write(f"Would delete {count} expired two-factor challenge(s).")
+            self.stdout.write(
+                f"Would delete {expired.count()} expired two-factor challenge(s)."
+            )
             return
 
+        # Report what delete() actually removed rather than a separate COUNT: more
+        # rows can expire between the two statements, so a count taken first is
+        # already stale by the time the delete runs.
+        _, deleted_by_model = expired.delete()
+        count = deleted_by_model.get(TwoFactorChallenge._meta.label, 0)
+
         if count:
-            expired.delete()
             logger.info(f"Deleted {count} expired two-factor challenge(s).")
 
         self.stdout.write(f"Deleted {count} expired two-factor challenge(s).")

@@ -550,7 +550,11 @@ def register(request):
         response_data[Fields.login_cookie_token] = new_login_cookie.token
 
     logger.info(f"Registration successful for user_id: {new_user.id}")
-    return log_and_return_json("register", response_data, status=201)
+    # The body carries the session token (and remember-me credentials), so keep
+    # it out of any intermediary/proxy cache.
+    response = log_and_return_json("register", response_data, status=201)
+    response['Cache-Control'] = 'no-store'
+    return response
 
 
 @csrf_exempt
@@ -754,7 +758,11 @@ def login_user_with_remember_me(request):
         Fields.session_management_token: new_session_management_token
     }
     logger.info(f"Login with remember me successful for user_id: {existing.id}")
-    return log_and_return_json("login_user_with_remember_me", response_data)
+    # The body carries the session token and the rotated remember-me cookie, so
+    # keep it out of any intermediary/proxy cache.
+    response = log_and_return_json("login_user_with_remember_me", response_data)
+    response['Cache-Control'] = 'no-store'
+    return response
 
 
 @csrf_exempt
