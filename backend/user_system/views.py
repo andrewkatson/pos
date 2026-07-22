@@ -1345,7 +1345,7 @@ def get_posts_in_feed(request, batch):
     relevant_posts = visible_posts(relevant_posts, request.user)
 
     if relevant_posts.count() > 0:
-        batched_posts = get_batch(batch, POST_BATCH_SIZE, relevant_posts)
+        batched_posts = get_queryset_batch(relevant_posts, batch, POST_BATCH_SIZE)
         interaction_state = build_post_interaction_state(request.user, batched_posts)
         posts_data = [
             {
@@ -1391,7 +1391,7 @@ def get_posts_for_followed_users(request, batch):
     posts_queryset = visible_posts(
         Post.objects.filter(author__in=followed_users), request.user
     ).order_by('-creation_time')
-    posts_batch = get_batch(batch, POST_BATCH_SIZE, posts_queryset)
+    posts_batch = get_queryset_batch(posts_queryset, batch, POST_BATCH_SIZE)
     interaction_state = build_post_interaction_state(request.user, posts_batch)
 
     posts_data = [
@@ -1438,7 +1438,7 @@ def get_posts_for_user(request, username, batch):
     )
 
     if relevant_posts.count() > 0:
-        batched_posts = get_batch(batch, POST_BATCH_SIZE, relevant_posts)
+        batched_posts = get_queryset_batch(relevant_posts, batch, POST_BATCH_SIZE)
         interaction_state = build_post_interaction_state(request.user, batched_posts)
         posts_data = [
             {
