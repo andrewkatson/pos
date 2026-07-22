@@ -3,6 +3,8 @@ import { Navigate, useNavigate, useLocation } from 'react-router-dom'
 import Logo from '../components/Logo'
 import { apiClient } from '../api/client'
 import type { ApiError } from '../api/client'
+import { isTwoFactorRequired } from '../api/types'
+import { clearSession } from '../api/session'
 import RequirementHints from '../auth/RequirementHints'
 import { getPasswordRequirements, allMet } from '../auth/requirements'
 import './LoginPage.css'
@@ -52,6 +54,16 @@ function ResetPasswordPage() {
         username_or_email: username.trim() || email.trim(),
         password: newPassword,
       })
+      // If the account has two-factor enabled, login returns a challenge, not
+      // a session — send the user to the login page to finish signing in with
+      // their authenticator rather than auto-entering the app.
+      if (isTwoFactorRequired(response)) {
+        // No session was issued — clear any stale session/remember-me tokens
+        // from a previous login before sending the user to sign in fresh.
+        clearSession()
+        navigate('/login')
+        return
+      }
       localStorage.setItem('session_token', response.session_management_token)
       localStorage.setItem('user_id', response.user_id)
       if (response.username) {
