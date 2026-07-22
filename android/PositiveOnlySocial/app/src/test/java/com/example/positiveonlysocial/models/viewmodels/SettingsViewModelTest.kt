@@ -137,6 +137,21 @@ class SettingsViewModelTest {
 
         verify(api).confirmTotp("token123", ConfirmTotpRequest("pw12345", "123456"))
         assertEquals(10, viewModel.recoveryCodes.value?.size)
+        // The in-flight flag is cleared once the request settles, so the UI can
+        // block a duplicate submission while it runs and re-enable Verify after.
+        assertEquals(false, viewModel.isConfirmingTotp.value)
+    }
+
+    @Test
+    fun `confirmTotp failure clears the in-flight confirm flag`() = runTest {
+        whenever(api.confirmTotp(any(), any())).thenReturn(
+            Response.error(400, "{\"error\":\"Invalid password\"}".toResponseBody())
+        )
+
+        viewModel.confirmTotp("wrongpw", "123456")
+
+        // A failed confirm must not leave Verify stuck disabled on retry.
+        assertEquals(false, viewModel.isConfirmingTotp.value)
     }
 
     @Test
