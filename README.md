@@ -21,6 +21,60 @@ Neutral content is allowed. Content that starts sad but ends on a happy or hopef
 
 These will be updated as time goes on.
 
+## Post classification (async)
+
+Every new post is checked against the guidelines by an AI classifier — a text
+cascade over the caption and, for image posts, a vision cascade over the
+image (`backend/user_system/classifiers/`). Classification runs **off the
+request path** (issue #282): `make_post` performs no LLM calls, so a slow
+provider can never surface as a gateway timeout.
+
+The flow is:
+
+1. A cheap local **pre-filter** (`classifiers/prefilter.py`, no LLM) runs
+   inline. A blatant hit (unambiguous profanity or slurs) is rejected
+   immediately with a final, non-appealable `400` and the post is never
+   created (its uploaded image is cleaned up).
+2. Otherwise the post is created hidden in a **`pending_classification`**
+   state and a job is enqueued; the request returns `201` with
+   `status: "pending"`. A pending post is visible only to its author, who
+   sees it in their own grid with an "In review" state.
+3. A worker (RQ on the same Redis used for rate limiting; run
+   `python manage.py classification_worker`) runs the text + image cascades
+   and resolves the post exactly once to one of:
+   - **visible** (`hidden_reason` cleared) — both cascades passed;
+   - **hidden + appealable** (`classifier`) — an appealable rejection, which
+     appears on the appeals screens as before;
+   - **final rejection** (`classifier_final`) — a terminal, non-appealable
+     tombstone: the S3 image is deleted, the row is kept (invisible to
+     everyone, its author included) only so clients can reconcile the
+     outcome, and the sweep purges it after a few days.
+   On either rejection the author is emailed (with the public reason and,
+   when appealable, how to appeal). Approval sends no email — the post simply
+   appears.
+4. Provider failures (no usable score from any AI, unreachable S3) are not
+   verdicts: the job retries with backoff and, if retries are exhausted, the
+   post **fails closed** — it stays hidden-pending rather than ever publishing
+   unclassified content or falsely rejecting the author.
+
+Clients reconcile the outcome via the author-only
+`GET posts/<id>/status/` endpoint: after a pending create they poll it a
+bounded handful of times (no standing timers), and the normal
+load-on-mount/pull-to-refresh picks up the state after that. Author-facing
+post payloads carry `status` / `reason_code` / `appealable` for the author's
+own posts only.
+
+Without `REDIS_URL` (local dev, tests, CI) there is no queue, so the job runs
+eagerly in-process; production must set `REDIS_URL` and run the worker. The
+`sweep_classifications` management command (cron, like
+`cleanup_orphan_images`) re-enqueues posts stuck pending past a threshold,
+alerts (log error) once a post has exhausted its retry budget, and purges old
+final-rejection tombstones (default 7 days, `--tombstone-days`; preview with
+`--dry-run`).
+
+Comments are still classified inline in the request (text-only, much smaller
+worst case); moving them to the same async flow is a tracked follow-up.
+
 ## Banning
 
 Users who violate the guidelines can be banned. Every ban is a `UserBan`
@@ -50,6 +104,16 @@ and is independent of the ban type. A temporary ban lifts itself once
 `expires` passes — `UserBan.objects.active()` filters it out, so no scheduled
 job is needed. Escalation for ordinary users follows the ladder: warning
 (content hidden by reports) → temporary outright ban → permanent outright ban.
+
+## Blocking
+
+Users can block each other from a profile. Blocking is a toggle
+(`POST /users/<username>/block/`): blocking severs any follow relationship in
+both directions, hides each user's posts from the other's feeds, and stops the
+blocked user from finding the blocker in search (the blocker can still search
+for the blocked user). Every client has a "Blocked Users" page under Settings,
+backed by `GET /users/blocked/`, that lists everyone the signed-in user has
+blocked and lets them unblock (the same toggle endpoint).
 
 ## Email verification
 
@@ -90,14 +154,37 @@ email is best-effort — a mail failure is logged but never blocks the login.
 
 Post images live in two S3 buckets: clients upload the original to the source
 bucket (`AWS_STORAGE_BUCKET_NAME`) and a Lambda mirrors a compressed copy to
-`AWS_COMPRESSED_STORAGE_BUCKET_NAME` under the same key. Because the upload
+`AWS_COMPRESSED_STORAGE_BUCKET_NAME` under the same key.
+
+Every client strips image metadata before uploading. Each uploader (web
+`s3Uploader.ts`, iOS `AWSManager.swift`, Android `ImageUploader.kt`) always
+decodes the picked photo and re-encodes it as a fresh JPEG rather than sending
+the original file, so no EXIF — most importantly the camera's GPS coordinates —
+ever reaches the source bucket. Any orientation is baked into the pixels first
+so the picture still displays upright. The compression Lambda likewise re-saves
+without EXIF, so the compressed bucket is metadata-free too.
+
+Images uploaded before clients stripped metadata can be cleaned in place with
+the `strip_image_metadata` management command. It sweeps both buckets and
+rewrites, losslessly (pixel data is copied verbatim, never re-encoded), any
+JPEG that carries metadata: EXIF/XMP, IPTC, comments, and post-EOI trailers
+are dropped, keeping only the EXIF Orientation tag so old photos — whose
+pixels were never rotated upright by a client — still display correctly.
+Already-clean objects are left untouched, so re-running it is cheap and safe.
+Use `--dry-run` to preview. It needs the backend's AWS credentials with
+`s3:ListBucket`, `s3:GetObject`, and `s3:PutObject` on both buckets, and
+rewriting a source-bucket object re-triggers the compression Lambda (harmless
+— it just refreshes the compressed copy).
+
+Because the upload
 happens before the backend ever sees the post, images can be left behind:
 when a post is rejected outright by the classifier, deleted, or its appeal is
 denied. Cleanup happens at two levels (see `backend/user_system/s3.py`):
 
 - **Inline** — `delete_image` removes the key from both buckets the moment a
-  post is outright-rejected or deleted. It is best-effort: failures are logged
-  and never block the request.
+  post is deleted, fails the pre-filter, or is finally rejected by the
+  classification worker. It is best-effort: failures are logged and never
+  block the request (or the worker).
 - **Sweeper** — the `cleanup_orphan_images` management command lists both
   buckets and deletes any object no live `Post` references. A grace window
   (default 24h, `--grace-hours`) protects objects too new to have become a post
@@ -121,6 +208,9 @@ resolution trail.
   user can list their own hidden posts/comments and their existing appeals, and
   submit an appeal, via the `appeals/...` endpoints. Both classifier-hidden and
   report-hidden content is appealable. An item can be appealed only once.
+  Posts still pending classification (nothing has been decided yet) and
+  final classifier rejections (terminal by definition) are not appealable and
+  never appear on the appeals screens.
 - **Ban appeals** go through the email-reply flow described in the suspension
   email, not an in-app endpoint: an outright-banned user has no active session
   and cannot log in, so they cannot reach an authenticated endpoint. Admins can

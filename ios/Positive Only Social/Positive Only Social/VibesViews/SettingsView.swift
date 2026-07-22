@@ -82,6 +82,15 @@ struct SettingsView: View {
                     }.accessibilityIdentifier("AppealsButton")
                 }
 
+                // MARK: - Blocked Users Section
+                Section {
+                    NavigationLink {
+                        BlockedUsersView(api: api, keychainHelper: keychainHelper)
+                    } label: {
+                        Text("Blocked Users")
+                    }.accessibilityIdentifier("BlockedUsersButton")
+                }
+
                 // MARK: - Security Section (issue #348)
                 Section(header: Text("Security")) {
                     Button {

@@ -1,13 +1,16 @@
 import uuid
 from unittest.mock import patch
 
+from django.core import mail
 from django.urls import reverse
 
 from .test_parent_case import PositiveOnlySocialTestCase
 from .test_constants import UserFields
 from ..classifiers.classifier_constants import POSITIVE_IMAGE_FILENAME, POSITIVE_TEXT
 from ..classifiers.classifier_utils import ClassificationResult
-from ..constants import Fields, HIDDEN_REASON_CLASSIFIER, HIDDEN_REASON_NONE
+from ..constants import Fields, HIDDEN_REASON_CLASSIFIER, HIDDEN_REASON_NONE, \
+    HIDDEN_REASON_CLASSIFIER_FINAL, HIDDEN_REASON_PENDING_CLASSIFICATION, \
+    POST_STATUS_PENDING
 from ..models import Comment, Post
 from ..views import get_user_with_username
 
@@ -17,12 +20,19 @@ FINAL_REJECT = ClassificationResult(allowed=False, appealable=False)
 APPEALABLE_HATE = ClassificationResult(allowed=False, appealable=True, reason_code='hate_speech')
 FINAL_REJECT_GORE = ClassificationResult(allowed=False, appealable=False, reason_code='gore')
 
-TEXT = 'user_system.views.text_classifier_class.is_text_positive'
-IMAGE = 'user_system.views.image_classifier_class.is_image_positive'
+# make_post no longer classifies in the request (issue #282); the worker in
+# user_system.tasks does. Patching through the tasks aliases sets the
+# attribute on the shared classifier module, so the comment endpoints (which
+# still classify inline in the views through their own aliases to the same
+# module) see the patch too.
+TEXT = 'user_system.tasks.text_classifier_class.is_text_positive'
+IMAGE = 'user_system.tasks.image_classifier_class.is_image_positive'
 
 
 class MakePostAppealableTests(PositiveOnlySocialTestCase):
-    """make_post posts-but-hides appealable rejections; final rejections 400."""
+    """make_post accepts the post as pending (issue #282); the (eager, in
+    tests) worker resolves it to visible, hidden + appealable, or a
+    non-appealable final-rejection tombstone."""
 
     def setUp(self):
         super().setUp()
@@ -43,7 +53,9 @@ class MakePostAppealableTests(PositiveOnlySocialTestCase):
     def test_allowed_post_is_visible(self, _text, _image):
         response = self._post()
         self.assertEqual(response.status_code, 201)
-        self.assertNotIn(Fields.hidden, response.json())
+        # The response reports the pending state (the client reconciles the
+        # outcome later); the eager worker has already made the post visible.
+        self.assertEqual(response.json()[Fields.status], POST_STATUS_PENDING)
         post = self.user.post_set.get()
         self.assertFalse(post.hidden)
         self.assertEqual(post.hidden_reason, HIDDEN_REASON_NONE)
@@ -53,129 +65,141 @@ class MakePostAppealableTests(PositiveOnlySocialTestCase):
     def test_appealable_caption_is_posted_but_hidden(self, _text, _image):
         response = self._post()
         self.assertEqual(response.status_code, 201)
-        body = response.json()
-        self.assertTrue(body[Fields.hidden])
-        self.assertEqual(body[Fields.hidden_reason], HIDDEN_REASON_CLASSIFIER)
-        self.assertIn('appeal', body['message'].lower())
+        self.assertIn('reviewed', response.json()['message'])
 
         post = self.user.post_set.get()
         self.assertTrue(post.hidden)
         self.assertEqual(post.hidden_reason, HIDDEN_REASON_CLASSIFIER)
+        self.assertTrue(post.appealable)
 
     @patch(IMAGE, return_value=APPEALABLE)
     @patch(TEXT, return_value=ALLOWED)
     def test_appealable_image_is_posted_but_hidden(self, _text, _image):
         response = self._post()
         self.assertEqual(response.status_code, 201)
-        self.assertTrue(response.json()[Fields.hidden])
-        self.assertTrue(self.user.post_set.get().hidden)
+        post = self.user.post_set.get()
+        self.assertTrue(post.hidden)
+        self.assertEqual(post.hidden_reason, HIDDEN_REASON_CLASSIFIER)
 
     @patch(IMAGE, return_value=ALLOWED)
     @patch(TEXT, return_value=FINAL_REJECT)
-    def test_final_caption_rejection_is_blocked(self, _text, _image):
+    def test_final_caption_rejection_becomes_tombstone(self, _text, _image):
         response = self._post()
-        self.assertEqual(response.status_code, 400)
-        self.assertIn('Text is not positive', response.json().get('error', ''))
-        self.assertEqual(self.user.post_set.count(), 0)
+        self.assertEqual(response.status_code, 201)
+        post = self.user.post_set.get()
+        self.assertTrue(post.hidden)
+        self.assertEqual(post.hidden_reason, HIDDEN_REASON_CLASSIFIER_FINAL)
+        self.assertFalse(post.appealable)
 
     @patch(IMAGE, return_value=FINAL_REJECT)
     @patch(TEXT, return_value=ALLOWED)
-    def test_final_image_rejection_is_blocked(self, _text, _image):
+    def test_final_image_rejection_becomes_tombstone(self, _text, _image):
         response = self._post()
-        self.assertEqual(response.status_code, 400)
-        self.assertIn('Image is not positive', response.json().get('error', ''))
-        self.assertEqual(self.user.post_set.count(), 0)
+        self.assertEqual(response.status_code, 201)
+        post = self.user.post_set.get()
+        self.assertEqual(post.hidden_reason, HIDDEN_REASON_CLASSIFIER_FINAL)
 
     @patch(IMAGE, return_value=ALLOWED)
     @patch(TEXT, return_value=FINAL_REJECT_GORE)
-    def test_final_caption_rejection_includes_reason_and_no_appeal(self, _text, _image):
-        response = self._post()
-        self.assertEqual(response.status_code, 400)
-        body = response.json()
-        self.assertIn('may contain gore', body['error'])
-        self.assertIn('cannot be appealed', body['error'])
-        self.assertEqual(body[Fields.reason_code], 'gore')
-        self.assertFalse(body[Fields.appealable])
+    def test_final_caption_rejection_records_reason(self, _text, _image):
+        self._post()
+        post = self.user.post_set.get()
+        self.assertEqual(post.classification_reason_code, 'gore')
 
     @patch(IMAGE, return_value=ALLOWED)
     @patch(TEXT, return_value=FINAL_REJECT)
     def test_final_rejection_without_cited_rule_uses_generic_reason(self, _text, _image):
-        response = self._post()
-        self.assertEqual(response.status_code, 400)
-        body = response.json()
-        self.assertIn('did not meet our positivity guidelines', body['error'])
-        self.assertEqual(body[Fields.reason_code], 'guidelines')
+        self._post()
+        post = self.user.post_set.get()
+        self.assertEqual(post.classification_reason_code, 'guidelines')
 
     @patch(IMAGE, return_value=ALLOWED)
     @patch(TEXT, return_value=APPEALABLE_HATE)
-    def test_appealable_caption_message_includes_reason(self, _text, _image):
-        response = self._post()
-        self.assertEqual(response.status_code, 201)
-        body = response.json()
-        self.assertIn('your caption may contain hate speech', body['message'])
-        self.assertIn('appeal', body['message'].lower())
-        self.assertEqual(body[Fields.reason_code], 'hate_speech')
-        self.assertTrue(body[Fields.appealable])
+    def test_appealable_caption_records_reason(self, _text, _image):
+        self._post()
+        post = self.user.post_set.get()
+        self.assertEqual(post.hidden_reason, HIDDEN_REASON_CLASSIFIER)
+        self.assertEqual(post.classification_reason_code, 'hate_speech')
 
     @patch(IMAGE, return_value=APPEALABLE_HATE)
     @patch(TEXT, return_value=APPEALABLE)
-    def test_appealable_caption_and_image_message_mentions_both(self, _text, _image):
-        response = self._post()
-        self.assertEqual(response.status_code, 201)
-        body = response.json()
-        self.assertIn('your caption did not meet our positivity guidelines', body['message'])
-        self.assertIn('your image may contain hate speech', body['message'])
-        # Text precedence for the machine-readable code.
-        self.assertEqual(body[Fields.reason_code], 'guidelines')
-
-    @patch(IMAGE, return_value=ALLOWED)
-    @patch(TEXT, return_value=FINAL_REJECT)
-    def test_final_caption_rejection_wins_over_allowed_image(self, _text, _image):
-        """
-        Text and image are classified concurrently, so the image check may run,
-        but a final text rejection still blocks the post with the text error.
-        """
-        response = self._post()
-        self.assertEqual(response.status_code, 400)
-        self.assertIn('Text is not positive', response.json().get('error', ''))
-        self.assertEqual(self.user.post_set.count(), 0)
+    def test_text_reason_takes_precedence_when_both_rejected(self, _text, _image):
+        self._post()
+        post = self.user.post_set.get()
+        # Text precedence for the machine-readable code, matching the old
+        # synchronous responses.
+        self.assertEqual(post.classification_reason_code, 'guidelines')
 
     @patch(IMAGE, return_value=FINAL_REJECT)
     @patch(TEXT, return_value=APPEALABLE)
-    def test_appealable_caption_with_final_image_is_blocked(self, _text, _image):
+    def test_appealable_caption_with_final_image_is_final(self, _text, _image):
         """One final rejection makes the whole post final, even if text is appealable."""
-        response = self._post()
-        self.assertEqual(response.status_code, 400)
-        self.assertEqual(self.user.post_set.count(), 0)
+        self._post()
+        post = self.user.post_set.get()
+        self.assertEqual(post.hidden_reason, HIDDEN_REASON_CLASSIFIER_FINAL)
 
-    @patch('user_system.views.delete_image')
+    @patch('user_system.tasks.delete_image')
     @patch(IMAGE, return_value=ALLOWED)
     @patch(TEXT, return_value=FINAL_REJECT)
     def test_final_caption_rejection_deletes_uploaded_image(self, _text, _image, mock_delete):
         self._post()
+        # The worker strips the image reference from the tombstone row and
+        # deletes the S3 object (cleanup_orphan_images is the backstop).
         mock_delete.assert_called_once_with(self.data['image_url'])
+        self.assertIsNone(self.user.post_set.get().image_url)
 
-    @patch('user_system.views.delete_image')
+    @patch('user_system.tasks.delete_image')
     @patch(IMAGE, return_value=FINAL_REJECT)
     @patch(TEXT, return_value=ALLOWED)
     def test_final_image_rejection_deletes_uploaded_image(self, _text, _image, mock_delete):
         self._post()
         mock_delete.assert_called_once_with(self.data['image_url'])
 
-    @patch('user_system.views.delete_image')
+    @patch('user_system.tasks.delete_image')
     @patch(IMAGE, return_value=ALLOWED)
     @patch(TEXT, return_value=APPEALABLE)
     def test_appealable_post_keeps_uploaded_image(self, _text, _image, mock_delete):
-        """An appealable post is created hidden, so its image must be kept."""
+        """An appealable post stays hidden but recoverable, so its image must be kept."""
         self._post()
         mock_delete.assert_not_called()
+        self.assertEqual(self.user.post_set.get().image_url, self.data['image_url'])
 
-    @patch('user_system.views.delete_image')
+    @patch('user_system.tasks.delete_image')
     @patch(IMAGE, return_value=ALLOWED)
     @patch(TEXT, return_value=ALLOWED)
     def test_allowed_post_keeps_uploaded_image(self, _text, _image, mock_delete):
         self._post()
         mock_delete.assert_not_called()
+
+    @patch(IMAGE, return_value=ALLOWED)
+    @patch(TEXT, return_value=APPEALABLE_HATE)
+    def test_appealable_rejection_sends_email_with_reason_and_appeal_hint(self, _text, _image):
+        # Registration already sent a welcome email; only the rejection email
+        # this test is about should be counted.
+        mail.outbox.clear()
+        self._post()
+        self.assertEqual(len(mail.outbox), 1)
+        body = mail.outbox[0].body
+        self.assertIn('your caption may contain hate speech', body)
+        self.assertIn('appeal', body.lower())
+        self.assertEqual(mail.outbox[0].to, [self.local_email])
+
+    @patch(IMAGE, return_value=ALLOWED)
+    @patch(TEXT, return_value=FINAL_REJECT_GORE)
+    def test_final_rejection_sends_email_saying_it_is_final(self, _text, _image):
+        mail.outbox.clear()
+        self._post()
+        self.assertEqual(len(mail.outbox), 1)
+        body = mail.outbox[0].body
+        self.assertIn('your caption may contain gore', body)
+        self.assertIn('cannot be appealed', body)
+
+    @patch(IMAGE, return_value=ALLOWED)
+    @patch(TEXT, return_value=ALLOWED)
+    def test_approval_sends_no_email(self, _text, _image):
+        mail.outbox.clear()
+        self._post()
+        self.assertEqual(len(mail.outbox), 0)
 
 
 class TextOnlyPostAppealableTests(PositiveOnlySocialTestCase):
@@ -204,7 +228,6 @@ class TextOnlyPostAppealableTests(PositiveOnlySocialTestCase):
     def test_allowed_text_only_post_is_visible(self, _text):
         response = self._post()
         self.assertEqual(response.status_code, 201)
-        self.assertNotIn(Fields.hidden, response.json())
         post = self.user.post_set.get()
         self.assertFalse(post.hidden)
         self.assertIsNone(post.image_url)
@@ -214,23 +237,20 @@ class TextOnlyPostAppealableTests(PositiveOnlySocialTestCase):
     def test_appealable_text_only_post_is_posted_but_hidden(self, _text):
         response = self._post()
         self.assertEqual(response.status_code, 201)
-        body = response.json()
-        self.assertTrue(body[Fields.hidden])
-        self.assertEqual(body[Fields.hidden_reason], HIDDEN_REASON_CLASSIFIER)
 
         post = self.user.post_set.get()
         self.assertTrue(post.hidden)
         self.assertIsNone(post.image_url)
         self.assertEqual(post.hidden_reason, HIDDEN_REASON_CLASSIFIER)
 
-    @patch('user_system.views.delete_image')
+    @patch('user_system.tasks.delete_image')
     @patch(TEXT, return_value=FINAL_REJECT)
-    def test_final_text_only_rejection_is_blocked_without_s3_cleanup(self, _text, mock_delete):
+    def test_final_text_only_rejection_becomes_tombstone_without_s3_cleanup(self, _text, mock_delete):
         """There is no uploaded image to clean up on the final-rejection path."""
         response = self._post()
-        self.assertEqual(response.status_code, 400)
-        self.assertIn('Text is not positive', response.json().get('error', ''))
-        self.assertEqual(self.user.post_set.count(), 0)
+        self.assertEqual(response.status_code, 201)
+        post = self.user.post_set.get()
+        self.assertEqual(post.hidden_reason, HIDDEN_REASON_CLASSIFIER_FINAL)
         mock_delete.assert_not_called()
 
 

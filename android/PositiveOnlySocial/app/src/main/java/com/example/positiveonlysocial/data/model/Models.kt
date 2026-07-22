@@ -89,9 +89,28 @@ data class CreatePostRequest(
 
 data class CreatePostResponse(
     @SerializedName("post_identifier") val postIdentifier: String,
-    // Present (true) when the post was created hidden pending appeal — the
-    // classifier flagged it but the rejection is appealable. Absent/false for
-    // a normal post.
+    // "pending" on current backends: classification runs asynchronously
+    // (issue #282) and the outcome is reconciled via getPostStatus or a grid
+    // refresh. Null on older backends, which classified inline.
+    val status: String? = null,
+    // True when the post was created hidden — pending classification on
+    // current backends, or hidden pending appeal on older inline-classifying
+    // ones.
+    val hidden: Boolean = false,
+    @SerializedName("hidden_reason") val hiddenReason: String? = null,
+    val message: String? = null
+)
+
+/**
+ * Response of the author-only post-status endpoint (issue #282): "pending",
+ * "approved", "rejected", or "rejected_final", with a user-facing message for
+ * the non-approved states.
+ */
+data class PostStatusResponse(
+    @SerializedName("post_identifier") val postIdentifier: String,
+    val status: String,
+    @SerializedName("reason_code") val reasonCode: String? = null,
+    val appealable: Boolean = false,
     val hidden: Boolean = false,
     @SerializedName("hidden_reason") val hiddenReason: String? = null,
     val message: String? = null
@@ -136,7 +155,16 @@ data class Post(
     // When the post was created. Only the post-details endpoint returns it
     // (ISO-8601 from the real backend, epoch-millis from the stub — see
     // parseBackendDate); feed endpoints omit it, so it defaults to null.
-    @SerializedName("creation_time") val creationTime: String? = null
+    @SerializedName("creation_time") val creationTime: String? = null,
+    // Author-only classification state (issue #282): present on the viewer's
+    // own posts so grids can render pending/rejected states. Other users'
+    // posts never carry these (their pending/hidden posts are filtered out
+    // server-side entirely). One of "pending", "approved", "rejected",
+    // "rejected_final"; null on older backends or others' posts.
+    val status: String? = null,
+    val hidden: Boolean? = null,
+    @SerializedName("hidden_reason") val hiddenReason: String? = null,
+    val appealable: Boolean? = null
 )
 
 // --- Comment DTOs ---

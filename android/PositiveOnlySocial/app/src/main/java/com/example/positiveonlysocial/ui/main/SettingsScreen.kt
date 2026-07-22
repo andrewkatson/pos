@@ -262,6 +262,12 @@ fun SettingsScreen(
 
             HorizontalDivider()
 
+            ListListItem(text = "Blocked Users") {
+                navController.navigate(Screen.BlockedUsers.route)
+            }
+
+            HorizontalDivider()
+
             ListListItem(text = "Logout", textColor = Color.Red) {
                 showingLogoutConfirm = true
             }

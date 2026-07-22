@@ -175,6 +175,20 @@ struct MockedAPI: Networking {
         return try encodeGenericSuccess()
     }
 
+    func getPostStatus(sessionManagementToken: String, postIdentifier: String) async throws -> Data {
+        // Previews treat every post as already approved (issue #282).
+        let response = PostStatusResponse(
+            postIdentifier: postIdentifier,
+            status: "approved",
+            reasonCode: nil,
+            appealable: false,
+            hidden: false,
+            hiddenReason: "",
+            message: nil
+        )
+        return try JSONEncoder().encode(response)
+    }
+
     func deletePost(sessionManagementToken: String, postIdentifier: String) async throws -> Data {
         return try encodeGenericSuccess()
     }
@@ -332,6 +346,14 @@ struct MockedAPI: Networking {
         return try encode(users)
     }
     
+    func getBlockedUsers(sessionManagementToken: String) async throws -> Data {
+        let users = [
+            User(username: "blocked_user_1", identityIsVerified: true),
+            User(username: "blocked_user_2", identityIsVerified: false)
+        ]
+        return try encode(users)
+    }
+
     func getProfileDetails(sessionManagementToken: String, username: String) async throws -> Data {
         let profile = ProfileDetailsResponse(
             username: username,
