@@ -23,6 +23,10 @@ class StatefulStubbedAPI : PositiveOnlySocialAPI {
         // The stub has no clock-based TOTP; this fixed code is the one the
         // stub accepts, mirroring the fixed codes in the website/iOS stubs.
         const val STUB_TOTP_CODE = "123456"
+
+        // Used for the credential-shaped stub values (TOTP secret), where
+        // Kotlin's Random.Default would be an insecure generator.
+        private val secureRandom = java.security.SecureRandom()
     }
 
     // ============================================================================================
@@ -290,8 +294,11 @@ class StatefulStubbedAPI : PositiveOnlySocialAPI {
         // Re-running setup before confirming simply replaces the pending secret.
         // Use the RFC 4648 Base32 alphabet (A-Z, 2-7) so the otpauth:// URI is a
         // valid TOTP secret that real authenticator apps and QR parsers accept.
+        // The alphabet is exactly 32 characters, so indexing by a secure random
+        // int over its length is unbiased. Kotlin's Random.Default is not
+        // cryptographically secure, and this value is credential-shaped.
         val base32Alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZ234567"
-        val secret = (1..32).map { base32Alphabet.random() }.joinToString("")
+        val secret = (1..32).map { base32Alphabet[secureRandom.nextInt(base32Alphabet.length)] }.joinToString("")
         user.totpSecret = secret
         return Response.success(
             TotpSetupResponse(
