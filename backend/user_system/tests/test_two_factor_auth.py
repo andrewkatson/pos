@@ -8,7 +8,10 @@ from django.utils import timezone
 
 from .test_constants import false, true
 from .test_parent_case import PositiveOnlySocialTestCase
-from ..constants import Fields, Patterns, NUM_RECOVERY_CODES, TWO_FACTOR_MAX_ATTEMPTS
+from ..constants import (
+    Fields, Patterns, NUM_RECOVERY_CODES, TWO_FACTOR_MAX_ATTEMPTS,
+    INVALID_TWO_FACTOR_CHALLENGE,
+)
 from ..input_validator import is_valid_pattern
 from ..models import RecoveryCode, TwoFactorChallenge
 
@@ -201,7 +204,7 @@ class TwoFactorAuthTests(PositiveOnlySocialTestCase):
         # The challenge is gone: even the correct code is refused now.
         response = self._submit_2fa(challenge, totp_code=pyotp.TOTP(secret).now())
         self.assertEqual(response.status_code, 400)
-        self.assertEqual(response.json().get('error'), "Invalid or expired challenge")
+        self.assertEqual(response.json().get('error'), INVALID_TWO_FACTOR_CHALLENGE)
 
     def test_login_2fa_with_expired_challenge_returns_bad_response(self):
         secret, _ = self._enable_totp()
@@ -212,7 +215,7 @@ class TwoFactorAuthTests(PositiveOnlySocialTestCase):
         response = self._submit_2fa(challenge, totp_code=pyotp.TOTP(secret).now())
 
         self.assertEqual(response.status_code, 400)
-        self.assertEqual(response.json().get('error'), "Invalid or expired challenge")
+        self.assertEqual(response.json().get('error'), INVALID_TWO_FACTOR_CHALLENGE)
 
     def test_login_2fa_rejects_code_replay(self):
         secret, _ = self._enable_totp()

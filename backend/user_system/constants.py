@@ -73,6 +73,12 @@ LEN_RECOVERY_CODE_HEX = 10
 # Issuer label shown next to the account in authenticator apps
 TOTP_ISSUER = "Positive Only Social"
 
+# Error code returned by login/2fa/ when the challenge is gone — expired, already
+# used, or invalidated. Clients branch on this to send the user back to the
+# password step, so it is a stable machine-readable code (like ACCOUNT_BANNED)
+# rather than prose that could be reworded or localized.
+INVALID_TWO_FACTOR_CHALLENGE = "invalid_two_factor_challenge"
+
 # Regex Patterns to check against
 class Patterns:
     password = r"^(?=.*[0-9])(?=.*[a-z])(?=.*[A-Z])(?=\S+$).{8,}$"

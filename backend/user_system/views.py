@@ -37,7 +37,7 @@ from .constants import Patterns, Params, POST_BATCH_SIZE, MAX_BEFORE_HIDING_POST
     APPEAL_TARGET_POST, APPEAL_TARGET_COMMENT, APPEAL_TARGET_BAN, \
     MAX_APPEAL_REASON_LENGTH, \
     TWO_FACTOR_CHALLENGE_MINUTES, TWO_FACTOR_MAX_ATTEMPTS, NUM_RECOVERY_CODES, \
-    LEN_RECOVERY_CODE_HEX, TOTP_ISSUER
+    LEN_RECOVERY_CODE_HEX, TOTP_ISSUER, INVALID_TWO_FACTOR_CHALLENGE
 from .feed_algorithm import feed_algorithm
 from .input_validator import is_valid_pattern
 from .models import LoginCookie, Session, Post, CommentThread, PositiveOnlySocialUser, Comment, CommentLike, UserBlock, \
@@ -779,7 +779,7 @@ def login_user_2fa(request):
     challenge_ref = TwoFactorChallenge.objects.filter(token_hash=submitted_hash).first()
     if challenge_ref is None:
         logger.warning("Two-factor login failed: Invalid or expired challenge")
-        return log_and_return_json("login_user_2fa", {'error': "Invalid or expired challenge"}, status=400)
+        return log_and_return_json("login_user_2fa", {'error': INVALID_TWO_FACTOR_CHALLENGE}, status=400)
 
     with transaction.atomic():
         # Lock the user row first: the replay guard (totp_last_used_step) and the
@@ -790,7 +790,7 @@ def login_user_2fa(request):
             if challenge is not None:
                 challenge.delete()
             logger.warning("Two-factor login failed: Invalid or expired challenge")
-            return log_and_return_json("login_user_2fa", {'error': "Invalid or expired challenge"}, status=400)
+            return log_and_return_json("login_user_2fa", {'error': INVALID_TWO_FACTOR_CHALLENGE}, status=400)
 
         # Re-run the account gates from login_user; the account's state may
         # have changed between the password step and this one. Burn the
