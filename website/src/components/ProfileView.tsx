@@ -32,7 +32,7 @@ function ProfileView({ username, isOwnProfile, currentUsername }: ProfileViewPro
   }, [])
 
   const [profile, setProfile] = useState<ProfileDetails | null>(null)
-  const [notFound, setNotFound] = useState(false)
+  const [loadFailed, setLoadFailed] = useState(false)
   const [isFollowing, setIsFollowing] = useState(false)
   const [isBlocked, setIsBlocked] = useState(false)
   const [isBusy, setIsBusy] = useState(false)
@@ -45,24 +45,26 @@ function ProfileView({ username, isOwnProfile, currentUsername }: ProfileViewPro
   // inside the fetch effect.
   const [isLoadingPosts, setIsLoadingPosts] = useState(true)
 
-  useEffect(() => {
-    let cancelled = false
-    apiClient
-      .getProfile(username)
-      .then(details => {
-        if (cancelled) return
-        setProfile(details)
-        setIsFollowing(details.is_following)
-        setIsBlocked(details.is_blocked)
-      })
-      .catch(() => {
-        // Couldn't load the profile (e.g. user not found) — show a message.
-        if (!cancelled) setNotFound(true)
-      })
-    return () => {
-      cancelled = true
+  const loadProfile = useCallback(async () => {
+    try {
+      const details = await apiClient.getProfile(username)
+      if (!isMounted.current) return
+      setProfile(details)
+      setIsFollowing(details.is_following)
+      setIsBlocked(details.is_blocked)
+      setLoadFailed(false)
+    } catch {
+      // Could be a missing user or a transient network/server error — we can't
+      // tell them apart, so offer a retry rather than a dead end. The Profile
+      // tab has no other way back from this, since it can't be navigated away
+      // from and re-entered like the pushed profile route can.
+      if (isMounted.current) setLoadFailed(true)
     }
   }, [username])
+
+  useEffect(() => {
+    void loadProfile()
+  }, [loadProfile])
 
   const loadPosts = useCallback(
     async (pageToLoad: number, replace: boolean) => {
@@ -107,8 +109,9 @@ function ProfileView({ username, isOwnProfile, currentUsername }: ProfileViewPro
         setIsBlocked(details.is_blocked)
       })
       .catch(() => {
-        // Keep the already-loaded details on a transient refresh failure rather
-        // than blanking the profile or flipping to "not found".
+        // Deliberately not loadProfile(): a failed manual refresh keeps the
+        // already-loaded profile on screen rather than replacing it with the
+        // retry prompt, since the user still has working data in front of them.
       })
     void loadPosts(0, true)
   }
@@ -162,8 +165,24 @@ function ProfileView({ username, isOwnProfile, currentUsername }: ProfileViewPro
     }
   }
 
-  if (notFound) {
-    return <p className="muted">User not found.</p>
+  if (loadFailed) {
+    return (
+      <div className="profile-load-failed">
+        <p className="muted">Couldn't load {username}'s profile.</p>
+        <button
+          type="button"
+          className="btn btn-primary"
+          onClick={() => {
+            setLoadFailed(false)
+            setIsLoadingPosts(true)
+            void loadProfile()
+            void loadPosts(0, true)
+          }}
+        >
+          Try again
+        </button>
+      </div>
+    )
   }
 
   return (

@@ -150,6 +150,16 @@
   background: #1a1a1a;
 }
 
+/* Retry prompt when a profile fails to load. The Profile tab can't be navigated
+   away from and re-entered, so it needs a way back from a transient failure. */
+.profile-load-failed {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 2rem 1rem;
+}
+
 /* ---- In-list post actions (grid + feed, issue #267) ---- */
 
 .post-actions {

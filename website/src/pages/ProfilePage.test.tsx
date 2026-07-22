@@ -111,10 +111,20 @@ test('refresh reloads both the profile details and the posts', async () => {
   expect(mockGetProfile).toHaveBeenLastCalledWith('bob')
 })
 
-test('shows "User not found" when the profile fails to load', async () => {
-  mockGetProfile.mockRejectedValue(new Error('404'))
+test('offers a retry when the profile fails to load', async () => {
+  // A missing user and a transient network error are indistinguishable here, so
+  // the view offers a way out rather than a dead end.
+  mockGetProfile.mockRejectedValueOnce(new Error('boom'))
   renderProfile()
-  expect(await screen.findByText('User not found.')).toBeInTheDocument()
+
+  expect(await screen.findByText("Couldn't load bob's profile.")).toBeInTheDocument()
+
+  // Retrying succeeds and the profile renders.
+  mockGetProfile.mockResolvedValue(baseProfile)
+  await userEvent.click(screen.getByRole('button', { name: 'Try again' }))
+
+  expect(await screen.findByText('10')).toBeInTheDocument()
+  expect(screen.queryByText("Couldn't load bob's profile.")).not.toBeInTheDocument()
 })
 
 // ---- In-place post actions on the grid (issue #267) ----
