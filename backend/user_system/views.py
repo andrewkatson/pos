@@ -820,8 +820,13 @@ def login_user_2fa(request):
                     f"Two-factor login invalidated after {TWO_FACTOR_MAX_ATTEMPTS} "
                     f"failed attempts for user_id: {user.id}"
                 )
+                # The challenge is gone, so report it with the same stable code
+                # as the expired/used cases — otherwise a client keying off that
+                # code would leave the user on the code step with a dead
+                # challenge. The 429 status still distinguishes "you burned it"
+                # from "it expired" for anything that wants to say so.
                 return log_and_return_json("login_user_2fa", {
-                    'error': "Too many failed attempts. Log in again."
+                    'error': INVALID_TWO_FACTOR_CHALLENGE
                 }, status=429)
             challenge.save(update_fields=['failed_attempts'])
             logger.warning(f"Two-factor login failed: Invalid code for user_id: {user.id}")
