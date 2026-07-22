@@ -130,6 +130,28 @@ class TwoFactorAuthTests(PositiveOnlySocialTestCase):
         self.assertEqual(response.status_code, 400)
         self.assertFalse(self._user().totp_enabled)
 
+    def test_second_setup_replaces_the_pending_secret(self):
+        # A user who restarts enrollment (lost the QR, switched phones) gets a
+        # fresh secret. The one they may still have on screen must be dead, or a
+        # stale/leaked secret could be confirmed into a working second factor.
+        first_secret = self._setup_totp()[Fields.totp_secret]
+        second_secret = self._setup_totp()[Fields.totp_secret]
+        self.assertNotEqual(first_secret, second_secret)
+        self.assertEqual(self._user().totp_secret, second_secret)
+
+        response = self.client.post(self.confirm_url,
+                                    data={Fields.totp_code: pyotp.TOTP(first_secret).now()},
+                                    content_type='application/json', **self.header)
+        self.assertEqual(response.status_code, 400)
+        self.assertFalse(self._user().totp_enabled)
+
+        # The current secret still confirms.
+        response = self.client.post(self.confirm_url,
+                                    data={Fields.totp_code: pyotp.TOTP(second_secret).now()},
+                                    content_type='application/json', **self.header)
+        self.assertEqual(response.status_code, 200)
+        self.assertTrue(self._user().totp_enabled)
+
     def test_confirm_without_setup_returns_bad_response(self):
         response = self.client.post(self.confirm_url, data={Fields.totp_code: '123456'},
                                     content_type='application/json', **self.header)
@@ -147,6 +169,25 @@ class TwoFactorAuthTests(PositiveOnlySocialTestCase):
         challenge = TwoFactorChallenge.objects.get(user=user)
         # Only the hash is stored.
         self.assertNotEqual(challenge.token_hash, raw_challenge)
+
+    def test_new_login_invalidates_the_previous_challenge(self):
+        # Only one challenge may be live per user. If abandoned challenges stayed
+        # valid, an attacker with the password could open several logins at once
+        # and multiply the per-challenge guess budget.
+        secret, _ = self._enable_totp()
+        abandoned = self._login_expect_challenge()
+        current = self._login_expect_challenge()
+        self.assertNotEqual(abandoned, current)
+        self.assertEqual(TwoFactorChallenge.objects.filter(user=self._user()).count(), 1)
+
+        response = self._submit_2fa(abandoned, totp_code=pyotp.TOTP(secret).now())
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(response.json()['error'], INVALID_TWO_FACTOR_CHALLENGE)
+
+        # The newest challenge is the one that works.
+        response = self._submit_2fa(current, totp_code=pyotp.TOTP(secret).now())
+        self.assertEqual(response.status_code, 200)
+        self.assertIn(Fields.session_management_token, response.json())
 
     def test_login_without_totp_is_unchanged(self):
         # No enrollment: the classic single-step login response.
