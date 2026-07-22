@@ -279,6 +279,14 @@ def _verify_totp_code(user, code):
     the last accepted one is refused, so a code observed in transit cannot be
     replayed inside its validity window.
     """
+    # An enrolled account should always have a secret, but a row left
+    # inconsistent (totp_enabled with no secret) would otherwise blow up inside
+    # pyotp and surface as a 500. Fail the check cleanly instead so callers
+    # return their normal "invalid code" response.
+    if not user.totp_secret:
+        logger.warning(f"TOTP verification attempted with no stored secret for user_id: {user.id}")
+        return False
+
     totp = pyotp.TOTP(user.totp_secret, interval=_TOTP_PERIOD_SECONDS)
     now = timezone.now()
     for offset in (-1, 0, 1):
@@ -785,16 +793,22 @@ def login_user_2fa(request):
             return log_and_return_json("login_user_2fa", {'error': "Invalid or expired challenge"}, status=400)
 
         # Re-run the account gates from login_user; the account's state may
-        # have changed between the password step and this one.
+        # have changed between the password step and this one. Burn the
+        # challenge on the way out: it is a password-less credential, so a
+        # failed gate should not leave it usable until expiry (and the user
+        # will re-authenticate from the top anyway).
         if has_active_outright_ban(user):
+            challenge.delete()
             logger.warning(f"Two-factor login failed: Account banned for user_id: {user.id}")
             return log_and_return_json("login_user_2fa", {'error': ACCOUNT_BANNED}, status=403)
         if not user.email_verified:
+            challenge.delete()
             logger.warning(f"Two-factor login failed: Email not verified for user_id: {user.id}")
             return log_and_return_json("login_user_2fa", {'error': EMAIL_NOT_VERIFIED}, status=403)
 
         if totp_code:
-            code_ok = bool(user.totp_secret) and _verify_totp_code(user, totp_code)
+            # _verify_totp_code guards a missing secret itself.
+            code_ok = _verify_totp_code(user, totp_code)
         else:
             code_ok = _consume_recovery_code(user, recovery_code)
 
