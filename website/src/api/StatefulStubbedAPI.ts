@@ -462,6 +462,9 @@ export class StatefulStubbedAPI implements PositiveOnlySocialAPI {
     if (!user.totpSecret) {
       throw new ApiError(400, 'Two-factor setup has not been started')
     }
+    if (user.passwordHash !== body.password) {
+      throw new ApiError(400, 'Invalid password')
+    }
     if (body.totp_code !== STUB_TOTP_CODE) {
       throw new ApiError(400, 'Invalid two-factor code')
     }

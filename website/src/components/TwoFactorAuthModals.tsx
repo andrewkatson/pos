@@ -38,6 +38,7 @@ export function EnableTwoFactorModal({ onClose, onEnabled }: EnableTwoFactorModa
   const [secret, setSecret] = useState('')
   const [otpauthUri, setOtpauthUri] = useState('')
   const [code, setCode] = useState('')
+  const [password, setPassword] = useState('')
   const [recoveryCodes, setRecoveryCodes] = useState<string[]>([])
   const [errorMessage, setErrorMessage] = useState<string | null>(null)
   // Separate copy state per button so copying the secret on the scan step
@@ -66,13 +67,14 @@ export function EnableTwoFactorModal({ onClose, onEnabled }: EnableTwoFactorModa
   }, [])
 
   const isCodeValid = /^\d{6}$/.test(code.trim())
+  const canConfirm = isCodeValid && password.length > 0
 
   async function handleConfirm() {
-    if (!isCodeValid || isBusy) return
+    if (!canConfirm || isBusy) return
     setIsBusy(true)
     setErrorMessage(null)
     try {
-      const response = await apiClient.confirmTotp({ totp_code: code.trim() })
+      const response = await apiClient.confirmTotp({ password, totp_code: code.trim() })
       setRecoveryCodes(response.recovery_codes)
       setStep('codes')
     } catch (err) {
@@ -136,7 +138,11 @@ export function EnableTwoFactorModal({ onClose, onEnabled }: EnableTwoFactorModa
 
       {step === 'confirm' && (
         <>
-          <p className="modal__body">Enter the 6-digit code your authenticator app shows now.</p>
+          <p className="modal__body">
+            Enter the 6-digit code your authenticator app shows now, and your account password.
+            The password is required so that someone who gets hold of your session cannot turn on
+            two-factor authentication with their own app and lock you out.
+          </p>
           <input
             className="search-bar"
             type="text"
@@ -148,6 +154,15 @@ export function EnableTwoFactorModal({ onClose, onEnabled }: EnableTwoFactorModa
             onChange={e => setCode(e.target.value)}
             disabled={isBusy}
           />
+          <input
+            className="search-bar"
+            type="password"
+            autoComplete="current-password"
+            aria-label="Account password"
+            value={password}
+            onChange={e => setPassword(e.target.value)}
+            disabled={isBusy}
+          />
           <div className="modal__actions">
             <button type="button" className="modal__cancel" onClick={onClose} disabled={isBusy}>
               Cancel
@@ -155,7 +170,7 @@ export function EnableTwoFactorModal({ onClose, onEnabled }: EnableTwoFactorModa
             <button
               type="button"
               className="modal__confirm"
-              disabled={!isCodeValid || isBusy}
+              disabled={!canConfirm || isBusy}
               onClick={handleConfirm}
             >
               Verify
