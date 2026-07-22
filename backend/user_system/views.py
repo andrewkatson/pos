@@ -973,20 +973,42 @@ def setup_totp(request):
 @ratelimit(key='user', rate='10/h', block=True)
 @require_POST
 def confirm_totp(request):
-    """Finish TOTP enrollment: verify one code from the authenticator, flip
-    totp_enabled, and hand back the single batch of recovery codes."""
+    """Finish TOTP enrollment: verify the account password and one code from the
+    authenticator, flip totp_enabled, and hand back the single batch of recovery
+    codes.
+
+    The password is required for the same reason disable_totp requires it, in the
+    opposite direction. Enrollment is the more dangerous half: someone holding a
+    stolen session could otherwise bind their own authenticator to the account,
+    read the one-time recovery codes off the response, and lock the real owner
+    out for good — turning temporary session theft into a permanent takeover that
+    the owner cannot undo, because disable_totp then demands a code only the
+    attacker has.
+    """
     logger.info("Endpoint confirm_totp invoked by IP or User")
     user = request.user
     data = _get_json_body(request)
     if data is None:
         return log_and_return_json("confirm_totp", {'error': "Invalid JSON data"}, status=400)
 
+    password = data.get(Fields.password)
     totp_code = data.get(Fields.totp_code)
+
+    invalid_fields = []
+    # isinstance matters here: is_valid_pattern coerces with str(), so a JSON
+    # number would satisfy the regex and then blow up inside check_password —
+    # a 500 where this should be a plain 400. Matches disable_totp.
+    if not password or not isinstance(password, str) or not is_valid_pattern(password, Patterns.login_password):
+        invalid_fields.append(Params.password)
     if not totp_code or not isinstance(totp_code, str) or not is_valid_pattern(totp_code, Patterns.totp_code):
-        return log_and_return_json("confirm_totp", {'error': f"Invalid fields ['{Params.totp_code}']"}, status=400)
+        invalid_fields.append(Params.totp_code)
+    if len(invalid_fields) > 0:
+        return log_and_return_json("confirm_totp", {'error': f"Invalid fields {invalid_fields}"}, status=400)
 
     # Lock the user row so the replay guard in _verify_totp_code (which reads and
-    # writes totp_last_used_step) cannot race a concurrent confirm/verify.
+    # writes totp_last_used_step) cannot race a concurrent confirm/verify, and so
+    # the password check below is evaluated against the same row that gets
+    # enrolled.
     with transaction.atomic():
         user = get_user_model().objects.select_for_update().get(pk=user.pk)
 
@@ -996,6 +1018,10 @@ def confirm_totp(request):
         if not user.totp_secret:
             return log_and_return_json("confirm_totp",
                                        {'error': "Two-factor setup has not been started"}, status=400)
+
+        if not check_password(password, user.password):
+            logger.warning(f"TOTP confirmation failed: Password was not correct for user_id: {user.id}")
+            return log_and_return_json("confirm_totp", {'error': "Invalid password"}, status=400)
 
         if not _verify_totp_code(user, totp_code):
             logger.warning(f"TOTP confirmation failed: Invalid code for user_id: {user.id}")

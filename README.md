@@ -146,11 +146,16 @@ passwords (issue #348). SMS is deliberately not offered.
 **Enrollment** is a two-step handshake from an authenticated session:
 `2fa/totp/setup/` generates a secret and returns it with an `otpauth://`
 provisioning URI (rendered as a QR code by clients); nothing is enforced yet.
-`2fa/totp/confirm/` takes one code from the authenticator to prove it was
-added correctly, enables 2FA, and returns ten single-use recovery codes —
-shown exactly once and stored with Django's salted password hasher (so a
-database leak can't be brute-forced offline). Re-running setup before
-confirming just replaces the pending secret.
+`2fa/totp/confirm/` takes the account password plus one code from the
+authenticator to prove it was added correctly, enables 2FA, and returns ten
+single-use recovery codes — shown exactly once and stored with Django's salted
+password hasher (so a database leak can't be brute-forced offline). Re-running
+setup before confirming just replaces the pending secret.
+
+The password on confirm is what stops a stolen session from being upgraded into
+a permanent takeover: without it a thief could bind their own authenticator,
+read the one-time recovery codes off the response, and lock the real owner out
+for good, since turning 2FA back off then requires a code only the thief holds.
 
 **Login** becomes two steps for enrolled accounts. `login/` still checks the
 password (and ban/email-verification gates) but returns

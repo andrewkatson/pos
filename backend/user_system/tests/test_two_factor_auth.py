@@ -52,12 +52,20 @@ class TwoFactorAuthTests(PositiveOnlySocialTestCase):
         self.assertEqual(response.status_code, 200)
         return response.json()
 
+    def _confirm_totp(self, secret, password=None):
+        """Submits a confirmation for `secret`, defaulting to the real password."""
+        return self.client.post(
+            self.confirm_url,
+            data={
+                Fields.password: self.local_password if password is None else password,
+                Fields.totp_code: pyotp.TOTP(secret).now(),
+            },
+            content_type='application/json', **self.header)
+
     def _enable_totp(self):
         """Runs setup + confirm. Returns (secret, recovery_codes)."""
         secret = self._setup_totp()[Fields.totp_secret]
-        code = pyotp.TOTP(secret).now()
-        response = self.client.post(self.confirm_url, data={Fields.totp_code: code},
-                                    content_type='application/json', **self.header)
+        response = self._confirm_totp(secret)
         self.assertEqual(response.status_code, 200)
         self._reset_replay_guard()
         return secret, response.json()[Fields.recovery_codes]
@@ -125,8 +133,40 @@ class TwoFactorAuthTests(PositiveOnlySocialTestCase):
 
     def test_confirm_with_wrong_code_does_not_enable(self):
         self._setup_totp()
-        response = self.client.post(self.confirm_url, data={Fields.totp_code: '000000'},
+        response = self.client.post(self.confirm_url,
+                                    data={Fields.password: self.local_password,
+                                          Fields.totp_code: '000000'},
                                     content_type='application/json', **self.header)
+        self.assertEqual(response.status_code, 400)
+        self.assertFalse(self._user().totp_enabled)
+
+    def test_confirm_requires_the_account_password(self):
+        # A stolen session alone must not be able to bind an authenticator: that
+        # would hand the thief the recovery codes and lock the real owner out,
+        # since disable_totp then demands a code only the thief has.
+        secret = self._setup_totp()[Fields.totp_secret]
+
+        missing = self.client.post(self.confirm_url,
+                                   data={Fields.totp_code: pyotp.TOTP(secret).now()},
+                                   content_type='application/json', **self.header)
+        self.assertEqual(missing.status_code, 400)
+        self.assertFalse(self._user().totp_enabled)
+
+        wrong = self._confirm_totp(secret, password='Wrong-Password1!')
+        self.assertEqual(wrong.status_code, 400)
+        self.assertFalse(self._user().totp_enabled)
+        # No recovery codes leak on the failed attempt.
+        self.assertNotIn(Fields.recovery_codes, wrong.json())
+        self.assertEqual(RecoveryCode.objects.filter(user=self._user()).count(), 0)
+
+        self.assertEqual(self._confirm_totp(secret).status_code, 200)
+        self.assertTrue(self._user().totp_enabled)
+
+    def test_confirm_with_non_string_password_returns_bad_request(self):
+        # is_valid_pattern coerces with str(), so a JSON number would reach
+        # check_password and raise — this must stay a 400, not a 500.
+        secret = self._setup_totp()[Fields.totp_secret]
+        response = self._confirm_totp(secret, password=12345678)
         self.assertEqual(response.status_code, 400)
         self.assertFalse(self._user().totp_enabled)
 
@@ -139,21 +179,17 @@ class TwoFactorAuthTests(PositiveOnlySocialTestCase):
         self.assertNotEqual(first_secret, second_secret)
         self.assertEqual(self._user().totp_secret, second_secret)
 
-        response = self.client.post(self.confirm_url,
-                                    data={Fields.totp_code: pyotp.TOTP(first_secret).now()},
-                                    content_type='application/json', **self.header)
-        self.assertEqual(response.status_code, 400)
+        self.assertEqual(self._confirm_totp(first_secret).status_code, 400)
         self.assertFalse(self._user().totp_enabled)
 
         # The current secret still confirms.
-        response = self.client.post(self.confirm_url,
-                                    data={Fields.totp_code: pyotp.TOTP(second_secret).now()},
-                                    content_type='application/json', **self.header)
-        self.assertEqual(response.status_code, 200)
+        self.assertEqual(self._confirm_totp(second_secret).status_code, 200)
         self.assertTrue(self._user().totp_enabled)
 
     def test_confirm_without_setup_returns_bad_response(self):
-        response = self.client.post(self.confirm_url, data={Fields.totp_code: '123456'},
+        response = self.client.post(self.confirm_url,
+                                    data={Fields.password: self.local_password,
+                                          Fields.totp_code: '123456'},
                                     content_type='application/json', **self.header)
         self.assertEqual(response.status_code, 400)
 
@@ -338,7 +374,9 @@ class TwoFactorAuthTests(PositiveOnlySocialTestCase):
         # Enable TOTP for them.
         setup = self.client.post(self.setup_url, content_type='application/json', **header)
         secret = setup.json()[Fields.totp_secret]
-        confirm = self.client.post(self.confirm_url, data={Fields.totp_code: pyotp.TOTP(secret).now()},
+        confirm = self.client.post(self.confirm_url,
+                                   data={Fields.password: password,
+                                         Fields.totp_code: pyotp.TOTP(secret).now()},
                                    content_type='application/json', **header)
         self.assertEqual(confirm.status_code, 200)
 
