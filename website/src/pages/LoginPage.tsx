@@ -113,9 +113,11 @@ function LoginPage() {
     } catch (err) {
       const apiErr = err as ApiError
       if (apiErr.message === 'Invalid or expired challenge') {
-        // The challenge timed out (or was invalidated): start over.
+        // The challenge timed out (or was invalidated): start over from the
+        // default authenticator-code entry, matching backToLogin().
         setChallengeToken(null)
         setTwoFactorCode('')
+        setUseRecoveryCode(false)
         setErrorMessage('Your login expired. Please sign in again.')
       } else {
         setErrorMessage(apiErr.message ?? 'Verification failed. Please try again.')
