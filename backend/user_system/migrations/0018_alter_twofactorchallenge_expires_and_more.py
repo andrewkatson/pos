@@ -6,7 +6,7 @@ from django.db import migrations, models
 class Migration(migrations.Migration):
 
     dependencies = [
-        ('user_system', '0016_positiveonlysocialuser_totp_enabled_and_more'),
+        ('user_system', '0017_positiveonlysocialuser_totp_enabled_and_more'),
     ]
 
     operations = [

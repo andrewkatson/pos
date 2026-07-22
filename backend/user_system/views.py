@@ -218,32 +218,93 @@ def api_login_required(view_func):
     return _wrapped_view
 
 
-def _record_device_and_maybe_notify(user, ip, notify=True):
-    """Record that ``user`` has logged in from ``ip``.
+def _get_device_type(user_agent):
+    user_agent = user_agent.lower()
 
-    The first time we see an IP for a user (a brand-new device) we email them
-    so they are alerted to the login. ``notify`` is set False for registration,
-    where the user is plainly the one establishing the account and a "new login"
-    alert would only be noise. A failure to send the email must never block the
-    login itself, so it is logged and swallowed.
+    if 'android' in user_agent:
+        return 'Android'
+    if 'iphone' in user_agent or 'ipad' in user_agent or 'ipod' in user_agent:
+        return 'iOS'
+    if 'windows' in user_agent:
+        return 'Windows'
+    if 'macintosh' in user_agent or 'mac os x' in user_agent:
+        return 'macOS'
+    if 'linux' in user_agent:
+        return 'Linux'
+
+    return 'Unknown device'
+
+
+def _record_device_and_maybe_notify(user, ip, request=None, notify=True):
+    """Record that a user has logged in from this IP and User-Agent.
+
+    Registration passes notify=False so the first device is saved without
+    sending a new-login alert. Later logins from a new IP/User-Agent pair
+    trigger the email.
     """
     if not ip:
         return
-    _, created = KnownDevice.objects.get_or_create(user=user, ip=ip)
+
+    user_agent = ''
+    if request is not None:
+        user_agent = (
+            request.META.get('HTTP_USER_AGENT', '') or ''
+        )[:512]
+
+    # Rows created before User-Agent tracking have a blank User-Agent.
+    # Upgrade the legacy row on the first login after deployment without
+    # treating that login as a new device.
+    if user_agent:
+        legacy_device = KnownDevice.objects.filter(
+            user=user,
+            ip=ip,
+            user_agent='',
+        ).first()
+
+        if legacy_device is not None:
+            try:
+                with transaction.atomic():
+                    legacy_device.user_agent = user_agent
+                    legacy_device.save(update_fields=['user_agent'])
+            except IntegrityError:
+                # Another request may already have created the same
+                # user/IP/User-Agent record. Remove the old blank row only
+                # if it is still blank.
+                KnownDevice.objects.filter(
+                    pk=legacy_device.pk,
+                    user_agent='',
+                ).delete()
+
+            return
+
+    _, created = KnownDevice.objects.get_or_create(
+        user=user,
+        ip=ip,
+        user_agent=user_agent,
+    )
+
     if not (created and notify):
         return
+
+    device_type = _get_device_type(user_agent)
+
     try:
         send_mail(
             "New login to your account",
-            "We noticed a login to your account from a new device "
-            f"(IP address {ip}).\n\nIf this was you, you can ignore this email. "
-            "If you don't recognize this activity, please reset your password right away.",
+            "We noticed a login to your account from a new device.\n\n"
+            f"Device type: {device_type}\n"
+            f"IP address: {ip}\n\n"
+            "If this was you, you can ignore this email. "
+            "If you don't recognize this activity, please reset your "
+            "password right away.",
             settings.EMAIL_HOST_USER,
             [user.email],
         )
     except Exception:
-        logger.exception(f"Failed to send new-device login email for user_id {user.id}")
-
+        logger.exception(
+            "Failed to send new-device login email for user_id %s",
+            user.id,
+        )
 
 def _issue_email_verification_token(user):
     """Generate and store a fresh email-verification token for ``user``.
@@ -259,11 +320,11 @@ def _issue_email_verification_token(user):
     token = secrets.token_urlsafe(32)
     user.email_verified = False
     user.email_verification_token = hashlib.sha256(token.encode()).hexdigest()
-    user.email_verification_token_expires = timezone.now() + timedelta(hours=EMAIL_VERIFICATION_TOKEN_HOURS)
+    user.email_verification_token_expires = timezone.now() + timedelta(
+        hours=EMAIL_VERIFICATION_TOKEN_HOURS
+    )
     user.save()
     return token
-
-
 def _email_verification_link(token):
     return f"{settings.FRONTEND_BASE_URL}/verify-email?token={token}"
 
@@ -350,9 +411,10 @@ def _create_authenticated_session(view_name, request, user, ip, remember_me):
 
     new_session = user.session_set.create(management_token=generate_management_token(), ip=ip)
 
-    # Alert the user by email if this login is from a device (IP) we have
-    # not seen for them before.
-    _record_device_and_maybe_notify(user, ip)
+    # Alert the user by email if this login is from a device we have not seen
+    # for them before. `request` is required: device identity includes the
+    # User-Agent, so omitting it would record a blank one and skew the check.
+    _record_device_and_maybe_notify(user, ip, request=request)
 
     response_data = {
         Fields.session_management_token: new_session.management_token,
@@ -477,7 +539,7 @@ def register(request):
 
     # Record the registering device as known so the user's first real login
     # from it is not flagged as new, but don't email them about it.
-    _record_device_and_maybe_notify(new_user, ip, notify=False)
+    _record_device_and_maybe_notify(new_user, ip, request=request, notify=False)
 
     response_data = {
         Fields.session_management_token: new_session.management_token,
@@ -683,9 +745,9 @@ def login_user_with_remember_me(request):
     new_session_management_token = generate_management_token()
     _ = existing.session_set.create(management_token=new_session_management_token, ip=ip)
 
-    # Alert the user by email if this remember-me login is from a device (IP)
+    # Alert the user by email if this remember-me login is from a device (IP+user-agent)
     # we have not seen for them before.
-    _record_device_and_maybe_notify(existing, ip)
+    _record_device_and_maybe_notify(existing, ip, request=request)
 
     response_data = {
         Fields.login_cookie_token: new_login_cookie_token,
@@ -1331,7 +1393,10 @@ def make_post(request):
         # The key must be scoped to this user (clients upload to `{user_id}/...`).
         elif not image_url_to_key(image_url).startswith(f"{request.user.id}/"):
             invalid_fields.append(Params.image)
-    if not caption or not is_valid_pattern(caption, Patterns.alphanumeric_with_special_chars):
+    if (not caption
+            or not isinstance(caption, str)
+            or ";" in caption
+            or not is_valid_pattern(caption, Patterns.alphanumeric_with_special_chars)):
         invalid_fields.append(Params.caption)
 
     if len(invalid_fields) > 0:
@@ -1819,7 +1884,10 @@ def comment_on_post(request, post_identifier):
 
     if not is_valid_pattern(post_identifier, Patterns.uuid4):
         return log_and_return_json("comment_on_post", {'error': "Invalid post_identifier"}, status=400)
-    if not comment_text or not is_valid_pattern(comment_text, Patterns.alphanumeric_with_special_chars):
+    if (not comment_text
+            or not isinstance(comment_text, str)
+            or ";" in comment_text
+            or not is_valid_pattern(comment_text, Patterns.alphanumeric_with_special_chars)):
         return log_and_return_json("comment_on_post", {'error': "Invalid comment text"}, status=400)
     if len(comment_text) > MAX_COMMENT_LENGTH:
         return log_and_return_json("comment_on_post", {'error': f"Comment exceeds maximum length of {MAX_COMMENT_LENGTH} characters"}, status=400)
@@ -1889,7 +1957,7 @@ def reply_to_comment_thread(request, post_identifier, comment_thread_identifier)
         invalid_fields.append(Params.post_identifier)
     if not is_valid_pattern(comment_thread_identifier, Patterns.uuid4):
         invalid_fields.append(Params.comment_thread_identifier)
-    if not comment_text or not is_valid_pattern(comment_text, Patterns.alphanumeric_with_special_chars):
+    if not comment_text or not isinstance(comment_text, str) or ";" in comment_text or not is_valid_pattern(comment_text, Patterns.alphanumeric_with_special_chars):
         invalid_fields.append(Params.comment_text)
 
     if len(invalid_fields) > 0:

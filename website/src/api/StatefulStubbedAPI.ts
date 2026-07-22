@@ -3,20 +3,26 @@
 // android/.../api/StatefulStubbedAPI.kt. Useful for tests and offline/demo
 // modes. Errors are surfaced by throwing ApiError, matching the real ApiClient.
 
-import { ApiError } from './client'
+import { ApiError, INVALID_TWO_FACTOR_CHALLENGE } from './client'
 import type { PositiveOnlySocialAPI } from './PositiveOnlySocialAPI'
 import type {
   AuthResponse,
   Comment,
   CommentOnPostResponse,
   CommentThreadRef,
+  ConfirmTotpRequest,
+  ConfirmTotpResponse,
   CreatePostRequest,
   CreatePostResponse,
   CreateUploadUrlResponse,
+  DisableTotpRequest,
+  DisableTotpResponse,
   FeedPost,
   HiddenComment,
   HiddenPost,
   LoginRequest,
+  LoginResponse,
+  LoginTwoFactorRequest,
   LoginWithRememberMeRequest,
   LoginWithRememberMeResponse,
   MessageResponse,
@@ -31,6 +37,7 @@ import type {
   ResetPasswordRequest,
   SubmitAppealRequest,
   SubmitAppealResponse,
+  TwoFactorSetupResponse,
   UserSearchResult,
   VerifyEmailRequest,
   VerifyResetRequest,
@@ -45,6 +52,36 @@ const POST_BATCH_SIZE = 10
 const COMMENT_BATCH_SIZE = 10
 const MAX_BEFORE_HIDING_POST = 5
 const MAX_BEFORE_HIDING_COMMENT = 5
+
+// The stub has no clock-based TOTP; this fixed code is the one the stub
+// accepts, mirroring the fixed codes in the iOS/Android stubs.
+export const STUB_TOTP_CODE = '123456'
+const STUB_RECOVERY_CODE_COUNT = 10
+
+/** Cryptographically secure random bytes. These feed credential-shaped values
+ * (TOTP secret, recovery codes), so Math.random() is not appropriate even in a
+ * stub — it would model the real flow with an insecure generator. */
+function randomBytes(length: number): Uint8Array {
+  const bytes = new Uint8Array(length)
+  crypto.getRandomValues(bytes)
+  return bytes
+}
+
+// Recovery codes must match the 10-hex-character format the UI and backend
+// enforce (Patterns.recovery_code), so the stub is usable in demo mode.
+// 5 bytes render as exactly 10 hex characters.
+function stubRecoveryCode(): string {
+  return Array.from(randomBytes(5), byte => byte.toString(16).padStart(2, '0')).join('')
+}
+
+// Authenticator apps require the otpauth:// `secret=` to be Base32 (RFC 4648:
+// A-Z and 2-7). Deriving it from newId() would embed a hyphen, so QR/manual
+// enrollment would fail in demo mode; generate a real Base32 secret instead.
+// The alphabet is exactly 32 chars, so indexing a byte by % 32 is unbiased.
+const BASE32_ALPHABET = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ234567'
+function stubTotpSecret(): string {
+  return Array.from(randomBytes(32), byte => BASE32_ALPHABET[byte % 32]).join('')
+}
 
 interface UserMock {
   id: string
@@ -61,6 +98,16 @@ interface UserMock {
   isAdult: boolean
   blocked: Set<string>
   blockedBy: Set<string>
+  totpSecret: string | null
+  totpEnabled: boolean
+  /** Unused recovery codes; consumed codes are removed. */
+  recoveryCodes: Set<string>
+}
+
+interface TwoFactorChallengeMock {
+  challengeToken: string
+  userId: string
+  rememberMe: boolean
 }
 
 interface SessionMock {
@@ -145,6 +192,7 @@ export class StatefulStubbedAPI implements PositiveOnlySocialAPI {
   private users: UserMock[] = []
   private sessions: SessionMock[] = []
   private loginCookies: LoginCookieMock[] = []
+  private twoFactorChallenges: TwoFactorChallengeMock[] = []
   private posts: PostMock[] = []
   private commentThreads: CommentThreadMock[] = []
   private appeals: AppealMock[] = []
@@ -245,6 +293,9 @@ export class StatefulStubbedAPI implements PositiveOnlySocialAPI {
       isAdult: age !== null && age >= 18,
       blocked: new Set(),
       blockedBy: new Set(),
+      totpSecret: null,
+      totpEnabled: false,
+      recoveryCodes: new Set(),
     }
     this.users.push(user)
 
@@ -269,12 +320,27 @@ export class StatefulStubbedAPI implements PositiveOnlySocialAPI {
     }
   }
 
-  async login(body: LoginRequest): Promise<AuthResponse> {
+  async login(body: LoginRequest): Promise<LoginResponse> {
     const user = this.users.find(
       (u) => u.username === body.username_or_email || u.email === body.username_or_email,
     )
     if (!user || user.passwordHash !== body.password) {
       throw new ApiError(400, 'Invalid username or password')
+    }
+
+    // 2FA-enrolled accounts get a challenge instead of a session, mirroring
+    // login_user in backend/user_system/views.py.
+    if (user.totpEnabled) {
+      // No session is issued until the second factor is verified; clear any
+      // prior token so the stub doesn't look authenticated in the meantime.
+      this.setToken(null)
+      const challengeToken = newId()
+      this.twoFactorChallenges.push({
+        challengeToken,
+        userId: user.id,
+        rememberMe: Boolean(body.remember_me),
+      })
+      return { two_factor_required: true, challenge_token: challengeToken }
     }
 
     const sessionToken = newId()
@@ -324,6 +390,113 @@ export class StatefulStubbedAPI implements PositiveOnlySocialAPI {
       login_cookie_token: cookie.token,
       session_management_token: newSessionToken,
     }
+  }
+
+  async loginWithTwoFactor(body: LoginTwoFactorRequest): Promise<AuthResponse> {
+    const challenge = this.twoFactorChallenges.find(
+      (c) => c.challengeToken === body.challenge_token,
+    )
+    if (!challenge) {
+      throw new ApiError(400, INVALID_TWO_FACTOR_CHALLENGE)
+    }
+    const user = this.users.find((u) => u.id === challenge.userId)
+    if (!user) {
+      throw new ApiError(400, INVALID_TWO_FACTOR_CHALLENGE)
+    }
+
+    let codeOk = false
+    if (body.totp_code && !body.recovery_code) {
+      codeOk = body.totp_code === STUB_TOTP_CODE
+    } else if (body.recovery_code && !body.totp_code) {
+      // Recovery codes are single-use: consume on success.
+      codeOk = user.recoveryCodes.delete(body.recovery_code)
+    } else {
+      throw new ApiError(400, "Invalid fields ['TOTP_CODE', 'RECOVERY_CODE']")
+    }
+    if (!codeOk) {
+      throw new ApiError(400, 'Invalid two-factor code')
+    }
+
+    this.twoFactorChallenges = this.twoFactorChallenges.filter(
+      (c) => c.challengeToken !== body.challenge_token,
+    )
+
+    const sessionToken = newId()
+    this.sessions.push({ managementToken: sessionToken, userId: user.id })
+
+    let seriesIdentifier: string | undefined
+    let loginCookieToken: string | undefined
+    if (challenge.rememberMe) {
+      seriesIdentifier = newId()
+      loginCookieToken = newId()
+      this.loginCookies.push({ seriesIdentifier, token: loginCookieToken, userId: user.id })
+    }
+
+    this.setToken(sessionToken)
+    return {
+      session_management_token: sessionToken,
+      user_id: user.id,
+      username: user.username,
+      series_identifier: seriesIdentifier,
+      login_cookie_token: loginCookieToken,
+    }
+  }
+
+  async setupTotp(): Promise<TwoFactorSetupResponse> {
+    const user = this.requireUser()
+    if (user.totpEnabled) {
+      throw new ApiError(400, 'Two-factor authentication is already enabled')
+    }
+    user.totpSecret = stubTotpSecret()
+    return {
+      totp_secret: user.totpSecret,
+      otpauth_uri: `otpauth://totp/Positive%20Only%20Social:${encodeURIComponent(user.email)}?secret=${user.totpSecret}&issuer=Positive%20Only%20Social`,
+    }
+  }
+
+  async confirmTotp(body: ConfirmTotpRequest): Promise<ConfirmTotpResponse> {
+    const user = this.requireUser()
+    if (user.totpEnabled) {
+      throw new ApiError(400, 'Two-factor authentication is already enabled')
+    }
+    if (!user.totpSecret) {
+      throw new ApiError(400, 'Two-factor setup has not been started')
+    }
+    if (body.totp_code !== STUB_TOTP_CODE) {
+      throw new ApiError(400, 'Invalid two-factor code')
+    }
+    user.totpEnabled = true
+    user.recoveryCodes = new Set(
+      Array.from({ length: STUB_RECOVERY_CODE_COUNT }, stubRecoveryCode),
+    )
+    return { totp_enabled: true, recovery_codes: [...user.recoveryCodes] }
+  }
+
+  async disableTotp(body: DisableTotpRequest): Promise<DisableTotpResponse> {
+    const user = this.requireUser()
+    if (!user.totpEnabled) {
+      throw new ApiError(400, 'Two-factor authentication is not enabled')
+    }
+    if (user.passwordHash !== body.password) {
+      throw new ApiError(400, 'Invalid password')
+    }
+    // Exactly one of totp_code / recovery_code must be supplied, matching the
+    // backend's field validation (both-or-neither is a bad request, not a
+    // wrong code).
+    if (Boolean(body.totp_code) === Boolean(body.recovery_code)) {
+      throw new ApiError(400, "Invalid fields ['TOTP_CODE', 'RECOVERY_CODE']")
+    }
+    const codeOk = body.totp_code
+      ? body.totp_code === STUB_TOTP_CODE
+      : user.recoveryCodes.delete(body.recovery_code as string)
+    if (!codeOk) {
+      throw new ApiError(400, 'Invalid two-factor code')
+    }
+    user.totpSecret = null
+    user.totpEnabled = false
+    user.recoveryCodes = new Set()
+    this.twoFactorChallenges = this.twoFactorChallenges.filter((c) => c.userId !== user.id)
+    return { totp_enabled: false }
   }
 
   async logout(): Promise<MessageResponse> {
