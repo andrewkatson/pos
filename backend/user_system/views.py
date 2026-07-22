@@ -1022,7 +1022,7 @@ def make_post(request):
         # The key must be scoped to this user (clients upload to `{user_id}/...`).
         elif not image_url_to_key(image_url).startswith(f"{request.user.id}/"):
             invalid_fields.append(Params.image)
-    if (not caption or ";" in caption or not is_valid_pattern(caption,Patterns.alphanumeric_with_special_chars)):
+    if (not caption or not isinstance(caption, str) or ";" in caption or not is_valid_pattern(caption,Patterns.alphanumeric_with_special_chars)):
         invalid_fields.append(Params.caption)
 
     if len(invalid_fields) > 0:
@@ -1510,7 +1510,7 @@ def comment_on_post(request, post_identifier):
 
     if not is_valid_pattern(post_identifier, Patterns.uuid4):
         return log_and_return_json("comment_on_post", {'error': "Invalid post_identifier"}, status=400)
-    if (not comment_text or ";" in comment_text or not is_valid_pattern(comment_text,Patterns.alphanumeric_with_special_chars)):
+    if (not comment_text or not isinstance(comment_text, str) or ";" in comment_text or not is_valid_pattern(comment_text,Patterns.alphanumeric_with_special_chars)):
         return log_and_return_json("comment_on_post", {'error': "Invalid comment text"}, status=400)
     if len(comment_text) > MAX_COMMENT_LENGTH:
         return log_and_return_json("comment_on_post", {'error': f"Comment exceeds maximum length of {MAX_COMMENT_LENGTH} characters"}, status=400)
@@ -1580,7 +1580,7 @@ def reply_to_comment_thread(request, post_identifier, comment_thread_identifier)
         invalid_fields.append(Params.post_identifier)
     if not is_valid_pattern(comment_thread_identifier, Patterns.uuid4):
         invalid_fields.append(Params.comment_thread_identifier)
-    if not comment_text or ";" in comment_text or not is_valid_pattern(comment_text, Patterns.alphanumeric_with_special_chars):
+    if not comment_text or not isinstance(comment_text, str) or ";" in comment_text or not is_valid_pattern(comment_text, Patterns.alphanumeric_with_special_chars):
         invalid_fields.append(Params.comment_text)
 
     if len(invalid_fields) > 0:

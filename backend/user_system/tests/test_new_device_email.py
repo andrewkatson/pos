@@ -127,6 +127,7 @@ class NewDeviceEmailTests(PositiveOnlySocialTestCase):
         stored_device = KnownDevice.objects.get(
             user=user,
             ip=NEW_IP,
+            user_agent=expected_user_agent,
         )
         self.assertEqual(len(stored_device.user_agent), 512) 
        

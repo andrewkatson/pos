@@ -168,3 +168,45 @@ class CommentOnPostTests(PositiveOnlySocialTestCase):
         # Check that the returned IDs match the ones created in the DB
         self.assertEqual(fields[Fields.comment_thread_identifier], str(comment_thread.comment_thread_identifier))
         self.assertEqual(fields[Fields.comment_identifier], str(comment.comment_identifier))
+    @patch.dict(os.environ, {"TESTING": "True"}, clear=True)
+    def test_non_string_comment_text_returns_bad_response(self):
+        """
+        A truthy non-string comment_text must be rejected with a 400 rather than raising
+        a TypeError from the semicolon/length checks and surfacing as a 500.
+        """
+        for comment_text in (123, 1.5, True, ['a'], {'a': 'b'}):
+            with self.subTest(comment_text=comment_text):
+                data = self.valid_data.copy()
+                data['comment_text'] = comment_text
+
+                response = self.client.post(
+                    self.url,
+                    data=data,
+                    content_type='application/json',
+                    **self.valid_header
+                )
+
+                self.assertEqual(response.status_code, 400)
+
+    @patch.dict(os.environ, {"TESTING": "True"}, clear=True)
+    def test_non_string_reply_comment_text_returns_bad_response(self):
+        """
+        reply_to_comment_thread shares the same validation shape as comment_on_post,
+        so a truthy non-string comment_text must also yield a 400 rather than a 500.
+        """
+        thread = self._comment_on_post(self.session_management_token, self.post_identifier)
+        url = reverse('reply_to_comment_thread', kwargs={
+            'post_identifier': str(self.post_identifier),
+            'comment_thread_identifier': str(thread[Fields.comment_thread_identifier]),
+        })
+
+        for comment_text in (123, 1.5, True, ['a'], {'a': 'b'}):
+            with self.subTest(comment_text=comment_text):
+                response = self.client.post(
+                    url,
+                    data={'comment_text': comment_text},
+                    content_type='application/json',
+                    **self.valid_header
+                )
+
+                self.assertEqual(response.status_code, 400)
