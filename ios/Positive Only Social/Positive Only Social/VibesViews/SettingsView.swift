@@ -172,6 +172,14 @@ struct SettingsView: View {
                 }
             }) {
                 enrollTwoFactorSheet
+                    // Block swipe-to-dismiss while a confirm is in flight (the
+                    // request can succeed on the backend, and dismissing would
+                    // drop the response along with the one-time recovery codes)
+                    // and once those codes are on screen, since they're shown
+                    // exactly once and can't be re-issued. Cancel/Done remain.
+                    .interactiveDismissDisabled(
+                        viewModel.isConfirmingTotp || viewModel.recoveryCodes != nil
+                    )
             }
             .sheet(isPresented: $showingDisableTwoFactor) {
                 disableTwoFactorSheet

@@ -213,6 +213,10 @@ final class StatefulStubbedAPI: Networking {
         // 2FA-enrolled accounts get a challenge instead of a session, mirroring
         // login_user in backend/user_system/views.py.
         if user.totpEnabled {
+            // Only one challenge is live per user, matching login_user in the
+            // backend — otherwise a stale challenge from an earlier attempt
+            // would still be accepted after a newer login.
+            twoFactorChallenges.removeAll { $0.userId == user.id }
             let challenge = MockTwoFactorChallenge(
                 challengeToken: generateToken(),
                 userId: user.id,

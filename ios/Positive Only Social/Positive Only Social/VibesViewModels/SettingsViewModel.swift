@@ -35,6 +35,11 @@ final class SettingsViewModel: ObservableObject {
     // `.alert`s bound to the same flag (one on the List, one on the sheet) have
     // undefined presentation in SwiftUI.
     @Published var twoFactorErrorMessage: String?
+    // True while a confirm request is in flight. The enrollment sheet blocks
+    // interactive dismissal during that window: the request can succeed on the
+    // backend, and dismissing would drop the response (and with it the
+    // one-time recovery codes) while 2FA is actually enabled.
+    @Published var isConfirmingTotp = false
     
     // Unique identifiers for Keychain
     private let keychainService = GVOAppConstants.keychainService
@@ -141,7 +146,13 @@ final class SettingsViewModel: ObservableObject {
     func confirmTotp(code: String) {
         totpRequestGeneration += 1
         let generation = totpRequestGeneration
+        isConfirmingTotp = true
         Task {
+            defer {
+                // Only the newest attempt owns the flag; an older one finishing
+                // late must not unblock dismissal for the current attempt.
+                if generation == totpRequestGeneration { isConfirmingTotp = false }
+            }
             do {
                 guard let userSession = try keychainHelper.load(UserSession.self, from: keychainService, account: account) else {
                     if generation == totpRequestGeneration { twoFactorErrorMessage = "Session not found." }
@@ -166,6 +177,7 @@ final class SettingsViewModel: ObservableObject {
         // Invalidate any in-flight setup/confirm so a late response can't
         // repopulate state after the flow has ended.
         totpRequestGeneration += 1
+        isConfirmingTotp = false
         totpSetup = nil
         recoveryCodes = nil
         twoFactorErrorMessage = nil
@@ -176,6 +188,7 @@ final class SettingsViewModel: ObservableObject {
     /// Abandons a not-yet-confirmed enrollment (the pending secret is inert).
     func cancelTotpEnrollment() {
         totpRequestGeneration += 1
+        isConfirmingTotp = false
         totpSetup = nil
         recoveryCodes = nil
         twoFactorErrorMessage = nil
