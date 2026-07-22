@@ -161,6 +161,8 @@ exactly the same state as a plain login (session token, optional remember-me
 cookie, new-device email). A challenge is invalidated after 5 failed code
 attempts. Codes are accepted with one 30-second step of clock drift either
 way, and an accepted code cannot be replayed within its validity window.
+Recovery codes are issued as lowercase hex but accepted in any case and with
+stray surrounding whitespace, since they get typed by hand.
 Accounts without 2FA get the original single-step response, so older clients
 keep working for them.
 

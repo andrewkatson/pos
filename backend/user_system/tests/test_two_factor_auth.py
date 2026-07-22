@@ -290,6 +290,24 @@ class TwoFactorAuthTests(PositiveOnlySocialTestCase):
     # RECOVERY CODES
     # =========================================================================
 
+    def test_recovery_code_accepted_in_any_case_and_with_stray_whitespace(self):
+        # Codes are issued as lowercase hex but get typed by hand off a screen
+        # or a printout, so case and surrounding whitespace must not matter.
+        _, recovery_codes = self._enable_totp()
+
+        challenge = self._login_expect_challenge()
+        response = self._submit_2fa(challenge, recovery_code=f'  {recovery_codes[0].upper()}  ')
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(RecoveryCode.objects.filter(user=self._user(), used_at__isnull=False).count(), 1)
+
+        # And on disable_totp, which validates the same field.
+        response = self.client.post(self.disable_url,
+                                    data={Fields.password: self.local_password,
+                                          Fields.recovery_code: recovery_codes[1].upper()},
+                                    content_type='application/json', **self.header)
+        self.assertEqual(response.status_code, 200)
+        self.assertFalse(self._user().totp_enabled)
+
     def test_login_2fa_with_recovery_code_is_single_use(self):
         _, recovery_codes = self._enable_totp()
 

@@ -362,6 +362,18 @@ def _verify_totp_code(user, code):
     return False
 
 
+def _normalize_recovery_code(value):
+    """Fold a submitted recovery code to the form the server issued.
+
+    Codes are generated as lowercase hex, but they are read off a screen or a
+    printout and typed by hand, so an uppercase A-F or a stray space picked up
+    from a copy-paste is the user's mistake to absorb rather than a failed
+    login. Only strings are touched; anything else falls through unchanged so
+    the field validation still rejects it.
+    """
+    return value.strip().lower() if isinstance(value, str) else value
+
+
 def _consume_recovery_code(user, code):
     """Mark the matching unused recovery code as spent. Returns whether one matched.
 
@@ -639,41 +651,49 @@ def login_user(request):
             logger.warning(f"Login failed: Email not verified for user_id: {existing.id}")
             return log_and_return_json("login_user", {'error': EMAIL_NOT_VERIFIED}, status=403)
 
-        if existing.totp_enabled:
-            # The password checked out, but the account requires a second
-            # factor: hand back a short-lived challenge instead of a session.
-            # login_user_2fa exchanges it for the real session. Delete every
-            # existing challenge for the user first, so only one is ever valid
-            # at a time — otherwise the per-challenge attempt limit could be
-            # multiplied by requesting several challenges at once. The
-            # delete-then-create runs under a row lock so two concurrent logins
-            # can't interleave and leave more than one live challenge.
-            raw_challenge = secrets.token_hex(32)
-            with transaction.atomic():
-                locked = get_user_model().objects.select_for_update().get(pk=existing.pk)
-                # Re-check under the lock: the totp_enabled read above was
-                # unlocked, so disable_totp may have run in between. Issuing a
-                # challenge then would strand this login on a second step the
-                # account can no longer satisfy, so fall through to a normal
-                # session instead.
-                issued_challenge = locked.totp_enabled
-                if issued_challenge:
-                    locked.two_factor_challenges.all().delete()
-                    locked.two_factor_challenges.create(
-                        token_hash=hashlib.sha256(raw_challenge.encode()).hexdigest(),
-                        expires=timezone.now() + timedelta(minutes=TWO_FACTOR_CHALLENGE_MINUTES),
-                        remember_me=remember_me,
-                    )
+        # The password checked out. Decide between "issue a challenge" and "mint
+        # a session" from a locked row rather than from the unlocked read above,
+        # which either endpoint can invalidate underneath us: disable_totp would
+        # strand this login on a second step the account can no longer satisfy,
+        # and confirm_totp would let it skip a second factor the account now
+        # requires. Taking the lock unconditionally costs one extra query on the
+        # login path and only ever serializes concurrent logins for the same user.
+        raw_challenge = None
+        with transaction.atomic():
+            locked = get_user_model().objects.select_for_update().get(pk=existing.pk)
+            if locked.totp_enabled:
+                # The account requires a second factor: hand back a short-lived
+                # challenge instead of a session, which login_user_2fa exchanges
+                # for the real one. Delete every existing challenge for the user
+                # first, so only one is ever valid at a time — otherwise the
+                # per-challenge attempt limit could be multiplied by requesting
+                # several challenges at once. The delete-then-create runs under
+                # this same lock so two concurrent logins can't interleave and
+                # leave more than one live challenge.
+                raw_challenge = secrets.token_hex(32)
+                locked.two_factor_challenges.all().delete()
+                locked.two_factor_challenges.create(
+                    token_hash=hashlib.sha256(raw_challenge.encode()).hexdigest(),
+                    expires=timezone.now() + timedelta(minutes=TWO_FACTOR_CHALLENGE_MINUTES),
+                    remember_me=remember_me,
+                )
 
-            if issued_challenge:
-                logger.info(f"Login requires two-factor code for user_id: {existing.id}")
-                response = log_and_return_json("login_user", {
-                    Fields.two_factor_required: True,
-                    Fields.challenge_token: raw_challenge,
-                })
-                response['Cache-Control'] = 'no-store'
-                return response
+        if raw_challenge is not None:
+            logger.info(f"Login requires two-factor code for user_id: {existing.id}")
+            response = log_and_return_json("login_user", {
+                Fields.two_factor_required: True,
+                Fields.challenge_token: raw_challenge,
+            })
+            response['Cache-Control'] = 'no-store'
+            return response
 
+        # The lock is deliberately released before the session is minted:
+        # _create_authenticated_session can send a new-device email, and holding
+        # a row lock across an SMTP round-trip would serialize every login for
+        # that user behind the mail server. The sliver of time this leaves is not
+        # worth that cost — enabling two-factor authentication does not revoke
+        # existing sessions, so a password holder who logged in a moment earlier
+        # keeps their session either way.
         return _create_authenticated_session("login_user", request, existing, ip, remember_me)
     else:
         logger.warning("Login failed: No user exists with that information")
@@ -822,7 +842,7 @@ def login_user_2fa(request):
 
     challenge_token = data.get(Fields.challenge_token)
     totp_code = data.get(Fields.totp_code)
-    recovery_code = data.get(Fields.recovery_code)
+    recovery_code = _normalize_recovery_code(data.get(Fields.recovery_code))
     ip = _get_client_ip(None, request)
 
     invalid_fields = []
@@ -1010,7 +1030,7 @@ def disable_totp(request):
 
     password = data.get(Fields.password)
     totp_code = data.get(Fields.totp_code)
-    recovery_code = data.get(Fields.recovery_code)
+    recovery_code = _normalize_recovery_code(data.get(Fields.recovery_code))
 
     invalid_fields = []
     # isinstance matters here: is_valid_pattern coerces with str(), so a JSON
