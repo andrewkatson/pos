@@ -39,12 +39,45 @@ class PostDeserializationTest {
     }
 
     @Test
-    fun `feed json without like fields leaves isLiked false`() {
-        // Feed endpoints omit post_likes / is_liked entirely.
+    fun `listing json carries the interaction state and feed details`() {
+        // The three post-listing endpoints now return the same interaction state
+        // the details endpoint does (issue #267), plus the comment count and
+        // creation time the feed rows show (issue #249).
         val json = """
             {
               "post_identifier": "p2",
               "image_url": "https://example.com/b.jpg",
+              "caption": "yo",
+              "author_username": "bob",
+              "post_likes": 4,
+              "is_liked": true,
+              "is_reported": true,
+              "report_reason": "spam",
+              "comment_count": 12,
+              "creation_time": "2026-07-21T10:11:12Z"
+            }
+        """.trimIndent()
+
+        val post = gson.fromJson(json, Post::class.java)
+
+        assertEquals("p2", post.postIdentifier)
+        assertEquals(4, post.likeCount)
+        assertTrue(post.isLiked)
+        assertTrue(post.isReported)
+        assertEquals("spam", post.reportReason)
+        assertEquals(12, post.commentCount)
+        assertEquals("2026-07-21T10:11:12Z", post.creationTime)
+    }
+
+    @Test
+    fun `listing json from an older server without the new fields still parses`() {
+        // A server that predates the extra listing fields omits them entirely;
+        // the post must still deserialize with harmless defaults rather than
+        // failing, so an out-of-date backend doesn't break the feed.
+        val json = """
+            {
+              "post_identifier": "p4",
+              "image_url": "https://example.com/d.jpg",
               "caption": "yo",
               "author_username": "bob"
             }
@@ -52,8 +85,11 @@ class PostDeserializationTest {
 
         val post = gson.fromJson(json, Post::class.java)
 
-        assertEquals("p2", post.postIdentifier)
+        assertEquals("p4", post.postIdentifier)
         assertEquals(false, post.isLiked)
+        assertEquals(false, post.isReported)
+        assertNull(post.reportReason)
+        assertNull(post.creationTime)
     }
 
     @Test

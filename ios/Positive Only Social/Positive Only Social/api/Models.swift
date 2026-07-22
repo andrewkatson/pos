@@ -53,16 +53,103 @@ struct Post: Codable, Identifiable, Hashable {
     var hiddenReason: String? = nil
     var appealable: Bool? = nil
 
+    /// The interaction state the post lists need to offer like / report /
+    /// retract-report / delete in place, without opening the post (issue #267).
+    /// These carry exactly what `get_post_details` returns, and the three
+    /// listing endpoints now return them too. They're `var` so an action can
+    /// optimistically update the cached post, and defaulted when decoding so a
+    /// response from an older backend (which omits them) still decodes.
+    var postLikes: Int
+    var isLiked: Bool
+    var isReported: Bool
+    var reportReason: String?
+
+    /// How many comments on this post are visible to the viewer, and when the
+    /// post was made — the extra context the feed rows show (issue #249). Kept
+    /// as the raw timestamp string so `Post` still round-trips through `Codable`
+    /// unchanged; use `createdDate` to render it.
+    var commentCount: Int
+    var creationTime: String?
+
+    /// When the post was made, or nil when the backend didn't send a timestamp
+    /// (or sent one we can't parse) — in which case the feed omits the label.
+    var createdDate: Date? {
+        guard let creationTime else { return nil }
+        return RelativeTime.date(from: creationTime)
+    }
+
     enum CodingKeys: String, CodingKey {
         case postIdentifier = "post_identifier"
         case imageUrl = "image_url"
         case originalImageUrl = "original_image_url"
         case caption = "caption"
         case authorUsername = "author_username"
+        case postLikes = "post_likes"
+        case isLiked = "is_liked"
+        case isReported = "is_reported"
+        case reportReason = "report_reason"
+        case commentCount = "comment_count"
+        case creationTime = "creation_time"
         case status
         case hidden
         case hiddenReason = "hidden_reason"
         case appealable
+    }
+
+    init(
+        postIdentifier: String,
+        imageUrl: String?,
+        originalImageUrl: String? = nil,
+        caption: String,
+        authorUsername: String,
+        postLikes: Int = 0,
+        isLiked: Bool = false,
+        isReported: Bool = false,
+        reportReason: String? = nil,
+        commentCount: Int = 0,
+        creationTime: String? = nil,
+        status: String? = nil,
+        hidden: Bool? = nil,
+        hiddenReason: String? = nil,
+        appealable: Bool? = nil
+    ) {
+        self.postIdentifier = postIdentifier
+        self.imageUrl = imageUrl
+        self.originalImageUrl = originalImageUrl
+        self.caption = caption
+        self.authorUsername = authorUsername
+        self.postLikes = postLikes
+        self.isLiked = isLiked
+        self.isReported = isReported
+        self.reportReason = reportReason
+        self.commentCount = commentCount
+        self.creationTime = creationTime
+        self.status = status
+        self.hidden = hidden
+        self.hiddenReason = hiddenReason
+        self.appealable = appealable
+    }
+
+    // Decodes the interaction fields leniently so a response that predates them
+    // (an older server, or a cached payload) still yields a usable post.
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        postIdentifier = try container.decode(String.self, forKey: .postIdentifier)
+        imageUrl = try container.decodeIfPresent(String.self, forKey: .imageUrl)
+        originalImageUrl = try container.decodeIfPresent(String.self, forKey: .originalImageUrl)
+        caption = try container.decode(String.self, forKey: .caption)
+        authorUsername = try container.decode(String.self, forKey: .authorUsername)
+        postLikes = try container.decodeIfPresent(Int.self, forKey: .postLikes) ?? 0
+        isLiked = try container.decodeIfPresent(Bool.self, forKey: .isLiked) ?? false
+        isReported = try container.decodeIfPresent(Bool.self, forKey: .isReported) ?? false
+        reportReason = try container.decodeIfPresent(String.self, forKey: .reportReason)
+        commentCount = try container.decodeIfPresent(Int.self, forKey: .commentCount) ?? 0
+        creationTime = try container.decodeIfPresent(String.self, forKey: .creationTime)
+        // Author-only classification state (#282); absent on others' posts.
+        status = try container.decodeIfPresent(String.self, forKey: .status)
+        hidden = try container.decodeIfPresent(Bool.self, forKey: .hidden)
+        hiddenReason = try container.decodeIfPresent(String.self, forKey: .hiddenReason)
+        appealable = try container.decodeIfPresent(Bool.self, forKey: .appealable)
     }
 }
 

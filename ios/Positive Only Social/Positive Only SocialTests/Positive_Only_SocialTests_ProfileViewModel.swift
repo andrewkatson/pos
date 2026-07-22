@@ -256,5 +256,175 @@ struct Positive_Only_SocialTests_ProfileViewModel {
         #expect(sut.isFollowing == true)
         #expect(sut.profileDetails?.followerCount == 1, "Following again should not double-count to 2")
     }
-}
 
+    // --- Own Profile (issue #347) ---
+
+    @Test func testForCurrentUser_BuildsTheSignedInUsersOwnProfile() async throws {
+        let (token, user) = try await registerUser(username: "ownProfileUser")
+        let account = "ownProfileUser_account"
+        try await setupLoggedInUser(user: user, token: token, account: account)
+
+        // The Profile tab builds its view model from the stored session rather
+        // than being handed a User, since there's nothing to navigate from.
+        let sut = ProfileViewModel.forCurrentUser(api: stubAPI, keychainHelper: keychainHelper, account: account)
+
+        #expect(sut.user.username == "ownProfileUser")
+        #expect(sut.isOwnProfile == true, "Follow/Block stay hidden on your own profile")
+    }
+
+    @Test func testPostCreatedNotification_RefreshesOwnProfileGrid() async throws {
+        let (token, user) = try await registerUser(username: "postCreatedOwner")
+        let account = "postCreatedOwner_account"
+        try await setupLoggedInUser(user: user, token: token, account: account)
+
+        // Inject a private NotificationCenter so this test's notification can't
+        // leak into (or be disturbed by) view models on `.default`.
+        let center = NotificationCenter()
+        let sut = ProfileViewModel(user: user, api: stubAPI, keychainHelper: keychainHelper, account: account,
+                                   notificationCenter: center)
+
+        _ = try await stubAPI.makePost(sessionManagementToken: token, imageURL: "own.image/1", caption: "Post 1")
+        sut.fetchUserPosts()
+        await yield()
+        #expect(sut.userPosts.count == 1)
+
+        // When: a new post is created elsewhere in the app
+        _ = try await stubAPI.makePost(sessionManagementToken: token, imageURL: "own.image/2", caption: "Post 2")
+        center.post(name: .postCreated, object: nil)
+        await yield()
+
+        // Then: it shows up without a manual pull-to-refresh
+        #expect(sut.userPosts.count == 2)
+        #expect(sut.userPosts.first?.imageUrl == "own.image/2", "Newest first")
+    }
+
+    @Test func testPostCreatedNotification_IgnoredOnSomeoneElsesProfile() async throws {
+        let (requestingUserToken, requestingUser) = try await registerUser(username: "otherProfileViewer")
+        let (profileUserToken, profileUser) = try await registerUser(username: "otherProfileOwner")
+        let account = "otherProfileViewer_account"
+        try await setupLoggedInUser(user: requestingUser, token: requestingUserToken, account: account)
+
+        let center = NotificationCenter()
+        let sut = ProfileViewModel(user: profileUser, api: stubAPI, keychainHelper: keychainHelper, account: account,
+                                   notificationCenter: center)
+
+        _ = try await stubAPI.makePost(sessionManagementToken: profileUserToken, imageURL: "other.image/1", caption: "Post 1")
+        sut.fetchUserPosts()
+        await yield()
+        #expect(stubAPI.getPostsForUserCallCount == 1)
+
+        // A post the signed-in user created doesn't belong on someone else's
+        // profile, so the grid isn't refetched.
+        center.post(name: .postCreated, object: nil)
+        await yield()
+        #expect(stubAPI.getPostsForUserCallCount == 1)
+    }
+
+    @Test func testPostDeletedNotification_RemovesPostFromProfileGrid() async throws {
+        stubAPI.pageSize = 10
+        let (token, user) = try await registerUser(username: "profileDeleter")
+        let account = "profileDeleter_account"
+        try await setupLoggedInUser(user: user, token: token, account: account)
+
+        let center = NotificationCenter()
+        let sut = ProfileViewModel(user: user, api: stubAPI, keychainHelper: keychainHelper, account: account,
+                                   notificationCenter: center)
+
+        _ = try await stubAPI.makePost(sessionManagementToken: token, imageURL: "del.image/1", caption: "Post 1")
+        _ = try await stubAPI.makePost(sessionManagementToken: token, imageURL: "del.image/2", caption: "Post 2")
+        sut.fetchUserPosts()
+        await yield()
+        #expect(sut.userPosts.count == 2)
+
+        // When: one of the loaded posts is deleted (announced by whichever list
+        // or detail view deleted it)
+        let deletedId = sut.userPosts.first!.id
+        center.post(name: .postDeleted, object: deletedId)
+        await yield()
+
+        // Then: it's dropped from the grid rather than the grid being reloaded
+        #expect(sut.userPosts.count == 1)
+        #expect(!sut.userPosts.contains { $0.id == deletedId })
+        #expect(stubAPI.getPostsForUserCallCount == 1)
+    }
+
+    // --- Async Classification Reconciliation Tests (#282) ---
+    //
+    // The bounded status poll lives in ProfileViewModel rather than
+    // HomeViewModel because the Profile tab's grid is this view model's
+    // (issue #347). Only your own posts ever carry a status, so these view
+    // their own profile.
+
+    @Test func testStatusPoll_PendingPostResolvesToApproved_ReloadsGrid() async throws {
+        stubAPI.pageSize = 10
+        stubAPI.deferClassification = true
+        let (token, user) = try await registerUser(username: "statusPollApproved")
+        let account = "statusPollApproved_account"
+        try await setupLoggedInUser(user: user, token: token, account: account)
+
+        _ = try await stubAPI.makePost(sessionManagementToken: token, imageURL: nil, caption: "waiting on review")
+
+        let sut = ProfileViewModel(user: user, api: stubAPI, keychainHelper: keychainHelper, account: account)
+        // A comfortably long interval so the classification below is resolved
+        // before the first poll round fires (the round then sees the outcome).
+        sut.statusPollIntervalSeconds = 1
+        sut.fetchUserPosts()
+        await yield(for: .seconds(0.5))
+
+        // The author sees their own pending post, marked as such.
+        #expect(sut.userPosts.count == 1)
+        #expect(sut.userPosts.first?.status == "pending")
+
+        // When the (stubbed) worker approves it, the bounded poll notices and
+        // reloads the grid.
+        stubAPI.resolvePendingClassifications()
+        await yield()
+
+        #expect(sut.userPosts.first?.status == "approved")
+        #expect(sut.reviewNotice == nil)
+    }
+
+    @Test func testStatusPoll_PendingPostResolvesToRejected_SurfacesNotice() async throws {
+        stubAPI.pageSize = 10
+        stubAPI.deferClassification = true
+        let (token, user) = try await registerUser(username: "statusPollRejected")
+        let account = "statusPollRejected_account"
+        try await setupLoggedInUser(user: user, token: token, account: account)
+
+        _ = try await stubAPI.makePost(sessionManagementToken: token, imageURL: nil, caption: "a borderline take")
+
+        let sut = ProfileViewModel(user: user, api: stubAPI, keychainHelper: keychainHelper, account: account)
+        sut.statusPollIntervalSeconds = 1
+        sut.fetchUserPosts()
+        await yield(for: .seconds(0.5))
+        #expect(sut.userPosts.first?.status == "pending")
+
+        stubAPI.resolvePendingClassifications()
+        await yield()
+
+        // The rejection is surfaced once, and the reloaded grid still shows the
+        // post (hidden but appealable) with its rejected state.
+        #expect(sut.reviewNotice != nil)
+        #expect(sut.userPosts.first?.status == "rejected")
+        #expect(sut.userPosts.first?.appealable == true)
+    }
+
+    @Test func testStatusPoll_NoPendingPosts_DoesNotPoll() async throws {
+        stubAPI.pageSize = 10
+        let (token, user) = try await registerUser(username: "statusPollNotNeeded")
+        let account = "statusPollNotNeeded_account"
+        try await setupLoggedInUser(user: user, token: token, account: account)
+
+        _ = try await stubAPI.makePost(sessionManagementToken: token, imageURL: "my.image/1", caption: "instantly approved")
+
+        let sut = ProfileViewModel(user: user, api: stubAPI, keychainHelper: keychainHelper, account: account)
+        sut.statusPollIntervalSeconds = 0.05
+        sut.fetchUserPosts()
+        await yield()
+        #expect(sut.userPosts.first?.status == "approved")
+
+        // No pending posts, so the poll never re-fetches the grid.
+        await yield()
+        #expect(stubAPI.getPostsForUserCallCount == 1)
+    }
+}

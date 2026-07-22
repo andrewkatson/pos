@@ -191,6 +191,25 @@ export interface FeedPost {
   original_image_url?: string | null
   author_username: string
   caption: string
+  /** Total likes on the post. Present so a grid tile can show a like control
+   * without opening the post first (issue #267). Older responses that predate
+   * the field omit it. */
+  post_likes?: number
+  /** Whether the requesting user has liked this post (issue #267). */
+  is_liked?: boolean
+  /** Whether the requesting user has an active report against this post,
+   * so a grid tile can offer "retract report" instead of "report" (#267). */
+  is_reported?: boolean
+  /** The requesting user's own report reason, shown pre-populated in the
+   * retract dialog. Null/absent when they haven't reported it (#267). */
+  report_reason?: string | null
+  /** How many comments the post has that are visible to the requesting user,
+   * shown as a tappable indicator on each feed row (issue #249). */
+  comment_count?: number
+  /** ISO-8601 creation timestamp, rendered as "3 hours ago" under a feed row
+   * (issue #249). The backend column is nullable, so this can be null; older
+   * responses that predate the field omit it entirely. */
+  creation_time?: string | null
   /** Author-only (issue #282): present on the viewer's own posts so the client
    * can render pending/rejected states; other users' posts never carry these
    * (their pending/hidden posts are filtered out server-side entirely). */

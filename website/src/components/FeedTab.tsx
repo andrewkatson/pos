@@ -1,8 +1,12 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { apiClient } from '../api/client'
+import { getCurrentUsername } from '../api/session'
 import type { FeedPost } from '../api/types'
+import { profilePathFor } from '../utils/profilePath'
 import PostThumbnail from './PostThumbnail'
+import PostActionBar from './PostActionBar'
+import { usePostActions } from './usePostActions'
 
 type FeedType = 'forYou' | 'following'
 
@@ -10,6 +14,9 @@ type FeedType = 'forYou' | 'following'
  * The "Feed" tab with a For You / Following segmented control. Each feed loads
  * independently and supports pagination. Mirrors iOS FeedView (ForYou +
  * Following feeds, infinite scroll, tap author → profile, tap image → detail).
+ *
+ * Each post carries the same like / report / delete controls as the profile
+ * grid, so the feed can be acted on without opening each post (issue #267).
  */
 function FeedTab() {
   const navigate = useNavigate()
@@ -31,6 +38,16 @@ function FeedTab() {
   // Start loading on mount so the spinner shows without a synchronous setState
   // inside the fetch effect (which React flags as a cascading render).
   const [isLoading, setIsLoading] = useState(true)
+  const [errorMessage, setErrorMessage] = useState<string | null>(null)
+
+  const { stateFor, toggleLike, openMenu, dialogs } = usePostActions({
+    currentUsername: getCurrentUsername(),
+    // Deleting from the feed drops the row rather than reloading the whole feed,
+    // which would reshuffle the weighted ordering under the user (issue #267).
+    onPostDeleted: postIdentifier =>
+      setPosts(prev => prev.filter(post => post.post_identifier !== postIdentifier)),
+    onError: setErrorMessage,
+  })
 
   const fetcher = useCallback(
     (batch: number) =>
@@ -71,6 +88,20 @@ function FeedTab() {
 
   return (
     <div>
+      {errorMessage && (
+        <div className="auth-error" role="alert">
+          <p>{errorMessage}</p>
+          <button
+            type="button"
+            className="auth-error__dismiss"
+            aria-label="Dismiss error"
+            onClick={() => setErrorMessage(null)}
+          >
+            ✕
+          </button>
+        </div>
+      )}
+
       <div className="segmented" role="tablist" aria-label="Feed type">
         <button
           type="button"
@@ -120,7 +151,7 @@ function FeedTab() {
               <button
                 type="button"
                 className="feed-post__author"
-                onClick={() => navigate(`/profile/${encodeURIComponent(post.author_username)}`)}
+                onClick={() => navigate(profilePathFor(post.author_username))}
               >
                 {post.author_username}
               </button>
@@ -132,6 +163,16 @@ function FeedTab() {
               >
                 <PostThumbnail post={post} />
               </button>
+              {/* Comment count and post time only appear here: feed rows have
+                  the width for them, the square profile tiles don't (#249). */}
+              <PostActionBar
+                post={post}
+                state={stateFor(post)}
+                onToggleLike={toggleLike}
+                onOpenMenu={openMenu}
+                onOpenPost={p => navigate(`/post/${p.post_identifier}`)}
+                showDetails
+              />
             </article>
           ))}
         </div>
@@ -150,6 +191,8 @@ function FeedTab() {
           Load more
         </button>
       )}
+
+      {dialogs}
     </div>
   )
 }

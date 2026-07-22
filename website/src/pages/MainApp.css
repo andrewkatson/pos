@@ -141,6 +141,69 @@
   display: block;
 }
 
+/* One grid slot: the thumbnail plus its action row (issue #267). The row sits
+   below the square thumbnail rather than over it, so it can't swallow taps
+   meant for the image. */
+.post-grid__item {
+  display: flex;
+  flex-direction: column;
+  background: #1a1a1a;
+}
+
+/* Retry prompt when a profile fails to load. The Profile tab can't be navigated
+   away from and re-entered, so it needs a way back from a transient failure. */
+.profile-load-failed {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 2rem 1rem;
+}
+
+/* ---- In-list post actions (grid + feed, issue #267) ---- */
+
+.post-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.3rem 0.4rem;
+}
+
+.post-actions__count {
+  font-size: 0.8rem;
+  color: #b3b3b3;
+}
+
+/* Tappable comment count on a feed row; opens the post (issue #249). */
+.post-actions__comments {
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
+  background: none;
+  border: none;
+  color: inherit;
+  cursor: pointer;
+  font-size: 0.9rem;
+  padding: 0;
+}
+
+/* How long ago the post was made, shown on feed rows (issue #249). */
+.post-actions__time {
+  font-size: 0.8rem;
+  color: #8e8e8e;
+}
+
+.post-actions__menu {
+  margin-left: auto;
+  background: none;
+  border: none;
+  color: inherit;
+  cursor: pointer;
+  font-size: 1rem;
+  line-height: 1;
+  padding: 0 0.2rem;
+}
+
 /* Author-only classification state on one's own tiles (#282): "In review"
    while the async classifier runs, or the appeal hint on a rejection. */
 .post-grid__status-badge {

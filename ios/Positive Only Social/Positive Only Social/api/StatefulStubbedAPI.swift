@@ -67,6 +67,32 @@ fileprivate struct MockPost {
     let createdDate = Date()
 }
 
+/// One post as the three listing endpoints (feed, following feed, user posts)
+/// serialize it. Each row carries the same like/report state `getPostDetails`
+/// returns so the clients can act on a post straight from a list (issue #267).
+fileprivate struct PostListingFields: Codable {
+    let post_identifier: String
+    let image_url: String?
+    let caption: String
+    let author_username: String
+    let post_likes: Int
+    let is_liked: Bool
+    let is_reported: Bool
+    let report_reason: String?
+    /// Comments visible to the viewer, and when the post was made — the extra
+    /// context the feed rows show (issue #249).
+    let comment_count: Int
+    //TODO: eBlender rename to camelCase creationTime (via CodingKeys).
+    let creation_time: String?
+    /// Author-only classification state (#282), mirroring the backend: only a
+    /// viewer's own grid carries these. Encoded as nil (and so omitted) for
+    /// everyone else's posts and for the feeds.
+    let status: String?
+    let hidden: Bool?
+    let hidden_reason: String?
+    let appealable: Bool?
+}
+
 fileprivate struct MockCommentThread {
     let commentThreadIdentifier = UUID().uuidString
     let postId: String
@@ -149,6 +175,49 @@ final class StatefulStubbedAPI: Networking {
     /// Returns a JSON array response matching the real backend format.
     private func createSerializedListResponse<T: Codable>(fieldsList: [T]) throws -> Data {
         return try JSONEncoder().encode(fieldsList)
+    }
+
+    /// Serializes one post for a listing endpoint, including the viewer's own
+    /// like/report state so the list can offer the same actions the post detail
+    /// view does (issue #267).
+    fileprivate func postListingFields(
+        for post: MockPost,
+        viewer: MockUser,
+        isOwnGrid: Bool = false
+    ) -> PostListingFields {
+        let viewerReport = post.reports.first(where: { $0.username == viewer.username })
+        return PostListingFields(
+            post_identifier: post.postIdentifier,
+            image_url: post.imageURL,
+            caption: post.caption,
+            author_username: users.first(where: { $0.id == post.authorId })?.username ?? "Unknown User",
+            post_likes: post.likes.count,
+            is_liked: post.likes.contains(viewer.username),
+            is_reported: viewerReport != nil,
+            report_reason: viewerReport?.reason,
+            comment_count: commentCount(forPost: post.postIdentifier),
+            // Mirror Django's DjangoJSONEncoder, which emits a colon-separated
+            // UTC offset with fractional seconds (e.g. "…+00:00"), not a "Z"
+            // suffix, so the client's date parsing is exercised against the
+            // real backend format.
+            creation_time: post.createdDate.formatted(
+                Date.ISO8601FormatStyle().year().month().day()
+                    .time(includingFractionalSeconds: true)
+                    .timeZone(separator: .colon)
+            ),
+            status: isOwnGrid ? classificationStatus(post) : nil,
+            hidden: isOwnGrid ? post.isHidden : nil,
+            hidden_reason: isOwnGrid ? post.hiddenReason : nil,
+            appealable: isOwnGrid ? isAppealable(post) : nil
+        )
+    }
+
+    /// The number of visible comments on a post, across all of its threads.
+    private func commentCount(forPost postIdentifier: String) -> Int {
+        let threadIdentifiers = Set(
+            commentThreads.filter { $0.postId == postIdentifier }.map { $0.commentThreadIdentifier }
+        )
+        return comments.filter { threadIdentifiers.contains($0.threadId) && !$0.isHidden }.count
     }
 
     private func createEmptySuccessResponse() throws -> Data {
@@ -572,19 +641,13 @@ final class StatefulStubbedAPI: Networking {
         // Check if the requested page is beyond the available posts
         guard startIndex < relevantPosts.count else {
             // Return an empty list, NOT an error
-            return try createSerializedListResponse(fieldsList: [Fields]())
+            return try createSerializedListResponse(fieldsList: [PostListingFields]())
         }
         
         let endIndex = min(startIndex + pageSize, relevantPosts.count)
         let paginatedPosts = Array(relevantPosts[startIndex..<endIndex])
 
-        struct Fields: Codable { let post_identifier: String; let image_url: String?; let caption: String; let author_username: String }
-
-        let fieldObjects = paginatedPosts.map {
-            let post = $0
-            let authorUsername = users.first(where: { $0.id == post.authorId })?.username ?? "Unknown User"
-            return Fields(post_identifier: $0.postIdentifier, image_url: $0.imageURL, caption: $0.caption, author_username: authorUsername)
-        }
+        let fieldObjects = paginatedPosts.map { postListingFields(for: $0, viewer: user) }
 
         return try createSerializedListResponse(fieldsList: fieldObjects)
     }
@@ -619,21 +682,15 @@ final class StatefulStubbedAPI: Networking {
         // Check if the requested page is beyond the available posts
         guard startIndex < relevantPosts.count else {
             // Return an empty list, NOT an error
-            return try createSerializedListResponse(fieldsList: [Fields]())
+            return try createSerializedListResponse(fieldsList: [PostListingFields]())
         }
         
         let endIndex = min(startIndex + pageSize, relevantPosts.count)
         let paginatedPosts = Array(relevantPosts[startIndex..<endIndex])
 
         // 5. Format the response (matching getPostsInFeed)
-        struct Fields: Codable { let post_identifier: String; let image_url: String?; let caption: String; let author_username: String }
-        
-        let fieldObjects = paginatedPosts.map {
-            let post = $0
-            let authorUsername = users.first(where: { $0.id == post.authorId })?.username ?? "Unknown User"
-            return Fields(post_identifier: $0.postIdentifier, image_url: $0.imageURL, caption: $0.caption, author_username: authorUsername)
-        }
-        
+        let fieldObjects = paginatedPosts.map { postListingFields(for: $0, viewer: currentUser) }
+
         // 6. Return the serialized list
         return try createSerializedListResponse(fieldsList: fieldObjects)
     }
@@ -651,7 +708,7 @@ final class StatefulStubbedAPI: Networking {
         
         let user = findUser(bySessionToken: sessionManagementToken)!
         if user.blocked.contains(targetUser.id) || targetUser.blocked.contains(user.id) {
-             return try createSerializedListResponse(fieldsList: [Fields]())
+             return try createSerializedListResponse(fieldsList: [PostListingFields]())
         }
 
         // Mirrors the backend's visible_posts: authors see their own hidden
@@ -667,7 +724,7 @@ final class StatefulStubbedAPI: Networking {
         let startIndex = batch * pageSize
         guard startIndex < relevantPosts.count else {
             // Return an empty list, NOT an error
-            return try createSerializedListResponse(fieldsList: [Fields]())
+            return try createSerializedListResponse(fieldsList: [PostListingFields]())
         }
 
         let endIndex = min(startIndex + pageSize, relevantPosts.count)
@@ -675,30 +732,8 @@ final class StatefulStubbedAPI: Networking {
 
         // Author-only classification fields (#282) are included when viewing
         // one's own grid, mirroring the backend payload.
-        struct Fields: Codable {
-            let post_identifier: String
-            let image_url: String?
-            let caption: String
-            let author_username: String
-            let status: String?
-            let hidden: Bool?
-            let hidden_reason: String?
-            let appealable: Bool?
-        }
-
         let fieldObjects = paginatedPosts.map {
-            let post = $0
-            let authorUsername = users.first(where: { $0.id == post.authorId })?.username ?? "Unknown User"
-            return Fields(
-                post_identifier: $0.postIdentifier,
-                image_url: $0.imageURL,
-                caption: $0.caption,
-                author_username: authorUsername,
-                status: isOwnGrid ? classificationStatus(post) : nil,
-                hidden: isOwnGrid ? post.isHidden : nil,
-                hidden_reason: isOwnGrid ? post.hiddenReason : nil,
-                appealable: isOwnGrid ? isAppealable(post) : nil
-            )
+            postListingFields(for: $0, viewer: user, isOwnGrid: isOwnGrid)
         }
 
         return try createSerializedListResponse(fieldsList: fieldObjects)

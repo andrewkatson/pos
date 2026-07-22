@@ -29,10 +29,11 @@ struct HomeView: View {
     //TabView Menu
     var body: some View {
         TabView(selection: $currentTab){
-            // Tab 1: User's personal post grid
-            MyPostsGridView(api: api, keychainHelper: keychainHelper)
+            // Tab 1: The signed-in user's own profile — the same profile view
+            // other users' profiles use, plus the user-search bar (issue #347).
+            MyProfileTabView(api: api, keychainHelper: keychainHelper)
                 .tabItem {
-                    Label("Home", systemImage: "house.fill")
+                    Label("Profile", systemImage: "person.crop.circle")
                 }.tag(0)
             
             // Tab 2: Global feed view
@@ -54,123 +55,276 @@ struct HomeView: View {
                 }.tag(3)
         }
         .environmentObject(viewModel)
+        // Lets anything below select a tab — tapping your own username anywhere
+        // in the app lands on the Profile tab (issue #347).
+        .environment(\.selectTab, { currentTab = $0 })
     }
 }
 
-// This sub-view contains the user's post grid and search logic
-struct MyPostsGridView: View {
+/// Selects one of `HomeView`'s tabs. Defaults to a no-op so a view rendered
+/// outside the tab bar (a preview, a test host) can't crash for want of it.
+private struct SelectTabKey: EnvironmentKey {
+    static let defaultValue: (Int) -> Void = { _ in }
+}
+
+extension EnvironmentValues {
+    var selectTab: (Int) -> Void {
+        get { self[SelectTabKey.self] }
+        set { self[SelectTabKey.self] = newValue }
+    }
+}
+
+/// A tappable username. Another user's name pushes their profile, as it always
+/// has; the signed-in user's own name selects the Profile tab instead, since
+/// their profile lives there rather than being pushed a second time (#347).
+struct AuthorNameLink<Content: View>: View {
+    private let username: String
+    private let isCurrentUser: Bool
+    private let label: Content
+
+    @Environment(\.selectTab) private var selectTab
+
+    init(username: String, isCurrentUser: Bool, @ViewBuilder label: () -> Content) {
+        self.username = username
+        self.isCurrentUser = isCurrentUser
+        self.label = label()
+    }
+
+    var body: some View {
+        if isCurrentUser {
+            Button {
+                selectTab(GVOAppConstants.profileTabIndex)
+            } label: {
+                label
+            }
+            .buttonStyle(.plain) // Keeps the text style
+        } else {
+            NavigationLink(value: User(username: username, identityIsVerified: false)) {
+                label
+            }
+            .buttonStyle(.plain) // Keeps the text style
+        }
+    }
+}
+
+/// The first tab: the signed-in user's own profile (issue #347).
+///
+/// It shows exactly what `ProfileView` shows for anyone else — the Posts /
+/// Followers / Following stats above the post grid — so the stats live in one
+/// implementation instead of being duplicated for "your posts". Follow and
+/// Block stay hidden because `ProfileViewModel.isOwnProfile` is true here.
+///
+/// The user-search bar behaves exactly as it did before: typing at least three
+/// characters replaces the profile body with the matching users, each of which
+/// pushes that user's profile.
+struct MyProfileTabView: View {
     let api: Networking
     let keychainHelper: KeychainHelperProtocol
-    @EnvironmentObject private var viewModel: HomeViewModel
-    
-    // Define the grid layout: 3 columns, flexible size, with a 1pt gap that
-    // shows the black grid background as a thin border between posts.
-    private let columns: [GridItem] = Array(repeating: GridItem(.flexible(), spacing: 1), count: 3)
-    
+
+    // Owned by HomeView and shared with this tab: it drives the user search.
+    @EnvironmentObject private var homeViewModel: HomeViewModel
+
+    @StateObject private var viewModel: ProfileViewModel
+    @StateObject private var postActions: PostActionsViewModel
+
+    init(api: Networking, keychainHelper: KeychainHelperProtocol) {
+        self.api = api
+        self.keychainHelper = keychainHelper
+        _viewModel = StateObject(wrappedValue: ProfileViewModel.forCurrentUser(api: api, keychainHelper: keychainHelper))
+        _postActions = StateObject(wrappedValue: PostActionsViewModel(api: api, keychainHelper: keychainHelper))
+    }
+
     var body: some View {
         NavigationStack {
-            ScrollView {
-                // If the user is searching, show the user list. Otherwise, show the post grid.
-                if !viewModel.searchText.isEmpty {
-                    UserSearchResultsView()
+            Group {
+                // If the user is searching, show the user list. Otherwise, show
+                // their own profile.
+                if !homeViewModel.searchText.isEmpty {
+                    ScrollView {
+                        UserSearchResultsView()
+                    }
                 } else {
-                    postGrid // Your updated postGrid is now correctly placed in the stack
+                    ProfileBodyView(
+                        viewModel: viewModel,
+                        postActions: postActions,
+                        // Keep the identifier the Home grid has always used so
+                        // it stays distinguishable from another user's grid.
+                        postAccessibilityIdentifier: "MyPostImage"
+                    )
                 }
             }
-            .navigationTitle("Your Posts")
+            .navigationTitle("Your Profile")
             // The searchable modifier provides the search bar UI and manages its state.
-            .searchable(text: $viewModel.searchText, prompt: "Search for Users")
-            // Surfaces the outcome when a post's async review (#282) resolves
-            // to a rejection while this grid is visible.
-            .alert(
-                "Post Review",
-                isPresented: Binding(
-                    get: { viewModel.reviewNotice != nil },
-                    set: { if !$0 { viewModel.reviewNotice = nil } }
-                )
-            ) {
-                Button("OK") { viewModel.reviewNotice = nil }
-                    .accessibilityIdentifier("OkButtonReviewNotice")
-            } message: {
-                Text(viewModel.reviewNotice ?? "")
-            }
-            .refreshable {
-                // Pull-to-refresh: reload the newest posts from the backend.
-                // Run the reload in an unstructured Task so SwiftUI cancelling
-                // the refreshable task on a re-render can't cancel the request.
-                await Task { await viewModel.refreshMyPosts() }.value
-            }
-            .onAppear {
-                // Fetch initial posts only if the list is empty
-                if viewModel.userPosts.isEmpty {
-                    viewModel.fetchMyPosts()
-                }
-            }
+            .searchable(text: $homeViewModel.searchText, prompt: "Search for Users")
             .navigationDestination(for: Post.self) { post in
                 PostDetailView(postIdentifier: post.id, api: api, keychainHelper: keychainHelper)
             }
             .navigationDestination(for: User.self) { user in
                 ProfileView(user: user, api: api, keychainHelper: keychainHelper)
             }
+            .postActionDialogs(postActions)
         }
     }
-    
-    /// The view for the user's posts
-    private var postGrid: some View {
-        LazyVGrid(columns: columns, spacing: 1) {
-            ForEach(viewModel.userPosts) { post in
+}
 
-                // Wrap the image in a NavigationLink and pass the post as the value.
-                NavigationLink(value: post) {
-                    // Force every post into an identical square, cropping to fill
-                    // so images no longer keep their original dimensions.
-                    Color(.systemGray4)
-                        .aspectRatio(1, contentMode: .fit)
-                        .overlay {
-                            GridPostImage(
-                                imageUrl: post.imageUrl,
-                                originalImageUrl: post.originalImageUrl,
-                                caption: post.caption
-                            )
-                        }
-                        .overlay(alignment: .bottom) {
-                            // Author-only classification state (#282): "In
-                            // review" while the async classifier runs, or the
-                            // appeal hint on a rejection.
-                            if let badge = statusBadgeLabel(for: post) {
-                                Text(badge)
-                                    .font(.caption2)
-                                    .foregroundColor(.white)
-                                    .frame(maxWidth: .infinity)
-                                    .padding(.vertical, 3)
-                                    .background(Color.black.opacity(0.72))
-                                    .accessibilityIdentifier("PostStatusBadge")
-                            }
-                        }
-                        .clipped()
-                }
+/// The like / reported-flag / options row shown under a post in a list, so the
+/// user can act on it without opening it (issue #267). It offers exactly what
+/// `PostDetailView` offers for the same post.
+///
+/// It sits *outside* the row's `NavigationLink` (and each control is its own
+/// button with its own hit shape) so adding it can't swallow the tap that opens
+/// the post — the same care the comment rows take with their gestures.
+struct PostActionBar: View {
+    let post: Post
+    @ObservedObject var postActions: PostActionsViewModel
 
-                // This is the trigger for infinite scrolling
-                .onAppear {
-                    // If this post is the last one in the list, fetch the next page
-                    if post.id == viewModel.userPosts.last?.id {
-                        viewModel.fetchMyPosts()
-                    }
+    /// Whether to show the comment count and the post's age alongside the
+    /// actions (issue #249). The feed rows do; the square profile-grid tiles
+    /// don't, because there's no room for them there.
+    var showsPostDetails: Bool = false
+
+    var body: some View {
+        let state = postActions.state(for: post)
+        HStack(spacing: 6) {
+            // The backend rejects liking your own post, so it has no heart —
+            // matching PostDetailView.
+            if !state.isOwn {
+                Button {
+                    postActions.toggleLike(post)
+                } label: {
+                    Image(systemName: state.isLiked ? "heart.fill" : "heart")
+                        .foregroundColor(Color(UIColor.systemRed))
+                        .contentShape(Rectangle())
                 }
-                .accessibilityIdentifier("MyPostImage")
+                .buttonStyle(.plain)
+                .accessibilityIdentifier("PostListLikeButton")
+                .accessibilityLabel(state.isLiked ? "Unlike post" : "Like post")
             }
+            Text("\(state.likeCount)")
+                .foregroundColor(.secondary)
+                .accessibilityIdentifier("PostListLikeCount")
+            if state.isReported {
+                Image(systemName: "flag.fill")
+                    .foregroundColor(.red)
+                    .accessibilityIdentifier("ReportedPostListIcon")
+                    .accessibilityLabel("You reported this post")
+            }
+            if showsPostDetails {
+                // Tapping the comment count opens the post, where the comments
+                // are (issue #249). It's its own link so it doesn't interfere
+                // with the row's image link.
+                NavigationLink(value: post) {
+                    HStack(spacing: 3) {
+                        Image(systemName: "bubble.right")
+                        Text("\(post.commentCount)")
+                    }
+                    .foregroundColor(.secondary)
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .accessibilityIdentifier("PostListCommentCount")
+                .accessibilityLabel("\(post.commentCount) comments")
+            }
+            Spacer(minLength: 0)
+            // How long ago the post was made, at the same coarse granularity as
+            // comment times. Omitted when the backend sent no timestamp.
+            if showsPostDetails, let created = post.createdDate {
+                Text(RelativeTime.string(from: created))
+                    .foregroundColor(.secondary)
+                    .accessibilityIdentifier("PostListCreatedTime")
+            }
+            Button {
+                postActions.postForMenu = post
+            } label: {
+                Image(systemName: "ellipsis")
+                    .foregroundColor(.secondary)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .accessibilityIdentifier("PostListOptionsButton")
+            .accessibilityLabel("Post options")
         }
-        // Black backing shows through the 1pt gaps as thin borders between posts.
-        .background(Color.black)
+        .font(.caption)
+        .padding(.horizontal, 4)
+        .padding(.vertical, 4)
     }
+}
 
-    /// Overlay label for the author's own pending/rejected grid tiles (#282).
-    private func statusBadgeLabel(for post: Post) -> String? {
-        switch post.status {
-        case "pending": return "In review"
-        case "rejected": return "Hidden — you can appeal"
-        default: return nil
-        }
+/// The confirmation dialog, report sheet, retract-report alert and error alert
+/// behind `PostActionBar`. They're attached once per list (rather than once per
+/// row) and driven by the post the user picked.
+struct PostActionDialogs: ViewModifier {
+    @ObservedObject var postActions: PostActionsViewModel
+
+    func body(content: Content) -> some View {
+        content
+            // Delete on your own post, Retract Report when you already reported
+            // it, Report otherwise — the same menu PostDetailView shows.
+            .confirmationDialog(
+                "Post",
+                isPresented: Binding(
+                    get: { postActions.postForMenu != nil },
+                    set: { if !$0 { postActions.postForMenu = nil } }
+                ),
+                titleVisibility: .hidden,
+                presenting: postActions.postForMenu
+            ) { post in
+                if postActions.state(for: post).isOwn {
+                    Button("Delete Post", role: .destructive) {
+                        postActions.delete(post)
+                    }
+                    .accessibilityIdentifier("DeletePostListActionButton")
+                } else if postActions.state(for: post).isReported {
+                    Button("Retract Report") {
+                        postActions.postToRetract = post
+                    }
+                    .accessibilityIdentifier("RetractReportPostListActionButton")
+                } else {
+                    Button("Report Post") {
+                        postActions.postToReport = post
+                    }
+                    .accessibilityIdentifier("ReportPostListActionButton")
+                }
+            }
+            // Shows the user's original reason so they can see what they're
+            // retracting (issue #176).
+            .alert(
+                "Retract Report?",
+                isPresented: Binding(
+                    get: { postActions.postToRetract != nil },
+                    set: { if !$0 { postActions.postToRetract = nil } }
+                ),
+                presenting: postActions.postToRetract
+            ) { post in
+                Button("Retract Report", role: .destructive) {
+                    postActions.retractReport(post)
+                }
+                Button("Cancel", role: .cancel) {}
+            } message: { post in
+                Text("You reported this post with the reason: “\(postActions.state(for: post).reportReason ?? "")”. Retracting removes your report.")
+            }
+            // The same report sheet the post detail view uses.
+            .sheet(item: $postActions.postToReport) { post in
+                ReportView { reason in
+                    postActions.report(post, reason: reason)
+                }
+            }
+            .alert(isPresented: .constant(postActions.alertMessage != nil)) {
+                Alert(
+                    title: Text("Error"),
+                    message: Text(postActions.alertMessage ?? "An unknown error occurred."),
+                    dismissButton: .default(Text("OK")) {
+                        postActions.alertMessage = nil
+                    }
+                )
+            }
+    }
+}
+
+extension View {
+    /// Attaches the shared post action menus/sheets for a list of posts (#267).
+    func postActionDialogs(_ postActions: PostActionsViewModel) -> some View {
+        modifier(PostActionDialogs(postActions: postActions))
     }
 }
 
@@ -236,22 +390,40 @@ struct UserSearchResultsView: View {
     var body: some View {
         LazyVStack(alignment: .leading) {
             ForEach(viewModel.searchedUsers) { user in
-                NavigationLink(value: user) {
-                    HStack(spacing: 15) {
-                        Image(systemName: "person.circle.fill")
-                            .font(.largeTitle)
-                            .foregroundColor(.gray)
-                        
-                        Text(user.username)
-                            .fontWeight(.bold)
-                        
-                        if user.identityIsVerified {
-                            Image(systemName: "checkmark.seal.fill")
-                                .foregroundColor(.blue)
-                        }
+                // These results only ever show on the Profile tab, so tapping
+                // yourself just clears the search — you're already looking at
+                // your own profile (issue #347).
+                if user.username == viewModel.currentUsername {
+                    Button {
+                        viewModel.searchText = ""
+                    } label: {
+                        userRow(for: user)
                     }
-                }.accessibilityIdentifier(user.username)
+                    .buttonStyle(.plain)
+                    .accessibilityIdentifier(user.username)
+                } else {
+                    NavigationLink(value: user) {
+                        userRow(for: user)
+                    }
+                    .accessibilityIdentifier(user.username)
+                }
                 Divider()
+            }
+        }
+    }
+
+    private func userRow(for user: User) -> some View {
+        HStack(spacing: 15) {
+            Image(systemName: "person.circle.fill")
+                .font(.largeTitle)
+                .foregroundColor(.gray)
+
+            Text(user.username)
+                .fontWeight(.bold)
+
+            if user.identityIsVerified {
+                Image(systemName: "checkmark.seal.fill")
+                    .foregroundColor(.blue)
             }
         }
     }

@@ -16,22 +16,25 @@ enum FeedType: String, CaseIterable {
 struct FeedView: View {
     @StateObject private var forYouViewModel: FeedViewModel
     @StateObject private var followingViewModel: FollowingFeedViewModel
-    
+    // Powers the like / report / delete controls on each feed row (issue #267).
+    @StateObject private var postActions: PostActionsViewModel
+
     // Store api and keychainHelper to pass to navigation destinations
     let api: Networking
     let keychainHelper: KeychainHelperProtocol
-    
+
     // State to track the selected top tab
     @State private var selectedFeed: FeedType = .forYou
-    
+
     init(api: Networking, keychainHelper: KeychainHelperProtocol) {
         _forYouViewModel = StateObject(wrappedValue: FeedViewModel(api: api, keychainHelper: keychainHelper))
         _followingViewModel = StateObject(wrappedValue: FollowingFeedViewModel(api: api, keychainHelper: keychainHelper))
-        
+        _postActions = StateObject(wrappedValue: PostActionsViewModel(api: api, keychainHelper: keychainHelper))
+
         self.api = api
         self.keychainHelper = keychainHelper
     }
-    
+
     var body: some View {
         NavigationStack {
             VStack {
@@ -48,13 +51,14 @@ struct FeedView: View {
                 // The content switches based on the selected tab
                 switch selectedFeed {
                 case .forYou:
-                    ForYouFeedView(viewModel: forYouViewModel)
+                    ForYouFeedView(viewModel: forYouViewModel, postActions: postActions)
                 case .following:
-                    FollowingFeedView(viewModel: followingViewModel)
+                    FollowingFeedView(viewModel: followingViewModel, postActions: postActions)
                 }
             }
             .navigationTitle("Feed")
-            
+            .postActionDialogs(postActions)
+
             // Handles navigation when a User object is passed
             .navigationDestination(for: User.self) { user in
                 ProfileView(user: user, api: api, keychainHelper: keychainHelper)
@@ -83,23 +87,27 @@ struct FeedView: View {
 /// The view for the "For You" feed, containing the scrolling list of posts.
 struct ForYouFeedView: View {
     @ObservedObject var viewModel: FeedViewModel
-    
+    @ObservedObject var postActions: PostActionsViewModel
+
     var body: some View {
         ScrollView {
             LazyVStack(spacing: 25) {
                 ForEach(viewModel.feedPosts) { post in
                     VStack(alignment: .leading, spacing: 10) {
-                        
-                        // Wrap text in a NavigationLink to go to the profile
-                        NavigationLink(value: User(username: post.authorUsername, identityIsVerified: false)) {
+
+                        // Tapping the author opens their profile — or the
+                        // Profile tab when it's you (issue #347).
+                        AuthorNameLink(
+                            username: post.authorUsername,
+                            isCurrentUser: postActions.state(for: post).isOwn
+                        ) {
                             Text(post.authorUsername)
                                 .font(.headline)
                                 .fontWeight(.bold)
                                 .padding(.horizontal)
                         }
-                        .buttonStyle(.plain) // Keeps the text style
                         .accessibilityIdentifier("PostAuthor")
-                        
+
                         // Wrap image in a NavigationLink to go to post details.
                         // Force every post into an identical square, cropping to
                         // fill so images no longer keep their original dimensions.
@@ -126,6 +134,11 @@ struct ForYouFeedView: View {
                             }
                         }
                         .accessibilityIdentifier("ForYouPostImage")
+
+                        // Like / report / delete, the comment count and the
+                        // post's age (issues #267 and #249).
+                        PostActionBar(post: post, postActions: postActions, showsPostDetails: true)
+                            .padding(.horizontal)
                     }
                 }
                 // Loading indicator at the bottom of the list
@@ -152,7 +165,8 @@ struct ForYouFeedView: View {
 /// The view for the "Following" feed.
 struct FollowingFeedView: View {
     @ObservedObject var viewModel: FollowingFeedViewModel
-    
+    @ObservedObject var postActions: PostActionsViewModel
+
     var body: some View {
         // We use the same UI structure as ForYouFeedView
         ScrollView {
@@ -160,16 +174,19 @@ struct FollowingFeedView: View {
                 // Iterate over the followingPosts array
                 ForEach(viewModel.followingPosts) { post in
                     VStack(alignment: .leading, spacing: 10) {
-                        
-                        // Wrap text in a NavigationLink to go to the profile
-                        NavigationLink(value: User(username: post.authorUsername, identityIsVerified: false)) {
+
+                        // Tapping the author opens their profile — or the
+                        // Profile tab when it's you (issue #347).
+                        AuthorNameLink(
+                            username: post.authorUsername,
+                            isCurrentUser: postActions.state(for: post).isOwn
+                        ) {
                             Text(post.authorUsername)
                                 .font(.headline)
                                 .fontWeight(.bold)
                                 .padding(.horizontal)
                         }
-                        .buttonStyle(.plain) // Keeps the text style
-                        
+
                         // Wrap image in a NavigationLink to go to post details.
                         // Force every post into an identical square, cropping to
                         // fill so images no longer keep their original dimensions.
@@ -195,6 +212,11 @@ struct FollowingFeedView: View {
                             }
                         }
                         .accessibilityIdentifier("FollowingPostImage")
+
+                        // Like / report / delete, the comment count and the
+                        // post's age (issues #267 and #249).
+                        PostActionBar(post: post, postActions: postActions, showsPostDetails: true)
+                            .padding(.horizontal)
                     }
                 }
                 

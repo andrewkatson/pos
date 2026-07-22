@@ -4,11 +4,13 @@ import com.example.positiveonlysocial.MainDispatcherRule
 import com.example.positiveonlysocial.api.PositiveOnlySocialAPI
 import com.example.positiveonlysocial.data.model.GenericResponse
 import com.example.positiveonlysocial.data.model.Post
+import com.example.positiveonlysocial.data.model.PostStatusResponse
 import com.example.positiveonlysocial.data.model.ProfileDetailsResponse
 import com.example.positiveonlysocial.data.model.UserSession
 import com.example.positiveonlysocial.data.security.KeychainHelperProtocol
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.test.advanceTimeBy
 import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.runTest
 import okhttp3.ResponseBody.Companion.toResponseBody
@@ -212,5 +214,88 @@ class ProfileViewModelTest {
         // Assert
         assertTrue(viewModel.isBlocked.value)
     }
-}
 
+    // --- Async classification reconciliation (#282) ---
+    //
+    // The bounded status poll lives in this view model rather than
+    // HomeViewModel because the Profile tab's grid is this view model's
+    // (issue #347). Only your own posts ever carry a status.
+
+    // `suspend` because the API methods it stubs are themselves suspend
+    // functions, which Mockito's whenever() can only be handed from a
+    // coroutine context.
+    private suspend fun stubOwnProfile(posts: List<Post>) {
+        whenever(api.getProfileDetails("token123", "testuser"))
+            .thenReturn(Response.success(ProfileDetailsResponse("testuser", posts.size, 0, 0, false)))
+        whenever(api.getPostsForUser("token123", "testuser", 0))
+            .thenReturn(Response.success(posts))
+    }
+
+    @Test
+    fun `pending post polls status and reloads grid when approved`() = runTest {
+        val pendingPost = Post("1", null, "caption", "testuser", status = "pending", hidden = true, hiddenReason = "pending_classification")
+        stubOwnProfile(listOf(pendingPost))
+        // Deliberately no advanceUntilIdle() here: it would advance virtual time
+        // through the poll's own delay, firing a round before getPostStatus is
+        // stubbed below and burning the attempt budget. The unconfined test
+        // dispatcher has already run the fetch to completion.
+        viewModel.fetchUserPosts("testuser")
+        assertEquals("pending", viewModel.userPosts.value.first().status)
+
+        // The worker approves it; the bounded poll notices and reloads.
+        whenever(api.getPostStatus("token123", "1"))
+            .thenReturn(Response.success(PostStatusResponse("1", "approved")))
+        val approvedPost = Post("1", null, "caption", "testuser", status = "approved", hidden = false, hiddenReason = "")
+        stubOwnProfile(listOf(approvedPost))
+
+        advanceTimeBy(3100)
+        advanceUntilIdle()
+
+        assertEquals("approved", viewModel.userPosts.value.first().status)
+        assertEquals(null, viewModel.reviewNotice.value)
+    }
+
+    @Test
+    fun `pending post that resolves to rejected surfaces a review notice`() = runTest {
+        val pendingPost = Post("1", null, "caption", "testuser", status = "pending", hidden = true, hiddenReason = "pending_classification")
+        stubOwnProfile(listOf(pendingPost))
+        // See the note above: advancing here would spend the poll budget.
+        viewModel.fetchUserPosts("testuser")
+
+        whenever(api.getPostStatus("token123", "1")).thenReturn(
+            Response.success(
+                PostStatusResponse(
+                    postIdentifier = "1",
+                    status = "rejected",
+                    reasonCode = "guidelines",
+                    appealable = true,
+                    hidden = true,
+                    hiddenReason = "classifier",
+                    message = "Your post did not pass automated review. It is hidden for now but you can appeal the decision."
+                )
+            )
+        )
+        val rejectedPost = Post("1", null, "caption", "testuser", status = "rejected", hidden = true, hiddenReason = "classifier", appealable = true)
+        stubOwnProfile(listOf(rejectedPost))
+
+        advanceTimeBy(3100)
+        advanceUntilIdle()
+
+        assertTrue(viewModel.reviewNotice.value!!.contains("appeal"))
+        assertEquals("rejected", viewModel.userPosts.value.first().status)
+
+        viewModel.dismissReviewNotice()
+        assertEquals(null, viewModel.reviewNotice.value)
+    }
+
+    @Test
+    fun `no status poll when no post is pending`() = runTest {
+        stubOwnProfile(listOf(Post("1", "url1", "caption1", "testuser", status = "approved")))
+        viewModel.fetchUserPosts("testuser")
+
+        advanceTimeBy(60_000)
+        advanceUntilIdle()
+
+        verify(api, never()).getPostStatus(any(), any())
+    }
+}

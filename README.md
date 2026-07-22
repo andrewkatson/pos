@@ -21,6 +21,46 @@ Neutral content is allowed. Content that starts sad but ends on a happy or hopef
 
 These will be updated as time goes on.
 
+## Navigation and post actions
+
+Every client (website, iOS, Android) shows the same four-item bottom bar:
+**Profile**, **Feed**, **Post**, and **Settings**.
+
+The Profile tab is the signed-in user's own profile — their Posts / Followers /
+Following counts above their post grid — so it is always one tap away. It also
+hosts the user-search bar; while a search is active the results list replaces
+the profile body. Follow and Block are hidden on your own profile, since
+neither applies to yourself.
+
+Tapping another user's name anywhere (a post author, a search result, a comment
+author) opens that same profile view for them, with Follow and Block shown.
+Tapping **your own** name goes to the Profile tab instead of pushing a separate
+copy of the profile screen, so you always land on the same profile, with the
+bottom bar and search still in place.
+
+Posts can be acted on directly from any list — the Profile grid, another user's
+profile grid, and the Feed — without opening the post first:
+
+- **Like / unlike**, with the current like count. Hidden on your own posts,
+  which the backend refuses to let you like.
+- **Report**, with a reason. A flag marks posts you have an active report on.
+- **Retract report**, which shows the reason you originally gave.
+- **Delete**, offered only on your own posts.
+
+Each feed row additionally shows the author, how long ago the post was made, and
+a comment count that opens the post when tapped. The square profile tiles omit
+those two — there is no room for them.
+
+The post listing endpoints (`get_posts_in_feed`, `get_posts_for_followed_users`,
+`get_posts_for_user`) therefore return `post_likes`, `is_liked`, `is_reported`,
+`report_reason`, `comment_count` and `creation_time` per post, matching what the
+post-details endpoint returns. The state is gathered in grouped queries per
+batch rather than per post, so a larger batch does not add queries. The comment
+count respects the same visibility rule as the thread listing, so a row never
+advertises comments the viewer would not be shown.
+
+Deleting a post from a list removes just that row; the list is not reloaded,
+which would otherwise reshuffle the weighted feed ordering under the user.
 ## Post classification (async)
 
 Every new post is checked against the guidelines by an AI classifier — a text

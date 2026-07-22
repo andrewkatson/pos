@@ -188,17 +188,23 @@ data class Post(
     @SerializedName("image_url") val imageUrl: String? = null,
     val caption: String,
     @SerializedName("author_username") val authorUsername: String,
-    // Only the post-details endpoint returns the like count (as "post_likes");
-    // feed endpoints omit it, so it defaults to 0.
+    // The like count, and whether the current user has liked / reported this post
+    // (plus their own report reason, so the retract dialog can show it
+    // pre-populated — issue #176).
+    //
+    // The post-details endpoint has always returned these; the three post-listing
+    // endpoints (feed, followed feed, a user's posts) now return them too, so a
+    // post can be liked, reported, un-reported and deleted straight from a list
+    // (issue #267). They stay nullable/defaulted so a response from an older
+    // server, which omits them, still parses.
     @SerializedName("post_likes") val likeCount: Int? = 0,
-    // Whether the current user has liked this post. Only the post-details endpoint
-    // populates this; feed endpoints omit it, so it defaults to false.
     @SerializedName("is_liked") val isLiked: Boolean = false,
-    // Whether the current user has an active report against this post, plus
-    // their own report reason so the retract dialog can show it pre-populated
-    // (issue #176). Only the post-details endpoint populates these.
     @SerializedName("is_reported") val isReported: Boolean = false,
     @SerializedName("report_reason") val reportReason: String? = null,
+    // How many comments on this post are visible to the viewer. Shown on the feed
+    // rows, where tapping it opens the post (issue #249). Defaults to 0 for
+    // responses that predate the field.
+    @SerializedName("comment_count") val commentCount: Int? = 0,
     // The full-resolution original image URL, used as a fallback when the
     // compressed `imageUrl` fails to load. The compressed copy is produced by an
     // async Lambda, so a just-posted (or recently hidden-pending-appeal) image may
@@ -206,9 +212,11 @@ data class Post(
     // tiles render as empty black boxes until the user re-logs in (issues #252/#254).
     // Feed/details endpoints that predate the field omit it, so it defaults to null.
     @SerializedName("original_image_url") val originalImageUrl: String? = null,
-    // When the post was created. Only the post-details endpoint returns it
-    // (ISO-8601 from the real backend, epoch-millis from the stub — see
-    // parseBackendDate); feed endpoints omit it, so it defaults to null.
+    // When the post was created (ISO-8601 from the real backend, epoch-millis
+    // from the stub — see parseBackendDate). Returned by the post-details
+    // endpoint and, since issue #249, by the post-listing endpoints too, so the
+    // feed rows can show how long ago a post was made. Null for responses that
+    // predate the field, in which case the label is simply omitted.
     @SerializedName("creation_time") val creationTime: String? = null,
     // Author-only classification state (issue #282): present on the viewer's
     // own posts so grids can render pending/rejected states. Other users'

@@ -29,6 +29,13 @@ class FollowingFeedViewModel(
     private val _isRefreshing = MutableStateFlow(false)
     val isRefreshing: StateFlow<Boolean> = _isRefreshing.asStateFlow()
 
+    /**
+     * Like / report / retract-report / delete for the posts in this feed, so they
+     * can be acted on without opening each one (issue #267).
+     */
+    val postActions =
+        PostListActions(api, keychainHelper, viewModelScope, _followingPosts, account)
+
     private var canLoadMore = true
     private var currentPage = 0
     private val service = "positive-only-social.Positive-Only-Social"

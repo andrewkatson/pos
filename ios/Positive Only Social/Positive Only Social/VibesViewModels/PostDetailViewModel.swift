@@ -682,32 +682,11 @@ final class PostDetailViewModel: ObservableObject {
 
     // MARK: - Date Parsing
 
-    /// Parses an ISO8601 date string produced by Django, whose `DjangoJSONEncoder`
-    /// emits a colon-separated UTC offset (e.g. "2024-01-15T10:30:45.123456+00:00"),
-    /// while the in-memory stub emits a "Z" suffix. Tries colon- and omitted-separator
-    /// variants, with and without fractional seconds, so both real and stubbed
-    /// timestamps decode. Returns nil when nothing matches so callers can omit a
-    /// relative-time label rather than showing a bogus "now".
-    ///
-    /// Uses `Date.ISO8601FormatStyle` (a value type) rather than an `NSObject`-backed
-    /// formatter, so it's cheap and safe to call `nonisolated` from async task groups
-    /// without actor hopping or sharing non-Sendable state across isolation domains.
+    /// Parses one of the backend's ISO8601 timestamps, returning nil when it
+    /// can't be read so callers omit the relative-time label rather than showing
+    /// a bogus "now". Shared with the feed rows via `RelativeTime` (#249).
     private nonisolated static func parseOptionalDate(_ string: String) -> Date? {
-        // `.colon` matches the real backend's "+00:00"; `.omitted` matches "+0000"
-        // and the stub's "Z". Django usually includes fractional seconds, but older
-        // rows may not, so try both.
-        let separators: [Date.ISO8601FormatStyle.TimeZoneSeparator] = [.colon, .omitted]
-        for separator in separators {
-            for includingFractionalSeconds in [true, false] {
-                let strategy = Date.ISO8601FormatStyle().year().month().day()
-                    .time(includingFractionalSeconds: includingFractionalSeconds)
-                    .timeZone(separator: separator)
-                if let date = try? Date(string, strategy: strategy) {
-                    return date
-                }
-            }
-        }
-        return nil
+        RelativeTime.date(from: string)
     }
 
     private nonisolated static func parseDate(_ string: String) -> Date {

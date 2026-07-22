@@ -124,6 +124,7 @@ class Fields:
     upload_url = "upload_url"
     caption = "caption"
     post_likes = "post_likes"
+    comment_count = "comment_count"
     comment_thread_identifier = "comment_thread_identifier"
     comment_identifier = "comment_identifier"
     username = "username"
