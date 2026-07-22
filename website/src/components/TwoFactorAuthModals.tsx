@@ -1,7 +1,8 @@
-import { useEffect, useState, type ReactNode } from 'react'
+import { useEffect, useState } from 'react'
 import { QRCodeSVG } from 'qrcode.react'
 import { apiClient } from '../api/client'
 import type { ApiError } from '../api/client'
+import Modal from './Modal'
 
 /**
  * The two-factor authentication modals used by the Settings tab.
@@ -82,7 +83,7 @@ export function EnableTwoFactorModal({ onClose, onEnabled }: EnableTwoFactorModa
   }
 
   return (
-    <TwoFactorModal title="Enable Two-Factor Authentication">
+    <Modal title="Enable Two-Factor Authentication">
       {errorMessage && (
         <p className="twofa-error" role="alert">
           {errorMessage}
@@ -191,7 +192,7 @@ export function EnableTwoFactorModal({ onClose, onEnabled }: EnableTwoFactorModa
           </div>
         </>
       )}
-    </TwoFactorModal>
+    </Modal>
   )
 }
 
@@ -233,7 +234,7 @@ export function DisableTwoFactorModal({ onClose, onDisabled }: DisableTwoFactorM
   }
 
   return (
-    <TwoFactorModal title="Disable Two-Factor Authentication">
+    <Modal title="Disable Two-Factor Authentication">
       <p className="modal__body">
         Confirm your password and a current {useRecoveryCode ? 'recovery' : 'authenticator'} code
         to turn two-factor authentication off.
@@ -293,17 +294,7 @@ export function DisableTwoFactorModal({ onClose, onDisabled }: DisableTwoFactorM
           Disable
         </button>
       </div>
-    </TwoFactorModal>
+    </Modal>
   )
 }
 
-function TwoFactorModal({ title, children }: { title: string; children: ReactNode }) {
-  return (
-    <div className="modal-overlay">
-      <div className="modal" role="dialog" aria-modal="true" aria-label={title}>
-        <h2 className="modal__title">{title}</h2>
-        {children}
-      </div>
-    </div>
-  )
-}

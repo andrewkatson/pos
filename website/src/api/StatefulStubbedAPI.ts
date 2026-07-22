@@ -64,6 +64,17 @@ function stubRecoveryCode(): string {
   return Array.from({ length: 10 }, () => Math.floor(Math.random() * 16).toString(16)).join('')
 }
 
+// Authenticator apps require the otpauth:// `secret=` to be Base32 (RFC 4648:
+// A-Z and 2-7). Deriving it from newId() would embed a hyphen, so QR/manual
+// enrollment would fail in demo mode; generate a real Base32 secret instead.
+const BASE32_ALPHABET = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ234567'
+function stubTotpSecret(): string {
+  return Array.from(
+    { length: 32 },
+    () => BASE32_ALPHABET[Math.floor(Math.random() * BASE32_ALPHABET.length)],
+  ).join('')
+}
+
 interface UserMock {
   id: string
   username: string
@@ -428,7 +439,7 @@ export class StatefulStubbedAPI implements PositiveOnlySocialAPI {
     if (user.totpEnabled) {
       throw new ApiError(400, 'Two-factor authentication is already enabled')
     }
-    user.totpSecret = `STUBSECRET${newId().toUpperCase()}`
+    user.totpSecret = stubTotpSecret()
     return {
       totp_secret: user.totpSecret,
       otpauth_uri: `otpauth://totp/Positive%20Only%20Social:${encodeURIComponent(user.email)}?secret=${user.totpSecret}&issuer=Positive%20Only%20Social`,

@@ -1,8 +1,9 @@
-import { useState, type ReactNode } from 'react'
+import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { apiClient } from '../api/client'
 import { clearSession } from '../api/session'
 import { PRIVACY_POLICY_TEXT } from '../privacyPolicy'
+import Modal from './Modal'
 import { DisableTwoFactorModal, EnableTwoFactorModal } from './TwoFactorAuthModals'
 
 type ActiveModal = 'logout' | 'delete' | 'verify' | 'privacy' | 'enable2fa' | 'disable2fa' | null
@@ -228,24 +229,6 @@ function SettingsTab() {
           </div>
         </Modal>
       )}
-    </div>
-  )
-}
-
-interface ModalProps {
-  title: string
-  body?: string
-  children: ReactNode
-}
-
-function Modal({ title, body, children }: ModalProps) {
-  return (
-    <div className="modal-overlay">
-      <div className="modal" role="dialog" aria-modal="true" aria-label={title}>
-        <h2 className="modal__title">{title}</h2>
-        {body && <p className="modal__body">{body}</p>}
-        {children}
-      </div>
     </div>
   )
 }
