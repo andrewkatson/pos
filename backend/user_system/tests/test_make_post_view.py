@@ -345,3 +345,22 @@ class MakePostTests(PositiveOnlySocialTestCase):
         self.assertEqual(response.status_code, 201)
         self.user.refresh_from_db()
         self.assertEqual(self.user.post_set.first().caption, 'é' * MAX_CAPTION_LENGTH)
+    @patch.dict(os.environ, {"TESTING": "True"}, clear=True)
+    def test_non_string_caption_returns_bad_response(self):
+        """
+        A truthy non-string caption must be rejected with a 400 rather than raising
+        a TypeError from the semicolon/length checks and surfacing as a 500.
+        """
+        for caption in (123, 1.5, True, ['a'], {'a': 'b'}):
+            with self.subTest(caption=caption):
+                data = self.valid_data.copy()
+                data['caption'] = caption
+
+                response = self.client.post(
+                    self.url,
+                    data=data,
+                    content_type='application/json',
+                    **self.valid_header
+                )
+
+                self.assertEqual(response.status_code, 400)
