@@ -61,6 +61,10 @@ export const ACCOUNT_SUSPENDED_MESSAGE =
 /** Error code the backend returns when the account's email address is unverified. */
 export const EMAIL_NOT_VERIFIED = 'email_not_verified'
 
+/** Error code from login/2fa/ when the challenge is expired, used, or invalid.
+ * A stable code rather than prose, so the client can branch on it safely. */
+export const INVALID_TWO_FACTOR_CHALLENGE = 'invalid_two_factor_challenge'
+
 /** User-facing message shown wherever the email_not_verified error surfaces. */
 export const EMAIL_NOT_VERIFIED_MESSAGE =
   'Please verify your email address first — check your inbox for the verification link.'

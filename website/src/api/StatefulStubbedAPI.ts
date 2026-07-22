@@ -3,7 +3,7 @@
 // android/.../api/StatefulStubbedAPI.kt. Useful for tests and offline/demo
 // modes. Errors are surfaced by throwing ApiError, matching the real ApiClient.
 
-import { ApiError } from './client'
+import { ApiError, INVALID_TWO_FACTOR_CHALLENGE } from './client'
 import type { PositiveOnlySocialAPI } from './PositiveOnlySocialAPI'
 import type {
   AuthResponse,
@@ -397,11 +397,11 @@ export class StatefulStubbedAPI implements PositiveOnlySocialAPI {
       (c) => c.challengeToken === body.challenge_token,
     )
     if (!challenge) {
-      throw new ApiError(400, 'Invalid or expired challenge')
+      throw new ApiError(400, INVALID_TWO_FACTOR_CHALLENGE)
     }
     const user = this.users.find((u) => u.id === challenge.userId)
     if (!user) {
-      throw new ApiError(400, 'Invalid or expired challenge')
+      throw new ApiError(400, INVALID_TWO_FACTOR_CHALLENGE)
     }
 
     let codeOk = false

@@ -1,4 +1,4 @@
-import { ApiError } from './client'
+import { ApiError, INVALID_TWO_FACTOR_CHALLENGE } from './client'
 import { STUB_TOTP_CODE, StatefulStubbedAPI } from './StatefulStubbedAPI'
 import { isTwoFactorRequired } from './types'
 import type { RegisterRequest } from './types'
@@ -386,7 +386,7 @@ test('login for an enrolled account returns a challenge, and the code exchanges 
   // The challenge is single-use.
   await expect(
     api.loginWithTwoFactor({ challenge_token: login.challenge_token, totp_code: STUB_TOTP_CODE }),
-  ).rejects.toThrow('Invalid or expired challenge')
+  ).rejects.toThrow(INVALID_TWO_FACTOR_CHALLENGE)
 })
 
 test('recovery codes work once each', async () => {

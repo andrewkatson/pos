@@ -6,6 +6,7 @@ import {
   ACCOUNT_SUSPENDED_MESSAGE,
   EMAIL_NOT_VERIFIED,
   EMAIL_NOT_VERIFIED_MESSAGE,
+  INVALID_TWO_FACTOR_CHALLENGE,
   apiClient,
 } from '../api/client'
 import type { ApiError } from '../api/client'
@@ -121,7 +122,7 @@ function LoginPage() {
       completeLogin(response)
     } catch (err) {
       const apiErr = err as ApiError
-      if (apiErr.message === 'Invalid or expired challenge') {
+      if (apiErr.message === INVALID_TWO_FACTOR_CHALLENGE) {
         // The challenge timed out (or was invalidated): start over from the
         // default authenticator-code entry, matching backToLogin().
         setChallengeToken(null)

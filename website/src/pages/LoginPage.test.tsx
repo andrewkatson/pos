@@ -305,8 +305,8 @@ test('a wrong code shows the backend error and stays on the code step', async ()
 
 test('an expired challenge returns to the login form with an explanation', async () => {
   await loginIntoTwoFactorStep()
-  const { ApiError } = await import('../api/client')
-  mockLoginWithTwoFactor.mockRejectedValueOnce(new ApiError(400, 'Invalid or expired challenge'))
+  const { ApiError, INVALID_TWO_FACTOR_CHALLENGE } = await import('../api/client')
+  mockLoginWithTwoFactor.mockRejectedValueOnce(new ApiError(400, INVALID_TWO_FACTOR_CHALLENGE))
 
   await userEvent.type(screen.getByLabelText('Authenticator Code'), '123456')
   await userEvent.click(screen.getByRole('button', { name: 'Verify' }))
