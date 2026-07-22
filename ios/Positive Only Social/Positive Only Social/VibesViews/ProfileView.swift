@@ -254,7 +254,7 @@ struct ProfileBodyView: View {
 }
 
 /// Overlay label for the author's own pending/rejected grid tiles (#282).
-func statusBadgeLabel(for post: Post) -> String? {
+private func statusBadgeLabel(for post: Post) -> String? {
     switch post.status {
     case "pending": return "In review"
     case "rejected": return "Hidden — you can appeal"
