@@ -59,8 +59,15 @@ class ProfileViewModel: ObservableObject {
     // user's own profile grid right away (issue #347).
     private var postCreatedCancellable: AnyCancellable?
 
+    /// Whether this profile belongs to the signed-in user, which hides Follow /
+    /// Block and enables the classification poll.
+    ///
+    /// A missing session must never count as "own": `forCurrentUser` builds a
+    /// `User(username: "")` when it can't load one, and an empty-to-empty
+    /// comparison would otherwise silently claim an unknown profile as yours.
     var isOwnProfile: Bool {
-        user.username == (currentLoggedInUsername ?? "")
+        guard let currentLoggedInUsername, !currentLoggedInUsername.isEmpty else { return false }
+        return user.username == currentLoggedInUsername
     }
 
     convenience init(user: User, api: Networking, keychainHelper: KeychainHelperProtocol) {
