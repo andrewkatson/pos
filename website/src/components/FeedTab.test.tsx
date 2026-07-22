@@ -221,6 +221,19 @@ test('shows how long ago the post was made', async () => {
   expect(await screen.findByText('2 hr')).toBeInTheDocument()
 })
 
+test('omits the comment count when the payload has no comment_count', async () => {
+  // Older responses predate the field; showing "0 comments" would assert there
+  // are none rather than that we don't know.
+  mockGetFeed.mockResolvedValue([
+    { post_identifier: 'p1', image_url: 'http://img/1.jpg', author_username: 'ada', caption: 'hi' },
+  ])
+  mockGetFollowed.mockResolvedValue([])
+  renderTab()
+
+  await screen.findByRole('button', { name: 'Open post by ada' })
+  expect(screen.queryByRole('button', { name: /comments?, open post$/ })).not.toBeInTheDocument()
+})
+
 test('omits the time when the post has no creation timestamp', async () => {
   // Older responses predate the field; the row should just drop the label.
   mockGetFeed.mockResolvedValue([

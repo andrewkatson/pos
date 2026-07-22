@@ -33,7 +33,10 @@ function PostActionBar({
   // '' when creation_time is missing or unparseable, so one value drives both
   // the guard and the rendered label.
   const postTime = post.creation_time ? formatRelativeTime(post.creation_time) : ''
-  const commentCount = post.comment_count ?? 0
+  // Left undefined rather than coerced to 0: a payload that predates the field
+  // has no count to show, and "0 comments" would be a claim rather than an
+  // omission. Same treatment as the timestamp above.
+  const commentCount = post.comment_count
 
   return (
     <div className="post-actions">
@@ -53,7 +56,7 @@ function PostActionBar({
       <span className="post-actions__count">{state.likeCount}</span>
 
       {/* Tapping the comment count opens the post, where the threads live. */}
-      {showDetails && onOpenPost && (
+      {showDetails && onOpenPost && commentCount !== undefined && (
         <button
           type="button"
           className="post-actions__comments"
