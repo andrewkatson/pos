@@ -6,7 +6,11 @@ import LoginPage from './LoginPage'
 
 vi.mock('../api/client', async importOriginal => {
   const actual = await importOriginal<typeof import('../api/client')>()
-  return { ...actual, apiClient: { login: vi.fn(), loginWithTwoFactor: vi.fn() } }
+  // setToken is used by clearSession(), which runs when entering the 2FA step.
+  return {
+    ...actual,
+    apiClient: { login: vi.fn(), loginWithTwoFactor: vi.fn(), setToken: vi.fn() },
+  }
 })
 
 import { apiClient } from '../api/client'

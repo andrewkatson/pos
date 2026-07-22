@@ -11,7 +11,12 @@ import {
 import type { ApiError } from '../api/client'
 import type { AuthResponse } from '../api/types'
 import { isTwoFactorRequired } from '../api/types'
-import { clearRememberMeTokens, persistSession, saveRememberMeTokens } from '../api/session'
+import {
+  clearRememberMeTokens,
+  clearSession,
+  persistSession,
+  saveRememberMeTokens,
+} from '../api/session'
 import './LoginPage.css'
 
 function LoginPage() {
@@ -75,7 +80,11 @@ function LoginPage() {
         remember_me: rememberMe,
       })
       if (isTwoFactorRequired(response)) {
-        // Password accepted, but the account needs its second factor.
+        // Password accepted, but the account needs its second factor. Drop any
+        // persisted session and remember-me tokens too: no session has been
+        // issued for this attempt, and leaving them would let a reload on the
+        // 2FA step restore the old one and appear signed in.
+        clearSession()
         setChallengeToken(response.challenge_token)
         setErrorMessage(null)
         return
