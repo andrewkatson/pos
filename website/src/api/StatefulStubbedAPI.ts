@@ -58,21 +58,29 @@ const MAX_BEFORE_HIDING_COMMENT = 5
 export const STUB_TOTP_CODE = '123456'
 const STUB_RECOVERY_CODE_COUNT = 10
 
+/** Cryptographically secure random bytes. These feed credential-shaped values
+ * (TOTP secret, recovery codes), so Math.random() is not appropriate even in a
+ * stub — it would model the real flow with an insecure generator. */
+function randomBytes(length: number): Uint8Array {
+  const bytes = new Uint8Array(length)
+  crypto.getRandomValues(bytes)
+  return bytes
+}
+
 // Recovery codes must match the 10-hex-character format the UI and backend
 // enforce (Patterns.recovery_code), so the stub is usable in demo mode.
+// 5 bytes render as exactly 10 hex characters.
 function stubRecoveryCode(): string {
-  return Array.from({ length: 10 }, () => Math.floor(Math.random() * 16).toString(16)).join('')
+  return Array.from(randomBytes(5), byte => byte.toString(16).padStart(2, '0')).join('')
 }
 
 // Authenticator apps require the otpauth:// `secret=` to be Base32 (RFC 4648:
 // A-Z and 2-7). Deriving it from newId() would embed a hyphen, so QR/manual
 // enrollment would fail in demo mode; generate a real Base32 secret instead.
+// The alphabet is exactly 32 chars, so indexing a byte by % 32 is unbiased.
 const BASE32_ALPHABET = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ234567'
 function stubTotpSecret(): string {
-  return Array.from(
-    { length: 32 },
-    () => BASE32_ALPHABET[Math.floor(Math.random() * BASE32_ALPHABET.length)],
-  ).join('')
+  return Array.from(randomBytes(32), byte => BASE32_ALPHABET[byte % 32]).join('')
 }
 
 interface UserMock {
