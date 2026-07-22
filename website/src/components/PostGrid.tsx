@@ -15,7 +15,7 @@ interface PostGridProps {
 }
 
 /** Overlay label for the author's own pending/rejected grid tiles (#282). */
-export function statusBadgeLabel(post: FeedPost): string | null {
+function statusBadgeLabel(post: FeedPost): string | null {
   if (post.status === 'pending') return 'In review'
   if (post.status === 'rejected') return 'Hidden — you can appeal'
   return null

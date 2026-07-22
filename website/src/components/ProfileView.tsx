@@ -80,8 +80,11 @@ function ProfileView({ username, isOwnProfile, currentUsername }: ProfileViewPro
     }
   }, [username])
 
+  // Deferred to a microtask so the fetch's setState calls don't run
+  // synchronously inside the effect (React flags that as cascading renders),
+  // matching how the post load below is kicked off.
   useEffect(() => {
-    void loadProfile()
+    void Promise.resolve().then(() => loadProfile())
   }, [loadProfile])
 
   const loadPosts = useCallback(
