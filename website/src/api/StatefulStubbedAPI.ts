@@ -28,6 +28,7 @@ import type {
   MessageResponse,
   MyAppeal,
   PostDetails,
+  PostStatusResponse,
   ProfileDetails,
   RegisterRequest,
   ReplyResponse,
@@ -110,6 +111,8 @@ interface PostMock {
   creationTime: number
   hidden: boolean
   hiddenReason: string
+  /** Public reason code recorded by the (stubbed) async classifier (#282). */
+  reasonCode: string | null
   likes: Set<string>
   /** Reporting user id -> their reason, so retract flows can show the reason. */
   reports: Map<string, string>
@@ -587,9 +590,10 @@ export class StatefulStubbedAPI implements PositiveOnlySocialAPI {
 
   async createPost(body: CreatePostRequest): Promise<CreatePostResponse> {
     const user = this.requireUser()
-    // Stub "positivity" check, mirroring the native stubs.
+    // Stub pre-filter, mirroring the backend's cheap inline check (#282): a
+    // blatant hit is rejected immediately and the post is never created.
     if (body.caption.includes('negative')) {
-      throw new ApiError(400, 'Text is not positive')
+      throw new ApiError(400, 'Text is not positive because your caption did not meet our positivity guidelines. This decision is final and cannot be appealed.')
     }
     const post: PostMock = {
       postIdentifier: newId(),
@@ -597,13 +601,66 @@ export class StatefulStubbedAPI implements PositiveOnlySocialAPI {
       imageUrl: body.image_url ?? null,
       caption: body.caption,
       creationTime: Date.now(),
-      hidden: false,
-      hiddenReason: '',
+      hidden: true,
+      hiddenReason: 'pending_classification',
+      reasonCode: null,
       likes: new Set(),
       reports: new Map(),
     }
     this.posts.push(post)
-    return { post_identifier: post.postIdentifier }
+    // The real backend classifies asynchronously in a worker; the stub
+    // resolves instantly (like the backend's eager dev mode) but still
+    // returns the pending response, so clients exercise the reconcile path.
+    this.classifyPost(post)
+    return {
+      post_identifier: post.postIdentifier,
+      status: 'pending',
+      hidden: true,
+      hidden_reason: 'pending_classification',
+      appealable: false,
+      message: 'Your post is being reviewed and will be visible to others once it is approved.',
+    }
+  }
+
+  /** Stubbed async classifier (#282): a caption containing 'borderline'
+   * becomes an appealable rejection; everything else is approved. */
+  private classifyPost(post: PostMock): void {
+    if (post.caption.includes('borderline')) {
+      post.hidden = true
+      post.hiddenReason = 'classifier'
+      post.reasonCode = 'guidelines'
+    } else {
+      post.hidden = false
+      post.hiddenReason = ''
+    }
+  }
+
+  /** Author-facing classification status, mirroring Post.classification_status. */
+  private classificationStatus(post: PostMock): 'pending' | 'approved' | 'rejected' | 'rejected_final' {
+    if (post.hiddenReason === 'pending_classification') return 'pending'
+    if (post.hiddenReason === 'classifier') return 'rejected'
+    if (post.hiddenReason === 'classifier_final') return 'rejected_final'
+    return 'approved'
+  }
+
+  private isAppealable(post: PostMock): boolean {
+    return (
+      post.hidden &&
+      post.hiddenReason !== 'pending_classification' &&
+      post.hiddenReason !== 'classifier_final'
+    )
+  }
+
+  /** The author-only classification fields merged into post payloads. */
+  private authorStatusFields(post: PostMock, viewerId: string): Partial<FeedPost> {
+    if (post.authorId !== viewerId) return {}
+    return {
+      status: this.classificationStatus(post),
+      hidden: post.hidden,
+      hidden_reason: post.hiddenReason,
+      reason_code: post.reasonCode,
+      appealable: this.isAppealable(post),
+    }
   }
 
   async deletePost(postIdentifier: string): Promise<MessageResponse> {
@@ -679,7 +736,7 @@ export class StatefulStubbedAPI implements PositiveOnlySocialAPI {
   // Feeds & retrieval
   // ---------------------------------------------------------------------------
 
-  private toFeedPost(post: PostMock): FeedPost {
+  private toFeedPost(post: PostMock, viewerId: string): FeedPost {
     const author = this.users.find((u) => u.id === post.authorId)
     return {
       post_identifier: post.postIdentifier,
@@ -689,6 +746,7 @@ export class StatefulStubbedAPI implements PositiveOnlySocialAPI {
       original_image_url: post.imageUrl,
       author_username: author ? author.username : '',
       caption: post.caption,
+      ...this.authorStatusFields(post, viewerId),
     }
   }
 
@@ -697,7 +755,7 @@ export class StatefulStubbedAPI implements PositiveOnlySocialAPI {
     const visible = this.posts
       .filter((p) => !p.hidden && !user.blocked.has(p.authorId) && !user.blockedBy.has(p.authorId))
       .sort((a, b) => b.creationTime - a.creationTime)
-    return this.batch(visible, batch, POST_BATCH_SIZE).map((p) => this.toFeedPost(p))
+    return this.batch(visible, batch, POST_BATCH_SIZE).map((p) => this.toFeedPost(p, user.id))
   }
 
   async getFollowedFeed(batch: number): Promise<FeedPost[]> {
@@ -711,7 +769,7 @@ export class StatefulStubbedAPI implements PositiveOnlySocialAPI {
           !user.blockedBy.has(p.authorId),
       )
       .sort((a, b) => b.creationTime - a.creationTime)
-    return this.batch(visible, batch, POST_BATCH_SIZE).map((p) => this.toFeedPost(p))
+    return this.batch(visible, batch, POST_BATCH_SIZE).map((p) => this.toFeedPost(p, user.id))
   }
 
   async getPostsForUser(username: string, batch: number): Promise<FeedPost[]> {
@@ -723,10 +781,15 @@ export class StatefulStubbedAPI implements PositiveOnlySocialAPI {
     if (user.blocked.has(target.id) || target.blocked.has(user.id)) {
       return []
     }
+    // Mirrors visible_posts: authors see their own hidden posts (pending,
+    // appealable, report-hidden) in their grid; everyone else only sees live
+    // ones. Final-rejection tombstones are visible to nobody (#282).
     const visible = this.posts
-      .filter((p) => !p.hidden && p.authorId === target.id)
+      .filter((p) => p.authorId === target.id)
+      .filter((p) => p.hiddenReason !== 'classifier_final')
+      .filter((p) => (user.id === target.id ? true : !p.hidden))
       .sort((a, b) => b.creationTime - a.creationTime)
-    return this.batch(visible, batch, POST_BATCH_SIZE).map((p) => this.toFeedPost(p))
+    return this.batch(visible, batch, POST_BATCH_SIZE).map((p) => this.toFeedPost(p, user.id))
   }
 
   async getPostDetails(postIdentifier: string): Promise<PostDetails> {
@@ -744,7 +807,37 @@ export class StatefulStubbedAPI implements PositiveOnlySocialAPI {
       is_reported: post.reports.has(user.id),
       report_reason: post.reports.get(user.id) ?? null,
       author_username: author ? author.username : '',
+      ...this.authorStatusFields(post, user.id),
     }
+  }
+
+  async getPostStatus(postIdentifier: string): Promise<PostStatusResponse> {
+    const user = this.requireUser()
+    const post = this.posts.find(
+      (p) => p.postIdentifier === postIdentifier && p.authorId === user.id,
+    )
+    if (!post) {
+      throw new ApiError(400, 'No post with that identifier by that user')
+    }
+    const status = this.classificationStatus(post)
+    const response: PostStatusResponse = {
+      post_identifier: post.postIdentifier,
+      status,
+      reason_code: post.reasonCode,
+      appealable: this.isAppealable(post),
+      hidden: post.hidden,
+      hidden_reason: post.hiddenReason,
+    }
+    if (status === 'pending') {
+      response.message = 'Your post is being reviewed and will be visible to others once it is approved.'
+    } else if (status === 'rejected') {
+      response.message =
+        'Your post did not pass automated review. It is hidden for now but you can appeal the decision.'
+    } else if (status === 'rejected_final') {
+      response.message =
+        'Your post did not pass automated review. This decision is final and cannot be appealed.'
+    }
+    return response
   }
 
   // ---------------------------------------------------------------------------
@@ -1016,6 +1109,14 @@ export class StatefulStubbedAPI implements PositiveOnlySocialAPI {
     return { message: 'User blocked' }
   }
 
+  async getBlockedUsers(): Promise<UserSearchResult[]> {
+    const user = this.requireUser()
+    return this.users
+      .filter((u) => user.blocked.has(u.id))
+      .sort((a, b) => a.username.localeCompare(b.username))
+      .map((u) => ({ username: u.username, identity_is_verified: u.isVerified }))
+  }
+
   async getProfile(username: string): Promise<ProfileDetails> {
     const user = this.requireUser()
     const target = this.findUserByName(username)
@@ -1046,8 +1147,10 @@ export class StatefulStubbedAPI implements PositiveOnlySocialAPI {
 
   async getHiddenPosts(batch: number): Promise<HiddenPost[]> {
     const user = this.requireUser()
+    // Pending posts have nothing to appeal yet and final rejections are
+    // terminal, so neither belongs on the appeals screen (#282).
     const hidden = this.posts
-      .filter((p) => p.authorId === user.id && p.hidden)
+      .filter((p) => p.authorId === user.id && p.hidden && this.isAppealable(p))
       .sort((a, b) => b.creationTime - a.creationTime)
     return this.batch(hidden, batch, POST_BATCH_SIZE).map((p) => ({
       post_identifier: p.postIdentifier,
@@ -1097,7 +1200,11 @@ export class StatefulStubbedAPI implements PositiveOnlySocialAPI {
     let snapshot: string
     if (body.target_type === 'post') {
       const post = this.posts.find(
-        (p) => p.postIdentifier === body.target_identifier && p.authorId === user.id && p.hidden,
+        (p) =>
+          p.postIdentifier === body.target_identifier &&
+          p.authorId === user.id &&
+          p.hidden &&
+          this.isAppealable(p),
       )
       if (!post) {
         throw new ApiError(400, 'No appealable item with that identifier')

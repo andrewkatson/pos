@@ -4,7 +4,6 @@ import json
 import logging
 import secrets
 import uuid
-from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, date, timedelta
 
 from functools import wraps
@@ -22,14 +21,18 @@ from django.views.decorators.http import require_POST, require_GET
 from django_ratelimit.decorators import ratelimit
 from django_ratelimit.exceptions import Ratelimited
 
+from . import tasks
 from .classifiers import image_classifier, text_classifier
-from .classifiers.classifier_utils import ClassificationResult
+from .classifiers.classifier_constants import REASON_PHRASES, GENERIC_REASON_CODE
+from .classifiers.prefilter import prefilter_text
 from .constants import Patterns, Params, POST_BATCH_SIZE, MAX_BEFORE_HIDING_POST, MAX_BEFORE_HIDING_COMMENT, \
     MAX_CAPTION_LENGTH, MAX_COMMENT_LENGTH, \
     COMMENT_BATCH_SIZE, Fields, COMMENT_THREAD_BATCH_SIZE, \
     VERIFY_RESET_MAX_ATTEMPTS, VERIFY_RESET_LOCKOUT_MINUTES, \
     ACCOUNT_BANNED, EMAIL_NOT_VERIFIED, EMAIL_VERIFICATION_TOKEN_HOURS, BAN_TYPE_OUTRIGHT, \
     HIDDEN_REASON_NONE, HIDDEN_REASON_REPORTS, HIDDEN_REASON_CLASSIFIER, \
+    HIDDEN_REASON_PENDING_CLASSIFICATION, NON_APPEALABLE_HIDDEN_REASONS, \
+    POST_STATUS_PENDING, POST_STATUS_REJECTED, POST_STATUS_REJECTED_FINAL, \
     APPEAL_TARGET_POST, APPEAL_TARGET_COMMENT, APPEAL_TARGET_BAN, \
     MAX_APPEAL_REASON_LENGTH
 from .feed_algorithm import feed_algorithm
@@ -43,16 +46,6 @@ from .visibility import can_view_post, searchable_users, visible_comment_threads
 
 image_classifier_class = image_classifier
 text_classifier_class = text_classifier
-
-# Shared, bounded thread pool for the per-request content-classification fan-out
-# (a post's text and image are classified concurrently). A single module-level
-# executor is reused across requests rather than creating a new one per call, so
-# a traffic spike cannot spawn unbounded threads: once every worker is busy,
-# further classification tasks queue, which provides backpressure. The work is
-# I/O-bound (waiting on external AI APIs), so a worker count above the CPU count
-# is fine; this caps the threads one gunicorn worker process can devote to
-# classification.
-_CLASSIFICATION_EXECUTOR = ThreadPoolExecutor(max_workers=8, thread_name_prefix="classify")
 feed_algorithm_class = feed_algorithm
 
 logger = logging.getLogger(__name__)
@@ -979,86 +972,45 @@ def make_post(request):
         logger.warning(f"Make post failed: Caption too long ({len(caption)} chars) for user_id: {request.user.id}")
         return log_and_return_json("make_post", {'error': f"Caption exceeds maximum length of {MAX_CAPTION_LENGTH} characters"}, status=400)
 
-    # The text and image classifiers each make external AI calls, so dispatch
-    # them concurrently rather than back-to-back: when both outcomes are needed
-    # the request waits on the slower of the two cascades instead of their sum,
-    # which keeps post creation under the gateway timeout (the cause of the 504
-    # in #274). We still only block on the image result when the text result
-    # doesn't already settle the request (see below). A rejection that is not
-    # appealable is final: reject outright and do not create the post. An
-    # appealable rejection still creates the post but hides it pending appeal
-    # (handled below).
-    text_future = _CLASSIFICATION_EXECUTOR.submit(text_classifier_class.is_text_positive, caption)
-    image_future = (_CLASSIFICATION_EXECUTOR.submit(image_classifier_class.is_image_positive, image_url)
-                    if image_url else None)
-    text_result = text_future.result()
-
-    # Text rejection takes precedence in the message shown to the user, matching
-    # the previous text-first ordering. A final (non-appealable) text rejection
-    # is decisive, so return immediately without blocking on the image future:
-    # the image cascade is the slower of the two, and waiting on it once the
-    # outcome is already settled would needlessly hold the 400 path open and risk
-    # the gateway timeout from #274. The image future still runs to completion in
-    # the executor, so no worker is leaked.
-    if not text_result and not text_result.appealable:
-        logger.warning(f"Make post failed: Caption not positive (final) for user_id: {request.user.id}")
-        # The post is never created, so clean up the image the client already
-        # uploaded rather than orphaning it in S3.
+    # The AI cascades no longer run on the request path (issue #282): only this
+    # cheap local pre-filter does. A blatant hit keeps the old synchronous UX —
+    # rejected immediately, final, post never created, uploaded image cleaned
+    # up — and everything subtler goes through the async review below.
+    prefilter_result = prefilter_text(caption)
+    if not prefilter_result:
+        logger.warning(f"Make post failed: Caption failed the pre-filter (final) for user_id: {request.user.id}")
         if image_url:
             delete_image(image_url)
         return log_and_return_json("make_post", {
-            'error': f"Text is not positive because your caption {text_result.public_reason()}. "
+            'error': f"Text is not positive because your caption {prefilter_result.public_reason()}. "
                      "This decision is final and cannot be appealed.",
-            Fields.reason_code: text_result.public_reason_code(),
+            Fields.reason_code: prefilter_result.public_reason_code(),
             Fields.appealable: False,
+            Fields.status: POST_STATUS_REJECTED_FINAL,
         }, status=400)
 
-    # Text passed (or is appealable), so the image outcome is now needed to
-    # decide between rejection, an appealable hidden post, or a clean post.
-    # A text-only post has no image to classify, so it is treated as allowed
-    # and visibility depends solely on the text result.
-    image_result = image_future.result() if image_future else ClassificationResult(allowed=True)
-
-    if not image_result and not image_result.appealable:
-        logger.warning(f"Make post failed: Image not positive (final) for user_id: {request.user.id}")
-        delete_image(image_url)
-        return log_and_return_json("make_post", {
-            'error': f"Image is not positive because it {image_result.public_reason()}. "
-                     "This decision is final and cannot be appealed.",
-            Fields.reason_code: image_result.public_reason_code(),
-            Fields.appealable: False,
-        }, status=400)
-
-    # Any remaining rejection is appealable, so post it but hide it pending
-    # appeal. The visibility layer already shows authors their own hidden posts
-    # while hiding them from everyone else, so no extra visibility wiring is
-    # needed here.
-    hidden = not (text_result and image_result)
+    # Create the post hidden in the pending state and hand classification to
+    # the worker. visible_posts() already shows authors their own hidden posts
+    # while hiding them from everyone else, so a pending post is visible only
+    # to its author with no extra wiring; the worker later flips it to visible,
+    # or to hidden + appealable, or to a final-rejection tombstone.
     new_post = request.user.post_set.create(
-        image_url=image_url, caption=caption, hidden=hidden,
-        hidden_reason=HIDDEN_REASON_CLASSIFIER if hidden else HIDDEN_REASON_NONE)
+        image_url=image_url, caption=caption, hidden=True,
+        hidden_reason=HIDDEN_REASON_PENDING_CLASSIFICATION)
+    tasks.enqueue_classification(new_post.post_identifier)
 
-    response = {Fields.post_identifier: new_post.post_identifier}
-    if hidden:
-        logger.info(f"Post created hidden pending appeal: post_id: {new_post.post_identifier} for user_id: {request.user.id}")
-        blocked_parts = []
-        if not text_result:
-            blocked_parts.append(f"your caption {text_result.public_reason()}")
-        if not image_result:
-            blocked_parts.append(f"your image {image_result.public_reason()}")
-        # Text precedence for the machine-readable code, matching the final-
-        # rejection paths above.
-        reason_result = text_result if not text_result else image_result
-        response[Fields.hidden] = True
-        response[Fields.hidden_reason] = HIDDEN_REASON_CLASSIFIER
-        response[Fields.reason_code] = reason_result.public_reason_code()
-        response[Fields.appealable] = True
-        response['message'] = (f"Your post did not pass automated review because "
-                               f"{' and '.join(blocked_parts)}. It is hidden for now "
-                               "but you can appeal the decision.")
-    else:
-        logger.info(f"Post created successfully: post_id: {new_post.post_identifier} for user_id: {request.user.id}")
-    return log_and_return_json("make_post", response, status=201)
+    logger.info(f"Post created pending classification: post_id: {new_post.post_identifier} for user_id: {request.user.id}")
+    # hidden/hidden_reason are included so clients predating the async flow
+    # (which branch on `hidden`) degrade to showing this message rather than
+    # treating the post as live.
+    return log_and_return_json("make_post", {
+        Fields.post_identifier: new_post.post_identifier,
+        Fields.status: POST_STATUS_PENDING,
+        Fields.hidden: True,
+        Fields.hidden_reason: HIDDEN_REASON_PENDING_CLASSIFICATION,
+        Fields.appealable: False,
+        'message': "Your post is being reviewed and will be visible to others once it is approved.",
+    }, status=201)
 
 
 @csrf_exempt
@@ -1232,6 +1184,80 @@ def unlike_post(request, post_identifier):
         return log_and_return_json("unlike_post", {'error': "No post with that identifier"}, status=400)
 
 
+def _classification_message(post):
+    """User-facing sentence describing a post's classification state, or None
+    when there is nothing to explain (approved). Built exclusively from fixed
+    phrases keyed by the stored reason code, so nothing model-generated ever
+    reaches the client."""
+    status = post.classification_status
+    if status == POST_STATUS_PENDING:
+        return "Your post is being reviewed and will be visible to others once it is approved."
+    # .get with the generic fallback so an unrecognized stored code (e.g. an
+    # admin edit) degrades to the generic phrase rather than a 500.
+    phrase = REASON_PHRASES.get(post.classification_reason_code or GENERIC_REASON_CODE,
+                                REASON_PHRASES[GENERIC_REASON_CODE])
+    if status == POST_STATUS_REJECTED:
+        return (f"Your post did not pass automated review because it {phrase}. "
+                "It is hidden for now but you can appeal the decision.")
+    if status == POST_STATUS_REJECTED_FINAL:
+        return (f"Your post did not pass automated review because it {phrase}. "
+                "This decision is final and cannot be appealed.")
+    return None
+
+
+def _author_status_fields(post, viewer):
+    """Classification-status fields merged into post payloads, but only for the
+    post's own author: other viewers never see pending/rejected posts at all
+    (visible_posts filters them), and the moderation state of someone else's
+    post is not their business."""
+    if post.author_id != viewer.id:
+        return {}
+    return {
+        Fields.status: post.classification_status,
+        Fields.hidden: post.hidden,
+        Fields.hidden_reason: post.hidden_reason,
+        Fields.reason_code: post.classification_reason_code,
+        Fields.appealable: post.appealable,
+    }
+
+
+@api_login_required
+# Higher than the standard 60/m read limit: the post-submit reconcile poll
+# checks up to 3 pending posts every 3s (60 requests/min worst case), and the
+# ceiling must leave headroom for the user's other reads. The query is a cheap
+# author-only primary-key lookup.
+@ratelimit(key='user', rate='120/m', block=True)
+@require_GET
+def get_post_status(request, post_identifier):
+    """Classification status of one of the caller's own posts.
+
+    Clients poll this briefly after a pending create (and read the same fields
+    from feed/profile payloads on refresh) to reconcile the async outcome.
+    Author-only: a post belonging to someone else is reported exactly like a
+    missing one so the endpoint cannot be used to probe moderation states.
+    """
+    logger.info("Endpoint get_post_status invoked by IP or User")
+    if not is_valid_pattern(post_identifier, Patterns.uuid4):
+        return log_and_return_json("get_post_status", {'error': f"Invalid fields {Fields.post_identifier}"}, status=400)
+
+    post = request.user.post_set.filter(post_identifier=post_identifier).first()
+    if post is None:
+        return log_and_return_json("get_post_status", {'error': "No post with that identifier by that user"}, status=400)
+
+    data = {
+        Fields.post_identifier: post.post_identifier,
+        Fields.status: post.classification_status,
+        Fields.reason_code: post.classification_reason_code,
+        Fields.appealable: post.appealable,
+        Fields.hidden: post.hidden,
+        Fields.hidden_reason: post.hidden_reason,
+    }
+    message = _classification_message(post)
+    if message:
+        data['message'] = message
+    return log_and_return_json("get_post_status", data)
+
+
 # =============================================================================
 # FEED / POST RETRIEVAL VIEWS
 # =============================================================================
@@ -1264,7 +1290,11 @@ def get_posts_in_feed(request, batch):
                 # Lambda-generated compressed copy is still missing (#252/#254).
                 Fields.original_image_url: post.image_url,
                 Fields.author_username: post.author.username,
-                Fields.caption: post.caption
+                Fields.caption: post.caption,
+                # Authors see their own pending/hidden posts in feeds, so their
+                # payloads carry the classification state for the client to
+                # render (review-in-progress placeholder, appeal CTA, ...).
+                **_author_status_fields(post, request.user),
             }
             for post in batched_posts
         ]
@@ -1305,7 +1335,8 @@ def get_posts_for_followed_users(request, batch):
             # Lambda-generated compressed copy is still missing (#252/#254).
             Fields.original_image_url: post.image_url,
             Fields.author_username: post.author.username,
-            Fields.caption: post.caption
+            Fields.caption: post.caption,
+            **_author_status_fields(post, request.user),
         }
         for post in posts_batch
     ]
@@ -1352,7 +1383,10 @@ def get_posts_for_user(request, username, batch):
                 # user re-logs in. See issues #252 and #254.
                 Fields.original_image_url: post.image_url,
                 Fields.caption: post.caption,
-                Fields.author_username: target_user.username
+                Fields.author_username: target_user.username,
+                # The author's own profile grid includes pending/hidden posts;
+                # these fields let the client render their state.
+                **_author_status_fields(post, request.user),
             }
             for post in batched_posts
         ]
@@ -1387,7 +1421,8 @@ def get_post_details(request, post_identifier):
             Fields.is_liked: post.postlike_set.filter(user=request.user).exists(),
             Fields.is_reported: my_report is not None,
             Fields.report_reason: my_report.reason if my_report is not None else None,
-            Fields.author_username: post.author.username
+            Fields.author_username: post.author.username,
+            **_author_status_fields(post, request.user),
         }
         return log_and_return_json("get_post_details", post_data)
     else:
@@ -1972,6 +2007,25 @@ def toggle_block(request, username_to_toggle_block):
 @api_login_required
 @ratelimit(key='user', rate='30/m', block=True)
 @require_GET
+def get_blocked_users(request):
+    logger.info("Endpoint get_blocked_users invoked by IP or User")
+    # user is on request.user
+    blocked_users = request.user.blocked.order_by('username')
+
+    users_data = [
+        {
+            Fields.username: user.username,
+            Fields.identity_is_verified: user.identity_is_verified
+        }
+        for user in blocked_users
+    ]
+    logger.info(f"Get blocked users successful: count: {len(users_data)} for user_id: {request.user.id}")
+    return log_and_return_json("get_blocked_users", users_data, safe=False)
+
+
+@api_login_required
+@ratelimit(key='user', rate='30/m', block=True)
+@require_GET
 def get_profile_details(request, username):
     logger.info("Endpoint get_profile_details invoked by IP or User")
     # user is on request.user (requesting_user)
@@ -2063,7 +2117,10 @@ def get_hidden_posts(request, batch):
     if batch < 0:
         return log_and_return_json("get_hidden_posts", {'error': "Invalid batch parameter"}, status=400)
 
-    hidden = request.user.post_set.filter(hidden=True).order_by('-creation_time')
+    # Pending posts have not been rejected (nothing to appeal yet) and final
+    # rejections are terminal tombstones, so neither belongs on this screen.
+    hidden = request.user.post_set.filter(hidden=True).exclude(
+        hidden_reason__in=NON_APPEALABLE_HIDDEN_REASONS).order_by('-creation_time')
     batched = get_queryset_batch(hidden, batch, POST_BATCH_SIZE)
     appealed_ids = set(
         Appeal.objects.filter(post__in=batched).values_list('post_id', flat=True)
@@ -2148,7 +2205,11 @@ def _resolve_appeal_target(request, target_type, target_identifier):
     if target_type == APPEAL_TARGET_POST:
         if not is_valid_pattern(target_identifier, Patterns.uuid4):
             return None
-        post = request.user.post_set.filter(post_identifier=target_identifier, hidden=True).first()
+        # A post pending classification has not been rejected (nothing to
+        # appeal), and a final classifier rejection is terminal by definition.
+        post = request.user.post_set.filter(
+            post_identifier=target_identifier, hidden=True
+        ).exclude(hidden_reason__in=NON_APPEALABLE_HIDDEN_REASONS).first()
         if post is None:
             return None
         return APPEAL_TARGET_POST, post, post.caption

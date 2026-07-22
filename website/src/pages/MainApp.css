@@ -141,6 +141,21 @@
   display: block;
 }
 
+/* Author-only classification state on one's own tiles (#282): "In review"
+   while the async classifier runs, or the appeal hint on a rejection. */
+.post-grid__status-badge {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  padding: 0.2rem 0.3rem;
+  background: rgba(0, 0, 0, 0.72);
+  color: #fff;
+  font-size: 0.7rem;
+  text-align: center;
+  pointer-events: none;
+}
+
 /* ---- Caption tile (text-only posts, #307) ---- */
 
 .caption-tile {

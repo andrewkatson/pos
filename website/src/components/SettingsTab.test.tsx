@@ -31,6 +31,7 @@ function renderTab() {
         <Route path="/home" element={<SettingsTab />} />
         <Route path="/" element={<div>Landing page</div>} />
         <Route path="/appeals" element={<div>Appeals page</div>} />
+        <Route path="/blocked" element={<div>Blocked users page</div>} />
       </Routes>
     </MemoryRouter>,
   )
@@ -172,4 +173,10 @@ test('disabling 2fa can use a recovery code instead', async () => {
     password: 'MyPassword1-',
     recovery_code: 'abcdef0123',
   })
+})
+
+test('opens the blocked users page', async () => {
+  renderTab()
+  await userEvent.click(screen.getByRole('button', { name: 'Blocked Users' }))
+  expect(await screen.findByText('Blocked users page')).toBeInTheDocument()
 })

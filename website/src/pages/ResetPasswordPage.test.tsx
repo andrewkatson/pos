@@ -102,8 +102,7 @@ test('password hints appear when new password is typed', async () => {
   expect(screen.getByText('At least one number')).toBeInTheDocument()
   expect(screen.getByText('At least one lowercase letter')).toBeInTheDocument()
   expect(screen.getByText('At least one uppercase letter')).toBeInTheDocument()
-  expect(screen.getByText('At least one dash (-)')).toBeInTheDocument()
-  expect(screen.getByText('Adding other special characters (like !) is suggested')).toBeInTheDocument()
+  expect(screen.getByText('Adding special characters (like ! @ # $ % ^ & * - _) is suggested')).toBeInTheDocument()
   expect(screen.getByText('No spaces')).toBeInTheDocument()
 })
 

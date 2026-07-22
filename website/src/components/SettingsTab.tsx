@@ -106,6 +106,13 @@ function SettingsTab() {
         <button
           type="button"
           className="settings-row"
+          onClick={() => navigate('/blocked')}
+        >
+          Blocked Users
+        </button>
+        <button
+          type="button"
+          className="settings-row"
           onClick={() => setActiveModal('privacy')}
         >
           Privacy Policy
