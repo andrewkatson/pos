@@ -126,6 +126,11 @@ class SettingsViewModel(
     /** Starts TOTP enrollment: fetches a fresh secret + otpauth:// URI. */
     fun startTotpSetup() {
         val generation = ++totpSetupGeneration
+        // Drop any state from a previous attempt so the dialog can't briefly
+        // render a stale secret/QR (or stale codes) while this request is in
+        // flight — scanning the wrong secret would fail confirmation.
+        _totpSetup.value = null
+        _recoveryCodes.value = null
         viewModelScope.launch {
             try {
                 val userSession = keychainHelper.load(UserSession::class.java, service, account)
@@ -159,15 +164,22 @@ class SettingsViewModel(
      * On success `recoveryCodes` is populated for the one-time display.
      */
     fun confirmTotp(code: String) {
+        // Share the enrollment generation with setup: a confirm response that
+        // lands after the dialog was cancelled (or a newer attempt started) is
+        // discarded, so it can't repopulate recoveryCodes for an abandoned run.
+        val generation = totpSetupGeneration
         viewModelScope.launch {
             try {
                 val userSession = keychainHelper.load(UserSession::class.java, service, account)
                 if (userSession == null) {
-                    _errorMessage.value = "Session not found."
-                    _showingErrorAlert.value = true
+                    if (generation == totpSetupGeneration) {
+                        _errorMessage.value = "Session not found."
+                        _showingErrorAlert.value = true
+                    }
                     return@launch
                 }
                 val response = api.confirmTotp(userSession.sessionToken, ConfirmTotpRequest(code))
+                if (generation != totpSetupGeneration) return@launch
                 val codes = response.body()?.recoveryCodes
                 if (response.isSuccessful && codes != null) {
                     _recoveryCodes.value = codes
@@ -181,8 +193,10 @@ class SettingsViewModel(
                     _showingErrorAlert.value = true
                 }
             } catch (e: Exception) {
-                _errorMessage.value = ApiErrors.messageFor(e, fallback = "Verification failed. Please try again.")
-                _showingErrorAlert.value = true
+                if (generation == totpSetupGeneration) {
+                    _errorMessage.value = ApiErrors.messageFor(e, fallback = "Verification failed. Please try again.")
+                    _showingErrorAlert.value = true
+                }
             }
         }
     }
