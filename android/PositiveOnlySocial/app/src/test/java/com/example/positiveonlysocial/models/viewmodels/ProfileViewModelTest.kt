@@ -235,8 +235,11 @@ class ProfileViewModelTest {
     fun `pending post polls status and reloads grid when approved`() = runTest {
         val pendingPost = Post("1", null, "caption", "testuser", status = "pending", hidden = true, hiddenReason = "pending_classification")
         stubOwnProfile(listOf(pendingPost))
+        // Deliberately no advanceUntilIdle() here: it would advance virtual time
+        // through the poll's own delay, firing a round before getPostStatus is
+        // stubbed below and burning the attempt budget. The unconfined test
+        // dispatcher has already run the fetch to completion.
         viewModel.fetchUserPosts("testuser")
-        advanceUntilIdle()
         assertEquals("pending", viewModel.userPosts.value.first().status)
 
         // The worker approves it; the bounded poll notices and reloads.
@@ -256,8 +259,8 @@ class ProfileViewModelTest {
     fun `pending post that resolves to rejected surfaces a review notice`() = runTest {
         val pendingPost = Post("1", null, "caption", "testuser", status = "pending", hidden = true, hiddenReason = "pending_classification")
         stubOwnProfile(listOf(pendingPost))
+        // See the note above: advancing here would spend the poll budget.
         viewModel.fetchUserPosts("testuser")
-        advanceUntilIdle()
 
         whenever(api.getPostStatus("token123", "1")).thenReturn(
             Response.success(
@@ -289,7 +292,6 @@ class ProfileViewModelTest {
     fun `no status poll when no post is pending`() = runTest {
         stubOwnProfile(listOf(Post("1", "url1", "caption1", "testuser", status = "approved")))
         viewModel.fetchUserPosts("testuser")
-        advanceUntilIdle()
 
         advanceTimeBy(60_000)
         advanceUntilIdle()
