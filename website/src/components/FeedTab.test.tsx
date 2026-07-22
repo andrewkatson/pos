@@ -218,7 +218,7 @@ test('shows how long ago the post was made', async () => {
   ])
   mockGetFollowed.mockResolvedValue([])
   renderTab()
-  expect(await screen.findByText('2 hr ago')).toBeInTheDocument()
+  expect(await screen.findByText('2 hr')).toBeInTheDocument()
 })
 
 test('omits the time when the post has no creation timestamp', async () => {
@@ -229,7 +229,7 @@ test('omits the time when the post has no creation timestamp', async () => {
   mockGetFollowed.mockResolvedValue([])
   renderTab()
   await screen.findByRole('button', { name: 'Open post by ada' })
-  expect(screen.queryByText(/ago$/)).not.toBeInTheDocument()
+  expect(screen.queryByText(/^\d+ (min|hr|days?|weeks?|years?)$/)).not.toBeInTheDocument()
 })
 
 test('tapping your own name in the feed goes to the Profile tab', async () => {

@@ -65,7 +65,9 @@ function PostActionBar({
         </button>
       )}
 
-      {showDetails && postTime && <span className="post-actions__time">{postTime} ago</span>}
+      {/* Rendered bare, like the post detail and comment timestamps do — the
+          helper already returns the whole label. */}
+      {showDetails && postTime && <span className="post-actions__time">{postTime}</span>}
 
       {state.isReported && (
         <span className="flag-icon" aria-label="You reported this post">

@@ -6,8 +6,11 @@ import './MainApp.css'
 
 /**
  * The /profile/:username route: a back bar wrapping the shared ProfileView.
- * Your own profile is normally reached from the Profile tab instead (#347), but
- * this route still renders it — e.g. when tapping your own name on a post.
+ * This is where *other* people's profiles are shown — tapping your own name
+ * anywhere goes to the Profile tab instead, via profilePathFor() (#347).
+ *
+ * The route still renders your own profile correctly (hiding Follow/Block) if
+ * you reach it directly, e.g. from an old link or a pasted URL.
  *
  * The inner view is keyed by username so navigating between profiles fully
  * resets its state instead of briefly showing the previous user's data.
