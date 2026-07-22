@@ -3,9 +3,12 @@ import { apiClient } from '../api/client'
 import type { FeedPost } from '../api/types'
 
 /** Anything can be thrown in JS, so never assume the caught value is an Error:
- * reading `.message` off a string/null would lose the text or throw again. */
+ * reading `.message` off a string or null would lose the text or throw again.
+ * A thrown string carries its own message, so it's used as-is; anything else
+ * has no text worth showing and falls back to the caller's wording. */
 function messageFrom(err: unknown, fallback: string): string {
   if (err instanceof Error && err.message) return err.message
+  if (typeof err === 'string' && err.trim()) return err
   return fallback
 }
 

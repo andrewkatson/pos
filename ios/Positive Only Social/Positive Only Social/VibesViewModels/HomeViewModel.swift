@@ -122,7 +122,6 @@ final class HomeViewModel: ObservableObject {
                 self.userPosts = newPosts
                 self.canLoadMorePosts = !newPosts.isEmpty
                 self.currentPage = newPosts.isEmpty ? 0 : 1
-                // A fresh first page grants a fresh reconcile-poll budget (#282).
             } else if newPosts.isEmpty {
                 // No more posts to load
                 self.canLoadMorePosts = false
@@ -130,7 +129,6 @@ final class HomeViewModel: ObservableObject {
                 self.userPosts.append(contentsOf: newPosts)
                 self.currentPage += 1
             }
-            self.startStatusPollIfNeeded()
 
         } catch {
             // A cancelled load (e.g. SwiftUI tearing down a pull-to-refresh

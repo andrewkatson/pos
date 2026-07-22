@@ -347,5 +347,84 @@ struct Positive_Only_SocialTests_ProfileViewModel {
         #expect(!sut.userPosts.contains { $0.id == deletedId })
         #expect(stubAPI.getPostsForUserCallCount == 1)
     }
-}
 
+    // --- Async Classification Reconciliation Tests (#282) ---
+    //
+    // The bounded status poll lives in ProfileViewModel rather than
+    // HomeViewModel because the Profile tab's grid is this view model's
+    // (issue #347). Only your own posts ever carry a status, so these view
+    // their own profile.
+
+    @Test func testStatusPoll_PendingPostResolvesToApproved_ReloadsGrid() async throws {
+        stubAPI.pageSize = 10
+        stubAPI.deferClassification = true
+        let (token, user) = try await registerUser(username: "statusPollApproved")
+        let account = "statusPollApproved_account"
+        try await setupLoggedInUser(user: user, token: token, account: account)
+
+        _ = try await stubAPI.makePost(sessionManagementToken: token, imageURL: nil, caption: "waiting on review")
+
+        let sut = ProfileViewModel(user: user, api: stubAPI, keychainHelper: keychainHelper, account: account)
+        // A comfortably long interval so the classification below is resolved
+        // before the first poll round fires (the round then sees the outcome).
+        sut.statusPollIntervalSeconds = 1
+        sut.fetchUserPosts()
+        await yield(for: .seconds(0.5))
+
+        // The author sees their own pending post, marked as such.
+        #expect(sut.userPosts.count == 1)
+        #expect(sut.userPosts.first?.status == "pending")
+
+        // When the (stubbed) worker approves it, the bounded poll notices and
+        // reloads the grid.
+        stubAPI.resolvePendingClassifications()
+        await yield()
+
+        #expect(sut.userPosts.first?.status == "approved")
+        #expect(sut.reviewNotice == nil)
+    }
+
+    @Test func testStatusPoll_PendingPostResolvesToRejected_SurfacesNotice() async throws {
+        stubAPI.pageSize = 10
+        stubAPI.deferClassification = true
+        let (token, user) = try await registerUser(username: "statusPollRejected")
+        let account = "statusPollRejected_account"
+        try await setupLoggedInUser(user: user, token: token, account: account)
+
+        _ = try await stubAPI.makePost(sessionManagementToken: token, imageURL: nil, caption: "a borderline take")
+
+        let sut = ProfileViewModel(user: user, api: stubAPI, keychainHelper: keychainHelper, account: account)
+        sut.statusPollIntervalSeconds = 1
+        sut.fetchUserPosts()
+        await yield(for: .seconds(0.5))
+        #expect(sut.userPosts.first?.status == "pending")
+
+        stubAPI.resolvePendingClassifications()
+        await yield()
+
+        // The rejection is surfaced once, and the reloaded grid still shows the
+        // post (hidden but appealable) with its rejected state.
+        #expect(sut.reviewNotice != nil)
+        #expect(sut.userPosts.first?.status == "rejected")
+        #expect(sut.userPosts.first?.appealable == true)
+    }
+
+    @Test func testStatusPoll_NoPendingPosts_DoesNotPoll() async throws {
+        stubAPI.pageSize = 10
+        let (token, user) = try await registerUser(username: "statusPollNotNeeded")
+        let account = "statusPollNotNeeded_account"
+        try await setupLoggedInUser(user: user, token: token, account: account)
+
+        _ = try await stubAPI.makePost(sessionManagementToken: token, imageURL: "my.image/1", caption: "instantly approved")
+
+        let sut = ProfileViewModel(user: user, api: stubAPI, keychainHelper: keychainHelper, account: account)
+        sut.statusPollIntervalSeconds = 0.05
+        sut.fetchUserPosts()
+        await yield()
+        #expect(sut.userPosts.first?.status == "approved")
+
+        // No pending posts, so the poll never re-fetches the grid.
+        await yield()
+        #expect(stubAPI.getPostsForUserCallCount == 1)
+    }
+}
