@@ -4,7 +4,7 @@ struct LoginView: View {
     let api: Networking
     let keychainHelper: KeychainHelperProtocol
 
-    // MARK: Envrionment Properties
+    // MARK: Environment Properties
     @EnvironmentObject var authManager: AuthenticationManager
 
     // MARK: - State Properties

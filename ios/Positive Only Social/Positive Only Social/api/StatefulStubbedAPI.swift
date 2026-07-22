@@ -314,7 +314,10 @@ final class StatefulStubbedAPI: Networking {
         let user = users[userIndex]
 
         sessions.removeAll { $0.userId == user.id }
-        let newSession = MockSession(managementToken: generateToken(), userId: user.id, ip: challenge.ip)
+        // Record the IP this second step came from, not the one from the
+        // password step — they can differ, and the other login endpoints all
+        // store the IP of the request that issued the session.
+        let newSession = MockSession(managementToken: generateToken(), userId: user.id, ip: ip)
         sessions.append(newSession)
 
         if challenge.rememberMe {
