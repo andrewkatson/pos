@@ -1,5 +1,6 @@
 package com.example.positiveonlysocial.api
 
+import com.example.positiveonlysocial.data.constants.Constants
 import com.example.positiveonlysocial.data.model.*
 import okhttp3.MediaType.Companion.toMediaTypeOrNull
 import okhttp3.ResponseBody.Companion.toResponseBody
@@ -257,9 +258,9 @@ class StatefulStubbedAPI : PositiveOnlySocialAPI {
 
     override suspend fun loginUser2FA(request: LoginTwoFactorRequest): Response<AuthResponse> {
         val challenge = twoFactorChallenges.find { it.challengeToken == request.challengeToken }
-            ?: return errorGeneric(400, "Invalid or expired challenge")
+            ?: return errorGeneric(400, Constants.INVALID_TWO_FACTOR_CHALLENGE)
         val user = users.find { it.id == challenge.userId }
-            ?: return errorGeneric(400, "Invalid or expired challenge")
+            ?: return errorGeneric(400, Constants.INVALID_TWO_FACTOR_CHALLENGE)
 
         val totpCode = request.totpCode
         val recoveryCode = request.recoveryCode

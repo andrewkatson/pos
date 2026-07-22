@@ -207,7 +207,7 @@ fun LoginScreen(
                                         )
                                     } else {
                                         val errorMsg = ApiErrors.messageFor(response, fallback = "Verification failed. Please try again.")
-                                        if (errorMsg == Constants.INVALID_OR_EXPIRED_CHALLENGE) {
+                                        if (errorMsg == Constants.INVALID_TWO_FACTOR_CHALLENGE) {
                                             // The challenge timed out (or was
                                             // invalidated): start over from the
                                             // default authenticator-code entry.
