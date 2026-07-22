@@ -628,7 +628,7 @@ def login_user_with_remember_me(request):
 
     # Alert the user by email if this remember-me login is from a device (IP+user-agent)
     # we have not seen for them before.
-    _record_device_and_maybe_notify(existing, ip,request=request)
+    _record_device_and_maybe_notify(existing, ip, request=request)
 
     response_data = {
         Fields.login_cookie_token: new_login_cookie_token,
