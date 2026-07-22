@@ -1005,7 +1005,10 @@ def disable_totp(request):
     recovery_code = data.get(Fields.recovery_code)
 
     invalid_fields = []
-    if not password or not is_valid_pattern(password, Patterns.login_password):
+    # isinstance matters here: is_valid_pattern coerces with str(), so a JSON
+    # number would satisfy the regex and then blow up inside check_password —
+    # a 500 where this should be a plain 400. Matches the code checks below.
+    if not password or not isinstance(password, str) or not is_valid_pattern(password, Patterns.login_password):
         invalid_fields.append(Params.password)
     if bool(totp_code) == bool(recovery_code):
         invalid_fields.extend([Params.totp_code, Params.recovery_code])

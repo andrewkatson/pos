@@ -325,6 +325,20 @@ class TwoFactorAuthTests(PositiveOnlySocialTestCase):
         self.assertEqual(login_response.status_code, 200)
         self.assertIn(Fields.session_management_token, login_response.json())
 
+    def test_disable_with_non_string_password_returns_bad_request(self):
+        """A JSON number satisfies the coercing regex check, so without an
+        explicit type check it would reach check_password and 500."""
+        secret, _ = self._enable_totp()
+
+        data = {
+            Fields.password: 12345678,
+            Fields.totp_code: pyotp.TOTP(secret).now(),
+        }
+        response = self.client.post(self.disable_url, data=data, content_type='application/json', **self.header)
+
+        self.assertEqual(response.status_code, 400)
+        self.assertTrue(self._user().totp_enabled)
+
     def test_disable_with_recovery_code_works(self):
         _, recovery_codes = self._enable_totp()
 
