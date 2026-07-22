@@ -177,8 +177,10 @@ class LoginCookie(models.Model):
 # session exists until the user proves possession of their authenticator at
 # login/2fa/. Only the SHA-256 hash of the challenge token is stored, the same
 # scheme as the email-verification and password-reset tokens. Rows are deleted
-# on success or when the attempt limit is hit; expired rows are swept
-# opportunistically when the same user logs in again.
+# on success, when the attempt limit is hit, and whenever the same user starts a
+# new login (only one challenge is ever live per user). A login that is started
+# and abandoned would otherwise leave its row behind indefinitely, so the
+# cleanup_expired_two_factor_challenges management command sweeps expired rows.
 class TwoFactorChallenge(models.Model):
     user = models.ForeignKey(PositiveOnlySocialUser, related_name='two_factor_challenges', on_delete=models.CASCADE)
     # Looked up by hash on every second login step, so it is indexed; unique
