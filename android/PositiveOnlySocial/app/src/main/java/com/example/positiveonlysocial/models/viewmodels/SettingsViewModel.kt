@@ -53,6 +53,11 @@ class SettingsViewModel(
     private val _recoveryCodes = MutableStateFlow<List<String>?>(null)
     val recoveryCodes: StateFlow<List<String>?> = _recoveryCodes.asStateFlow()
 
+    // True while a confirm request is in flight, so the UI can stop a second
+    // submission racing the first.
+    private val _isConfirmingTotp = MutableStateFlow(false)
+    val isConfirmingTotp: StateFlow<Boolean> = _isConfirmingTotp.asStateFlow()
+
     private val _twoFactorStatusMessage = MutableStateFlow<String?>(null)
     val twoFactorStatusMessage: StateFlow<String?> = _twoFactorStatusMessage.asStateFlow()
 
@@ -160,14 +165,27 @@ class SettingsViewModel(
     }
 
     /**
-     * Finishes TOTP enrollment by verifying one code from the authenticator.
-     * On success `recoveryCodes` is populated for the one-time display.
+     * Finishes TOTP enrollment by verifying the account password and one code
+     * from the authenticator. On success `recoveryCodes` is populated for the
+     * one-time display. The password is what stops a stolen session from
+     * binding an attacker's authenticator and locking the real owner out.
      */
-    fun confirmTotp(code: String) {
+    fun confirmTotp(password: String, code: String) {
+        // Ignore a duplicate submission while one is already running. Disabling
+        // the Verify button is the first line of defence, but that only takes
+        // effect on the next recomposition, so a fast double-tap can call this
+        // twice before the button goes grey. Both calls would share the
+        // generation below, so the first to finish would clear the in-flight
+        // flag in its `finally` while the second is still running — re-enabling
+        // Verify/dismissal and reopening the very race this guards. The flag is
+        // set synchronously here, before the coroutine is launched, so the
+        // second synchronous call on the main thread sees it and bails.
+        if (_isConfirmingTotp.value) return
         // Share the enrollment generation with setup: a confirm response that
         // lands after the dialog was cancelled (or a newer attempt started) is
         // discarded, so it can't repopulate recoveryCodes for an abandoned run.
         val generation = totpSetupGeneration
+        _isConfirmingTotp.value = true
         viewModelScope.launch {
             try {
                 val userSession = keychainHelper.load(UserSession::class.java, service, account)
@@ -178,7 +196,7 @@ class SettingsViewModel(
                     }
                     return@launch
                 }
-                val response = api.confirmTotp(userSession.sessionToken, ConfirmTotpRequest(code))
+                val response = api.confirmTotp(userSession.sessionToken, ConfirmTotpRequest(password, code))
                 if (generation != totpSetupGeneration) return@launch
                 val codes = response.body()?.recoveryCodes
                 if (response.isSuccessful && !codes.isNullOrEmpty()) {
@@ -198,6 +216,10 @@ class SettingsViewModel(
                     _errorMessage.value = ApiErrors.messageFor(e, fallback = "Verification failed. Please try again.")
                     _showingErrorAlert.value = true
                 }
+            } finally {
+                // Only the newest attempt owns the flag; an older one finishing
+                // late must not re-enable Verify for the current attempt.
+                if (generation == totpSetupGeneration) _isConfirmingTotp.value = false
             }
         }
     }
@@ -207,6 +229,11 @@ class SettingsViewModel(
         // Only report success if confirm actually produced recovery codes, so an
         // accidental call while still mid-enrollment can't fake an enabled state.
         val wasEnrolled = _recoveryCodes.value != null
+        // Bump the generation so a still-in-flight confirm is ignored, and clear
+        // the in-flight flag here: the bump means that request's own `finally`
+        // no longer matches, so it would otherwise leave Verify stuck disabled.
+        totpSetupGeneration++
+        _isConfirmingTotp.value = false
         _totpSetup.value = null
         _recoveryCodes.value = null
         if (wasEnrolled) {
@@ -219,6 +246,7 @@ class SettingsViewModel(
         // Invalidate any in-flight setup so its late response is ignored and a
         // quick reopen isn't left stuck waiting on the abandoned request.
         totpSetupGeneration++
+        _isConfirmingTotp.value = false
         _totpSetup.value = null
         _recoveryCodes.value = null
     }

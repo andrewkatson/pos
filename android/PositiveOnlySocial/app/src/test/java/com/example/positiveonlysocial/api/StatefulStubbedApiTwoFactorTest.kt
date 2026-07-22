@@ -27,8 +27,26 @@ class StatefulStubbedApiTwoFactorTest {
             RegisterRequest(username, "$username@test.com", "pw12345", "false", "127.0.0.1", "1970-01-01")
         ).body()!!.sessionToken
         api.setupTotp(token)
-        val confirm = api.confirmTotp(token, ConfirmTotpRequest(StatefulStubbedAPI.STUB_TOTP_CODE))
+        val confirm = api.confirmTotp(token, ConfirmTotpRequest("pw12345", StatefulStubbedAPI.STUB_TOTP_CODE))
         return token to confirm.body()!!.recoveryCodes
+    }
+
+    @Test
+    fun `confirm rejects a wrong password so a stolen session cannot enrol`() = runTest {
+        // Enrolling with a session alone would let a session thief bind their own
+        // authenticator, read the recovery codes, and lock the owner out for good.
+        val api = StatefulStubbedAPI()
+        val token = api.register(
+            RegisterRequest("grace", "grace@test.com", "pw12345", "false", "127.0.0.1", "1970-01-01")
+        ).body()!!.sessionToken
+        api.setupTotp(token)
+
+        val wrong = api.confirmTotp(token, ConfirmTotpRequest("wrong", StatefulStubbedAPI.STUB_TOTP_CODE))
+        assertEquals(400, wrong.code())
+
+        val right = api.confirmTotp(token, ConfirmTotpRequest("pw12345", StatefulStubbedAPI.STUB_TOTP_CODE))
+        assertEquals(200, right.code())
+        assertEquals(10, right.body()!!.recoveryCodes.size)
     }
 
     @Test

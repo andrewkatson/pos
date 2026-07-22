@@ -93,12 +93,14 @@ fun SettingsScreen(
         var showingEnrollTwoFactor by remember { mutableStateOf(false) }
         var showingDisableTwoFactor by remember { mutableStateOf(false) }
         var twoFactorConfirmCode by remember { mutableStateOf("") }
+        var twoFactorConfirmPassword by remember { mutableStateOf("") }
         var disablePassword by remember { mutableStateOf("") }
         var disableCode by remember { mutableStateOf("") }
         var disableUsesRecoveryCode by remember { mutableStateOf(false) }
 
         val totpSetup by viewModel.totpSetup.collectAsState()
         val recoveryCodes by viewModel.recoveryCodes.collectAsState()
+        val isConfirmingTotp by viewModel.isConfirmingTotp.collectAsState()
         val twoFactorStatusMessage by viewModel.twoFactorStatusMessage.collectAsState()
         val clipboardManager = LocalClipboardManager.current
 
@@ -121,7 +123,10 @@ fun SettingsScreen(
                 recoveryCodes = recoveryCodes,
                 confirmCode = twoFactorConfirmCode,
                 onConfirmCodeChange = { twoFactorConfirmCode = it },
-                onVerify = { viewModel.confirmTotp(twoFactorConfirmCode.trim()) },
+                confirmPassword = twoFactorConfirmPassword,
+                onConfirmPasswordChange = { twoFactorConfirmPassword = it },
+                isConfirming = isConfirmingTotp,
+                onVerify = { viewModel.confirmTotp(twoFactorConfirmPassword, twoFactorConfirmCode.trim()) },
                 onCopySecret = { secret ->
                     clipboardManager.setText(AnnotatedString(secret))
                 },
@@ -130,10 +135,16 @@ fun SettingsScreen(
                 },
                 onDone = {
                     showingEnrollTwoFactor = false
+                    // Don't leave the account password sitting in composition state
+                    // once the flow is over.
+                    twoFactorConfirmCode = ""
+                    twoFactorConfirmPassword = ""
                     viewModel.finishTotpEnrollment()
                 },
                 onCancel = {
                     showingEnrollTwoFactor = false
+                    twoFactorConfirmCode = ""
+                    twoFactorConfirmPassword = ""
                     viewModel.cancelTotpEnrollment()
                 }
             )
@@ -418,6 +429,7 @@ fun SettingsScreen(
 
             ListListItem(text = "Enable Two-Factor Authentication", textColor = Color.Blue) {
                 twoFactorConfirmCode = ""
+                twoFactorConfirmPassword = ""
                 viewModel.startTotpSetup()
                 showingEnrollTwoFactor = true
             }
@@ -475,6 +487,9 @@ private fun EnrollTwoFactorDialog(
     recoveryCodes: List<String>?,
     confirmCode: String,
     onConfirmCodeChange: (String) -> Unit,
+    confirmPassword: String,
+    onConfirmPasswordChange: (String) -> Unit,
+    isConfirming: Boolean,
     onVerify: () -> Unit,
     onCopySecret: (String) -> Unit,
     onCopyRecoveryCodes: (List<String>) -> Unit,
@@ -482,15 +497,28 @@ private fun EnrollTwoFactorDialog(
     onCancel: () -> Unit
 ) {
     val isConfirmCodeValid = confirmCode.trim().length == 6 && confirmCode.trim().all { it.isDigit() }
+    // The password is required too: without it a stolen session could enrol its
+    // own authenticator and lock the real owner out permanently.
+    // Also blocked while a confirm is in flight: a second tap would enqueue
+    // another enrollment, and a later failure ("already enabled") would raise an
+    // error alert over the recovery codes the first one just produced.
+    // isNotBlank, not isNotEmpty: a whitespace-only password can never be valid
+    // (the backend password pattern forbids whitespace), so it must not enable
+    // Verify. The password is sent verbatim otherwise — login and the disable
+    // dialog don't trim either, and trimming only here would let enrollment
+    // accept a password the subsequent login would reject.
+    val canConfirm = isConfirmCodeValid && confirmPassword.isNotBlank() && !isConfirming
 
     AlertDialog(
         // Recovery codes are shown exactly once and the backend can't re-issue
         // them, so on that step the dialog can't be dismissed by a back press or
         // a tap outside — the user has to choose Copy All / Done deliberately.
-        // Before codes exist, dismissing simply abandons the pending enrollment.
+        // It's also sealed while a confirm is in flight: enrollment may already
+        // have succeeded, and dismissing would drop the response carrying the
+        // only copy of the codes. Otherwise dismissing abandons a pending setup.
         properties = DialogProperties(
-            dismissOnBackPress = recoveryCodes == null,
-            dismissOnClickOutside = recoveryCodes == null,
+            dismissOnBackPress = recoveryCodes == null && !isConfirming,
+            dismissOnClickOutside = recoveryCodes == null && !isConfirming,
         ),
         // Defensive: if a dismissal ever does get through on the codes step, 2FA
         // is already enabled server-side, so report it rather than cancelling.
@@ -552,6 +580,16 @@ private fun EnrollTwoFactorDialog(
                             keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.NumberPassword),
                             modifier = Modifier.testTag("TwoFactorConfirmCodeField")
                         )
+                        Spacer(modifier = Modifier.height(12.dp))
+                        TextField(
+                            value = confirmPassword,
+                            onValueChange = onConfirmPasswordChange,
+                            label = { Text("Account password") },
+                            singleLine = true,
+                            visualTransformation = PasswordVisualTransformation(),
+                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
+                            modifier = Modifier.testTag("TwoFactorConfirmPasswordField")
+                        )
                     }
                     else -> {
                         CircularProgressIndicator()
@@ -573,7 +611,7 @@ private fun EnrollTwoFactorDialog(
                     }
                 }
                 totpSetup != null -> {
-                    Button(onClick = onVerify, enabled = isConfirmCodeValid, modifier = Modifier.testTag("ConfirmTwoFactorButton")) {
+                    Button(onClick = onVerify, enabled = canConfirm, modifier = Modifier.testTag("ConfirmTwoFactorButton")) {
                         Text("Verify")
                     }
                 }
@@ -581,7 +619,11 @@ private fun EnrollTwoFactorDialog(
         },
         dismissButton = {
             if (recoveryCodes == null) {
-                Button(onClick = onCancel) { Text("Cancel") }
+                // Disabled mid-confirm for the same reason the dialog can't be
+                // dismissed then: enrollment may already have succeeded, and
+                // tearing the dialog down discards the response carrying the only
+                // copy of the recovery codes.
+                Button(onClick = onCancel, enabled = !isConfirming) { Text("Cancel") }
             }
         }
     )
