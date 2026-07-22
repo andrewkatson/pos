@@ -195,13 +195,15 @@ class ProfileViewModel: ObservableObject {
               statusPollTask == nil,
               statusPollAttempts < statusPollMaxAttempts else { return }
 
-        statusPollTask = Task { [weak self] in
-            guard let self else { return }
-            try? await Task.sleep(for: .seconds(self.statusPollIntervalSeconds))
+        // The interval is read up front and self is only strong-captured after
+        // the sleep: holding self across the wait would keep the view model —
+        // and its polling — alive after the profile has been dismissed.
+        statusPollTask = Task { [weak self, interval = statusPollIntervalSeconds] in
+            try? await Task.sleep(for: .seconds(interval))
+            guard !Task.isCancelled, let self else { return }
             // Clear before polling so the poll round itself can re-arm the
             // next round (directly or via the reload it triggers).
             self.statusPollTask = nil
-            guard !Task.isCancelled else { return }
             self.statusPollAttempts += 1
             await self.pollPendingStatuses(pendingIds)
         }
