@@ -167,6 +167,12 @@ keep working for them.
 **Trusted devices**: the remember-me login (`login/remember/`) never asks for
 a code — possession of a valid login cookie counts as the second factor.
 
+**Abandoned challenges**: issuing a challenge clears any earlier one for that
+user, so only one is ever live. A login that is started and never finished
+still leaves a row until that user logs in again (forever, for someone who
+never returns), so the `cleanup_expired_two_factor_challenges` management
+command sweeps expired rows and is safe to run on a schedule.
+
 **Disabling** (`2fa/disable/`) requires the account password *plus* a current
 TOTP or unused recovery code, so a stolen logged-in session alone cannot
 strip the protection. Losing the authenticator is what recovery codes are

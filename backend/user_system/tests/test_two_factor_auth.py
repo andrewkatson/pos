@@ -3,6 +3,7 @@ from datetime import timedelta
 
 import pyotp
 from django.contrib.auth import get_user_model
+from django.core.management import call_command
 from django.urls import reverse
 from django.utils import timezone
 
@@ -324,6 +325,44 @@ class TwoFactorAuthTests(PositiveOnlySocialTestCase):
         login_response = self.client.post(self.login_url, data=login_data, content_type='application/json')
         self.assertEqual(login_response.status_code, 200)
         self.assertIn(Fields.session_management_token, login_response.json())
+
+    # =========================================================================
+    # EXPIRED-CHALLENGE SWEEP
+    # =========================================================================
+
+    def test_cleanup_command_deletes_only_expired_challenges(self):
+        self._enable_totp()
+        self._login_expect_challenge()
+        user = self._user()
+
+        # A second, still-valid challenge belonging to another account, so the
+        # sweep has something it must not touch.
+        other = self.make_user_with_prefix(prefix='sweep')
+        other_user = get_user_model().objects.get(username=other['username'])
+        live = other_user.two_factor_challenges.create(
+            token_hash='a' * 64,
+            expires=timezone.now() + timedelta(minutes=5),
+        )
+
+        # Age the first user's challenge past its expiry.
+        TwoFactorChallenge.objects.filter(user=user).update(
+            expires=timezone.now() - timedelta(minutes=1))
+
+        call_command('cleanup_expired_two_factor_challenges')
+
+        self.assertEqual(TwoFactorChallenge.objects.filter(user=user).count(), 0)
+        self.assertTrue(TwoFactorChallenge.objects.filter(pk=live.pk).exists())
+
+    def test_cleanup_command_dry_run_deletes_nothing(self):
+        self._enable_totp()
+        self._login_expect_challenge()
+        user = self._user()
+        TwoFactorChallenge.objects.filter(user=user).update(
+            expires=timezone.now() - timedelta(minutes=1))
+
+        call_command('cleanup_expired_two_factor_challenges', '--dry-run')
+
+        self.assertEqual(TwoFactorChallenge.objects.filter(user=user).count(), 1)
 
     def test_disable_with_non_string_password_returns_bad_request(self):
         """A JSON number satisfies the coercing regex check, so without an
