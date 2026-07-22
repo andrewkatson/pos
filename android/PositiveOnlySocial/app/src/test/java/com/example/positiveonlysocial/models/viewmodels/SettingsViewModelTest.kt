@@ -6,7 +6,9 @@ import com.example.positiveonlysocial.data.auth.AuthenticationManager
 import com.example.positiveonlysocial.data.model.GenericResponse
 import com.example.positiveonlysocial.data.model.UserSession
 import com.example.positiveonlysocial.data.security.KeychainHelperProtocol
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.runTest
 import okhttp3.ResponseBody.Companion.toResponseBody
 import org.junit.Assert.assertEquals
@@ -15,7 +17,10 @@ import org.junit.Before
 import org.junit.Rule
 import org.junit.Test
 import org.mockito.kotlin.any
+import org.mockito.kotlin.doSuspendableAnswer
 import org.mockito.kotlin.mock
+import org.mockito.kotlin.stub
+import org.mockito.kotlin.times
 import org.mockito.kotlin.verify
 import org.mockito.kotlin.whenever
 import com.example.positiveonlysocial.data.model.IdentityVerificationRequest
@@ -140,6 +145,30 @@ class SettingsViewModelTest {
         // The in-flight flag is cleared once the request settles, so the UI can
         // block a duplicate submission while it runs and re-enable Verify after.
         assertEquals(false, viewModel.isConfirmingTotp.value)
+    }
+
+    @Test
+    fun `confirmTotp ignores a duplicate submission while one is in flight`() = runTest {
+        // Disabling the Verify button only takes effect on the next Compose
+        // recomposition, so a fast double-tap can reach the view model twice.
+        // Park the first call inside its API request so it is genuinely in
+        // flight, then confirm the second is dropped rather than racing it.
+        val gate = CompletableDeferred<Unit>()
+        api.stub {
+            onBlocking { confirmTotp(any(), any()) } doSuspendableAnswer {
+                gate.await()
+                Response.success(ConfirmTotpResponse(totpEnabled = true, recoveryCodes = listOf("a")))
+            }
+        }
+
+        viewModel.confirmTotp("pw12345", "123456") // suspends at the gate, in flight
+        viewModel.confirmTotp("pw12345", "123456") // must be ignored by the guard
+
+        gate.complete(Unit)
+        advanceUntilIdle()
+
+        verify(api, times(1)).confirmTotp(any(), any())
+        assertEquals(1, viewModel.recoveryCodes.value?.size)
     }
 
     @Test

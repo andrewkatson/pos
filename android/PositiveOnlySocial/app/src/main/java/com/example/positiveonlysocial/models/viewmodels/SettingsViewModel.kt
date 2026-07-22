@@ -171,6 +171,16 @@ class SettingsViewModel(
      * binding an attacker's authenticator and locking the real owner out.
      */
     fun confirmTotp(password: String, code: String) {
+        // Ignore a duplicate submission while one is already running. Disabling
+        // the Verify button is the first line of defence, but that only takes
+        // effect on the next recomposition, so a fast double-tap can call this
+        // twice before the button goes grey. Both calls would share the
+        // generation below, so the first to finish would clear the in-flight
+        // flag in its `finally` while the second is still running — re-enabling
+        // Verify/dismissal and reopening the very race this guards. The flag is
+        // set synchronously here, before the coroutine is launched, so the
+        // second synchronous call on the main thread sees it and bails.
+        if (_isConfirmingTotp.value) return
         // Share the enrollment generation with setup: a confirm response that
         // lands after the dialog was cancelled (or a newer attempt started) is
         // discarded, so it can't repopulate recoveryCodes for an abandoned run.
