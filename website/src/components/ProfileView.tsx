@@ -1,7 +1,17 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { apiClient } from '../api/client'
-import type { FeedPost, ProfileDetails } from '../api/types'
+import type { FeedPost, PostStatusResponse, ProfileDetails } from '../api/types'
 import PostGrid from './PostGrid'
+
+/** How often the bounded post-classification poll checks pending posts (#282). */
+const STATUS_POLL_INTERVAL_MS = 3000
+/** Poll budget: ~30s of checks after which reconciliation falls back to the
+ * user's own Refresh (there is deliberately no standing timer in this app). */
+const STATUS_POLL_MAX_ATTEMPTS = 10
+/** At most this many pending posts are polled per round, keeping the worst
+ * case (3 posts every 3s = 60 requests/min) inside the status endpoint's
+ * 120/m per-user rate limit; older pending posts reconcile on refresh. */
+const STATUS_POLL_MAX_POSTS = 3
 
 interface ProfileViewProps {
   username: string
@@ -44,6 +54,14 @@ function ProfileView({ username, isOwnProfile, currentUsername }: ProfileViewPro
   // Start loading so the spinner shows on mount without a synchronous setState
   // inside the fetch effect.
   const [isLoadingPosts, setIsLoadingPosts] = useState(true)
+
+  // Reconciling async classification (#282): a bounded number of status polls
+  // after a pending post is seen, plus a dismissible notice for rejections.
+  // Only your own posts ever carry a status — everyone else's pending/hidden
+  // posts are filtered out server-side — so this is gated on isOwnProfile.
+  const pollAttempts = useRef(0)
+  const [pollTick, setPollTick] = useState(0)
+  const [reviewNotice, setReviewNotice] = useState<string | null>(null)
 
   const loadProfile = useCallback(async () => {
     try {
@@ -96,10 +114,55 @@ function ProfileView({ username, isOwnProfile, currentUsername }: ProfileViewPro
     void Promise.resolve().then(() => loadPosts(0, true))
   }, [loadPosts])
 
+  // Short bounded poll while any of your posts is pending classification
+  // (#282). Runs only while this view is mounted, stops as soon as nothing is
+  // pending or the budget is spent; the ordinary mount/Refresh reload is the
+  // backstop after that.
+  useEffect(() => {
+    if (!isOwnProfile) return
+    // The grid is newest-first, so this polls the most recent pending posts.
+    const pendingPosts = posts.filter(p => p.status === 'pending').slice(0, STATUS_POLL_MAX_POSTS)
+    if (pendingPosts.length === 0 || pollAttempts.current >= STATUS_POLL_MAX_ATTEMPTS) return
+    const id = setTimeout(async () => {
+      pollAttempts.current += 1
+      try {
+        const results = await Promise.allSettled(
+          pendingPosts.map(p => apiClient.getPostStatus(p.post_identifier)),
+        )
+        if (!isMounted.current) return
+        const statuses = results
+          .filter((r): r is PromiseFulfilledResult<PostStatusResponse> => r.status === 'fulfilled')
+          .map(r => r.value)
+        const resolved = statuses.filter(s => s.status !== 'pending')
+        if (resolved.length > 0) {
+          const rejection = resolved.find(
+            s => s.status === 'rejected' || s.status === 'rejected_final',
+          )
+          if (rejection) {
+            setReviewNotice(
+              rejection.message ?? 'One of your recent posts did not pass automated review.',
+            )
+          }
+          // Reload from the server so the grid reflects the resolved state
+          // (approved posts lose the badge; final rejections drop out).
+          void loadPosts(0, true)
+        } else {
+          // Nothing resolved yet: re-arm the timer by bumping the tick.
+          setPollTick(t => t + 1)
+        }
+      } catch {
+        // A failed poll round just ends this cycle; Refresh remains available.
+      }
+    }, STATUS_POLL_INTERVAL_MS)
+    return () => clearTimeout(id)
+  }, [isOwnProfile, posts, pollTick, loadPosts])
+
   // Manual refresh reloads both the posts and the profile details
   // (follow/block/counts) so the whole view stays in sync — not just the grid.
   function refresh() {
     setIsLoadingPosts(true)
+    // A manual refresh grants a fresh reconcile-poll budget (#282).
+    pollAttempts.current = 0
     apiClient
       .getProfile(username)
       .then(details => {
@@ -248,6 +311,20 @@ function ProfileView({ username, isOwnProfile, currentUsername }: ProfileViewPro
       >
         <span aria-hidden="true">↻</span> Refresh
       </button>
+
+      {reviewNotice && (
+        <div className="auth-error" role="alert">
+          <p>{reviewNotice}</p>
+          <button
+            type="button"
+            className="auth-error__dismiss"
+            aria-label="Dismiss notice"
+            onClick={() => setReviewNotice(null)}
+          >
+            ✕
+          </button>
+        </div>
+      )}
 
       {posts.length === 0 && !isLoadingPosts ? (
         <p className="muted">

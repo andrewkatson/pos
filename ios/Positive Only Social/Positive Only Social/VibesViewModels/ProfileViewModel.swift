@@ -28,6 +28,26 @@ class ProfileViewModel: ObservableObject {
     private let account: String
     private let keychainService = GVOAppConstants.keychainService
 
+    // Reconciling async post classification (issue #282): a short bounded poll
+    // runs while any of the *viewer's own* posts is pending, then stops; the
+    // ordinary mount/pull-to-refresh reload is the backstop after that. A
+    // rejection surfaces once through `reviewNotice`.
+    //
+    // This lives here rather than in HomeViewModel because the Profile tab's
+    // grid is this view model's (issue #347). Only your own posts ever carry a
+    // status, so a profile that isn't yours simply never has anything to poll.
+    @Published var reviewNotice: String?
+    private var statusPollTask: Task<Void, Never>?
+    private var statusPollAttempts = 0
+    /// ~30s of checks, 3s apart. Internal so tests can shorten the interval.
+    var statusPollIntervalSeconds: TimeInterval = 3
+    private let statusPollMaxAttempts = 10
+    /// At most this many pending posts are polled per round, keeping the
+    /// worst case (3 posts every 3s = 60 requests/min) inside the status
+    /// endpoint's 120/m per-user rate limit; older pending posts reconcile
+    /// on refresh.
+    private let statusPollMaxPosts = 3
+
     let user: User // The user this profile is for
     // The logged-in user's username, loaded once at init for own-profile detection.
     private let currentLoggedInUsername: String?
@@ -117,6 +137,7 @@ class ProfileViewModel: ObservableObject {
                     userPosts.append(contentsOf: newPosts)
                     batch += 1
                 }
+                startStatusPollIfNeeded()
             } catch {
                 NSLog("%@", "Error fetching user posts for \(user.username): \(error)")
                 // Optionally set an @Published error property to show an alert
@@ -154,8 +175,61 @@ class ProfileViewModel: ObservableObject {
             self.userPosts = newPosts
             self.canLoadMore = !newPosts.isEmpty
             self.batch = newPosts.isEmpty ? 0 : 1
+            // A fresh first page grants a fresh reconcile-poll budget (#282).
+            self.statusPollAttempts = 0
+            startStatusPollIfNeeded()
         } catch {
             NSLog("%@", "Error refreshing user posts for \(user.username): \(error)")
+        }
+    }
+
+    // MARK: - Async Classification Reconciliation (issue #282)
+
+    /// Starts (or continues) the short bounded status poll when any of the
+    /// viewer's own posts is still pending classification. No-op when nothing
+    /// is pending, a poll is already running, or the budget is spent.
+    private func startStatusPollIfNeeded() {
+        // The grid is newest-first, so this polls the most recent pending posts.
+        let pendingIds = userPosts.filter { $0.status == "pending" }.prefix(statusPollMaxPosts).map { $0.id }
+        guard !pendingIds.isEmpty,
+              statusPollTask == nil,
+              statusPollAttempts < statusPollMaxAttempts else { return }
+
+        statusPollTask = Task { [weak self] in
+            guard let self else { return }
+            try? await Task.sleep(for: .seconds(self.statusPollIntervalSeconds))
+            // Clear before polling so the poll round itself can re-arm the
+            // next round (directly or via the reload it triggers).
+            self.statusPollTask = nil
+            guard !Task.isCancelled else { return }
+            self.statusPollAttempts += 1
+            await self.pollPendingStatuses(pendingIds)
+        }
+    }
+
+    /// One poll round: check each pending post's status. When any has
+    /// resolved, reload the grid (approved posts lose their badge; final
+    /// rejections drop out) and surface a rejection notice; otherwise re-arm
+    /// the timer within the budget.
+    private func pollPendingStatuses(_ pendingIds: [String]) async {
+        guard let user = try? keychainHelper.load(UserSession.self, from: keychainService, account: account) else { return }
+
+        var anyResolved = false
+        for postId in pendingIds {
+            guard let data = try? await api.getPostStatus(sessionManagementToken: user.sessionToken, postIdentifier: postId),
+                  let status = try? JSONDecoder().decode(PostStatusResponse.self, from: data) else { continue }
+            if status.status != "pending" {
+                anyResolved = true
+                if status.status == "rejected" || status.status == "rejected_final" {
+                    reviewNotice = status.message ?? "One of your recent posts did not pass automated review."
+                }
+            }
+        }
+
+        if anyResolved {
+            await refreshUserPosts()
+        } else {
+            startStatusPollIfNeeded()
         }
     }
 

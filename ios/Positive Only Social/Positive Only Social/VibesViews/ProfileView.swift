@@ -195,6 +195,22 @@ struct ProfileBodyView: View {
                                         caption: post.caption
                                     )
                                 }
+                                .overlay(alignment: .bottom) {
+                                    // Author-only classification state (#282):
+                                    // "In review" while the async classifier
+                                    // runs, or the appeal hint on a rejection.
+                                    // Only your own posts carry a status, so
+                                    // this is absent on someone else's profile.
+                                    if let badge = statusBadgeLabel(for: post) {
+                                        Text(badge)
+                                            .font(.caption2)
+                                            .foregroundColor(.white)
+                                            .frame(maxWidth: .infinity)
+                                            .padding(.vertical, 3)
+                                            .background(Color.black.opacity(0.72))
+                                            .accessibilityIdentifier("PostStatusBadge")
+                                    }
+                                }
                                 .clipped()
                         }
                         .accessibilityIdentifier(postAccessibilityIdentifier)
@@ -215,9 +231,33 @@ struct ProfileBodyView: View {
             // Black backing shows through the 1pt gaps as thin borders between posts.
             .background(Color.black)
         }
+        // Surfaces the outcome when one of your posts' async review (#282)
+        // resolves to a rejection while this grid is visible. Only your own
+        // posts carry a status, so this never fires on someone else's profile.
+        .alert(
+            "Post Review",
+            isPresented: Binding(
+                get: { viewModel.reviewNotice != nil },
+                set: { if !$0 { viewModel.reviewNotice = nil } }
+            )
+        ) {
+            Button("OK") { viewModel.reviewNotice = nil }
+                .accessibilityIdentifier("OkButtonReviewNotice")
+        } message: {
+            Text(viewModel.reviewNotice ?? "")
+        }
     }
 }
 
 #Preview {
     ProfileView(user: User(username: "test", identityIsVerified: true), api: PreviewHelpers.api, keychainHelper: PreviewHelpers.keychainHelper)
+}
+
+/// Overlay label for the author's own pending/rejected grid tiles (#282).
+func statusBadgeLabel(for post: Post) -> String? {
+    switch post.status {
+    case "pending": return "In review"
+    case "rejected": return "Hidden — you can appeal"
+    default: return nil
+    }
 }

@@ -14,6 +14,7 @@ vi.mock('../api/client', () => ({
     reportPost: vi.fn(),
     retractReportPost: vi.fn(),
     deletePost: vi.fn(),
+    getPostStatus: vi.fn(),
   },
 }))
 
@@ -33,6 +34,7 @@ const profile = {
   identity_is_verified: false,
   is_adult: true,
 }
+const mockGetPostStatus = vi.mocked(apiClient.getPostStatus)
 
 function renderTab() {
   return render(
@@ -52,6 +54,7 @@ beforeEach(() => {
   mockSearch.mockReset()
   mockDeletePost.mockReset()
   mockGetProfile.mockResolvedValue(profile)
+  mockGetPostStatus.mockReset()
   vi.stubGlobal('localStorage', {
     getItem: vi.fn(() => 'ada'),
     setItem: vi.fn(),
@@ -181,6 +184,124 @@ test('searches users after typing 3+ characters and navigates to a profile', asy
   await waitFor(() => expect(mockSearch).toHaveBeenCalledWith('bob'))
   await userEvent.click(result)
   expect(screen.getByText('Profile page')).toBeInTheDocument()
+})
+
+test('shows an In review badge on a pending post and clears it once approved (#282)', async () => {
+  // Classification is asynchronous: the grid shows the author's pending post
+  // with an "In review" badge and a short bounded poll reconciles the outcome.
+  vi.useFakeTimers({ shouldAdvanceTime: true })
+  try {
+    mockGetPosts
+      .mockResolvedValueOnce([
+        {
+          post_identifier: 'p1',
+          image_url: null,
+          author_username: 'ada',
+          caption: 'hi',
+          status: 'pending',
+          hidden: true,
+          hidden_reason: 'pending_classification',
+        },
+      ])
+      .mockResolvedValue([
+        {
+          post_identifier: 'p1',
+          image_url: null,
+          author_username: 'ada',
+          caption: 'hi',
+          status: 'approved',
+          hidden: false,
+          hidden_reason: '',
+        },
+      ])
+    mockGetPostStatus.mockResolvedValue({
+      post_identifier: 'p1',
+      status: 'approved',
+      reason_code: null,
+      appealable: false,
+      hidden: false,
+      hidden_reason: '',
+    })
+    renderTab()
+
+    expect(await screen.findByText('In review')).toBeInTheDocument()
+    // The review state is part of the accessible name so assistive tech
+    // announces it (the visual badge alone is hidden behind the aria-label).
+    expect(screen.getByRole('button', { name: 'Post by ada — In review' })).toBeInTheDocument()
+
+    await vi.advanceTimersByTimeAsync(3100)
+    await waitFor(() => expect(mockGetPostStatus).toHaveBeenCalledWith('p1'))
+    // The resolved status triggers a grid reload, which drops the badge.
+    await waitFor(() => expect(screen.queryByText('In review')).not.toBeInTheDocument())
+  } finally {
+    vi.useRealTimers()
+  }
+})
+
+test('surfaces a rejection notice when the status poll resolves to rejected (#282)', async () => {
+  vi.useFakeTimers({ shouldAdvanceTime: true })
+  try {
+    mockGetPosts
+      .mockResolvedValueOnce([
+        {
+          post_identifier: 'p1',
+          image_url: null,
+          author_username: 'ada',
+          caption: 'hi',
+          status: 'pending',
+          hidden: true,
+          hidden_reason: 'pending_classification',
+        },
+      ])
+      .mockResolvedValue([
+        {
+          post_identifier: 'p1',
+          image_url: null,
+          author_username: 'ada',
+          caption: 'hi',
+          status: 'rejected',
+          hidden: true,
+          hidden_reason: 'classifier',
+          appealable: true,
+        },
+      ])
+    mockGetPostStatus.mockResolvedValue({
+      post_identifier: 'p1',
+      status: 'rejected',
+      reason_code: 'guidelines',
+      appealable: true,
+      hidden: true,
+      hidden_reason: 'classifier',
+      message:
+        'Your post did not pass automated review because it did not meet our positivity guidelines. It is hidden for now but you can appeal the decision.',
+    })
+    renderTab()
+
+    expect(await screen.findByText('In review')).toBeInTheDocument()
+
+    await vi.advanceTimersByTimeAsync(3100)
+    expect(await screen.findByRole('alert')).toHaveTextContent(/you can appeal/i)
+    // The reloaded grid marks the post as hidden-but-appealable.
+    expect(await screen.findByText('Hidden — you can appeal')).toBeInTheDocument()
+  } finally {
+    vi.useRealTimers()
+  }
+})
+
+test('does not poll when no post is pending (#282)', async () => {
+  vi.useFakeTimers({ shouldAdvanceTime: true })
+  try {
+    mockGetPosts.mockResolvedValue([
+      { post_identifier: 'p1', image_url: 'http://img/1.jpg', author_username: 'ada', caption: 'hi' },
+    ])
+    renderTab()
+    await screen.findByRole('button', { name: 'Post by ada' })
+
+    await vi.advanceTimersByTimeAsync(10000)
+    expect(mockGetPostStatus).not.toHaveBeenCalled()
+  } finally {
+    vi.useRealTimers()
+  }
 })
 
 test('does not search for queries shorter than 3 characters', async () => {

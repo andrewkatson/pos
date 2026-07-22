@@ -43,6 +43,15 @@ struct Post: Codable, Identifiable, Hashable {
     let originalImageUrl: String?
     let caption: String
     let authorUsername: String
+    /// Author-only classification state (issue #282): present on the viewer's
+    /// own posts so grids can render pending/rejected states. Other users'
+    /// posts never carry these (their pending/hidden posts are filtered out
+    /// server-side entirely). One of "pending", "approved", "rejected",
+    /// "rejected_final"; nil on older backends or others' posts.
+    var status: String? = nil
+    var hidden: Bool? = nil
+    var hiddenReason: String? = nil
+    var appealable: Bool? = nil
 
     /// The interaction state the post lists need to offer like / report /
     /// retract-report / delete in place, without opening the post (issue #267).
@@ -81,6 +90,10 @@ struct Post: Codable, Identifiable, Hashable {
         case reportReason = "report_reason"
         case commentCount = "comment_count"
         case creationTime = "creation_time"
+        case status
+        case hidden
+        case hiddenReason = "hidden_reason"
+        case appealable
     }
 
     init(
@@ -94,7 +107,11 @@ struct Post: Codable, Identifiable, Hashable {
         isReported: Bool = false,
         reportReason: String? = nil,
         commentCount: Int = 0,
-        creationTime: String? = nil
+        creationTime: String? = nil,
+        status: String? = nil,
+        hidden: Bool? = nil,
+        hiddenReason: String? = nil,
+        appealable: Bool? = nil
     ) {
         self.postIdentifier = postIdentifier
         self.imageUrl = imageUrl
@@ -107,6 +124,10 @@ struct Post: Codable, Identifiable, Hashable {
         self.reportReason = reportReason
         self.commentCount = commentCount
         self.creationTime = creationTime
+        self.status = status
+        self.hidden = hidden
+        self.hiddenReason = hiddenReason
+        self.appealable = appealable
     }
 
     // Decodes the interaction fields leniently so a response that predates them
@@ -124,6 +145,11 @@ struct Post: Codable, Identifiable, Hashable {
         reportReason = try container.decodeIfPresent(String.self, forKey: .reportReason)
         commentCount = try container.decodeIfPresent(Int.self, forKey: .commentCount) ?? 0
         creationTime = try container.decodeIfPresent(String.self, forKey: .creationTime)
+        // Author-only classification state (#282); absent on others' posts.
+        status = try container.decodeIfPresent(String.self, forKey: .status)
+        hidden = try container.decodeIfPresent(Bool.self, forKey: .hidden)
+        hiddenReason = try container.decodeIfPresent(String.self, forKey: .hiddenReason)
+        appealable = try container.decodeIfPresent(Bool.self, forKey: .appealable)
     }
 }
 
@@ -142,16 +168,48 @@ struct UploadUrlResponse: Codable {
     }
 }
 
-/// The response from makePost. `hidden` is true when the post was created
-/// hidden pending appeal (classifier flagged it but it is appealable).
+/// The response from makePost. On current backends classification runs
+/// asynchronously (issue #282): `status` is "pending" and the post is hidden
+/// until review finishes, with the outcome reconciled via getPostStatus or a
+/// grid refresh. On older inline-classifying backends `hidden` means the post
+/// was flagged but is appealable.
 struct MakePostResponse: Codable {
     let postIdentifier: String
+    let status: String?
     let hidden: Bool?
+    let hiddenReason: String?
     let message: String?
 
     enum CodingKeys: String, CodingKey {
         case postIdentifier = "post_identifier"
+        case status
         case hidden
+        case hiddenReason = "hidden_reason"
+        case message
+    }
+}
+
+/// The response from getPostStatus (issue #282): the author-only
+/// classification state of one of the signed-in user's posts.
+struct PostStatusResponse: Codable {
+    let postIdentifier: String
+    /// "pending", "approved", "rejected", or "rejected_final".
+    let status: String
+    /// Public reason code of a rejection ("profanity", "gore", ...), else nil.
+    let reasonCode: String?
+    let appealable: Bool
+    let hidden: Bool
+    let hiddenReason: String
+    /// User-facing explanation for pending/rejected states; nil when approved.
+    let message: String?
+
+    enum CodingKeys: String, CodingKey {
+        case postIdentifier = "post_identifier"
+        case status
+        case reasonCode = "reason_code"
+        case appealable
+        case hidden
+        case hiddenReason = "hidden_reason"
         case message
     }
 }

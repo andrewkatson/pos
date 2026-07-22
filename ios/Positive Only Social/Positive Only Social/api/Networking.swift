@@ -95,6 +95,10 @@ protocol Networking {
     /// Gets the details for a single post. Requires auth so the response can
     /// include whether the current user has liked the post.
     func getPostDetails(sessionManagementToken: String, postIdentifier: String) async throws -> Data
+
+    /// Gets the classification status of one of the signed-in user's own posts
+    /// (issue #282): pending, approved, rejected, or rejected_final.
+    func getPostStatus(sessionManagementToken: String, postIdentifier: String) async throws -> Data
     
     // MARK: - Comment Management
 
@@ -131,7 +135,10 @@ protocol Networking {
 
     /// Gets users with a username matching the provided fragment.
     func getUsersMatchingFragment(sessionManagementToken: String, usernameFragment: String) async throws -> Data
-    
+
+    /// Gets every user the signed-in user has blocked.
+    func getBlockedUsers(sessionManagementToken: String) async throws -> Data
+
     /// Gets the details of a profile
     func getProfileDetails(sessionManagementToken: String, username: String) async throws -> Data
 

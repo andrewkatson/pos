@@ -84,6 +84,8 @@ class StatefulStubbedAPI : PositiveOnlySocialAPI {
         val creationTime: Long = System.currentTimeMillis(),
         var hidden: Boolean = false,
         var hiddenReason: String = "",
+        // Public reason code recorded by the (stubbed) async classifier (#282).
+        var reasonCode: String? = null,
         val likes: MutableSet<String> = mutableSetOf(), // Set of User IDs
         // Reporting user id -> their reason, so retract flows can show the reason.
         val reports: MutableMap<String, String> = mutableMapOf()
@@ -357,12 +359,48 @@ class StatefulStubbedAPI : PositiveOnlySocialAPI {
         )
     }
 
+    // When true, makePost leaves new posts in pending_classification until
+    // resolvePendingClassifications() is called, so tests can exercise the
+    // clients' reconcile path (#282).
+    var deferClassification = false
+
+    /** Plays the async worker's role for tests: classifies every post still pending (#282). */
+    fun resolvePendingClassifications() {
+        posts.filter { it.hiddenReason == "pending_classification" }.forEach { classify(it) }
+    }
+
+    // Stubbed async classifier (#282): a caption containing "borderline"
+    // becomes an appealable rejection; everything else is approved.
+    private fun classify(post: PostMock) {
+        if (post.caption.contains("borderline")) {
+            post.hidden = true
+            post.hiddenReason = "classifier"
+            post.reasonCode = "guidelines"
+        } else {
+            post.hidden = false
+            post.hiddenReason = ""
+        }
+    }
+
+    // Author-facing classification status, mirroring Post.classification_status.
+    private fun classificationStatus(post: PostMock): String = when (post.hiddenReason) {
+        "pending_classification" -> "pending"
+        "classifier" -> "rejected"
+        "classifier_final" -> "rejected_final"
+        else -> "approved"
+    }
+
+    private fun isAppealable(post: PostMock): Boolean =
+        post.hidden && post.hiddenReason != "pending_classification" && post.hiddenReason != "classifier_final"
+
     override suspend fun makePost(token: String, request: CreatePostRequest): Response<CreatePostResponse> {
         val user = getAuthorizedUser(token) ?: return errorGeneric(401, "Unauthorized")
 
-        // Stub "Positivity" Check
+        // Stub pre-filter, mirroring the backend's cheap inline check (#282): a
+        // blatant hit is rejected immediately and the post is never created.
+        // 400, matching the real backend's validation/moderation rejection.
         if (request.caption.contains("negative")) {
-            return errorGeneric(404, "Text is not positive")
+            return errorGeneric(400, "Text is not positive")
         }
 
         val newPost = PostMock(
@@ -370,8 +408,48 @@ class StatefulStubbedAPI : PositiveOnlySocialAPI {
             imageUrl = request.imageUrl,
             caption = request.caption
         )
+        newPost.hidden = true
+        newPost.hiddenReason = "pending_classification"
+        // The real backend classifies asynchronously in a worker; the stub
+        // resolves instantly (like the backend's eager dev mode) but still
+        // returns the pending response, so clients exercise the reconcile path.
+        if (!deferClassification) {
+            classify(newPost)
+        }
         posts.add(newPost)
-        return Response.success(CreatePostResponse(newPost.postIdentifier))
+        return Response.success(
+            CreatePostResponse(
+                postIdentifier = newPost.postIdentifier,
+                status = "pending",
+                hidden = true,
+                hiddenReason = "pending_classification",
+                message = "Your post is being reviewed and will be visible to others once it is approved."
+            )
+        )
+    }
+
+    override suspend fun getPostStatus(token: String, postId: String): Response<PostStatusResponse> {
+        val user = getAuthorizedUser(token) ?: return errorGeneric(401, "Unauthorized")
+        val post = posts.find { it.postIdentifier == postId && it.authorId == user.id }
+            ?: return errorGeneric(400, "No post with that identifier by that user")
+        val status = classificationStatus(post)
+        val message = when (status) {
+            "pending" -> "Your post is being reviewed and will be visible to others once it is approved."
+            "rejected" -> "Your post did not pass automated review. It is hidden for now but you can appeal the decision."
+            "rejected_final" -> "Your post did not pass automated review. This decision is final and cannot be appealed."
+            else -> null
+        }
+        return Response.success(
+            PostStatusResponse(
+                postIdentifier = post.postIdentifier,
+                status = status,
+                reasonCode = post.reasonCode,
+                appealable = isAppealable(post),
+                hidden = post.hidden,
+                hiddenReason = post.hiddenReason,
+                message = message
+            )
+        )
     }
 
     override suspend fun deletePost(token: String, postId: String): Response<GenericResponse> {
@@ -490,12 +568,19 @@ class StatefulStubbedAPI : PositiveOnlySocialAPI {
             return Response.success(emptyList()) // Or error? returning empty list matches backend logic
         }
 
-        val userPosts = posts.filter { !it.hidden && it.authorId == targetUser.id }
+        // Mirrors the backend's visible_posts: authors see their own hidden
+        // posts (pending, appealable, report-hidden) in their grid; everyone
+        // else only sees live ones. Final-rejection tombstones are visible to
+        // nobody (#282).
+        val isOwnGrid = user.id == targetUser.id
+        val userPosts = posts.filter { it.authorId == targetUser.id }
+            .filter { it.hiddenReason != "classifier_final" }
+            .filter { isOwnGrid || !it.hidden }
             .sortedByDescending { it.creationTime }
 
         val batched = getBatch(userPosts, batch, POST_BATCH_SIZE)
         val dtos = batched.map { post ->
-            listingDto(post, targetUser.username, user.id)
+            listingDto(post, targetUser.username, user.id, isOwnGrid)
         }
         return Response.success(dtos)
     }
@@ -506,7 +591,12 @@ class StatefulStubbedAPI : PositiveOnlySocialAPI {
      * likes, whether the viewer liked/reported it and their reason (issue #267) —
      * plus the comment count and creation time the feed rows show (issue #249).
      */
-    private fun listingDto(post: PostMock, authorUsername: String, viewerId: String): Post =
+    private fun listingDto(
+        post: PostMock,
+        authorUsername: String,
+        viewerId: String,
+        isOwnGrid: Boolean = false
+    ): Post =
         Post(
             post.postIdentifier,
             post.imageUrl,
@@ -517,7 +607,14 @@ class StatefulStubbedAPI : PositiveOnlySocialAPI {
             isReported = post.reports.contains(viewerId),
             reportReason = post.reports[viewerId],
             commentCount = visibleCommentCount(post.postIdentifier),
-            creationTime = post.creationTime.toString()
+            creationTime = post.creationTime.toString(),
+            // Author-only classification fields (#282), mirroring the backend:
+            // only your own grid carries them. The feeds never do — others'
+            // pending/hidden posts are filtered out before they get here.
+            status = if (isOwnGrid) classificationStatus(post) else null,
+            hidden = if (isOwnGrid) post.hidden else null,
+            hiddenReason = if (isOwnGrid) post.hiddenReason else null,
+            appealable = if (isOwnGrid) isAppealable(post) else null
         )
 
     private fun visibleCommentCount(postIdentifier: String): Int =
@@ -742,6 +839,15 @@ class StatefulStubbedAPI : PositiveOnlySocialAPI {
         }
     }
 
+    override suspend fun getBlockedUsers(token: String): Response<List<User>> {
+        val user = getAuthorizedUser(token) ?: return errorGeneric(401, "Unauthorized")
+        val blockedUsers = users
+            .filter { user.blocked.contains(it.id) }
+            .sortedBy { it.username }
+            .map { User(it.username, it.isVerified) }
+        return Response.success(blockedUsers)
+    }
+
     override suspend fun getProfileDetails(token: String, username: String): Response<ProfileDetailsResponse> {
         val user = getAuthorizedUser(token) // Can be null if public profile view? Python code required login.
         val target = users.find { it.username == username } ?: return errorGeneric(404, "User not found")
@@ -780,7 +886,9 @@ class StatefulStubbedAPI : PositiveOnlySocialAPI {
 
     override suspend fun getHiddenPosts(token: String, batch: Int): Response<List<HiddenPost>> {
         val user = getAuthorizedUser(token) ?: return errorGeneric(401, "Unauthorized")
-        val hidden = posts.filter { it.authorId == user.id && it.hidden }
+        // Pending posts have nothing to appeal yet and final rejections are
+        // terminal, so neither belongs on the appeals screen (#282).
+        val hidden = posts.filter { it.authorId == user.id && it.hidden && isAppealable(it) }
             .sortedByDescending { it.creationTime }
         val dtos = getBatch(hidden, batch, POST_BATCH_SIZE).map {
             HiddenPost(it.postIdentifier, it.imageUrl, it.caption, it.hiddenReason, hasAppeal(it.postIdentifier))
@@ -813,7 +921,8 @@ class StatefulStubbedAPI : PositiveOnlySocialAPI {
 
         val snapshot: String = when (request.targetType) {
             "post" -> {
-                val post = posts.find { it.postIdentifier == request.targetIdentifier && it.authorId == user.id && it.hidden }
+                // Pending and final-rejected posts are not appealable (#282).
+                val post = posts.find { it.postIdentifier == request.targetIdentifier && it.authorId == user.id && it.hidden && isAppealable(it) }
                     ?: return errorGeneric(400, "No appealable item with that identifier")
                 post.caption
             }

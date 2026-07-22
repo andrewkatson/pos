@@ -257,11 +257,18 @@ fun NewPostScreen(
                                     showFailureAlert = true
                                     return@launch
                                 }
-                                // A post flagged by automated review is created
-                                // hidden pending appeal; say so rather than
-                                // implying it went live.
+                                // Classification is asynchronous (issue #282):
+                                // the backend accepts the post in a pending
+                                // state and reviews it in the background, so
+                                // say it's under review — the Home grid shows
+                                // its progress and outcome. Older backends
+                                // classified inline; their hidden response
+                                // means the post was flagged but is appealable.
                                 val body = response.body()
-                                successMessage = if (body?.hidden == true) {
+                                successMessage = if (body?.status == "pending" || body?.hiddenReason == "pending_classification") {
+                                    body.message
+                                        ?: "Your post is being reviewed and will be visible to others once it is approved."
+                                } else if (body?.hidden == true) {
                                     body.message
                                         ?: "Your post did not pass automated review. It is hidden for now but you can appeal the decision."
                                 } else {

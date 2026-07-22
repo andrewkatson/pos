@@ -9,6 +9,8 @@ import com.example.positiveonlysocial.data.model.Post
 import com.example.positiveonlysocial.data.model.ProfileDetailsResponse
 import com.example.positiveonlysocial.data.model.UserSession
 import com.example.positiveonlysocial.data.security.KeychainHelperProtocol
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -54,6 +56,31 @@ class ProfileViewModel(
      * that list, so the count follows automatically.
      */
     val postActions = PostListActions(api, keychainHelper, viewModelScope, _userPosts, account)
+
+    // Reconciling async post classification (issue #282): a short bounded poll
+    // runs while any of the *viewer's own* posts is pending, then stops; the
+    // ordinary mount/pull-to-refresh reload is the backstop after that. A
+    // rejection surfaces once through `reviewNotice`.
+    //
+    // This lives here rather than in HomeViewModel because the Profile tab's
+    // grid is this view model's (issue #347). Only your own posts ever carry a
+    // status — everyone else's pending/hidden posts are filtered out
+    // server-side — so a non-own profile simply never has anything to poll.
+    private val _reviewNotice = MutableStateFlow<String?>(null)
+    val reviewNotice: StateFlow<String?> = _reviewNotice.asStateFlow()
+
+    private var statusPollJob: Job? = null
+    private var statusPollAttempts = 0
+    // ~30s of checks, 3s apart. Internal so tests can shorten the interval.
+    var statusPollIntervalMs = 3000L
+    private val statusPollMaxAttempts = 10
+    /** At most this many pending posts are polled per round (see
+     * startStatusPollIfNeeded for the rate-limit math). */
+    private val statusPollMaxPosts = 3
+
+    fun dismissReviewNotice() {
+        _reviewNotice.value = null
+    }
 
     private val service = "positive-only-social.Positive-Only-Social"
 
@@ -160,6 +187,9 @@ class ProfileViewModel(
                     _userPosts.value = newPosts
                     canLoadMore = newPosts.isNotEmpty()
                     currentPage = if (newPosts.isEmpty()) 0 else 1
+                    // A fresh first page grants a fresh reconcile-poll budget (#282).
+                    statusPollAttempts = 0
+                    startStatusPollIfNeeded()
                 } else if (_errorMessage.value == null) {
                     _errorMessage.value = ApiErrors.messageFor(postsResponse, fallback = "Failed to load posts. Please try again.")
                 }
@@ -199,6 +229,7 @@ class ProfileViewModel(
                         _userPosts.value += newPosts
                         currentPage += 1
                     }
+                    startStatusPollIfNeeded()
                 } else {
                     Log.e(TAG, "Failed to fetch more posts: ${response.errorBody()?.string()}")
                 }
@@ -207,6 +238,64 @@ class ProfileViewModel(
             } finally {
                 _isLoading.value = false
             }
+        }
+    }
+
+    /**
+     * Starts (or continues) the short bounded status poll (#282) when any of
+     * the viewer's own posts is still pending classification. No-op when
+     * nothing is pending, a poll is already scheduled, or the budget is spent.
+     */
+    private fun startStatusPollIfNeeded() {
+        // The grid is newest-first, so this polls the most recent pending
+        // posts; the cap keeps the worst case (3 posts every 3s = 60
+        // requests/min) inside the status endpoint's 120/m per-user rate
+        // limit, and older pending posts reconcile on refresh.
+        val pendingIds = _userPosts.value.filter { it.status == "pending" }
+            .take(statusPollMaxPosts)
+            .map { it.postIdentifier }
+        if (pendingIds.isEmpty() || statusPollJob != null || statusPollAttempts >= statusPollMaxAttempts) return
+
+        statusPollJob = viewModelScope.launch {
+            delay(statusPollIntervalMs)
+            // Clear before polling so the poll round itself can re-arm the
+            // next round (directly or via the reload it triggers).
+            statusPollJob = null
+            statusPollAttempts += 1
+            pollPendingStatuses(pendingIds)
+        }
+    }
+
+    /**
+     * One poll round (#282): check each pending post's status. When any has
+     * resolved, reload the grid (approved posts lose their badge; final
+     * rejections drop out) and surface a rejection notice; otherwise re-arm
+     * the timer within the budget.
+     */
+    private suspend fun pollPendingStatuses(pendingIds: List<String>) {
+        val userSession = keychainHelper.load(UserSession::class.java, service, account) ?: return
+
+        var anyResolved = false
+        for (postId in pendingIds) {
+            try {
+                val response = api.getPostStatus(userSession.sessionToken, postId)
+                val body = response.body()
+                if (response.isSuccessful && body != null && body.status != "pending") {
+                    anyResolved = true
+                    if (body.status == "rejected" || body.status == "rejected_final") {
+                        _reviewNotice.value = body.message
+                            ?: "One of your recent posts did not pass automated review."
+                    }
+                }
+            } catch (e: Exception) {
+                Log.e(TAG, "Error polling post status for $postId", e)
+            }
+        }
+
+        if (anyResolved) {
+            refreshProfile(userSession.username)
+        } else {
+            startStatusPollIfNeeded()
         }
     }
 

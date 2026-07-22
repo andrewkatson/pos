@@ -25,6 +25,7 @@ function renderTab() {
         <Route path="/home" element={<SettingsTab />} />
         <Route path="/" element={<div>Landing page</div>} />
         <Route path="/appeals" element={<div>Appeals page</div>} />
+        <Route path="/blocked" element={<div>Blocked users page</div>} />
       </Routes>
     </MemoryRouter>,
   )
@@ -86,4 +87,10 @@ test('opens the hidden content & appeals page', async () => {
   renderTab()
   await userEvent.click(screen.getByRole('button', { name: 'Hidden Content & Appeals' }))
   expect(await screen.findByText('Appeals page')).toBeInTheDocument()
+})
+
+test('opens the blocked users page', async () => {
+  renderTab()
+  await userEvent.click(screen.getByRole('button', { name: 'Blocked Users' }))
+  expect(await screen.findByText('Blocked users page')).toBeInTheDocument()
 })

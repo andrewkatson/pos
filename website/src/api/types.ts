@@ -84,13 +84,39 @@ export interface CreatePostRequest {
   caption: string
 }
 
+/**
+ * Classification lifecycle of a post as reported to its author (issue #282).
+ * Classification runs asynchronously: a new post starts 'pending' (hidden from
+ * everyone but its author) and later resolves to 'approved' (live),
+ * 'rejected' (hidden but appealable), or 'rejected_final' (removed, terminal).
+ */
+export type PostClassificationStatus = 'pending' | 'approved' | 'rejected' | 'rejected_final'
+
 export interface CreatePostResponse {
   post_identifier: string
-  /** True when the post was created hidden pending appeal (classifier flagged
-   * it but the rejection is appealable). Absent/false for a normal post. */
+  /** 'pending' on current backends: classification is asynchronous (issue
+   * #282) and the outcome arrives via getPostStatus / refresh. Absent on older
+   * backends, which classified inline. */
+  status?: PostClassificationStatus
+  /** True when the post was created hidden — pending classification on current
+   * backends, or hidden pending appeal on older inline-classifying ones. */
   hidden?: boolean
   hidden_reason?: string
-  /** User-facing explanation when the post is hidden pending appeal. */
+  appealable?: boolean
+  /** User-facing explanation of the hidden state. */
+  message?: string
+}
+
+/** Response of the author-only post-status endpoint (issue #282). */
+export interface PostStatusResponse {
+  post_identifier: string
+  status: PostClassificationStatus
+  /** Public reason code of a rejection ('profanity', 'gore', ...), else null. */
+  reason_code: string | null
+  appealable: boolean
+  hidden: boolean
+  hidden_reason: string
+  /** User-facing explanation for pending/rejected states; absent when approved. */
   message?: string
 }
 
@@ -127,6 +153,14 @@ export interface FeedPost {
    * (issue #249). The backend column is nullable, so this can be null; older
    * responses that predate the field omit it entirely. */
   creation_time?: string | null
+  /** Author-only (issue #282): present on the viewer's own posts so the client
+   * can render pending/rejected states; other users' posts never carry these
+   * (their pending/hidden posts are filtered out server-side entirely). */
+  status?: PostClassificationStatus
+  hidden?: boolean
+  hidden_reason?: string
+  reason_code?: string | null
+  appealable?: boolean
 }
 
 /** A post as returned by the post-details endpoint. */
@@ -152,6 +186,12 @@ export interface PostDetails {
    * pre-populated (issue #176). Null/absent when they haven't reported it. */
   report_reason?: string | null
   author_username: string
+  /** Author-only (issue #282): present when viewing one's own post. */
+  status?: PostClassificationStatus
+  hidden?: boolean
+  hidden_reason?: string
+  reason_code?: string | null
+  appealable?: boolean
 }
 
 export interface CommentOnPostResponse {

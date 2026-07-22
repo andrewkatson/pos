@@ -183,11 +183,17 @@ struct NewPostView: View {
                 // immediately, without waiting for a manual pull-to-refresh.
                 NotificationCenter.default.post(name: .postCreated, object: nil)
 
-                // A post flagged by automated review is created hidden pending
-                // appeal; tell the user it's hidden but appealable rather than
-                // implying it went live.
+                // Classification is asynchronous (issue #282): the backend
+                // accepts the post in a pending state and reviews it in the
+                // background, so tell the user it's under review — the Home
+                // grid shows its progress and outcome. Older backends
+                // classified inline; their hidden response means the post was
+                // flagged but is appealable.
                 let response = try? JSONDecoder().decode(MakePostResponse.self, from: responseData)
-                if response?.hidden == true {
+                if response?.status == "pending" || response?.hiddenReason == "pending_classification" {
+                    successAlertMessage = response?.message
+                        ?? "Your post is being reviewed and will be visible to others once it is approved."
+                } else if response?.hidden == true {
                     successAlertMessage = response?.message
                         ?? "Your post did not pass automated review. It is hidden for now but you can appeal the decision."
                 } else {

@@ -11,6 +11,7 @@ import HomePage from './pages/HomePage'
 import PostDetailPage from './pages/PostDetailPage'
 import ProfilePage from './pages/ProfilePage'
 import AppealsPage from './pages/AppealsPage'
+import BlockedUsersPage from './pages/BlockedUsersPage'
 import PrivacyPolicyPage from './pages/PrivacyPolicyPage'
 
 function App() {
@@ -28,6 +29,7 @@ function App() {
       <Route path="/post/:postId" element={<PostDetailPage />} />
       <Route path="/profile/:username" element={<ProfilePage />} />
       <Route path="/appeals" element={<AppealsPage />} />
+      <Route path="/blocked" element={<BlockedUsersPage />} />
       <Route path="/privacy-policy" element={<PrivacyPolicyPage />} />
     </Routes>
   )

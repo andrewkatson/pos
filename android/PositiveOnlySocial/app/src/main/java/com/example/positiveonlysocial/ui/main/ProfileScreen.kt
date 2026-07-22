@@ -18,6 +18,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.NavController
@@ -97,9 +98,27 @@ fun ProfileBody(
     val isLoading by viewModel.isLoading.collectAsState()
     val isRefreshing by viewModel.isRefreshing.collectAsState()
     val isOwnProfile by viewModel.isOwnProfile.collectAsState()
+    val reviewNotice by viewModel.reviewNotice.collectAsState()
 
     val postActions = viewModel.postActions
     val currentUsername by postActions.currentUsername.collectAsState()
+
+    // Surfaces the outcome when one of your posts' async review (#282) resolves
+    // to a rejection while this grid is visible. Only your own posts carry a
+    // status, so this never fires on someone else's profile.
+    reviewNotice?.let { notice ->
+        AlertDialog(
+            onDismissRequest = { viewModel.dismissReviewNotice() },
+            title = { Text("Post Review") },
+            text = { Text(notice) },
+            confirmButton = {
+                TextButton(
+                    onClick = { viewModel.dismissReviewNotice() },
+                    modifier = Modifier.testTag("OkButtonReviewNotice")
+                ) { Text("OK") }
+            }
+        )
+    }
 
     LaunchedEffect(username) {
         if (userPosts.isEmpty()) {
@@ -205,15 +224,36 @@ fun ProfileBody(
                             // The action bar sits below the tile rather than over
                             // it, so it can't swallow the tap that opens the post.
                             Column(modifier = Modifier.background(MaterialTheme.colorScheme.surface)) {
-                                PostImageWithFallback(
-                                    post = post,
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .aspectRatio(1f)
-                                        .clickable {
-                                            navController.navigate(Screen.PostDetail.createRoute(post.postIdentifier))
-                                        }
-                                )
+                                Box {
+                                    PostImageWithFallback(
+                                        post = post,
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .aspectRatio(1f)
+                                            .clickable {
+                                                navController.navigate(Screen.PostDetail.createRoute(post.postIdentifier))
+                                            }
+                                    )
+                                    // Author-only classification state (#282): "In
+                                    // review" while the async classifier runs, or
+                                    // the appeal hint on a rejection. Only your own
+                                    // posts ever carry a status, so this is simply
+                                    // absent on someone else's profile.
+                                    statusBadgeLabel(post.status)?.let { badge ->
+                                        Text(
+                                            text = badge,
+                                            color = Color.White,
+                                            style = MaterialTheme.typography.labelSmall,
+                                            textAlign = TextAlign.Center,
+                                            modifier = Modifier
+                                                .align(Alignment.BottomCenter)
+                                                .fillMaxWidth()
+                                                .background(Color.Black.copy(alpha = 0.72f))
+                                                .padding(vertical = 2.dp)
+                                                .testTag("PostStatusBadge")
+                                        )
+                                    }
+                                }
                                 PostActionBar(
                                     post = post,
                                     isOwnPost = post.authorUsername == currentUsername,
@@ -256,4 +296,11 @@ fun ProfileScreenPreview() {
         keychainHelper = PreviewHelpers.mockKeychainHelper,
         username = "mockuser"
     )
+}
+
+/** Overlay label for the author's own pending/rejected grid tiles (#282). */
+private fun statusBadgeLabel(status: String?): String? = when (status) {
+    "pending" -> "In review"
+    "rejected" -> "Hidden — you can appeal"
+    else -> null
 }
