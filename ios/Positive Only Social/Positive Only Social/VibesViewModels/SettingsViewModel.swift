@@ -141,9 +141,11 @@ final class SettingsViewModel: ObservableObject {
         }
     }
 
-    /// Finishes TOTP enrollment by verifying one code from the authenticator.
-    /// On success `recoveryCodes` is populated for the one-time display.
-    func confirmTotp(code: String) {
+    /// Finishes TOTP enrollment by verifying the account password and one code
+    /// from the authenticator. On success `recoveryCodes` is populated for the
+    /// one-time display. The password is what stops a stolen session from
+    /// binding an attacker's authenticator and locking the real owner out.
+    func confirmTotp(password: String, code: String) {
         totpRequestGeneration += 1
         let generation = totpRequestGeneration
         isConfirmingTotp = true
@@ -158,7 +160,8 @@ final class SettingsViewModel: ObservableObject {
                     if generation == totpRequestGeneration { twoFactorErrorMessage = "Session not found." }
                     return
                 }
-                let data = try await api.confirmTotp(sessionManagementToken: userSession.sessionToken, totpCode: code)
+                let data = try await api.confirmTotp(sessionManagementToken: userSession.sessionToken,
+                                                     password: password, totpCode: code)
                 guard generation == totpRequestGeneration else { return }
                 let fields = try JSONDecoder().decode(ConfirmTotpFields.self, from: data)
                 // Clear any error from a previous wrong attempt on success.

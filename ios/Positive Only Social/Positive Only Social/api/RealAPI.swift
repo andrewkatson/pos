@@ -90,6 +90,7 @@ final class RealAPI: Networking {
     }
 
     private struct ConfirmTotpBody: Encodable {
+        let password: String
         let totp_code: String
     }
 
@@ -311,9 +312,9 @@ final class RealAPI: Networking {
         )
     }
 
-    /// Finishes TOTP enrollment with one working code.
-    func confirmTotp(sessionManagementToken: String, totpCode: String) async throws -> Data {
-        let body = ConfirmTotpBody(totp_code: totpCode)
+    /// Finishes TOTP enrollment with the account password and one working code.
+    func confirmTotp(sessionManagementToken: String, password: String, totpCode: String) async throws -> Data {
+        let body = ConfirmTotpBody(password: password, totp_code: totpCode)
         let requestBody = try encode(body)
 
         return try await performRequest(

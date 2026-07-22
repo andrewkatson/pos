@@ -175,7 +175,7 @@ struct Positive_Only_SocialTests_SettingsViewModel {
 
         sut.startTotpSetup()
         await yield()
-        sut.confirmTotp(code: StatefulStubbedAPI.stubTotpCode)
+        sut.confirmTotp(password: "123", code: StatefulStubbedAPI.stubTotpCode)
         await yield()
         return sut
     }
@@ -211,7 +211,7 @@ struct Positive_Only_SocialTests_SettingsViewModel {
 
         sut.startTotpSetup()
         await yield()
-        sut.confirmTotp(code: "000000")
+        sut.confirmTotp(password: "123", code: "000000")
         await yield()
 
         // Enrollment-sheet errors surface inline via twoFactorErrorMessage, not
@@ -219,6 +219,29 @@ struct Positive_Only_SocialTests_SettingsViewModel {
         #expect(sut.twoFactorErrorMessage != nil)
         #expect(sut.recoveryCodes == nil)
         #expect(stubAPI.findUser(byUsername: "totpWrongCodeUser")?.totpEnabled == false)
+    }
+
+    @Test func testConfirmTotp_WrongPassword_DoesNotEnrol() async throws {
+        // A stolen session must not be enough to bind an authenticator: that
+        // would hand the thief the recovery codes and lock the owner out, since
+        // disabling then needs a code only the thief has.
+        _ = try await setupLoggedInUser(username: "totpWrongPasswordUser")
+        let sut = SettingsViewModel(api: stubAPI, keychainHelper: keychainHelper, account: "totpWrongPasswordUser_account")
+
+        sut.startTotpSetup()
+        await yield()
+        sut.confirmTotp(password: "wrong", code: StatefulStubbedAPI.stubTotpCode)
+        await yield()
+
+        #expect(sut.twoFactorErrorMessage != nil)
+        #expect(sut.recoveryCodes == nil)
+        #expect(stubAPI.findUser(byUsername: "totpWrongPasswordUser")?.totpEnabled == false)
+
+        // The correct password still completes the same enrolment.
+        sut.confirmTotp(password: "123", code: StatefulStubbedAPI.stubTotpCode)
+        await yield()
+        #expect(sut.recoveryCodes?.count == 10)
+        #expect(stubAPI.findUser(byUsername: "totpWrongPasswordUser")?.totpEnabled == true)
     }
 
     @Test func testDisableTotp_Success_TurnsTwoFactorOff() async throws {

@@ -26,6 +26,7 @@ struct SettingsView: View {
     @State private var showingEnrollTwoFactor = false
     @State private var showingDisableTwoFactor = false
     @State private var twoFactorConfirmCode = ""
+    @State private var twoFactorConfirmPassword = ""
     @State private var disablePassword = ""
     @State private var disableCode = ""
     @State private var disableUsesRecoveryCode = false
@@ -99,6 +100,7 @@ struct SettingsView: View {
                 Section(header: Text("Security")) {
                     Button {
                         twoFactorConfirmCode = ""
+                        twoFactorConfirmPassword = ""
                         viewModel.startTotpSetup()
                         showingEnrollTwoFactor = true
                     } label: {
@@ -301,11 +303,20 @@ struct SettingsView: View {
                     .keyboardType(.numberPad)
                     .textContentType(.oneTimeCode)
                     .accessibilityIdentifier("TwoFactorConfirmCodeTextField")
+                // Confirming asks for the account password as well: without it a
+                // stolen session could enrol its own authenticator and lock the
+                // real owner out permanently.
+                SecureField("Account password", text: $twoFactorConfirmPassword)
+                    .padding().background(Color(.systemGray6)).cornerRadius(10)
+                    .textContentType(.password)
+                    .accessibilityIdentifier("TwoFactorConfirmPasswordSecureField")
                 Button("Verify") {
-                    viewModel.confirmTotp(code: twoFactorConfirmCode.trimmingCharacters(in: .whitespaces))
+                    viewModel.confirmTotp(password: twoFactorConfirmPassword,
+                                          code: twoFactorConfirmCode.trimmingCharacters(in: .whitespaces))
                 }
-                .disabled(!(twoFactorConfirmCode.trimmingCharacters(in: .whitespaces).count == 6
-                            && twoFactorConfirmCode.trimmingCharacters(in: .whitespaces).allSatisfy(\.isNumber)))
+                .disabled(twoFactorConfirmPassword.isEmpty
+                          || !(twoFactorConfirmCode.trimmingCharacters(in: .whitespaces).count == 6
+                               && twoFactorConfirmCode.trimmingCharacters(in: .whitespaces).allSatisfy(\.isNumber)))
                 .padding()
                 .background(Color.blue)
                 .foregroundColor(.white)

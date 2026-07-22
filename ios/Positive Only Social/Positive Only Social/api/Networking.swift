@@ -35,9 +35,11 @@ protocol Networking {
     /// otpauth:// provisioning URI. Nothing is enforced until confirmTotp.
     func setupTotp(sessionManagementToken: String) async throws -> Data
 
-    /// Finishes TOTP enrollment by proving one code from the authenticator
-    /// works. Returns the single batch of recovery codes.
-    func confirmTotp(sessionManagementToken: String, totpCode: String) async throws -> Data
+    /// Finishes TOTP enrollment by proving the account password and one code
+    /// from the authenticator. Returns the single batch of recovery codes. The
+    /// password is required so a stolen session cannot bind an attacker's
+    /// authenticator and lock the real owner out.
+    func confirmTotp(sessionManagementToken: String, password: String, totpCode: String) async throws -> Data
 
     /// Turns two-factor authentication off. Requires the account password plus
     /// exactly one of `totpCode` / `recoveryCode`.

@@ -106,7 +106,7 @@ struct MockedAPI: Networking {
         return try encode(response)
     }
 
-    func confirmTotp(sessionManagementToken: String, totpCode: String) async throws -> Data {
+    func confirmTotp(sessionManagementToken: String, password: String, totpCode: String) async throws -> Data {
         // 10-hex-character codes matching the format the UI validates, so the
         // preview Disable / recovery-code login flows accept them.
         let response = ConfirmTotpFields(

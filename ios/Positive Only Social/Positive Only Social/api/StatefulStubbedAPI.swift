@@ -367,7 +367,7 @@ final class StatefulStubbedAPI: Networking {
         ))
     }
 
-    func confirmTotp(sessionManagementToken: String, totpCode: String) async throws -> Data {
+    func confirmTotp(sessionManagementToken: String, password: String, totpCode: String) async throws -> Data {
         await simulateNetwork()
         guard let user = findUser(bySessionToken: sessionManagementToken),
               let userIndex = users.firstIndex(where: { $0.id == user.id })
@@ -377,6 +377,9 @@ final class StatefulStubbedAPI: Networking {
         }
         guard users[userIndex].totpSecret != nil else {
             throw APIError.serverError(statusCode: 400, serverMessage: "Two-factor setup has not been started")
+        }
+        guard users[userIndex].passwordHash == password else {
+            throw APIError.serverError(statusCode: 400, serverMessage: "Invalid password")
         }
         guard totpCode == Self.stubTotpCode else {
             throw APIError.serverError(statusCode: 400, serverMessage: "Invalid two-factor code")

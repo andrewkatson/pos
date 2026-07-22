@@ -1312,6 +1312,13 @@ final class Positive_Only_SocialUITests: XCTestCase {
         // The stubbed API accepts this fixed code (StatefulStubbedAPI.stubTotpCode).
         codeField.typeText("123456")
 
+        // Confirming also takes the account password, so a stolen session alone
+        // cannot bind an authenticator to the account.
+        let passwordField = app.secureTextFields["TwoFactorConfirmPasswordSecureField"]
+        XCTAssertTrue(passwordField.waitForExistence(timeout: TestConstants.shortTimeout), "Confirm-password field should appear on the enrollment sheet")
+        passwordField.tap()
+        passwordField.typeText(strongPassword)
+
         app.buttons["ConfirmTwoFactorButton"].tap()
 
         // Recovery codes are shown once; finishing reports 2FA enabled.
