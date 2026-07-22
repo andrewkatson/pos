@@ -139,8 +139,17 @@ fun SettingsScreen(
         }
 
         if (showingDisableTwoFactor) {
+            // Every exit path clears the password and code so the entered
+            // secrets don't linger in composition state (or reappear if the
+            // dialog is opened again).
+            val closeDisableDialog = {
+                showingDisableTwoFactor = false
+                disablePassword = ""
+                disableCode = ""
+                disableUsesRecoveryCode = false
+            }
             AlertDialog(
-                onDismissRequest = { showingDisableTwoFactor = false },
+                onDismissRequest = closeDisableDialog,
                 title = { Text("Disable Two-Factor Authentication") },
                 text = {
                     Column {
@@ -183,11 +192,15 @@ fun SettingsScreen(
                 confirmButton = {
                     Button(
                         onClick = {
-                            showingDisableTwoFactor = false
+                            // Hand the values to the request before clearing them.
+                            val password = disablePassword
+                            val code = disableCode.trim()
+                            val isRecoveryCode = disableUsesRecoveryCode
+                            closeDisableDialog()
                             viewModel.disableTotp(
-                                password = disablePassword,
-                                code = disableCode.trim(),
-                                isRecoveryCode = disableUsesRecoveryCode
+                                password = password,
+                                code = code,
+                                isRecoveryCode = isRecoveryCode
                             )
                         },
                         enabled = disablePassword.isNotEmpty() && disableCode.isNotEmpty()
@@ -196,7 +209,7 @@ fun SettingsScreen(
                     }
                 },
                 dismissButton = {
-                    Button(onClick = { showingDisableTwoFactor = false }) {
+                    Button(onClick = closeDisableDialog) {
                         Text("Cancel")
                     }
                 }
@@ -487,8 +500,10 @@ private fun EnrollTwoFactorDialog(
                                 "safe — each works once, and they will not be shown again."
                         )
                         Spacer(modifier = Modifier.height(12.dp))
-                        recoveryCodes.forEach { code ->
-                            Text(code, fontFamily = FontFamily.Monospace, modifier = Modifier.testTag("RecoveryCode"))
+                        // Tag the list container once and index each row, so a
+                        // UI test can select a single node unambiguously.
+                        recoveryCodes.forEachIndexed { index, code ->
+                            Text(code, fontFamily = FontFamily.Monospace, modifier = Modifier.testTag("RecoveryCode_$index"))
                         }
                     }
                     totpSetup != null -> {

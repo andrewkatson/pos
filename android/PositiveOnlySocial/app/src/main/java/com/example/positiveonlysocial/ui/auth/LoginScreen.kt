@@ -178,13 +178,18 @@ fun LoginScreen(
                 } else {
                     Button(
                         onClick = {
+                            // Snapshot the token before suspending: it can be
+                            // cleared (Back to login, or an expired-challenge
+                            // reset) while this request is in flight, and !!
+                            // inside the coroutine would then crash.
+                            val challengeToken = twoFactorChallengeToken ?: return@Button
                             scope.launch {
                                 isLoading = true
                                 try {
                                     val code = twoFactorCode.trim()
                                     val response = api.loginUser2FA(
                                         LoginTwoFactorRequest(
-                                            challengeToken = twoFactorChallengeToken!!,
+                                            challengeToken = challengeToken,
                                             totpCode = if (useRecoveryCode) null else code,
                                             // Recovery codes are sent lowercased to
                                             // match the backend pattern.
@@ -232,18 +237,27 @@ fun LoginScreen(
                     }
                 }
 
-                TextButton(onClick = {
-                    useRecoveryCode = !useRecoveryCode
-                    twoFactorCode = ""
-                }) {
+                // Both are disabled mid-request so the code kind can't change
+                // under an in-flight verification, and so a completing request
+                // can't log the user in after they've navigated back.
+                TextButton(
+                    onClick = {
+                        useRecoveryCode = !useRecoveryCode
+                        twoFactorCode = ""
+                    },
+                    enabled = !isLoading
+                ) {
                     Text(if (useRecoveryCode) "Use an authenticator code instead" else "Use a recovery code instead")
                 }
 
-                TextButton(onClick = {
-                    twoFactorChallengeToken = null
-                    twoFactorCode = ""
-                    useRecoveryCode = false
-                }) {
+                TextButton(
+                    onClick = {
+                        twoFactorChallengeToken = null
+                        twoFactorCode = ""
+                        useRecoveryCode = false
+                    },
+                    enabled = !isLoading
+                ) {
                     Text("Back to login")
                 }
             } else {
