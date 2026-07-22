@@ -222,7 +222,7 @@ describe('two-factor authentication endpoints', () => {
     const client = new ApiClient({ baseUrl: 'https://api.test', token: 'sometoken', fetchFn })
 
     await client.setupTotp()
-    await client.confirmTotp({ totp_code: '123456' })
+    await client.confirmTotp({ password: 'MyPassword1-', totp_code: '123456' })
 
     const [setupUrl, setupInit] = fetchFn.mock.calls[0]
     expect(setupUrl).toBe('https://api.test/2fa/totp/setup/')

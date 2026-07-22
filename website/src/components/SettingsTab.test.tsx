@@ -117,9 +117,16 @@ test('enabling 2fa walks through scan, confirm, and recovery codes', async () =>
   const codeInput = screen.getByLabelText('Authenticator code')
   expect(screen.getByRole('button', { name: 'Verify' })).toBeDisabled()
   await userEvent.type(codeInput, '123456')
+  // The code alone is not enough: confirming also takes the account password,
+  // so a stolen session cannot enrol an authenticator and lock the owner out.
+  expect(screen.getByRole('button', { name: 'Verify' })).toBeDisabled()
+  await userEvent.type(screen.getByLabelText('Account password'), 'MyPassword1-')
   await userEvent.click(screen.getByRole('button', { name: 'Verify' }))
 
-  expect(mockConfirmTotp).toHaveBeenCalledWith({ totp_code: '123456' })
+  expect(mockConfirmTotp).toHaveBeenCalledWith({
+    password: 'MyPassword1-',
+    totp_code: '123456',
+  })
 
   // Recovery codes are displayed once.
   expect(await screen.findByText('aaaaaaaaaa')).toBeInTheDocument()
@@ -138,6 +145,7 @@ test('a wrong confirmation code surfaces the error and stays open', async () => 
   await screen.findByText('STUBSECRETBASE32')
   await userEvent.click(screen.getByRole('button', { name: 'Next' }))
   await userEvent.type(screen.getByLabelText('Authenticator code'), '000000')
+  await userEvent.type(screen.getByLabelText('Account password'), 'MyPassword1-')
   await userEvent.click(screen.getByRole('button', { name: 'Verify' }))
 
   expect(await screen.findByRole('alert')).toHaveTextContent('Invalid two-factor code')

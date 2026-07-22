@@ -63,6 +63,10 @@ export interface TwoFactorSetupResponse {
 }
 
 export interface ConfirmTotpRequest {
+  /** Required: a stolen session alone must not be able to enrol an
+   * authenticator, which would hand the thief the recovery codes and lock the
+   * real owner out for good. */
+  password: string
   totp_code: string
 }
 
