@@ -577,19 +577,28 @@ def login_user(request):
             raw_challenge = secrets.token_hex(32)
             with transaction.atomic():
                 locked = get_user_model().objects.select_for_update().get(pk=existing.pk)
-                locked.two_factor_challenges.all().delete()
-                locked.two_factor_challenges.create(
-                    token_hash=hashlib.sha256(raw_challenge.encode()).hexdigest(),
-                    expires=timezone.now() + timedelta(minutes=TWO_FACTOR_CHALLENGE_MINUTES),
-                    remember_me=remember_me,
-                )
-            logger.info(f"Login requires two-factor code for user_id: {existing.id}")
-            response = log_and_return_json("login_user", {
-                Fields.two_factor_required: True,
-                Fields.challenge_token: raw_challenge,
-            })
-            response['Cache-Control'] = 'no-store'
-            return response
+                # Re-check under the lock: the totp_enabled read above was
+                # unlocked, so disable_totp may have run in between. Issuing a
+                # challenge then would strand this login on a second step the
+                # account can no longer satisfy, so fall through to a normal
+                # session instead.
+                issued_challenge = locked.totp_enabled
+                if issued_challenge:
+                    locked.two_factor_challenges.all().delete()
+                    locked.two_factor_challenges.create(
+                        token_hash=hashlib.sha256(raw_challenge.encode()).hexdigest(),
+                        expires=timezone.now() + timedelta(minutes=TWO_FACTOR_CHALLENGE_MINUTES),
+                        remember_me=remember_me,
+                    )
+
+            if issued_challenge:
+                logger.info(f"Login requires two-factor code for user_id: {existing.id}")
+                response = log_and_return_json("login_user", {
+                    Fields.two_factor_required: True,
+                    Fields.challenge_token: raw_challenge,
+                })
+                response['Cache-Control'] = 'no-store'
+                return response
 
         return _create_authenticated_session("login_user", request, existing, ip, remember_me)
     else:
