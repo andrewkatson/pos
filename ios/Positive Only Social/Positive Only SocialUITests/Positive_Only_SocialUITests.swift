@@ -393,14 +393,30 @@ final class Positive_Only_SocialUITests: XCTestCase {
     /// Scrolls a scrollable container until `element` is hittable.
     ///
     /// `waitForExistence` succeeds for rows that are in the accessibility tree
-    /// but scrolled out of view, and tapping those does nothing — so screens
-    /// taller than the device need this before interacting with a lower row.
-    private func scrollIntoView(app: XCUIApplication, element: XCUIElement, maxSwipes: Int = 5) {
+    /// but scrolled out of view, and tapping those silently does nothing — so
+    /// screens taller than the device need this before interacting with a lower
+    /// row. Asserts the element really is hittable at the end rather than
+    /// falling through after `maxSwipes`, so a layout change surfaces as a clear
+    /// failure here instead of a no-op tap and a confusing downstream timeout.
+    private func scrollIntoView(
+        app: XCUIApplication,
+        element: XCUIElement,
+        maxSwipes: Int = 5,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) {
         var swipes = 0
         while !element.isHittable && swipes < maxSwipes {
             app.swipeUp()
             swipes += 1
         }
+        XCTAssertTrue(
+            element.exists && element.isHittable,
+            "Element was still not hittable after \(maxSwipes) swipes (exists: \(element.exists)); "
+                + "the screen may have grown or the identifier may have changed.",
+            file: file,
+            line: line
+        )
     }
 
     private func deleteAccountFromHome(app: XCUIApplication) throws {
