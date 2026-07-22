@@ -85,6 +85,21 @@ struct ProfileBodyView: View {
             Divider()
             postGrid
         }
+        // Surfaces the outcome when one of your posts' async review (#282)
+        // resolves to a rejection while this grid is visible. Only your own
+        // posts carry a status, so this never fires on someone else's profile.
+        .alert(
+            "Post Review",
+            isPresented: Binding(
+                get: { viewModel.reviewNotice != nil },
+                set: { if !$0 { viewModel.reviewNotice = nil } }
+            )
+        ) {
+            Button("OK") { viewModel.reviewNotice = nil }
+                .accessibilityIdentifier("OkButtonReviewNotice")
+        } message: {
+            Text(viewModel.reviewNotice ?? "")
+        }
         .refreshable {
             // Pull-to-refresh: reload the newest posts and the profile stats /
             // follow-block status so neither goes stale.
@@ -230,21 +245,6 @@ struct ProfileBodyView: View {
             }
             // Black backing shows through the 1pt gaps as thin borders between posts.
             .background(Color.black)
-        }
-        // Surfaces the outcome when one of your posts' async review (#282)
-        // resolves to a rejection while this grid is visible. Only your own
-        // posts carry a status, so this never fires on someone else's profile.
-        .alert(
-            "Post Review",
-            isPresented: Binding(
-                get: { viewModel.reviewNotice != nil },
-                set: { if !$0 { viewModel.reviewNotice = nil } }
-            )
-        ) {
-            Button("OK") { viewModel.reviewNotice = nil }
-                .accessibilityIdentifier("OkButtonReviewNotice")
-        } message: {
-            Text(viewModel.reviewNotice ?? "")
         }
     }
 }
