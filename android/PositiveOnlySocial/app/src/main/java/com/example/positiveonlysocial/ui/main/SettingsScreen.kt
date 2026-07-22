@@ -1,16 +1,30 @@
 package com.example.positiveonlysocial.ui.main
 
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.text.AnnotatedString
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.window.DialogProperties
+import com.example.positiveonlysocial.data.model.TotpSetupResponse
+import com.google.zxing.BarcodeFormat
+import com.google.zxing.qrcode.QRCodeWriter
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.NavController
 import com.example.positiveonlysocial.api.PositiveOnlySocialAPI
@@ -74,6 +88,134 @@ fun SettingsScreen(
         val showingErrorAlert by viewModel.showingErrorAlert.collectAsState()
 
         var showingPrivacyPolicy by remember { mutableStateOf(false) }
+
+        // Two-factor authentication dialogs (issue #348).
+        var showingEnrollTwoFactor by remember { mutableStateOf(false) }
+        var showingDisableTwoFactor by remember { mutableStateOf(false) }
+        var twoFactorConfirmCode by remember { mutableStateOf("") }
+        var disablePassword by remember { mutableStateOf("") }
+        var disableCode by remember { mutableStateOf("") }
+        var disableUsesRecoveryCode by remember { mutableStateOf(false) }
+
+        val totpSetup by viewModel.totpSetup.collectAsState()
+        val recoveryCodes by viewModel.recoveryCodes.collectAsState()
+        val twoFactorStatusMessage by viewModel.twoFactorStatusMessage.collectAsState()
+        val clipboardManager = LocalClipboardManager.current
+
+        if (twoFactorStatusMessage != null) {
+            AlertDialog(
+                onDismissRequest = { viewModel.clearTwoFactorStatusMessage() },
+                title = { Text("Two-Factor Authentication") },
+                text = { Text(twoFactorStatusMessage!!) },
+                confirmButton = {
+                    Button(onClick = { viewModel.clearTwoFactorStatusMessage() }) {
+                        Text("OK")
+                    }
+                }
+            )
+        }
+
+        if (showingEnrollTwoFactor) {
+            EnrollTwoFactorDialog(
+                totpSetup = totpSetup,
+                recoveryCodes = recoveryCodes,
+                confirmCode = twoFactorConfirmCode,
+                onConfirmCodeChange = { twoFactorConfirmCode = it },
+                onVerify = { viewModel.confirmTotp(twoFactorConfirmCode.trim()) },
+                onCopySecret = { secret ->
+                    clipboardManager.setText(AnnotatedString(secret))
+                },
+                onCopyRecoveryCodes = { codes ->
+                    clipboardManager.setText(AnnotatedString(codes.joinToString("\n")))
+                },
+                onDone = {
+                    showingEnrollTwoFactor = false
+                    viewModel.finishTotpEnrollment()
+                },
+                onCancel = {
+                    showingEnrollTwoFactor = false
+                    viewModel.cancelTotpEnrollment()
+                }
+            )
+        }
+
+        if (showingDisableTwoFactor) {
+            // Every exit path clears the password and code so the entered
+            // secrets don't linger in composition state (or reappear if the
+            // dialog is opened again).
+            val closeDisableDialog = {
+                showingDisableTwoFactor = false
+                disablePassword = ""
+                disableCode = ""
+                disableUsesRecoveryCode = false
+            }
+            AlertDialog(
+                onDismissRequest = closeDisableDialog,
+                title = { Text("Disable Two-Factor Authentication") },
+                text = {
+                    Column {
+                        Text(
+                            "Confirm your password and a current " +
+                                (if (disableUsesRecoveryCode) "recovery" else "authenticator") + " code."
+                        )
+                        Spacer(modifier = Modifier.height(8.dp))
+                        TextField(
+                            value = disablePassword,
+                            onValueChange = { disablePassword = it },
+                            label = { Text("Password") },
+                            singleLine = true,
+                            visualTransformation = PasswordVisualTransformation(),
+                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
+                            modifier = Modifier.testTag("DisableTwoFactorPasswordField")
+                        )
+                        Spacer(modifier = Modifier.height(8.dp))
+                        TextField(
+                            value = disableCode,
+                            onValueChange = { disableCode = it },
+                            label = { Text(if (disableUsesRecoveryCode) "Recovery code" else "Authenticator code") },
+                            singleLine = true,
+                            keyboardOptions = KeyboardOptions(
+                                keyboardType = if (disableUsesRecoveryCode) KeyboardType.Ascii else KeyboardType.NumberPassword
+                            ),
+                            modifier = Modifier.testTag("DisableTwoFactorCodeField")
+                        )
+                        TextButton(onClick = {
+                            disableUsesRecoveryCode = !disableUsesRecoveryCode
+                            disableCode = ""
+                        }) {
+                            Text(
+                                if (disableUsesRecoveryCode) "Use an authenticator code instead"
+                                else "Use a recovery code instead"
+                            )
+                        }
+                    }
+                },
+                confirmButton = {
+                    Button(
+                        onClick = {
+                            // Hand the values to the request before clearing them.
+                            val password = disablePassword
+                            val code = disableCode.trim()
+                            val isRecoveryCode = disableUsesRecoveryCode
+                            closeDisableDialog()
+                            viewModel.disableTotp(
+                                password = password,
+                                code = code,
+                                isRecoveryCode = isRecoveryCode
+                            )
+                        },
+                        enabled = disablePassword.isNotEmpty() && disableCode.isNotEmpty()
+                    ) {
+                        Text("Disable")
+                    }
+                },
+                dismissButton = {
+                    Button(onClick = closeDisableDialog) {
+                        Text("Cancel")
+                    }
+                }
+            )
+        }
 
         if (showingPrivacyPolicy) {
             AlertDialog(
@@ -268,6 +410,29 @@ fun SettingsScreen(
 
             HorizontalDivider()
 
+            Text(
+                text = "Security",
+                style = MaterialTheme.typography.titleMedium,
+                modifier = Modifier.padding(16.dp)
+            )
+
+            ListListItem(text = "Enable Two-Factor Authentication", textColor = Color.Blue) {
+                twoFactorConfirmCode = ""
+                viewModel.startTotpSetup()
+                showingEnrollTwoFactor = true
+            }
+
+            HorizontalDivider()
+
+            ListListItem(text = "Disable Two-Factor Authentication") {
+                disablePassword = ""
+                disableCode = ""
+                disableUsesRecoveryCode = false
+                showingDisableTwoFactor = true
+            }
+
+            HorizontalDivider()
+
             ListListItem(text = "Logout", textColor = Color.Red) {
                 showingLogoutConfirm = true
             }
@@ -296,6 +461,151 @@ fun SettingsScreen(
                 showingDeleteConfirm = true
             }
         }
+    }
+}
+
+/**
+ * Enrollment dialog (issue #348): scan the QR (or copy the secret), confirm one
+ * code, then save the one-time recovery codes. Which step is shown is driven by
+ * the view model state — `recoveryCodes` non-null means confirmed.
+ */
+@Composable
+private fun EnrollTwoFactorDialog(
+    totpSetup: TotpSetupResponse?,
+    recoveryCodes: List<String>?,
+    confirmCode: String,
+    onConfirmCodeChange: (String) -> Unit,
+    onVerify: () -> Unit,
+    onCopySecret: (String) -> Unit,
+    onCopyRecoveryCodes: (List<String>) -> Unit,
+    onDone: () -> Unit,
+    onCancel: () -> Unit
+) {
+    val isConfirmCodeValid = confirmCode.trim().length == 6 && confirmCode.trim().all { it.isDigit() }
+
+    AlertDialog(
+        // Recovery codes are shown exactly once and the backend can't re-issue
+        // them, so on that step the dialog can't be dismissed by a back press or
+        // a tap outside — the user has to choose Copy All / Done deliberately.
+        // Before codes exist, dismissing simply abandons the pending enrollment.
+        properties = DialogProperties(
+            dismissOnBackPress = recoveryCodes == null,
+            dismissOnClickOutside = recoveryCodes == null,
+        ),
+        // Defensive: if a dismissal ever does get through on the codes step, 2FA
+        // is already enabled server-side, so report it rather than cancelling.
+        onDismissRequest = { if (recoveryCodes != null) onDone() else onCancel() },
+        title = { Text("Enable Two-Factor Authentication") },
+        text = {
+            Column(
+                modifier = Modifier.verticalScroll(rememberScrollState()),
+                horizontalAlignment = Alignment.CenterHorizontally
+            ) {
+                when {
+                    recoveryCodes != null -> {
+                        Text(
+                            "Two-factor authentication is on. Save these recovery codes somewhere " +
+                                "safe — each works once, and they will not be shown again."
+                        )
+                        Spacer(modifier = Modifier.height(12.dp))
+                        // Tag the list container once and index each row, so a
+                        // UI test can select a single node unambiguously.
+                        recoveryCodes.forEachIndexed { index, code ->
+                            Text(code, fontFamily = FontFamily.Monospace, modifier = Modifier.testTag("RecoveryCode_$index"))
+                        }
+                    }
+                    totpSetup != null -> {
+                        Text(
+                            "Scan this QR code with your authenticator app (Google Authenticator, " +
+                                "1Password, …), or enter the secret manually."
+                        )
+                        Spacer(modifier = Modifier.height(12.dp))
+                        val qrBitmap = remember(totpSetup.otpauthUri) { qrCodeBitmap(totpSetup.otpauthUri) }
+                        if (qrBitmap != null) {
+                            Image(
+                                bitmap = qrBitmap.asImageBitmap(),
+                                contentDescription = "Two-factor QR code",
+                                modifier = Modifier.size(200.dp).testTag("TwoFactorQRCode")
+                            )
+                        }
+                        Spacer(modifier = Modifier.height(8.dp))
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Text(
+                                totpSetup.totpSecret,
+                                fontFamily = FontFamily.Monospace,
+                                modifier = Modifier.testTag("TwoFactorSecret")
+                            )
+                            Spacer(modifier = Modifier.width(8.dp))
+                            TextButton(
+                                onClick = { onCopySecret(totpSetup.totpSecret) },
+                                modifier = Modifier.testTag("CopySecretButton")
+                            ) {
+                                Text("Copy")
+                            }
+                        }
+                        Spacer(modifier = Modifier.height(12.dp))
+                        TextField(
+                            value = confirmCode,
+                            onValueChange = onConfirmCodeChange,
+                            label = { Text("6-digit code") },
+                            singleLine = true,
+                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.NumberPassword),
+                            modifier = Modifier.testTag("TwoFactorConfirmCodeField")
+                        )
+                    }
+                    else -> {
+                        CircularProgressIndicator()
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            when {
+                recoveryCodes != null -> {
+                    Row {
+                        Button(onClick = { onCopyRecoveryCodes(recoveryCodes) }) {
+                            Text("Copy All")
+                        }
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Button(onClick = onDone, modifier = Modifier.testTag("FinishTwoFactorButton")) {
+                            Text("Done")
+                        }
+                    }
+                }
+                totpSetup != null -> {
+                    Button(onClick = onVerify, enabled = isConfirmCodeValid, modifier = Modifier.testTag("ConfirmTwoFactorButton")) {
+                        Text("Verify")
+                    }
+                }
+            }
+        },
+        dismissButton = {
+            if (recoveryCodes == null) {
+                Button(onClick = onCancel) { Text("Cancel") }
+            }
+        }
+    )
+}
+
+/** Renders an otpauth:// URI as a QR bitmap via ZXing — no network, no view service. */
+private fun qrCodeBitmap(content: String, size: Int = 512): android.graphics.Bitmap? {
+    return try {
+        val bitMatrix = QRCodeWriter().encode(content, BarcodeFormat.QR_CODE, size, size)
+        // Fill an IntArray and blit it in one setPixels() call rather than
+        // ~260k individual setPixel() calls, which is far cheaper on the caller.
+        val pixels = IntArray(size * size)
+        for (y in 0 until size) {
+            val rowStart = y * size
+            for (x in 0 until size) {
+                pixels[rowStart + x] =
+                    if (bitMatrix.get(x, y)) android.graphics.Color.BLACK else android.graphics.Color.WHITE
+            }
+        }
+        android.graphics.Bitmap.createBitmap(size, size, android.graphics.Bitmap.Config.RGB_565).apply {
+            setPixels(pixels, 0, size, 0, 0, size, size)
+        }
+    } catch (e: Exception) {
+        null
     }
 }
 

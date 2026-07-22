@@ -1,5 +1,6 @@
 package com.example.positiveonlysocial.api
 
+import com.example.positiveonlysocial.data.constants.Constants
 import com.example.positiveonlysocial.data.model.*
 import okhttp3.MediaType.Companion.toMediaTypeOrNull
 import okhttp3.ResponseBody.Companion.toResponseBody
@@ -19,6 +20,16 @@ import kotlin.random.Random
  */
 class StatefulStubbedAPI : PositiveOnlySocialAPI {
 
+    companion object {
+        // The stub has no clock-based TOTP; this fixed code is the one the
+        // stub accepts, mirroring the fixed codes in the website/iOS stubs.
+        const val STUB_TOTP_CODE = "123456"
+
+        // Used for the credential-shaped stub values (TOTP secret), where
+        // Kotlin's Random.Default would be an insecure generator.
+        private val secureRandom = java.security.SecureRandom()
+    }
+
     // ============================================================================================
     // INTERNAL STORAGE (The "Database")
     // ============================================================================================
@@ -26,6 +37,7 @@ class StatefulStubbedAPI : PositiveOnlySocialAPI {
     private val users = mutableListOf<UserMock>()
     private val sessions = mutableListOf<SessionMock>()
     private val loginCookies = mutableListOf<LoginCookieMock>()
+    private val twoFactorChallenges = mutableListOf<TwoFactorChallengeMock>()
     private val posts = mutableListOf<PostMock>()
     private val commentThreads = mutableListOf<CommentThreadMock>()
     private val appeals = mutableListOf<AppealMock>()
@@ -60,7 +72,21 @@ class StatefulStubbedAPI : PositiveOnlySocialAPI {
         var isVerified: Boolean = false,
         var isAdult: Boolean = false,
         val blocked: MutableList<String> = mutableListOf(),
-        val blockedBy: MutableList<String> = mutableListOf()
+        val blockedBy: MutableList<String> = mutableListOf(),
+        // Two-factor authentication (issue #348). A secret without the enabled
+        // flag is a pending enrollment; recovery codes are removed as used.
+        var totpSecret: String? = null,
+        var totpEnabled: Boolean = false,
+        val recoveryCodes: MutableList<String> = mutableListOf()
+    )
+
+    // A pending two-factor login, issued by loginUser when the account has
+    // TOTP enabled and consumed by loginUser2FA.
+    private data class TwoFactorChallengeMock(
+        val challengeToken: String,
+        val userId: String,
+        val rememberMe: Boolean,
+        val ip: String
     )
 
     private data class SessionMock(
@@ -176,11 +202,30 @@ class StatefulStubbedAPI : PositiveOnlySocialAPI {
         return Response.success(AuthResponse(sessionToken, newUser.username, newUser.id, seriesId, cookieToken))
     }
 
-    override suspend fun loginUser(request: LoginRequest): Response<AuthResponse> {
+    override suspend fun loginUser(request: LoginRequest): Response<LoginResponse> {
         val user = users.find { it.username == request.usernameOrEmail || it.email == request.usernameOrEmail }
 
         if (user == null || user.passwordHash != request.password) {
             return errorGeneric(404, "No user exists with that information or password incorrect")
+        }
+
+        // 2FA-enrolled accounts get a challenge instead of a session, mirroring
+        // login_user in backend/user_system/views.py.
+        if (user.totpEnabled) {
+            // Only one challenge is ever live per user, matching login_user in
+            // the backend — otherwise the per-challenge attempt limit could be
+            // multiplied, and the list would grow unbounded across retries.
+            twoFactorChallenges.removeIf { it.userId == user.id }
+            val challenge = TwoFactorChallengeMock(
+                challengeToken = UUID.randomUUID().toString(),
+                userId = user.id,
+                rememberMe = request.rememberMe.toBoolean(),
+                ip = request.ip
+            )
+            twoFactorChallenges.add(challenge)
+            return Response.success(
+                LoginResponse(twoFactorRequired = true, challengeToken = challenge.challengeToken)
+            )
         }
 
         val sessionToken = UUID.randomUUID().toString()
@@ -200,7 +245,116 @@ class StatefulStubbedAPI : PositiveOnlySocialAPI {
         // Auto-set the token for convenience in this stateful stub
         simulatedAuthToken = sessionToken
 
+        return Response.success(
+            LoginResponse(
+                sessionToken = sessionToken,
+                username = user.username,
+                userId = user.id,
+                seriesIdentifier = seriesId,
+                loginCookieToken = cookieToken
+            )
+        )
+    }
+
+    override suspend fun loginUser2FA(request: LoginTwoFactorRequest): Response<AuthResponse> {
+        val challenge = twoFactorChallenges.find { it.challengeToken == request.challengeToken }
+            ?: return errorGeneric(400, Constants.INVALID_TWO_FACTOR_CHALLENGE)
+        val user = users.find { it.id == challenge.userId }
+            ?: return errorGeneric(400, Constants.INVALID_TWO_FACTOR_CHALLENGE)
+
+        val totpCode = request.totpCode
+        val recoveryCode = request.recoveryCode
+        val codeOk = when {
+            totpCode != null && recoveryCode == null -> totpCode == STUB_TOTP_CODE
+            // Recovery codes are single-use: consume on success.
+            recoveryCode != null && totpCode == null -> user.recoveryCodes.remove(recoveryCode)
+            else -> return errorGeneric(400, "Invalid fields ['TOTP_CODE', 'RECOVERY_CODE']")
+        }
+        if (!codeOk) {
+            return errorGeneric(400, "Invalid two-factor code")
+        }
+
+        twoFactorChallenges.remove(challenge)
+
+        val sessionToken = UUID.randomUUID().toString()
+        sessions.add(SessionMock(sessionToken, user.id, challenge.ip))
+        simulatedAuthToken = sessionToken
+
+        var seriesId: String? = null
+        var cookieToken: String? = null
+        if (challenge.rememberMe) {
+            seriesId = UUID.randomUUID().toString()
+            cookieToken = UUID.randomUUID().toString()
+            loginCookies.add(LoginCookieMock(seriesId, cookieToken, user.id))
+        }
+
         return Response.success(AuthResponse(sessionToken, user.username, user.id, seriesId, cookieToken))
+    }
+
+    override suspend fun setupTotp(token: String): Response<TotpSetupResponse> {
+        val user = getAuthorizedUser(token) ?: return errorGeneric(401, "Invalid session")
+        if (user.totpEnabled) {
+            return errorGeneric(400, "Two-factor authentication is already enabled")
+        }
+        // Re-running setup before confirming simply replaces the pending secret.
+        // Use the RFC 4648 Base32 alphabet (A-Z, 2-7) so the otpauth:// URI is a
+        // valid TOTP secret that real authenticator apps and QR parsers accept.
+        // The alphabet is exactly 32 characters, so indexing by a secure random
+        // int over its length is unbiased. Kotlin's Random.Default is not
+        // cryptographically secure, and this value is credential-shaped.
+        val base32Alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZ234567"
+        val secret = (1..32).map { base32Alphabet[secureRandom.nextInt(base32Alphabet.length)] }.joinToString("")
+        user.totpSecret = secret
+        return Response.success(
+            TotpSetupResponse(
+                totpSecret = secret,
+                otpauthUri = "otpauth://totp/Positive%20Only%20Social:${user.email}?secret=$secret&issuer=Positive%20Only%20Social"
+            )
+        )
+    }
+
+    override suspend fun confirmTotp(token: String, request: ConfirmTotpRequest): Response<ConfirmTotpResponse> {
+        val user = getAuthorizedUser(token) ?: return errorGeneric(401, "Invalid session")
+        if (user.totpEnabled) {
+            return errorGeneric(400, "Two-factor authentication is already enabled")
+        }
+        if (user.totpSecret == null) {
+            return errorGeneric(400, "Two-factor setup has not been started")
+        }
+        if (request.totpCode != STUB_TOTP_CODE) {
+            return errorGeneric(400, "Invalid two-factor code")
+        }
+        user.totpEnabled = true
+        user.recoveryCodes.clear()
+        repeat(10) {
+            user.recoveryCodes.add(UUID.randomUUID().toString().replace("-", "").lowercase().take(10))
+        }
+        return Response.success(ConfirmTotpResponse(totpEnabled = true, recoveryCodes = user.recoveryCodes.toList()))
+    }
+
+    override suspend fun disableTotp(token: String, request: DisableTotpRequest): Response<DisableTotpResponse> {
+        val user = getAuthorizedUser(token) ?: return errorGeneric(401, "Invalid session")
+        if (!user.totpEnabled) {
+            return errorGeneric(400, "Two-factor authentication is not enabled")
+        }
+        if (user.passwordHash != request.password) {
+            return errorGeneric(400, "Invalid password")
+        }
+        val totpCode = request.totpCode
+        val recoveryCode = request.recoveryCode
+        val codeOk = when {
+            totpCode != null && recoveryCode == null -> totpCode == STUB_TOTP_CODE
+            recoveryCode != null && totpCode == null -> user.recoveryCodes.remove(recoveryCode)
+            else -> false
+        }
+        if (!codeOk) {
+            return errorGeneric(400, "Invalid two-factor code")
+        }
+        user.totpSecret = null
+        user.totpEnabled = false
+        user.recoveryCodes.clear()
+        twoFactorChallenges.removeIf { it.userId == user.id }
+        return Response.success(DisableTotpResponse(totpEnabled = false))
     }
 
     override suspend fun loginUserWithRememberMe(request: TokenRefreshRequest): Response<TokenRefreshResponse> {
