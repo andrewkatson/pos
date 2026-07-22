@@ -821,14 +821,22 @@ def setup_totp(request):
     logger.info("Endpoint setup_totp invoked by IP or User")
     user = request.user
 
-    if user.totp_enabled:
-        return log_and_return_json("setup_totp",
-                                   {'error': "Two-factor authentication is already enabled"}, status=400)
+    # Lock the user row and re-check inside the transaction: without it a
+    # concurrent confirm_totp could enable 2FA between the check and the write,
+    # and this would then overwrite the just-confirmed secret — locking the user
+    # out of their own authenticator. Same user-first lock order as the other
+    # 2FA views.
+    with transaction.atomic():
+        user = get_user_model().objects.select_for_update().get(pk=user.pk)
 
-    # Re-running setup before confirming simply replaces the pending secret.
-    user.totp_secret = pyotp.random_base32()
-    user.totp_last_used_step = None
-    user.save(update_fields=['totp_secret', 'totp_last_used_step'])
+        if user.totp_enabled:
+            return log_and_return_json("setup_totp",
+                                       {'error': "Two-factor authentication is already enabled"}, status=400)
+
+        # Re-running setup before confirming simply replaces the pending secret.
+        user.totp_secret = pyotp.random_base32()
+        user.totp_last_used_step = None
+        user.save(update_fields=['totp_secret', 'totp_last_used_step'])
 
     # Set the interval explicitly so the otpauth:// period matches the
     # server-side verification window in _verify_totp_code.
