@@ -512,6 +512,16 @@ final class RealAPI: Networking {
             authToken: sessionManagementToken
         )
     }
+
+    /// Gets the classification status of one of the signed-in user's own posts (issue #282).
+    func getPostStatus(sessionManagementToken: String, postIdentifier: String) async throws -> Data {
+        // Authenticated GET; author-only on the backend. ID is in path.
+        return try await performRequest(
+            pathSegments: [GVOAppConstants.pathSegmentPosts, postIdentifier, GVOAppConstants.pathSegmentStatus],
+            method: .get,
+            authToken: sessionManagementToken
+        )
+    }
     
     // MARK: - Comment Management
     
@@ -625,6 +635,17 @@ final class RealAPI: Networking {
         )
     }
     
+    /// Gets every user the signed-in user has blocked.
+    func getBlockedUsers(sessionManagementToken: String) async throws -> Data {
+        // This is a GET request, no body, with auth.
+        // URL pattern: users/blocked/
+        return try await performRequest(
+            pathSegments: [GVOAppConstants.pathSegmentUsers, GVOAppConstants.pathSegmentBlocked],
+            method: .get,
+            authToken: sessionManagementToken
+        )
+    }
+
     /// Gets the profile details for a user
     func getProfileDetails(sessionManagementToken: String, username: String) async throws -> Data {
         // This is a GET request, no body, with auth. Username is in path.

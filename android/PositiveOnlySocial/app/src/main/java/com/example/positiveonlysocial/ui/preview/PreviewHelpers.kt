@@ -262,6 +262,16 @@ class MockPositiveOnlySocialAPI : PositiveOnlySocialAPI {
         )
     }
 
+    override suspend fun getPostStatus(token: String, postId: String): Response<PostStatusResponse> {
+        // Previews treat every post as already approved (issue #282).
+        return Response.success(
+            PostStatusResponse(
+                postIdentifier = postId,
+                status = "approved"
+            )
+        )
+    }
+
     override suspend fun deletePost(token: String, postId: String): Response<GenericResponse> {
         return Response.success(
             GenericResponse(
@@ -498,6 +508,17 @@ class MockPositiveOnlySocialAPI : PositiveOnlySocialAPI {
             GenericResponse(
                 message = "User blocked/unblocked",
                 error = null
+            )
+        )
+    }
+
+    override suspend fun getBlockedUsers(
+        token: String
+    ): Response<List<User>> {
+        return Response.success(
+            listOf(
+                User(username = "blocked_user_1", identityIsVerified = true),
+                User(username = "blocked_user_2", identityIsVerified = false)
             )
         )
     }

@@ -33,7 +33,7 @@ def is_image_positive(image_url):
 
     if not available_apis:
         logger.error("No AI API keys available.")
-        return ClassificationResult(allowed=False)
+        return ClassificationResult(allowed=False, provider_failure=True)
 
     aws_access_key = os.environ.get("AWS_ACCESS_KEY_ID")
     aws_secret_key = os.environ.get("AWS_SECRET_ACCESS_KEY")
@@ -41,7 +41,7 @@ def is_image_positive(image_url):
     if not aws_access_key or not aws_secret_key:
         logger.error("Missing AWS credentials — AWS_ACCESS_KEY_ID present=%s, AWS_SECRET_ACCESS_KEY present=%s",
                      bool(aws_access_key), bool(aws_secret_key))
-        return ClassificationResult(allowed=False)
+        return ClassificationResult(allowed=False, provider_failure=True)
 
     try:
         region = os.environ.get("AWS_REGION", "us-east-1")
@@ -105,7 +105,7 @@ def is_image_positive(image_url):
 
         if not bucket_name:
             logger.error("Could not determine S3 bucket name from URL=%s and AWS_STORAGE_BUCKET_NAME is unset", image_url)
-            return ClassificationResult(allowed=False)
+            return ClassificationResult(allowed=False, provider_failure=True)
 
         logger.info("Fetching image from S3 — bucket=%s key=%s", bucket_name, key)
         response = s3.get_object(Bucket=bucket_name, Key=key)
@@ -136,5 +136,8 @@ def is_image_positive(image_url):
         return result
 
     except Exception:
+        # The image could not even be evaluated (S3 fetch failed, unreadable
+        # bytes, ...). Infrastructure, not content: mark it a provider failure
+        # so the async worker retries instead of recording a rejection.
         logger.exception("Error in image classifier for URL: %s", image_url)
-        return ClassificationResult(allowed=False)
+        return ClassificationResult(allowed=False, provider_failure=True)

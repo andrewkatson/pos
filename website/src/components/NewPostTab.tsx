@@ -63,14 +63,24 @@ function NewPostTab({ onPosted }: NewPostTabProps) {
       setFile(null)
       setPreviewUrl(null)
       setCaption('')
-      // A post flagged by automated review is created hidden pending appeal; tell
-      // the user it's hidden but appealable rather than implying it's live.
-      setSuccessMessage(
-        result.hidden
-          ? (result.message ??
-              'Your post did not pass automated review. It is hidden for now but you can appeal the decision.')
-          : 'Your post was shared successfully!',
-      )
+      // Classification is asynchronous (issue #282): the backend accepts the
+      // post in a pending state and reviews it in the background, so tell the
+      // user it's under review — the Home grid shows its progress and outcome.
+      // Older backends classified inline; their hidden response means the post
+      // was flagged but is appealable.
+      if (result.status === 'pending' || result.hidden_reason === 'pending_classification') {
+        setSuccessMessage(
+          result.message ??
+            'Your post is being reviewed and will be visible to others once it is approved.',
+        )
+      } else if (result.hidden) {
+        setSuccessMessage(
+          result.message ??
+            'Your post did not pass automated review. It is hidden for now but you can appeal the decision.',
+        )
+      } else {
+        setSuccessMessage('Your post was shared successfully!')
+      }
       onPosted()
     } catch (err) {
       const apiErr = err as ApiError

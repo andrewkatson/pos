@@ -390,6 +390,12 @@ fun SettingsScreen(
 
             HorizontalDivider()
 
+            ListListItem(text = "Blocked Users") {
+                navController.navigate(Screen.BlockedUsers.route)
+            }
+
+            HorizontalDivider()
+
             Text(
                 text = "Security",
                 style = MaterialTheme.typography.titleMedium,

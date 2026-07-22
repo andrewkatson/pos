@@ -88,6 +88,30 @@ describe('email_not_verified handling', () => {
   })
 })
 
+describe('post classification status (#282)', () => {
+  test('getPostStatus hits the author-only status endpoint and returns its payload', async () => {
+    const payload = {
+      post_identifier: 'p1',
+      status: 'pending',
+      reason_code: null,
+      appealable: false,
+      hidden: true,
+      hidden_reason: 'pending_classification',
+      message: 'Your post is being reviewed and will be visible to others once it is approved.',
+    }
+    const fetchFn = vi.fn().mockResolvedValue(jsonResponse(200, payload))
+    const client = new ApiClient({ token: 'sometoken', fetchFn })
+
+    const result = await client.getPostStatus('p1')
+
+    expect(fetchFn).toHaveBeenCalledWith(
+      'https://api.smiling.social/user_index/posts/p1/status/',
+      expect.objectContaining({ method: 'GET' }),
+    )
+    expect(result).toEqual(payload)
+  })
+})
+
 describe('friendly error messages', () => {
   test('passes the backend error message through unchanged', async () => {
     const fetchFn = vi.fn().mockResolvedValue(jsonResponse(400, { error: 'Text is not positive' }))

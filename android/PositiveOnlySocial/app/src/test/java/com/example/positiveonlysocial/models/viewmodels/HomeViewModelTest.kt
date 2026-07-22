@@ -3,6 +3,7 @@ package com.example.positiveonlysocial.models.viewmodels
 import com.example.positiveonlysocial.MainDispatcherRule
 import com.example.positiveonlysocial.api.PositiveOnlySocialAPI
 import com.example.positiveonlysocial.data.model.Post
+import com.example.positiveonlysocial.data.model.PostStatusResponse
 import com.example.positiveonlysocial.data.model.User
 import com.example.positiveonlysocial.data.model.UserSession
 import com.example.positiveonlysocial.data.security.KeychainHelperProtocol
@@ -138,6 +139,72 @@ class HomeViewModelTest {
 
         assertEquals(1, viewModel.userPosts.value.size)
         assertFalse(viewModel.userPosts.value.any { it.postIdentifier == "1" })
+    }
+
+    // --- Async classification reconciliation (#282) ---
+
+    @Test
+    fun `pending post polls status and reloads grid when approved`() = runTest {
+        val pendingPost = Post("1", null, "caption", "testuser", status = "pending", hidden = true, hiddenReason = "pending_classification")
+        whenever(api.getPostsForUser("token123", "testuser", 0)).thenReturn(Response.success(listOf(pendingPost)))
+        viewModel.fetchMyPosts()
+        assertEquals("pending", viewModel.userPosts.value.first().status)
+
+        // The worker approves it; the bounded poll notices and reloads.
+        whenever(api.getPostStatus("token123", "1"))
+            .thenReturn(Response.success(PostStatusResponse("1", "approved")))
+        val approvedPost = Post("1", null, "caption", "testuser", status = "approved", hidden = false, hiddenReason = "")
+        whenever(api.getPostsForUser("token123", "testuser", 0)).thenReturn(Response.success(listOf(approvedPost)))
+
+        advanceTimeBy(3100)
+        advanceUntilIdle()
+
+        assertEquals("approved", viewModel.userPosts.value.first().status)
+        assertEquals(null, viewModel.reviewNotice.value)
+    }
+
+    @Test
+    fun `pending post that resolves to rejected surfaces a review notice`() = runTest {
+        val pendingPost = Post("1", null, "caption", "testuser", status = "pending", hidden = true, hiddenReason = "pending_classification")
+        whenever(api.getPostsForUser("token123", "testuser", 0)).thenReturn(Response.success(listOf(pendingPost)))
+        viewModel.fetchMyPosts()
+
+        whenever(api.getPostStatus("token123", "1")).thenReturn(
+            Response.success(
+                PostStatusResponse(
+                    postIdentifier = "1",
+                    status = "rejected",
+                    reasonCode = "guidelines",
+                    appealable = true,
+                    hidden = true,
+                    hiddenReason = "classifier",
+                    message = "Your post did not pass automated review. It is hidden for now but you can appeal the decision."
+                )
+            )
+        )
+        val rejectedPost = Post("1", null, "caption", "testuser", status = "rejected", hidden = true, hiddenReason = "classifier", appealable = true)
+        whenever(api.getPostsForUser("token123", "testuser", 0)).thenReturn(Response.success(listOf(rejectedPost)))
+
+        advanceTimeBy(3100)
+        advanceUntilIdle()
+
+        assertTrue(viewModel.reviewNotice.value!!.contains("appeal"))
+        assertEquals("rejected", viewModel.userPosts.value.first().status)
+
+        viewModel.dismissReviewNotice()
+        assertEquals(null, viewModel.reviewNotice.value)
+    }
+
+    @Test
+    fun `no status poll when no post is pending`() = runTest {
+        val mockPosts = listOf(Post("1", "url1", "caption1", "testuser", status = "approved"))
+        whenever(api.getPostsForUser("token123", "testuser", 0)).thenReturn(Response.success(mockPosts))
+        viewModel.fetchMyPosts()
+
+        advanceTimeBy(60_000)
+        advanceUntilIdle()
+
+        verify(api, org.mockito.kotlin.never()).getPostStatus(any(), any())
     }
 
     @Test

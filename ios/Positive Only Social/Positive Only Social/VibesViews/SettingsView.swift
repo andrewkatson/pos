@@ -72,6 +72,15 @@ struct SettingsView: View {
                         Text("Hidden Content & Appeals")
                     }.accessibilityIdentifier("AppealsButton")
                 }
+
+                // MARK: - Blocked Users Section
+                Section {
+                    NavigationLink {
+                        BlockedUsersView(api: api, keychainHelper: keychainHelper)
+                    } label: {
+                        Text("Blocked Users")
+                    }.accessibilityIdentifier("BlockedUsersButton")
+                }
             
                 
                 // MARK: - Delete Account Section
