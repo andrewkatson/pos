@@ -211,6 +211,10 @@ class StatefulStubbedAPI : PositiveOnlySocialAPI {
         // 2FA-enrolled accounts get a challenge instead of a session, mirroring
         // login_user in backend/user_system/views.py.
         if (user.totpEnabled) {
+            // Only one challenge is ever live per user, matching login_user in
+            // the backend — otherwise the per-challenge attempt limit could be
+            // multiplied, and the list would grow unbounded across retries.
+            twoFactorChallenges.removeIf { it.userId == user.id }
             val challenge = TwoFactorChallengeMock(
                 challengeToken = UUID.randomUUID().toString(),
                 userId = user.id,
