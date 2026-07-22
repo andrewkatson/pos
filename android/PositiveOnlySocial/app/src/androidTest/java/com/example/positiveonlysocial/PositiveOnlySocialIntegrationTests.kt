@@ -298,9 +298,15 @@ class PositiveOnlySocialIntegrationTests {
         // Login as main user
         loginUser(testUsername, strongPassword, rememberMe = false, registerToo = true)
 
-        // Search for user but only a substring so we can just click on the full name and verify the
-        // substring search works
-        composeTestRule.onNodeWithText("Search for Users").performTextInput("other_user")
+        // Search a substring of the username, so clicking the full name verifies
+        // substring search works. The substring keeps the account's unique
+        // suffix rather than being the bare "other_user" prefix: every test that
+        // registers an other_user_<uuid> account leaves it in the shared stub,
+        // and searchUsers caps results at 10 in insertion order, so a prefix
+        // match would grow ambiguous — and eventually miss — as tests are added.
+        composeTestRule
+            .onNodeWithText("Search for Users")
+            .performTextInput(otherTestUsername.dropLast(1))
 
         composeTestRule.waitUntil(timeoutMillis = 5000) {
             composeTestRule.onNodeWithTag(otherTestUsername, useUnmergedTree = true).isDisplayed()
@@ -842,8 +848,14 @@ class PositiveOnlySocialIntegrationTests {
         // Login as main user
         loginUser(testUsername, strongPassword, rememberMe = false, registerToo = true)
 
-        // Search for user
-        composeTestRule.onNodeWithText("Search for Users").performTextInput("other_user")
+        // Search by the full username, not the "other_user" prefix. Every test
+        // that registers an other_user_<uuid> account leaves it in the shared
+        // stub, so by the time this test runs the prefix matches many accounts —
+        // and searchUsers caps results at 10 in insertion order, which can push
+        // this test's (newest) account off the end of the list or below the
+        // fold, so it never becomes displayed. Substring search has its own
+        // coverage in testFollowAndUnfollowFromSearch.
+        composeTestRule.onNodeWithText("Search for Users").performTextInput(otherTestUsername)
 
         composeTestRule.waitUntil(timeoutMillis = 5000) {
             composeTestRule.onNodeWithTag(otherTestUsername, useUnmergedTree = true).isDisplayed()
