@@ -502,7 +502,12 @@ private fun EnrollTwoFactorDialog(
     // Also blocked while a confirm is in flight: a second tap would enqueue
     // another enrollment, and a later failure ("already enabled") would raise an
     // error alert over the recovery codes the first one just produced.
-    val canConfirm = isConfirmCodeValid && confirmPassword.isNotEmpty() && !isConfirming
+    // isNotBlank, not isNotEmpty: a whitespace-only password can never be valid
+    // (the backend password pattern forbids whitespace), so it must not enable
+    // Verify. The password is sent verbatim otherwise — login and the disable
+    // dialog don't trim either, and trimming only here would let enrollment
+    // accept a password the subsequent login would reject.
+    val canConfirm = isConfirmCodeValid && confirmPassword.isNotBlank() && !isConfirming
 
     AlertDialog(
         // Recovery codes are shown exactly once and the backend can't re-issue
