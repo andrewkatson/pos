@@ -343,7 +343,9 @@ function ProfileView({ username, isOwnProfile, currentUsername }: ProfileViewPro
                   disabled={photoBusy}
                   onClick={() => fileInputRef.current?.click()}
                 >
-                  {profile?.profile_image_url ? 'Change photo' : 'Add photo'}
+                  {profile?.profile_image_url || profile?.pending_profile_image_url
+                    ? 'Change photo'
+                    : 'Add photo'}
                 </button>
                 {(profile?.profile_image_url || profile?.pending_profile_image_url) && (
                   <button

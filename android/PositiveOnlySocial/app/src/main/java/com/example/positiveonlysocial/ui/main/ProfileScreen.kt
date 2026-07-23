@@ -200,7 +200,11 @@ fun ProfileBody(
                         enabled = !isPhotoBusy,
                         modifier = Modifier.testTag("setProfilePhotoButton")
                     ) {
-                        Text(if (profileDetails?.profileImageUrl != null) "Change photo" else "Add photo")
+                        // A pending first upload (no live photo yet) still counts
+                        // as "has a photo" so the label matches the Remove button.
+                        val hasPhoto = profileDetails?.profileImageUrl != null ||
+                            profileDetails?.pendingProfileImageUrl != null
+                        Text(if (hasPhoto) "Change photo" else "Add photo")
                     }
                     if (profileDetails?.profileImageUrl != null || profileDetails?.pendingProfileImageUrl != null) {
                         OutlinedButton(

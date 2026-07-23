@@ -28,7 +28,7 @@ function Avatar(props: AvatarProps) {
   return <AvatarImage key={`${props.src ?? ''}|${props.originalSrc ?? ''}`} {...props} />
 }
 
-function AvatarImage({ src, originalSrc, username, size = 'sm', className }: AvatarProps) {
+function AvatarImage({ src, originalSrc, size = 'sm', className }: AvatarProps) {
   // The compressed→original switch flips at most once, so a failing original
   // leaves the placeholder instead of a reload loop (mirroring PostThumbnail).
   const [useOriginal, setUseOriginal] = useState(false)
@@ -49,7 +49,10 @@ function AvatarImage({ src, originalSrc, username, size = 'sm', className }: Ava
     <img
       className={classes}
       src={resolved}
-      alt={`${username}'s profile photo`}
+      // Decorative: the username is always rendered right next to the avatar, so
+      // an alt would make screen readers announce it twice. Empty alt (like the
+      // aria-hidden placeholder) keeps assistive tech from reading the avatar.
+      alt=""
       onError={() => {
         if (!useOriginal && originalSrc) {
           setUseOriginal(true)
