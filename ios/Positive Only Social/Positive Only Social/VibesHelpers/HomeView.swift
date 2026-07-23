@@ -162,6 +162,11 @@ struct MyProfileTabView: View {
             .navigationDestination(for: User.self) { user in
                 ProfileView(user: user, api: api, keychainHelper: keychainHelper)
             }
+            // Tapping your own Followers / Following count opens that list —
+            // only your own, since the endpoints take no username (issue #8).
+            .navigationDestination(for: FollowListMode.self) { mode in
+                FollowListView(mode: mode, api: api, keychainHelper: keychainHelper)
+            }
             .postActionDialogs(postActions)
         }
     }

@@ -32,6 +32,14 @@ hosts the user-search bar; while a search is active the results list replaces
 the profile body. Follow and Block are hidden on your own profile, since
 neither applies to yourself.
 
+Your **Followers** and **Following** counts are tappable on your own profile
+only: each opens a list of those users, and tapping a name opens that user's
+profile. These lists are private — you can only see your own. The endpoints
+(`GET /users/followers/`, `GET /users/following/`) take no username and always
+return the signed-in user's own lists, so another user's followers/following
+can't be requested. On anyone else's profile the counts are shown but are not
+tappable.
+
 Tapping another user's name anywhere (a post author, a search result, a comment
 author) opens that same profile view for them, with Follow and Block shown.
 Tapping **your own** name goes to the Profile tab instead of pushing a separate

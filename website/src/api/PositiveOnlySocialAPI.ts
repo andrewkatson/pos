@@ -134,6 +134,8 @@ export interface PositiveOnlySocialAPI {
   unfollowUser(username: string): Promise<MessageResponse>
   toggleBlock(username: string): Promise<MessageResponse>
   getBlockedUsers(): Promise<UserSearchResult[]>
+  getFollowers(): Promise<UserSearchResult[]>
+  getFollowing(): Promise<UserSearchResult[]>
   getProfile(username: string): Promise<ProfileDetails>
   /** Set the signed-in user's profile photo to an already-uploaded image
    * (issue #7). The photo is classified asynchronously and shown to others only

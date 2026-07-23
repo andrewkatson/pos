@@ -28,6 +28,7 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.NavController
 import com.example.positiveonlysocial.api.PositiveOnlySocialAPI
 import com.example.positiveonlysocial.data.security.KeychainHelperProtocol
+import com.example.positiveonlysocial.models.viewmodels.FollowListMode
 import com.example.positiveonlysocial.models.viewmodels.ProfileViewModel
 import com.example.positiveonlysocial.models.viewmodels.ProfileViewModelFactory
 import com.example.positiveonlysocial.ui.navigation.Screen
@@ -243,11 +244,29 @@ fun ProfileBody(
                 horizontalArrangement = Arrangement.SpaceEvenly
             ) {
                 StatItem(count = userPosts.size, label = "Posts", modifier = Modifier.testTag("tag_Posts"))
+                // Only your own follow lists are viewable, so the counts tap
+                // through on your own profile and are plain stats on anyone
+                // else's (issue #8).
                 StatItem(
                     count = profileDetails?.followerCount ?: 0, label = "Followers",
-                    modifier = Modifier.testTag("tag_Followers"),
+                    modifier = Modifier
+                        .testTag("tag_Followers")
+                        .then(
+                            if (isOwnProfile) Modifier.clickable {
+                                navController.navigate(Screen.FollowList.createRoute(FollowListMode.FOLLOWERS.route))
+                            } else Modifier
+                        ),
                 )
-                StatItem(count = profileDetails?.followingCount ?: 0, label = "Following", modifier = Modifier.testTag("tag_Following"))
+                StatItem(
+                    count = profileDetails?.followingCount ?: 0, label = "Following",
+                    modifier = Modifier
+                        .testTag("tag_Following")
+                        .then(
+                            if (isOwnProfile) Modifier.clickable {
+                                navController.navigate(Screen.FollowList.createRoute(FollowListMode.FOLLOWING.route))
+                            } else Modifier
+                        ),
+                )
             }
 
             Spacer(modifier = Modifier.height(16.dp))

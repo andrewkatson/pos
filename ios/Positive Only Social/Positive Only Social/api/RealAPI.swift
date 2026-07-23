@@ -719,6 +719,24 @@ final class RealAPI: Networking {
         )
     }
 
+    func getFollowers(sessionManagementToken: String) async throws -> Data {
+        // GET users/followers/ with auth — the signed-in user's own followers.
+        return try await performRequest(
+            pathSegments: [GVOAppConstants.pathSegmentUsers, GVOAppConstants.pathSegmentFollowers],
+            method: .get,
+            authToken: sessionManagementToken
+        )
+    }
+
+    func getFollowing(sessionManagementToken: String) async throws -> Data {
+        // GET users/following/ with auth — the users the signed-in user follows.
+        return try await performRequest(
+            pathSegments: [GVOAppConstants.pathSegmentUsers, GVOAppConstants.pathSegmentFollowing],
+            method: .get,
+            authToken: sessionManagementToken
+        )
+    }
+
     /// Gets the profile details for a user
     func getProfileDetails(sessionManagementToken: String, username: String) async throws -> Data {
         // This is a GET request, no body, with auth. Username is in path.

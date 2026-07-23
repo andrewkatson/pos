@@ -60,6 +60,8 @@ import Foundation
     static let pathSegmentDetails = "details"
     static let pathSegmentFollow = "follow"
     static let pathSegmentFollowed = "followed"
+    static let pathSegmentFollowers = "followers"
+    static let pathSegmentFollowing = "following"
     static let pathSegmentLike = "like"
     static let pathSegmentLogin = "login"
     static let pathSegmentLogout = "logout"

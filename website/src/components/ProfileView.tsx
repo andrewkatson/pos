@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState, type ChangeEvent } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { apiClient } from '../api/client'
 import { uploadImage } from '../api/s3Uploader'
 import type { FeedPost, PostStatusResponse, ProfileDetails } from '../api/types'
@@ -33,6 +34,7 @@ interface ProfileViewProps {
  * identical profile and the same in-place post actions.
  */
 function ProfileView({ username, isOwnProfile, currentUsername }: ProfileViewProps) {
+  const navigate = useNavigate()
   // Track mount state so async loads that resolve after navigating away don't
   // set state on an unmounted view.
   const isMounted = useRef(true)
@@ -385,14 +387,39 @@ function ProfileView({ username, isOwnProfile, currentUsername }: ProfileViewPro
             <span className="profile-stat__count">{profile?.post_count ?? posts.length}</span>
             <span className="profile-stat__label">Posts</span>
           </div>
-          <div>
-            <span className="profile-stat__count">{profile?.follower_count ?? 0}</span>
-            <span className="profile-stat__label">Followers</span>
-          </div>
-          <div>
-            <span className="profile-stat__count">{profile?.following_count ?? 0}</span>
-            <span className="profile-stat__label">Following</span>
-          </div>
+          {/* Only your own follow lists are viewable, so the counts are a
+              tap-through on your own profile and plain stats on anyone else's
+              (issue #8). */}
+          {isOwnProfile ? (
+            <button
+              type="button"
+              className="profile-stat profile-stat--action"
+              onClick={() => navigate('/followers')}
+            >
+              <span className="profile-stat__count">{profile?.follower_count ?? 0}</span>
+              <span className="profile-stat__label">Followers</span>
+            </button>
+          ) : (
+            <div>
+              <span className="profile-stat__count">{profile?.follower_count ?? 0}</span>
+              <span className="profile-stat__label">Followers</span>
+            </div>
+          )}
+          {isOwnProfile ? (
+            <button
+              type="button"
+              className="profile-stat profile-stat--action"
+              onClick={() => navigate('/following')}
+            >
+              <span className="profile-stat__count">{profile?.following_count ?? 0}</span>
+              <span className="profile-stat__label">Following</span>
+            </button>
+          ) : (
+            <div>
+              <span className="profile-stat__count">{profile?.following_count ?? 0}</span>
+              <span className="profile-stat__label">Following</span>
+            </div>
+          )}
         </div>
 
         {!isOwnProfile && (

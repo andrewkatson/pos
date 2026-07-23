@@ -620,6 +620,16 @@ export class ApiClient implements PositiveOnlySocialAPI {
     return this.request<UserSearchResult[]>('GET', '/users/blocked/', { auth: true })
   }
 
+  // Own lists only — the endpoints take no username, so another user's
+  // followers/following can't be requested (issue #8).
+  getFollowers(): Promise<UserSearchResult[]> {
+    return this.request<UserSearchResult[]>('GET', '/users/followers/', { auth: true })
+  }
+
+  getFollowing(): Promise<UserSearchResult[]> {
+    return this.request<UserSearchResult[]>('GET', '/users/following/', { auth: true })
+  }
+
   getProfile(username: string): Promise<ProfileDetails> {
     return this.request<ProfileDetails>('GET', `/users/${username}/profile/`, { auth: true })
   }

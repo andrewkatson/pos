@@ -168,6 +168,12 @@ urlpatterns = [
     # POST /profile/photo/remove/ (Token in header)
     path('profile/photo/remove/', views.remove_profile_photo, name='remove_profile_photo'),
 
+    # GET /users/followers/ (Token in header) — the requester's own followers
+    path('users/followers/', views.get_followers, name='get_followers'),
+
+    # GET /users/following/ (Token in header) — the requester's own following
+    path('users/following/', views.get_following, name='get_following'),
+
     # GET /users/<str:username>/profile/ (Token in header)
     path('users/<str:username>/profile/', views.get_profile_details, name='get_profile_details'),
 

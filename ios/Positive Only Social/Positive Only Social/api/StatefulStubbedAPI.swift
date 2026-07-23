@@ -1187,6 +1187,38 @@ final class StatefulStubbedAPI: Networking {
         return try createSerializedListResponse(fieldsList: fieldObjects)
     }
 
+    func getFollowers(sessionManagementToken: String) async throws -> Data {
+        await simulateNetwork()
+        guard let currentUser = findUser(bySessionToken: sessionManagementToken) else {
+            throw APIError.badServerResponse(statusCode: 400)
+        }
+        // Followers are the userFrom sides of follows pointing at the current user.
+        let followerIds = Set(userFollows.filter { $0.userToId == currentUser.id }.map { $0.userFromId })
+        let followers = users
+            .filter { followerIds.contains($0.id) }
+            .sorted { $0.username < $1.username }
+
+        struct Fields: Codable { let username: String; let identity_is_verified: Bool }
+        let fieldObjects = followers.map { Fields(username: $0.username, identity_is_verified: $0.identityIsVerified) }
+        return try createSerializedListResponse(fieldsList: fieldObjects)
+    }
+
+    func getFollowing(sessionManagementToken: String) async throws -> Data {
+        await simulateNetwork()
+        guard let currentUser = findUser(bySessionToken: sessionManagementToken) else {
+            throw APIError.badServerResponse(statusCode: 400)
+        }
+        // Following are the userTo sides of follows originating from the current user.
+        let followingIds = Set(userFollows.filter { $0.userFromId == currentUser.id }.map { $0.userToId })
+        let following = users
+            .filter { followingIds.contains($0.id) }
+            .sorted { $0.username < $1.username }
+
+        struct Fields: Codable { let username: String; let identity_is_verified: Bool }
+        let fieldObjects = following.map { Fields(username: $0.username, identity_is_verified: $0.identityIsVerified) }
+        return try createSerializedListResponse(fieldsList: fieldObjects)
+    }
+
     func followUser(sessionManagementToken: String, username: String) async throws -> Data {
         await simulateNetwork()
         guard let currentUser = findUser(bySessionToken: sessionManagementToken) else {
