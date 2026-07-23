@@ -85,6 +85,41 @@ struct MockedAPI: Networking {
         return try encodeGenericSuccess()
     }
 
+    // MARK: - Two-Factor Authentication (issue #348)
+
+    func loginUser2FA(challengeToken: String, totpCode: String?, recoveryCode: String?, ip: String) async throws -> Data {
+        let response = LoginResponseFields(
+            sessionManagementToken: "mock_session_token",
+            username: "mock_user",
+            userId: "00000000-0000-0000-0000-000000000001",
+            seriesIdentifier: "mock_series_id",
+            loginCookieToken: "mock_login_cookie"
+        )
+        return try encode(response)
+    }
+
+    func setupTotp(sessionManagementToken: String) async throws -> Data {
+        let response = TotpSetupFields(
+            totpSecret: "PREVIEWSECRETBASE32PREVIEWSECRET",
+            otpauthUri: "otpauth://totp/Positive%20Only%20Social:preview@example.com?secret=PREVIEWSECRETBASE32PREVIEWSECRET&issuer=Positive%20Only%20Social"
+        )
+        return try encode(response)
+    }
+
+    func confirmTotp(sessionManagementToken: String, password: String, totpCode: String) async throws -> Data {
+        // 10-hex-character codes matching the format the UI validates, so the
+        // preview Disable / recovery-code login flows accept them.
+        let response = ConfirmTotpFields(
+            totpEnabled: true,
+            recoveryCodes: (0..<10).map { _ in String((0..<10).map { _ in "0123456789abcdef".randomElement()! }) }
+        )
+        return try encode(response)
+    }
+
+    func disableTotp(sessionManagementToken: String, password: String, totpCode: String?, recoveryCode: String?) async throws -> Data {
+        return try encode(DisableTotpFields(totpEnabled: false))
+    }
+
     func resetPassword(username: String, email: String, newPassword: String, resetToken: String) async throws -> Data {
         return try encodeGenericSuccess()
     }

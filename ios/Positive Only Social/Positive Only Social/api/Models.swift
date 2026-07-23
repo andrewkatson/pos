@@ -27,6 +27,53 @@ struct LoginResponseFields: Codable {
     }
 }
 
+/// Returned by login instead of a session when the account has two-factor
+/// authentication enabled (issue #348). The challenge is exchanged (with a
+/// TOTP or recovery code) for the real session at `login/2fa/` before it
+/// expires a few minutes later.
+struct TwoFactorRequiredFields: Codable {
+    let twoFactorRequired: Bool
+    let challengeToken: String
+
+    enum CodingKeys: String, CodingKey {
+        case twoFactorRequired = "two_factor_required"
+        case challengeToken = "challenge_token"
+    }
+}
+
+/// The response from starting TOTP enrollment: the shared secret (for manual
+/// entry) and the otpauth:// provisioning URI (rendered as a QR code).
+struct TotpSetupFields: Codable {
+    let totpSecret: String
+    let otpauthUri: String
+
+    enum CodingKeys: String, CodingKey {
+        case totpSecret = "totp_secret"
+        case otpauthUri = "otpauth_uri"
+    }
+}
+
+/// The response from confirming TOTP enrollment. The recovery codes are
+/// single-use and shown exactly once.
+struct ConfirmTotpFields: Codable {
+    let totpEnabled: Bool
+    let recoveryCodes: [String]
+
+    enum CodingKeys: String, CodingKey {
+        case totpEnabled = "totp_enabled"
+        case recoveryCodes = "recovery_codes"
+    }
+}
+
+/// The response from disabling two-factor authentication.
+struct DisableTotpFields: Codable {
+    let totpEnabled: Bool
+
+    enum CodingKeys: String, CodingKey {
+        case totpEnabled = "totp_enabled"
+    }
+}
+
 // Represents a single post in the user's grid.
 // Conforms to Identifiable and Hashable to be used in grids and lists.
 struct Post: Codable, Identifiable, Hashable {

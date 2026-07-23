@@ -25,12 +25,26 @@ struct MockUser {
     var isAdult: Bool = false
     var blocked: [UUID] = []
     var blockedBy: [UUID] = []
+    // Two-factor authentication (issue #348). A secret without the enabled
+    // flag is a pending enrollment; recovery codes are removed as they are used.
+    var totpSecret: String? = nil
+    var totpEnabled: Bool = false
+    var recoveryCodes: [String] = []
 
     init(username: String, email: String, passwordHash: String) {
         self.username = username
         self.email = email
         self.passwordHash = passwordHash
     }
+}
+
+// A pending two-factor login, issued by loginUser when the account has TOTP
+// enabled and consumed by loginUser2FA.
+fileprivate struct MockTwoFactorChallenge {
+    let challengeToken: String
+    let userId: UUID
+    let rememberMe: Bool
+    let ip: String
 }
 
 fileprivate struct MockUserFollow {
@@ -127,10 +141,15 @@ fileprivate struct MockAppeal {
 // MARK: - Stateful API Implementation
 final class StatefulStubbedAPI: Networking {
 
+    // The stub has no clock-based TOTP; this fixed code is the one the stub
+    // accepts, mirroring the fixed codes in the website/Android stubs.
+    static let stubTotpCode = "123456"
+
     // MARK: - In-Memory "Database"
     private var users: [MockUser] = []
     private var sessions: [MockSession] = []
     private var loginCookies: [MockLoginCookie] = []
+    private var twoFactorChallenges: [MockTwoFactorChallenge] = []
     private var posts: [MockPost] = []
     private var commentThreads: [MockCommentThread] = []
     private var comments: [MockComment] = []
@@ -260,6 +279,24 @@ final class StatefulStubbedAPI: Networking {
         guard let user = findUser(byUsernameOrEmail: usernameOrEmail) else { throw APIError.badServerResponse(statusCode: 400) }
         if user.passwordHash != password { throw APIError.badServerResponse(statusCode: 400) }
 
+        // 2FA-enrolled accounts get a challenge instead of a session, mirroring
+        // login_user in backend/user_system/views.py.
+        if user.totpEnabled {
+            // Only one challenge is live per user, matching login_user in the
+            // backend — otherwise a stale challenge from an earlier attempt
+            // would still be accepted after a newer login.
+            twoFactorChallenges.removeAll { $0.userId == user.id }
+            let challenge = MockTwoFactorChallenge(
+                challengeToken: generateToken(),
+                userId: user.id,
+                rememberMe: Bool(rememberMe.lowercased()) ?? false,
+                ip: ip
+            )
+            twoFactorChallenges.append(challenge)
+            struct Fields: Codable { let two_factor_required: Bool; let challenge_token: String }
+            return try createSerializedResponse(fields: Fields(two_factor_required: true, challenge_token: challenge.challengeToken))
+        }
+
         sessions.removeAll { $0.userId == user.id }
         let newSession = MockSession(managementToken: generateToken(), userId: user.id, ip: ip)
         sessions.append(newSession)
@@ -318,6 +355,148 @@ final class StatefulStubbedAPI: Networking {
         ))
     }
 
+
+    func loginUser2FA(challengeToken: String, totpCode: String?, recoveryCode: String?, ip: String) async throws -> Data {
+        await simulateNetwork()
+        guard let challengeIndex = twoFactorChallenges.firstIndex(where: { $0.challengeToken == challengeToken }),
+              let userIndex = users.firstIndex(where: { $0.id == twoFactorChallenges[challengeIndex].userId })
+        else {
+            throw APIError.serverError(statusCode: 400, serverMessage: GVOAppConstants.invalidTwoFactorChallengeError)
+        }
+        let challenge = twoFactorChallenges[challengeIndex]
+
+        let codeOk: Bool
+        if let totpCode = totpCode, recoveryCode == nil {
+            codeOk = totpCode == Self.stubTotpCode
+        } else if let recoveryCode = recoveryCode, totpCode == nil {
+            // Recovery codes are single-use: consume on success.
+            if let codeIndex = users[userIndex].recoveryCodes.firstIndex(of: recoveryCode) {
+                users[userIndex].recoveryCodes.remove(at: codeIndex)
+                codeOk = true
+            } else {
+                codeOk = false
+            }
+        } else {
+            throw APIError.serverError(statusCode: 400, serverMessage: "Invalid fields ['TOTP_CODE', 'RECOVERY_CODE']")
+        }
+        guard codeOk else {
+            throw APIError.serverError(statusCode: 400, serverMessage: "Invalid two-factor code")
+        }
+
+        twoFactorChallenges.remove(at: challengeIndex)
+        let user = users[userIndex]
+
+        sessions.removeAll { $0.userId == user.id }
+        // Record the IP this second step came from, not the one from the
+        // password step — they can differ, and the other login endpoints all
+        // store the IP of the request that issued the session.
+        let newSession = MockSession(managementToken: generateToken(), userId: user.id, ip: ip)
+        sessions.append(newSession)
+
+        if challenge.rememberMe {
+            let cookie = MockLoginCookie(seriesIdentifier: UUID().uuidString, token: generateToken(), userId: user.id)
+            loginCookies.append(cookie)
+            struct Fields: Codable { let series_identifier, login_cookie_token, session_management_token, username, user_id: String }
+            return try createSerializedResponse(fields: Fields(
+                series_identifier: cookie.seriesIdentifier,
+                login_cookie_token: cookie.token,
+                session_management_token: newSession.managementToken,
+                username: user.username,
+                user_id: user.id.uuidString
+            ))
+        } else {
+            struct Fields: Codable { let session_management_token, username, user_id: String }
+            return try createSerializedResponse(fields: Fields(
+                session_management_token: newSession.managementToken,
+                username: user.username,
+                user_id: user.id.uuidString
+            ))
+        }
+    }
+
+    func setupTotp(sessionManagementToken: String) async throws -> Data {
+        await simulateNetwork()
+        guard let user = findUser(bySessionToken: sessionManagementToken),
+              let userIndex = users.firstIndex(where: { $0.id == user.id })
+        else { throw APIError.badServerResponse(statusCode: 401) }
+        if users[userIndex].totpEnabled {
+            throw APIError.serverError(statusCode: 400, serverMessage: "Two-factor authentication is already enabled")
+        }
+        // Re-running setup before confirming simply replaces the pending secret.
+        // Use the RFC 4648 Base32 alphabet (A-Z, 2-7) so the otpauth:// URI is a
+        // valid TOTP secret that real authenticator apps and QR parsers accept.
+        let base32Alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZ234567"
+        let secret = String((0..<32).map { _ in base32Alphabet.randomElement()! })
+        users[userIndex].totpSecret = secret
+
+        struct Fields: Codable { let totp_secret, otpauth_uri: String }
+        return try createSerializedResponse(fields: Fields(
+            totp_secret: secret,
+            otpauth_uri: "otpauth://totp/Positive%20Only%20Social:\(user.email)?secret=\(secret)&issuer=Positive%20Only%20Social"
+        ))
+    }
+
+    func confirmTotp(sessionManagementToken: String, password: String, totpCode: String) async throws -> Data {
+        await simulateNetwork()
+        guard let user = findUser(bySessionToken: sessionManagementToken),
+              let userIndex = users.firstIndex(where: { $0.id == user.id })
+        else { throw APIError.badServerResponse(statusCode: 401) }
+        if users[userIndex].totpEnabled {
+            throw APIError.serverError(statusCode: 400, serverMessage: "Two-factor authentication is already enabled")
+        }
+        guard users[userIndex].totpSecret != nil else {
+            throw APIError.serverError(statusCode: 400, serverMessage: "Two-factor setup has not been started")
+        }
+        guard users[userIndex].passwordHash == password else {
+            throw APIError.serverError(statusCode: 400, serverMessage: "Invalid password")
+        }
+        guard totpCode == Self.stubTotpCode else {
+            throw APIError.serverError(statusCode: 400, serverMessage: "Invalid two-factor code")
+        }
+        users[userIndex].totpEnabled = true
+        users[userIndex].recoveryCodes = (0..<10).map { _ in String(generateToken().lowercased().prefix(10)) }
+
+        struct Fields: Codable { let totp_enabled: Bool; let recovery_codes: [String] }
+        return try createSerializedResponse(fields: Fields(totp_enabled: true, recovery_codes: users[userIndex].recoveryCodes))
+    }
+
+    func disableTotp(sessionManagementToken: String, password: String, totpCode: String?, recoveryCode: String?) async throws -> Data {
+        await simulateNetwork()
+        guard let user = findUser(bySessionToken: sessionManagementToken),
+              let userIndex = users.firstIndex(where: { $0.id == user.id })
+        else { throw APIError.badServerResponse(statusCode: 401) }
+        guard users[userIndex].totpEnabled else {
+            throw APIError.serverError(statusCode: 400, serverMessage: "Two-factor authentication is not enabled")
+        }
+        guard users[userIndex].passwordHash == password else {
+            throw APIError.serverError(statusCode: 400, serverMessage: "Invalid password")
+        }
+
+        let codeOk: Bool
+        if let totpCode = totpCode, recoveryCode == nil {
+            codeOk = totpCode == Self.stubTotpCode
+        } else if let recoveryCode = recoveryCode, totpCode == nil {
+            if let codeIndex = users[userIndex].recoveryCodes.firstIndex(of: recoveryCode) {
+                users[userIndex].recoveryCodes.remove(at: codeIndex)
+                codeOk = true
+            } else {
+                codeOk = false
+            }
+        } else {
+            codeOk = false
+        }
+        guard codeOk else {
+            throw APIError.serverError(statusCode: 400, serverMessage: "Invalid two-factor code")
+        }
+
+        users[userIndex].totpSecret = nil
+        users[userIndex].totpEnabled = false
+        users[userIndex].recoveryCodes = []
+        twoFactorChallenges.removeAll { $0.userId == user.id }
+
+        struct Fields: Codable { let totp_enabled: Bool }
+        return try createSerializedResponse(fields: Fields(totp_enabled: false))
+    }
 
     func verifyEmail(verificationToken: String) async throws -> Data {
         await simulateNetwork()

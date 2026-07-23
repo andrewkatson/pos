@@ -160,10 +160,160 @@ struct Positive_Only_SocialTests_SettingsViewModel {
         
         #expect(sut.showingVerificationAlert == true)
         #expect(sut.verificationMessage == "Identity verified successfully!")
-        
+
         // And: Check the backend state
         let user = stubAPI.findUser(byUsername: "verifyUser")
         #expect(user?.identityIsVerified == true, "User should be verified in the backend")
+    }
+
+    // --- Two-Factor Authentication Tests (issue #348) ---
+
+    /// Helper to run setup + confirm through the view model, returning the SUT.
+    private func enrollInTwoFactor(username: String) async throws -> SettingsViewModel {
+        _ = try await setupLoggedInUser(username: username)
+        let sut = SettingsViewModel(api: stubAPI, keychainHelper: keychainHelper, account: "\(username)_account")
+
+        sut.startTotpSetup()
+        await yield()
+        sut.confirmTotp(password: "123", code: StatefulStubbedAPI.stubTotpCode)
+        await yield()
+        return sut
+    }
+
+    @Test func testStartTotpSetup_PopulatesSecretAndUri() async throws {
+        _ = try await setupLoggedInUser(username: "totpSetupUser")
+        let sut = SettingsViewModel(api: stubAPI, keychainHelper: keychainHelper, account: "totpSetupUser_account")
+
+        sut.startTotpSetup()
+        await yield()
+
+        #expect(sut.totpSetup != nil)
+        #expect(sut.totpSetup?.otpauthUri.hasPrefix("otpauth://totp/") == true)
+        #expect(sut.showingErrorAlert == false)
+    }
+
+    @Test func testConfirmTotp_EnablesAndReturnsRecoveryCodes() async throws {
+        let sut = try await enrollInTwoFactor(username: "totpConfirmUser")
+
+        #expect(sut.recoveryCodes?.count == 10)
+        #expect(stubAPI.findUser(byUsername: "totpConfirmUser")?.totpEnabled == true)
+
+        // Finishing clears the sheet state and raises the status alert.
+        sut.finishTotpEnrollment()
+        #expect(sut.totpSetup == nil)
+        #expect(sut.recoveryCodes == nil)
+        #expect(sut.showingTwoFactorStatusAlert == true)
+    }
+
+    @Test func testConfirmTotp_WrongCode_ShowsErrorAndStaysDisabled() async throws {
+        _ = try await setupLoggedInUser(username: "totpWrongCodeUser")
+        let sut = SettingsViewModel(api: stubAPI, keychainHelper: keychainHelper, account: "totpWrongCodeUser_account")
+
+        sut.startTotpSetup()
+        await yield()
+        sut.confirmTotp(password: "123", code: "000000")
+        await yield()
+
+        // Enrollment-sheet errors surface inline via twoFactorErrorMessage, not
+        // the List's showingErrorAlert (two alerts on one flag are undefined).
+        #expect(sut.twoFactorErrorMessage != nil)
+        #expect(sut.recoveryCodes == nil)
+        #expect(stubAPI.findUser(byUsername: "totpWrongCodeUser")?.totpEnabled == false)
+    }
+
+    @Test func testConfirmTotp_WrongPassword_DoesNotEnrol() async throws {
+        // A stolen session must not be enough to bind an authenticator: that
+        // would hand the thief the recovery codes and lock the owner out, since
+        // disabling then needs a code only the thief has.
+        _ = try await setupLoggedInUser(username: "totpWrongPasswordUser")
+        let sut = SettingsViewModel(api: stubAPI, keychainHelper: keychainHelper, account: "totpWrongPasswordUser_account")
+
+        sut.startTotpSetup()
+        await yield()
+        sut.confirmTotp(password: "wrong", code: StatefulStubbedAPI.stubTotpCode)
+        await yield()
+
+        #expect(sut.twoFactorErrorMessage != nil)
+        #expect(sut.recoveryCodes == nil)
+        #expect(stubAPI.findUser(byUsername: "totpWrongPasswordUser")?.totpEnabled == false)
+
+        // The correct password still completes the same enrolment.
+        sut.confirmTotp(password: "123", code: StatefulStubbedAPI.stubTotpCode)
+        await yield()
+        #expect(sut.recoveryCodes?.count == 10)
+        #expect(stubAPI.findUser(byUsername: "totpWrongPasswordUser")?.totpEnabled == true)
+    }
+
+    @Test func testDisableTotp_Success_TurnsTwoFactorOff() async throws {
+        let sut = try await enrollInTwoFactor(username: "totpDisableUser")
+        sut.finishTotpEnrollment()
+        sut.showingTwoFactorStatusAlert = false
+
+        // Password matches the one registerUserAndGetToken uses.
+        sut.disableTotp(password: "123", code: StatefulStubbedAPI.stubTotpCode, isRecoveryCode: false)
+        await yield()
+
+        #expect(sut.showingTwoFactorStatusAlert == true)
+        #expect(sut.twoFactorStatusMessage == "Two-factor authentication has been disabled.")
+        #expect(stubAPI.findUser(byUsername: "totpDisableUser")?.totpEnabled == false)
+    }
+
+    @Test func testDisableTotp_WrongPassword_ShowsError() async throws {
+        let sut = try await enrollInTwoFactor(username: "totpDisableWrongPwUser")
+
+        sut.disableTotp(password: "wrong", code: StatefulStubbedAPI.stubTotpCode, isRecoveryCode: false)
+        await yield()
+
+        #expect(sut.showingErrorAlert == true)
+        #expect(stubAPI.findUser(byUsername: "totpDisableWrongPwUser")?.totpEnabled == true)
+    }
+
+    @Test func testDisableTotp_RecoveryCode_IsAcceptedAndConsumed() async throws {
+        let sut = try await enrollInTwoFactor(username: "totpDisableRecoveryUser")
+        let recoveryCode = try #require(sut.recoveryCodes?.first)
+
+        sut.disableTotp(password: "123", code: recoveryCode, isRecoveryCode: true)
+        await yield()
+
+        #expect(sut.showingTwoFactorStatusAlert == true)
+        #expect(stubAPI.findUser(byUsername: "totpDisableRecoveryUser")?.totpEnabled == false)
+    }
+
+    // --- Two-Factor Login Flow (stub API level) ---
+
+    @Test func testLogin_WithTwoFactorEnabled_ReturnsChallengeThenSession() async throws {
+        _ = try await enrollInTwoFactor(username: "totpLoginUser")
+
+        // Login answers with a challenge, not a session.
+        let loginData = try await stubAPI.loginUser(usernameOrEmail: "totpLoginUser", password: "123", rememberMe: "false", ip: "127.0.0.1")
+        let challenge = try JSONDecoder().decode(TwoFactorRequiredFields.self, from: loginData)
+        #expect(challenge.twoFactorRequired == true)
+
+        // The code exchanges the challenge for a normal session.
+        let sessionData = try await stubAPI.loginUser2FA(challengeToken: challenge.challengeToken, totpCode: StatefulStubbedAPI.stubTotpCode, recoveryCode: nil, ip: "127.0.0.1")
+        let session = try JSONDecoder().decode(LoginResponseFields.self, from: sessionData)
+        #expect(stubAPI.findSession(byToken: session.sessionManagementToken) != nil)
+
+        // The challenge is single-use.
+        await #expect(throws: APIError.self) {
+            _ = try await self.stubAPI.loginUser2FA(challengeToken: challenge.challengeToken, totpCode: StatefulStubbedAPI.stubTotpCode, recoveryCode: nil, ip: "127.0.0.1")
+        }
+    }
+
+    @Test func testLogin2FA_RecoveryCodeIsSingleUse() async throws {
+        let sut = try await enrollInTwoFactor(username: "totpRecoveryLoginUser")
+        let recoveryCode = try #require(sut.recoveryCodes?.first)
+
+        let firstLogin = try await stubAPI.loginUser(usernameOrEmail: "totpRecoveryLoginUser", password: "123", rememberMe: "false", ip: "127.0.0.1")
+        let firstChallenge = try JSONDecoder().decode(TwoFactorRequiredFields.self, from: firstLogin)
+        _ = try await stubAPI.loginUser2FA(challengeToken: firstChallenge.challengeToken, totpCode: nil, recoveryCode: recoveryCode, ip: "127.0.0.1")
+
+        // A spent code is refused on the next login.
+        let secondLogin = try await stubAPI.loginUser(usernameOrEmail: "totpRecoveryLoginUser", password: "123", rememberMe: "false", ip: "127.0.0.1")
+        let secondChallenge = try JSONDecoder().decode(TwoFactorRequiredFields.self, from: secondLogin)
+        await #expect(throws: APIError.self) {
+            _ = try await self.stubAPI.loginUser2FA(challengeToken: secondChallenge.challengeToken, totpCode: nil, recoveryCode: recoveryCode, ip: "127.0.0.1")
+        }
     }
 }
 

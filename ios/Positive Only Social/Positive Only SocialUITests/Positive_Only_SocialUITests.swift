@@ -191,8 +191,13 @@ final class Positive_Only_SocialUITests: XCTestCase {
     }
     
     private func assertOnSettingsView(app: XCUIApplication) {
+        // Logout is near the top and always on screen, so it's the reliable
+        // marker that we're on Settings. Delete Account is deliberately not
+        // asserted here any more: Settings now runs past one screen (Blocked
+        // Users, Security) and SwiftUI's List only materializes rows near the
+        // viewport, so that row may not exist yet. It is asserted where it is
+        // used, after being scrolled into view.
         XCTAssertTrue(app.buttons["LogoutButton"].waitForExistence(timeout: TestConstants.shortTimeout), "Logout button not present")
-        XCTAssertTrue(app.buttons["DeleteAccountButton"].waitForExistence(timeout: TestConstants.shortTimeout), "Delete Account button not present")
     }
     
     private func assertOnProfileView(app: XCUIApplication) {
@@ -385,6 +390,35 @@ final class Positive_Only_SocialUITests: XCTestCase {
         assertOnWelcomeView(app: app)
     }
     
+    /// Scrolls a scrollable container until `element` is hittable.
+    ///
+    /// `waitForExistence` succeeds for rows that are in the accessibility tree
+    /// but scrolled out of view, and tapping those silently does nothing — so
+    /// screens taller than the device need this before interacting with a lower
+    /// row. Asserts the element really is hittable at the end rather than
+    /// falling through after `maxSwipes`, so a layout change surfaces as a clear
+    /// failure here instead of a no-op tap and a confusing downstream timeout.
+    private func scrollIntoView(
+        app: XCUIApplication,
+        element: XCUIElement,
+        maxSwipes: Int = 5,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) {
+        var swipes = 0
+        while !element.isHittable && swipes < maxSwipes {
+            app.swipeUp()
+            swipes += 1
+        }
+        XCTAssertTrue(
+            element.exists && element.isHittable,
+            "Element was still not hittable after \(maxSwipes) swipes (exists: \(element.exists)); "
+                + "the screen may have grown or the identifier may have changed.",
+            file: file,
+            line: line
+        )
+    }
+
     private func deleteAccountFromHome(app: XCUIApplication) throws {
         let settingsTab = app.buttons["Settings"]
         XCTAssertTrue(settingsTab.waitForExistence(timeout: TestConstants.shortTimeout))
@@ -392,7 +426,12 @@ final class Positive_Only_SocialUITests: XCTestCase {
         
         assertOnSettingsView(app: app)
         
+        // Settings now runs past a single screen (Blocked Users, Security), and
+        // Delete Account is in the last section. SwiftUI's List only
+        // materializes rows near the viewport, so scroll first — the row may
+        // not exist (or be hittable) until then.
         let deleteAccountButton = app.buttons["DeleteAccountButton"]
+        scrollIntoView(app: app, element: deleteAccountButton)
         XCTAssertTrue(deleteAccountButton.waitForExistence(timeout: TestConstants.shortTimeout))
         deleteAccountButton.tap()
         
@@ -658,7 +697,12 @@ final class Positive_Only_SocialUITests: XCTestCase {
         
         assertOnSettingsView(app: app)
         
+        // Settings now runs past a single screen (Blocked Users, Security), and
+        // Delete Account is in the last section. SwiftUI's List only
+        // materializes rows near the viewport, so scroll first — the row may
+        // not exist (or be hittable) until then.
         let deleteAccountButton = app.buttons["DeleteAccountButton"]
+        scrollIntoView(app: app, element: deleteAccountButton)
         XCTAssertTrue(deleteAccountButton.waitForExistence(timeout: TestConstants.shortTimeout))
         deleteAccountButton.tap()
         
@@ -1239,7 +1283,54 @@ final class Positive_Only_SocialUITests: XCTestCase {
         
         assertOnHomeView(app: app)
     }
-    
+
+    @MainActor
+    func testEnableTwoFactorAuthentication() throws {
+
+        try ifOnHomeDeleteAccount(app: app)
+
+        try loginUser(app: app, username: testUsername, password: strongPassword, rememberMe: false)
+
+        let settingsTab = app.buttons["Settings"]
+        XCTAssertTrue(settingsTab.waitForExistence(timeout: TestConstants.shortTimeout))
+        settingsTab.tap()
+
+        assertOnSettingsView(app: app)
+
+        // The Security section is near the bottom of Settings, so scroll before
+        // asserting: the row may not be materialized until then.
+        let enableButton = app.buttons["EnableTwoFactorButton"]
+        scrollIntoView(app: app, element: enableButton)
+        XCTAssertTrue(enableButton.waitForExistence(timeout: TestConstants.shortTimeout), "Enable 2FA button should be present")
+        enableButton.tap()
+
+        // The enrollment sheet loads a (stubbed) secret, then shows the code field.
+        let codeField = app.textFields["TwoFactorConfirmCodeTextField"]
+        XCTAssertTrue(codeField.waitForExistence(timeout: TestConstants.shortTimeout), "Confirm-code field should appear on the enrollment sheet")
+        XCTAssertTrue(app.staticTexts["TwoFactorSecretText"].exists, "The scannable secret should be shown")
+        codeField.tap()
+        // The stubbed API accepts this fixed code (StatefulStubbedAPI.stubTotpCode).
+        codeField.typeText("123456")
+
+        // Confirming also takes the account password, so a stolen session alone
+        // cannot bind an authenticator to the account.
+        let passwordField = app.secureTextFields["TwoFactorConfirmPasswordSecureField"]
+        XCTAssertTrue(passwordField.waitForExistence(timeout: TestConstants.shortTimeout), "Confirm-password field should appear on the enrollment sheet")
+        passwordField.tap()
+        passwordField.typeText(strongPassword)
+
+        app.buttons["ConfirmTwoFactorButton"].tap()
+
+        // Recovery codes are shown once; finishing reports 2FA enabled.
+        let finishButton = app.buttons["FinishTwoFactorEnrollmentButton"]
+        XCTAssertTrue(finishButton.waitForExistence(timeout: TestConstants.shortTimeout), "Recovery-codes step with Done button should appear")
+        finishButton.tap()
+
+        let statusAlert = app.alerts["Two-Factor Authentication"]
+        XCTAssertTrue(statusAlert.waitForExistence(timeout: TestConstants.shortTimeout), "Enabled confirmation alert should appear")
+        statusAlert.buttons["OK"].tap()
+    }
+
     @MainActor
     func testLikeAndUnlikeCommentOnPostAndThread() throws {
         
