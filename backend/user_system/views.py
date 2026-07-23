@@ -39,15 +39,24 @@ from .constants import Patterns, Params, POST_BATCH_SIZE, MAX_BEFORE_HIDING_POST
     TWO_FACTOR_CHALLENGE_MINUTES, TWO_FACTOR_MAX_ATTEMPTS, NUM_RECOVERY_CODES, \
     LEN_RECOVERY_CODE_HEX, TOTP_ISSUER, INVALID_TWO_FACTOR_CHALLENGE, \
     DEFAULT_STYLE_KEY, ALLOWED_CAPTION_FONTS, ALLOWED_BACKGROUND_COLORS, \
-    ALLOWED_TEXT_SIZES, MAX_COMMENT_FORMAT_SPANS
+    ALLOWED_TEXT_SIZES, MAX_COMMENT_FORMAT_SPANS, \
+    MINIMUM_AGE, ADULT_AGE, AGE_RESTRICTED
 from .feed_algorithm import feed_algorithm
 from .input_validator import is_valid_pattern
 from .models import LoginCookie, Session, Post, CommentThread, PositiveOnlySocialUser, Comment, CommentLike, \
     PostLike, UserBlock, UserBan, KnownDevice, Appeal, TwoFactorChallenge, RecoveryCode
 from .utils import convert_to_bool, generate_login_cookie_token, generate_management_token, generate_series_identifier, \
-    get_batch, get_queryset_batch, get_compressed_image_url
+    get_batch, get_queryset_batch
+from .cloudfront import sign_compressed_url, sign_original_url
 from .s3 import delete_image, generate_presigned_upload, image_url_to_key
-from .visibility import can_view_post, searchable_users, visible_comment_threads, visible_comments, visible_posts
+from .visibility import can_view_post, in_same_age_band, searchable_users, visible_comment_threads, \
+    visible_comments, visible_posts
+
+
+def _age_from_dob(dob):
+    """Whole years old today for a date of birth."""
+    today = date.today()
+    return today.year - dob.year - ((today.month, today.day) < (dob.month, dob.day))
 
 image_classifier_class = image_classifier
 text_classifier_class = text_classifier
@@ -592,19 +601,29 @@ def register(request):
         invalid_fields.append(Params.password)
 
     is_adult = False
+    too_young = False
     if date_of_birth_str:
         try:
             dob = datetime.strptime(date_of_birth_str, '%Y-%m-%d').date()
-            today = date.today()
-            age = today.year - dob.year - ((today.month, today.day) < (dob.month, dob.day))
-            if age >= 18:
-                is_adult = True
+            if dob > date.today():
+                # A future date of birth is impossible input, not an age-policy
+                # matter — reject it as a validation error rather than as "too
+                # young" (a negative age would otherwise read as under-minimum).
+                logger.warning("Registration failed: date_of_birth is in the future")
+                invalid_fields.append('date_of_birth')
+            else:
+                age = _age_from_dob(dob)
+                if age < MINIMUM_AGE:
+                    too_young = True
+                elif age >= ADULT_AGE:
+                    is_adult = True
         except ValueError:
             logger.warning("Registration failed: Invalid date_of_birth format")
             invalid_fields.append('date_of_birth')
     else:
-        # If date_of_birth is mandatory, uncomment the next line
-        # invalid_fields.append('date_of_birth')
+        # date_of_birth is optional. An account registered without it is left
+        # identity-unverified (see identity_is_verified below) rather than
+        # rejected — the age gate only bites once an age is actually given.
         pass
 
     try:
@@ -616,6 +635,14 @@ def register(request):
     if len(invalid_fields) > 0:
         logger.warning(f"Registration failed: Invalid fields {invalid_fields}")
         return log_and_return_json("register", {'error': f"Invalid fields {invalid_fields}"}, status=400)
+
+    # No account is ever created for someone under the minimum age (issue #337).
+    if too_young:
+        logger.warning("Registration failed: applicant is under the minimum age")
+        return log_and_return_json("register", {
+            'error': f"You must be at least {MINIMUM_AGE} years old to use this service.",
+            Fields.reason_code: AGE_RESTRICTED,
+        }, status=403)
 
     # Check no user has this email or username.
     if get_user_with_username(username) is not None or get_user_with_email(email) is not None:
@@ -705,15 +732,27 @@ def verify_identity(request):
 
     try:
         dob = datetime.strptime(date_of_birth_str, '%Y-%m-%d').date()
-        today = date.today()
-        age = today.year - dob.year - ((today.month, today.day) < (dob.month, dob.day))
+
+        # A future date of birth is impossible input, not an age-policy matter —
+        # reject it as a validation error rather than as "too young".
+        if dob > date.today():
+            logger.warning(f"Identity verification failed: date_of_birth in the future for user_id: {request.user.id}")
+            return log_and_return_json("verify_identity", {'error': "Invalid date of birth"}, status=400)
+
+        age = _age_from_dob(dob)
+
+        # Under-minimum applicants are refused outright and left unverified
+        # (issue #337): the account must not gain a verified identity that would
+        # let it interact, and we do not record it as an adult.
+        if age < MINIMUM_AGE:
+            logger.warning(f"Identity verification refused: user_id {request.user.id} is under the minimum age")
+            return log_and_return_json("verify_identity", {
+                'error': f"You must be at least {MINIMUM_AGE} years old to use this service.",
+                Fields.reason_code: AGE_RESTRICTED,
+            }, status=403)
 
         request.user.identity_is_verified = True
-        if age >= 18:
-            request.user.is_adult = True
-        else:
-            request.user.is_adult = False
-
+        request.user.is_adult = age >= ADULT_AGE
         request.user.save()
 
         logger.info(f"Identity verification successful for user_id: {request.user.id}")
@@ -1675,6 +1714,13 @@ def report_post(request, post_identifier):
 
     post = get_post_with_identifier(post_identifier)
     if post is not None:
+        # A post from a different age band is treated as absent, so an adult
+        # cannot interact with an underage account's post (or vice versa) even
+        # with a known post id (issue #329).
+        if not in_same_age_band(post.author, request.user):
+            logger.warning(f"Report post failed: Post {post_identifier} not visible to user_id: {request.user.id}")
+            return log_and_return_json("report_post", {'error': "No post with that identifier"}, status=400)
+
         if post.author == request.user:
             logger.warning(f"Report post failed: Cannot report own post for user_id: {request.user.id}")
             return log_and_return_json("report_post", {'error': "Cannot report own post"}, status=400)
@@ -1719,6 +1765,12 @@ def retract_report_post(request, post_identifier):
         logger.warning(f"Retract report post failed: Post {post_identifier} not found")
         return log_and_return_json("retract_report_post", {'error': "No post with that identifier"}, status=400)
 
+    # Treat a cross-band post as absent (issue #329) so the "not reported yet"
+    # vs "no such post" responses cannot be used as an existence oracle.
+    if not in_same_age_band(post.author, request.user):
+        logger.warning(f"Retract report post failed: Post {post_identifier} not visible to user_id: {request.user.id}")
+        return log_and_return_json("retract_report_post", {'error': "No post with that identifier"}, status=400)
+
     deleted_count, _ = post.postreport_set.filter(user=request.user).delete()
     if deleted_count == 0:
         logger.warning(f"Retract report post failed: Post not reported by user_id: {request.user.id}")
@@ -1751,6 +1803,13 @@ def like_post(request, post_identifier):
 
     post = get_post_with_identifier(post_identifier)
     if post is not None:
+        # A post from a different age band is treated as absent, so an adult
+        # cannot interact with an underage account's post (or vice versa) even
+        # with a known post id (issue #329).
+        if not in_same_age_band(post.author, request.user):
+            logger.warning(f"Like post failed: Post {post_identifier} not visible to user_id: {request.user.id}")
+            return log_and_return_json("like_post", {'error': "No post with that identifier"}, status=400)
+
         if post.author == request.user:
             logger.warning(f"Like post failed: Cannot like own post for user_id: {request.user.id}")
             return log_and_return_json("like_post", {'error': "Cannot like own post"}, status=400)
@@ -1781,6 +1840,12 @@ def unlike_post(request, post_identifier):
 
     post = get_post_with_identifier(post_identifier)
     if post is not None:
+        # Treat a cross-band post as absent (issue #329) so the "not liked yet"
+        # vs "no such post" responses cannot be used as an existence oracle.
+        if not in_same_age_band(post.author, request.user):
+            logger.warning(f"Unlike post failed: Post {post_identifier} not visible to user_id: {request.user.id}")
+            return log_and_return_json("unlike_post", {'error': "No post with that identifier"}, status=400)
+
         if post.author == request.user:
             logger.warning(f"Unlike post failed: Cannot unlike own post for user_id: {request.user.id}")
             return log_and_return_json("unlike_post", {'error': "Cannot unlike own post"}, status=400)
@@ -1964,10 +2029,10 @@ def get_posts_in_feed(request, batch):
         posts_data = [
             {
                 Fields.post_identifier: post.post_identifier,
-                Fields.image_url: get_compressed_image_url(post.image_url),
+                Fields.image_url: sign_compressed_url(post.image_url),
                 # Full-res original, used as a client fallback while the async
                 # Lambda-generated compressed copy is still missing (#252/#254).
-                Fields.original_image_url: post.image_url,
+                Fields.original_image_url: sign_original_url(post.image_url),
                 Fields.author_username: post.author.username,
                 Fields.caption: post.caption,
                 **_caption_style_fields(post),
@@ -2012,10 +2077,10 @@ def get_posts_for_followed_users(request, batch):
     posts_data = [
         {
             Fields.post_identifier: post.post_identifier,
-            Fields.image_url: get_compressed_image_url(post.image_url),
+            Fields.image_url: sign_compressed_url(post.image_url),
             # Full-res original, used as a client fallback while the async
             # Lambda-generated compressed copy is still missing (#252/#254).
-            Fields.original_image_url: post.image_url,
+            Fields.original_image_url: sign_original_url(post.image_url),
             Fields.author_username: post.author.username,
             Fields.caption: post.caption,
             **_caption_style_fields(post),
@@ -2044,6 +2109,12 @@ def get_posts_for_user(request, username, batch):
     if not target_user:
         return log_and_return_json("get_posts_for_user", {'error': "User not found"}, status=400)
 
+    # An account in a different age band is indistinguishable from a missing
+    # user (issue #329), so it cannot be confirmed by name. Reported as not
+    # found rather than as an empty grid.
+    if target_user != request.user and not in_same_age_band(request.user, target_user):
+        return log_and_return_json("get_posts_for_user", {'error': "User not found"}, status=400)
+
     # Check if blocking relationship exists
     if request.user.blocked.filter(pk=target_user.pk).exists() or target_user.blocked.filter(pk=request.user.pk).exists():
         logger.info(f"Get posts for user: Blocking relationship exists for user_id: {request.user.id} and target_user_id: {target_user.id}")
@@ -2059,14 +2130,14 @@ def get_posts_for_user(request, username, batch):
         posts_data = [
             {
                 Fields.post_identifier: post.post_identifier,
-                Fields.image_url: get_compressed_image_url(post.image_url),
+                Fields.image_url: sign_compressed_url(post.image_url),
                 # The full-resolution original, used by clients as a fallback when
                 # the compressed copy 404s. Compression runs in an async Lambda, so
                 # a just-posted (or recently hidden-pending-appeal) image can be
                 # missing from the compressed bucket for a short while — without a
                 # fallback those tiles render as empty grey/black boxes until the
                 # user re-logs in. See issues #252 and #254.
-                Fields.original_image_url: post.image_url,
+                Fields.original_image_url: sign_original_url(post.image_url),
                 Fields.caption: post.caption,
                 **_caption_style_fields(post),
                 Fields.author_username: target_user.username,
@@ -2098,10 +2169,10 @@ def get_post_details(request, post_identifier):
         my_report = post.postreport_set.filter(user=request.user).first()
         post_data = {
             Fields.post_identifier: post.post_identifier,
-            Fields.image_url: get_compressed_image_url(post.image_url),
+            Fields.image_url: sign_compressed_url(post.image_url),
             # Full-res original, used as a client fallback while the async
             # Lambda-generated compressed copy is still missing (#252/#254).
-            Fields.original_image_url: post.image_url,
+            Fields.original_image_url: sign_original_url(post.image_url),
             Fields.caption: post.caption,
             **_caption_style_fields(post),
             Fields.creation_time: post.creation_time,
@@ -2307,6 +2378,16 @@ def like_comment(request, post_identifier, comment_thread_identifier, comment_id
         logger.warning(f"Like comment failed: Comment {comment_identifier} not found")
         return log_and_return_json("like_comment", {'error': "Comment not found"}, status=400)
 
+    # A comment from a different age band is treated as absent, so cross-band
+    # interaction cannot be smuggled in via known ids (issue #329). Both the
+    # comment's author and its post's author must share the caller's band, so
+    # even an inconsistent legacy record (a cross-band comment on a post) stays
+    # unreachable.
+    if not in_same_age_band(comment.author, request.user) \
+            or not in_same_age_band(comment.comment_thread.post.author, request.user):
+        logger.warning(f"Like comment failed: Comment {comment_identifier} not visible to user_id: {request.user.id}")
+        return log_and_return_json("like_comment", {'error': "Comment not found"}, status=400)
+
     if comment.author == request.user:
         logger.warning(f"Like comment failed: Cannot like own comment for user_id: {request.user.id}")
         return log_and_return_json("like_comment", {'error': "Cannot like own comment"}, status=400)
@@ -2345,6 +2426,13 @@ def unlike_comment(request, post_identifier, comment_thread_identifier, comment_
         )
     except Comment.DoesNotExist:
         logger.warning(f"Unlike comment failed: Comment {comment_identifier} not found")
+        return log_and_return_json("unlike_comment", {'error': "Comment not found"}, status=400)
+
+    # Treat a cross-band comment as absent (issue #329) so the "not liked yet"
+    # vs "no such comment" responses cannot be used as an existence oracle.
+    if not in_same_age_band(comment.author, request.user) \
+            or not in_same_age_band(comment.comment_thread.post.author, request.user):
+        logger.warning(f"Unlike comment failed: Comment {comment_identifier} not visible to user_id: {request.user.id}")
         return log_and_return_json("unlike_comment", {'error': "Comment not found"}, status=400)
 
     if comment.author == request.user:
@@ -2431,6 +2519,16 @@ def report_comment(request, post_identifier, comment_thread_identifier, comment_
         logger.warning(f"Report comment failed: Comment {comment_identifier} not found")
         return log_and_return_json("report_comment", {'error': "Comment not found"}, status=400)
 
+    # A comment from a different age band is treated as absent, so cross-band
+    # interaction cannot be smuggled in via known ids (issue #329). Both the
+    # comment's author and its post's author must share the caller's band, so
+    # even an inconsistent legacy record (a cross-band comment on a post) stays
+    # unreachable.
+    if not in_same_age_band(comment.author, request.user) \
+            or not in_same_age_band(comment.comment_thread.post.author, request.user):
+        logger.warning(f"Report comment failed: Comment {comment_identifier} not visible to user_id: {request.user.id}")
+        return log_and_return_json("report_comment", {'error': "Comment not found"}, status=400)
+
     if comment.author == request.user:
         logger.warning(f"Report comment failed: Cannot report own comment for user_id: {request.user.id}")
         return log_and_return_json("report_comment", {'error': "Cannot report own comment"}, status=400)
@@ -2478,6 +2576,13 @@ def retract_report_comment(request, post_identifier, comment_thread_identifier, 
         )
     except Comment.DoesNotExist:
         logger.warning(f"Retract report comment failed: Comment {comment_identifier} not found")
+        return log_and_return_json("retract_report_comment", {'error': "Comment not found"}, status=400)
+
+    # Treat a cross-band comment as absent (issue #329) so the "not reported
+    # yet" vs "no such comment" responses cannot be used as an existence oracle.
+    if not in_same_age_band(comment.author, request.user) \
+            or not in_same_age_band(comment.comment_thread.post.author, request.user):
+        logger.warning(f"Retract report comment failed: Comment {comment_identifier} not visible to user_id: {request.user.id}")
         return log_and_return_json("retract_report_comment", {'error': "Comment not found"}, status=400)
 
     deleted_count, _ = comment.commentreport_set.filter(user=request.user).delete()
@@ -2616,7 +2721,7 @@ def get_users_matching_fragment(request, username_fragment):
     # So if I blocked someone, I can still search them.
     # But if someone blocked me, I cannot search them.
     users_who_blocked_me = request.user.blocked_by.all()
-    users = searchable_users(users.exclude(pk__in=users_who_blocked_me))[:10]
+    users = searchable_users(users.exclude(pk__in=users_who_blocked_me), request.user)[:10]
 
     users_data = [
         {
@@ -2640,7 +2745,10 @@ def follow_user(request, username_to_follow):
         return log_and_return_json("follow_user", {'error': "Invalid username fragment"}, status=400)
 
     user_to_follow_obj = get_user_with_username(username_to_follow)
-    if not user_to_follow_obj:
+    # An account outside the follower's age band is treated as if it does not
+    # exist (issue #329) — the same response as a genuinely missing user, so an
+    # adult cannot even confirm an underage account by name, and vice versa.
+    if not user_to_follow_obj or not in_same_age_band(request.user, user_to_follow_obj):
         return log_and_return_json("follow_user", {'error': "User does not exist"}, status=400)
 
     if request.user == user_to_follow_obj:
@@ -2665,7 +2773,10 @@ def unfollow_user(request, username_to_unfollow):
         return log_and_return_json("unfollow_user", {'error': "Invalid username fragment"}, status=400)
 
     user_to_unfollow_obj = get_user_with_username(username_to_unfollow)
-    if not user_to_unfollow_obj:
+    # A cross-band account is treated as if it does not exist (issue #329), the
+    # same response as a genuinely missing user, so neither band can confirm the
+    # other by name.
+    if not user_to_unfollow_obj or not in_same_age_band(request.user, user_to_unfollow_obj):
         return log_and_return_json("unfollow_user", {'error': "User does not exist"}, status=400)
 
     if not request.user.following.filter(pk=user_to_unfollow_obj.pk).exists():
@@ -2687,7 +2798,10 @@ def toggle_block(request, username_to_toggle_block):
         return log_and_return_json("toggle_block", {'error': "Invalid username"}, status=400)
 
     user_to_toggle_obj = get_user_with_username(username_to_toggle_block)
-    if not user_to_toggle_obj:
+    # A cross-band account is treated as if it does not exist (issue #329): the
+    # bands never interact, so there is nothing to block, and the response must
+    # not confirm the account by name.
+    if not user_to_toggle_obj or not in_same_age_band(request.user, user_to_toggle_obj):
         return log_and_return_json("toggle_block", {'error': "User does not exist"}, status=400)
 
     if request.user == user_to_toggle_obj:
@@ -2741,6 +2855,13 @@ def get_profile_details(request, username):
     profile_user = get_user_with_username(username)
     if not profile_user:
         logger.warning(f"Get profile details failed: User with username fragment not found")
+        return log_and_return_json("get_profile_details", {'error': "User not found"}, status=400)
+
+    # Adults and underage accounts cannot view each other's profiles
+    # (issue #329). Report it as not found (not a distinct error) so neither
+    # side can confirm the other exists by name. An account sees its own profile.
+    if profile_user != request.user and not in_same_age_band(request.user, profile_user):
+        logger.warning("Get profile details refused: requester and profile are in different age bands")
         return log_and_return_json("get_profile_details", {'error': "User not found"}, status=400)
 
     # Count only the posts the requesting user is allowed to see, so a
@@ -2834,7 +2955,7 @@ def get_hidden_posts(request, batch):
     data = [
         {
             Fields.post_identifier: post.post_identifier,
-            Fields.image_url: get_compressed_image_url(post.image_url),
+            Fields.image_url: sign_compressed_url(post.image_url),
             Fields.caption: post.caption,
             **_caption_style_fields(post),
             Fields.hidden_reason: post.hidden_reason,

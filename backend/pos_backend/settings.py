@@ -238,6 +238,41 @@ L10N=False
 AWS_STORAGE_BUCKET_NAME = os.environ.get("AWS_STORAGE_BUCKET_NAME", "goodvibesonly-images")
 AWS_COMPRESSED_STORAGE_BUCKET_NAME = os.environ.get("AWS_COMPRESSED_STORAGE_BUCKET_NAME", "goodvibesonly-imagescompressed")
 
+# CloudFront signed image reads (#332, #341).
+#
+# The image buckets are private (Block Public Access + OAC); clients fetch images
+# through CloudFront distributions fronting each bucket, and the backend signs
+# every read URL. Two custom domains map to the two buckets under the identical
+# object key, so no CloudFront-Function URI rewriting is needed:
+#   CLOUDFRONT_IMAGES_DOMAIN    -> distribution -> compressed bucket
+#   CLOUDFRONT_ORIGINALS_DOMAIN -> distribution -> source (original) bucket
+#
+# When these are unset (local dev / tests / a not-yet-provisioned deploy) the
+# signer falls back to serving the legacy unsigned URLs, so nothing breaks — the
+# read hole only actually closes once the infra + signing key are in place.
+CLOUDFRONT_IMAGES_DOMAIN = os.environ.get("CLOUDFRONT_IMAGES_DOMAIN", "").strip()
+CLOUDFRONT_ORIGINALS_DOMAIN = os.environ.get("CLOUDFRONT_ORIGINALS_DOMAIN", "").strip()
+
+# The CloudFront trusted-signer key pair. CLOUDFRONT_KEY_PAIR_ID is the public
+# key id in the distribution's key group; the private key is supplied either
+# inline as PEM (CLOUDFRONT_PRIVATE_KEY) or as a file the deploy mounts
+# (CLOUDFRONT_PRIVATE_KEY_PATH).
+CLOUDFRONT_KEY_PAIR_ID = os.environ.get("CLOUDFRONT_KEY_PAIR_ID", "").strip()
+CLOUDFRONT_PRIVATE_KEY = os.environ.get("CLOUDFRONT_PRIVATE_KEY", "")
+CLOUDFRONT_PRIVATE_KEY_PATH = os.environ.get("CLOUDFRONT_PRIVATE_KEY_PATH", "").strip()
+
+# How long a signed image URL stays valid. Signed URLs are embedded in post
+# payloads that clients fetch on mount/refresh; 24h comfortably exceeds any
+# realistic session (so images never 403 mid-view) while still bounding a leaked
+# URL's lifetime. The image bytes are no more sensitive than what an authorized
+# viewer already sees, so a day-scale window is an acceptable trade.
+try:
+    CLOUDFRONT_SIGNED_URL_EXPIRY_SECONDS = int(
+        os.environ.get("CLOUDFRONT_SIGNED_URL_EXPIRY_SECONDS", "86400")
+    )
+except ValueError:
+    CLOUDFRONT_SIGNED_URL_EXPIRY_SECONDS = 86400
+
 # Logging Configuration
 log_dir = BASE_DIR / 'logs'
 log_dir.mkdir(exist_ok=True)
