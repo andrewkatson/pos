@@ -177,6 +177,54 @@ login, and every authenticated endpoint (the session issued at registration
 is therefore unusable until verification). Accounts created before this
 feature existed are grandfathered in as verified by the migration.
 
+## Two-factor authentication (TOTP)
+
+Users can opt in to two-factor authentication with a standard authenticator
+app (Google Authenticator, 1Password, etc.) using time-based one-time
+passwords (issue #348). SMS is deliberately not offered.
+
+**Enrollment** is a two-step handshake from an authenticated session:
+`2fa/totp/setup/` generates a secret and returns it with an `otpauth://`
+provisioning URI (rendered as a QR code by clients); nothing is enforced yet.
+`2fa/totp/confirm/` takes the account password plus one code from the
+authenticator to prove it was added correctly, enables 2FA, and returns ten
+single-use recovery codes — shown exactly once and stored with Django's salted
+password hasher (so a database leak can't be brute-forced offline). Re-running
+setup before confirming just replaces the pending secret.
+
+The password on confirm is what stops a stolen session from being upgraded into
+a permanent takeover: without it a thief could bind their own authenticator,
+read the one-time recovery codes off the response, and lock the real owner out
+for good, since turning 2FA back off then requires a code only the thief holds.
+
+**Login** becomes two steps for enrolled accounts. `login/` still checks the
+password (and ban/email-verification gates) but returns
+`two_factor_required: true` with a short-lived challenge token (5 minutes,
+stored hashed) instead of a session. `login/2fa/` exchanges that challenge
+plus a TOTP code — or a recovery code — for the real session, and ends in
+exactly the same state as a plain login (session token, optional remember-me
+cookie, new-device email). A challenge is invalidated after 5 failed code
+attempts. Codes are accepted with one 30-second step of clock drift either
+way, and an accepted code cannot be replayed within its validity window.
+Recovery codes are issued as lowercase hex but accepted in any case and with
+stray surrounding whitespace, since they get typed by hand.
+Accounts without 2FA get the original single-step response, so older clients
+keep working for them.
+
+**Trusted devices**: the remember-me login (`login/remember/`) never asks for
+a code — possession of a valid login cookie counts as the second factor.
+
+**Abandoned challenges**: issuing a challenge clears any earlier one for that
+user, so only one is ever live. A login that is started and never finished
+still leaves a row until that user logs in again (forever, for someone who
+never returns), so the `cleanup_expired_two_factor_challenges` management
+command sweeps expired rows and is safe to run on a schedule.
+
+**Disabling** (`2fa/disable/`) requires the account password *plus* a current
+TOTP or unused recovery code, so a stolen logged-in session alone cannot
+strip the protection. Losing the authenticator is what recovery codes are
+for; a user who loses both is locked out and must contact support.
+
 ## New-device login emails
 
 When a user logs in from a device we have not seen before, they get an email

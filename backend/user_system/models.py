@@ -135,6 +135,17 @@ class PositiveOnlySocialUser(AbstractUser):
     email_verification_token = models.TextField(null=True, blank=True, default=None)
     email_verification_token_expires = models.DateTimeField(null=True, blank=True, default=None)
 
+    # Time-based one-time-password (TOTP) two-factor authentication. The shared
+    # secret has to be stored as entered (both sides derive the same code from
+    # it), unlike the tokens above which are only kept hashed. totp_enabled
+    # flips on only once the user confirms a working authenticator (see
+    # confirm_totp in views); a secret without the flag is a pending, inert
+    # enrollment. totp_last_used_step records the last accepted 30-second time
+    # step so a code captured in transit cannot be replayed while still fresh.
+    totp_secret = models.TextField(null=True, blank=True, default=None)
+    totp_enabled = models.BooleanField(default=False)
+    totp_last_used_step = models.BigIntegerField(null=True, blank=True, default=None)
+
     creation_time = models.DateTimeField(auto_now_add=True, null=True, blank=True)
     updated_time = models.DateTimeField(auto_now=True, null=True, blank=True)
     id = models.UUIDField(default=uuid.uuid4, primary_key=True, unique=True, editable=False)
@@ -159,6 +170,44 @@ class LoginCookie(models.Model):
     series_identifier = models.UUIDField(default=uuid.uuid4, primary_key=True, unique=True, editable=False)
     token = models.TextField(null=True)
     cookie_user = models.ForeignKey(PositiveOnlySocialUser, on_delete=models.CASCADE)
+
+
+# A pending two-factor login. Issued by login_user once the password (and ban
+# and email-verification) checks pass but the account has TOTP enabled: no
+# session exists until the user proves possession of their authenticator at
+# login/2fa/. Only the SHA-256 hash of the challenge token is stored, the same
+# scheme as the email-verification and password-reset tokens. Rows are deleted
+# on success, when the attempt limit is hit, and whenever the same user starts a
+# new login (only one challenge is ever live per user). A login that is started
+# and abandoned would otherwise leave its row behind indefinitely, so the
+# cleanup_expired_two_factor_challenges management command sweeps expired rows.
+class TwoFactorChallenge(models.Model):
+    user = models.ForeignKey(PositiveOnlySocialUser, related_name='two_factor_challenges', on_delete=models.CASCADE)
+    # Looked up by hash on every second login step, so it is indexed; unique
+    # because a challenge token is a fresh 256-bit random value. expires is
+    # indexed for the cleanup_expired_two_factor_challenges management command,
+    # which sweeps abandoned challenges the login flow never got back to.
+    token_hash = models.TextField(unique=True, db_index=True)
+    expires = models.DateTimeField(db_index=True)
+    remember_me = models.BooleanField(default=False)
+    failed_attempts = models.IntegerField(default=0)
+    created = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        app_label = 'user_system'
+
+
+# A single-use recovery code for two-factor authentication, issued in a batch
+# when TOTP is confirmed. Stored hashed. A consumed code keeps its row with
+# used_at set (rather than being deleted) so clients can report how many
+# codes remain.
+class RecoveryCode(models.Model):
+    user = models.ForeignKey(PositiveOnlySocialUser, related_name='recovery_codes', on_delete=models.CASCADE)
+    code_hash = models.TextField()
+    used_at = models.DateTimeField(null=True, blank=True, default=None)
+
+    class Meta:
+        app_label = 'user_system'
 
 
 # A device (identified by its IP) a user has logged in from. The first time a
