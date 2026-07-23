@@ -41,7 +41,12 @@ struct ProfileAvatarView: View {
         avatarContent
             .frame(width: size, height: size)
             .clipShape(Circle())
-            .accessibilityHidden(true)
+            // Decorative: the username is always shown right next to the avatar,
+            // so hide it from assistive tech (the website's Avatar uses alt=""
+            // for the same reason). But NOT under UI testing — hiding it also
+            // removes any parent-applied accessibilityIdentifier (e.g.
+            // "ProfileHeaderAvatar") from the tree XCUITest queries.
+            .accessibilityHidden(!isUITesting())
             // Reset the fallback when the backing URLs change (a new upload, or
             // the compressed copy becoming available), so a view that fell back
             // to the original retries the fresh compressed URL instead of
