@@ -90,8 +90,14 @@ class TestClassifiers(PositiveOnlySocialTestCase):
     def test_parse_probability_and_rule_skips_out_of_range_pairs(self):
         # "10,3" is not a valid probability; the earlier valid pair wins.
         self.assertEqual(parse_probability_and_rule("0.3,2 then 10,3"), (0.3, 2))
-        # A two-digit "rule" is not a rule citation at all.
-        self.assertEqual(parse_probability_and_rule("0.5,42"), (0.5, None))
+
+    def test_parse_probability_and_rule_parses_multi_digit_rules(self):
+        # Rule numbers are parsed as one-or-more digits so a future rule 10+
+        # still surfaces its citation instead of being silently dropped. An
+        # unknown rule number maps to no reason downstream (RULE_REASON_CODES),
+        # so parsing it here is harmless.
+        self.assertEqual(parse_probability_and_rule("0.10,10"), (0.10, 10))
+        self.assertEqual(parse_probability_and_rule("0.5,42"), (0.5, 42))
 
     # ------------------------------------------------------------------ #
     # Text classifier – testing mode                                       #
