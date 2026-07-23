@@ -592,6 +592,6 @@ struct Positive_Only_SocialTests_PostDetailViewModel {
         let spans = [CommentFormatSpan(start: 0, end: 5, bold: true, italic: true, size: "large")]
         let attributed = TextFormatting.attributedComment("hello world", spans: spans, baseSize: 15)
         // The rendered text is the same plain string — formatting is styling only.
-        #expect(String(attributed.characters) == "hello world")
+        #expect(NSAttributedString(attributed).string == "hello world")
     }
 }
