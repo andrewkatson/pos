@@ -70,7 +70,7 @@ class CloudFrontSigningTests(SimpleTestCase):
         self.assertEqual(sign_compressed_url(''), '')
         self.assertIsNone(sign_original_url(None))
 
-    def test_key_pair_id_read_from_file_path(self):
+    def test_private_key_read_from_file_path(self):
         """The private key may be supplied via a mounted file rather than inline."""
         import os
         import tempfile
