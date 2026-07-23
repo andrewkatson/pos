@@ -166,6 +166,27 @@ class AgeSegregationTests(PositiveOnlySocialTestCase):
     def test_same_band_follow_allowed(self):
         self.assertEqual(self._follow_status(self.adult_a, self.adult_b['username']), 200)
 
+    def test_cross_band_username_endpoints_report_missing_user(self):
+        # unfollow / block / posts-for-user must not act as an existence oracle:
+        # a cross-band username looks exactly like a missing one.
+        unfollow = self.client.post(
+            reverse('unfollow_user', kwargs={'username_to_unfollow': self.minor_a['username']}),
+            **self._header(self.adult_a))
+        self.assertEqual(unfollow.status_code, 400)
+        self.assertEqual(unfollow.json()['error'], "User does not exist")
+
+        block = self.client.post(
+            reverse('toggle_block', kwargs={'username_to_toggle_block': self.minor_a['username']}),
+            **self._header(self.adult_a))
+        self.assertEqual(block.status_code, 400)
+        self.assertEqual(block.json()['error'], "User does not exist")
+
+        posts = self.client.get(
+            reverse('get_posts_for_user', kwargs={'username': self.minor_a['username'], 'batch': 0}),
+            **self._header(self.adult_a))
+        self.assertEqual(posts.status_code, 400)
+        self.assertEqual(posts.json()['error'], "User not found")
+
     # =========================================================================
     # LIKE / REPORT (cross-band interaction blocked even with a known id)
     # =========================================================================

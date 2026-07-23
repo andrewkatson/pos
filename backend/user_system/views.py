@@ -487,11 +487,18 @@ def register(request):
     if date_of_birth_str:
         try:
             dob = datetime.strptime(date_of_birth_str, '%Y-%m-%d').date()
-            age = _age_from_dob(dob)
-            if age < MINIMUM_AGE:
-                too_young = True
-            elif age >= ADULT_AGE:
-                is_adult = True
+            if dob > date.today():
+                # A future date of birth is impossible input, not an age-policy
+                # matter — reject it as a validation error rather than as "too
+                # young" (a negative age would otherwise read as under-minimum).
+                logger.warning("Registration failed: date_of_birth is in the future")
+                invalid_fields.append('date_of_birth')
+            else:
+                age = _age_from_dob(dob)
+                if age < MINIMUM_AGE:
+                    too_young = True
+                elif age >= ADULT_AGE:
+                    is_adult = True
         except ValueError:
             logger.warning("Registration failed: Invalid date_of_birth format")
             invalid_fields.append('date_of_birth')
@@ -607,6 +614,13 @@ def verify_identity(request):
 
     try:
         dob = datetime.strptime(date_of_birth_str, '%Y-%m-%d').date()
+
+        # A future date of birth is impossible input, not an age-policy matter —
+        # reject it as a validation error rather than as "too young".
+        if dob > date.today():
+            logger.warning(f"Identity verification failed: date_of_birth in the future for user_id: {request.user.id}")
+            return log_and_return_json("verify_identity", {'error': "Invalid date of birth"}, status=400)
+
         age = _age_from_dob(dob)
 
         # Under-minimum applicants are refused outright and left unverified
@@ -1970,6 +1984,12 @@ def get_posts_for_user(request, username, batch):
     if not target_user:
         return log_and_return_json("get_posts_for_user", {'error': "User not found"}, status=400)
 
+    # An account in a different age band is indistinguishable from a missing
+    # user (issue #329), so it cannot be confirmed by name. Reported as not
+    # found rather than as an empty grid.
+    if target_user != request.user and not in_same_age_band(request.user, target_user):
+        return log_and_return_json("get_posts_for_user", {'error': "User not found"}, status=400)
+
     # Check if blocking relationship exists
     if request.user.blocked.filter(pk=target_user.pk).exists() or target_user.blocked.filter(pk=request.user.pk).exists():
         logger.info(f"Get posts for user: Blocking relationship exists for user_id: {request.user.id} and target_user_id: {target_user.id}")
@@ -2611,7 +2631,10 @@ def unfollow_user(request, username_to_unfollow):
         return log_and_return_json("unfollow_user", {'error': "Invalid username fragment"}, status=400)
 
     user_to_unfollow_obj = get_user_with_username(username_to_unfollow)
-    if not user_to_unfollow_obj:
+    # A cross-band account is treated as if it does not exist (issue #329), the
+    # same response as a genuinely missing user, so neither band can confirm the
+    # other by name.
+    if not user_to_unfollow_obj or not in_same_age_band(request.user, user_to_unfollow_obj):
         return log_and_return_json("unfollow_user", {'error': "User does not exist"}, status=400)
 
     if not request.user.following.filter(pk=user_to_unfollow_obj.pk).exists():
@@ -2633,7 +2656,10 @@ def toggle_block(request, username_to_toggle_block):
         return log_and_return_json("toggle_block", {'error': "Invalid username"}, status=400)
 
     user_to_toggle_obj = get_user_with_username(username_to_toggle_block)
-    if not user_to_toggle_obj:
+    # A cross-band account is treated as if it does not exist (issue #329): the
+    # bands never interact, so there is nothing to block, and the response must
+    # not confirm the account by name.
+    if not user_to_toggle_obj or not in_same_age_band(request.user, user_to_toggle_obj):
         return log_and_return_json("toggle_block", {'error': "User does not exist"}, status=400)
 
     if request.user == user_to_toggle_obj:

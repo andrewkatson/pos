@@ -174,6 +174,20 @@ class RegisterTests(PositiveOnlySocialTestCase):
         self.assertFalse(user.is_adult)
 
     @patch.dict(os.environ, {"TESTING": "True"}, clear=True)
+    def test_register_future_dob_is_validation_error_not_age_refusal(self):
+        """A future date of birth is impossible input: a 400 validation error,
+        not a 403 age refusal."""
+        data = self.valid_data.copy()
+        data['date_of_birth'] = _dob_for_age(-1)  # January 1 of next year
+
+        response = self.client.post(self.url, data=data, content_type='application/json')
+        self.assertEqual(response.status_code, 400)
+        self.assertIn('date_of_birth', response.json().get('error', ''))
+        self.assertFalse(
+            get_user_model().objects.filter(username=self.local_username).exists()
+        )
+
+    @patch.dict(os.environ, {"TESTING": "True"}, clear=True)
     def test_register_under_minimum_age_refused(self):
         """
         Tests that registering with an under-minimum DOB is refused outright and

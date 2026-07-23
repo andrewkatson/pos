@@ -82,6 +82,21 @@ class VerifyIdentityTests(PositiveOnlySocialTestCase):
         self.assertFalse(self.user.identity_is_verified)
         self.assertFalse(self.user.is_adult)
 
+    def test_verify_identity_future_dob_is_invalid(self):
+        # A future date of birth is impossible input: a 400 validation error,
+        # not an age refusal, and the account stays unverified.
+        data = {'date_of_birth': _dob_for_age(-1)}
+        response = self.client.post(
+            self.url,
+            data=data,
+            content_type='application/json',
+            HTTP_AUTHORIZATION=f'Bearer {self.token}'
+        )
+        self.assertEqual(response.status_code, 400)
+
+        self.user.refresh_from_db()
+        self.assertFalse(self.user.identity_is_verified)
+
     def test_verify_identity_invalid_date(self):
         data = {'date_of_birth': 'invalid-date'}
         response = self.client.post(
