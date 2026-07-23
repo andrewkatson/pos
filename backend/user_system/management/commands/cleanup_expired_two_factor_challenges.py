@@ -1,0 +1,48 @@
+import logging
+
+from django.core.management.base import BaseCommand
+from django.utils import timezone
+
+from user_system.models import TwoFactorChallenge
+
+logger = logging.getLogger(__name__)
+
+
+class Command(BaseCommand):
+    help = (
+        "Delete two-factor login challenges whose expiry has passed. Challenges "
+        "are cleaned up opportunistically when the same user logs in again, but a "
+        "login that is started and abandoned leaves a row behind until then — and "
+        "forever for a user who never returns. This sweep keeps the table bounded "
+        "and removes dead credentials promptly. Safe to run on a schedule; it only "
+        "touches rows the login flow would already refuse."
+    )
+
+    def add_arguments(self, parser):
+        parser.add_argument(
+            '--dry-run', action='store_true',
+            help="Report how many rows would be deleted without deleting anything.",
+        )
+
+    def handle(self, *args, **options):
+        dry_run = options['dry_run']
+
+        # Uses the index on `expires`.
+        expired = TwoFactorChallenge.objects.filter(expires__lt=timezone.now())
+
+        if dry_run:
+            self.stdout.write(
+                f"Would delete {expired.count()} expired two-factor challenge(s)."
+            )
+            return
+
+        # Report what delete() actually removed rather than a separate COUNT: more
+        # rows can expire between the two statements, so a count taken first is
+        # already stale by the time the delete runs.
+        _, deleted_by_model = expired.delete()
+        count = deleted_by_model.get(TwoFactorChallenge._meta.label, 0)
+
+        if count:
+            logger.info(f"Deleted {count} expired two-factor challenge(s).")
+
+        self.stdout.write(f"Deleted {count} expired two-factor challenge(s).")

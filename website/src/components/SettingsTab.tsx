@@ -1,10 +1,12 @@
-import { useState, type ReactNode } from 'react'
+import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { apiClient } from '../api/client'
 import { clearSession } from '../api/session'
 import { PRIVACY_POLICY_TEXT } from '../privacyPolicy'
+import Modal from './Modal'
+import { DisableTwoFactorModal, EnableTwoFactorModal } from './TwoFactorAuthModals'
 
-type ActiveModal = 'logout' | 'delete' | 'verify' | 'privacy' | null
+type ActiveModal = 'logout' | 'delete' | 'verify' | 'privacy' | 'enable2fa' | 'disable2fa' | null
 
 const CONTACT_EMAIL = 'katsonsoftware@gmail.com'
 
@@ -105,9 +107,34 @@ function SettingsTab() {
         <button
           type="button"
           className="settings-row"
+          onClick={() => navigate('/blocked')}
+        >
+          Blocked Users
+        </button>
+        <button
+          type="button"
+          className="settings-row"
           onClick={() => setActiveModal('privacy')}
         >
           Privacy Policy
+        </button>
+      </div>
+
+      <div className="settings-group">
+        <span className="settings-group__header">Security</span>
+        <button
+          type="button"
+          className="settings-row settings-row--action"
+          onClick={() => setActiveModal('enable2fa')}
+        >
+          Enable Two-Factor Authentication
+        </button>
+        <button
+          type="button"
+          className="settings-row"
+          onClick={() => setActiveModal('disable2fa')}
+        >
+          Disable Two-Factor Authentication
         </button>
       </div>
 
@@ -173,6 +200,26 @@ function SettingsTab() {
         </Modal>
       )}
 
+      {activeModal === 'enable2fa' && (
+        <EnableTwoFactorModal
+          onClose={close}
+          onEnabled={() => {
+            close()
+            setInfoMessage('Two-factor authentication is now enabled.')
+          }}
+        />
+      )}
+
+      {activeModal === 'disable2fa' && (
+        <DisableTwoFactorModal
+          onClose={close}
+          onDisabled={() => {
+            close()
+            setInfoMessage('Two-factor authentication has been disabled.')
+          }}
+        />
+      )}
+
       {activeModal === 'privacy' && (
         <Modal title="Privacy Policy" body={PRIVACY_POLICY_TEXT}>
           <div className="modal__actions">
@@ -182,24 +229,6 @@ function SettingsTab() {
           </div>
         </Modal>
       )}
-    </div>
-  )
-}
-
-interface ModalProps {
-  title: string
-  body?: string
-  children: ReactNode
-}
-
-function Modal({ title, body, children }: ModalProps) {
-  return (
-    <div className="modal-overlay">
-      <div className="modal" role="dialog" aria-modal="true" aria-label={title}>
-        <h2 className="modal__title">{title}</h2>
-        {body && <p className="modal__body">{body}</p>}
-        {children}
-      </div>
     </div>
   )
 }

@@ -28,7 +28,7 @@ def is_text_positive(text):
 
     if not available_apis:
         logger.error("No AI API keys available.")
-        return ClassificationResult(allowed=False)
+        return ClassificationResult(allowed=False, provider_failure=True)
 
     def call_api(api_name):
         try:

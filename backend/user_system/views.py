@@ -4,14 +4,14 @@ import json
 import logging
 import secrets
 import uuid
-from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, date, timedelta
 
 from functools import wraps
 
+import pyotp
 from django.conf import settings
 from django.contrib.auth import login, logout, get_user_model
-from django.contrib.auth.hashers import check_password
+from django.contrib.auth.hashers import check_password, make_password
 from django.core.mail import send_mail
 from django.db import transaction, IntegrityError
 from django.db.models import Count
@@ -22,20 +22,26 @@ from django.views.decorators.http import require_POST, require_GET
 from django_ratelimit.decorators import ratelimit
 from django_ratelimit.exceptions import Ratelimited
 
+from . import tasks
 from .classifiers import image_classifier, text_classifier
-from .classifiers.classifier_utils import ClassificationResult
+from .classifiers.classifier_constants import REASON_PHRASES, GENERIC_REASON_CODE
+from .classifiers.prefilter import prefilter_text
 from .constants import Patterns, Params, POST_BATCH_SIZE, MAX_BEFORE_HIDING_POST, MAX_BEFORE_HIDING_COMMENT, \
     MAX_CAPTION_LENGTH, MAX_COMMENT_LENGTH, \
     COMMENT_BATCH_SIZE, Fields, COMMENT_THREAD_BATCH_SIZE, \
     VERIFY_RESET_MAX_ATTEMPTS, VERIFY_RESET_LOCKOUT_MINUTES, \
     ACCOUNT_BANNED, EMAIL_NOT_VERIFIED, EMAIL_VERIFICATION_TOKEN_HOURS, BAN_TYPE_OUTRIGHT, \
     HIDDEN_REASON_NONE, HIDDEN_REASON_REPORTS, HIDDEN_REASON_CLASSIFIER, \
+    HIDDEN_REASON_PENDING_CLASSIFICATION, NON_APPEALABLE_HIDDEN_REASONS, \
+    POST_STATUS_PENDING, POST_STATUS_REJECTED, POST_STATUS_REJECTED_FINAL, \
     APPEAL_TARGET_POST, APPEAL_TARGET_COMMENT, APPEAL_TARGET_BAN, \
-    MAX_APPEAL_REASON_LENGTH
+    MAX_APPEAL_REASON_LENGTH, \
+    TWO_FACTOR_CHALLENGE_MINUTES, TWO_FACTOR_MAX_ATTEMPTS, NUM_RECOVERY_CODES, \
+    LEN_RECOVERY_CODE_HEX, TOTP_ISSUER, INVALID_TWO_FACTOR_CHALLENGE
 from .feed_algorithm import feed_algorithm
 from .input_validator import is_valid_pattern
-from .models import LoginCookie, Session, Post, CommentThread, PositiveOnlySocialUser, Comment, CommentLike, UserBlock, \
-    UserBan, KnownDevice, Appeal
+from .models import LoginCookie, Session, Post, CommentThread, PositiveOnlySocialUser, Comment, CommentLike, \
+    PostLike, UserBlock, UserBan, KnownDevice, Appeal, TwoFactorChallenge, RecoveryCode
 from .utils import convert_to_bool, generate_login_cookie_token, generate_management_token, generate_series_identifier, \
     get_batch, get_queryset_batch, get_compressed_image_url
 from .s3 import delete_image, generate_presigned_upload, image_url_to_key
@@ -43,16 +49,6 @@ from .visibility import can_view_post, searchable_users, visible_comment_threads
 
 image_classifier_class = image_classifier
 text_classifier_class = text_classifier
-
-# Shared, bounded thread pool for the per-request content-classification fan-out
-# (a post's text and image are classified concurrently). A single module-level
-# executor is reused across requests rather than creating a new one per call, so
-# a traffic spike cannot spawn unbounded threads: once every worker is busy,
-# further classification tasks queue, which provides backpressure. The work is
-# I/O-bound (waiting on external AI APIs), so a worker count above the CPU count
-# is fine; this caps the threads one gunicorn worker process can devote to
-# classification.
-_CLASSIFICATION_EXECUTOR = ThreadPoolExecutor(max_workers=8, thread_name_prefix="classify")
 feed_algorithm_class = feed_algorithm
 
 logger = logging.getLogger(__name__)
@@ -333,6 +329,122 @@ def _email_verification_link(token):
     return f"{settings.FRONTEND_BASE_URL}/verify-email?token={token}"
 
 
+_TOTP_PERIOD_SECONDS = 30
+
+
+def _verify_totp_code(user, code):
+    """Check a submitted TOTP code, allowing one 30-second step of clock drift
+    either way.
+
+    On success the matched time step is recorded, and any step at or before
+    the last accepted one is refused, so a code observed in transit cannot be
+    replayed inside its validity window.
+    """
+    # An enrolled account should always have a secret, but a row left
+    # inconsistent (totp_enabled with no secret) would otherwise blow up inside
+    # pyotp and surface as a 500. Fail the check cleanly instead so callers
+    # return their normal "invalid code" response.
+    if not user.totp_secret:
+        logger.warning(f"TOTP verification attempted with no stored secret for user_id: {user.id}")
+        return False
+
+    totp = pyotp.TOTP(user.totp_secret, interval=_TOTP_PERIOD_SECONDS)
+    now = timezone.now()
+    for offset in (-1, 0, 1):
+        step_time = now + timedelta(seconds=_TOTP_PERIOD_SECONDS * offset)
+        candidate_step = int(step_time.timestamp()) // _TOTP_PERIOD_SECONDS
+        if user.totp_last_used_step is not None and candidate_step <= user.totp_last_used_step:
+            continue
+        if secrets.compare_digest(totp.at(step_time), code):
+            user.totp_last_used_step = candidate_step
+            user.save(update_fields=['totp_last_used_step'])
+            return True
+    return False
+
+
+def _normalize_recovery_code(value):
+    """Fold a submitted recovery code to the form the server issued.
+
+    Codes are generated as lowercase hex, but they are read off a screen or a
+    printout and typed by hand, so an uppercase A-F or a stray space picked up
+    from a copy-paste is the user's mistake to absorb rather than a failed
+    login. Only strings are touched; anything else falls through unchanged so
+    the field validation still rejects it.
+    """
+    return value.strip().lower() if isinstance(value, str) else value
+
+
+def _consume_recovery_code(user, code):
+    """Mark the matching unused recovery code as spent. Returns whether one matched.
+
+    Codes are stored with Django's password hasher (per-code salt, deliberately
+    slow), so a database leak cannot be brute-forced offline the way a fast
+    unsalted digest could. That salt means there is no single hash to look up
+    by, so each unused code is checked in turn — there are only a handful. The
+    rows are locked FOR UPDATE so two concurrent attempts cannot both spend the
+    same code; callers therefore run this inside a transaction.
+    """
+    for recovery in user.recovery_codes.select_for_update().filter(used_at__isnull=True):
+        if check_password(code, recovery.code_hash):
+            recovery.used_at = timezone.now()
+            recovery.save(update_fields=['used_at'])
+            return True
+    return False
+
+
+def _issue_recovery_codes(user):
+    """Replace the user's recovery codes with a fresh batch, returning the raw codes.
+
+    Stored with Django's password hasher (salted + slow) rather than a bare
+    SHA-256, so the persisted rows resist offline brute-force if the DB leaks.
+    """
+    user.recovery_codes.all().delete()
+    raw_codes = [secrets.token_hex(LEN_RECOVERY_CODE_HEX // 2) for _ in range(NUM_RECOVERY_CODES)]
+    RecoveryCode.objects.bulk_create([
+        RecoveryCode(user=user, code_hash=make_password(code))
+        for code in raw_codes
+    ])
+    return raw_codes
+
+
+def _create_authenticated_session(view_name, request, user, ip, remember_me):
+    """Final step of a successful authentication: Django session login, the
+    remember-me cookie (when requested), the API session token, and the
+    new-device email. Shared by login_user and login_user_2fa so a login that
+    went through the two-factor challenge ends in exactly the same state as a
+    plain one.
+    """
+    login(request, user)  # Logs into Django's session auth
+
+    new_login_cookie = None
+    if remember_me:
+        new_login_cookie = user.logincookie_set.create(series_identifier=generate_series_identifier(),
+                                                       token=generate_login_cookie_token())
+
+    new_session = user.session_set.create(management_token=generate_management_token(), ip=ip)
+
+    # Alert the user by email if this login is from a device we have not seen
+    # for them before. `request` is required: device identity includes the
+    # User-Agent, so omitting it would record a blank one and skew the check.
+    _record_device_and_maybe_notify(user, ip, request=request)
+
+    response_data = {
+        Fields.session_management_token: new_session.management_token,
+        Fields.username: user.username,
+        Fields.user_id: user.id,
+    }
+    if remember_me and new_login_cookie:
+        response_data[Fields.series_identifier] = new_login_cookie.series_identifier
+        response_data[Fields.login_cookie_token] = new_login_cookie.token
+
+    logger.info(f"Login successful for user_id: {user.id}")
+    # The body carries the session token (and remember-me credentials), so keep
+    # it out of any intermediary/proxy cache.
+    response = log_and_return_json(view_name, response_data)
+    response['Cache-Control'] = 'no-store'
+    return response
+
+
 # =============================================================================
 # AUTHENTICATION VIEWS
 # =============================================================================
@@ -450,7 +562,11 @@ def register(request):
         response_data[Fields.login_cookie_token] = new_login_cookie.token
 
     logger.info(f"Registration successful for user_id: {new_user.id}")
-    return log_and_return_json("register", response_data, status=201)
+    # The body carries the session token (and remember-me credentials), so keep
+    # it out of any intermediary/proxy cache.
+    response = log_and_return_json("register", response_data, status=201)
+    response['Cache-Control'] = 'no-store'
+    return response
 
 
 @csrf_exempt
@@ -535,30 +651,50 @@ def login_user(request):
             logger.warning(f"Login failed: Email not verified for user_id: {existing.id}")
             return log_and_return_json("login_user", {'error': EMAIL_NOT_VERIFIED}, status=403)
 
-        login(request, existing)  # Logs into Django's session auth
+        # The password checked out. Decide between "issue a challenge" and "mint
+        # a session" from a locked row rather than from the unlocked read above,
+        # which either endpoint can invalidate underneath us: disable_totp would
+        # strand this login on a second step the account can no longer satisfy,
+        # and confirm_totp would let it skip a second factor the account now
+        # requires. Taking the lock unconditionally costs one extra query on the
+        # login path and only ever serializes concurrent logins for the same user.
+        raw_challenge = None
+        with transaction.atomic():
+            locked = get_user_model().objects.select_for_update().get(pk=existing.pk)
+            if locked.totp_enabled:
+                # The account requires a second factor: hand back a short-lived
+                # challenge instead of a session, which login_user_2fa exchanges
+                # for the real one. Delete every existing challenge for the user
+                # first, so only one is ever valid at a time — otherwise the
+                # per-challenge attempt limit could be multiplied by requesting
+                # several challenges at once. The delete-then-create runs under
+                # this same lock so two concurrent logins can't interleave and
+                # leave more than one live challenge.
+                raw_challenge = secrets.token_hex(32)
+                locked.two_factor_challenges.all().delete()
+                locked.two_factor_challenges.create(
+                    token_hash=hashlib.sha256(raw_challenge.encode()).hexdigest(),
+                    expires=timezone.now() + timedelta(minutes=TWO_FACTOR_CHALLENGE_MINUTES),
+                    remember_me=remember_me,
+                )
 
-        new_login_cookie = None
-        if remember_me:
-            new_login_cookie = existing.logincookie_set.create(series_identifier=generate_series_identifier(),
-                                                               token=generate_login_cookie_token())
+        if raw_challenge is not None:
+            logger.info(f"Login requires two-factor code for user_id: {existing.id}")
+            response = log_and_return_json("login_user", {
+                Fields.two_factor_required: True,
+                Fields.challenge_token: raw_challenge,
+            })
+            response['Cache-Control'] = 'no-store'
+            return response
 
-        new_session = existing.session_set.create(management_token=generate_management_token(), ip=ip)
-
-        # Alert the user by email if this login is from a device (IP) we have
-        # not seen for them before.
-        _record_device_and_maybe_notify(existing, ip, request=request)
-
-        response_data = {
-            Fields.session_management_token: new_session.management_token,
-            Fields.username: existing.username,
-            Fields.user_id: existing.id,
-        }
-        if remember_me and new_login_cookie:
-            response_data[Fields.series_identifier] = new_login_cookie.series_identifier
-            response_data[Fields.login_cookie_token] = new_login_cookie.token
-
-        logger.info(f"Login successful for user_id: {existing.id}")
-        return log_and_return_json("login_user", response_data)
+        # The lock is deliberately released before the session is minted:
+        # _create_authenticated_session can send a new-device email, and holding
+        # a row lock across an SMTP round-trip would serialize every login for
+        # that user behind the mail server. The sliver of time this leaves is not
+        # worth that cost — enabling two-factor authentication does not revoke
+        # existing sessions, so a password holder who logged in a moment earlier
+        # keeps their session either way.
+        return _create_authenticated_session("login_user", request, existing, ip, remember_me)
     else:
         logger.warning("Login failed: No user exists with that information")
         return log_and_return_json("login_user", {'error': "Invalid username or password"}, status=400)
@@ -635,14 +771,18 @@ def login_user_with_remember_me(request):
 
     # Alert the user by email if this remember-me login is from a device (IP+user-agent)
     # we have not seen for them before.
-    _record_device_and_maybe_notify(existing, ip,request=request)
+    _record_device_and_maybe_notify(existing, ip, request=request)
 
     response_data = {
         Fields.login_cookie_token: new_login_cookie_token,
         Fields.session_management_token: new_session_management_token
     }
     logger.info(f"Login with remember me successful for user_id: {existing.id}")
-    return log_and_return_json("login_user_with_remember_me", response_data)
+    # The body carries the session token and the rotated remember-me cookie, so
+    # keep it out of any intermediary/proxy cache.
+    response = log_and_return_json("login_user_with_remember_me", response_data)
+    response['Cache-Control'] = 'no-store'
+    return response
 
 
 @csrf_exempt
@@ -683,6 +823,287 @@ def delete_user(request):
     except Exception as e:
         logger.error(f"Error deleting user {request.user.id}: {e}")
         return log_and_return_json("delete_user", {'error': f"Error deleting user {e}"}, status=400)
+
+
+# =============================================================================
+# TWO-FACTOR AUTHENTICATION VIEWS
+# =============================================================================
+
+@ratelimit(key=_get_client_ip, rate='10/m', block=True)
+@csrf_exempt
+@require_POST
+def login_user_2fa(request):
+    """Second step of a two-factor login: exchange the challenge token from
+    login_user plus a TOTP code (or a recovery code) for a real session."""
+    logger.info("Endpoint login_user_2fa invoked by IP or User")
+    data = _get_json_body(request)
+    if data is None:
+        return log_and_return_json("login_user_2fa", {'error': "Invalid JSON data"}, status=400)
+
+    challenge_token = data.get(Fields.challenge_token)
+    totp_code = data.get(Fields.totp_code)
+    recovery_code = _normalize_recovery_code(data.get(Fields.recovery_code))
+    ip = _get_client_ip(None, request)
+
+    invalid_fields = []
+    if (not challenge_token or not isinstance(challenge_token, str)
+            or not is_valid_pattern(challenge_token, Patterns.hex_token)):
+        invalid_fields.append(Params.challenge_token)
+    # Exactly one of the two code kinds must be supplied.
+    if bool(totp_code) == bool(recovery_code):
+        invalid_fields.extend([Params.totp_code, Params.recovery_code])
+    elif totp_code and not (isinstance(totp_code, str) and is_valid_pattern(totp_code, Patterns.totp_code)):
+        invalid_fields.append(Params.totp_code)
+    elif recovery_code and not (isinstance(recovery_code, str)
+                                and is_valid_pattern(recovery_code, Patterns.recovery_code)):
+        invalid_fields.append(Params.recovery_code)
+    if len(invalid_fields) > 0:
+        return log_and_return_json("login_user_2fa", {'error': f"Invalid fields {invalid_fields}"}, status=400)
+
+    submitted_hash = hashlib.sha256(challenge_token.encode()).hexdigest()
+
+    # Find the challenge unlocked first, only to learn which user it belongs to.
+    # The locks are then taken in a consistent order — the user row first, then
+    # the challenge row — matching login_user and disable_totp, so these flows
+    # can never deadlock by grabbing the two locks in opposite orders.
+    challenge_ref = TwoFactorChallenge.objects.filter(token_hash=submitted_hash).first()
+    if challenge_ref is None:
+        logger.warning("Two-factor login failed: Invalid or expired challenge")
+        return log_and_return_json("login_user_2fa", {'error': INVALID_TWO_FACTOR_CHALLENGE}, status=400)
+
+    with transaction.atomic():
+        # Lock the user row first: the replay guard (totp_last_used_step) and the
+        # single-use recovery codes must not race a concurrent attempt.
+        user = get_user_model().objects.select_for_update().get(pk=challenge_ref.user_id)
+        challenge = TwoFactorChallenge.objects.select_for_update().filter(pk=challenge_ref.pk).first()
+        if challenge is None or timezone.now() > challenge.expires:
+            if challenge is not None:
+                challenge.delete()
+            logger.warning("Two-factor login failed: Invalid or expired challenge")
+            return log_and_return_json("login_user_2fa", {'error': INVALID_TWO_FACTOR_CHALLENGE}, status=400)
+
+        # Re-run the account gates from login_user; the account's state may
+        # have changed between the password step and this one. Burn the
+        # challenge on the way out: it is a password-less credential, so a
+        # failed gate should not leave it usable until expiry (and the user
+        # will re-authenticate from the top anyway).
+        if has_active_outright_ban(user):
+            challenge.delete()
+            logger.warning(f"Two-factor login failed: Account banned for user_id: {user.id}")
+            return log_and_return_json("login_user_2fa", {'error': ACCOUNT_BANNED}, status=403)
+        if not user.email_verified:
+            challenge.delete()
+            logger.warning(f"Two-factor login failed: Email not verified for user_id: {user.id}")
+            return log_and_return_json("login_user_2fa", {'error': EMAIL_NOT_VERIFIED}, status=403)
+
+        if totp_code:
+            # _verify_totp_code guards a missing secret itself.
+            code_ok = _verify_totp_code(user, totp_code)
+        else:
+            code_ok = _consume_recovery_code(user, recovery_code)
+
+        if not code_ok:
+            challenge.failed_attempts += 1
+            if challenge.failed_attempts >= TWO_FACTOR_MAX_ATTEMPTS:
+                challenge.delete()
+                logger.warning(
+                    f"Two-factor login invalidated after {TWO_FACTOR_MAX_ATTEMPTS} "
+                    f"failed attempts for user_id: {user.id}"
+                )
+                # The challenge is gone, so report it with the same stable code
+                # as the expired/used cases — otherwise a client keying off that
+                # code would leave the user on the code step with a dead
+                # challenge. The 429 status still distinguishes "you burned it"
+                # from "it expired" for anything that wants to say so.
+                return log_and_return_json("login_user_2fa", {
+                    'error': INVALID_TWO_FACTOR_CHALLENGE
+                }, status=429)
+            challenge.save(update_fields=['failed_attempts'])
+            logger.warning(f"Two-factor login failed: Invalid code for user_id: {user.id}")
+            return log_and_return_json("login_user_2fa", {'error': "Invalid two-factor code"}, status=400)
+
+        remember_me = challenge.remember_me
+        challenge.delete()
+
+    return _create_authenticated_session("login_user_2fa", request, user, ip, remember_me)
+
+
+@csrf_exempt
+@api_login_required
+@ratelimit(key='user', rate='10/h', block=True)
+@require_POST
+def setup_totp(request):
+    """Start TOTP enrollment: generate a secret and return it with the
+    otpauth:// provisioning URI. Nothing is enforced until confirm_totp
+    proves the authenticator works."""
+    logger.info("Endpoint setup_totp invoked by IP or User")
+    user = request.user
+
+    # Lock the user row and re-check inside the transaction: without it a
+    # concurrent confirm_totp could enable 2FA between the check and the write,
+    # and this would then overwrite the just-confirmed secret — locking the user
+    # out of their own authenticator. Same user-first lock order as the other
+    # 2FA views.
+    with transaction.atomic():
+        user = get_user_model().objects.select_for_update().get(pk=user.pk)
+
+        if user.totp_enabled:
+            return log_and_return_json("setup_totp",
+                                       {'error': "Two-factor authentication is already enabled"}, status=400)
+
+        # Re-running setup before confirming simply replaces the pending secret.
+        user.totp_secret = pyotp.random_base32()
+        user.totp_last_used_step = None
+        user.save(update_fields=['totp_secret', 'totp_last_used_step'])
+
+    # Set the interval explicitly so the otpauth:// period matches the
+    # server-side verification window in _verify_totp_code.
+    uri = pyotp.totp.TOTP(user.totp_secret, interval=_TOTP_PERIOD_SECONDS).provisioning_uri(
+        name=user.email, issuer_name=TOTP_ISSUER)
+    response = log_and_return_json("setup_totp", {
+        Fields.totp_secret: user.totp_secret,
+        Fields.otpauth_uri: uri,
+    })
+    response['Cache-Control'] = 'no-store'
+    return response
+
+
+@csrf_exempt
+@api_login_required
+@ratelimit(key='user', rate='10/h', block=True)
+@require_POST
+def confirm_totp(request):
+    """Finish TOTP enrollment: verify the account password and one code from the
+    authenticator, flip totp_enabled, and hand back the single batch of recovery
+    codes.
+
+    The password is required for the same reason disable_totp requires it, in the
+    opposite direction. Enrollment is the more dangerous half: someone holding a
+    stolen session could otherwise bind their own authenticator to the account,
+    read the one-time recovery codes off the response, and lock the real owner
+    out for good — turning temporary session theft into a permanent takeover that
+    the owner cannot undo, because disable_totp then demands a code only the
+    attacker has.
+    """
+    logger.info("Endpoint confirm_totp invoked by IP or User")
+    user = request.user
+    data = _get_json_body(request)
+    if data is None:
+        return log_and_return_json("confirm_totp", {'error': "Invalid JSON data"}, status=400)
+
+    password = data.get(Fields.password)
+    totp_code = data.get(Fields.totp_code)
+
+    invalid_fields = []
+    # isinstance matters here: is_valid_pattern coerces with str(), so a JSON
+    # number would satisfy the regex and then blow up inside check_password —
+    # a 500 where this should be a plain 400. Matches disable_totp.
+    if not password or not isinstance(password, str) or not is_valid_pattern(password, Patterns.login_password):
+        invalid_fields.append(Params.password)
+    if not totp_code or not isinstance(totp_code, str) or not is_valid_pattern(totp_code, Patterns.totp_code):
+        invalid_fields.append(Params.totp_code)
+    if len(invalid_fields) > 0:
+        return log_and_return_json("confirm_totp", {'error': f"Invalid fields {invalid_fields}"}, status=400)
+
+    # Lock the user row so the replay guard in _verify_totp_code (which reads and
+    # writes totp_last_used_step) cannot race a concurrent confirm/verify, and so
+    # the password check below is evaluated against the same row that gets
+    # enrolled.
+    with transaction.atomic():
+        user = get_user_model().objects.select_for_update().get(pk=user.pk)
+
+        if user.totp_enabled:
+            return log_and_return_json("confirm_totp",
+                                       {'error': "Two-factor authentication is already enabled"}, status=400)
+        if not user.totp_secret:
+            return log_and_return_json("confirm_totp",
+                                       {'error': "Two-factor setup has not been started"}, status=400)
+
+        if not check_password(password, user.password):
+            logger.warning(f"TOTP confirmation failed: Password was not correct for user_id: {user.id}")
+            return log_and_return_json("confirm_totp", {'error': "Invalid password"}, status=400)
+
+        if not _verify_totp_code(user, totp_code):
+            logger.warning(f"TOTP confirmation failed: Invalid code for user_id: {user.id}")
+            return log_and_return_json("confirm_totp", {'error': "Invalid two-factor code"}, status=400)
+
+        user.totp_enabled = True
+        user.save(update_fields=['totp_enabled'])
+        raw_codes = _issue_recovery_codes(user)
+
+    logger.info(f"Two-factor authentication enabled for user_id: {user.id}")
+    response = log_and_return_json("confirm_totp", {
+        Fields.totp_enabled: True,
+        Fields.recovery_codes: raw_codes,
+    })
+    response['Cache-Control'] = 'no-store'
+    return response
+
+
+@csrf_exempt
+@api_login_required
+@ratelimit(key='user', rate='10/h', block=True)
+@require_POST
+def disable_totp(request):
+    """Turn two-factor authentication off. Requires the account password plus
+    a current TOTP code or an unused recovery code, so a stolen session alone
+    cannot strip the protection."""
+    logger.info("Endpoint disable_totp invoked by IP or User")
+    user = request.user
+    data = _get_json_body(request)
+    if data is None:
+        return log_and_return_json("disable_totp", {'error': "Invalid JSON data"}, status=400)
+
+    password = data.get(Fields.password)
+    totp_code = data.get(Fields.totp_code)
+    recovery_code = _normalize_recovery_code(data.get(Fields.recovery_code))
+
+    invalid_fields = []
+    # isinstance matters here: is_valid_pattern coerces with str(), so a JSON
+    # number would satisfy the regex and then blow up inside check_password —
+    # a 500 where this should be a plain 400. Matches the code checks below.
+    if not password or not isinstance(password, str) or not is_valid_pattern(password, Patterns.login_password):
+        invalid_fields.append(Params.password)
+    if bool(totp_code) == bool(recovery_code):
+        invalid_fields.extend([Params.totp_code, Params.recovery_code])
+    elif totp_code and not (isinstance(totp_code, str) and is_valid_pattern(totp_code, Patterns.totp_code)):
+        invalid_fields.append(Params.totp_code)
+    elif recovery_code and not (isinstance(recovery_code, str)
+                                and is_valid_pattern(recovery_code, Patterns.recovery_code)):
+        invalid_fields.append(Params.recovery_code)
+    if len(invalid_fields) > 0:
+        return log_and_return_json("disable_totp", {'error': f"Invalid fields {invalid_fields}"}, status=400)
+
+    # Lock the user row for the whole check-and-disable so the TOTP replay guard
+    # and single-use recovery-code consumption cannot race a concurrent request.
+    with transaction.atomic():
+        user = get_user_model().objects.select_for_update().get(pk=user.pk)
+
+        if not user.totp_enabled:
+            return log_and_return_json("disable_totp",
+                                       {'error': "Two-factor authentication is not enabled"}, status=400)
+
+        if not check_password(password, user.password):
+            logger.warning(f"TOTP disable failed: Password was not correct for user_id: {user.id}")
+            return log_and_return_json("disable_totp", {'error': "Invalid password"}, status=400)
+
+        if totp_code:
+            code_ok = _verify_totp_code(user, totp_code)
+        else:
+            code_ok = _consume_recovery_code(user, recovery_code)
+        if not code_ok:
+            logger.warning(f"TOTP disable failed: Invalid code for user_id: {user.id}")
+            return log_and_return_json("disable_totp", {'error': "Invalid two-factor code"}, status=400)
+
+        user.totp_secret = None
+        user.totp_enabled = False
+        user.totp_last_used_step = None
+        user.save(update_fields=['totp_secret', 'totp_enabled', 'totp_last_used_step'])
+        user.recovery_codes.all().delete()
+        user.two_factor_challenges.all().delete()
+
+    logger.info(f"Two-factor authentication disabled for user_id: {user.id}")
+    return log_and_return_json("disable_totp", {Fields.totp_enabled: False})
 
 
 # =============================================================================
@@ -1029,7 +1450,10 @@ def make_post(request):
         # The key must be scoped to this user (clients upload to `{user_id}/...`).
         elif not image_url_to_key(image_url).startswith(f"{request.user.id}/"):
             invalid_fields.append(Params.image)
-    if (not caption or ";" in caption or not is_valid_pattern(caption,Patterns.alphanumeric_with_special_chars)):
+    if (not caption
+            or not isinstance(caption, str)
+            or ";" in caption
+            or not is_valid_pattern(caption, Patterns.alphanumeric_with_special_chars)):
         invalid_fields.append(Params.caption)
 
     if len(invalid_fields) > 0:
@@ -1040,86 +1464,45 @@ def make_post(request):
         logger.warning(f"Make post failed: Caption too long ({len(caption)} chars) for user_id: {request.user.id}")
         return log_and_return_json("make_post", {'error': f"Caption exceeds maximum length of {MAX_CAPTION_LENGTH} characters"}, status=400)
 
-    # The text and image classifiers each make external AI calls, so dispatch
-    # them concurrently rather than back-to-back: when both outcomes are needed
-    # the request waits on the slower of the two cascades instead of their sum,
-    # which keeps post creation under the gateway timeout (the cause of the 504
-    # in #274). We still only block on the image result when the text result
-    # doesn't already settle the request (see below). A rejection that is not
-    # appealable is final: reject outright and do not create the post. An
-    # appealable rejection still creates the post but hides it pending appeal
-    # (handled below).
-    text_future = _CLASSIFICATION_EXECUTOR.submit(text_classifier_class.is_text_positive, caption)
-    image_future = (_CLASSIFICATION_EXECUTOR.submit(image_classifier_class.is_image_positive, image_url)
-                    if image_url else None)
-    text_result = text_future.result()
-
-    # Text rejection takes precedence in the message shown to the user, matching
-    # the previous text-first ordering. A final (non-appealable) text rejection
-    # is decisive, so return immediately without blocking on the image future:
-    # the image cascade is the slower of the two, and waiting on it once the
-    # outcome is already settled would needlessly hold the 400 path open and risk
-    # the gateway timeout from #274. The image future still runs to completion in
-    # the executor, so no worker is leaked.
-    if not text_result and not text_result.appealable:
-        logger.warning(f"Make post failed: Caption not positive (final) for user_id: {request.user.id}")
-        # The post is never created, so clean up the image the client already
-        # uploaded rather than orphaning it in S3.
+    # The AI cascades no longer run on the request path (issue #282): only this
+    # cheap local pre-filter does. A blatant hit keeps the old synchronous UX —
+    # rejected immediately, final, post never created, uploaded image cleaned
+    # up — and everything subtler goes through the async review below.
+    prefilter_result = prefilter_text(caption)
+    if not prefilter_result:
+        logger.warning(f"Make post failed: Caption failed the pre-filter (final) for user_id: {request.user.id}")
         if image_url:
             delete_image(image_url)
         return log_and_return_json("make_post", {
-            'error': f"Text is not positive because your caption {text_result.public_reason()}. "
+            'error': f"Text is not positive because your caption {prefilter_result.public_reason()}. "
                      "This decision is final and cannot be appealed.",
-            Fields.reason_code: text_result.public_reason_code(),
+            Fields.reason_code: prefilter_result.public_reason_code(),
             Fields.appealable: False,
+            Fields.status: POST_STATUS_REJECTED_FINAL,
         }, status=400)
 
-    # Text passed (or is appealable), so the image outcome is now needed to
-    # decide between rejection, an appealable hidden post, or a clean post.
-    # A text-only post has no image to classify, so it is treated as allowed
-    # and visibility depends solely on the text result.
-    image_result = image_future.result() if image_future else ClassificationResult(allowed=True)
-
-    if not image_result and not image_result.appealable:
-        logger.warning(f"Make post failed: Image not positive (final) for user_id: {request.user.id}")
-        delete_image(image_url)
-        return log_and_return_json("make_post", {
-            'error': f"Image is not positive because it {image_result.public_reason()}. "
-                     "This decision is final and cannot be appealed.",
-            Fields.reason_code: image_result.public_reason_code(),
-            Fields.appealable: False,
-        }, status=400)
-
-    # Any remaining rejection is appealable, so post it but hide it pending
-    # appeal. The visibility layer already shows authors their own hidden posts
-    # while hiding them from everyone else, so no extra visibility wiring is
-    # needed here.
-    hidden = not (text_result and image_result)
+    # Create the post hidden in the pending state and hand classification to
+    # the worker. visible_posts() already shows authors their own hidden posts
+    # while hiding them from everyone else, so a pending post is visible only
+    # to its author with no extra wiring; the worker later flips it to visible,
+    # or to hidden + appealable, or to a final-rejection tombstone.
     new_post = request.user.post_set.create(
-        image_url=image_url, caption=caption, hidden=hidden,
-        hidden_reason=HIDDEN_REASON_CLASSIFIER if hidden else HIDDEN_REASON_NONE)
+        image_url=image_url, caption=caption, hidden=True,
+        hidden_reason=HIDDEN_REASON_PENDING_CLASSIFICATION)
+    tasks.enqueue_classification(new_post.post_identifier)
 
-    response = {Fields.post_identifier: new_post.post_identifier}
-    if hidden:
-        logger.info(f"Post created hidden pending appeal: post_id: {new_post.post_identifier} for user_id: {request.user.id}")
-        blocked_parts = []
-        if not text_result:
-            blocked_parts.append(f"your caption {text_result.public_reason()}")
-        if not image_result:
-            blocked_parts.append(f"your image {image_result.public_reason()}")
-        # Text precedence for the machine-readable code, matching the final-
-        # rejection paths above.
-        reason_result = text_result if not text_result else image_result
-        response[Fields.hidden] = True
-        response[Fields.hidden_reason] = HIDDEN_REASON_CLASSIFIER
-        response[Fields.reason_code] = reason_result.public_reason_code()
-        response[Fields.appealable] = True
-        response['message'] = (f"Your post did not pass automated review because "
-                               f"{' and '.join(blocked_parts)}. It is hidden for now "
-                               "but you can appeal the decision.")
-    else:
-        logger.info(f"Post created successfully: post_id: {new_post.post_identifier} for user_id: {request.user.id}")
-    return log_and_return_json("make_post", response, status=201)
+    logger.info(f"Post created pending classification: post_id: {new_post.post_identifier} for user_id: {request.user.id}")
+    # hidden/hidden_reason are included so clients predating the async flow
+    # (which branch on `hidden`) degrade to showing this message rather than
+    # treating the post as live.
+    return log_and_return_json("make_post", {
+        Fields.post_identifier: new_post.post_identifier,
+        Fields.status: POST_STATUS_PENDING,
+        Fields.hidden: True,
+        Fields.hidden_reason: HIDDEN_REASON_PENDING_CLASSIFICATION,
+        Fields.appealable: False,
+        'message': "Your post is being reviewed and will be visible to others once it is approved.",
+    }, status=201)
 
 
 @csrf_exempt
@@ -1293,9 +1676,147 @@ def unlike_post(request, post_identifier):
         return log_and_return_json("unlike_post", {'error': "No post with that identifier"}, status=400)
 
 
+def _classification_message(post):
+    """User-facing sentence describing a post's classification state, or None
+    when there is nothing to explain (approved). Built exclusively from fixed
+    phrases keyed by the stored reason code, so nothing model-generated ever
+    reaches the client."""
+    status = post.classification_status
+    if status == POST_STATUS_PENDING:
+        return "Your post is being reviewed and will be visible to others once it is approved."
+    # .get with the generic fallback so an unrecognized stored code (e.g. an
+    # admin edit) degrades to the generic phrase rather than a 500.
+    phrase = REASON_PHRASES.get(post.classification_reason_code or GENERIC_REASON_CODE,
+                                REASON_PHRASES[GENERIC_REASON_CODE])
+    if status == POST_STATUS_REJECTED:
+        return (f"Your post did not pass automated review because it {phrase}. "
+                "It is hidden for now but you can appeal the decision.")
+    if status == POST_STATUS_REJECTED_FINAL:
+        return (f"Your post did not pass automated review because it {phrase}. "
+                "This decision is final and cannot be appealed.")
+    return None
+
+
+def _author_status_fields(post, viewer):
+    """Classification-status fields merged into post payloads, but only for the
+    post's own author: other viewers never see pending/rejected posts at all
+    (visible_posts filters them), and the moderation state of someone else's
+    post is not their business."""
+    if post.author_id != viewer.id:
+        return {}
+    return {
+        Fields.status: post.classification_status,
+        Fields.hidden: post.hidden,
+        Fields.hidden_reason: post.hidden_reason,
+        Fields.reason_code: post.classification_reason_code,
+        Fields.appealable: post.appealable,
+    }
+
+
+@api_login_required
+# Higher than the standard 60/m read limit: the post-submit reconcile poll
+# checks up to 3 pending posts every 3s (60 requests/min worst case), and the
+# ceiling must leave headroom for the user's other reads. The query is a cheap
+# author-only primary-key lookup.
+@ratelimit(key='user', rate='120/m', block=True)
+@require_GET
+def get_post_status(request, post_identifier):
+    """Classification status of one of the caller's own posts.
+
+    Clients poll this briefly after a pending create (and read the same fields
+    from feed/profile payloads on refresh) to reconcile the async outcome.
+    Author-only: a post belonging to someone else is reported exactly like a
+    missing one so the endpoint cannot be used to probe moderation states.
+    """
+    logger.info("Endpoint get_post_status invoked by IP or User")
+    if not is_valid_pattern(post_identifier, Patterns.uuid4):
+        return log_and_return_json("get_post_status", {'error': f"Invalid fields {Fields.post_identifier}"}, status=400)
+
+    post = request.user.post_set.filter(post_identifier=post_identifier).first()
+    if post is None:
+        return log_and_return_json("get_post_status", {'error': "No post with that identifier by that user"}, status=400)
+
+    data = {
+        Fields.post_identifier: post.post_identifier,
+        Fields.status: post.classification_status,
+        Fields.reason_code: post.classification_reason_code,
+        Fields.appealable: post.appealable,
+        Fields.hidden: post.hidden,
+        Fields.hidden_reason: post.hidden_reason,
+    }
+    message = _classification_message(post)
+    if message:
+        data['message'] = message
+    return log_and_return_json("get_post_status", data)
+
+
 # =============================================================================
 # FEED / POST RETRIEVAL VIEWS
 # =============================================================================
+
+def build_post_interaction_state(user, posts):
+    """Bulk-load the per-post detail a client needs to render and act on a batch.
+
+    The listing endpoints below return rows the user can like, report, retract a
+    report on, or delete in place (issue #267), and which show the author, the
+    post time and a comment count (issue #249). So each row carries the same
+    interaction state the post-details endpoint returns, plus a comment count.
+    Everything is fetched in four grouped queries rather than per post,
+    mirroring get_comments_for_thread.
+
+    Returns a callable taking a Post and returning the dict of state fields to
+    merge into that post's payload.
+    """
+    liked_post_ids = set()
+    my_report_reasons = {}
+    like_counts = {}
+    comment_counts = {}
+
+    # Paginating past the end is ordinary client behaviour, and the batch is
+    # then empty. Every grouped query below would return nothing, so skip them
+    # rather than spend four round trips confirming it.
+    if posts:
+        liked_post_ids = set(
+            user.postlike_set
+            .filter(post__in=posts)
+            .values_list('post_id', flat=True)
+        )
+        # The caller's own report reason per post, so clients can offer "retract
+        # report" with the original reason pre-filled instead of "report".
+        my_report_reasons = dict(
+            user.postreport_set
+            .filter(post__in=posts)
+            .values_list('post_id', 'reason')
+        )
+        like_counts = dict(
+            PostLike.objects
+            .filter(post__in=posts)
+            .values('post_id')
+            .annotate(count=Count('post_id'))
+            .values_list('post_id', 'count')
+        )
+        # Comment counts respect the same visibility rule as the thread listing,
+        # so a row never advertises comments the viewer would not be shown (#249).
+        comment_counts = dict(
+            visible_comments(Comment.objects.filter(comment_thread__post__in=posts), user)
+            .values('comment_thread__post_id')
+            .annotate(count=Count('comment_identifier'))
+            .values_list('comment_thread__post_id', 'count')
+        )
+
+    def state_for(post):
+        return {
+            Fields.post_likes: like_counts.get(post.post_identifier, 0),
+            Fields.is_liked: post.post_identifier in liked_post_ids,
+            Fields.is_reported: post.post_identifier in my_report_reasons,
+            Fields.report_reason: my_report_reasons.get(post.post_identifier),
+            Fields.comment_count: comment_counts.get(post.post_identifier, 0),
+            # Drives the "3 hours ago" label under each post (#249).
+            Fields.creation_time: post.creation_time,
+        }
+
+    return state_for
+
 
 @api_login_required
 @ratelimit(key='user', rate='60/m', block=True)
@@ -1316,7 +1837,8 @@ def get_posts_in_feed(request, batch):
     relevant_posts = visible_posts(relevant_posts, request.user)
 
     if relevant_posts.count() > 0:
-        batched_posts = get_batch(batch, POST_BATCH_SIZE, relevant_posts)
+        batched_posts = get_queryset_batch(relevant_posts, batch, POST_BATCH_SIZE)
+        interaction_state = build_post_interaction_state(request.user, batched_posts)
         posts_data = [
             {
                 Fields.post_identifier: post.post_identifier,
@@ -1325,7 +1847,12 @@ def get_posts_in_feed(request, batch):
                 # Lambda-generated compressed copy is still missing (#252/#254).
                 Fields.original_image_url: post.image_url,
                 Fields.author_username: post.author.username,
-                Fields.caption: post.caption
+                Fields.caption: post.caption,
+                **interaction_state(post),
+                # Authors see their own pending/hidden posts in feeds, so their
+                # payloads carry the classification state for the client to
+                # render (review-in-progress placeholder, appeal CTA, ...).
+                **_author_status_fields(post, request.user),
             }
             for post in batched_posts
         ]
@@ -1356,7 +1883,8 @@ def get_posts_for_followed_users(request, batch):
     posts_queryset = visible_posts(
         Post.objects.filter(author__in=followed_users), request.user
     ).order_by('-creation_time')
-    posts_batch = get_batch(batch, POST_BATCH_SIZE, posts_queryset)
+    posts_batch = get_queryset_batch(posts_queryset, batch, POST_BATCH_SIZE)
+    interaction_state = build_post_interaction_state(request.user, posts_batch)
 
     posts_data = [
         {
@@ -1366,7 +1894,9 @@ def get_posts_for_followed_users(request, batch):
             # Lambda-generated compressed copy is still missing (#252/#254).
             Fields.original_image_url: post.image_url,
             Fields.author_username: post.author.username,
-            Fields.caption: post.caption
+            Fields.caption: post.caption,
+            **interaction_state(post),
+            **_author_status_fields(post, request.user),
         }
         for post in posts_batch
     ]
@@ -1400,7 +1930,8 @@ def get_posts_for_user(request, username, batch):
     )
 
     if relevant_posts.count() > 0:
-        batched_posts = get_batch(batch, POST_BATCH_SIZE, relevant_posts)
+        batched_posts = get_queryset_batch(relevant_posts, batch, POST_BATCH_SIZE)
+        interaction_state = build_post_interaction_state(request.user, batched_posts)
         posts_data = [
             {
                 Fields.post_identifier: post.post_identifier,
@@ -1413,7 +1944,11 @@ def get_posts_for_user(request, username, batch):
                 # user re-logs in. See issues #252 and #254.
                 Fields.original_image_url: post.image_url,
                 Fields.caption: post.caption,
-                Fields.author_username: target_user.username
+                Fields.author_username: target_user.username,
+                **interaction_state(post),
+                # The author's own profile grid includes pending/hidden posts;
+                # these fields let the client render their state.
+                **_author_status_fields(post, request.user),
             }
             for post in batched_posts
         ]
@@ -1448,7 +1983,8 @@ def get_post_details(request, post_identifier):
             Fields.is_liked: post.postlike_set.filter(user=request.user).exists(),
             Fields.is_reported: my_report is not None,
             Fields.report_reason: my_report.reason if my_report is not None else None,
-            Fields.author_username: post.author.username
+            Fields.author_username: post.author.username,
+            **_author_status_fields(post, request.user),
         }
         return log_and_return_json("get_post_details", post_data)
     else:
@@ -1475,7 +2011,10 @@ def comment_on_post(request, post_identifier):
 
     if not is_valid_pattern(post_identifier, Patterns.uuid4):
         return log_and_return_json("comment_on_post", {'error': "Invalid post_identifier"}, status=400)
-    if (not comment_text or ";" in comment_text or not is_valid_pattern(comment_text,Patterns.alphanumeric_with_special_chars)):
+    if (not comment_text
+            or not isinstance(comment_text, str)
+            or ";" in comment_text
+            or not is_valid_pattern(comment_text, Patterns.alphanumeric_with_special_chars)):
         return log_and_return_json("comment_on_post", {'error': "Invalid comment text"}, status=400)
     if len(comment_text) > MAX_COMMENT_LENGTH:
         return log_and_return_json("comment_on_post", {'error': f"Comment exceeds maximum length of {MAX_COMMENT_LENGTH} characters"}, status=400)
@@ -1545,7 +2084,7 @@ def reply_to_comment_thread(request, post_identifier, comment_thread_identifier)
         invalid_fields.append(Params.post_identifier)
     if not is_valid_pattern(comment_thread_identifier, Patterns.uuid4):
         invalid_fields.append(Params.comment_thread_identifier)
-    if not comment_text or ";" in comment_text or not is_valid_pattern(comment_text, Patterns.alphanumeric_with_special_chars):
+    if not comment_text or not isinstance(comment_text, str) or ";" in comment_text or not is_valid_pattern(comment_text, Patterns.alphanumeric_with_special_chars):
         invalid_fields.append(Params.comment_text)
 
     if len(invalid_fields) > 0:
@@ -2033,6 +2572,25 @@ def toggle_block(request, username_to_toggle_block):
 @api_login_required
 @ratelimit(key='user', rate='30/m', block=True)
 @require_GET
+def get_blocked_users(request):
+    logger.info("Endpoint get_blocked_users invoked by IP or User")
+    # user is on request.user
+    blocked_users = request.user.blocked.order_by('username')
+
+    users_data = [
+        {
+            Fields.username: user.username,
+            Fields.identity_is_verified: user.identity_is_verified
+        }
+        for user in blocked_users
+    ]
+    logger.info(f"Get blocked users successful: count: {len(users_data)} for user_id: {request.user.id}")
+    return log_and_return_json("get_blocked_users", users_data, safe=False)
+
+
+@api_login_required
+@ratelimit(key='user', rate='30/m', block=True)
+@require_GET
 def get_profile_details(request, username):
     logger.info("Endpoint get_profile_details invoked by IP or User")
     # user is on request.user (requesting_user)
@@ -2124,7 +2682,10 @@ def get_hidden_posts(request, batch):
     if batch < 0:
         return log_and_return_json("get_hidden_posts", {'error': "Invalid batch parameter"}, status=400)
 
-    hidden = request.user.post_set.filter(hidden=True).order_by('-creation_time')
+    # Pending posts have not been rejected (nothing to appeal yet) and final
+    # rejections are terminal tombstones, so neither belongs on this screen.
+    hidden = request.user.post_set.filter(hidden=True).exclude(
+        hidden_reason__in=NON_APPEALABLE_HIDDEN_REASONS).order_by('-creation_time')
     batched = get_queryset_batch(hidden, batch, POST_BATCH_SIZE)
     appealed_ids = set(
         Appeal.objects.filter(post__in=batched).values_list('post_id', flat=True)
@@ -2209,7 +2770,11 @@ def _resolve_appeal_target(request, target_type, target_identifier):
     if target_type == APPEAL_TARGET_POST:
         if not is_valid_pattern(target_identifier, Patterns.uuid4):
             return None
-        post = request.user.post_set.filter(post_identifier=target_identifier, hidden=True).first()
+        # A post pending classification has not been rejected (nothing to
+        # appeal), and a final classifier rejection is terminal by definition.
+        post = request.user.post_set.filter(
+            post_identifier=target_identifier, hidden=True
+        ).exclude(hidden_reason__in=NON_APPEALABLE_HIDDEN_REASONS).first()
         if post is None:
             return None
         return APPEAL_TARGET_POST, post, post.caption

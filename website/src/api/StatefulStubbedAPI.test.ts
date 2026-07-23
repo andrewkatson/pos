@@ -1,5 +1,6 @@
-import { ApiError } from './client'
-import { StatefulStubbedAPI } from './StatefulStubbedAPI'
+import { ApiError, INVALID_TWO_FACTOR_CHALLENGE } from './client'
+import { STUB_TOTP_CODE, StatefulStubbedAPI } from './StatefulStubbedAPI'
+import { isTwoFactorRequired } from './types'
 import type { RegisterRequest } from './types'
 
 function register(api: StatefulStubbedAPI, username: string) {
@@ -183,6 +184,23 @@ test('blocking a user hides their profile stats and severs following', async () 
   expect(profile.is_following).toBe(false)
 })
 
+test('getBlockedUsers lists blocks sorted by username and empties after unblock', async () => {
+  const api = new StatefulStubbedAPI()
+  await register(api, 'zed')
+  await register(api, 'amy')
+
+  await register(api, 'viewer')
+  expect(await api.getBlockedUsers()).toEqual([])
+
+  await api.toggleBlock('zed')
+  await api.toggleBlock('amy')
+  expect((await api.getBlockedUsers()).map((u) => u.username)).toEqual(['amy', 'zed'])
+
+  // Toggling again unblocks.
+  await api.toggleBlock('amy')
+  expect((await api.getBlockedUsers()).map((u) => u.username)).toEqual(['zed'])
+})
+
 test('logout clears the session token', async () => {
   const api = new StatefulStubbedAPI()
   await register(api, 'ada')
@@ -213,6 +231,7 @@ test('password reset flow updates the password', async () => {
     username_or_email: 'ada',
     password: 'newpassword1',
   })
+  if (isTwoFactorRequired(login)) throw new Error('expected a session, not a challenge')
   expect(login.username).toBe('ada')
 })
 
@@ -300,4 +319,187 @@ test('rejects an invalid appeal target type', async () => {
     // 'ban' is not appealable in-app; cast past the type to exercise the guard.
     api.submitAppeal({ target_type: 'ban' as never, target_identifier: '1', reason: 'x' }),
   ).rejects.toThrow('Invalid target_type')
+})
+
+// ---------------------------------------------------------------------------
+// Two-factor authentication
+// ---------------------------------------------------------------------------
+
+async function enableTwoFactor(api: StatefulStubbedAPI) {
+  await api.setupTotp()
+  return api.confirmTotp({ password: 'password123', totp_code: STUB_TOTP_CODE })
+}
+
+test('totp setup returns a secret and provisioning uri', async () => {
+  const api = new StatefulStubbedAPI()
+  await register(api, 'ada')
+
+  const setup = await api.setupTotp()
+
+  expect(setup.totp_secret.length).toBeGreaterThan(0)
+  expect(setup.otpauth_uri.startsWith('otpauth://totp/')).toBe(true)
+})
+
+test('confirming with the stub code enables 2fa and returns recovery codes', async () => {
+  const api = new StatefulStubbedAPI()
+  await register(api, 'ada')
+
+  const confirm = await enableTwoFactor(api)
+
+  expect(confirm.totp_enabled).toBe(true)
+  expect(confirm.recovery_codes).toHaveLength(10)
+})
+
+test('confirming with a wrong code fails and 2fa stays off', async () => {
+  const api = new StatefulStubbedAPI()
+  await register(api, 'ada')
+  await api.setupTotp()
+
+  await expect(
+    api.confirmTotp({ password: 'password123', totp_code: '000000' }),
+  ).rejects.toThrow('Invalid two-factor code')
+
+  // Login still single-step.
+  const login = await api.login({ username_or_email: 'ada', password: 'password123' })
+  expect('session_management_token' in login).toBe(true)
+})
+
+test('login for an enrolled account returns a challenge, and the code exchanges it', async () => {
+  const api = new StatefulStubbedAPI()
+  await register(api, 'ada')
+  await enableTwoFactor(api)
+  await api.logout()
+
+  const login = await api.login({ username_or_email: 'ada', password: 'password123' })
+  if (!('two_factor_required' in login)) {
+    throw new Error('expected a two-factor challenge')
+  }
+  expect(api.isAuthenticated()).toBe(false)
+
+  const session = await api.loginWithTwoFactor({
+    challenge_token: login.challenge_token,
+    totp_code: STUB_TOTP_CODE,
+  })
+  expect(session.username).toBe('ada')
+  expect(api.isAuthenticated()).toBe(true)
+
+  // The challenge is single-use.
+  await expect(
+    api.loginWithTwoFactor({ challenge_token: login.challenge_token, totp_code: STUB_TOTP_CODE }),
+  ).rejects.toThrow(INVALID_TWO_FACTOR_CHALLENGE)
+})
+
+test('recovery codes work once each', async () => {
+  const api = new StatefulStubbedAPI()
+  await register(api, 'ada')
+  const confirm = await enableTwoFactor(api)
+  const recoveryCode = confirm.recovery_codes[0]
+  await api.logout()
+
+  const first = await api.login({ username_or_email: 'ada', password: 'password123' })
+  if (!('two_factor_required' in first)) throw new Error('expected challenge')
+  await api.loginWithTwoFactor({ challenge_token: first.challenge_token, recovery_code: recoveryCode })
+  await api.logout()
+
+  const second = await api.login({ username_or_email: 'ada', password: 'password123' })
+  if (!('two_factor_required' in second)) throw new Error('expected challenge')
+  await expect(
+    api.loginWithTwoFactor({ challenge_token: second.challenge_token, recovery_code: recoveryCode }),
+  ).rejects.toThrow('Invalid two-factor code')
+})
+
+test('remember_me is carried through the two-factor step', async () => {
+  const api = new StatefulStubbedAPI()
+  await register(api, 'ada')
+  await enableTwoFactor(api)
+  await api.logout()
+
+  const login = await api.login({
+    username_or_email: 'ada',
+    password: 'password123',
+    remember_me: true,
+  })
+  if (!('two_factor_required' in login)) throw new Error('expected challenge')
+
+  const session = await api.loginWithTwoFactor({
+    challenge_token: login.challenge_token,
+    totp_code: STUB_TOTP_CODE,
+  })
+  expect(session.series_identifier).toBeDefined()
+  expect(session.login_cookie_token).toBeDefined()
+})
+
+test('disabling requires the password and a valid code, then login is single-step', async () => {
+  const api = new StatefulStubbedAPI()
+  await register(api, 'ada')
+  await enableTwoFactor(api)
+
+  await expect(
+    api.disableTotp({ password: 'wrong', totp_code: STUB_TOTP_CODE }),
+  ).rejects.toThrow('Invalid password')
+
+  const result = await api.disableTotp({ password: 'password123', totp_code: STUB_TOTP_CODE })
+  expect(result.totp_enabled).toBe(false)
+
+  await api.logout()
+  const login = await api.login({ username_or_email: 'ada', password: 'password123' })
+  expect('session_management_token' in login).toBe(true)
+})
+
+// --- Async classification (#282) --------------------------------------------
+
+test('createPost reports pending and getPostStatus resolves to approved (#282)', async () => {
+  const api = new StatefulStubbedAPI()
+  await register(api, 'author')
+
+  const created = await api.createPost({ caption: 'a lovely day' })
+  expect(created.status).toBe('pending')
+  expect(created.hidden).toBe(true)
+  expect(created.hidden_reason).toBe('pending_classification')
+
+  // The stub classifies instantly (like the backend's eager dev mode), so the
+  // status endpoint already reports the outcome.
+  const status = await api.getPostStatus(created.post_identifier)
+  expect(status.status).toBe('approved')
+  expect(status.hidden).toBe(false)
+  expect(status.appealable).toBe(false)
+})
+
+test('a borderline caption resolves to an appealable rejection (#282)', async () => {
+  const api = new StatefulStubbedAPI()
+  await register(api, 'author')
+
+  const created = await api.createPost({ caption: 'a borderline take' })
+  const status = await api.getPostStatus(created.post_identifier)
+  expect(status.status).toBe('rejected')
+  expect(status.hidden).toBe(true)
+  expect(status.hidden_reason).toBe('classifier')
+  expect(status.appealable).toBe(true)
+
+  // It shows on the appeals screen and can be appealed.
+  const hidden = await api.getHiddenPosts(0)
+  expect(hidden.map((p) => p.post_identifier)).toContain(created.post_identifier)
+
+  // It is invisible to other users but present (with status) in the author's grid.
+  await register(api, 'viewer')
+  const feed = await api.getFeed(0)
+  expect(feed.map((p) => p.post_identifier)).not.toContain(created.post_identifier)
+  expect(await api.getPostsForUser('author', 0)).toEqual([])
+
+  await api.login({ username_or_email: 'author', password: 'password123' })
+  const own = await api.getPostsForUser('author', 0)
+  const ownPost = own.find((p) => p.post_identifier === created.post_identifier)
+  expect(ownPost?.status).toBe('rejected')
+  expect(ownPost?.appealable).toBe(true)
+})
+
+test('getPostStatus only answers for your own posts (#282)', async () => {
+  const api = new StatefulStubbedAPI()
+  await register(api, 'author')
+  const created = await api.createPost({ caption: 'mine' })
+
+  await register(api, 'other')
+  await expect(api.getPostStatus(created.post_identifier)).rejects.toThrow(
+    'No post with that identifier',
+  )
 })

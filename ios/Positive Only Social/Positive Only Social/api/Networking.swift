@@ -25,6 +25,26 @@ protocol Networking {
     /// This is used if the user's series identifier and login cookie token exist and match what is on record.
     func loginUserWithRememberMe(sessionManagementToken: String, seriesIdentifier: String, loginCookieToken: String, ip: String) async throws -> Data
 
+    // MARK: - Two-Factor Authentication (issue #348)
+
+    /// Second step of a two-factor login: exchanges the challenge token from
+    /// loginUser plus exactly one of `totpCode` / `recoveryCode` for a session.
+    func loginUser2FA(challengeToken: String, totpCode: String?, recoveryCode: String?, ip: String) async throws -> Data
+
+    /// Starts TOTP enrollment: generates a secret and returns it with the
+    /// otpauth:// provisioning URI. Nothing is enforced until confirmTotp.
+    func setupTotp(sessionManagementToken: String) async throws -> Data
+
+    /// Finishes TOTP enrollment by proving the account password and one code
+    /// from the authenticator. Returns the single batch of recovery codes. The
+    /// password is required so a stolen session cannot bind an attacker's
+    /// authenticator and lock the real owner out.
+    func confirmTotp(sessionManagementToken: String, password: String, totpCode: String) async throws -> Data
+
+    /// Turns two-factor authentication off. Requires the account password plus
+    /// exactly one of `totpCode` / `recoveryCode`.
+    func disableTotp(sessionManagementToken: String, password: String, totpCode: String?, recoveryCode: String?) async throws -> Data
+
     /// Resets the user's password. Requires a reset token issued by verifyPasswordReset.
     func resetPassword(username: String, email: String, newPassword: String, resetToken: String) async throws -> Data
 
@@ -95,6 +115,10 @@ protocol Networking {
     /// Gets the details for a single post. Requires auth so the response can
     /// include whether the current user has liked the post.
     func getPostDetails(sessionManagementToken: String, postIdentifier: String) async throws -> Data
+
+    /// Gets the classification status of one of the signed-in user's own posts
+    /// (issue #282): pending, approved, rejected, or rejected_final.
+    func getPostStatus(sessionManagementToken: String, postIdentifier: String) async throws -> Data
     
     // MARK: - Comment Management
 
@@ -131,7 +155,10 @@ protocol Networking {
 
     /// Gets users with a username matching the provided fragment.
     func getUsersMatchingFragment(sessionManagementToken: String, usernameFragment: String) async throws -> Data
-    
+
+    /// Gets every user the signed-in user has blocked.
+    func getBlockedUsers(sessionManagementToken: String) async throws -> Data
+
     /// Gets the details of a profile
     func getProfileDetails(sessionManagementToken: String, username: String) async throws -> Data
 

@@ -14,10 +14,6 @@ struct NewPostView: View {
     // Create an instance of the S3Uploader
     private let s3Uploader = S3Uploader()
 
-    // Shared with the rest of HomeView so a new post shows up in the Home grid
-    // in real time (without waiting for a manual pull-to-refresh).
-    @EnvironmentObject private var homeViewModel: HomeViewModel
-    
     @State private var selectedItem: PhotosPickerItem?
     @State private var selectedImageData: Data?
     @State private var caption = ""
@@ -183,14 +179,21 @@ struct NewPostView: View {
                     caption: caption
                 )
 
-                // Reload the Home grid so the new post appears there immediately.
-                await homeViewModel.refreshMyPosts()
+                // Reload the Profile tab's grid so the new post appears there
+                // immediately, without waiting for a manual pull-to-refresh.
+                NotificationCenter.default.post(name: .postCreated, object: nil)
 
-                // A post flagged by automated review is created hidden pending
-                // appeal; tell the user it's hidden but appealable rather than
-                // implying it went live.
+                // Classification is asynchronous (issue #282): the backend
+                // accepts the post in a pending state and reviews it in the
+                // background, so tell the user it's under review — the Home
+                // grid shows its progress and outcome. Older backends
+                // classified inline; their hidden response means the post was
+                // flagged but is appealable.
                 let response = try? JSONDecoder().decode(MakePostResponse.self, from: responseData)
-                if response?.hidden == true {
+                if response?.status == "pending" || response?.hiddenReason == "pending_classification" {
+                    successAlertMessage = response?.message
+                        ?? "Your post is being reviewed and will be visible to others once it is approved."
+                } else if response?.hidden == true {
                     successAlertMessage = response?.message
                         ?? "Your post did not pass automated review. It is hidden for now but you can appeal the decision."
                 } else {
@@ -216,5 +219,4 @@ struct NewPostView: View {
 
 #Preview {
     NewPostView(api: PreviewHelpers.api, keychainHelper: PreviewHelpers.keychainHelper, tabSelection: .constant(2))
-        .environmentObject(HomeViewModel(api: PreviewHelpers.api, keychainHelper: PreviewHelpers.keychainHelper))
 }

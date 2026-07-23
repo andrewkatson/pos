@@ -23,9 +23,9 @@ class MockKeychainHelper : KeychainHelperProtocol {
 }
 
 class MockPositiveOnlySocialAPI : PositiveOnlySocialAPI {
-    override suspend fun loginUser(request: LoginRequest): Response<AuthResponse> {
+    override suspend fun loginUser(request: LoginRequest): Response<LoginResponse> {
         return Response.success(
-            AuthResponse(
+            LoginResponse(
                 sessionToken = "mock_session_token",
                 username = request.usernameOrEmail,
                 userId = "00000000-0000-0000-0000-000000000001",
@@ -33,6 +33,42 @@ class MockPositiveOnlySocialAPI : PositiveOnlySocialAPI {
                 loginCookieToken = "mock_login_cookie"
             )
         )
+    }
+
+    // --- Two-Factor Authentication (issue #348) ---
+
+    override suspend fun loginUser2FA(request: LoginTwoFactorRequest): Response<AuthResponse> {
+        return Response.success(
+            AuthResponse(
+                sessionToken = "mock_session_token",
+                username = "mock_user",
+                userId = "00000000-0000-0000-0000-000000000001",
+                seriesIdentifier = "mock_series_id",
+                loginCookieToken = "mock_login_cookie"
+            )
+        )
+    }
+
+    override suspend fun setupTotp(token: String): Response<TotpSetupResponse> {
+        return Response.success(
+            TotpSetupResponse(
+                totpSecret = "PREVIEWSECRETBASE32PREVIEWSECRET",
+                otpauthUri = "otpauth://totp/Positive%20Only%20Social:preview@example.com?secret=PREVIEWSECRETBASE32PREVIEWSECRET&issuer=Positive%20Only%20Social"
+            )
+        )
+    }
+
+    override suspend fun confirmTotp(token: String, request: ConfirmTotpRequest): Response<ConfirmTotpResponse> {
+        return Response.success(
+            ConfirmTotpResponse(
+                totpEnabled = true,
+                recoveryCodes = (0 until 10).map { "recover${it}ab" }
+            )
+        )
+    }
+
+    override suspend fun disableTotp(token: String, request: DisableTotpRequest): Response<DisableTotpResponse> {
+        return Response.success(DisableTotpResponse(totpEnabled = false))
     }
 
     override suspend fun loginUserWithRememberMe(request: TokenRefreshRequest): Response<TokenRefreshResponse> {
@@ -222,6 +258,16 @@ class MockPositiveOnlySocialAPI : PositiveOnlySocialAPI {
         return Response.success(
             CreatePostResponse(
                 postIdentifier = "new_post_id_123"
+            )
+        )
+    }
+
+    override suspend fun getPostStatus(token: String, postId: String): Response<PostStatusResponse> {
+        // Previews treat every post as already approved (issue #282).
+        return Response.success(
+            PostStatusResponse(
+                postIdentifier = postId,
+                status = "approved"
             )
         )
     }
@@ -462,6 +508,17 @@ class MockPositiveOnlySocialAPI : PositiveOnlySocialAPI {
             GenericResponse(
                 message = "User blocked/unblocked",
                 error = null
+            )
+        )
+    }
+
+    override suspend fun getBlockedUsers(
+        token: String
+    ): Response<List<User>> {
+        return Response.success(
+            listOf(
+                User(username = "blocked_user_1", identityIsVerified = true),
+                User(username = "blocked_user_2", identityIsVerified = false)
             )
         )
     }

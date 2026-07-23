@@ -1,5 +1,6 @@
 package com.example.positiveonlysocial.api
 
+import com.example.positiveonlysocial.data.constants.Constants
 import com.example.positiveonlysocial.data.model.*
 import okhttp3.MediaType.Companion.toMediaTypeOrNull
 import okhttp3.ResponseBody.Companion.toResponseBody
@@ -19,6 +20,16 @@ import kotlin.random.Random
  */
 class StatefulStubbedAPI : PositiveOnlySocialAPI {
 
+    companion object {
+        // The stub has no clock-based TOTP; this fixed code is the one the
+        // stub accepts, mirroring the fixed codes in the website/iOS stubs.
+        const val STUB_TOTP_CODE = "123456"
+
+        // Used for the credential-shaped stub values (TOTP secret), where
+        // Kotlin's Random.Default would be an insecure generator.
+        private val secureRandom = java.security.SecureRandom()
+    }
+
     // ============================================================================================
     // INTERNAL STORAGE (The "Database")
     // ============================================================================================
@@ -26,6 +37,7 @@ class StatefulStubbedAPI : PositiveOnlySocialAPI {
     private val users = mutableListOf<UserMock>()
     private val sessions = mutableListOf<SessionMock>()
     private val loginCookies = mutableListOf<LoginCookieMock>()
+    private val twoFactorChallenges = mutableListOf<TwoFactorChallengeMock>()
     private val posts = mutableListOf<PostMock>()
     private val commentThreads = mutableListOf<CommentThreadMock>()
     private val appeals = mutableListOf<AppealMock>()
@@ -60,7 +72,21 @@ class StatefulStubbedAPI : PositiveOnlySocialAPI {
         var isVerified: Boolean = false,
         var isAdult: Boolean = false,
         val blocked: MutableList<String> = mutableListOf(),
-        val blockedBy: MutableList<String> = mutableListOf()
+        val blockedBy: MutableList<String> = mutableListOf(),
+        // Two-factor authentication (issue #348). A secret without the enabled
+        // flag is a pending enrollment; recovery codes are removed as used.
+        var totpSecret: String? = null,
+        var totpEnabled: Boolean = false,
+        val recoveryCodes: MutableList<String> = mutableListOf()
+    )
+
+    // A pending two-factor login, issued by loginUser when the account has
+    // TOTP enabled and consumed by loginUser2FA.
+    private data class TwoFactorChallengeMock(
+        val challengeToken: String,
+        val userId: String,
+        val rememberMe: Boolean,
+        val ip: String
     )
 
     private data class SessionMock(
@@ -84,6 +110,8 @@ class StatefulStubbedAPI : PositiveOnlySocialAPI {
         val creationTime: Long = System.currentTimeMillis(),
         var hidden: Boolean = false,
         var hiddenReason: String = "",
+        // Public reason code recorded by the (stubbed) async classifier (#282).
+        var reasonCode: String? = null,
         val likes: MutableSet<String> = mutableSetOf(), // Set of User IDs
         // Reporting user id -> their reason, so retract flows can show the reason.
         val reports: MutableMap<String, String> = mutableMapOf()
@@ -174,11 +202,30 @@ class StatefulStubbedAPI : PositiveOnlySocialAPI {
         return Response.success(AuthResponse(sessionToken, newUser.username, newUser.id, seriesId, cookieToken))
     }
 
-    override suspend fun loginUser(request: LoginRequest): Response<AuthResponse> {
+    override suspend fun loginUser(request: LoginRequest): Response<LoginResponse> {
         val user = users.find { it.username == request.usernameOrEmail || it.email == request.usernameOrEmail }
 
         if (user == null || user.passwordHash != request.password) {
             return errorGeneric(404, "No user exists with that information or password incorrect")
+        }
+
+        // 2FA-enrolled accounts get a challenge instead of a session, mirroring
+        // login_user in backend/user_system/views.py.
+        if (user.totpEnabled) {
+            // Only one challenge is ever live per user, matching login_user in
+            // the backend — otherwise the per-challenge attempt limit could be
+            // multiplied, and the list would grow unbounded across retries.
+            twoFactorChallenges.removeIf { it.userId == user.id }
+            val challenge = TwoFactorChallengeMock(
+                challengeToken = UUID.randomUUID().toString(),
+                userId = user.id,
+                rememberMe = request.rememberMe.toBoolean(),
+                ip = request.ip
+            )
+            twoFactorChallenges.add(challenge)
+            return Response.success(
+                LoginResponse(twoFactorRequired = true, challengeToken = challenge.challengeToken)
+            )
         }
 
         val sessionToken = UUID.randomUUID().toString()
@@ -198,7 +245,119 @@ class StatefulStubbedAPI : PositiveOnlySocialAPI {
         // Auto-set the token for convenience in this stateful stub
         simulatedAuthToken = sessionToken
 
+        return Response.success(
+            LoginResponse(
+                sessionToken = sessionToken,
+                username = user.username,
+                userId = user.id,
+                seriesIdentifier = seriesId,
+                loginCookieToken = cookieToken
+            )
+        )
+    }
+
+    override suspend fun loginUser2FA(request: LoginTwoFactorRequest): Response<AuthResponse> {
+        val challenge = twoFactorChallenges.find { it.challengeToken == request.challengeToken }
+            ?: return errorGeneric(400, Constants.INVALID_TWO_FACTOR_CHALLENGE)
+        val user = users.find { it.id == challenge.userId }
+            ?: return errorGeneric(400, Constants.INVALID_TWO_FACTOR_CHALLENGE)
+
+        val totpCode = request.totpCode
+        val recoveryCode = request.recoveryCode
+        val codeOk = when {
+            totpCode != null && recoveryCode == null -> totpCode == STUB_TOTP_CODE
+            // Recovery codes are single-use: consume on success.
+            recoveryCode != null && totpCode == null -> user.recoveryCodes.remove(recoveryCode)
+            else -> return errorGeneric(400, "Invalid fields ['TOTP_CODE', 'RECOVERY_CODE']")
+        }
+        if (!codeOk) {
+            return errorGeneric(400, "Invalid two-factor code")
+        }
+
+        twoFactorChallenges.remove(challenge)
+
+        val sessionToken = UUID.randomUUID().toString()
+        sessions.add(SessionMock(sessionToken, user.id, challenge.ip))
+        simulatedAuthToken = sessionToken
+
+        var seriesId: String? = null
+        var cookieToken: String? = null
+        if (challenge.rememberMe) {
+            seriesId = UUID.randomUUID().toString()
+            cookieToken = UUID.randomUUID().toString()
+            loginCookies.add(LoginCookieMock(seriesId, cookieToken, user.id))
+        }
+
         return Response.success(AuthResponse(sessionToken, user.username, user.id, seriesId, cookieToken))
+    }
+
+    override suspend fun setupTotp(token: String): Response<TotpSetupResponse> {
+        val user = getAuthorizedUser(token) ?: return errorGeneric(401, "Invalid session")
+        if (user.totpEnabled) {
+            return errorGeneric(400, "Two-factor authentication is already enabled")
+        }
+        // Re-running setup before confirming simply replaces the pending secret.
+        // Use the RFC 4648 Base32 alphabet (A-Z, 2-7) so the otpauth:// URI is a
+        // valid TOTP secret that real authenticator apps and QR parsers accept.
+        // The alphabet is exactly 32 characters, so indexing by a secure random
+        // int over its length is unbiased. Kotlin's Random.Default is not
+        // cryptographically secure, and this value is credential-shaped.
+        val base32Alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZ234567"
+        val secret = (1..32).map { base32Alphabet[secureRandom.nextInt(base32Alphabet.length)] }.joinToString("")
+        user.totpSecret = secret
+        return Response.success(
+            TotpSetupResponse(
+                totpSecret = secret,
+                otpauthUri = "otpauth://totp/Positive%20Only%20Social:${user.email}?secret=$secret&issuer=Positive%20Only%20Social"
+            )
+        )
+    }
+
+    override suspend fun confirmTotp(token: String, request: ConfirmTotpRequest): Response<ConfirmTotpResponse> {
+        val user = getAuthorizedUser(token) ?: return errorGeneric(401, "Invalid session")
+        if (user.totpEnabled) {
+            return errorGeneric(400, "Two-factor authentication is already enabled")
+        }
+        if (user.totpSecret == null) {
+            return errorGeneric(400, "Two-factor setup has not been started")
+        }
+        if (user.passwordHash != request.password) {
+            return errorGeneric(400, "Invalid password")
+        }
+        if (request.totpCode != STUB_TOTP_CODE) {
+            return errorGeneric(400, "Invalid two-factor code")
+        }
+        user.totpEnabled = true
+        user.recoveryCodes.clear()
+        repeat(10) {
+            user.recoveryCodes.add(UUID.randomUUID().toString().replace("-", "").lowercase().take(10))
+        }
+        return Response.success(ConfirmTotpResponse(totpEnabled = true, recoveryCodes = user.recoveryCodes.toList()))
+    }
+
+    override suspend fun disableTotp(token: String, request: DisableTotpRequest): Response<DisableTotpResponse> {
+        val user = getAuthorizedUser(token) ?: return errorGeneric(401, "Invalid session")
+        if (!user.totpEnabled) {
+            return errorGeneric(400, "Two-factor authentication is not enabled")
+        }
+        if (user.passwordHash != request.password) {
+            return errorGeneric(400, "Invalid password")
+        }
+        val totpCode = request.totpCode
+        val recoveryCode = request.recoveryCode
+        val codeOk = when {
+            totpCode != null && recoveryCode == null -> totpCode == STUB_TOTP_CODE
+            recoveryCode != null && totpCode == null -> user.recoveryCodes.remove(recoveryCode)
+            else -> false
+        }
+        if (!codeOk) {
+            return errorGeneric(400, "Invalid two-factor code")
+        }
+        user.totpSecret = null
+        user.totpEnabled = false
+        user.recoveryCodes.clear()
+        twoFactorChallenges.removeIf { it.userId == user.id }
+        return Response.success(DisableTotpResponse(totpEnabled = false))
     }
 
     override suspend fun loginUserWithRememberMe(request: TokenRefreshRequest): Response<TokenRefreshResponse> {
@@ -357,12 +516,48 @@ class StatefulStubbedAPI : PositiveOnlySocialAPI {
         )
     }
 
+    // When true, makePost leaves new posts in pending_classification until
+    // resolvePendingClassifications() is called, so tests can exercise the
+    // clients' reconcile path (#282).
+    var deferClassification = false
+
+    /** Plays the async worker's role for tests: classifies every post still pending (#282). */
+    fun resolvePendingClassifications() {
+        posts.filter { it.hiddenReason == "pending_classification" }.forEach { classify(it) }
+    }
+
+    // Stubbed async classifier (#282): a caption containing "borderline"
+    // becomes an appealable rejection; everything else is approved.
+    private fun classify(post: PostMock) {
+        if (post.caption.contains("borderline")) {
+            post.hidden = true
+            post.hiddenReason = "classifier"
+            post.reasonCode = "guidelines"
+        } else {
+            post.hidden = false
+            post.hiddenReason = ""
+        }
+    }
+
+    // Author-facing classification status, mirroring Post.classification_status.
+    private fun classificationStatus(post: PostMock): String = when (post.hiddenReason) {
+        "pending_classification" -> "pending"
+        "classifier" -> "rejected"
+        "classifier_final" -> "rejected_final"
+        else -> "approved"
+    }
+
+    private fun isAppealable(post: PostMock): Boolean =
+        post.hidden && post.hiddenReason != "pending_classification" && post.hiddenReason != "classifier_final"
+
     override suspend fun makePost(token: String, request: CreatePostRequest): Response<CreatePostResponse> {
         val user = getAuthorizedUser(token) ?: return errorGeneric(401, "Unauthorized")
 
-        // Stub "Positivity" Check
+        // Stub pre-filter, mirroring the backend's cheap inline check (#282): a
+        // blatant hit is rejected immediately and the post is never created.
+        // 400, matching the real backend's validation/moderation rejection.
         if (request.caption.contains("negative")) {
-            return errorGeneric(404, "Text is not positive")
+            return errorGeneric(400, "Text is not positive")
         }
 
         val newPost = PostMock(
@@ -370,8 +565,48 @@ class StatefulStubbedAPI : PositiveOnlySocialAPI {
             imageUrl = request.imageUrl,
             caption = request.caption
         )
+        newPost.hidden = true
+        newPost.hiddenReason = "pending_classification"
+        // The real backend classifies asynchronously in a worker; the stub
+        // resolves instantly (like the backend's eager dev mode) but still
+        // returns the pending response, so clients exercise the reconcile path.
+        if (!deferClassification) {
+            classify(newPost)
+        }
         posts.add(newPost)
-        return Response.success(CreatePostResponse(newPost.postIdentifier))
+        return Response.success(
+            CreatePostResponse(
+                postIdentifier = newPost.postIdentifier,
+                status = "pending",
+                hidden = true,
+                hiddenReason = "pending_classification",
+                message = "Your post is being reviewed and will be visible to others once it is approved."
+            )
+        )
+    }
+
+    override suspend fun getPostStatus(token: String, postId: String): Response<PostStatusResponse> {
+        val user = getAuthorizedUser(token) ?: return errorGeneric(401, "Unauthorized")
+        val post = posts.find { it.postIdentifier == postId && it.authorId == user.id }
+            ?: return errorGeneric(400, "No post with that identifier by that user")
+        val status = classificationStatus(post)
+        val message = when (status) {
+            "pending" -> "Your post is being reviewed and will be visible to others once it is approved."
+            "rejected" -> "Your post did not pass automated review. It is hidden for now but you can appeal the decision."
+            "rejected_final" -> "Your post did not pass automated review. This decision is final and cannot be appealed."
+            else -> null
+        }
+        return Response.success(
+            PostStatusResponse(
+                postIdentifier = post.postIdentifier,
+                status = status,
+                reasonCode = post.reasonCode,
+                appealable = isAppealable(post),
+                hidden = post.hidden,
+                hiddenReason = post.hiddenReason,
+                message = message
+            )
+        )
     }
 
     override suspend fun deletePost(token: String, postId: String): Response<GenericResponse> {
@@ -458,7 +693,7 @@ class StatefulStubbedAPI : PositiveOnlySocialAPI {
 
         val dtos = batched.map { post ->
             val author = users.find { it.id == post.authorId }!!
-            Post(post.postIdentifier, post.imageUrl, post.caption, authorUsername = author.username)
+            listingDto(post, author.username, user.id)
         }
         return Response.success(dtos)
     }
@@ -476,7 +711,7 @@ class StatefulStubbedAPI : PositiveOnlySocialAPI {
         val batched = getBatch(followedPosts, batch, POST_BATCH_SIZE)
         val dtos = batched.map { post ->
             val author = users.find { it.id == post.authorId }!!
-            Post(post.postIdentifier, post.imageUrl, post.caption, authorUsername = author.username)
+            listingDto(post, author.username, user.id)
         }
         return Response.success(dtos)
     }
@@ -490,15 +725,59 @@ class StatefulStubbedAPI : PositiveOnlySocialAPI {
             return Response.success(emptyList()) // Or error? returning empty list matches backend logic
         }
 
-        val userPosts = posts.filter { !it.hidden && it.authorId == targetUser.id }
+        // Mirrors the backend's visible_posts: authors see their own hidden
+        // posts (pending, appealable, report-hidden) in their grid; everyone
+        // else only sees live ones. Final-rejection tombstones are visible to
+        // nobody (#282).
+        val isOwnGrid = user.id == targetUser.id
+        val userPosts = posts.filter { it.authorId == targetUser.id }
+            .filter { it.hiddenReason != "classifier_final" }
+            .filter { isOwnGrid || !it.hidden }
             .sortedByDescending { it.creationTime }
 
         val batched = getBatch(userPosts, batch, POST_BATCH_SIZE)
         val dtos = batched.map { post ->
-            Post(post.postIdentifier, post.imageUrl, post.caption, authorUsername = targetUser.username)
+            listingDto(post, targetUser.username, user.id, isOwnGrid)
         }
         return Response.success(dtos)
     }
+
+    /**
+     * The DTO the three post-listing endpoints return. Like the real backend,
+     * they carry the same interaction state the post-details endpoint does —
+     * likes, whether the viewer liked/reported it and their reason (issue #267) —
+     * plus the comment count and creation time the feed rows show (issue #249).
+     */
+    private fun listingDto(
+        post: PostMock,
+        authorUsername: String,
+        viewerId: String,
+        isOwnGrid: Boolean = false
+    ): Post =
+        Post(
+            post.postIdentifier,
+            post.imageUrl,
+            post.caption,
+            authorUsername = authorUsername,
+            likeCount = post.likes.count(),
+            isLiked = post.likes.contains(viewerId),
+            isReported = post.reports.contains(viewerId),
+            reportReason = post.reports[viewerId],
+            commentCount = visibleCommentCount(post.postIdentifier),
+            creationTime = post.creationTime.toString(),
+            // Author-only classification fields (#282), mirroring the backend:
+            // only your own grid carries them. The feeds never do — others'
+            // pending/hidden posts are filtered out before they get here.
+            status = if (isOwnGrid) classificationStatus(post) else null,
+            hidden = if (isOwnGrid) post.hidden else null,
+            hiddenReason = if (isOwnGrid) post.hiddenReason else null,
+            appealable = if (isOwnGrid) isAppealable(post) else null
+        )
+
+    private fun visibleCommentCount(postIdentifier: String): Int =
+        commentThreads
+            .filter { it.postId == postIdentifier }
+            .sumOf { thread -> thread.comments.count { !it.hidden } }
 
     override suspend fun getPostDetails(token: String, postId: String): Response<Post> {
         val user = getAuthorizedUser(token) ?: return errorGeneric(401, "Unauthorized")
@@ -717,6 +996,15 @@ class StatefulStubbedAPI : PositiveOnlySocialAPI {
         }
     }
 
+    override suspend fun getBlockedUsers(token: String): Response<List<User>> {
+        val user = getAuthorizedUser(token) ?: return errorGeneric(401, "Unauthorized")
+        val blockedUsers = users
+            .filter { user.blocked.contains(it.id) }
+            .sortedBy { it.username }
+            .map { User(it.username, it.isVerified) }
+        return Response.success(blockedUsers)
+    }
+
     override suspend fun getProfileDetails(token: String, username: String): Response<ProfileDetailsResponse> {
         val user = getAuthorizedUser(token) // Can be null if public profile view? Python code required login.
         val target = users.find { it.username == username } ?: return errorGeneric(404, "User not found")
@@ -755,7 +1043,9 @@ class StatefulStubbedAPI : PositiveOnlySocialAPI {
 
     override suspend fun getHiddenPosts(token: String, batch: Int): Response<List<HiddenPost>> {
         val user = getAuthorizedUser(token) ?: return errorGeneric(401, "Unauthorized")
-        val hidden = posts.filter { it.authorId == user.id && it.hidden }
+        // Pending posts have nothing to appeal yet and final rejections are
+        // terminal, so neither belongs on the appeals screen (#282).
+        val hidden = posts.filter { it.authorId == user.id && it.hidden && isAppealable(it) }
             .sortedByDescending { it.creationTime }
         val dtos = getBatch(hidden, batch, POST_BATCH_SIZE).map {
             HiddenPost(it.postIdentifier, it.imageUrl, it.caption, it.hiddenReason, hasAppeal(it.postIdentifier))
@@ -788,7 +1078,8 @@ class StatefulStubbedAPI : PositiveOnlySocialAPI {
 
         val snapshot: String = when (request.targetType) {
             "post" -> {
-                val post = posts.find { it.postIdentifier == request.targetIdentifier && it.authorId == user.id && it.hidden }
+                // Pending and final-rejected posts are not appealable (#282).
+                val post = posts.find { it.postIdentifier == request.targetIdentifier && it.authorId == user.id && it.hidden && isAppealable(it) }
                     ?: return errorGeneric(400, "No appealable item with that identifier")
                 post.caption
             }

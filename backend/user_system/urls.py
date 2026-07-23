@@ -28,6 +28,18 @@ urlpatterns = [
     # POST /login/remember/
     path('login/remember/', views.login_user_with_remember_me, name='login_user_with_remember_me'),
 
+    # POST /login/2fa/
+    path('login/2fa/', views.login_user_2fa, name='login_user_2fa'),
+
+    # POST /2fa/totp/setup/ (Token in header)
+    path('2fa/totp/setup/', views.setup_totp, name='setup_totp'),
+
+    # POST /2fa/totp/confirm/ (Token in header)
+    path('2fa/totp/confirm/', views.confirm_totp, name='confirm_totp'),
+
+    # POST /2fa/disable/ (Token in header)
+    path('2fa/disable/', views.disable_totp, name='disable_totp'),
+
     # POST /logout/ (Token in header)
     path('logout/', views.logout_user, name='logout_user'),
 
@@ -54,6 +66,9 @@ urlpatterns = [
 
     # POST /posts/create/ (Token in header)
     path('posts/create/', views.make_post, name='make_post'),
+
+    # GET /posts/<uuid:post_identifier>/status/ (Token in header)
+    path('posts/<uuid:post_identifier>/status/', views.get_post_status, name='get_post_status'),
 
     # POST /posts/<uuid:post_identifier>/delete/ (Token in header)
     path('posts/<uuid:post_identifier>/delete/', views.delete_post, name='delete_post'),
@@ -143,6 +158,9 @@ urlpatterns = [
 
     # POST /users/<str:username_to_toggle_block>/block/ (Token in header)
     path('users/<str:username_to_toggle_block>/block/', views.toggle_block, name='toggle_block'),
+
+    # GET /users/blocked/ (Token in header)
+    path('users/blocked/', views.get_blocked_users, name='get_blocked_users'),
 
     # GET /users/<str:username>/profile/ (Token in header)
     path('users/<str:username>/profile/', views.get_profile_details, name='get_profile_details'),

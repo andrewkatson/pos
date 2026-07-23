@@ -10,10 +10,35 @@ BAN_TYPE_SHADOW = "shadow"
 # recorded — the content may still be hidden (e.g. report-based hiding that
 # predates this field) but without a recorded cause. "reports" is set when
 # enough users report it; "classifier" is set when the AI classifier rejected
-# it but the rejection is appealable.
+# it but the rejection is appealable. "pending_classification" marks a post
+# that has been created but not yet classified (nothing to appeal yet);
+# "classifier_final" is a terminal, non-appealable rejection kept as a
+# tombstone until the sweep purges it.
 HIDDEN_REASON_NONE = ""
 HIDDEN_REASON_REPORTS = "reports"
 HIDDEN_REASON_CLASSIFIER = "classifier"
+HIDDEN_REASON_PENDING_CLASSIFICATION = "pending_classification"
+HIDDEN_REASON_CLASSIFIER_FINAL = "classifier_final"
+
+# Hidden reasons that can never be appealed: a pending post has not been
+# rejected yet, and a final classifier rejection is terminal by definition.
+NON_APPEALABLE_HIDDEN_REASONS = (
+    HIDDEN_REASON_PENDING_CLASSIFICATION,
+    HIDDEN_REASON_CLASSIFIER_FINAL,
+)
+
+# Classification lifecycle of a post as reported to its author (the `status`
+# field of make_post/get_post_status). Derived from hidden_reason; see
+# Post.classification_status.
+POST_STATUS_PENDING = "pending"
+POST_STATUS_APPROVED = "approved"
+POST_STATUS_REJECTED = "rejected"
+POST_STATUS_REJECTED_FINAL = "rejected_final"
+
+# After this many worker attempts a post stuck in pending_classification is no
+# longer re-enqueued by the sweep; it stays hidden (fail closed) and the sweep
+# logs an error so an operator is alerted.
+CLASSIFICATION_MAX_ATTEMPTS = 5
 
 # Lifecycle of an appeal a user files against hidden content or a ban.
 APPEAL_STATUS_PENDING = "pending"
@@ -36,9 +61,27 @@ EMAIL_NOT_VERIFIED = "email_not_verified"
 # How long an email verification link stays valid
 EMAIL_VERIFICATION_TOKEN_HOURS = 24
 
+# Two-factor authentication (TOTP). login_user returns a short-lived challenge
+# instead of a session when the account has 2FA enabled; the challenge is
+# exchanged for a session at login/2fa/ with a valid authenticator or recovery
+# code.
+TWO_FACTOR_CHALLENGE_MINUTES = 5
+TWO_FACTOR_MAX_ATTEMPTS = 5
+NUM_RECOVERY_CODES = 10
+LEN_RECOVERY_CODE_HEX = 10
+
+# Issuer label shown next to the account in authenticator apps
+TOTP_ISSUER = "Positive Only Social"
+
+# Error code returned by login/2fa/ when the challenge is gone — expired, already
+# used, or invalidated. Clients branch on this to send the user back to the
+# password step, so it is a stable machine-readable code (like ACCOUNT_BANNED)
+# rather than prose that could be reworded or localized.
+INVALID_TWO_FACTOR_CHALLENGE = "invalid_two_factor_challenge"
+
 # Regex Patterns to check against
 class Patterns:
-    password = r"^(?=.*[0-9])(?=.*[a-z])(?=.*[A-Z])(?=.*-)(?=\S+$).{8,}$"
+    password = r"^(?=.*[0-9])(?=.*[a-z])(?=.*[A-Z])(?=\S+$).{8,}$"
     login_password = r"^(?=\S+$).{8,}$"
     double = r"^\d{1,100}[.,]{0,1}\d{0,100}$"
     paragraph_of_chars = r"^[\w \n]{5,3000}$"
@@ -62,6 +105,9 @@ class Patterns:
         r"|s3(?:[.-][a-z0-9-]+)?\.amazonaws\.com/[A-Za-z0-9.-]+/)[^\s?#]+(?:\?[^\s#]*)?$"
     )
     alphanumeric_with_special_chars = r"^[\w\W]+$"
+    totp_code = r"^\d{6}$"
+    recovery_code = r"^[0-9a-f]{10}$"
+    hex_token = r"^[0-9a-f]{64}$"
 
 class Params:
     username = "USERNAME"
@@ -86,6 +132,9 @@ class Params:
     comment_thread_identifier = "COMMENT_THREAD_IDENTIFIER"
     comment_identifier = "COMMENT_IDENTIFIER"
     username_fragment = "USERNAME_FRAGMENT"
+    challenge_token = "CHALLENGE_TOKEN"
+    totp_code = "TOTP_CODE"
+    recovery_code = "RECOVERY_CODE"
 
 class Fields:
     is_adult = 'is_adult'
@@ -99,6 +148,7 @@ class Fields:
     upload_url = "upload_url"
     caption = "caption"
     post_likes = "post_likes"
+    comment_count = "comment_count"
     comment_thread_identifier = "comment_thread_identifier"
     comment_identifier = "comment_identifier"
     username = "username"
@@ -136,6 +186,14 @@ class Fields:
     target_type = "target_type"
     target_identifier = "target_identifier"
     has_appeal = "has_appeal"
+    two_factor_required = "two_factor_required"
+    challenge_token = "challenge_token"
+    totp_code = "totp_code"
+    recovery_code = "recovery_code"
+    totp_secret = "totp_secret"
+    otpauth_uri = "otpauth_uri"
+    recovery_codes = "recovery_codes"
+    totp_enabled = "totp_enabled"
 
 # Lengths of things
 LEN_LOGIN_COOKIE_TOKEN = 32

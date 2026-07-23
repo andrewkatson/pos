@@ -3,7 +3,7 @@
 // requirement hints and the form-validity checks share a single source of
 // truth so they can never drift apart.
 //
-//   password    = ^(?=.*[0-9])(?=.*[a-z])(?=.*[A-Z])(?=.*-)(?=\S+$).{8,}$
+//   password    = ^(?=.*[0-9])(?=.*[a-z])(?=.*[A-Z])(?=\S+$).{8,}$
 //   alphanumeric = ^\w{10,500}$   (used for usernames)
 
 export interface Requirement {
@@ -21,14 +21,10 @@ export function getPasswordRequirements(password: string): Requirement[] {
     { label: 'At least one lowercase letter', didMeetRequirement: /[a-z]/.test(password) },
     { label: 'At least one uppercase letter', didMeetRequirement: /[A-Z]/.test(password) },
     {
-      label: 'At least one dash (-)',
-      didMeetRequirement: /-/.test(password),
-    },
-    {
-      label: 'Adding other special characters (like !) is suggested',
-      // Any non-alphanumeric character other than the already-required dash.
+      label: 'Adding special characters (like ! @ # $ % ^ & * - _) is suggested',
+      // Any non-alphanumeric character counts (the backend accepts them all).
       // Unicode-aware so it doesn't flag accented letters as "special".
-      didMeetRequirement: /[^\p{L}\p{N}\s-]/u.test(password),
+      didMeetRequirement: /[^\p{L}\p{N}\s]/u.test(password),
       optional: true,
     },
     { label: 'No spaces', didMeetRequirement: password.length > 0 && !/\s/.test(password) },

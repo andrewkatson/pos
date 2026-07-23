@@ -8,6 +8,9 @@
 import Foundation
 import Combine
 
+/// Backs the first tab. Since issue #347 that tab shows the signed-in user's own
+/// profile, whose post grid is loaded by `ProfileViewModel` (the same one every
+/// other profile uses), so what this view model drives there is the user search.
 @MainActor
 final class HomeViewModel: ObservableObject {
     // MARK: - Properties
@@ -26,13 +29,17 @@ final class HomeViewModel: ObservableObject {
     @Published var errorMessage: String?
     private var canLoadMorePosts = true
     private var currentPage = 0
-    
+
     // For debouncing search text
     private var searchCancellable: AnyCancellable?
 
     // Listens for `.postDeleted` so a post deleted from its detail view is also
     // dropped from this grid's cached list.
     private var postDeletedCancellable: AnyCancellable?
+
+    /// The signed-in user's username, loaded once at init. Search results use it
+    /// so tapping yourself doesn't navigate to a profile you're already on (#347).
+    private(set) var currentUsername: String?
 
     // MARK: - Initializer
     convenience init(api: Networking, keychainHelper: KeychainHelperProtocol) {
@@ -44,6 +51,9 @@ final class HomeViewModel: ObservableObject {
         self.api = api
         self.keychainHelper = keychainHelper
         self.account = account
+        self.currentUsername = try? keychainHelper.load(
+            UserSession.self, from: GVOAppConstants.keychainService, account: account
+        )?.username
 
         // This subscriber automatically triggers a search when the user stops typing.
         searchCancellable = $searchText

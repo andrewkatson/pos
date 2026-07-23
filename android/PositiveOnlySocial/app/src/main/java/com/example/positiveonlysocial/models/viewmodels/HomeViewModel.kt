@@ -5,11 +5,9 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.example.positiveonlysocial.api.ApiErrors
 import com.example.positiveonlysocial.api.PositiveOnlySocialAPI
-import com.example.positiveonlysocial.data.model.Post
 import com.example.positiveonlysocial.data.model.User
 import com.example.positiveonlysocial.data.model.UserSession
 import com.example.positiveonlysocial.data.security.KeychainHelperProtocol
-import com.example.positiveonlysocial.util.PostEvents
 import kotlinx.coroutines.FlowPreview
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -20,6 +18,13 @@ import kotlinx.coroutines.launch
 
 private const val TAG = "HomeViewModel"
 
+/**
+ * Backs the first bottom-nav destination, which is now the signed-in user's own
+ * profile (issue #347). The profile itself — stats and post grid — is rendered by
+ * the shared profile body against [ProfileViewModel]; this view model owns only
+ * the user-search bar above it, plus [currentUsername] so the screen knows whose
+ * profile to show.
+ */
 @OptIn(FlowPreview::class)
 class HomeViewModel(
     private val api: PositiveOnlySocialAPI,
@@ -27,31 +32,29 @@ class HomeViewModel(
     private val account: String = "userSessionToken"
 ) : ViewModel() {
 
-    // Data for the view
-    private val _userPosts = MutableStateFlow<List<Post>>(emptyList())
-    val userPosts: StateFlow<List<Post>> = _userPosts.asStateFlow()
-
     private val _searchedUsers = MutableStateFlow<List<User>>(emptyList())
     val searchedUsers: StateFlow<List<User>> = _searchedUsers.asStateFlow()
 
     private val _searchText = MutableStateFlow("")
     val searchText: StateFlow<String> = _searchText.asStateFlow()
 
-    // State tracking
-    private val _isLoadingNextPage = MutableStateFlow(false)
-    val isLoadingNextPage: StateFlow<Boolean> = _isLoadingNextPage.asStateFlow()
+    // The signed-in user, i.e. whose profile this destination shows.
+    private val _currentUsername = MutableStateFlow<String?>(null)
+    val currentUsername: StateFlow<String?> = _currentUsername.asStateFlow()
 
     private val _errorMessage = MutableStateFlow<String?>(null)
     val errorMessage: StateFlow<String?> = _errorMessage.asStateFlow()
 
-    private val _isRefreshing = MutableStateFlow(false)
-    val isRefreshing: StateFlow<Boolean> = _isRefreshing.asStateFlow()
-
-    private var canLoadMorePosts = true
-    private var currentPage = 0
     private val service = "positive-only-social.Positive-Only-Social"
 
     init {
+        _currentUsername.value = try {
+            keychainHelper.load(UserSession::class.java, service, account)?.username
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to read the stored session", e)
+            null
+        }
+
         viewModelScope.launch {
             _searchText
                 .debounce(500) // Wait 500ms after user stops typing
@@ -59,94 +62,10 @@ class HomeViewModel(
                     performSearch(query)
                 }
         }
-
-        // When a post is deleted (from its detail screen, which lives in a
-        // different nav entry), drop it from the grid so its now-missing image
-        // doesn't linger as an empty black tile until logout (issue #256).
-        viewModelScope.launch {
-            PostEvents.deletedPostIds.collect { deletedId ->
-                _userPosts.value = _userPosts.value.filterNot { it.postIdentifier == deletedId }
-            }
-        }
     }
 
     fun updateSearchText(text: String) {
         _searchText.value = text
-    }
-
-    /**
-     * Pull-to-refresh: resets pagination and reloads the user's posts from the
-     * first page, replacing the existing posts with the newest ones from the backend.
-     */
-    fun refreshMyPosts() {
-        if (_isRefreshing.value || _isLoadingNextPage.value) return
-
-        _isRefreshing.value = true
-
-        viewModelScope.launch {
-            try {
-                val userSession = keychainHelper.load(UserSession::class.java, service, account)
-                if (userSession == null) {
-                    Log.e(TAG, "No active session found — cannot refresh posts")
-                    return@launch
-                }
-
-                val username = userSession.username
-
-                val response = api.getPostsForUser(userSession.sessionToken, username, 0)
-                if (response.isSuccessful) {
-                    val newPosts = response.body() ?: emptyList()
-                    _userPosts.value = newPosts
-                    canLoadMorePosts = newPosts.isNotEmpty()
-                    currentPage = if (newPosts.isEmpty()) 0 else 1
-                } else {
-                    _errorMessage.value = ApiErrors.messageFor(response, fallback = "Something went wrong. Please try again.")
-                }
-            } catch (e: Exception) {
-                _errorMessage.value = ApiErrors.messageFor(e, fallback = "Something went wrong. Please try again.")
-                Log.e(TAG, "Error refreshing my posts", e)
-            } finally {
-                _isRefreshing.value = false
-            }
-        }
-    }
-
-    fun fetchMyPosts() {
-        // Also short-circuit during a pull-to-refresh so pagination can't race
-        // the refresh's reset of _userPosts/currentPage/canLoadMorePosts.
-        if (_isLoadingNextPage.value || _isRefreshing.value || !canLoadMorePosts) return
-
-        _isLoadingNextPage.value = true
-
-        viewModelScope.launch {
-            try {
-                val userSession = keychainHelper.load(UserSession::class.java, service, account)
-                if (userSession == null) {
-                    Log.e(TAG, "No active session found — cannot fetch posts")
-                    return@launch
-                }
-
-                val username = userSession.username
-
-                val response = api.getPostsForUser(userSession.sessionToken, username, currentPage)
-                if (response.isSuccessful) {
-                    val newPosts = response.body() ?: emptyList()
-                    if (newPosts.isEmpty()) {
-                        canLoadMorePosts = false
-                    } else {
-                        _userPosts.value += newPosts
-                        currentPage += 1
-                    }
-                } else {
-                    _errorMessage.value = ApiErrors.messageFor(response, fallback = "Something went wrong. Please try again.")
-                }
-            } catch (e: Exception) {
-                _errorMessage.value = ApiErrors.messageFor(e, fallback = "Something went wrong. Please try again.")
-                Log.e(TAG, "Error fetching my posts", e)
-            } finally {
-                _isLoadingNextPage.value = false
-            }
-        }
     }
 
     private suspend fun performSearch(query: String) {

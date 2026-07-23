@@ -88,6 +88,30 @@ describe('email_not_verified handling', () => {
   })
 })
 
+describe('post classification status (#282)', () => {
+  test('getPostStatus hits the author-only status endpoint and returns its payload', async () => {
+    const payload = {
+      post_identifier: 'p1',
+      status: 'pending',
+      reason_code: null,
+      appealable: false,
+      hidden: true,
+      hidden_reason: 'pending_classification',
+      message: 'Your post is being reviewed and will be visible to others once it is approved.',
+    }
+    const fetchFn = vi.fn().mockResolvedValue(jsonResponse(200, payload))
+    const client = new ApiClient({ token: 'sometoken', fetchFn })
+
+    const result = await client.getPostStatus('p1')
+
+    expect(fetchFn).toHaveBeenCalledWith(
+      'https://api.smiling.social/user_index/posts/p1/status/',
+      expect.objectContaining({ method: 'GET' }),
+    )
+    expect(result).toEqual(payload)
+  })
+})
+
 describe('friendly error messages', () => {
   test('passes the backend error message through unchanged', async () => {
     const fetchFn = vi.fn().mockResolvedValue(jsonResponse(400, { error: 'Text is not positive' }))
@@ -153,6 +177,74 @@ describe('sanitizeErrorMessage', () => {
   test('leaves human-readable invalid messages untouched', () => {
     expect(sanitizeErrorMessage('Invalid comment text')).toBe('Invalid comment text')
     expect(sanitizeErrorMessage('Invalid batch parameter')).toBe('Invalid batch parameter')
+  })
+})
+
+describe('two-factor authentication endpoints', () => {
+  test('login does not store a session token when 2fa is required', async () => {
+    const fetchFn = vi
+      .fn()
+      .mockResolvedValue(
+        jsonResponse(200, { two_factor_required: true, challenge_token: 'c'.repeat(64) }),
+      )
+    const client = new ApiClient({ fetchFn })
+
+    const response = await client.login({ username_or_email: 'ada', password: 'pw' })
+
+    expect('two_factor_required' in response).toBe(true)
+    expect(client.isAuthenticated()).toBe(false)
+  })
+
+  test('loginWithTwoFactor posts to /login/2fa/ and stores the session token', async () => {
+    const fetchFn = vi.fn().mockResolvedValue(
+      jsonResponse(200, { session_management_token: 'tok', user_id: 'u1', username: 'ada' }),
+    )
+    const client = new ApiClient({ baseUrl: 'https://api.test', fetchFn })
+
+    await client.loginWithTwoFactor({ challenge_token: 'c'.repeat(64), totp_code: '123456' })
+
+    const [url, init] = fetchFn.mock.calls[0]
+    expect(url).toBe('https://api.test/login/2fa/')
+    expect(JSON.parse((init as RequestInit).body as string)).toEqual({
+      challenge_token: 'c'.repeat(64),
+      totp_code: '123456',
+    })
+    expect(client.getToken()).toBe('tok')
+  })
+
+  test('setupTotp and confirmTotp hit the 2fa endpoints with the bearer token', async () => {
+    const fetchFn = vi
+      .fn()
+      .mockResolvedValueOnce(
+        jsonResponse(200, { totp_secret: 'S', otpauth_uri: 'otpauth://totp/x' }),
+      )
+      .mockResolvedValueOnce(jsonResponse(200, { totp_enabled: true, recovery_codes: ['a'] }))
+    const client = new ApiClient({ baseUrl: 'https://api.test', token: 'sometoken', fetchFn })
+
+    await client.setupTotp()
+    await client.confirmTotp({ password: 'MyPassword1-', totp_code: '123456' })
+
+    const [setupUrl, setupInit] = fetchFn.mock.calls[0]
+    expect(setupUrl).toBe('https://api.test/2fa/totp/setup/')
+    expect((setupInit as RequestInit).headers).toMatchObject({
+      Authorization: 'Bearer sometoken',
+    })
+    const [confirmUrl] = fetchFn.mock.calls[1]
+    expect(confirmUrl).toBe('https://api.test/2fa/totp/confirm/')
+  })
+
+  test('disableTotp posts the password and code to /2fa/disable/', async () => {
+    const fetchFn = vi.fn().mockResolvedValue(jsonResponse(200, { totp_enabled: false }))
+    const client = new ApiClient({ baseUrl: 'https://api.test', token: 'sometoken', fetchFn })
+
+    await client.disableTotp({ password: 'pw', recovery_code: 'abcdef0123' })
+
+    const [url, init] = fetchFn.mock.calls[0]
+    expect(url).toBe('https://api.test/2fa/disable/')
+    expect(JSON.parse((init as RequestInit).body as string)).toEqual({
+      password: 'pw',
+      recovery_code: 'abcdef0123',
+    })
   })
 })
 

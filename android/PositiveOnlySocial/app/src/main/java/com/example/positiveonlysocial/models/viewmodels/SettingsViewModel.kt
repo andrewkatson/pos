@@ -8,6 +8,9 @@ import com.example.positiveonlysocial.api.PositiveOnlySocialAPI
 import com.example.positiveonlysocial.data.auth.AuthenticationManager
 import com.example.positiveonlysocial.data.model.UserSession
 import com.example.positiveonlysocial.data.model.IdentityVerificationRequest
+import com.example.positiveonlysocial.data.model.ConfirmTotpRequest
+import com.example.positiveonlysocial.data.model.DisableTotpRequest
+import com.example.positiveonlysocial.data.model.TotpSetupResponse
 import com.example.positiveonlysocial.data.security.KeychainHelperProtocol
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -40,6 +43,23 @@ class SettingsViewModel(
 
     private val _showingVerificationAlert = MutableStateFlow(false)
     val showingVerificationAlert: StateFlow<Boolean> = _showingVerificationAlert.asStateFlow()
+
+    // Two-factor authentication state (issue #348). `totpSetup` drives the
+    // scan/confirm steps of the enrollment dialog; `recoveryCodes` (set once
+    // confirm succeeds) drives the final save-your-codes step.
+    private val _totpSetup = MutableStateFlow<TotpSetupResponse?>(null)
+    val totpSetup: StateFlow<TotpSetupResponse?> = _totpSetup.asStateFlow()
+
+    private val _recoveryCodes = MutableStateFlow<List<String>?>(null)
+    val recoveryCodes: StateFlow<List<String>?> = _recoveryCodes.asStateFlow()
+
+    // True while a confirm request is in flight, so the UI can stop a second
+    // submission racing the first.
+    private val _isConfirmingTotp = MutableStateFlow(false)
+    val isConfirmingTotp: StateFlow<Boolean> = _isConfirmingTotp.asStateFlow()
+
+    private val _twoFactorStatusMessage = MutableStateFlow<String?>(null)
+    val twoFactorStatusMessage: StateFlow<String?> = _twoFactorStatusMessage.asStateFlow()
 
     private val service = "positive-only-social.Positive-Only-Social"
 
@@ -96,6 +116,174 @@ class SettingsViewModel(
                 }
             } catch (e: Exception) {
                 _errorMessage.value = ApiErrors.messageFor(e, fallback = "Failed to delete your account. Please try again.")
+            }
+        }
+    }
+
+    // MARK: - Two-Factor Authentication (issue #348)
+
+    // Monotonic id for the current enrollment attempt. Bumped on every start
+    // and on cancel, so a late setup response from a superseded or cancelled
+    // attempt is ignored rather than overwriting state (which also stops repeated
+    // taps from racing, and prevents a cancel-then-reopen from getting stuck).
+    private var totpSetupGeneration = 0
+
+    /** Starts TOTP enrollment: fetches a fresh secret + otpauth:// URI. */
+    fun startTotpSetup() {
+        val generation = ++totpSetupGeneration
+        // Drop any state from a previous attempt so the dialog can't briefly
+        // render a stale secret/QR (or stale codes) while this request is in
+        // flight — scanning the wrong secret would fail confirmation.
+        _totpSetup.value = null
+        _recoveryCodes.value = null
+        viewModelScope.launch {
+            try {
+                val userSession = keychainHelper.load(UserSession::class.java, service, account)
+                if (userSession == null) {
+                    if (generation == totpSetupGeneration) {
+                        _errorMessage.value = "Session not found."
+                        _showingErrorAlert.value = true
+                    }
+                    return@launch
+                }
+                val response = api.setupTotp(userSession.sessionToken)
+                // Ignore the result if a newer attempt started or the user cancelled.
+                if (generation != totpSetupGeneration) return@launch
+                if (response.isSuccessful) {
+                    _totpSetup.value = response.body()
+                } else {
+                    _errorMessage.value = ApiErrors.messageFor(response, fallback = "Could not start two-factor setup.")
+                    _showingErrorAlert.value = true
+                }
+            } catch (e: Exception) {
+                if (generation == totpSetupGeneration) {
+                    _errorMessage.value = ApiErrors.messageFor(e, fallback = "Could not start two-factor setup.")
+                    _showingErrorAlert.value = true
+                }
+            }
+        }
+    }
+
+    /**
+     * Finishes TOTP enrollment by verifying the account password and one code
+     * from the authenticator. On success `recoveryCodes` is populated for the
+     * one-time display. The password is what stops a stolen session from
+     * binding an attacker's authenticator and locking the real owner out.
+     */
+    fun confirmTotp(password: String, code: String) {
+        // Ignore a duplicate submission while one is already running. Disabling
+        // the Verify button is the first line of defence, but that only takes
+        // effect on the next recomposition, so a fast double-tap can call this
+        // twice before the button goes grey. Both calls would share the
+        // generation below, so the first to finish would clear the in-flight
+        // flag in its `finally` while the second is still running — re-enabling
+        // Verify/dismissal and reopening the very race this guards. The flag is
+        // set synchronously here, before the coroutine is launched, so the
+        // second synchronous call on the main thread sees it and bails.
+        if (_isConfirmingTotp.value) return
+        // Share the enrollment generation with setup: a confirm response that
+        // lands after the dialog was cancelled (or a newer attempt started) is
+        // discarded, so it can't repopulate recoveryCodes for an abandoned run.
+        val generation = totpSetupGeneration
+        _isConfirmingTotp.value = true
+        viewModelScope.launch {
+            try {
+                val userSession = keychainHelper.load(UserSession::class.java, service, account)
+                if (userSession == null) {
+                    if (generation == totpSetupGeneration) {
+                        _errorMessage.value = "Session not found."
+                        _showingErrorAlert.value = true
+                    }
+                    return@launch
+                }
+                val response = api.confirmTotp(userSession.sessionToken, ConfirmTotpRequest(password, code))
+                if (generation != totpSetupGeneration) return@launch
+                val codes = response.body()?.recoveryCodes
+                if (response.isSuccessful && !codes.isNullOrEmpty()) {
+                    _recoveryCodes.value = codes
+                } else if (response.isSuccessful) {
+                    // 2xx with a null/empty body: surface an error rather than
+                    // reporting success with no codes to save (or leaving the
+                    // enrollment dialog stuck on the confirm step).
+                    _errorMessage.value = "Two-factor setup did not complete. Please try again."
+                    _showingErrorAlert.value = true
+                } else {
+                    _errorMessage.value = ApiErrors.messageFor(response, fallback = "Verification failed. Please try again.")
+                    _showingErrorAlert.value = true
+                }
+            } catch (e: Exception) {
+                if (generation == totpSetupGeneration) {
+                    _errorMessage.value = ApiErrors.messageFor(e, fallback = "Verification failed. Please try again.")
+                    _showingErrorAlert.value = true
+                }
+            } finally {
+                // Only the newest attempt owns the flag; an older one finishing
+                // late must not re-enable Verify for the current attempt.
+                if (generation == totpSetupGeneration) _isConfirmingTotp.value = false
+            }
+        }
+    }
+
+    /** Dismisses the enrollment flow after the recovery codes have been shown. */
+    fun finishTotpEnrollment() {
+        // Only report success if confirm actually produced recovery codes, so an
+        // accidental call while still mid-enrollment can't fake an enabled state.
+        val wasEnrolled = _recoveryCodes.value != null
+        // Bump the generation so a still-in-flight confirm is ignored, and clear
+        // the in-flight flag here: the bump means that request's own `finally`
+        // no longer matches, so it would otherwise leave Verify stuck disabled.
+        totpSetupGeneration++
+        _isConfirmingTotp.value = false
+        _totpSetup.value = null
+        _recoveryCodes.value = null
+        if (wasEnrolled) {
+            _twoFactorStatusMessage.value = "Two-factor authentication is now enabled."
+        }
+    }
+
+    /** Abandons a not-yet-confirmed enrollment (the pending secret is inert). */
+    fun cancelTotpEnrollment() {
+        // Invalidate any in-flight setup so its late response is ignored and a
+        // quick reopen isn't left stuck waiting on the abandoned request.
+        totpSetupGeneration++
+        _isConfirmingTotp.value = false
+        _totpSetup.value = null
+        _recoveryCodes.value = null
+    }
+
+    fun clearTwoFactorStatusMessage() {
+        _twoFactorStatusMessage.value = null
+    }
+
+    /**
+     * Turns two-factor authentication off. Requires the account password plus
+     * a current authenticator code or an unused recovery code.
+     */
+    fun disableTotp(password: String, code: String, isRecoveryCode: Boolean) {
+        viewModelScope.launch {
+            try {
+                val userSession = keychainHelper.load(UserSession::class.java, service, account)
+                if (userSession == null) {
+                    _errorMessage.value = "Session not found."
+                    _showingErrorAlert.value = true
+                    return@launch
+                }
+                // Recovery codes are sent lowercased to match the backend pattern.
+                val request = DisableTotpRequest(
+                    password = password,
+                    totpCode = if (isRecoveryCode) null else code,
+                    recoveryCode = if (isRecoveryCode) code.lowercase() else null
+                )
+                val response = api.disableTotp(userSession.sessionToken, request)
+                if (response.isSuccessful) {
+                    _twoFactorStatusMessage.value = "Two-factor authentication has been disabled."
+                } else {
+                    _errorMessage.value = ApiErrors.messageFor(response, fallback = "Could not disable two-factor authentication.")
+                    _showingErrorAlert.value = true
+                }
+            } catch (e: Exception) {
+                _errorMessage.value = ApiErrors.messageFor(e, fallback = "Could not disable two-factor authentication.")
+                _showingErrorAlert.value = true
             }
         }
     }

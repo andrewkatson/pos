@@ -3,25 +3,32 @@
 // android/.../api/StatefulStubbedAPI.kt. Useful for tests and offline/demo
 // modes. Errors are surfaced by throwing ApiError, matching the real ApiClient.
 
-import { ApiError } from './client'
+import { ApiError, INVALID_TWO_FACTOR_CHALLENGE } from './client'
 import type { PositiveOnlySocialAPI } from './PositiveOnlySocialAPI'
 import type {
   AuthResponse,
   Comment,
   CommentOnPostResponse,
   CommentThreadRef,
+  ConfirmTotpRequest,
+  ConfirmTotpResponse,
   CreatePostRequest,
   CreatePostResponse,
   CreateUploadUrlResponse,
+  DisableTotpRequest,
+  DisableTotpResponse,
   FeedPost,
   HiddenComment,
   HiddenPost,
   LoginRequest,
+  LoginResponse,
+  LoginTwoFactorRequest,
   LoginWithRememberMeRequest,
   LoginWithRememberMeResponse,
   MessageResponse,
   MyAppeal,
   PostDetails,
+  PostStatusResponse,
   ProfileDetails,
   RegisterRequest,
   ReplyResponse,
@@ -30,6 +37,7 @@ import type {
   ResetPasswordRequest,
   SubmitAppealRequest,
   SubmitAppealResponse,
+  TwoFactorSetupResponse,
   UserSearchResult,
   VerifyEmailRequest,
   VerifyResetRequest,
@@ -44,6 +52,36 @@ const POST_BATCH_SIZE = 10
 const COMMENT_BATCH_SIZE = 10
 const MAX_BEFORE_HIDING_POST = 5
 const MAX_BEFORE_HIDING_COMMENT = 5
+
+// The stub has no clock-based TOTP; this fixed code is the one the stub
+// accepts, mirroring the fixed codes in the iOS/Android stubs.
+export const STUB_TOTP_CODE = '123456'
+const STUB_RECOVERY_CODE_COUNT = 10
+
+/** Cryptographically secure random bytes. These feed credential-shaped values
+ * (TOTP secret, recovery codes), so Math.random() is not appropriate even in a
+ * stub — it would model the real flow with an insecure generator. */
+function randomBytes(length: number): Uint8Array {
+  const bytes = new Uint8Array(length)
+  crypto.getRandomValues(bytes)
+  return bytes
+}
+
+// Recovery codes must match the 10-hex-character format the UI and backend
+// enforce (Patterns.recovery_code), so the stub is usable in demo mode.
+// 5 bytes render as exactly 10 hex characters.
+function stubRecoveryCode(): string {
+  return Array.from(randomBytes(5), byte => byte.toString(16).padStart(2, '0')).join('')
+}
+
+// Authenticator apps require the otpauth:// `secret=` to be Base32 (RFC 4648:
+// A-Z and 2-7). Deriving it from newId() would embed a hyphen, so QR/manual
+// enrollment would fail in demo mode; generate a real Base32 secret instead.
+// The alphabet is exactly 32 chars, so indexing a byte by % 32 is unbiased.
+const BASE32_ALPHABET = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ234567'
+function stubTotpSecret(): string {
+  return Array.from(randomBytes(32), byte => BASE32_ALPHABET[byte % 32]).join('')
+}
 
 interface UserMock {
   id: string
@@ -60,6 +98,16 @@ interface UserMock {
   isAdult: boolean
   blocked: Set<string>
   blockedBy: Set<string>
+  totpSecret: string | null
+  totpEnabled: boolean
+  /** Unused recovery codes; consumed codes are removed. */
+  recoveryCodes: Set<string>
+}
+
+interface TwoFactorChallengeMock {
+  challengeToken: string
+  userId: string
+  rememberMe: boolean
 }
 
 interface SessionMock {
@@ -82,6 +130,8 @@ interface PostMock {
   creationTime: number
   hidden: boolean
   hiddenReason: string
+  /** Public reason code recorded by the (stubbed) async classifier (#282). */
+  reasonCode: string | null
   likes: Set<string>
   /** Reporting user id -> their reason, so retract flows can show the reason. */
   reports: Map<string, string>
@@ -142,6 +192,7 @@ export class StatefulStubbedAPI implements PositiveOnlySocialAPI {
   private users: UserMock[] = []
   private sessions: SessionMock[] = []
   private loginCookies: LoginCookieMock[] = []
+  private twoFactorChallenges: TwoFactorChallengeMock[] = []
   private posts: PostMock[] = []
   private commentThreads: CommentThreadMock[] = []
   private appeals: AppealMock[] = []
@@ -242,6 +293,9 @@ export class StatefulStubbedAPI implements PositiveOnlySocialAPI {
       isAdult: age !== null && age >= 18,
       blocked: new Set(),
       blockedBy: new Set(),
+      totpSecret: null,
+      totpEnabled: false,
+      recoveryCodes: new Set(),
     }
     this.users.push(user)
 
@@ -266,12 +320,27 @@ export class StatefulStubbedAPI implements PositiveOnlySocialAPI {
     }
   }
 
-  async login(body: LoginRequest): Promise<AuthResponse> {
+  async login(body: LoginRequest): Promise<LoginResponse> {
     const user = this.users.find(
       (u) => u.username === body.username_or_email || u.email === body.username_or_email,
     )
     if (!user || user.passwordHash !== body.password) {
       throw new ApiError(400, 'Invalid username or password')
+    }
+
+    // 2FA-enrolled accounts get a challenge instead of a session, mirroring
+    // login_user in backend/user_system/views.py.
+    if (user.totpEnabled) {
+      // No session is issued until the second factor is verified; clear any
+      // prior token so the stub doesn't look authenticated in the meantime.
+      this.setToken(null)
+      const challengeToken = newId()
+      this.twoFactorChallenges.push({
+        challengeToken,
+        userId: user.id,
+        rememberMe: Boolean(body.remember_me),
+      })
+      return { two_factor_required: true, challenge_token: challengeToken }
     }
 
     const sessionToken = newId()
@@ -321,6 +390,116 @@ export class StatefulStubbedAPI implements PositiveOnlySocialAPI {
       login_cookie_token: cookie.token,
       session_management_token: newSessionToken,
     }
+  }
+
+  async loginWithTwoFactor(body: LoginTwoFactorRequest): Promise<AuthResponse> {
+    const challenge = this.twoFactorChallenges.find(
+      (c) => c.challengeToken === body.challenge_token,
+    )
+    if (!challenge) {
+      throw new ApiError(400, INVALID_TWO_FACTOR_CHALLENGE)
+    }
+    const user = this.users.find((u) => u.id === challenge.userId)
+    if (!user) {
+      throw new ApiError(400, INVALID_TWO_FACTOR_CHALLENGE)
+    }
+
+    let codeOk = false
+    if (body.totp_code && !body.recovery_code) {
+      codeOk = body.totp_code === STUB_TOTP_CODE
+    } else if (body.recovery_code && !body.totp_code) {
+      // Recovery codes are single-use: consume on success.
+      codeOk = user.recoveryCodes.delete(body.recovery_code)
+    } else {
+      throw new ApiError(400, "Invalid fields ['TOTP_CODE', 'RECOVERY_CODE']")
+    }
+    if (!codeOk) {
+      throw new ApiError(400, 'Invalid two-factor code')
+    }
+
+    this.twoFactorChallenges = this.twoFactorChallenges.filter(
+      (c) => c.challengeToken !== body.challenge_token,
+    )
+
+    const sessionToken = newId()
+    this.sessions.push({ managementToken: sessionToken, userId: user.id })
+
+    let seriesIdentifier: string | undefined
+    let loginCookieToken: string | undefined
+    if (challenge.rememberMe) {
+      seriesIdentifier = newId()
+      loginCookieToken = newId()
+      this.loginCookies.push({ seriesIdentifier, token: loginCookieToken, userId: user.id })
+    }
+
+    this.setToken(sessionToken)
+    return {
+      session_management_token: sessionToken,
+      user_id: user.id,
+      username: user.username,
+      series_identifier: seriesIdentifier,
+      login_cookie_token: loginCookieToken,
+    }
+  }
+
+  async setupTotp(): Promise<TwoFactorSetupResponse> {
+    const user = this.requireUser()
+    if (user.totpEnabled) {
+      throw new ApiError(400, 'Two-factor authentication is already enabled')
+    }
+    user.totpSecret = stubTotpSecret()
+    return {
+      totp_secret: user.totpSecret,
+      otpauth_uri: `otpauth://totp/Positive%20Only%20Social:${encodeURIComponent(user.email)}?secret=${user.totpSecret}&issuer=Positive%20Only%20Social`,
+    }
+  }
+
+  async confirmTotp(body: ConfirmTotpRequest): Promise<ConfirmTotpResponse> {
+    const user = this.requireUser()
+    if (user.totpEnabled) {
+      throw new ApiError(400, 'Two-factor authentication is already enabled')
+    }
+    if (!user.totpSecret) {
+      throw new ApiError(400, 'Two-factor setup has not been started')
+    }
+    if (user.passwordHash !== body.password) {
+      throw new ApiError(400, 'Invalid password')
+    }
+    if (body.totp_code !== STUB_TOTP_CODE) {
+      throw new ApiError(400, 'Invalid two-factor code')
+    }
+    user.totpEnabled = true
+    user.recoveryCodes = new Set(
+      Array.from({ length: STUB_RECOVERY_CODE_COUNT }, stubRecoveryCode),
+    )
+    return { totp_enabled: true, recovery_codes: [...user.recoveryCodes] }
+  }
+
+  async disableTotp(body: DisableTotpRequest): Promise<DisableTotpResponse> {
+    const user = this.requireUser()
+    if (!user.totpEnabled) {
+      throw new ApiError(400, 'Two-factor authentication is not enabled')
+    }
+    if (user.passwordHash !== body.password) {
+      throw new ApiError(400, 'Invalid password')
+    }
+    // Exactly one of totp_code / recovery_code must be supplied, matching the
+    // backend's field validation (both-or-neither is a bad request, not a
+    // wrong code).
+    if (Boolean(body.totp_code) === Boolean(body.recovery_code)) {
+      throw new ApiError(400, "Invalid fields ['TOTP_CODE', 'RECOVERY_CODE']")
+    }
+    const codeOk = body.totp_code
+      ? body.totp_code === STUB_TOTP_CODE
+      : user.recoveryCodes.delete(body.recovery_code as string)
+    if (!codeOk) {
+      throw new ApiError(400, 'Invalid two-factor code')
+    }
+    user.totpSecret = null
+    user.totpEnabled = false
+    user.recoveryCodes = new Set()
+    this.twoFactorChallenges = this.twoFactorChallenges.filter((c) => c.userId !== user.id)
+    return { totp_enabled: false }
   }
 
   async logout(): Promise<MessageResponse> {
@@ -433,9 +612,10 @@ export class StatefulStubbedAPI implements PositiveOnlySocialAPI {
 
   async createPost(body: CreatePostRequest): Promise<CreatePostResponse> {
     const user = this.requireUser()
-    // Stub "positivity" check, mirroring the native stubs.
+    // Stub pre-filter, mirroring the backend's cheap inline check (#282): a
+    // blatant hit is rejected immediately and the post is never created.
     if (body.caption.includes('negative')) {
-      throw new ApiError(400, 'Text is not positive')
+      throw new ApiError(400, 'Text is not positive because your caption did not meet our positivity guidelines. This decision is final and cannot be appealed.')
     }
     const post: PostMock = {
       postIdentifier: newId(),
@@ -443,13 +623,66 @@ export class StatefulStubbedAPI implements PositiveOnlySocialAPI {
       imageUrl: body.image_url ?? null,
       caption: body.caption,
       creationTime: Date.now(),
-      hidden: false,
-      hiddenReason: '',
+      hidden: true,
+      hiddenReason: 'pending_classification',
+      reasonCode: null,
       likes: new Set(),
       reports: new Map(),
     }
     this.posts.push(post)
-    return { post_identifier: post.postIdentifier }
+    // The real backend classifies asynchronously in a worker; the stub
+    // resolves instantly (like the backend's eager dev mode) but still
+    // returns the pending response, so clients exercise the reconcile path.
+    this.classifyPost(post)
+    return {
+      post_identifier: post.postIdentifier,
+      status: 'pending',
+      hidden: true,
+      hidden_reason: 'pending_classification',
+      appealable: false,
+      message: 'Your post is being reviewed and will be visible to others once it is approved.',
+    }
+  }
+
+  /** Stubbed async classifier (#282): a caption containing 'borderline'
+   * becomes an appealable rejection; everything else is approved. */
+  private classifyPost(post: PostMock): void {
+    if (post.caption.includes('borderline')) {
+      post.hidden = true
+      post.hiddenReason = 'classifier'
+      post.reasonCode = 'guidelines'
+    } else {
+      post.hidden = false
+      post.hiddenReason = ''
+    }
+  }
+
+  /** Author-facing classification status, mirroring Post.classification_status. */
+  private classificationStatus(post: PostMock): 'pending' | 'approved' | 'rejected' | 'rejected_final' {
+    if (post.hiddenReason === 'pending_classification') return 'pending'
+    if (post.hiddenReason === 'classifier') return 'rejected'
+    if (post.hiddenReason === 'classifier_final') return 'rejected_final'
+    return 'approved'
+  }
+
+  private isAppealable(post: PostMock): boolean {
+    return (
+      post.hidden &&
+      post.hiddenReason !== 'pending_classification' &&
+      post.hiddenReason !== 'classifier_final'
+    )
+  }
+
+  /** The author-only classification fields merged into post payloads. */
+  private authorStatusFields(post: PostMock, viewerId: string): Partial<FeedPost> {
+    if (post.authorId !== viewerId) return {}
+    return {
+      status: this.classificationStatus(post),
+      hidden: post.hidden,
+      hidden_reason: post.hiddenReason,
+      reason_code: post.reasonCode,
+      appealable: this.isAppealable(post),
+    }
   }
 
   async deletePost(postIdentifier: string): Promise<MessageResponse> {
@@ -525,7 +758,7 @@ export class StatefulStubbedAPI implements PositiveOnlySocialAPI {
   // Feeds & retrieval
   // ---------------------------------------------------------------------------
 
-  private toFeedPost(post: PostMock): FeedPost {
+  private toFeedPost(post: PostMock, viewerId: string): FeedPost {
     const author = this.users.find((u) => u.id === post.authorId)
     return {
       post_identifier: post.postIdentifier,
@@ -535,6 +768,7 @@ export class StatefulStubbedAPI implements PositiveOnlySocialAPI {
       original_image_url: post.imageUrl,
       author_username: author ? author.username : '',
       caption: post.caption,
+      ...this.authorStatusFields(post, viewerId),
     }
   }
 
@@ -543,7 +777,7 @@ export class StatefulStubbedAPI implements PositiveOnlySocialAPI {
     const visible = this.posts
       .filter((p) => !p.hidden && !user.blocked.has(p.authorId) && !user.blockedBy.has(p.authorId))
       .sort((a, b) => b.creationTime - a.creationTime)
-    return this.batch(visible, batch, POST_BATCH_SIZE).map((p) => this.toFeedPost(p))
+    return this.batch(visible, batch, POST_BATCH_SIZE).map((p) => this.toFeedPost(p, user.id))
   }
 
   async getFollowedFeed(batch: number): Promise<FeedPost[]> {
@@ -557,7 +791,7 @@ export class StatefulStubbedAPI implements PositiveOnlySocialAPI {
           !user.blockedBy.has(p.authorId),
       )
       .sort((a, b) => b.creationTime - a.creationTime)
-    return this.batch(visible, batch, POST_BATCH_SIZE).map((p) => this.toFeedPost(p))
+    return this.batch(visible, batch, POST_BATCH_SIZE).map((p) => this.toFeedPost(p, user.id))
   }
 
   async getPostsForUser(username: string, batch: number): Promise<FeedPost[]> {
@@ -569,10 +803,15 @@ export class StatefulStubbedAPI implements PositiveOnlySocialAPI {
     if (user.blocked.has(target.id) || target.blocked.has(user.id)) {
       return []
     }
+    // Mirrors visible_posts: authors see their own hidden posts (pending,
+    // appealable, report-hidden) in their grid; everyone else only sees live
+    // ones. Final-rejection tombstones are visible to nobody (#282).
     const visible = this.posts
-      .filter((p) => !p.hidden && p.authorId === target.id)
+      .filter((p) => p.authorId === target.id)
+      .filter((p) => p.hiddenReason !== 'classifier_final')
+      .filter((p) => (user.id === target.id ? true : !p.hidden))
       .sort((a, b) => b.creationTime - a.creationTime)
-    return this.batch(visible, batch, POST_BATCH_SIZE).map((p) => this.toFeedPost(p))
+    return this.batch(visible, batch, POST_BATCH_SIZE).map((p) => this.toFeedPost(p, user.id))
   }
 
   async getPostDetails(postIdentifier: string): Promise<PostDetails> {
@@ -590,7 +829,37 @@ export class StatefulStubbedAPI implements PositiveOnlySocialAPI {
       is_reported: post.reports.has(user.id),
       report_reason: post.reports.get(user.id) ?? null,
       author_username: author ? author.username : '',
+      ...this.authorStatusFields(post, user.id),
     }
+  }
+
+  async getPostStatus(postIdentifier: string): Promise<PostStatusResponse> {
+    const user = this.requireUser()
+    const post = this.posts.find(
+      (p) => p.postIdentifier === postIdentifier && p.authorId === user.id,
+    )
+    if (!post) {
+      throw new ApiError(400, 'No post with that identifier by that user')
+    }
+    const status = this.classificationStatus(post)
+    const response: PostStatusResponse = {
+      post_identifier: post.postIdentifier,
+      status,
+      reason_code: post.reasonCode,
+      appealable: this.isAppealable(post),
+      hidden: post.hidden,
+      hidden_reason: post.hiddenReason,
+    }
+    if (status === 'pending') {
+      response.message = 'Your post is being reviewed and will be visible to others once it is approved.'
+    } else if (status === 'rejected') {
+      response.message =
+        'Your post did not pass automated review. It is hidden for now but you can appeal the decision.'
+    } else if (status === 'rejected_final') {
+      response.message =
+        'Your post did not pass automated review. This decision is final and cannot be appealed.'
+    }
+    return response
   }
 
   // ---------------------------------------------------------------------------
@@ -862,6 +1131,14 @@ export class StatefulStubbedAPI implements PositiveOnlySocialAPI {
     return { message: 'User blocked' }
   }
 
+  async getBlockedUsers(): Promise<UserSearchResult[]> {
+    const user = this.requireUser()
+    return this.users
+      .filter((u) => user.blocked.has(u.id))
+      .sort((a, b) => a.username.localeCompare(b.username))
+      .map((u) => ({ username: u.username, identity_is_verified: u.isVerified }))
+  }
+
   async getProfile(username: string): Promise<ProfileDetails> {
     const user = this.requireUser()
     const target = this.findUserByName(username)
@@ -892,8 +1169,10 @@ export class StatefulStubbedAPI implements PositiveOnlySocialAPI {
 
   async getHiddenPosts(batch: number): Promise<HiddenPost[]> {
     const user = this.requireUser()
+    // Pending posts have nothing to appeal yet and final rejections are
+    // terminal, so neither belongs on the appeals screen (#282).
     const hidden = this.posts
-      .filter((p) => p.authorId === user.id && p.hidden)
+      .filter((p) => p.authorId === user.id && p.hidden && this.isAppealable(p))
       .sort((a, b) => b.creationTime - a.creationTime)
     return this.batch(hidden, batch, POST_BATCH_SIZE).map((p) => ({
       post_identifier: p.postIdentifier,
@@ -943,7 +1222,11 @@ export class StatefulStubbedAPI implements PositiveOnlySocialAPI {
     let snapshot: string
     if (body.target_type === 'post') {
       const post = this.posts.find(
-        (p) => p.postIdentifier === body.target_identifier && p.authorId === user.id && p.hidden,
+        (p) =>
+          p.postIdentifier === body.target_identifier &&
+          p.authorId === user.id &&
+          p.hidden &&
+          this.isAppealable(p),
       )
       if (!post) {
         throw new ApiError(400, 'No appealable item with that identifier')

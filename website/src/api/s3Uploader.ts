@@ -46,6 +46,11 @@ export async function uploadImage(file: File): Promise<string> {
  * Re-encodes the image as JPEG and, if it exceeds `maxSizeBytes`, iteratively
  * lowers quality and then downscales until it fits — the same strategy the
  * native uploaders use.
+ *
+ * Re-encoding through a canvas also strips the photo's metadata: the output
+ * blob carries no EXIF, so the camera's GPS coordinates never reach the source
+ * bucket (issue #346). Do not add a fast path that uploads the original file
+ * untouched — that would leak that metadata.
  */
 async function compressImage(file: File, maxSizeBytes: number): Promise<Blob> {
   const bitmap = await createImageBitmap(file)

@@ -27,6 +27,53 @@ struct LoginResponseFields: Codable {
     }
 }
 
+/// Returned by login instead of a session when the account has two-factor
+/// authentication enabled (issue #348). The challenge is exchanged (with a
+/// TOTP or recovery code) for the real session at `login/2fa/` before it
+/// expires a few minutes later.
+struct TwoFactorRequiredFields: Codable {
+    let twoFactorRequired: Bool
+    let challengeToken: String
+
+    enum CodingKeys: String, CodingKey {
+        case twoFactorRequired = "two_factor_required"
+        case challengeToken = "challenge_token"
+    }
+}
+
+/// The response from starting TOTP enrollment: the shared secret (for manual
+/// entry) and the otpauth:// provisioning URI (rendered as a QR code).
+struct TotpSetupFields: Codable {
+    let totpSecret: String
+    let otpauthUri: String
+
+    enum CodingKeys: String, CodingKey {
+        case totpSecret = "totp_secret"
+        case otpauthUri = "otpauth_uri"
+    }
+}
+
+/// The response from confirming TOTP enrollment. The recovery codes are
+/// single-use and shown exactly once.
+struct ConfirmTotpFields: Codable {
+    let totpEnabled: Bool
+    let recoveryCodes: [String]
+
+    enum CodingKeys: String, CodingKey {
+        case totpEnabled = "totp_enabled"
+        case recoveryCodes = "recovery_codes"
+    }
+}
+
+/// The response from disabling two-factor authentication.
+struct DisableTotpFields: Codable {
+    let totpEnabled: Bool
+
+    enum CodingKeys: String, CodingKey {
+        case totpEnabled = "totp_enabled"
+    }
+}
+
 // Represents a single post in the user's grid.
 // Conforms to Identifiable and Hashable to be used in grids and lists.
 struct Post: Codable, Identifiable, Hashable {
@@ -43,6 +90,40 @@ struct Post: Codable, Identifiable, Hashable {
     let originalImageUrl: String?
     let caption: String
     let authorUsername: String
+    /// Author-only classification state (issue #282): present on the viewer's
+    /// own posts so grids can render pending/rejected states. Other users'
+    /// posts never carry these (their pending/hidden posts are filtered out
+    /// server-side entirely). One of "pending", "approved", "rejected",
+    /// "rejected_final"; nil on older backends or others' posts.
+    var status: String? = nil
+    var hidden: Bool? = nil
+    var hiddenReason: String? = nil
+    var appealable: Bool? = nil
+
+    /// The interaction state the post lists need to offer like / report /
+    /// retract-report / delete in place, without opening the post (issue #267).
+    /// These carry exactly what `get_post_details` returns, and the three
+    /// listing endpoints now return them too. They're `var` so an action can
+    /// optimistically update the cached post, and defaulted when decoding so a
+    /// response from an older backend (which omits them) still decodes.
+    var postLikes: Int
+    var isLiked: Bool
+    var isReported: Bool
+    var reportReason: String?
+
+    /// How many comments on this post are visible to the viewer, and when the
+    /// post was made — the extra context the feed rows show (issue #249). Kept
+    /// as the raw timestamp string so `Post` still round-trips through `Codable`
+    /// unchanged; use `createdDate` to render it.
+    var commentCount: Int
+    var creationTime: String?
+
+    /// When the post was made, or nil when the backend didn't send a timestamp
+    /// (or sent one we can't parse) — in which case the feed omits the label.
+    var createdDate: Date? {
+        guard let creationTime else { return nil }
+        return RelativeTime.date(from: creationTime)
+    }
 
     enum CodingKeys: String, CodingKey {
         case postIdentifier = "post_identifier"
@@ -50,6 +131,72 @@ struct Post: Codable, Identifiable, Hashable {
         case originalImageUrl = "original_image_url"
         case caption = "caption"
         case authorUsername = "author_username"
+        case postLikes = "post_likes"
+        case isLiked = "is_liked"
+        case isReported = "is_reported"
+        case reportReason = "report_reason"
+        case commentCount = "comment_count"
+        case creationTime = "creation_time"
+        case status
+        case hidden
+        case hiddenReason = "hidden_reason"
+        case appealable
+    }
+
+    init(
+        postIdentifier: String,
+        imageUrl: String?,
+        originalImageUrl: String? = nil,
+        caption: String,
+        authorUsername: String,
+        postLikes: Int = 0,
+        isLiked: Bool = false,
+        isReported: Bool = false,
+        reportReason: String? = nil,
+        commentCount: Int = 0,
+        creationTime: String? = nil,
+        status: String? = nil,
+        hidden: Bool? = nil,
+        hiddenReason: String? = nil,
+        appealable: Bool? = nil
+    ) {
+        self.postIdentifier = postIdentifier
+        self.imageUrl = imageUrl
+        self.originalImageUrl = originalImageUrl
+        self.caption = caption
+        self.authorUsername = authorUsername
+        self.postLikes = postLikes
+        self.isLiked = isLiked
+        self.isReported = isReported
+        self.reportReason = reportReason
+        self.commentCount = commentCount
+        self.creationTime = creationTime
+        self.status = status
+        self.hidden = hidden
+        self.hiddenReason = hiddenReason
+        self.appealable = appealable
+    }
+
+    // Decodes the interaction fields leniently so a response that predates them
+    // (an older server, or a cached payload) still yields a usable post.
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        postIdentifier = try container.decode(String.self, forKey: .postIdentifier)
+        imageUrl = try container.decodeIfPresent(String.self, forKey: .imageUrl)
+        originalImageUrl = try container.decodeIfPresent(String.self, forKey: .originalImageUrl)
+        caption = try container.decode(String.self, forKey: .caption)
+        authorUsername = try container.decode(String.self, forKey: .authorUsername)
+        postLikes = try container.decodeIfPresent(Int.self, forKey: .postLikes) ?? 0
+        isLiked = try container.decodeIfPresent(Bool.self, forKey: .isLiked) ?? false
+        isReported = try container.decodeIfPresent(Bool.self, forKey: .isReported) ?? false
+        reportReason = try container.decodeIfPresent(String.self, forKey: .reportReason)
+        commentCount = try container.decodeIfPresent(Int.self, forKey: .commentCount) ?? 0
+        creationTime = try container.decodeIfPresent(String.self, forKey: .creationTime)
+        // Author-only classification state (#282); absent on others' posts.
+        status = try container.decodeIfPresent(String.self, forKey: .status)
+        hidden = try container.decodeIfPresent(Bool.self, forKey: .hidden)
+        hiddenReason = try container.decodeIfPresent(String.self, forKey: .hiddenReason)
+        appealable = try container.decodeIfPresent(Bool.self, forKey: .appealable)
     }
 }
 
@@ -68,16 +215,48 @@ struct UploadUrlResponse: Codable {
     }
 }
 
-/// The response from makePost. `hidden` is true when the post was created
-/// hidden pending appeal (classifier flagged it but it is appealable).
+/// The response from makePost. On current backends classification runs
+/// asynchronously (issue #282): `status` is "pending" and the post is hidden
+/// until review finishes, with the outcome reconciled via getPostStatus or a
+/// grid refresh. On older inline-classifying backends `hidden` means the post
+/// was flagged but is appealable.
 struct MakePostResponse: Codable {
     let postIdentifier: String
+    let status: String?
     let hidden: Bool?
+    let hiddenReason: String?
     let message: String?
 
     enum CodingKeys: String, CodingKey {
         case postIdentifier = "post_identifier"
+        case status
         case hidden
+        case hiddenReason = "hidden_reason"
+        case message
+    }
+}
+
+/// The response from getPostStatus (issue #282): the author-only
+/// classification state of one of the signed-in user's posts.
+struct PostStatusResponse: Codable {
+    let postIdentifier: String
+    /// "pending", "approved", "rejected", or "rejected_final".
+    let status: String
+    /// Public reason code of a rejection ("profanity", "gore", ...), else nil.
+    let reasonCode: String?
+    let appealable: Bool
+    let hidden: Bool
+    let hiddenReason: String
+    /// User-facing explanation for pending/rejected states; nil when approved.
+    let message: String?
+
+    enum CodingKeys: String, CodingKey {
+        case postIdentifier = "post_identifier"
+        case status
+        case reasonCode = "reason_code"
+        case appealable
+        case hidden
+        case hiddenReason = "hidden_reason"
         case message
     }
 }

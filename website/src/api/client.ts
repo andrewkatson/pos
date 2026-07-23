@@ -14,18 +14,25 @@ import type {
   Comment,
   CommentOnPostResponse,
   CommentThreadRef,
+  ConfirmTotpRequest,
+  ConfirmTotpResponse,
   CreatePostRequest,
   CreatePostResponse,
   CreateUploadUrlResponse,
+  DisableTotpRequest,
+  DisableTotpResponse,
   FeedPost,
   HiddenComment,
   HiddenPost,
   LoginRequest,
+  LoginResponse,
+  LoginTwoFactorRequest,
   LoginWithRememberMeRequest,
   LoginWithRememberMeResponse,
   MessageResponse,
   MyAppeal,
   PostDetails,
+  PostStatusResponse,
   ProfileDetails,
   RegisterRequest,
   ReplyResponse,
@@ -34,11 +41,13 @@ import type {
   ResetPasswordRequest,
   SubmitAppealRequest,
   SubmitAppealResponse,
+  TwoFactorSetupResponse,
   UserSearchResult,
   VerifyEmailRequest,
   VerifyResetRequest,
   VerifyResetResponse,
 } from './types'
+import { isTwoFactorRequired } from './types'
 
 const DEFAULT_BASE_URL = 'https://api.smiling.social/user_index'
 
@@ -51,6 +60,10 @@ export const ACCOUNT_SUSPENDED_MESSAGE =
 
 /** Error code the backend returns when the account's email address is unverified. */
 export const EMAIL_NOT_VERIFIED = 'email_not_verified'
+
+/** Error code from login/2fa/ when the challenge is expired, used, or invalid.
+ * A stable code rather than prose, so the client can branch on it safely. */
+export const INVALID_TWO_FACTOR_CHALLENGE = 'invalid_two_factor_challenge'
 
 /** User-facing message shown wherever the email_not_verified error surfaces. */
 export const EMAIL_NOT_VERIFIED_MESSAGE =
@@ -323,10 +336,35 @@ export class ApiClient implements PositiveOnlySocialAPI {
     return result
   }
 
-  async login(body: LoginRequest): Promise<AuthResponse> {
-    const result = await this.request<AuthResponse>('POST', '/login/', { body })
+  async login(body: LoginRequest): Promise<LoginResponse> {
+    const result = await this.request<LoginResponse>('POST', '/login/', { body })
+    if (isTwoFactorRequired(result)) {
+      // A 2FA-enrolled account gets a challenge, not a session — clear any
+      // prior token so isAuthenticated() doesn't report true before the
+      // second factor is completed via loginWithTwoFactor.
+      this.setToken(null)
+    } else {
+      this.setToken(result.session_management_token)
+    }
+    return result
+  }
+
+  async loginWithTwoFactor(body: LoginTwoFactorRequest): Promise<AuthResponse> {
+    const result = await this.request<AuthResponse>('POST', '/login/2fa/', { body })
     this.setToken(result.session_management_token)
     return result
+  }
+
+  setupTotp(): Promise<TwoFactorSetupResponse> {
+    return this.request<TwoFactorSetupResponse>('POST', '/2fa/totp/setup/', { auth: true })
+  }
+
+  confirmTotp(body: ConfirmTotpRequest): Promise<ConfirmTotpResponse> {
+    return this.request<ConfirmTotpResponse>('POST', '/2fa/totp/confirm/', { auth: true, body })
+  }
+
+  disableTotp(body: DisableTotpRequest): Promise<DisableTotpResponse> {
+    return this.request<DisableTotpResponse>('POST', '/2fa/disable/', { auth: true, body })
   }
 
   async loginWithRememberMe(
@@ -445,6 +483,12 @@ export class ApiClient implements PositiveOnlySocialAPI {
 
   getPostDetails(postIdentifier: string): Promise<PostDetails> {
     return this.request<PostDetails>('GET', `/posts/${postIdentifier}/details/`, { auth: true })
+  }
+
+  getPostStatus(postIdentifier: string): Promise<PostStatusResponse> {
+    return this.request<PostStatusResponse>('GET', `/posts/${postIdentifier}/status/`, {
+      auth: true,
+    })
   }
 
   // ===========================================================================
@@ -567,6 +611,10 @@ export class ApiClient implements PositiveOnlySocialAPI {
 
   toggleBlock(username: string): Promise<MessageResponse> {
     return this.request<MessageResponse>('POST', `/users/${username}/block/`, { auth: true })
+  }
+
+  getBlockedUsers(): Promise<UserSearchResult[]> {
+    return this.request<UserSearchResult[]>('GET', '/users/blocked/', { auth: true })
   }
 
   getProfile(username: string): Promise<ProfileDetails> {

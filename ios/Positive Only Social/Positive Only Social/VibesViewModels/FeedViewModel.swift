@@ -6,6 +6,7 @@
 //
 
 import Foundation
+import Combine
 
 // ViewModel to manage the state of the global feed
 @MainActor
@@ -18,17 +19,31 @@ final class FeedViewModel: ObservableObject {
     @Published var isLoadingNextPage = false
     private var canLoadMore = true
     private var currentPage = 0
-    
+
+    // Listens for `.postDeleted` so a post deleted from the feed itself (#267)
+    // or from its detail view drops out of the list. Deliberately a removal
+    // rather than a reload: refetching would reshuffle the weighted feed
+    // ordering under the user.
+    private var postDeletedCancellable: AnyCancellable?
+
     convenience init(api: Networking, keychainHelper: KeychainHelperProtocol) {
         self.init(api: api, keychainHelper: keychainHelper, account: "userSessionToken")
     }
-    
-    init(api: Networking, keychainHelper: KeychainHelperProtocol, account: String) {
+
+    init(api: Networking, keychainHelper: KeychainHelperProtocol, account: String,
+         notificationCenter: NotificationCenter = .default) {
         self.api = api
         self.keychainHelper = keychainHelper
         self.account = account
+
+        postDeletedCancellable = notificationCenter.publisher(for: .postDeleted)
+            .receive(on: RunLoop.main)
+            .sink { [weak self] notification in
+                guard let postIdentifier = notification.object as? String else { return }
+                self?.feedPosts.removeAll { $0.id == postIdentifier }
+            }
     }
-    
+
     func fetchFeed() {
         guard !isLoadingNextPage && canLoadMore else { return }
         isLoadingNextPage = true

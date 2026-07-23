@@ -11,10 +11,32 @@ interface PositiveOnlySocialAPI {
     // =============================================================================
 
     @POST("login/")
-    suspend fun loginUser(@Body request: LoginRequest): Response<AuthResponse>
+    suspend fun loginUser(@Body request: LoginRequest): Response<LoginResponse>
 
     @POST("login/remember/")
     suspend fun loginUserWithRememberMe(@Body request: TokenRefreshRequest): Response<TokenRefreshResponse>
+
+    // =============================================================================
+    // TWO-FACTOR AUTHENTICATION (issue #348)
+    // =============================================================================
+
+    @POST("login/2fa/")
+    suspend fun loginUser2FA(@Body request: LoginTwoFactorRequest): Response<AuthResponse>
+
+    @POST("2fa/totp/setup/")
+    suspend fun setupTotp(@Header("Authorization") token: String): Response<TotpSetupResponse>
+
+    @POST("2fa/totp/confirm/")
+    suspend fun confirmTotp(
+        @Header("Authorization") token: String,
+        @Body request: ConfirmTotpRequest
+    ): Response<ConfirmTotpResponse>
+
+    @POST("2fa/disable/")
+    suspend fun disableTotp(
+        @Header("Authorization") token: String,
+        @Body request: DisableTotpRequest
+    ): Response<DisableTotpResponse>
 
     @POST("register/")
     suspend fun register(@Body request: RegisterRequest): Response<AuthResponse>
@@ -82,6 +104,14 @@ interface PositiveOnlySocialAPI {
         @Header("Authorization") token: String,
         @Path("post_id") postId: String
     ): Response<Post>
+
+    // Classification status of one of the signed-in user's own posts (issue
+    // #282): pending, approved, rejected, or rejected_final.
+    @GET("posts/{post_id}/status/")
+    suspend fun getPostStatus(
+        @Header("Authorization") token: String,
+        @Path("post_id") postId: String
+    ): Response<PostStatusResponse>
 
     // ============================================================================================
     // POSTS
@@ -230,6 +260,11 @@ interface PositiveOnlySocialAPI {
         @Header("Authorization") token: String,
         @Path("username") username: String
     ): Response<GenericResponse>
+
+    @GET("users/blocked/")
+    suspend fun getBlockedUsers(
+        @Header("Authorization") token: String
+    ): Response<List<User>>
 
     @GET("users/{username}/profile/")
     suspend fun getProfileDetails(

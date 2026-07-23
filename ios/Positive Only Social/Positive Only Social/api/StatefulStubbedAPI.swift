@@ -25,12 +25,26 @@ struct MockUser {
     var isAdult: Bool = false
     var blocked: [UUID] = []
     var blockedBy: [UUID] = []
+    // Two-factor authentication (issue #348). A secret without the enabled
+    // flag is a pending enrollment; recovery codes are removed as they are used.
+    var totpSecret: String? = nil
+    var totpEnabled: Bool = false
+    var recoveryCodes: [String] = []
 
     init(username: String, email: String, passwordHash: String) {
         self.username = username
         self.email = email
         self.passwordHash = passwordHash
     }
+}
+
+// A pending two-factor login, issued by loginUser when the account has TOTP
+// enabled and consumed by loginUser2FA.
+fileprivate struct MockTwoFactorChallenge {
+    let challengeToken: String
+    let userId: UUID
+    let rememberMe: Bool
+    let ip: String
 }
 
 fileprivate struct MockUserFollow {
@@ -62,7 +76,35 @@ fileprivate struct MockPost {
     var commentThreads: [MockCommentThread] = []
     var isHidden: Bool = false
     var hiddenReason: String = GVOAppConstants.emptyString
+    /// Public reason code recorded by the (stubbed) async classifier (#282).
+    var reasonCode: String? = nil
     let createdDate = Date()
+}
+
+/// One post as the three listing endpoints (feed, following feed, user posts)
+/// serialize it. Each row carries the same like/report state `getPostDetails`
+/// returns so the clients can act on a post straight from a list (issue #267).
+fileprivate struct PostListingFields: Codable {
+    let post_identifier: String
+    let image_url: String?
+    let caption: String
+    let author_username: String
+    let post_likes: Int
+    let is_liked: Bool
+    let is_reported: Bool
+    let report_reason: String?
+    /// Comments visible to the viewer, and when the post was made — the extra
+    /// context the feed rows show (issue #249).
+    let comment_count: Int
+    //TODO: eBlender rename to camelCase creationTime (via CodingKeys).
+    let creation_time: String?
+    /// Author-only classification state (#282), mirroring the backend: only a
+    /// viewer's own grid carries these. Encoded as nil (and so omitted) for
+    /// everyone else's posts and for the feeds.
+    let status: String?
+    let hidden: Bool?
+    let hidden_reason: String?
+    let appealable: Bool?
 }
 
 fileprivate struct MockCommentThread {
@@ -99,10 +141,15 @@ fileprivate struct MockAppeal {
 // MARK: - Stateful API Implementation
 final class StatefulStubbedAPI: Networking {
 
+    // The stub has no clock-based TOTP; this fixed code is the one the stub
+    // accepts, mirroring the fixed codes in the website/Android stubs.
+    static let stubTotpCode = "123456"
+
     // MARK: - In-Memory "Database"
     private var users: [MockUser] = []
     private var sessions: [MockSession] = []
     private var loginCookies: [MockLoginCookie] = []
+    private var twoFactorChallenges: [MockTwoFactorChallenge] = []
     private var posts: [MockPost] = []
     private var commentThreads: [MockCommentThread] = []
     private var comments: [MockComment] = []
@@ -149,6 +196,49 @@ final class StatefulStubbedAPI: Networking {
         return try JSONEncoder().encode(fieldsList)
     }
 
+    /// Serializes one post for a listing endpoint, including the viewer's own
+    /// like/report state so the list can offer the same actions the post detail
+    /// view does (issue #267).
+    fileprivate func postListingFields(
+        for post: MockPost,
+        viewer: MockUser,
+        isOwnGrid: Bool = false
+    ) -> PostListingFields {
+        let viewerReport = post.reports.first(where: { $0.username == viewer.username })
+        return PostListingFields(
+            post_identifier: post.postIdentifier,
+            image_url: post.imageURL,
+            caption: post.caption,
+            author_username: users.first(where: { $0.id == post.authorId })?.username ?? "Unknown User",
+            post_likes: post.likes.count,
+            is_liked: post.likes.contains(viewer.username),
+            is_reported: viewerReport != nil,
+            report_reason: viewerReport?.reason,
+            comment_count: commentCount(forPost: post.postIdentifier),
+            // Mirror Django's DjangoJSONEncoder, which emits a colon-separated
+            // UTC offset with fractional seconds (e.g. "…+00:00"), not a "Z"
+            // suffix, so the client's date parsing is exercised against the
+            // real backend format.
+            creation_time: post.createdDate.formatted(
+                Date.ISO8601FormatStyle().year().month().day()
+                    .time(includingFractionalSeconds: true)
+                    .timeZone(separator: .colon)
+            ),
+            status: isOwnGrid ? classificationStatus(post) : nil,
+            hidden: isOwnGrid ? post.isHidden : nil,
+            hidden_reason: isOwnGrid ? post.hiddenReason : nil,
+            appealable: isOwnGrid ? isAppealable(post) : nil
+        )
+    }
+
+    /// The number of visible comments on a post, across all of its threads.
+    private func commentCount(forPost postIdentifier: String) -> Int {
+        let threadIdentifiers = Set(
+            commentThreads.filter { $0.postId == postIdentifier }.map { $0.commentThreadIdentifier }
+        )
+        return comments.filter { threadIdentifiers.contains($0.threadId) && !$0.isHidden }.count
+    }
+
     private func createEmptySuccessResponse() throws -> Data {
         return try JSONEncoder().encode(["message": "ok"])
     }
@@ -188,6 +278,24 @@ final class StatefulStubbedAPI: Networking {
         await simulateNetwork()
         guard let user = findUser(byUsernameOrEmail: usernameOrEmail) else { throw APIError.badServerResponse(statusCode: 400) }
         if user.passwordHash != password { throw APIError.badServerResponse(statusCode: 400) }
+
+        // 2FA-enrolled accounts get a challenge instead of a session, mirroring
+        // login_user in backend/user_system/views.py.
+        if user.totpEnabled {
+            // Only one challenge is live per user, matching login_user in the
+            // backend — otherwise a stale challenge from an earlier attempt
+            // would still be accepted after a newer login.
+            twoFactorChallenges.removeAll { $0.userId == user.id }
+            let challenge = MockTwoFactorChallenge(
+                challengeToken: generateToken(),
+                userId: user.id,
+                rememberMe: Bool(rememberMe.lowercased()) ?? false,
+                ip: ip
+            )
+            twoFactorChallenges.append(challenge)
+            struct Fields: Codable { let two_factor_required: Bool; let challenge_token: String }
+            return try createSerializedResponse(fields: Fields(two_factor_required: true, challenge_token: challenge.challengeToken))
+        }
 
         sessions.removeAll { $0.userId == user.id }
         let newSession = MockSession(managementToken: generateToken(), userId: user.id, ip: ip)
@@ -247,6 +355,148 @@ final class StatefulStubbedAPI: Networking {
         ))
     }
 
+
+    func loginUser2FA(challengeToken: String, totpCode: String?, recoveryCode: String?, ip: String) async throws -> Data {
+        await simulateNetwork()
+        guard let challengeIndex = twoFactorChallenges.firstIndex(where: { $0.challengeToken == challengeToken }),
+              let userIndex = users.firstIndex(where: { $0.id == twoFactorChallenges[challengeIndex].userId })
+        else {
+            throw APIError.serverError(statusCode: 400, serverMessage: GVOAppConstants.invalidTwoFactorChallengeError)
+        }
+        let challenge = twoFactorChallenges[challengeIndex]
+
+        let codeOk: Bool
+        if let totpCode = totpCode, recoveryCode == nil {
+            codeOk = totpCode == Self.stubTotpCode
+        } else if let recoveryCode = recoveryCode, totpCode == nil {
+            // Recovery codes are single-use: consume on success.
+            if let codeIndex = users[userIndex].recoveryCodes.firstIndex(of: recoveryCode) {
+                users[userIndex].recoveryCodes.remove(at: codeIndex)
+                codeOk = true
+            } else {
+                codeOk = false
+            }
+        } else {
+            throw APIError.serverError(statusCode: 400, serverMessage: "Invalid fields ['TOTP_CODE', 'RECOVERY_CODE']")
+        }
+        guard codeOk else {
+            throw APIError.serverError(statusCode: 400, serverMessage: "Invalid two-factor code")
+        }
+
+        twoFactorChallenges.remove(at: challengeIndex)
+        let user = users[userIndex]
+
+        sessions.removeAll { $0.userId == user.id }
+        // Record the IP this second step came from, not the one from the
+        // password step — they can differ, and the other login endpoints all
+        // store the IP of the request that issued the session.
+        let newSession = MockSession(managementToken: generateToken(), userId: user.id, ip: ip)
+        sessions.append(newSession)
+
+        if challenge.rememberMe {
+            let cookie = MockLoginCookie(seriesIdentifier: UUID().uuidString, token: generateToken(), userId: user.id)
+            loginCookies.append(cookie)
+            struct Fields: Codable { let series_identifier, login_cookie_token, session_management_token, username, user_id: String }
+            return try createSerializedResponse(fields: Fields(
+                series_identifier: cookie.seriesIdentifier,
+                login_cookie_token: cookie.token,
+                session_management_token: newSession.managementToken,
+                username: user.username,
+                user_id: user.id.uuidString
+            ))
+        } else {
+            struct Fields: Codable { let session_management_token, username, user_id: String }
+            return try createSerializedResponse(fields: Fields(
+                session_management_token: newSession.managementToken,
+                username: user.username,
+                user_id: user.id.uuidString
+            ))
+        }
+    }
+
+    func setupTotp(sessionManagementToken: String) async throws -> Data {
+        await simulateNetwork()
+        guard let user = findUser(bySessionToken: sessionManagementToken),
+              let userIndex = users.firstIndex(where: { $0.id == user.id })
+        else { throw APIError.badServerResponse(statusCode: 401) }
+        if users[userIndex].totpEnabled {
+            throw APIError.serverError(statusCode: 400, serverMessage: "Two-factor authentication is already enabled")
+        }
+        // Re-running setup before confirming simply replaces the pending secret.
+        // Use the RFC 4648 Base32 alphabet (A-Z, 2-7) so the otpauth:// URI is a
+        // valid TOTP secret that real authenticator apps and QR parsers accept.
+        let base32Alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZ234567"
+        let secret = String((0..<32).map { _ in base32Alphabet.randomElement()! })
+        users[userIndex].totpSecret = secret
+
+        struct Fields: Codable { let totp_secret, otpauth_uri: String }
+        return try createSerializedResponse(fields: Fields(
+            totp_secret: secret,
+            otpauth_uri: "otpauth://totp/Positive%20Only%20Social:\(user.email)?secret=\(secret)&issuer=Positive%20Only%20Social"
+        ))
+    }
+
+    func confirmTotp(sessionManagementToken: String, password: String, totpCode: String) async throws -> Data {
+        await simulateNetwork()
+        guard let user = findUser(bySessionToken: sessionManagementToken),
+              let userIndex = users.firstIndex(where: { $0.id == user.id })
+        else { throw APIError.badServerResponse(statusCode: 401) }
+        if users[userIndex].totpEnabled {
+            throw APIError.serverError(statusCode: 400, serverMessage: "Two-factor authentication is already enabled")
+        }
+        guard users[userIndex].totpSecret != nil else {
+            throw APIError.serverError(statusCode: 400, serverMessage: "Two-factor setup has not been started")
+        }
+        guard users[userIndex].passwordHash == password else {
+            throw APIError.serverError(statusCode: 400, serverMessage: "Invalid password")
+        }
+        guard totpCode == Self.stubTotpCode else {
+            throw APIError.serverError(statusCode: 400, serverMessage: "Invalid two-factor code")
+        }
+        users[userIndex].totpEnabled = true
+        users[userIndex].recoveryCodes = (0..<10).map { _ in String(generateToken().lowercased().prefix(10)) }
+
+        struct Fields: Codable { let totp_enabled: Bool; let recovery_codes: [String] }
+        return try createSerializedResponse(fields: Fields(totp_enabled: true, recovery_codes: users[userIndex].recoveryCodes))
+    }
+
+    func disableTotp(sessionManagementToken: String, password: String, totpCode: String?, recoveryCode: String?) async throws -> Data {
+        await simulateNetwork()
+        guard let user = findUser(bySessionToken: sessionManagementToken),
+              let userIndex = users.firstIndex(where: { $0.id == user.id })
+        else { throw APIError.badServerResponse(statusCode: 401) }
+        guard users[userIndex].totpEnabled else {
+            throw APIError.serverError(statusCode: 400, serverMessage: "Two-factor authentication is not enabled")
+        }
+        guard users[userIndex].passwordHash == password else {
+            throw APIError.serverError(statusCode: 400, serverMessage: "Invalid password")
+        }
+
+        let codeOk: Bool
+        if let totpCode = totpCode, recoveryCode == nil {
+            codeOk = totpCode == Self.stubTotpCode
+        } else if let recoveryCode = recoveryCode, totpCode == nil {
+            if let codeIndex = users[userIndex].recoveryCodes.firstIndex(of: recoveryCode) {
+                users[userIndex].recoveryCodes.remove(at: codeIndex)
+                codeOk = true
+            } else {
+                codeOk = false
+            }
+        } else {
+            codeOk = false
+        }
+        guard codeOk else {
+            throw APIError.serverError(statusCode: 400, serverMessage: "Invalid two-factor code")
+        }
+
+        users[userIndex].totpSecret = nil
+        users[userIndex].totpEnabled = false
+        users[userIndex].recoveryCodes = []
+        twoFactorChallenges.removeAll { $0.userId == user.id }
+
+        struct Fields: Codable { let totp_enabled: Bool }
+        return try createSerializedResponse(fields: Fields(totp_enabled: false))
+    }
 
     func verifyEmail(verificationToken: String) async throws -> Data {
         await simulateNetwork()
@@ -375,10 +625,115 @@ final class StatefulStubbedAPI: Networking {
     func makePost(sessionManagementToken: String, imageURL: String?, caption: String) async throws -> Data {
         await simulateNetwork()
         guard let user = findUser(bySessionToken: sessionManagementToken) else { throw APIError.badServerResponse(statusCode: 400) }
-        let newPost = MockPost(authorId: user.id, imageURL: imageURL, caption: caption)
+        // Stub pre-filter, mirroring the backend's cheap inline check (#282): a
+        // blatant hit is rejected immediately and the post is never created.
+        if caption.contains("negative") {
+            throw APIError.serverError(statusCode: 400, serverMessage: "Text is not positive because your caption did not meet our positivity guidelines. This decision is final and cannot be appealed.")
+        }
+        var newPost = MockPost(authorId: user.id, imageURL: imageURL, caption: caption)
+        newPost.isHidden = true
+        newPost.hiddenReason = "pending_classification"
+        // The real backend classifies asynchronously in a worker; the stub
+        // resolves instantly (like the backend's eager dev mode) but still
+        // returns the pending response, so clients exercise the reconcile
+        // path. Tests can set `deferClassification` to keep the post pending
+        // until resolvePendingClassifications() plays the worker's role.
+        if !deferClassification {
+            classify(&newPost)
+        }
         posts.append(newPost)
-        struct Fields: Codable { let post_identifier: String }
-        return try createSerializedResponse(fields: Fields(post_identifier: newPost.postIdentifier))
+        struct Fields: Codable {
+            let post_identifier: String
+            let status: String
+            let hidden: Bool
+            let hidden_reason: String
+            let message: String
+        }
+        return try createSerializedResponse(fields: Fields(
+            post_identifier: newPost.postIdentifier,
+            status: "pending",
+            hidden: true,
+            hidden_reason: "pending_classification",
+            message: "Your post is being reviewed and will be visible to others once it is approved."
+        ))
+    }
+
+    /// When true, makePost leaves new posts in pending_classification until
+    /// resolvePendingClassifications() is called, so tests can exercise the
+    /// clients' reconcile path (#282).
+    public var deferClassification = false
+
+    /// Plays the async worker's role for tests: classifies every post still
+    /// pending (#282).
+    public func resolvePendingClassifications() {
+        for index in posts.indices where posts[index].hiddenReason == "pending_classification" {
+            classify(&posts[index])
+        }
+    }
+
+    /// Stubbed async classifier (#282): a caption containing "borderline"
+    /// becomes an appealable rejection; everything else is approved.
+    private func classify(_ post: inout MockPost) {
+        if post.caption.contains("borderline") {
+            post.isHidden = true
+            post.hiddenReason = "classifier"
+            post.reasonCode = "guidelines"
+        } else {
+            post.isHidden = false
+            post.hiddenReason = ""
+        }
+    }
+
+    /// Author-facing classification status, mirroring Post.classification_status.
+    private func classificationStatus(_ post: MockPost) -> String {
+        switch post.hiddenReason {
+        case "pending_classification": return "pending"
+        case "classifier": return "rejected"
+        case "classifier_final": return "rejected_final"
+        default: return "approved"
+        }
+    }
+
+    private func isAppealable(_ post: MockPost) -> Bool {
+        post.isHidden && post.hiddenReason != "pending_classification" && post.hiddenReason != "classifier_final"
+    }
+
+    func getPostStatus(sessionManagementToken: String, postIdentifier: String) async throws -> Data {
+        await simulateNetwork()
+        guard let user = findUser(bySessionToken: sessionManagementToken) else { throw APIError.badServerResponse(statusCode: 400) }
+        guard let post = posts.first(where: { $0.postIdentifier == postIdentifier && $0.authorId == user.id }) else {
+            throw APIError.serverError(statusCode: 400, serverMessage: "No post with that identifier by that user")
+        }
+        let status = classificationStatus(post)
+        let message: String?
+        switch status {
+        case "pending":
+            message = "Your post is being reviewed and will be visible to others once it is approved."
+        case "rejected":
+            message = "Your post did not pass automated review. It is hidden for now but you can appeal the decision."
+        case "rejected_final":
+            message = "Your post did not pass automated review. This decision is final and cannot be appealed."
+        default:
+            message = nil
+        }
+        struct Fields: Codable {
+            let post_identifier: String
+            let status: String
+            let reason_code: String?
+            let appealable: Bool
+            let hidden: Bool
+            let hidden_reason: String
+            let message: String?
+        }
+        return try createSerializedResponse(fields: Fields(
+            post_identifier: post.postIdentifier,
+            status: status,
+            reason_code: post.reasonCode,
+            appealable: isAppealable(post),
+            hidden: post.isHidden,
+            hidden_reason: post.hiddenReason,
+            message: message
+        ))
     }
 
     func deletePost(sessionManagementToken: String, postIdentifier: String) async throws -> Data {
@@ -465,19 +820,13 @@ final class StatefulStubbedAPI: Networking {
         // Check if the requested page is beyond the available posts
         guard startIndex < relevantPosts.count else {
             // Return an empty list, NOT an error
-            return try createSerializedListResponse(fieldsList: [Fields]())
+            return try createSerializedListResponse(fieldsList: [PostListingFields]())
         }
         
         let endIndex = min(startIndex + pageSize, relevantPosts.count)
         let paginatedPosts = Array(relevantPosts[startIndex..<endIndex])
 
-        struct Fields: Codable { let post_identifier: String; let image_url: String?; let caption: String; let author_username: String }
-
-        let fieldObjects = paginatedPosts.map {
-            let post = $0
-            let authorUsername = users.first(where: { $0.id == post.authorId })?.username ?? "Unknown User"
-            return Fields(post_identifier: $0.postIdentifier, image_url: $0.imageURL, caption: $0.caption, author_username: authorUsername)
-        }
+        let fieldObjects = paginatedPosts.map { postListingFields(for: $0, viewer: user) }
 
         return try createSerializedListResponse(fieldsList: fieldObjects)
     }
@@ -512,21 +861,15 @@ final class StatefulStubbedAPI: Networking {
         // Check if the requested page is beyond the available posts
         guard startIndex < relevantPosts.count else {
             // Return an empty list, NOT an error
-            return try createSerializedListResponse(fieldsList: [Fields]())
+            return try createSerializedListResponse(fieldsList: [PostListingFields]())
         }
         
         let endIndex = min(startIndex + pageSize, relevantPosts.count)
         let paginatedPosts = Array(relevantPosts[startIndex..<endIndex])
 
         // 5. Format the response (matching getPostsInFeed)
-        struct Fields: Codable { let post_identifier: String; let image_url: String?; let caption: String; let author_username: String }
-        
-        let fieldObjects = paginatedPosts.map {
-            let post = $0
-            let authorUsername = users.first(where: { $0.id == post.authorId })?.username ?? "Unknown User"
-            return Fields(post_identifier: $0.postIdentifier, image_url: $0.imageURL, caption: $0.caption, author_username: authorUsername)
-        }
-        
+        let fieldObjects = paginatedPosts.map { postListingFields(for: $0, viewer: currentUser) }
+
         // 6. Return the serialized list
         return try createSerializedListResponse(fieldsList: fieldObjects)
     }
@@ -544,41 +887,34 @@ final class StatefulStubbedAPI: Networking {
         
         let user = findUser(bySessionToken: sessionManagementToken)!
         if user.blocked.contains(targetUser.id) || targetUser.blocked.contains(user.id) {
-             return try createSerializedListResponse(fieldsList: [Fields]())
+             return try createSerializedListResponse(fieldsList: [PostListingFields]())
         }
-        
+
+        // Mirrors the backend's visible_posts: authors see their own hidden
+        // posts (pending, appealable, report-hidden) in their grid; everyone
+        // else only sees live ones. Final-rejection tombstones are visible to
+        // nobody (#282).
+        let isOwnGrid = user.id == targetUser.id
         let relevantPosts = posts
-            .filter { $0.authorId == targetUser.id && !$0.isHidden }
+            .filter { $0.authorId == targetUser.id && $0.hiddenReason != "classifier_final" }
+            .filter { isOwnGrid || !$0.isHidden }
             .sorted { $0.createdDate > $1.createdDate } // Sort newest first
 
         let startIndex = batch * pageSize
         guard startIndex < relevantPosts.count else {
             // Return an empty list, NOT an error
-            return try createSerializedListResponse(fieldsList: [Fields]())
+            return try createSerializedListResponse(fieldsList: [PostListingFields]())
         }
-        
+
         let endIndex = min(startIndex + pageSize, relevantPosts.count)
         let paginatedPosts = Array(relevantPosts[startIndex..<endIndex])
 
-        // (Note: Added `caption` to prevent decoding errors)
-        struct Fields: Codable {
-            let post_identifier: String
-            let image_url: String?
-            let caption: String
-            let author_username: String
+        // Author-only classification fields (#282) are included when viewing
+        // one's own grid, mirroring the backend payload.
+        let fieldObjects = paginatedPosts.map {
+            postListingFields(for: $0, viewer: user, isOwnGrid: isOwnGrid)
         }
 
-        let fieldObjects = paginatedPosts.map {
-            let post = $0
-            let authorUsername = users.first(where: { $0.id == post.authorId })?.username ?? "Unknown User"
-            return Fields(
-                post_identifier: $0.postIdentifier,
-                image_url: $0.imageURL,
-                caption: $0.caption,
-                author_username: authorUsername
-            )
-        }
-        
         return try createSerializedListResponse(fieldsList: fieldObjects)
     }
 
@@ -779,6 +1115,20 @@ final class StatefulStubbedAPI: Networking {
         return try createSerializedListResponse(fieldsList: fieldObjects)
     }
     
+    func getBlockedUsers(sessionManagementToken: String) async throws -> Data {
+        await simulateNetwork()
+        guard let currentUser = findUser(bySessionToken: sessionManagementToken) else {
+            throw APIError.badServerResponse(statusCode: 400)
+        }
+        let blockedUsers = users
+            .filter { currentUser.blocked.contains($0.id) }
+            .sorted { $0.username < $1.username }
+
+        struct Fields: Codable { let username: String; let identity_is_verified: Bool }
+        let fieldObjects = blockedUsers.map { Fields(username: $0.username, identity_is_verified: $0.identityIsVerified) }
+        return try createSerializedListResponse(fieldsList: fieldObjects)
+    }
+
     func followUser(sessionManagementToken: String, username: String) async throws -> Data {
         await simulateNetwork()
         guard let currentUser = findUser(bySessionToken: sessionManagementToken) else {
@@ -941,8 +1291,10 @@ final class StatefulStubbedAPI: Networking {
         await simulateNetwork()
         guard let user = findUser(bySessionToken: sessionManagementToken) else { throw APIError.badServerResponse(statusCode: 401) }
 
+        // Pending posts have nothing to appeal yet and final rejections are
+        // terminal, so neither belongs on the appeals screen (#282).
         let hidden = posts
-            .filter { $0.authorId == user.id && $0.isHidden }
+            .filter { $0.authorId == user.id && $0.isHidden && isAppealable($0) }
             .sorted { $0.createdDate > $1.createdDate }
 
         let startIndex = batch * pageSize
@@ -1022,7 +1374,8 @@ final class StatefulStubbedAPI: Networking {
         let snapshot: String
         switch targetType {
         case "post":
-            guard let post = posts.first(where: { $0.postIdentifier == targetIdentifier && $0.authorId == user.id && $0.isHidden }) else {
+            // Pending and final-rejected posts are not appealable (#282).
+            guard let post = posts.first(where: { $0.postIdentifier == targetIdentifier && $0.authorId == user.id && $0.isHidden && isAppealable($0) }) else {
                 throw APIError.serverError(statusCode: 400, serverMessage: "No appealable item with that identifier")
             }
             snapshot = post.caption

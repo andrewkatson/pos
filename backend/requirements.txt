@@ -12,3 +12,5 @@ psycopg
 python-dotenv
 django-ratelimit
 redis
+pyotp
+rq

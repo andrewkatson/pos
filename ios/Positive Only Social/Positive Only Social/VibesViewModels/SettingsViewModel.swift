@@ -22,6 +22,24 @@ final class SettingsViewModel: ObservableObject {
     @Published var showingVerificationAlert = false
     @Published var verificationMessage = ""
     @Published var showingVerificationInput = false
+
+    // Two-factor authentication state (issue #348). `totpSetup` drives the
+    // scan/confirm steps of the enrollment sheet; `recoveryCodes` (set once
+    // confirm succeeds) drives the final save-your-codes step.
+    @Published var totpSetup: TotpSetupFields?
+    @Published var recoveryCodes: [String]?
+    @Published var twoFactorStatusMessage = ""
+    @Published var showingTwoFactorStatusAlert = false
+    // Errors raised while the enrollment sheet is open are shown inline on that
+    // sheet via this dedicated field, not the shared showingErrorAlert — two
+    // `.alert`s bound to the same flag (one on the List, one on the sheet) have
+    // undefined presentation in SwiftUI.
+    @Published var twoFactorErrorMessage: String?
+    // True while a confirm request is in flight. The enrollment sheet blocks
+    // interactive dismissal during that window: the request can succeed on the
+    // backend, and dismissing would drop the response (and with it the
+    // one-time recovery codes) while 2FA is actually enabled.
+    @Published var isConfirmingTotp = false
     
     // Unique identifiers for Keychain
     private let keychainService = GVOAppConstants.keychainService
@@ -91,6 +109,120 @@ final class SettingsViewModel: ObservableObject {
         }
     }
     
+    // MARK: - Two-Factor Authentication (issue #348)
+
+    // Monotonic id for the current enrollment request. Every start/confirm bumps
+    // it and captures the value; a response only applies if it still matches, so
+    // a late response from a superseded, finished, or cancelled attempt is
+    // dropped instead of overwriting newer state. (@MainActor makes the
+    // read-modify-write safe without a lock.)
+    private var totpRequestGeneration = 0
+
+    /// Starts TOTP enrollment: fetches a fresh secret + otpauth:// URI for the
+    /// scan step of the enrollment sheet.
+    func startTotpSetup() {
+        twoFactorErrorMessage = nil
+        totpRequestGeneration += 1
+        let generation = totpRequestGeneration
+        Task {
+            do {
+                guard let userSession = try keychainHelper.load(UserSession.self, from: keychainService, account: account) else {
+                    if generation == totpRequestGeneration { twoFactorErrorMessage = "Session not found." }
+                    return
+                }
+                let data = try await api.setupTotp(sessionManagementToken: userSession.sessionToken)
+                guard generation == totpRequestGeneration else { return }
+                totpSetup = try JSONDecoder().decode(TotpSetupFields.self, from: data)
+            } catch {
+                if generation == totpRequestGeneration {
+                    twoFactorErrorMessage = "Could not start two-factor setup: \(error.userFacingMessage)"
+                }
+            }
+        }
+    }
+
+    /// Finishes TOTP enrollment by verifying the account password and one code
+    /// from the authenticator. On success `recoveryCodes` is populated for the
+    /// one-time display. The password is what stops a stolen session from
+    /// binding an attacker's authenticator and locking the real owner out.
+    func confirmTotp(password: String, code: String) {
+        totpRequestGeneration += 1
+        let generation = totpRequestGeneration
+        isConfirmingTotp = true
+        Task {
+            defer {
+                // Only the newest attempt owns the flag; an older one finishing
+                // late must not unblock dismissal for the current attempt.
+                if generation == totpRequestGeneration { isConfirmingTotp = false }
+            }
+            do {
+                guard let userSession = try keychainHelper.load(UserSession.self, from: keychainService, account: account) else {
+                    if generation == totpRequestGeneration { twoFactorErrorMessage = "Session not found." }
+                    return
+                }
+                let data = try await api.confirmTotp(sessionManagementToken: userSession.sessionToken,
+                                                     password: password, totpCode: code)
+                guard generation == totpRequestGeneration else { return }
+                let fields = try JSONDecoder().decode(ConfirmTotpFields.self, from: data)
+                // Clear any error from a previous wrong attempt on success.
+                twoFactorErrorMessage = nil
+                recoveryCodes = fields.recoveryCodes
+            } catch {
+                if generation == totpRequestGeneration {
+                    twoFactorErrorMessage = "Verification failed: \(error.userFacingMessage)"
+                }
+            }
+        }
+    }
+
+    /// Dismisses the enrollment flow after the recovery codes have been shown.
+    func finishTotpEnrollment() {
+        // Invalidate any in-flight setup/confirm so a late response can't
+        // repopulate state after the flow has ended.
+        totpRequestGeneration += 1
+        isConfirmingTotp = false
+        totpSetup = nil
+        recoveryCodes = nil
+        twoFactorErrorMessage = nil
+        twoFactorStatusMessage = "Two-factor authentication is now enabled."
+        showingTwoFactorStatusAlert = true
+    }
+
+    /// Abandons a not-yet-confirmed enrollment (the pending secret is inert).
+    func cancelTotpEnrollment() {
+        totpRequestGeneration += 1
+        isConfirmingTotp = false
+        totpSetup = nil
+        recoveryCodes = nil
+        twoFactorErrorMessage = nil
+    }
+
+    /// Turns two-factor authentication off. Requires the account password plus
+    /// a current authenticator code or an unused recovery code.
+    func disableTotp(password: String, code: String, isRecoveryCode: Bool) {
+        Task {
+            do {
+                guard let userSession = try keychainHelper.load(UserSession.self, from: keychainService, account: account) else {
+                    errorMessage = "Session not found."
+                    showingErrorAlert = true
+                    return
+                }
+                // Recovery codes are sent lowercased to match the backend pattern.
+                _ = try await api.disableTotp(
+                    sessionManagementToken: userSession.sessionToken,
+                    password: password,
+                    totpCode: isRecoveryCode ? nil : code,
+                    recoveryCode: isRecoveryCode ? code.lowercased() : nil
+                )
+                twoFactorStatusMessage = "Two-factor authentication has been disabled."
+                showingTwoFactorStatusAlert = true
+            } catch {
+                errorMessage = "Could not disable two-factor authentication: \(error.userFacingMessage)"
+                showingErrorAlert = true
+            }
+        }
+    }
+
     /// Verifies the identity of the user
     func verifyIdentity(authManager: AuthenticationManager, dateOfBirth: Date) {
         Task {

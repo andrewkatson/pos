@@ -5,7 +5,8 @@ import { vi, beforeEach, afterEach } from 'vitest'
 import ResetPasswordPage from './ResetPasswordPage'
 
 vi.mock('../api/client', () => ({
-  apiClient: { resetPassword: vi.fn(), login: vi.fn() },
+  // setToken is used by clearSession(), which runs on the 2FA-challenge branch.
+  apiClient: { resetPassword: vi.fn(), login: vi.fn(), setToken: vi.fn() },
 }))
 
 import { apiClient } from '../api/client'
@@ -23,6 +24,7 @@ function renderPage(usernameOrEmail = 'ada', resetToken = 'rt-tok') {
         <Route path="/reset-password" element={<ResetPasswordPage />} />
         <Route path="/verify-reset" element={<div>Verify reset page</div>} />
         <Route path="/home" element={<div>Home page</div>} />
+        <Route path="/login" element={<div>Login page</div>} />
       </Routes>
     </MemoryRouter>,
   )
@@ -100,8 +102,7 @@ test('password hints appear when new password is typed', async () => {
   expect(screen.getByText('At least one number')).toBeInTheDocument()
   expect(screen.getByText('At least one lowercase letter')).toBeInTheDocument()
   expect(screen.getByText('At least one uppercase letter')).toBeInTheDocument()
-  expect(screen.getByText('At least one dash (-)')).toBeInTheDocument()
-  expect(screen.getByText('Adding other special characters (like !) is suggested')).toBeInTheDocument()
+  expect(screen.getByText('Adding special characters (like ! @ # $ % ^ & * - _) is suggested')).toBeInTheDocument()
   expect(screen.getByText('No spaces')).toBeInTheDocument()
 })
 
@@ -154,6 +155,23 @@ test('shows error banner when reset fails', async () => {
   await userEvent.type(screen.getByLabelText('Confirm Password'), 'NewStrongPass1-')
   await userEvent.click(screen.getByRole('button', { name: 'Reset Password and Login' }))
   expect(await screen.findByRole('alert')).toHaveTextContent('Invalid reset token')
+})
+
+test('redirects to /login without storing a session when reset account has 2FA', async () => {
+  mockResetPassword.mockResolvedValueOnce({ message: 'Password reset successfully' })
+  mockLogin.mockResolvedValueOnce({
+    two_factor_required: true,
+    challenge_token: 'c'.repeat(64),
+  })
+  renderPage('ada')
+  await userEvent.type(screen.getByLabelText('Email'), 'ada@example.com')
+  await userEvent.type(screen.getByLabelText('New Password'), 'NewStrongPass1-')
+  await userEvent.type(screen.getByLabelText('Confirm Password'), 'NewStrongPass1-')
+  await userEvent.click(screen.getByRole('button', { name: 'Reset Password and Login' }))
+
+  // The user finishes signing in on the login page; no session is persisted.
+  expect(await screen.findByText('Login page')).toBeInTheDocument()
+  expect(mockSetItem).not.toHaveBeenCalledWith('session_token', expect.anything())
 })
 
 test('shows error banner when auto-login fails after reset', async () => {

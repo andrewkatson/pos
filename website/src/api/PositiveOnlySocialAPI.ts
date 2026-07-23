@@ -8,18 +8,25 @@ import type {
   Comment,
   CommentOnPostResponse,
   CommentThreadRef,
+  ConfirmTotpRequest,
+  ConfirmTotpResponse,
   CreatePostRequest,
   CreatePostResponse,
   CreateUploadUrlResponse,
+  DisableTotpRequest,
+  DisableTotpResponse,
   FeedPost,
   HiddenComment,
   HiddenPost,
   LoginRequest,
+  LoginResponse,
+  LoginTwoFactorRequest,
   LoginWithRememberMeRequest,
   LoginWithRememberMeResponse,
   MessageResponse,
   MyAppeal,
   PostDetails,
+  PostStatusResponse,
   ProfileDetails,
   RegisterRequest,
   ReplyResponse,
@@ -28,6 +35,7 @@ import type {
   ResetPasswordRequest,
   SubmitAppealRequest,
   SubmitAppealResponse,
+  TwoFactorSetupResponse,
   UserSearchResult,
   VerifyEmailRequest,
   VerifyResetRequest,
@@ -43,11 +51,17 @@ export interface PositiveOnlySocialAPI {
 
   // Authentication
   register(body: RegisterRequest): Promise<AuthResponse>
-  login(body: LoginRequest): Promise<AuthResponse>
+  login(body: LoginRequest): Promise<LoginResponse>
   loginWithRememberMe(body: LoginWithRememberMeRequest): Promise<LoginWithRememberMeResponse>
   logout(): Promise<MessageResponse>
   verifyIdentity(dateOfBirth: string): Promise<MessageResponse>
   deleteAccount(): Promise<MessageResponse>
+
+  // Two-factor authentication (TOTP)
+  loginWithTwoFactor(body: LoginTwoFactorRequest): Promise<AuthResponse>
+  setupTotp(): Promise<TwoFactorSetupResponse>
+  confirmTotp(body: ConfirmTotpRequest): Promise<ConfirmTotpResponse>
+  disableTotp(body: DisableTotpRequest): Promise<DisableTotpResponse>
 
   // Email verification
   verifyEmail(body: VerifyEmailRequest): Promise<MessageResponse>
@@ -72,6 +86,8 @@ export interface PositiveOnlySocialAPI {
   getFollowedFeed(batch: number): Promise<FeedPost[]>
   getPostsForUser(username: string, batch: number): Promise<FeedPost[]>
   getPostDetails(postIdentifier: string): Promise<PostDetails>
+  /** Classification status of one of the caller's own posts (issue #282). */
+  getPostStatus(postIdentifier: string): Promise<PostStatusResponse>
 
   // Comments
   commentOnPost(postIdentifier: string, commentText: string): Promise<CommentOnPostResponse>
@@ -114,6 +130,7 @@ export interface PositiveOnlySocialAPI {
   followUser(username: string): Promise<MessageResponse>
   unfollowUser(username: string): Promise<MessageResponse>
   toggleBlock(username: string): Promise<MessageResponse>
+  getBlockedUsers(): Promise<UserSearchResult[]>
   getProfile(username: string): Promise<ProfileDetails>
 
   // Appeals

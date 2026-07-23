@@ -33,6 +33,66 @@ data class LoginRequest(
     val ip: String
 )
 
+// --- Two-Factor Authentication DTOs (issue #348) ---
+
+/**
+ * The login response, which is one of two shapes: a session (same fields as
+ * AuthResponse) for ordinary accounts, or — when the account has two-factor
+ * authentication enabled — `twoFactorRequired` plus a short-lived
+ * `challengeToken` to exchange at login/2fa/. Every field is nullable so Gson
+ * can decode either shape safely.
+ */
+data class LoginResponse(
+    @SerializedName("two_factor_required") val twoFactorRequired: Boolean = false,
+    @SerializedName("challenge_token") val challengeToken: String? = null,
+    @SerializedName("session_management_token") val sessionToken: String? = null,
+    val username: String? = null,
+    @SerializedName("user_id") val userId: String? = null,
+    @SerializedName("series_identifier") val seriesIdentifier: String? = null,
+    @SerializedName("login_cookie_token") val loginCookieToken: String? = null
+)
+
+/** Second login step: exactly one of totpCode / recoveryCode is set (Gson omits nulls). */
+data class LoginTwoFactorRequest(
+    @SerializedName("challenge_token") val challengeToken: String,
+    @SerializedName("totp_code") val totpCode: String? = null,
+    @SerializedName("recovery_code") val recoveryCode: String? = null
+)
+
+data class TotpSetupResponse(
+    // Base32 TOTP secret, for manual entry into an authenticator app.
+    @SerializedName("totp_secret") val totpSecret: String,
+    // otpauth:// provisioning URI, rendered as a QR code for scanning.
+    @SerializedName("otpauth_uri") val otpauthUri: String
+)
+
+/**
+ * Confirming requires the password as well as the code: a stolen session alone
+ * must not be able to bind an attacker's authenticator, which would hand them
+ * the recovery codes and lock the real owner out for good.
+ */
+data class ConfirmTotpRequest(
+    @SerializedName("password") val password: String,
+    @SerializedName("totp_code") val totpCode: String
+)
+
+data class ConfirmTotpResponse(
+    @SerializedName("totp_enabled") val totpEnabled: Boolean,
+    // Single-use recovery codes, shown exactly once at enrollment.
+    @SerializedName("recovery_codes") val recoveryCodes: List<String>
+)
+
+/** Disabling requires the password plus exactly one of the two code kinds. */
+data class DisableTotpRequest(
+    val password: String,
+    @SerializedName("totp_code") val totpCode: String? = null,
+    @SerializedName("recovery_code") val recoveryCode: String? = null
+)
+
+data class DisableTotpResponse(
+    @SerializedName("totp_enabled") val totpEnabled: Boolean
+)
+
 data class TokenRefreshRequest(
     @SerializedName("session_management_token") val sessionToken: String,
     @SerializedName("series_identifier") val seriesIdentifier: String,
@@ -89,9 +149,28 @@ data class CreatePostRequest(
 
 data class CreatePostResponse(
     @SerializedName("post_identifier") val postIdentifier: String,
-    // Present (true) when the post was created hidden pending appeal — the
-    // classifier flagged it but the rejection is appealable. Absent/false for
-    // a normal post.
+    // "pending" on current backends: classification runs asynchronously
+    // (issue #282) and the outcome is reconciled via getPostStatus or a grid
+    // refresh. Null on older backends, which classified inline.
+    val status: String? = null,
+    // True when the post was created hidden — pending classification on
+    // current backends, or hidden pending appeal on older inline-classifying
+    // ones.
+    val hidden: Boolean = false,
+    @SerializedName("hidden_reason") val hiddenReason: String? = null,
+    val message: String? = null
+)
+
+/**
+ * Response of the author-only post-status endpoint (issue #282): "pending",
+ * "approved", "rejected", or "rejected_final", with a user-facing message for
+ * the non-approved states.
+ */
+data class PostStatusResponse(
+    @SerializedName("post_identifier") val postIdentifier: String,
+    val status: String,
+    @SerializedName("reason_code") val reasonCode: String? = null,
+    val appealable: Boolean = false,
     val hidden: Boolean = false,
     @SerializedName("hidden_reason") val hiddenReason: String? = null,
     val message: String? = null
@@ -115,17 +194,23 @@ data class Post(
     @SerializedName("image_url") val imageUrl: String? = null,
     val caption: String,
     @SerializedName("author_username") val authorUsername: String,
-    // Only the post-details endpoint returns the like count (as "post_likes");
-    // feed endpoints omit it, so it defaults to 0.
+    // The like count, and whether the current user has liked / reported this post
+    // (plus their own report reason, so the retract dialog can show it
+    // pre-populated — issue #176).
+    //
+    // The post-details endpoint has always returned these; the three post-listing
+    // endpoints (feed, followed feed, a user's posts) now return them too, so a
+    // post can be liked, reported, un-reported and deleted straight from a list
+    // (issue #267). They stay nullable/defaulted so a response from an older
+    // server, which omits them, still parses.
     @SerializedName("post_likes") val likeCount: Int? = 0,
-    // Whether the current user has liked this post. Only the post-details endpoint
-    // populates this; feed endpoints omit it, so it defaults to false.
     @SerializedName("is_liked") val isLiked: Boolean = false,
-    // Whether the current user has an active report against this post, plus
-    // their own report reason so the retract dialog can show it pre-populated
-    // (issue #176). Only the post-details endpoint populates these.
     @SerializedName("is_reported") val isReported: Boolean = false,
     @SerializedName("report_reason") val reportReason: String? = null,
+    // How many comments on this post are visible to the viewer. Shown on the feed
+    // rows, where tapping it opens the post (issue #249). Defaults to 0 for
+    // responses that predate the field.
+    @SerializedName("comment_count") val commentCount: Int? = 0,
     // The full-resolution original image URL, used as a fallback when the
     // compressed `imageUrl` fails to load. The compressed copy is produced by an
     // async Lambda, so a just-posted (or recently hidden-pending-appeal) image may
@@ -133,10 +218,21 @@ data class Post(
     // tiles render as empty black boxes until the user re-logs in (issues #252/#254).
     // Feed/details endpoints that predate the field omit it, so it defaults to null.
     @SerializedName("original_image_url") val originalImageUrl: String? = null,
-    // When the post was created. Only the post-details endpoint returns it
-    // (ISO-8601 from the real backend, epoch-millis from the stub — see
-    // parseBackendDate); feed endpoints omit it, so it defaults to null.
-    @SerializedName("creation_time") val creationTime: String? = null
+    // When the post was created (ISO-8601 from the real backend, epoch-millis
+    // from the stub — see parseBackendDate). Returned by the post-details
+    // endpoint and, since issue #249, by the post-listing endpoints too, so the
+    // feed rows can show how long ago a post was made. Null for responses that
+    // predate the field, in which case the label is simply omitted.
+    @SerializedName("creation_time") val creationTime: String? = null,
+    // Author-only classification state (issue #282): present on the viewer's
+    // own posts so grids can render pending/rejected states. Other users'
+    // posts never carry these (their pending/hidden posts are filtered out
+    // server-side entirely). One of "pending", "approved", "rejected",
+    // "rejected_final"; null on older backends or others' posts.
+    val status: String? = null,
+    val hidden: Boolean? = null,
+    @SerializedName("hidden_reason") val hiddenReason: String? = null,
+    val appealable: Boolean? = null
 )
 
 // --- Comment DTOs ---

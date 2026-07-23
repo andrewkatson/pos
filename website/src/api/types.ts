@@ -26,6 +26,63 @@ export interface LoginRequest {
   remember_me?: boolean
 }
 
+/**
+ * Returned by login instead of a session when the account has two-factor
+ * authentication enabled. The challenge is exchanged (with a code) for the
+ * real session at login/2fa/ within a few minutes, before it expires.
+ */
+export interface TwoFactorRequiredResponse {
+  two_factor_required: true
+  challenge_token: string
+}
+
+/** login can answer with a session or, for 2FA-enrolled accounts, a challenge. */
+export type LoginResponse = AuthResponse | TwoFactorRequiredResponse
+
+/** Type guard for the two-factor branch of a login response. */
+export function isTwoFactorRequired(
+  response: LoginResponse,
+): response is TwoFactorRequiredResponse {
+  return 'two_factor_required' in response && response.two_factor_required === true
+}
+
+/** One of the two mutually-exclusive code kinds a 2FA step accepts. The `never`
+ * on the opposite field makes "exactly one of" a compile-time guarantee. */
+type OneOfTwoFactorCode =
+  | { totp_code: string; recovery_code?: never }
+  | { recovery_code: string; totp_code?: never }
+
+/** Second login step: challenge token plus exactly one of totp_code / recovery_code. */
+export type LoginTwoFactorRequest = { challenge_token: string } & OneOfTwoFactorCode
+
+export interface TwoFactorSetupResponse {
+  /** Base32 TOTP secret, for manual entry into an authenticator app. */
+  totp_secret: string
+  /** otpauth:// provisioning URI, rendered as a QR code for scanning. */
+  otpauth_uri: string
+}
+
+export interface ConfirmTotpRequest {
+  /** Required: a stolen session alone must not be able to enrol an
+   * authenticator, which would hand the thief the recovery codes and lock the
+   * real owner out for good. */
+  password: string
+  totp_code: string
+}
+
+export interface ConfirmTotpResponse {
+  totp_enabled: boolean
+  /** Single-use recovery codes, shown exactly once at enrollment. */
+  recovery_codes: string[]
+}
+
+/** Disabling requires the password plus exactly one of the two code kinds. */
+export type DisableTotpRequest = { password: string } & OneOfTwoFactorCode
+
+export interface DisableTotpResponse {
+  totp_enabled: boolean
+}
+
 export interface LoginWithRememberMeRequest {
   session_management_token: string
   series_identifier: string
@@ -84,13 +141,39 @@ export interface CreatePostRequest {
   caption: string
 }
 
+/**
+ * Classification lifecycle of a post as reported to its author (issue #282).
+ * Classification runs asynchronously: a new post starts 'pending' (hidden from
+ * everyone but its author) and later resolves to 'approved' (live),
+ * 'rejected' (hidden but appealable), or 'rejected_final' (removed, terminal).
+ */
+export type PostClassificationStatus = 'pending' | 'approved' | 'rejected' | 'rejected_final'
+
 export interface CreatePostResponse {
   post_identifier: string
-  /** True when the post was created hidden pending appeal (classifier flagged
-   * it but the rejection is appealable). Absent/false for a normal post. */
+  /** 'pending' on current backends: classification is asynchronous (issue
+   * #282) and the outcome arrives via getPostStatus / refresh. Absent on older
+   * backends, which classified inline. */
+  status?: PostClassificationStatus
+  /** True when the post was created hidden — pending classification on current
+   * backends, or hidden pending appeal on older inline-classifying ones. */
   hidden?: boolean
   hidden_reason?: string
-  /** User-facing explanation when the post is hidden pending appeal. */
+  appealable?: boolean
+  /** User-facing explanation of the hidden state. */
+  message?: string
+}
+
+/** Response of the author-only post-status endpoint (issue #282). */
+export interface PostStatusResponse {
+  post_identifier: string
+  status: PostClassificationStatus
+  /** Public reason code of a rejection ('profanity', 'gore', ...), else null. */
+  reason_code: string | null
+  appealable: boolean
+  hidden: boolean
+  hidden_reason: string
+  /** User-facing explanation for pending/rejected states; absent when approved. */
   message?: string
 }
 
@@ -108,6 +191,33 @@ export interface FeedPost {
   original_image_url?: string | null
   author_username: string
   caption: string
+  /** Total likes on the post. Present so a grid tile can show a like control
+   * without opening the post first (issue #267). Older responses that predate
+   * the field omit it. */
+  post_likes?: number
+  /** Whether the requesting user has liked this post (issue #267). */
+  is_liked?: boolean
+  /** Whether the requesting user has an active report against this post,
+   * so a grid tile can offer "retract report" instead of "report" (#267). */
+  is_reported?: boolean
+  /** The requesting user's own report reason, shown pre-populated in the
+   * retract dialog. Null/absent when they haven't reported it (#267). */
+  report_reason?: string | null
+  /** How many comments the post has that are visible to the requesting user,
+   * shown as a tappable indicator on each feed row (issue #249). */
+  comment_count?: number
+  /** ISO-8601 creation timestamp, rendered as "3 hours ago" under a feed row
+   * (issue #249). The backend column is nullable, so this can be null; older
+   * responses that predate the field omit it entirely. */
+  creation_time?: string | null
+  /** Author-only (issue #282): present on the viewer's own posts so the client
+   * can render pending/rejected states; other users' posts never carry these
+   * (their pending/hidden posts are filtered out server-side entirely). */
+  status?: PostClassificationStatus
+  hidden?: boolean
+  hidden_reason?: string
+  reason_code?: string | null
+  appealable?: boolean
 }
 
 /** A post as returned by the post-details endpoint. */
@@ -133,6 +243,12 @@ export interface PostDetails {
    * pre-populated (issue #176). Null/absent when they haven't reported it. */
   report_reason?: string | null
   author_username: string
+  /** Author-only (issue #282): present when viewing one's own post. */
+  status?: PostClassificationStatus
+  hidden?: boolean
+  hidden_reason?: string
+  reason_code?: string | null
+  appealable?: boolean
 }
 
 export interface CommentOnPostResponse {
