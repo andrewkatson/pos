@@ -118,6 +118,19 @@ class CloudFrontFallbackTests(SimpleTestCase):
         self.assertEqual(sign_original_url(STORED_URL), STORED_URL)
 
     @signing_settings
+    def test_non_positive_expiry_falls_back(self):
+        """A zero/negative expiry would mint already-expired URLs, so it's treated
+        as misconfiguration and degrades to unsigned rather than breaking loads."""
+        cloudfront._signer.cache_clear()
+        with override_settings(CLOUDFRONT_SIGNED_URL_EXPIRY_SECONDS=0):
+            self.assertEqual(
+                sign_compressed_url(STORED_URL),
+                'https://goodvibesonly-imagescompressed.s3.amazonaws.com/42/abc.jpeg',
+            )
+        with override_settings(CLOUDFRONT_SIGNED_URL_EXPIRY_SECONDS=-5):
+            self.assertEqual(sign_original_url(STORED_URL), STORED_URL)
+
+    @signing_settings
     def test_undecodable_key_falls_back(self):
         """A URL with no derivable object key degrades to the fallback rather than
         producing a broken signed URL."""

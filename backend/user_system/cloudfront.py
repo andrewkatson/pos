@@ -106,8 +106,12 @@ def _sign(domain, stored_image_url, fallback):
     try:
         # Inside the try so a mis-typed expiry (e.g. injected via override_settings)
         # degrades to the fallback rather than 500ing — honoring the graceful
-        # fallback contract.
+        # fallback contract. A non-positive expiry is treated as misconfiguration
+        # too: it would mint already-expired URLs that break image loads while
+        # still looking "configured", so fall back to unsigned instead.
         expiry_seconds = int(getattr(settings, 'CLOUDFRONT_SIGNED_URL_EXPIRY_SECONDS', 86400))
+        if expiry_seconds <= 0:
+            raise ValueError(f"CLOUDFRONT_SIGNED_URL_EXPIRY_SECONDS must be positive, got {expiry_seconds}")
         expires_at = datetime.now(timezone.utc) + timedelta(seconds=expiry_seconds)
         return _signer(key_pair_id, private_key_pem).generate_presigned_url(
             url, date_less_than=expires_at
