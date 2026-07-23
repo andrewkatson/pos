@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useState } from 'react'
 
 /**
  * A user's profile photo (issue #7), rendered as a circular avatar next to
@@ -31,14 +31,20 @@ function Avatar({
   const [useOriginal, setUseOriginal] = useState(false)
   const [failed, setFailed] = useState(false)
 
-  // Reset the fallback state whenever the backing URLs change (a new upload, or
-  // the compressed copy becoming available), so a component that fell back to
-  // the original — or gave up to the placeholder — retries the fresh URLs
-  // instead of staying stuck.
-  useEffect(() => {
+  // Reset the fallback state when the backing URLs change (a new upload, or the
+  // compressed copy becoming available), so a component that fell back to the
+  // original — or gave up to the placeholder — retries the fresh URLs instead of
+  // staying stuck. Done during render via React's "adjust state on prop change"
+  // pattern (tracking the last-seen URLs) rather than in an effect, which would
+  // both flicker and trip the no-setState-in-effect lint rule.
+  const [trackedSrc, setTrackedSrc] = useState(src)
+  const [trackedOriginalSrc, setTrackedOriginalSrc] = useState(originalSrc)
+  if (src !== trackedSrc || originalSrc !== trackedOriginalSrc) {
+    setTrackedSrc(src)
+    setTrackedOriginalSrc(originalSrc)
     setUseOriginal(false)
     setFailed(false)
-  }, [src, originalSrc])
+  }
 
   const resolved = useOriginal && originalSrc ? originalSrc : src
   const classes = ['avatar', `avatar--${size}`, className].filter(Boolean).join(' ')
