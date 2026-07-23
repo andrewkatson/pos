@@ -201,6 +201,40 @@ test('getBlockedUsers lists blocks sorted by username and empties after unblock'
   expect((await api.getBlockedUsers()).map((u) => u.username)).toEqual(['zed'])
 })
 
+test('getFollowing lists the viewer\'s own follows sorted by username', async () => {
+  const api = new StatefulStubbedAPI()
+  await register(api, 'zed')
+  await register(api, 'amy')
+
+  await register(api, 'viewer')
+  expect(await api.getFollowing()).toEqual([])
+
+  await api.followUser('zed')
+  await api.followUser('amy')
+  expect((await api.getFollowing()).map((u) => u.username)).toEqual(['amy', 'zed'])
+
+  await api.unfollowUser('amy')
+  expect((await api.getFollowing()).map((u) => u.username)).toEqual(['zed'])
+})
+
+test('getFollowers lists only the viewer\'s own followers, not their follows', async () => {
+  const api = new StatefulStubbedAPI()
+  await register(api, 'viewer')
+
+  // amy and zed each follow the viewer.
+  await register(api, 'amy')
+  await api.followUser('viewer')
+  await register(api, 'zed')
+  await api.followUser('viewer')
+
+  const login = await api.login({ username_or_email: 'viewer', password: 'password123' })
+  if (isTwoFactorRequired(login)) throw new Error('expected a session, not a challenge')
+
+  expect((await api.getFollowers()).map((u) => u.username)).toEqual(['amy', 'zed'])
+  // The viewer follows nobody — followers and following are distinct directions.
+  expect(await api.getFollowing()).toEqual([])
+})
+
 test('logout clears the session token', async () => {
   const api = new StatefulStubbedAPI()
   await register(api, 'ada')

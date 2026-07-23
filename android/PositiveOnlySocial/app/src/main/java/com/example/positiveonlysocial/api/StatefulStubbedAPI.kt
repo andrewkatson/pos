@@ -1005,6 +1005,26 @@ class StatefulStubbedAPI : PositiveOnlySocialAPI {
         return Response.success(blockedUsers)
     }
 
+    override suspend fun getFollowers(token: String): Response<List<User>> {
+        val user = getAuthorizedUser(token) ?: return errorGeneric(401, "Unauthorized")
+        // The current user's followers are the users whose ids are in followers.
+        val followers = users
+            .filter { user.followers.contains(it.id) }
+            .sortedBy { it.username }
+            .map { User(it.username, it.isVerified) }
+        return Response.success(followers)
+    }
+
+    override suspend fun getFollowing(token: String): Response<List<User>> {
+        val user = getAuthorizedUser(token) ?: return errorGeneric(401, "Unauthorized")
+        // The users the current user follows are the ids in following.
+        val following = users
+            .filter { user.following.contains(it.id) }
+            .sortedBy { it.username }
+            .map { User(it.username, it.isVerified) }
+        return Response.success(following)
+    }
+
     override suspend fun getProfileDetails(token: String, username: String): Response<ProfileDetailsResponse> {
         val user = getAuthorizedUser(token) // Can be null if public profile view? Python code required login.
         val target = users.find { it.username == username } ?: return errorGeneric(404, "User not found")

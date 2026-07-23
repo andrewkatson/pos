@@ -523,6 +523,28 @@ class MockPositiveOnlySocialAPI : PositiveOnlySocialAPI {
         )
     }
 
+    override suspend fun getFollowers(
+        token: String
+    ): Response<List<User>> {
+        return Response.success(
+            listOf(
+                User(username = "follower_1", identityIsVerified = true),
+                User(username = "follower_2", identityIsVerified = false)
+            )
+        )
+    }
+
+    override suspend fun getFollowing(
+        token: String
+    ): Response<List<User>> {
+        return Response.success(
+            listOf(
+                User(username = "following_1", identityIsVerified = true),
+                User(username = "following_2", identityIsVerified = false)
+            )
+        )
+    }
+
     override suspend fun getProfileDetails(
         token: String,
         username: String

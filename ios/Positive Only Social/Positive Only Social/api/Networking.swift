@@ -159,6 +159,14 @@ protocol Networking {
     /// Gets every user the signed-in user has blocked.
     func getBlockedUsers(sessionManagementToken: String) async throws -> Data
 
+    /// Gets the signed-in user's own followers. There is no username parameter,
+    /// so another user's follower list can't be requested (issue #8).
+    func getFollowers(sessionManagementToken: String) async throws -> Data
+
+    /// Gets the users the signed-in user follows. There is no username
+    /// parameter, so another user's following list can't be requested (issue #8).
+    func getFollowing(sessionManagementToken: String) async throws -> Data
+
     /// Gets the details of a profile
     func getProfileDetails(sessionManagementToken: String, username: String) async throws -> Data
 

@@ -162,6 +162,12 @@ urlpatterns = [
     # GET /users/blocked/ (Token in header)
     path('users/blocked/', views.get_blocked_users, name='get_blocked_users'),
 
+    # GET /users/followers/ (Token in header) — the requester's own followers
+    path('users/followers/', views.get_followers, name='get_followers'),
+
+    # GET /users/following/ (Token in header) — the requester's own following
+    path('users/following/', views.get_following, name='get_following'),
+
     # GET /users/<str:username>/profile/ (Token in header)
     path('users/<str:username>/profile/', views.get_profile_details, name='get_profile_details'),
 
