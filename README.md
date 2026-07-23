@@ -121,6 +121,45 @@ final-rejection tombstones (default 7 days, `--tombstone-days`; preview with
 Comments are still classified inline in the request (text-only, much smaller
 worst case); moving them to the same async flow is a tracked follow-up.
 
+## Age and identity
+
+The service is closed to under-16s, and adults and permitted minors are kept
+apart. Age comes from a date of birth supplied at registration or later via
+identity verification (`verify_identity`); the model keeps two derived flags
+rather than the raw date — `identity_is_verified` (an age was given) and
+`is_adult` (that age was 18 or older). The age thresholds live in
+`backend/user_system/constants.py` (`MINIMUM_AGE = 16`, `ADULT_AGE = 18`).
+
+Three rules follow from this:
+
+1. **No under-16s (issue #337).** Registration and `verify_identity` refuse
+   anyone who supplies a date of birth showing an age below `MINIMUM_AGE`:
+   register returns `403` with `reason_code: "age_restricted"` and creates no
+   account; `verify_identity` returns the same and leaves the account
+   unverified. Because under-16s are turned away here, any account that *is*
+   identity-verified but not an adult is necessarily 16 or 17 — a "permitted
+   minor". A date of birth is still optional at registration; an account
+   created without one is simply left unverified (and treated as an adult for
+   the segregation below, since its age is unknown).
+
+2. **Adults and minors are mutually invisible (issue #329).** Permitted minors
+   (16-17) form one visibility band and everyone else — adults plus
+   unverified accounts — forms the other. The two bands never see each other's
+   posts, comments, profiles, or search results, and cannot follow across the
+   divide. This is enforced centrally in
+   `backend/user_system/visibility.py` (`is_minor` / `in_same_age_band` and the
+   `visible_posts` / `visible_comments` / `searchable_users` / `can_view_post`
+   helpers), so every content path inherits it; cross-band profile and follow
+   attempts return the same "not found" / "does not exist" response as a
+   genuinely missing user so neither side can confirm the other by name. An
+   account always sees its own content.
+
+3. **No photos of babies or children (issue #336).** Even a permitted adult may
+   not post images of minors. This is content rule 9
+   (`backend/user_system/classifiers/classifier_constants.py`): the image
+   classifier rejects photos or images of babies, children, or anyone under 18,
+   reported to the author with `reason_code: "minors"`.
+
 ## Banning
 
 Users who violate the guidelines can be banned. Every ban is a `UserBan`
@@ -244,14 +283,67 @@ real login from the device they signed up on is not flagged. Both the
 password login and the remember-me login paths perform the check. Sending the
 email is best-effort — a mail failure is logged but never blocks the login.
 
+## Serving post images
+
+Post images live in two S3 buckets: clients upload the original to the source
+bucket (`AWS_STORAGE_BUCKET_NAME`) and a Lambda mirrors a compressed copy to
+`AWS_COMPRESSED_STORAGE_BUCKET_NAME` under the same key.
+
+Both buckets are **private** (S3 Block Public Access + an Origin Access Control
+bucket policy). Reads happen only through CloudFront, and the backend signs every
+image URL it hands to a client, so an image is fetchable only with a valid,
+time-limited signature — a bare object URL returns 403 (issues #332, #341).
+Uploads are likewise never anonymous: clients PUT via short-lived presigned URLs
+minted by `POST /posts/upload-url/` (issue #310), so no client ever holds AWS
+credentials for either direction.
+
+Because the two buckets hold the same object key, two CloudFront domains front
+them (no URI rewriting needed):
+
+- `CLOUDFRONT_IMAGES_DOMAIN` → distribution → compressed bucket. The serialized
+  `image_url` is signed on this domain.
+- `CLOUDFRONT_ORIGINALS_DOMAIN` → distribution → source bucket. The serialized
+  `original_image_url` (the full-res fallback used while the async-compressed copy
+  is still missing, #252/#254) is signed on this domain.
+
+Signing lives in `backend/user_system/cloudfront.py` (`sign_compressed_url` /
+`sign_original_url`), invoked from every post-serialization site in `views.py`. A
+signed URL carries the object key as its path but **no bucket name**, and stays
+valid for `CLOUDFRONT_SIGNED_URL_EXPIRY_SECONDS` (default 24h — comfortably longer
+than a session, since clients embed these URLs in payloads they refetch on
+mount/refresh, while still bounding a leaked URL). Server-side image access (the
+classifier, `delete_image`, the orphan sweeper, `strip_image_metadata`) goes
+through credentialed boto3 and is unaffected by the buckets being private.
+
+If the CloudFront settings are unset — local dev, tests, or a not-yet-provisioned
+deploy — signing degrades gracefully to the legacy unsigned URLs, so nothing
+breaks; the read hole only actually closes once the infra below exists.
+
+**Backend env vars:** `CLOUDFRONT_IMAGES_DOMAIN`, `CLOUDFRONT_ORIGINALS_DOMAIN`,
+`CLOUDFRONT_KEY_PAIR_ID`, and the signing private key as either
+`CLOUDFRONT_PRIVATE_KEY` (inline PEM) or `CLOUDFRONT_PRIVATE_KEY_PATH` (a mounted
+file); optionally `CLOUDFRONT_SIGNED_URL_EXPIRY_SECONDS`.
+
+**One-time AWS setup (not automated):**
+
+1. Two CloudFront distributions with Origin Access Control to the compressed and
+   source buckets, each on a custom domain (`images.smiling.social` /
+   `originals.smiling.social`)
+   with an ACM cert and DNS.
+2. Turn on Block Public Access for both buckets and set a bucket policy allowing
+   only the two OAC principals (removing any legacy public-read).
+3. Create a CloudFront public key + key group (trusted signer) and attach it to
+   both distributions; deliver the matching private key to the backend as
+   `CLOUDFRONT_PRIVATE_KEY[_PATH]` and its id as `CLOUDFRONT_KEY_PAIR_ID`.
+
 ## Profile photos
 
 A user's profile photo is stored on the user (`profile_image_url`) and served
 next to their name in every list and detail payload as `author_profile_image_url`
-(the compressed variant) with `author_profile_image_original_url` as the
-full-resolution fallback — the same compressed-plus-original pairing posts use,
-for the same reason (the compressed copy can briefly lag; see below). Only an
-**approved** photo is ever shown to anyone else.
+with `author_profile_image_original_url` as the full-resolution fallback — the
+same CloudFront-signed compressed-plus-original pairing post images use (see
+**Serving post images** above), for the same reason (the compressed copy can
+briefly lag; #252/#254). Only an **approved** photo is ever shown to anyone else.
 
 Setting a photo reuses the post upload path: the client uploads a re-encoded,
 EXIF-stripped JPEG through the presigned-PUT flow (`POST /posts/upload-url/`,
