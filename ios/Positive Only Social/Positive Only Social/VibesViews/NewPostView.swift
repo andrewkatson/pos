@@ -98,6 +98,22 @@ struct NewPostView: View {
                     CharacterCounter(text: caption, max: GVOAppConstants.maxCaptionLength)
                 }
 
+                // The Share button stays directly under the caption section so
+                // it keeps its original, on-screen position (SwiftUI's Form is a
+                // lazy list; pushing the button far down can make it unreachable
+                // for automation). The optional style controls follow below it.
+                if isLoading {
+                    HStack {
+                        Spacer()
+                        ProgressView()
+                        Spacer()
+                    }
+                } else {
+                    Button(action: makePost) { Text("Share Post") }
+                        .disabled(caption.isEmpty || !isWithinLength(caption, max: GVOAppConstants.maxCaptionLength))
+                        .accessibilityIdentifier("SharePostButton")
+                }
+
                 // Text customization (issue #318): a whole-caption font, a
                 // whole-tile background color, and a live preview.
                 Section(header: Text("Style")) {
@@ -124,18 +140,6 @@ struct NewPostView: View {
                     .frame(height: 120)
                     .clipShape(RoundedRectangle(cornerRadius: 10))
                     .accessibilityIdentifier("CaptionPreview")
-                }
-
-                if isLoading {
-                    HStack {
-                        Spacer()
-                        ProgressView()
-                        Spacer()
-                    }
-                } else {
-                    Button(action: makePost) { Text("Share Post") }
-                        .disabled(caption.isEmpty || !isWithinLength(caption, max: GVOAppConstants.maxCaptionLength))
-                        .accessibilityIdentifier("SharePostButton")
                 }
             }
             .navigationTitle("Create Post")
