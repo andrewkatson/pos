@@ -107,6 +107,9 @@ class StatefulStubbedAPI : PositiveOnlySocialAPI {
         // Null for a text-only post (#307).
         val imageUrl: String?,
         val caption: String,
+        // Whole-caption font + whole-tile background color keys (issue #318).
+        val captionFont: String = "default",
+        val backgroundColor: String = "default",
         val creationTime: Long = System.currentTimeMillis(),
         var hidden: Boolean = false,
         var hiddenReason: String = "",
@@ -137,6 +140,8 @@ class StatefulStubbedAPI : PositiveOnlySocialAPI {
         val commentIdentifier: String = UUID.randomUUID().toString(),
         val authorId: String,
         val body: String,
+        // Inline formatting spans over `body` (issue #318); null = plain.
+        val bodyFormatting: List<CommentFormatSpan>? = null,
         val creationTime: Long = System.currentTimeMillis(),
         var hidden: Boolean = false,
         var hiddenReason: String = "",
@@ -563,7 +568,9 @@ class StatefulStubbedAPI : PositiveOnlySocialAPI {
         val newPost = PostMock(
             authorId = user.id,
             imageUrl = request.imageUrl,
-            caption = request.caption
+            caption = request.caption,
+            captionFont = request.captionFont,
+            backgroundColor = request.backgroundColor
         )
         newPost.hidden = true
         newPost.hiddenReason = "pending_classification"
@@ -758,6 +765,8 @@ class StatefulStubbedAPI : PositiveOnlySocialAPI {
             post.postIdentifier,
             post.imageUrl,
             post.caption,
+            captionFont = post.captionFont,
+            backgroundColor = post.backgroundColor,
             authorUsername = authorUsername,
             likeCount = post.likes.count(),
             isLiked = post.likes.contains(viewerId),
@@ -789,6 +798,8 @@ class StatefulStubbedAPI : PositiveOnlySocialAPI {
             post.postIdentifier,
             post.imageUrl,
             post.caption,
+            captionFont = post.captionFont,
+            backgroundColor = post.backgroundColor,
             authorUsername = author.username,
             likeCount = post.likes.count(),
             isLiked = post.likes.contains(user.id),
@@ -811,7 +822,7 @@ class StatefulStubbedAPI : PositiveOnlySocialAPI {
         commentThreads.add(thread)
 
         // Create Comment
-        val comment = CommentMock(authorId = user.id, body = request.commentText)
+        val comment = CommentMock(authorId = user.id, body = request.commentText, bodyFormatting = request.bodyFormatting)
         thread.comments.add(comment)
 
         return Response.success(CommentResponse(thread.threadIdentifier, comment.commentIdentifier))
@@ -822,7 +833,7 @@ class StatefulStubbedAPI : PositiveOnlySocialAPI {
         val thread = commentThreads.find { it.threadIdentifier == threadId && it.postId == postId }
             ?: return errorGeneric(404, "Thread not found")
 
-        val comment = CommentMock(authorId = user.id, body = request.commentText)
+        val comment = CommentMock(authorId = user.id, body = request.commentText, bodyFormatting = request.bodyFormatting)
         thread.comments.add(comment)
 
         return Response.success(CommentResponse(null, comment.commentIdentifier))
@@ -918,7 +929,8 @@ class StatefulStubbedAPI : PositiveOnlySocialAPI {
                 c.likes.size,
                 isLiked = c.likes.contains(user.id),
                 isReported = c.reports.contains(user.id),
-                reportReason = c.reports[user.id]
+                reportReason = c.reports[user.id],
+                bodyFormatting = c.bodyFormatting
             )
         }
         return Response.success(dtos)
@@ -1048,7 +1060,15 @@ class StatefulStubbedAPI : PositiveOnlySocialAPI {
         val hidden = posts.filter { it.authorId == user.id && it.hidden && isAppealable(it) }
             .sortedByDescending { it.creationTime }
         val dtos = getBatch(hidden, batch, POST_BATCH_SIZE).map {
-            HiddenPost(it.postIdentifier, it.imageUrl, it.caption, it.hiddenReason, hasAppeal(it.postIdentifier))
+            HiddenPost(
+                it.postIdentifier,
+                it.imageUrl,
+                it.caption,
+                captionFont = it.captionFont,
+                backgroundColor = it.backgroundColor,
+                hiddenReason = it.hiddenReason,
+                hasAppeal = hasAppeal(it.postIdentifier)
+            )
         }
         return Response.success(dtos)
     }
@@ -1059,7 +1079,13 @@ class StatefulStubbedAPI : PositiveOnlySocialAPI {
             .filter { it.authorId == user.id && it.hidden }
             .sortedByDescending { it.creationTime }
         val dtos = getBatch(hidden, batch, COMMENT_BATCH_SIZE).map {
-            HiddenComment(it.commentIdentifier, it.body, it.hiddenReason, hasAppeal(it.commentIdentifier))
+            HiddenComment(
+                it.commentIdentifier,
+                it.body,
+                bodyFormatting = it.bodyFormatting,
+                hiddenReason = it.hiddenReason,
+                hasAppeal = hasAppeal(it.commentIdentifier)
+            )
         }
         return Response.success(dtos)
     }

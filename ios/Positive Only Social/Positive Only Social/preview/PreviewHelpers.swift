@@ -171,7 +171,7 @@ struct MockedAPI: Networking {
         return try JSONEncoder().encode(response)
     }
 
-    func makePost(sessionManagementToken: String, imageURL: String?, caption: String) async throws -> Data {
+    func makePost(sessionManagementToken: String, imageURL: String?, caption: String, captionFont: String = "default", backgroundColor: String = "default") async throws -> Data {
         return try encodeGenericSuccess()
     }
 
@@ -260,7 +260,7 @@ struct MockedAPI: Networking {
     
     // MARK: - Comment Management
 
-    func commentOnPost(sessionManagementToken: String, postIdentifier: String, commentText: String) async throws -> Data {
+    func commentOnPost(sessionManagementToken: String, postIdentifier: String, commentText: String, formatting: [CommentFormatSpan]? = nil) async throws -> Data {
         return try encodeGenericSuccess()
     }
 
@@ -332,7 +332,7 @@ struct MockedAPI: Networking {
         return try encode(comments)
     }
 
-    func replyToCommentThread(sessionManagementToken: String, postIdentifier: String, commentThreadIdentifier: String, commentText: String) async throws -> Data {
+    func replyToCommentThread(sessionManagementToken: String, postIdentifier: String, commentThreadIdentifier: String, commentText: String, formatting: [CommentFormatSpan]? = nil) async throws -> Data {
         return try encodeGenericSuccess()
     }
 

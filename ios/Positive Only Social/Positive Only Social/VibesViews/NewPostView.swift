@@ -17,7 +17,13 @@ struct NewPostView: View {
     @State private var selectedItem: PhotosPickerItem?
     @State private var selectedImageData: Data?
     @State private var caption = ""
+    // Whole-caption font + whole-tile background color keys (issue #318).
+    @State private var captionFont = "default"
+    @State private var backgroundColor = "default"
     @State private var isLoading = false
+
+    private let fontOptions = ["default", "serif", "monospace", "rounded", "handwriting"]
+    private let backgroundOptions = ["default", "sky", "mint", "blush", "lemon", "lavender"]
     @State private var showSuccessAlert = false
     @State private var successAlertMessage = "Your post was shared successfully!"
     @State private var showFailureAlert = false
@@ -91,7 +97,35 @@ struct NewPostView: View {
                     }
                     CharacterCounter(text: caption, max: GVOAppConstants.maxCaptionLength)
                 }
-                
+
+                // Text customization (issue #318): a whole-caption font, a
+                // whole-tile background color, and a live preview.
+                Section(header: Text("Style")) {
+                    Picker("Font", selection: $captionFont) {
+                        ForEach(fontOptions, id: \.self) { key in
+                            Text(key.capitalized).tag(key)
+                        }
+                    }
+                    .accessibilityIdentifier("CaptionFontPicker")
+
+                    Picker("Background", selection: $backgroundColor) {
+                        ForEach(backgroundOptions, id: \.self) { key in
+                            Text(key.capitalized).tag(key)
+                        }
+                    }
+                    .accessibilityIdentifier("BackgroundColorPicker")
+
+                    CaptionTileView(
+                        caption: caption.isEmpty ? "Your caption will look like this." : caption,
+                        lineLimit: nil,
+                        captionFont: captionFont,
+                        backgroundColor: backgroundColor
+                    )
+                    .frame(height: 120)
+                    .clipShape(RoundedRectangle(cornerRadius: 10))
+                    .accessibilityIdentifier("CaptionPreview")
+                }
+
                 if isLoading {
                     HStack {
                         Spacer()
@@ -176,7 +210,9 @@ struct NewPostView: View {
                 let responseData = try await api.makePost(
                     sessionManagementToken: userSession.sessionToken,
                     imageURL: imageURLString,
-                    caption: caption
+                    caption: caption,
+                    captionFont: captionFont,
+                    backgroundColor: backgroundColor
                 )
 
                 // Reload the Profile tab's grid so the new post appears there
@@ -203,6 +239,8 @@ struct NewPostView: View {
                 // Reset the form and show the success alert
                 isLoading = false
                 caption = ""
+                captionFont = "default"
+                backgroundColor = "default"
                 selectedItem = nil
                 selectedImageData = nil
                 showSuccessAlert = true // This will trigger the success alert

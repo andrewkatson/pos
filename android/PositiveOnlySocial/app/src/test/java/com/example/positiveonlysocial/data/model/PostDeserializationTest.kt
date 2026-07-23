@@ -122,4 +122,82 @@ class PostDeserializationTest {
         assertFalse(body.contains("image_url"))
         assertTrue(body.contains("words only"))
     }
+
+    @Test
+    fun `post json maps caption_font and background_color (issue 318)`() {
+        val json = """
+            {
+              "post_identifier": "p5",
+              "image_url": null,
+              "caption": "styled",
+              "author_username": "dee",
+              "caption_font": "serif",
+              "background_color": "mint"
+            }
+        """.trimIndent()
+
+        val post = gson.fromJson(json, Post::class.java)
+
+        assertEquals("serif", post.captionFont)
+        assertEquals("mint", post.backgroundColor)
+    }
+
+    @Test
+    fun `post json without style fields defaults them (issue 318)`() {
+        val json = """
+            {
+              "post_identifier": "p6",
+              "caption": "plain",
+              "author_username": "dee"
+            }
+        """.trimIndent()
+
+        val post = gson.fromJson(json, Post::class.java)
+
+        assertEquals("default", post.captionFont)
+        assertEquals("default", post.backgroundColor)
+    }
+
+    @Test
+    fun `comment json maps body_formatting spans (issue 318)`() {
+        val json = """
+            {
+              "comment_identifier": "c1",
+              "body": "love this",
+              "author_username": "dee",
+              "creation_time": "t",
+              "updated_time": "t",
+              "comment_likes": 0,
+              "body_formatting": [
+                {"start": 0, "end": 4, "bold": true, "italic": false, "size": "normal"},
+                {"start": 5, "end": 9, "bold": false, "italic": true, "size": "large"}
+              ]
+            }
+        """.trimIndent()
+
+        val comment = gson.fromJson(json, CommentDto::class.java)
+
+        assertEquals(2, comment.bodyFormatting?.size)
+        assertEquals(0, comment.bodyFormatting?.get(0)?.start)
+        assertTrue(comment.bodyFormatting?.get(0)?.bold == true)
+        assertEquals("large", comment.bodyFormatting?.get(1)?.size)
+    }
+
+    @Test
+    fun `comment json without body_formatting is null (issue 318)`() {
+        val json = """
+            {
+              "comment_identifier": "c2",
+              "body": "plain",
+              "author_username": "dee",
+              "creation_time": "t",
+              "updated_time": "t",
+              "comment_likes": 0
+            }
+        """.trimIndent()
+
+        val comment = gson.fromJson(json, CommentDto::class.java)
+
+        assertNull(comment.bodyFormatting)
+    }
 }
