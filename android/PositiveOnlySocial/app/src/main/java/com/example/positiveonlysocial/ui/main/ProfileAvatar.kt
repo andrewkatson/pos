@@ -43,10 +43,11 @@ fun ProfileAvatar(
     val circle = modifier.size(size).clip(CircleShape)
 
     // The compressed→original switch flips at most once each way, so a failing
-    // original leaves the placeholder rather than looping. Keyed to the URL so a
-    // recycled row resets when it's reused for a different user.
-    var useOriginal by remember(imageUrl) { mutableStateOf(false) }
-    var failed by remember(imageUrl) { mutableStateOf(false) }
+    // original leaves the placeholder rather than looping. Keyed to BOTH URLs so
+    // the fallback resets whenever either changes — a recycled row reused for a
+    // different user, or a refreshed signed URL where only the original differs.
+    var useOriginal by remember(imageUrl, originalImageUrl) { mutableStateOf(false) }
+    var failed by remember(imageUrl, originalImageUrl) { mutableStateOf(false) }
 
     val model = if (useOriginal) originalImageUrl else imageUrl
 
