@@ -90,8 +90,14 @@ class TestClassifiers(PositiveOnlySocialTestCase):
     def test_parse_probability_and_rule_skips_out_of_range_pairs(self):
         # "10,3" is not a valid probability; the earlier valid pair wins.
         self.assertEqual(parse_probability_and_rule("0.3,2 then 10,3"), (0.3, 2))
-        # A two-digit "rule" is not a rule citation at all.
-        self.assertEqual(parse_probability_and_rule("0.5,42"), (0.5, None))
+
+    def test_parse_probability_and_rule_parses_multi_digit_rules(self):
+        # Rule numbers are parsed as one-or-more digits so a future rule 10+
+        # still surfaces its citation instead of being silently dropped. An
+        # unknown rule number maps to no reason downstream (RULE_REASON_CODES),
+        # so parsing it here is harmless.
+        self.assertEqual(parse_probability_and_rule("0.10,10"), (0.10, 10))
+        self.assertEqual(parse_probability_and_rule("0.5,42"), (0.5, 42))
 
     # ------------------------------------------------------------------ #
     # Text classifier – testing mode                                       #
@@ -296,6 +302,23 @@ class TestClassifiers(PositiveOnlySocialTestCase):
         self.assertIsNone(result.reason_code)
         self.assertEqual(result.public_reason_code(), GENERIC_REASON_CODE)
         self.assertEqual(result.public_reason(), REASON_PHRASES[GENERIC_REASON_CODE])
+
+    @patch.dict(os.environ, {"GEMINI_API_KEY": "fake_key"}, clear=True)
+    def test_rejection_reason_for_depicting_a_minor(self):
+        # Rule 9 (issue #336): content the AI flags as showing a baby/child is
+        # rejected with the 'minors' reason. The reason-code plumbing is shared
+        # by the text and image cascades, so the text path exercises it without
+        # needing to mock the S3 fetch.
+        with patch.dict(_TEXT_DISPATCH, {API_GEMINI: MagicMock(return_value=(REJECT_SCORE, 9))}):
+            result = is_text_positive("some text")
+        self.assertFalse(result)
+        self.assertEqual(result.reason_code, 'minors')
+        self.assertEqual(result.public_reason_code(), 'minors')
+        self.assertEqual(result.public_reason(), REASON_PHRASES['minors'])
+
+    def test_parser_recognizes_rule_9(self):
+        # Rule 9 must survive the probability,rule parser (previously capped at 8).
+        self.assertEqual(parse_probability_and_rule("0.10,9"), (0.10, 9))
 
     @patch.dict(os.environ, {"GEMINI_API_KEY": "fake_key"}, clear=True)
     def test_allowed_result_has_no_reason(self):
@@ -613,6 +636,7 @@ class TestClassifiers(PositiveOnlySocialTestCase):
             "neutral",
             "sexually suggestive content",
             "misinformation",
+            "babies, children, or anyone under 18",
             "begins sad but ends on a happy or hopeful note",
             "between 0.00 and 1.00",
             "separated by a comma",
@@ -625,6 +649,7 @@ class TestClassifiers(PositiveOnlySocialTestCase):
             "neutral",
             "sexually suggestive content",
             "misinformation",
+            "babies, children, or anyone under 18",
             "begins sad but ends on a happy or hopeful note",
             "between 0.00 and 1.00",
             "separated by a comma",
