@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 
 /**
  * A user's profile photo (issue #7), rendered as a circular avatar next to
@@ -30,6 +30,15 @@ function Avatar({
 }) {
   const [useOriginal, setUseOriginal] = useState(false)
   const [failed, setFailed] = useState(false)
+
+  // Reset the fallback state whenever the backing URLs change (a new upload, or
+  // the compressed copy becoming available), so a component that fell back to
+  // the original — or gave up to the placeholder — retries the fresh URLs
+  // instead of staying stuck.
+  useEffect(() => {
+    setUseOriginal(false)
+    setFailed(false)
+  }, [src, originalSrc])
 
   const resolved = useOriginal && originalSrc ? originalSrc : src
   const classes = ['avatar', `avatar--${size}`, className].filter(Boolean).join(' ')

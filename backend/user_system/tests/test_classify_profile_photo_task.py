@@ -109,3 +109,25 @@ class ClassifyProfilePhotoTaskTests(TestCase):
     def test_missing_user_is_a_noop(self):
         # A user deleted while the job was queued must not raise.
         tasks.classify_profile_photo('00000000-0000-0000-0000-000000000000')
+
+    @patch('user_system.tasks.delete_image')
+    def test_pending_photo_replaced_mid_job_is_not_transitioned(self, mock_delete):
+        """If the user uploads a new pending photo while a job is classifying the
+        old one, the stale verdict must not be applied to the new upload."""
+        new_url = 'https://test-bucket.s3.amazonaws.com/user/new.jpeg'
+
+        def swap_then_reject(url):
+            # Simulate the user replacing their pending photo during the (slow)
+            # classifier call — a concurrent set_profile_photo.
+            PositiveOnlySocialUser.objects.filter(pk=self.user.pk).update(
+                pending_profile_image_url=new_url)
+            return REJECTED
+
+        with patch(IMAGE, side_effect=swap_then_reject):
+            self._run()
+
+        # The job's rejection verdict (for the OLD upload) was not applied to the
+        # new pending upload: it stays pending and intact.
+        self.assertEqual(self.user.profile_image_status, PROFILE_IMAGE_STATUS_PENDING)
+        self.assertEqual(self.user.pending_profile_image_url, new_url)
+        mock_delete.assert_not_called()

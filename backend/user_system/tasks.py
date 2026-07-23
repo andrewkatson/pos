@@ -340,20 +340,26 @@ def classify_profile_photo(user_id):
             user_id, user.profile_image_classification_attempts)
         return
 
+    # The exact upload this job is about. Both the increment-UPDATE and the
+    # row-claim below filter on it, so if the user replaces their pending photo
+    # while this job runs (or a duplicate delivery already resolved it), this job
+    # becomes a no-op: it neither burns retry budget nor applies its verdict to a
+    # *different* upload than the one it classified.
+    pending_url = user.pending_profile_image_url
+
     # Count the attempt before the fallible external work (so the sweep sees
     # every try) and bump classification_time so "stuck" means "no recent
-    # activity". The pending filter makes the re-check and increment one atomic
-    # UPDATE, so a duplicate delivery that lost the race neither burns budget nor
-    # runs the billable cascade below.
+    # activity". Filtering on the specific pending URL makes the re-check and
+    # increment one atomic UPDATE.
     still_pending = PositiveOnlySocialUser.objects.filter(
         pk=user.pk, profile_image_status=PROFILE_IMAGE_STATUS_PENDING,
+        pending_profile_image_url=pending_url,
     ).update(profile_image_classification_attempts=F('profile_image_classification_attempts') + 1,
              profile_image_classification_time=timezone.now())
     if not still_pending:
-        logger.info("classify_profile_photo: user %s was resolved concurrently; nothing to do.", user_id)
+        logger.info("classify_profile_photo: user %s pending photo changed or was resolved concurrently; nothing to do.", user_id)
         return
 
-    pending_url = user.pending_profile_image_url
     result = image_classifier_class.is_image_positive(pending_url)
     if result.provider_failure:
         # Not a verdict on the content: fail closed (stay pending) and let RQ
@@ -365,10 +371,14 @@ def classify_profile_photo(user_id):
     old_live_url = None
     rejected_url = None
     with transaction.atomic():
+        # Re-claim on the same specific pending URL: a photo swapped out from
+        # under this job (now a different pending_profile_image_url) must not be
+        # transitioned by this job's stale verdict.
         claimed = PositiveOnlySocialUser.objects.select_for_update().filter(
-            pk=user.pk, profile_image_status=PROFILE_IMAGE_STATUS_PENDING).first()
+            pk=user.pk, profile_image_status=PROFILE_IMAGE_STATUS_PENDING,
+            pending_profile_image_url=pending_url).first()
         if claimed is None:
-            logger.info("classify_profile_photo: user %s was resolved concurrently; nothing to do.", user_id)
+            logger.info("classify_profile_photo: user %s pending photo changed or was resolved concurrently; nothing to do.", user_id)
             return
         if allowed:
             # Promote the pending photo to live; the previously approved photo

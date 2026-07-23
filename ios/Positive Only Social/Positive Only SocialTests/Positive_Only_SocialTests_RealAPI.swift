@@ -88,7 +88,7 @@ struct Positive_Only_SocialTests_RealAPI {
             imageURL: "https://example.com/avatar.jpeg"
         )
 
-        #expect(CapturingURLProtocol.lastRequestURL?.path == "/user_index/profile/photo")
+        #expect(CapturingURLProtocol.lastRequestURL?.path == "/user_index/profile/photo/")
     }
 
     // Removing a profile photo (issue #7) must POST to profile/photo/remove/.
@@ -99,6 +99,6 @@ struct Positive_Only_SocialTests_RealAPI {
 
         _ = try await RealAPI().removeProfilePhoto(sessionManagementToken: "token")
 
-        #expect(CapturingURLProtocol.lastRequestURL?.path == "/user_index/profile/photo/remove")
+        #expect(CapturingURLProtocol.lastRequestURL?.path == "/user_index/profile/photo/remove/")
     }
 }

@@ -2902,7 +2902,11 @@ def get_profile_details(request, username):
         pending_avatar = profile_user.pending_profile_image_url
         data[Fields.profile_image_status] = profile_user.profile_image_status
         data[Fields.profile_image_reason_code] = profile_user.profile_image_reason_code
-        data[Fields.pending_profile_image_url] = sign_compressed_url(pending_avatar)
+        # The original (source-bucket) URL, not the compressed one: a just-
+        # uploaded pending photo has no compressed copy yet (the Lambda runs
+        # async), so the owner's immediate preview must point at the full-res
+        # original or it would 404 to the placeholder.
+        data[Fields.pending_profile_image_url] = sign_original_url(pending_avatar)
 
     return log_and_return_json("get_profile_details", data, status=200)
 
