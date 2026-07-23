@@ -179,6 +179,10 @@ private struct FormattedTextEditor: UIViewRepresentable {
         init(controller: CommentFormatController) { self.controller = controller }
 
         func textViewDidChange(_ textView: UITextView) {
+            // Ignore callbacks where the plain text hasn't actually changed —
+            // e.g. a programmatic `attributedText` assignment from a toolbar
+            // re-render — so there's no re-entrant update / feedback cycle.
+            guard textView.text != controller.text else { return }
             controller.userChangedText(textView.text)
         }
     }

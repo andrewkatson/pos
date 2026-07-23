@@ -70,10 +70,19 @@ enum TextFormatting {
         for span in spans {
             let start = max(cursor, min(span.start, utf16Count))
             let end = max(start, min(span.end, utf16Count))
-            if start > cursor, let gap = Self.substring(of: text, startUTF16: cursor, endUTF16: start) {
+            if start > cursor {
+                // If a boundary falls inside a surrogate pair the slice fails;
+                // fall back to plain text for the whole comment rather than
+                // dropping any of it.
+                guard let gap = Self.substring(of: text, startUTF16: cursor, endUTF16: start) else {
+                    return plainPiece(text)
+                }
                 result.append(plainPiece(gap))
             }
-            if start < end, let styled = Self.substring(of: text, startUTF16: start, endUTF16: end) {
+            if start < end {
+                guard let styled = Self.substring(of: text, startUTF16: start, endUTF16: end) else {
+                    return plainPiece(text)
+                }
                 var piece = AttributedString(styled)
                 var font = Font.system(size: baseSize * sizeScale(span.size))
                 if span.bold { font = font.bold() }
@@ -83,7 +92,10 @@ enum TextFormatting {
             }
             cursor = end
         }
-        if cursor < utf16Count, let tail = Self.substring(of: text, startUTF16: cursor, endUTF16: utf16Count) {
+        if cursor < utf16Count {
+            guard let tail = Self.substring(of: text, startUTF16: cursor, endUTF16: utf16Count) else {
+                return plainPiece(text)
+            }
             result.append(plainPiece(tail))
         }
         return result

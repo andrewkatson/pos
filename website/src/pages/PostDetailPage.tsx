@@ -689,11 +689,14 @@ function PostDetailView({ postId }: { postId: string }) {
               </button>
               <label className="format-toolbar__size">
                 Size
+                {/* No onMouseDown preventDefault here: on a native <select> it
+                    can stop the dropdown from opening. A blurred textarea still
+                    retains its selection offsets, so styleSelection() reads the
+                    correct range on change. */}
                 <select
                   className="format-toolbar__select"
                   aria-label="Text size for selection"
                   defaultValue="normal"
-                  onMouseDown={e => e.preventDefault()}
                   onChange={e => {
                     const size = e.target.value as TextSize
                     styleSelection((a, s, en) => applyStyleToRange(a, s, en, { size }))
