@@ -42,6 +42,12 @@ struct ProfileAvatarView: View {
             .frame(width: size, height: size)
             .clipShape(Circle())
             .accessibilityHidden(true)
+            // Reset the fallback when the backing URLs change (a new upload, or
+            // the compressed copy becoming available), so a view that fell back
+            // to the original retries the fresh compressed URL instead of
+            // staying on the original indefinitely — mirroring the website Avatar.
+            .onChange(of: imageUrl) { useOriginal = false }
+            .onChange(of: originalImageUrl) { useOriginal = false }
     }
 
     @ViewBuilder
