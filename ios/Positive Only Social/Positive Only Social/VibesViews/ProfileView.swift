@@ -131,9 +131,24 @@ struct ProfileBodyView: View {
                 Spacer()
                 StatItem(count: viewModel.userPosts.count, label: "Posts")
                 Spacer()
-                StatItem(count: viewModel.profileDetails?.followerCount ?? 0, label: "Followers")
-                Spacer()
-                StatItem(count: viewModel.profileDetails?.followingCount ?? 0, label: "Following")
+                // Only your own follow lists are viewable, so the counts tap
+                // through on your own profile and are plain stats on anyone
+                // else's (issue #8). The container registers the destination.
+                if viewModel.isOwnProfile {
+                    NavigationLink(value: FollowListMode.followers) {
+                        StatItem(count: viewModel.profileDetails?.followerCount ?? 0, label: "Followers")
+                    }
+                    .buttonStyle(.plain)
+                    Spacer()
+                    NavigationLink(value: FollowListMode.following) {
+                        StatItem(count: viewModel.profileDetails?.followingCount ?? 0, label: "Following")
+                    }
+                    .buttonStyle(.plain)
+                } else {
+                    StatItem(count: viewModel.profileDetails?.followerCount ?? 0, label: "Followers")
+                    Spacer()
+                    StatItem(count: viewModel.profileDetails?.followingCount ?? 0, label: "Following")
+                }
                 Spacer()
             }
             .padding(.top)

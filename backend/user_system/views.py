@@ -2705,6 +2705,54 @@ def get_blocked_users(request):
 @api_login_required
 @ratelimit(key='user', rate='30/m', block=True)
 @require_GET
+def get_followers(request):
+    """List the users who follow the requester.
+
+    Only ever returns the signed-in user's own followers — there is no username
+    parameter, so a follower/following list can't be requested for anyone else.
+    """
+    logger.info("Endpoint get_followers invoked by IP or User")
+    # request.user.followers is the reverse side of the (non-symmetrical)
+    # `following` relation: everyone with request.user in their `following`.
+    followers = request.user.followers.order_by('username')
+
+    users_data = [
+        {
+            Fields.username: user.username,
+            Fields.identity_is_verified: user.identity_is_verified
+        }
+        for user in followers
+    ]
+    logger.info(f"Get followers successful: count: {len(users_data)} for user_id: {request.user.id}")
+    return log_and_return_json("get_followers", users_data, safe=False)
+
+
+@api_login_required
+@ratelimit(key='user', rate='30/m', block=True)
+@require_GET
+def get_following(request):
+    """List the users the requester follows.
+
+    Only ever returns the signed-in user's own following list — there is no
+    username parameter, so this can't be requested for anyone else.
+    """
+    logger.info("Endpoint get_following invoked by IP or User")
+    following = request.user.following.order_by('username')
+
+    users_data = [
+        {
+            Fields.username: user.username,
+            Fields.identity_is_verified: user.identity_is_verified
+        }
+        for user in following
+    ]
+    logger.info(f"Get following successful: count: {len(users_data)} for user_id: {request.user.id}")
+    return log_and_return_json("get_following", users_data, safe=False)
+
+
+@api_login_required
+@ratelimit(key='user', rate='30/m', block=True)
+@require_GET
 def get_profile_details(request, username):
     logger.info("Endpoint get_profile_details invoked by IP or User")
     # user is on request.user (requesting_user)

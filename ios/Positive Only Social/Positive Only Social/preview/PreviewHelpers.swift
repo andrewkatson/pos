@@ -354,6 +354,22 @@ struct MockedAPI: Networking {
         return try encode(users)
     }
 
+    func getFollowers(sessionManagementToken: String) async throws -> Data {
+        let users = [
+            User(username: "follower_1", identityIsVerified: true),
+            User(username: "follower_2", identityIsVerified: false)
+        ]
+        return try encode(users)
+    }
+
+    func getFollowing(sessionManagementToken: String) async throws -> Data {
+        let users = [
+            User(username: "following_1", identityIsVerified: true),
+            User(username: "following_2", identityIsVerified: false)
+        ]
+        return try encode(users)
+    }
+
     func getProfileDetails(sessionManagementToken: String, username: String) async throws -> Data {
         let profile = ProfileDetailsResponse(
             username: username,

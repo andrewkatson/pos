@@ -16,6 +16,7 @@ import androidx.navigation.navArgument
 import com.example.positiveonlysocial.api.PositiveOnlySocialAPI
 import com.example.positiveonlysocial.data.auth.AuthenticationManager
 import com.example.positiveonlysocial.data.security.KeychainHelperProtocol
+import com.example.positiveonlysocial.models.viewmodels.FollowListMode
 import com.example.positiveonlysocial.ui.auth.*
 import com.example.positiveonlysocial.ui.main.*
 
@@ -131,6 +132,16 @@ fun NavGraph(
 
         composable(Screen.BlockedUsers.route) {
             BlockedUsersScreen(navController, api, keychainHelper)
+        }
+
+        // Your own followers / following — only your own, since the endpoints
+        // take no username (issue #8). The mode arg picks which list.
+        composable(
+            route = Screen.FollowList.route,
+            arguments = listOf(navArgument("mode") { type = NavType.StringType })
+        ) { backStackEntry ->
+            val mode = FollowListMode.fromRoute(backStackEntry.arguments?.getString("mode"))
+            FollowListScreen(navController, api, keychainHelper, mode)
         }
     }
 }

@@ -266,6 +266,18 @@ interface PositiveOnlySocialAPI {
         @Header("Authorization") token: String
     ): Response<List<User>>
 
+    // Own lists only — the endpoints take no username, so another user's
+    // followers/following can't be requested (issue #8).
+    @GET("users/followers/")
+    suspend fun getFollowers(
+        @Header("Authorization") token: String
+    ): Response<List<User>>
+
+    @GET("users/following/")
+    suspend fun getFollowing(
+        @Header("Authorization") token: String
+    ): Response<List<User>>
+
     @GET("users/{username}/profile/")
     suspend fun getProfileDetails(
         @Header("Authorization") token: String,
