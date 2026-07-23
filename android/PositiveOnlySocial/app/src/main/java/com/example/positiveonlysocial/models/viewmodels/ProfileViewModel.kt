@@ -424,6 +424,15 @@ class ProfileViewModel(
             _profileDetails.value = profile
             _isFollowing.value = profile?.isFollowing ?: false
             _isBlocked.value = profile?.isBlocked ?: false
+        } else {
+            // The set/remove itself succeeded but this refresh didn't, so the
+            // header would keep showing the old avatar/state. Surface it as a
+            // photo error (a thrown network failure is already caught by the
+            // calling set/remove) so the action doesn't look like it failed.
+            _photoErrorMessage.value = ApiErrors.messageFor(
+                profileResponse,
+                fallback = "Your change was saved, but the profile couldn't refresh — pull to refresh."
+            )
         }
     }
 
