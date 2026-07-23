@@ -37,7 +37,8 @@ from .constants import Patterns, Params, POST_BATCH_SIZE, MAX_BEFORE_HIDING_POST
     APPEAL_TARGET_POST, APPEAL_TARGET_COMMENT, APPEAL_TARGET_BAN, \
     MAX_APPEAL_REASON_LENGTH, \
     TWO_FACTOR_CHALLENGE_MINUTES, TWO_FACTOR_MAX_ATTEMPTS, NUM_RECOVERY_CODES, \
-    LEN_RECOVERY_CODE_HEX, TOTP_ISSUER, INVALID_TWO_FACTOR_CHALLENGE
+    LEN_RECOVERY_CODE_HEX, TOTP_ISSUER, INVALID_TWO_FACTOR_CHALLENGE, \
+    MINIMUM_AGE, ADULT_AGE, AGE_RESTRICTED
 from .feed_algorithm import feed_algorithm
 from .input_validator import is_valid_pattern
 from .models import LoginCookie, Session, Post, CommentThread, PositiveOnlySocialUser, Comment, CommentLike, \
@@ -45,7 +46,14 @@ from .models import LoginCookie, Session, Post, CommentThread, PositiveOnlySocia
 from .utils import convert_to_bool, generate_login_cookie_token, generate_management_token, generate_series_identifier, \
     get_batch, get_queryset_batch, get_compressed_image_url
 from .s3 import delete_image, generate_presigned_upload, image_url_to_key
-from .visibility import can_view_post, searchable_users, visible_comment_threads, visible_comments, visible_posts
+from .visibility import can_view_post, in_same_age_band, searchable_users, visible_comment_threads, \
+    visible_comments, visible_posts
+
+
+def _age_from_dob(dob):
+    """Whole years old today for a date of birth."""
+    today = date.today()
+    return today.year - dob.year - ((today.month, today.day) < (dob.month, dob.day))
 
 image_classifier_class = image_classifier
 text_classifier_class = text_classifier
@@ -475,19 +483,22 @@ def register(request):
         invalid_fields.append(Params.password)
 
     is_adult = False
+    too_young = False
     if date_of_birth_str:
         try:
             dob = datetime.strptime(date_of_birth_str, '%Y-%m-%d').date()
-            today = date.today()
-            age = today.year - dob.year - ((today.month, today.day) < (dob.month, dob.day))
-            if age >= 18:
+            age = _age_from_dob(dob)
+            if age < MINIMUM_AGE:
+                too_young = True
+            elif age >= ADULT_AGE:
                 is_adult = True
         except ValueError:
             logger.warning("Registration failed: Invalid date_of_birth format")
             invalid_fields.append('date_of_birth')
     else:
-        # If date_of_birth is mandatory, uncomment the next line
-        # invalid_fields.append('date_of_birth')
+        # date_of_birth is optional. An account registered without it is left
+        # identity-unverified (see identity_is_verified below) rather than
+        # rejected — the age gate only bites once an age is actually given.
         pass
 
     try:
@@ -499,6 +510,14 @@ def register(request):
     if len(invalid_fields) > 0:
         logger.warning(f"Registration failed: Invalid fields {invalid_fields}")
         return log_and_return_json("register", {'error': f"Invalid fields {invalid_fields}"}, status=400)
+
+    # No account is ever created for someone under the minimum age (issue #337).
+    if too_young:
+        logger.warning("Registration failed: applicant is under the minimum age")
+        return log_and_return_json("register", {
+            'error': f"You must be at least {MINIMUM_AGE} years old to use this service.",
+            Fields.reason_code: AGE_RESTRICTED,
+        }, status=403)
 
     # Check no user has this email or username.
     if get_user_with_username(username) is not None or get_user_with_email(email) is not None:
@@ -588,15 +607,20 @@ def verify_identity(request):
 
     try:
         dob = datetime.strptime(date_of_birth_str, '%Y-%m-%d').date()
-        today = date.today()
-        age = today.year - dob.year - ((today.month, today.day) < (dob.month, dob.day))
+        age = _age_from_dob(dob)
+
+        # Under-minimum applicants are refused outright and left unverified
+        # (issue #337): the account must not gain a verified identity that would
+        # let it interact, and we do not record it as an adult.
+        if age < MINIMUM_AGE:
+            logger.warning(f"Identity verification refused: user_id {request.user.id} is under the minimum age")
+            return log_and_return_json("verify_identity", {
+                'error': f"You must be at least {MINIMUM_AGE} years old to use this service.",
+                Fields.reason_code: AGE_RESTRICTED,
+            }, status=403)
 
         request.user.identity_is_verified = True
-        if age >= 18:
-            request.user.is_adult = True
-        else:
-            request.user.is_adult = False
-
+        request.user.is_adult = age >= ADULT_AGE
         request.user.save()
 
         logger.info(f"Identity verification successful for user_id: {request.user.id}")
@@ -1553,6 +1577,13 @@ def report_post(request, post_identifier):
 
     post = get_post_with_identifier(post_identifier)
     if post is not None:
+        # A post from a different age band is treated as absent, so an adult
+        # cannot interact with an underage account's post (or vice versa) even
+        # with a known post id (issue #329).
+        if not in_same_age_band(post.author, request.user):
+            logger.warning(f"Report post failed: Post {post_identifier} not visible to user_id: {request.user.id}")
+            return log_and_return_json("report_post", {'error': "No post with that identifier"}, status=400)
+
         if post.author == request.user:
             logger.warning(f"Report post failed: Cannot report own post for user_id: {request.user.id}")
             return log_and_return_json("report_post", {'error': "Cannot report own post"}, status=400)
@@ -1629,6 +1660,13 @@ def like_post(request, post_identifier):
 
     post = get_post_with_identifier(post_identifier)
     if post is not None:
+        # A post from a different age band is treated as absent, so an adult
+        # cannot interact with an underage account's post (or vice versa) even
+        # with a known post id (issue #329).
+        if not in_same_age_band(post.author, request.user):
+            logger.warning(f"Like post failed: Post {post_identifier} not visible to user_id: {request.user.id}")
+            return log_and_return_json("like_post", {'error': "No post with that identifier"}, status=400)
+
         if post.author == request.user:
             logger.warning(f"Like post failed: Cannot like own post for user_id: {request.user.id}")
             return log_and_return_json("like_post", {'error': "Cannot like own post"}, status=400)
@@ -2167,6 +2205,12 @@ def like_comment(request, post_identifier, comment_thread_identifier, comment_id
         logger.warning(f"Like comment failed: Comment {comment_identifier} not found")
         return log_and_return_json("like_comment", {'error': "Comment not found"}, status=400)
 
+    # A comment from a different age band is treated as absent, so cross-band
+    # interaction cannot be smuggled in via known ids (issue #329).
+    if not in_same_age_band(comment.author, request.user):
+        logger.warning(f"Like comment failed: Comment {comment_identifier} not visible to user_id: {request.user.id}")
+        return log_and_return_json("like_comment", {'error': "Comment not found"}, status=400)
+
     if comment.author == request.user:
         logger.warning(f"Like comment failed: Cannot like own comment for user_id: {request.user.id}")
         return log_and_return_json("like_comment", {'error': "Cannot like own comment"}, status=400)
@@ -2289,6 +2333,12 @@ def report_comment(request, post_identifier, comment_thread_identifier, comment_
         )
     except Comment.DoesNotExist:
         logger.warning(f"Report comment failed: Comment {comment_identifier} not found")
+        return log_and_return_json("report_comment", {'error': "Comment not found"}, status=400)
+
+    # A comment from a different age band is treated as absent, so cross-band
+    # interaction cannot be smuggled in via known ids (issue #329).
+    if not in_same_age_band(comment.author, request.user):
+        logger.warning(f"Report comment failed: Comment {comment_identifier} not visible to user_id: {request.user.id}")
         return log_and_return_json("report_comment", {'error': "Comment not found"}, status=400)
 
     if comment.author == request.user:
@@ -2475,7 +2525,7 @@ def get_users_matching_fragment(request, username_fragment):
     # So if I blocked someone, I can still search them.
     # But if someone blocked me, I cannot search them.
     users_who_blocked_me = request.user.blocked_by.all()
-    users = searchable_users(users.exclude(pk__in=users_who_blocked_me))[:10]
+    users = searchable_users(users.exclude(pk__in=users_who_blocked_me), request.user)[:10]
 
     users_data = [
         {
@@ -2499,7 +2549,10 @@ def follow_user(request, username_to_follow):
         return log_and_return_json("follow_user", {'error': "Invalid username fragment"}, status=400)
 
     user_to_follow_obj = get_user_with_username(username_to_follow)
-    if not user_to_follow_obj:
+    # An account outside the follower's age band is treated as if it does not
+    # exist (issue #329) — the same response as a genuinely missing user, so an
+    # adult cannot even confirm an underage account by name, and vice versa.
+    if not user_to_follow_obj or not in_same_age_band(request.user, user_to_follow_obj):
         return log_and_return_json("follow_user", {'error': "User does not exist"}, status=400)
 
     if request.user == user_to_follow_obj:
@@ -2600,6 +2653,13 @@ def get_profile_details(request, username):
     profile_user = get_user_with_username(username)
     if not profile_user:
         logger.warning(f"Get profile details failed: User with username fragment not found")
+        return log_and_return_json("get_profile_details", {'error': "User not found"}, status=400)
+
+    # Adults and underage accounts cannot view each other's profiles (issue
+    # #329). Report it as not found (not a distinct error) so neither side can
+    # confirm the other exists by name. The account always sees its own profile.
+    if profile_user != request.user and not in_same_age_band(request.user, profile_user):
+        logger.warning("Get profile details refused: requester and profile are in different age bands")
         return log_and_return_json("get_profile_details", {'error': "User not found"}, status=400)
 
     # Count only the posts the requesting user is allowed to see, so a

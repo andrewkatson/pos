@@ -1,3 +1,4 @@
+from datetime import date
 from unittest.mock import patch
 
 from django.urls import reverse
@@ -9,10 +10,17 @@ from .test_constants import (
     invalid_email, invalid_bool, false, true
 )
 from .test_parent_case import PositiveOnlySocialTestCase
-from ..constants import Fields, Patterns
+from ..constants import Fields, Patterns, AGE_RESTRICTED, MINIMUM_AGE
 from ..input_validator import is_valid_pattern
 
 import os
+
+
+def _dob_for_age(years):
+    """A date of birth (ISO string) for someone `years` old today. Uses
+    January 1 so the birthday has always passed and the age is exact whenever
+    the test runs."""
+    return date(date.today().year - years, 1, 1).isoformat()
 
 
 class RegisterTests(PositiveOnlySocialTestCase):
@@ -152,18 +160,35 @@ class RegisterTests(PositiveOnlySocialTestCase):
     @patch.dict(os.environ, {"TESTING": "True"}, clear=True)
     def test_register_creates_minor_user(self):
         """
-        Tests that registering with a minor DOB creates a user with is_adult=False.
+        Tests that registering as a permitted 16-17 year old creates a verified,
+        non-adult user.
         """
         data = self.valid_data.copy()
-        # Set DOB to be a minor (e.g., 2020)
-        data['date_of_birth'] = '2020-01-01'
-        
+        data['date_of_birth'] = _dob_for_age(MINIMUM_AGE)
+
         response = self.client.post(self.url, data=data, content_type='application/json')
         self.assertEqual(response.status_code, 201)
-        
+
         user = get_user_model().objects.get(username=self.local_username)
         self.assertTrue(user.identity_is_verified)
         self.assertFalse(user.is_adult)
+
+    @patch.dict(os.environ, {"TESTING": "True"}, clear=True)
+    def test_register_under_minimum_age_refused(self):
+        """
+        Tests that registering with an under-minimum DOB is refused outright and
+        creates no account (issue #337).
+        """
+        data = self.valid_data.copy()
+        data['date_of_birth'] = _dob_for_age(MINIMUM_AGE - 1)
+
+        response = self.client.post(self.url, data=data, content_type='application/json')
+        self.assertEqual(response.status_code, 403)
+        self.assertEqual(response.json().get(Fields.reason_code), AGE_RESTRICTED)
+
+        self.assertFalse(
+            get_user_model().objects.filter(username=self.local_username).exists()
+        )
 
     @patch.dict(os.environ, {"TESTING": "True"}, clear=True)
     def test_register_no_dob_leaves_unverified_identity(self):

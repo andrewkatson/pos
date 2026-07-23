@@ -298,6 +298,23 @@ class TestClassifiers(PositiveOnlySocialTestCase):
         self.assertEqual(result.public_reason(), REASON_PHRASES[GENERIC_REASON_CODE])
 
     @patch.dict(os.environ, {"GEMINI_API_KEY": "fake_key"}, clear=True)
+    def test_rejection_reason_for_depicting_a_minor(self):
+        # Rule 9 (issue #336): content the AI flags as showing a baby/child is
+        # rejected with the 'minors' reason. The reason-code plumbing is shared
+        # by the text and image cascades, so the text path exercises it without
+        # needing to mock the S3 fetch.
+        with patch.dict(_TEXT_DISPATCH, {API_GEMINI: MagicMock(return_value=(REJECT_SCORE, 9))}):
+            result = is_text_positive("some text")
+        self.assertFalse(result)
+        self.assertEqual(result.reason_code, 'minors')
+        self.assertEqual(result.public_reason_code(), 'minors')
+        self.assertEqual(result.public_reason(), REASON_PHRASES['minors'])
+
+    def test_parser_recognizes_rule_9(self):
+        # Rule 9 must survive the probability,rule parser (previously capped at 8).
+        self.assertEqual(parse_probability_and_rule("0.10,9"), (0.10, 9))
+
+    @patch.dict(os.environ, {"GEMINI_API_KEY": "fake_key"}, clear=True)
     def test_allowed_result_has_no_reason(self):
         with patch.dict(_TEXT_DISPATCH, {API_GEMINI: MagicMock(return_value=(ALLOW_SCORE, 2))}):
             result = is_text_positive("some text")
@@ -613,6 +630,7 @@ class TestClassifiers(PositiveOnlySocialTestCase):
             "neutral",
             "sexually suggestive content",
             "misinformation",
+            "babies, children, or anyone under 18",
             "begins sad but ends on a happy or hopeful note",
             "between 0.00 and 1.00",
             "separated by a comma",
@@ -625,6 +643,7 @@ class TestClassifiers(PositiveOnlySocialTestCase):
             "neutral",
             "sexually suggestive content",
             "misinformation",
+            "babies, children, or anyone under 18",
             "begins sad but ends on a happy or hopeful note",
             "between 0.00 and 1.00",
             "separated by a comma",

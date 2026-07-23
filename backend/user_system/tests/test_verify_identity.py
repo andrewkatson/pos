@@ -1,7 +1,18 @@
+from datetime import date
+
 from django.urls import reverse
 from django.contrib.auth import get_user_model
 from .test_parent_case import PositiveOnlySocialTestCase
-from ..constants import Fields
+from ..constants import Fields, AGE_RESTRICTED, MINIMUM_AGE
+
+
+def _dob_for_age(years):
+    """A date of birth for someone who is `years` old today.
+
+    Uses January 1 so the birthday has always already passed this year,
+    keeping the age exact regardless of when the test runs (and sidestepping
+    leap-day arithmetic)."""
+    return date(date.today().year - years, 1, 1).isoformat()
 
 class VerifyIdentityTests(PositiveOnlySocialTestCase):
 
@@ -41,17 +52,34 @@ class VerifyIdentityTests(PositiveOnlySocialTestCase):
         self.assertTrue(self.user.is_adult)
 
     def test_verify_identity_minor(self):
-        data = {'date_of_birth': '2020-01-01'}
+        # A 16-17 year old is a permitted minor: verified but not an adult.
+        data = {'date_of_birth': _dob_for_age(MINIMUM_AGE)}
         response = self.client.post(
-            self.url, 
-            data=data, 
+            self.url,
+            data=data,
             content_type='application/json',
             HTTP_AUTHORIZATION=f'Bearer {self.token}'
         )
         self.assertEqual(response.status_code, 200)
-        
+
         self.user.refresh_from_db()
         self.assertTrue(self.user.identity_is_verified)
+        self.assertFalse(self.user.is_adult)
+
+    def test_verify_identity_under_minimum_age_refused(self):
+        # Anyone under the minimum age is refused and left unverified (issue #337).
+        data = {'date_of_birth': _dob_for_age(MINIMUM_AGE - 1)}
+        response = self.client.post(
+            self.url,
+            data=data,
+            content_type='application/json',
+            HTTP_AUTHORIZATION=f'Bearer {self.token}'
+        )
+        self.assertEqual(response.status_code, 403)
+        self.assertEqual(response.json().get(Fields.reason_code), AGE_RESTRICTED)
+
+        self.user.refresh_from_db()
+        self.assertFalse(self.user.identity_is_verified)
         self.assertFalse(self.user.is_adult)
 
     def test_verify_identity_invalid_date(self):

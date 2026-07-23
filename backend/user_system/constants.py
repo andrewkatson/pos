@@ -54,6 +54,20 @@ APPEAL_TARGET_TYPES = (APPEAL_TARGET_POST, APPEAL_TARGET_COMMENT, APPEAL_TARGET_
 # Error code returned when an outright-banned user attempts to authenticate
 ACCOUNT_BANNED = "account_banned"
 
+# Age policy. Registration and identity verification refuse anyone under
+# MINIMUM_AGE outright (issue #337); an account is only ever created/verified
+# for someone MINIMUM_AGE or older, so any identity-verified non-adult is
+# necessarily between MINIMUM_AGE and ADULT_AGE. is_adult is set at/above
+# ADULT_AGE. Verified minors (MINIMUM_AGE..ADULT_AGE-1) are segregated from
+# adults and unverified accounts (issue #329).
+MINIMUM_AGE = 16
+ADULT_AGE = 18
+
+# Error code returned when someone under MINIMUM_AGE tries to register or
+# verify their identity. A stable machine-readable code (like ACCOUNT_BANNED)
+# so clients can branch on it rather than parsing prose.
+AGE_RESTRICTED = "age_restricted"
+
 # Error code returned when a user whose email address has not been verified
 # attempts to authenticate or call an authenticated endpoint
 EMAIL_NOT_VERIFIED = "email_not_verified"
