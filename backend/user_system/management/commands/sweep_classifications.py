@@ -107,9 +107,14 @@ class Command(BaseCommand):
         # window has fallen out of the queue, so re-enqueue it — unless its
         # retry budget is spent, in which case it stays pending (fail closed,
         # never shown) and the error log alerts an operator exactly once.
+        # Require an actual pending URL: a row left in the pending status with no
+        # pending_profile_image_url (a data fix, partial update, or bug) would
+        # otherwise be re-enqueued forever into jobs that always no-op, adding
+        # pointless queue traffic.
         stuck_photos = PositiveOnlySocialUser.objects.filter(
             profile_image_status=PROFILE_IMAGE_STATUS_PENDING,
             profile_image_classification_time__lte=stuck_cutoff,
+            pending_profile_image_url__isnull=False,
         ).only('id', 'profile_image_classification_attempts', 'profile_image_classification_alerted')
         photos_requeued = photos_exhausted = photos_newly_alerted = 0
         for user in stuck_photos.iterator():
