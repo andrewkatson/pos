@@ -43,7 +43,8 @@ from .input_validator import is_valid_pattern
 from .models import LoginCookie, Session, Post, CommentThread, PositiveOnlySocialUser, Comment, CommentLike, \
     PostLike, UserBlock, UserBan, KnownDevice, Appeal, TwoFactorChallenge, RecoveryCode
 from .utils import convert_to_bool, generate_login_cookie_token, generate_management_token, generate_series_identifier, \
-    get_batch, get_queryset_batch, get_compressed_image_url
+    get_batch, get_queryset_batch
+from .cloudfront import sign_compressed_url, sign_original_url
 from .s3 import delete_image, generate_presigned_upload, image_url_to_key
 from .visibility import can_view_post, searchable_users, visible_comment_threads, visible_comments, visible_posts
 
@@ -1842,10 +1843,10 @@ def get_posts_in_feed(request, batch):
         posts_data = [
             {
                 Fields.post_identifier: post.post_identifier,
-                Fields.image_url: get_compressed_image_url(post.image_url),
+                Fields.image_url: sign_compressed_url(post.image_url),
                 # Full-res original, used as a client fallback while the async
                 # Lambda-generated compressed copy is still missing (#252/#254).
-                Fields.original_image_url: post.image_url,
+                Fields.original_image_url: sign_original_url(post.image_url),
                 Fields.author_username: post.author.username,
                 Fields.caption: post.caption,
                 **interaction_state(post),
@@ -1889,10 +1890,10 @@ def get_posts_for_followed_users(request, batch):
     posts_data = [
         {
             Fields.post_identifier: post.post_identifier,
-            Fields.image_url: get_compressed_image_url(post.image_url),
+            Fields.image_url: sign_compressed_url(post.image_url),
             # Full-res original, used as a client fallback while the async
             # Lambda-generated compressed copy is still missing (#252/#254).
-            Fields.original_image_url: post.image_url,
+            Fields.original_image_url: sign_original_url(post.image_url),
             Fields.author_username: post.author.username,
             Fields.caption: post.caption,
             **interaction_state(post),
@@ -1935,14 +1936,14 @@ def get_posts_for_user(request, username, batch):
         posts_data = [
             {
                 Fields.post_identifier: post.post_identifier,
-                Fields.image_url: get_compressed_image_url(post.image_url),
+                Fields.image_url: sign_compressed_url(post.image_url),
                 # The full-resolution original, used by clients as a fallback when
                 # the compressed copy 404s. Compression runs in an async Lambda, so
                 # a just-posted (or recently hidden-pending-appeal) image can be
                 # missing from the compressed bucket for a short while — without a
                 # fallback those tiles render as empty grey/black boxes until the
                 # user re-logs in. See issues #252 and #254.
-                Fields.original_image_url: post.image_url,
+                Fields.original_image_url: sign_original_url(post.image_url),
                 Fields.caption: post.caption,
                 Fields.author_username: target_user.username,
                 **interaction_state(post),
@@ -1973,10 +1974,10 @@ def get_post_details(request, post_identifier):
         my_report = post.postreport_set.filter(user=request.user).first()
         post_data = {
             Fields.post_identifier: post.post_identifier,
-            Fields.image_url: get_compressed_image_url(post.image_url),
+            Fields.image_url: sign_compressed_url(post.image_url),
             # Full-res original, used as a client fallback while the async
             # Lambda-generated compressed copy is still missing (#252/#254).
-            Fields.original_image_url: post.image_url,
+            Fields.original_image_url: sign_original_url(post.image_url),
             Fields.caption: post.caption,
             Fields.creation_time: post.creation_time,
             Fields.post_likes: total_likes,
@@ -2693,7 +2694,7 @@ def get_hidden_posts(request, batch):
     data = [
         {
             Fields.post_identifier: post.post_identifier,
-            Fields.image_url: get_compressed_image_url(post.image_url),
+            Fields.image_url: sign_compressed_url(post.image_url),
             Fields.caption: post.caption,
             Fields.hidden_reason: post.hidden_reason,
             Fields.creation_time: post.creation_time,
