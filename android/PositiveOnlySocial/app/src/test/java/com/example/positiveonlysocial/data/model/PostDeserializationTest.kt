@@ -143,7 +143,10 @@ class PostDeserializationTest {
     }
 
     @Test
-    fun `post json without style fields defaults them (issue 318)`() {
+    fun `post json without style fields leaves them null, rendered as default (issue 318)`() {
+        // Gson does not apply Kotlin default values for absent JSON fields, so a
+        // response that predates the style fields deserializes them to null; the
+        // render layer (TextFormatting) treats null as the default rendering.
         val json = """
             {
               "post_identifier": "p6",
@@ -154,8 +157,8 @@ class PostDeserializationTest {
 
         val post = gson.fromJson(json, Post::class.java)
 
-        assertEquals("default", post.captionFont)
-        assertEquals("default", post.backgroundColor)
+        assertNull(post.captionFont)
+        assertNull(post.backgroundColor)
     }
 
     @Test

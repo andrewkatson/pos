@@ -46,11 +46,13 @@ final class CommentFormatController: ObservableObject {
     // MARK: - Editing
 
     /// Called by the editor when the user changes the text; reconciles the
-    /// style array across the edit and re-renders.
+    /// style array across the edit. It deliberately does NOT re-render the
+    /// attributed text: re-assigning `attributedText` on every keystroke
+    /// disrupts typing (and hangs UI-test text entry). The text view keeps the
+    /// runs it already has, and toolbar actions re-render on demand.
     func userChangedText(_ newText: String) {
         reconcile(to: newText)
         text = newText
-        render(selection: textView?.selectedRange)
     }
 
     func toggleBold() { toggleBool(\.bold) }

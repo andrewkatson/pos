@@ -22,8 +22,9 @@ object TextFormatting {
     val backgroundOptions = listOf("default", "sky", "mint", "blush", "lemon", "lavender")
     val sizeOptions = listOf("small", "normal", "large", "xlarge")
 
-    /** The caption font for a font key, or null (the default system font). */
-    fun fontFamily(key: String): FontFamily? = when (key) {
+    /** The caption font for a font key, or null (the default system font).
+     * Accepts null (an absent key) and treats it as the default. */
+    fun fontFamily(key: String?): FontFamily? = when (key) {
         "serif" -> FontFamily.Serif
         "monospace" -> FontFamily.Monospace
         // Compose has no rounded/handwriting built-ins; approximate with the
@@ -34,7 +35,7 @@ object TextFormatting {
     }
 
     /** The tile background color for a background-color key, or null (default). */
-    fun backgroundColor(key: String): Color? = when (key) {
+    fun backgroundColor(key: String?): Color? = when (key) {
         "sky" -> Color(0xFFDFF1FF)
         "mint" -> Color(0xFFDCF7E8)
         "blush" -> Color(0xFFFFE4EC)
@@ -44,7 +45,7 @@ object TextFormatting {
     }
 
     /** A legible foreground color for text on the given background, or null. */
-    fun foregroundColor(key: String): Color? = when (key) {
+    fun foregroundColor(key: String?): Color? = when (key) {
         "sky" -> Color(0xFF10334A)
         "mint" -> Color(0xFF14432B)
         "blush" -> Color(0xFF4A1327)

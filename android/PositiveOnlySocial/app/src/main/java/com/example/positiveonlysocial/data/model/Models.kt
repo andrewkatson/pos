@@ -253,10 +253,12 @@ data class Post(
     @SerializedName("hidden_reason") val hiddenReason: String? = null,
     val appealable: Boolean? = null,
     // Whole-caption font + whole-tile background color keys (issue #318). At the
-    // end of the list with defaults so existing positional constructions (and
-    // responses that predate the fields) are unaffected.
-    @SerializedName("caption_font") val captionFont: String = "default",
-    @SerializedName("background_color") val backgroundColor: String = "default"
+    // end of the list so existing positional constructions are unaffected.
+    // Nullable because Gson does not apply Kotlin default values for absent JSON
+    // fields (an older response omitting them yields null); the render layer
+    // treats null as "default".
+    @SerializedName("caption_font") val captionFont: String? = null,
+    @SerializedName("background_color") val backgroundColor: String? = null
 )
 
 // --- Comment DTOs ---
@@ -389,10 +391,11 @@ data class HiddenPost(
     val caption: String,
     @SerializedName("hidden_reason") val hiddenReason: String = "",
     @SerializedName("has_appeal") val hasAppeal: Boolean = false,
-    // Caption font + background color keys (issue #318); at the end with
-    // defaults so existing positional constructions are unaffected.
-    @SerializedName("caption_font") val captionFont: String = "default",
-    @SerializedName("background_color") val backgroundColor: String = "default"
+    // Caption font + background color keys (issue #318); nullable because Gson
+    // does not apply Kotlin defaults for absent JSON fields. The render layer
+    // treats null as "default".
+    @SerializedName("caption_font") val captionFont: String? = null,
+    @SerializedName("background_color") val backgroundColor: String? = null
 )
 
 /** One of the signed-in user's hidden comments. */

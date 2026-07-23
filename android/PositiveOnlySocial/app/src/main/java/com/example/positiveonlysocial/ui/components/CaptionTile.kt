@@ -29,8 +29,8 @@ fun CaptionTile(
     caption: String,
     modifier: Modifier = Modifier,
     maxLines: Int = 4,
-    captionFont: String = "default",
-    backgroundColor: String = "default",
+    captionFont: String? = null,
+    backgroundColor: String? = null,
 ) {
     val paletteColor = TextFormatting.backgroundColor(backgroundColor)
     val backgroundModifier = if (paletteColor != null) {
