@@ -63,6 +63,13 @@ class ProfileViewModel(
     private val _isPhotoBusy = MutableStateFlow(false)
     val isPhotoBusy: StateFlow<Boolean> = _isPhotoBusy.asStateFlow()
 
+    // Photo-specific error (issue #7), shown next to the photo controls in the
+    // header rather than via the shared errorMessage (which the profile screen
+    // uses for load failures). Covers the whole flow: reading the picked bytes,
+    // the presigned upload, and the set/remove calls.
+    private val _photoErrorMessage = MutableStateFlow<String?>(null)
+    val photoErrorMessage: StateFlow<String?> = _photoErrorMessage.asStateFlow()
+
     /**
      * Like / report / retract-report / delete for the posts in this profile's
      * grid, so they can be acted on without opening each one (issue #267).
@@ -324,14 +331,14 @@ class ProfileViewModel(
     fun setProfilePhoto(username: String, imageBytes: ByteArray) {
         if (_isPhotoBusy.value) return
         _isPhotoBusy.value = true
-        _errorMessage.value = null
+        _photoErrorMessage.value = null
 
         viewModelScope.launch {
             try {
                 val userSession = keychainHelper.load(UserSession::class.java, service, account)
                 if (userSession == null) {
                     Log.e(TAG, "No active session found — cannot set profile photo")
-                    _errorMessage.value = "Not logged in."
+                    _photoErrorMessage.value = "Not logged in."
                     return@launch
                 }
                 val token = userSession.sessionToken
@@ -339,7 +346,7 @@ class ProfileViewModel(
                 val uploadUrlResponse = api.createUploadUrl(token)
                 val uploadUrlBody = uploadUrlResponse.body()
                 if (!uploadUrlResponse.isSuccessful || uploadUrlBody == null) {
-                    _errorMessage.value = "Could not update your profile photo. Please try again."
+                    _photoErrorMessage.value = "Could not update your profile photo. Please try again."
                     return@launch
                 }
 
@@ -347,7 +354,7 @@ class ProfileViewModel(
 
                 val setResponse = api.setProfilePhoto(token, SetProfilePhotoRequest(uploadUrlBody.imageUrl))
                 if (!setResponse.isSuccessful) {
-                    _errorMessage.value = ApiErrors.messageFor(setResponse, fallback = "Could not update your profile photo. Please try again.")
+                    _photoErrorMessage.value = ApiErrors.messageFor(setResponse, fallback = "Could not update your profile photo. Please try again.")
                     return@launch
                 }
 
@@ -357,25 +364,35 @@ class ProfileViewModel(
                 reloadProfileDetails(username, token)
             } catch (e: Exception) {
                 Log.e(TAG, "Error setting profile photo", e)
-                _errorMessage.value = ApiErrors.messageFor(e, fallback = "Could not update your profile photo. Please try again.")
+                _photoErrorMessage.value = ApiErrors.messageFor(e, fallback = "Could not update your profile photo. Please try again.")
             } finally {
                 _isPhotoBusy.value = false
             }
         }
     }
 
+    /**
+     * Surface an error when the picked profile photo can't be read from the
+     * content resolver — e.g. a lapsed picker grant throwing SecurityException,
+     * or a null input stream — so the "Add/Change photo" action doesn't appear
+     * to silently do nothing. Mirrors NewPostScreen's read-failure handling.
+     */
+    fun onProfilePhotoReadFailed() {
+        _photoErrorMessage.value = "Could not read the selected image. Please try again."
+    }
+
     /** Removes the signed-in user's profile photo (issue #7), then reloads. */
     fun removeProfilePhoto(username: String) {
         if (_isPhotoBusy.value) return
         _isPhotoBusy.value = true
-        _errorMessage.value = null
+        _photoErrorMessage.value = null
 
         viewModelScope.launch {
             try {
                 val userSession = keychainHelper.load(UserSession::class.java, service, account)
                 if (userSession == null) {
                     Log.e(TAG, "No active session found — cannot remove profile photo")
-                    _errorMessage.value = "Not logged in."
+                    _photoErrorMessage.value = "Not logged in."
                     return@launch
                 }
                 val token = userSession.sessionToken
@@ -384,11 +401,11 @@ class ProfileViewModel(
                 if (response.isSuccessful) {
                     reloadProfileDetails(username, token)
                 } else {
-                    _errorMessage.value = ApiErrors.messageFor(response, fallback = "Could not remove your profile photo. Please try again.")
+                    _photoErrorMessage.value = ApiErrors.messageFor(response, fallback = "Could not remove your profile photo. Please try again.")
                 }
             } catch (e: Exception) {
                 Log.e(TAG, "Error removing profile photo", e)
-                _errorMessage.value = ApiErrors.messageFor(e, fallback = "Could not remove your profile photo. Please try again.")
+                _photoErrorMessage.value = ApiErrors.messageFor(e, fallback = "Could not remove your profile photo. Please try again.")
             } finally {
                 _isPhotoBusy.value = false
             }

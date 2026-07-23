@@ -82,6 +82,16 @@ class ProfileViewModelPhotoTest {
     }
 
     @Test
+    fun `onProfilePhotoReadFailed surfaces a photo error`() = runTest {
+        val api = StatefulStubbedAPI()
+        val viewModel = buildViewModelFor(api, "dana")
+
+        assertNull(viewModel.photoErrorMessage.value)
+        viewModel.onProfilePhotoReadFailed()
+        assertNotNull(viewModel.photoErrorMessage.value)
+    }
+
+    @Test
     fun `a second photo action is a no-op while one is in flight`() = runTest {
         val api = StatefulStubbedAPI()
         // An uploader that never returns keeps the first set busy so the guard

@@ -107,6 +107,7 @@ fun ProfileBody(
     val isRefreshing by viewModel.isRefreshing.collectAsState()
     val isOwnProfile by viewModel.isOwnProfile.collectAsState()
     val isPhotoBusy by viewModel.isPhotoBusy.collectAsState()
+    val photoErrorMessage by viewModel.photoErrorMessage.collectAsState()
     val reviewNotice by viewModel.reviewNotice.collectAsState()
 
     val postActions = viewModel.postActions
@@ -133,6 +134,10 @@ fun ProfileBody(
                     }
                     if (bytes != null) {
                         viewModel.setProfilePhoto(username, bytes)
+                    } else {
+                        // A null stream / SecurityException (e.g. a lapsed picker
+                        // grant) must not look like the button silently did nothing.
+                        viewModel.onProfilePhotoReadFailed()
                     }
                 }
             }
@@ -220,6 +225,14 @@ fun ProfileBody(
                 if (isPhotoBusy) {
                     Spacer(modifier = Modifier.height(8.dp))
                     CircularProgressIndicator(modifier = Modifier.size(24.dp))
+                } else if (photoErrorMessage != null) {
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Text(
+                        text = photoErrorMessage!!,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.error,
+                        modifier = Modifier.testTag("ProfilePhotoError")
+                    )
                 } else {
                     val statusText = when (profileDetails?.profileImageStatus) {
                         "pending" -> "Your new photo is being reviewed."
