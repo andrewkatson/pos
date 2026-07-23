@@ -328,10 +328,11 @@ function ProfileView({ username, isOwnProfile, currentUsername }: ProfileViewPro
               (isOwnProfile && profile?.pending_profile_image_url) ||
               profile?.profile_image_url
             }
-            originalSrc={
-              (isOwnProfile && profile?.pending_profile_image_url) ||
-              profile?.profile_image_original_url
-            }
+            // Fall back to the previously approved photo, not the pending URL, so
+            // if a pending preview fails to load the owner still sees their live
+            // avatar (the approved photo stays visible while a new one is under
+            // review) rather than dropping to the placeholder.
+            originalSrc={profile?.profile_image_original_url}
             username={username}
             size="lg"
           />

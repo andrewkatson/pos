@@ -86,10 +86,13 @@ class ProfileViewModel: ObservableObject {
         return profileDetails?.profileImageUrl
     }
 
-    /// The full-resolution fallback for the header avatar.
+    /// The full-resolution fallback for the header avatar. Deliberately the
+    /// previously approved photo's original — NOT the pending URL — so if a
+    /// pending preview fails to load the owner still sees their live avatar
+    /// (which stays visible while a new upload is under review) rather than the
+    /// placeholder.
     var headerAvatarOriginalUrl: String? {
-        if isOwnProfile, let pending = profileDetails?.pendingProfileImageUrl { return pending }
-        return profileDetails?.profileImageOriginalUrl
+        profileDetails?.profileImageOriginalUrl
     }
 
     /// The owner-only moderation status of the profile photo ("pending",

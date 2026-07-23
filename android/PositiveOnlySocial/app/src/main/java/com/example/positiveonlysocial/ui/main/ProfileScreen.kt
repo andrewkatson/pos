@@ -184,7 +184,11 @@ fun ProfileBody(
             val pendingAvatar = if (isOwnProfile) profileDetails?.pendingProfileImageUrl else null
             ProfileAvatar(
                 imageUrl = pendingAvatar ?: profileDetails?.profileImageUrl,
-                originalImageUrl = pendingAvatar ?: profileDetails?.profileImageOriginalUrl,
+                // Fall back to the previously approved photo, not the pending URL,
+                // so a failed pending preview still shows the live avatar (which
+                // stays visible while a new upload is under review) instead of the
+                // placeholder.
+                originalImageUrl = profileDetails?.profileImageOriginalUrl,
                 // Decorative: the username is shown right here in the header, so a
                 // contentDescription would make TalkBack announce it twice (the
                 // website uses alt="" and iOS accessibilityHidden for the same).
