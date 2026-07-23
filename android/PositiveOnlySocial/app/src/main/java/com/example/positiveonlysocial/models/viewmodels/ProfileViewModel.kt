@@ -7,8 +7,10 @@ import com.example.positiveonlysocial.api.ApiErrors
 import com.example.positiveonlysocial.api.PositiveOnlySocialAPI
 import com.example.positiveonlysocial.data.model.Post
 import com.example.positiveonlysocial.data.model.ProfileDetailsResponse
+import com.example.positiveonlysocial.data.model.SetProfilePhotoRequest
 import com.example.positiveonlysocial.data.model.UserSession
 import com.example.positiveonlysocial.data.security.KeychainHelperProtocol
+import com.example.positiveonlysocial.data.uploader.ImageUploader
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -21,7 +23,14 @@ private const val TAG = "ProfileViewModel"
 class ProfileViewModel(
     private val api: PositiveOnlySocialAPI,
     private val keychainHelper: KeychainHelperProtocol,
-    private val account: String = "userSessionToken"
+    private val account: String = "userSessionToken",
+    // Uploads the JPEG bytes to the presigned S3 URL. Defaulted to the real
+    // ImageUploader (compress + EXIF-strip + PUT), and injectable so unit tests
+    // can substitute a no-op — the real one decodes a Bitmap, which needs the
+    // Android framework (issue #7).
+    private val uploadBytes: suspend (ByteArray, String) -> Unit = { data, url ->
+        ImageUploader().upload(data, url)
+    }
 ) : ViewModel() {
 
     // Published properties
@@ -48,6 +57,11 @@ class ProfileViewModel(
 
     private val _isOwnProfile = MutableStateFlow(false)
     val isOwnProfile: StateFlow<Boolean> = _isOwnProfile.asStateFlow()
+
+    // True while the owner's profile-photo set/remove is in flight (issue #7), so
+    // the header can disable the controls and show a spinner.
+    private val _isPhotoBusy = MutableStateFlow(false)
+    val isPhotoBusy: StateFlow<Boolean> = _isPhotoBusy.asStateFlow()
 
     /**
      * Like / report / retract-report / delete for the posts in this profile's
@@ -296,6 +310,103 @@ class ProfileViewModel(
             refreshProfile(userSession.username)
         } else {
             startStatusPollIfNeeded()
+        }
+    }
+
+    /**
+     * Sets the signed-in user's profile photo (issue #7): uploads the JPEG bytes
+     * via the same presigned pipeline post images use (createUploadUrl +
+     * ImageUploader), hands the canonical URL to setProfilePhoto, then reloads
+     * the profile so the header reflects the new pending/approved state. The
+     * caller reads the picked photo's bytes (it needs a Context); the byte-free
+     * upload + set + reload live here.
+     */
+    fun setProfilePhoto(username: String, imageBytes: ByteArray) {
+        if (_isPhotoBusy.value) return
+        _isPhotoBusy.value = true
+        _errorMessage.value = null
+
+        viewModelScope.launch {
+            try {
+                val userSession = keychainHelper.load(UserSession::class.java, service, account)
+                if (userSession == null) {
+                    Log.e(TAG, "No active session found — cannot set profile photo")
+                    _errorMessage.value = "Not logged in."
+                    return@launch
+                }
+                val token = userSession.sessionToken
+
+                val uploadUrlResponse = api.createUploadUrl(token)
+                val uploadUrlBody = uploadUrlResponse.body()
+                if (!uploadUrlResponse.isSuccessful || uploadUrlBody == null) {
+                    _errorMessage.value = "Could not update your profile photo. Please try again."
+                    return@launch
+                }
+
+                uploadBytes(imageBytes, uploadUrlBody.uploadUrl)
+
+                val setResponse = api.setProfilePhoto(token, SetProfilePhotoRequest(uploadUrlBody.imageUrl))
+                if (!setResponse.isSuccessful) {
+                    _errorMessage.value = ApiErrors.messageFor(setResponse, fallback = "Could not update your profile photo. Please try again.")
+                    return@launch
+                }
+
+                // Reload so the header shows the new photo / review state. On
+                // async backends it reads back as pending; the eager path and the
+                // stub have already approved it.
+                reloadProfileDetails(username, token)
+            } catch (e: Exception) {
+                Log.e(TAG, "Error setting profile photo", e)
+                _errorMessage.value = ApiErrors.messageFor(e, fallback = "Could not update your profile photo. Please try again.")
+            } finally {
+                _isPhotoBusy.value = false
+            }
+        }
+    }
+
+    /** Removes the signed-in user's profile photo (issue #7), then reloads. */
+    fun removeProfilePhoto(username: String) {
+        if (_isPhotoBusy.value) return
+        _isPhotoBusy.value = true
+        _errorMessage.value = null
+
+        viewModelScope.launch {
+            try {
+                val userSession = keychainHelper.load(UserSession::class.java, service, account)
+                if (userSession == null) {
+                    Log.e(TAG, "No active session found — cannot remove profile photo")
+                    _errorMessage.value = "Not logged in."
+                    return@launch
+                }
+                val token = userSession.sessionToken
+
+                val response = api.removeProfilePhoto(token)
+                if (response.isSuccessful) {
+                    reloadProfileDetails(username, token)
+                } else {
+                    _errorMessage.value = ApiErrors.messageFor(response, fallback = "Could not remove your profile photo. Please try again.")
+                }
+            } catch (e: Exception) {
+                Log.e(TAG, "Error removing profile photo", e)
+                _errorMessage.value = ApiErrors.messageFor(e, fallback = "Could not remove your profile photo. Please try again.")
+            } finally {
+                _isPhotoBusy.value = false
+            }
+        }
+    }
+
+    /**
+     * Reloads just the profile details (not the post grid), used after a
+     * photo set/remove so the header avatar and owner-only status refresh
+     * without disturbing pagination.
+     */
+    private suspend fun reloadProfileDetails(username: String, token: String) {
+        val profileResponse = api.getProfileDetails(token, username)
+        if (profileResponse.isSuccessful) {
+            val profile = profileResponse.body()
+            _profileDetails.value = profile
+            _isFollowing.value = profile?.isFollowing ?: false
+            _isBlocked.value = profile?.isBlocked ?: false
         }
     }
 

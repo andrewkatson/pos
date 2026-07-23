@@ -37,7 +37,8 @@ from .constants import Patterns, Params, POST_BATCH_SIZE, MAX_BEFORE_HIDING_POST
     APPEAL_TARGET_POST, APPEAL_TARGET_COMMENT, APPEAL_TARGET_BAN, \
     MAX_APPEAL_REASON_LENGTH, \
     TWO_FACTOR_CHALLENGE_MINUTES, TWO_FACTOR_MAX_ATTEMPTS, NUM_RECOVERY_CODES, \
-    LEN_RECOVERY_CODE_HEX, TOTP_ISSUER, INVALID_TWO_FACTOR_CHALLENGE
+    LEN_RECOVERY_CODE_HEX, TOTP_ISSUER, INVALID_TWO_FACTOR_CHALLENGE, \
+    PROFILE_IMAGE_STATUS_NONE, PROFILE_IMAGE_STATUS_PENDING
 from .feed_algorithm import feed_algorithm
 from .input_validator import is_valid_pattern
 from .models import LoginCookie, Session, Post, CommentThread, PositiveOnlySocialUser, Comment, CommentLike, \
@@ -1697,6 +1698,22 @@ def _classification_message(post):
     return None
 
 
+def _author_avatar_fields(user):
+    """The author's approved profile photo, merged into every list/detail
+    payload alongside author_username. Only the approved, live photo is ever
+    exposed to others; a pending or rejected one is never surfaced here. The
+    compressed variant is primary with the full-resolution original as a
+    fallback, mirroring image_url/original_image_url for posts (so a
+    just-approved photo whose compressed copy the Lambda has not written yet
+    still renders — see issues #252/#254). Both are None when the user has no
+    approved photo."""
+    live_url = user.profile_image_url if user is not None else None
+    return {
+        Fields.author_profile_image_url: get_compressed_image_url(live_url) if live_url else None,
+        Fields.author_profile_image_original_url: live_url or None,
+    }
+
+
 def _author_status_fields(post, viewer):
     """Classification-status fields merged into post payloads, but only for the
     post's own author: other viewers never see pending/rejected posts at all
@@ -1847,6 +1864,7 @@ def get_posts_in_feed(request, batch):
                 # Lambda-generated compressed copy is still missing (#252/#254).
                 Fields.original_image_url: post.image_url,
                 Fields.author_username: post.author.username,
+                **_author_avatar_fields(post.author),
                 Fields.caption: post.caption,
                 **interaction_state(post),
                 # Authors see their own pending/hidden posts in feeds, so their
@@ -1894,6 +1912,7 @@ def get_posts_for_followed_users(request, batch):
             # Lambda-generated compressed copy is still missing (#252/#254).
             Fields.original_image_url: post.image_url,
             Fields.author_username: post.author.username,
+            **_author_avatar_fields(post.author),
             Fields.caption: post.caption,
             **interaction_state(post),
             **_author_status_fields(post, request.user),
@@ -1945,6 +1964,7 @@ def get_posts_for_user(request, username, batch):
                 Fields.original_image_url: post.image_url,
                 Fields.caption: post.caption,
                 Fields.author_username: target_user.username,
+                **_author_avatar_fields(target_user),
                 **interaction_state(post),
                 # The author's own profile grid includes pending/hidden posts;
                 # these fields let the client render their state.
@@ -1984,6 +2004,7 @@ def get_post_details(request, post_identifier):
             Fields.is_reported: my_report is not None,
             Fields.report_reason: my_report.reason if my_report is not None else None,
             Fields.author_username: post.author.username,
+            **_author_avatar_fields(post.author),
             **_author_status_fields(post, request.user),
         }
         return log_and_return_json("get_post_details", post_data)
@@ -2402,7 +2423,11 @@ def get_comments_for_thread(request, comment_thread_identifier, batch):
         logger.warning(f"Get comments for thread failed: Thread {comment_thread_identifier} not found or not visible")
         return log_and_return_json("get_comments_for_thread", {'error': "No comment thread with that identifier"}, status=400)
 
-    comments = visible_comments(comment_thread.comment_set.all(), request.user).order_by('creation_time')
+    # select_related('author') so serializing author_username and the author's
+    # profile photo per comment does not fan out into a query per row.
+    comments = visible_comments(
+        comment_thread.comment_set.select_related('author'), request.user
+    ).order_by('creation_time')
     relevant_comments = feed_algorithm_class.get_comments_weighted_for_thread(comments)
 
     if not relevant_comments.count() > 0:
@@ -2438,6 +2463,7 @@ def get_comments_for_thread(request, comment_thread_identifier, batch):
             Fields.comment_identifier: comment.comment_identifier,
             Fields.body: comment.body,
             Fields.author_username: comment.author.username,
+            **_author_avatar_fields(comment.author),
             Fields.creation_time: comment.creation_time,
             Fields.updated_time: comment.updated_time,
             Fields.comment_likes: like_counts.get(comment.comment_identifier, 0),
@@ -2480,7 +2506,8 @@ def get_users_matching_fragment(request, username_fragment):
     users_data = [
         {
             Fields.username: user.username,
-            Fields.identity_is_verified: user.identity_is_verified
+            Fields.identity_is_verified: user.identity_is_verified,
+            **_author_avatar_fields(user),
         }
         for user in users
     ]
@@ -2580,12 +2607,108 @@ def get_blocked_users(request):
     users_data = [
         {
             Fields.username: user.username,
-            Fields.identity_is_verified: user.identity_is_verified
+            Fields.identity_is_verified: user.identity_is_verified,
+            **_author_avatar_fields(user),
         }
         for user in blocked_users
     ]
     logger.info(f"Get blocked users successful: count: {len(users_data)} for user_id: {request.user.id}")
     return log_and_return_json("get_blocked_users", users_data, safe=False)
+
+
+@csrf_exempt
+@api_login_required
+@ratelimit(key='user', rate='10/h', block=True)
+@require_POST
+def set_profile_photo(request):
+    """Set the caller's profile photo to an already-uploaded S3 image.
+
+    The client first uploads the JPEG through the presigned-PUT flow
+    (POST /posts/upload-url/, which scopes the key to the user), then calls this
+    with the returned canonical image_url. The photo is stored *pending* and
+    shown to nobody else until the async image classifier approves it (issue
+    #7) — the same off-the-request-path moderation posts use. A previously
+    approved photo stays live and visible while the new one is under review; a
+    still-pending upload being replaced is cleaned up from S3. Rate limited like
+    make_post since each call enqueues a billable classification.
+    """
+    logger.info("Endpoint set_profile_photo invoked by IP or User")
+    data = _get_json_body(request)
+    if data is None:
+        return log_and_return_json("set_profile_photo", {'error': "Invalid JSON data"}, status=400)
+
+    raw_image_url = data.get(Fields.image_url)
+    # The URL must be a well-formed S3 image URL whose key is scoped to this
+    # user (clients upload to `{user_id}/...`), so one user cannot point their
+    # avatar at another user's — or an arbitrary — object.
+    if (not isinstance(raw_image_url, str)
+            or not raw_image_url
+            or not is_valid_pattern(raw_image_url, Patterns.image_url)
+            or not image_url_to_key(raw_image_url).startswith(f"{request.user.id}/")):
+        logger.warning(f"Set profile photo failed: invalid image_url for user_id: {request.user.id}")
+        return log_and_return_json("set_profile_photo", {'error': f"Invalid fields ['{Params.image_url}']"}, status=400)
+
+    user = request.user
+    # A previous pending upload that never finished review is now superseded and
+    # orphaned; its S3 object is dropped after the row is saved. Any approved
+    # photo is left untouched so it stays visible while the new one is reviewed.
+    superseded_pending = user.pending_profile_image_url
+
+    user.pending_profile_image_url = raw_image_url
+    user.profile_image_status = PROFILE_IMAGE_STATUS_PENDING
+    user.profile_image_reason_code = None
+    user.profile_image_classification_attempts = 0
+    user.profile_image_classification_alerted = False
+    user.profile_image_classification_time = timezone.now()
+    user.save(update_fields=[
+        'pending_profile_image_url', 'profile_image_status',
+        'profile_image_reason_code', 'profile_image_classification_attempts',
+        'profile_image_classification_alerted', 'profile_image_classification_time',
+    ])
+
+    tasks.enqueue_profile_photo_classification(user.id)
+
+    if superseded_pending and superseded_pending != raw_image_url:
+        delete_image(superseded_pending)
+
+    logger.info(f"Profile photo set pending classification for user_id: {user.id}")
+    return log_and_return_json("set_profile_photo", {
+        Fields.profile_image_status: PROFILE_IMAGE_STATUS_PENDING,
+        'message': "Your photo is being reviewed and will be shown once it is approved.",
+    }, status=202)
+
+
+@csrf_exempt
+@api_login_required
+@ratelimit(key='user', rate='10/h', block=True)
+@require_POST
+def remove_profile_photo(request):
+    """Remove the caller's profile photo entirely — the approved one and any
+    pending upload. Clears the stored URLs and best-effort deletes both S3
+    objects (the orphan sweeper backstops any delete that fails)."""
+    logger.info("Endpoint remove_profile_photo invoked by IP or User")
+    user = request.user
+    live_url = user.profile_image_url
+    pending_url = user.pending_profile_image_url
+
+    user.profile_image_url = None
+    user.pending_profile_image_url = None
+    user.profile_image_status = PROFILE_IMAGE_STATUS_NONE
+    user.profile_image_reason_code = None
+    user.save(update_fields=[
+        'profile_image_url', 'pending_profile_image_url',
+        'profile_image_status', 'profile_image_reason_code',
+    ])
+
+    for url in (live_url, pending_url):
+        if url:
+            delete_image(url)
+
+    logger.info(f"Profile photo removed for user_id: {user.id}")
+    return log_and_return_json("remove_profile_photo", {
+        Fields.profile_image_status: PROFILE_IMAGE_STATUS_NONE,
+        'message': "Your profile photo has been removed.",
+    })
 
 
 @api_login_required
@@ -2632,6 +2755,11 @@ def get_profile_details(request, username):
         following_count = 0
         is_following = False
 
+    # The approved, live profile photo (compressed + full-res fallback, like
+    # posts). Hidden along with the stats when the profile has blocked the
+    # requester, so a blocked user cannot even see their avatar.
+    live_avatar = None if is_blocked_by else profile_user.profile_image_url
+
     data = {
         Fields.username: profile_user.username,
         Fields.post_count: post_count,
@@ -2640,8 +2768,21 @@ def get_profile_details(request, username):
         Fields.is_following: is_following,
         'is_blocked': is_blocked,
         Fields.identity_is_verified: profile_user.identity_is_verified,
-        Fields.is_adult: profile_user.is_adult
+        Fields.is_adult: profile_user.is_adult,
+        Fields.profile_image_url: get_compressed_image_url(live_avatar) if live_avatar else None,
+        Fields.profile_image_original_url: live_avatar or None,
     }
+
+    # Owner-only: the moderation state of a photo still under async review (or
+    # the last rejected upload), so the owner's own client can show a
+    # "reviewing" / "not approved" affordance. Never exposed for other users —
+    # only the approved photo above is anyone else's business.
+    if profile_user.pk == request.user.pk:
+        pending_avatar = profile_user.pending_profile_image_url
+        data[Fields.profile_image_status] = profile_user.profile_image_status
+        data[Fields.profile_image_reason_code] = profile_user.profile_image_reason_code
+        data[Fields.pending_profile_image_url] = (
+            get_compressed_image_url(pending_avatar) if pending_avatar else None)
 
     return log_and_return_json("get_profile_details", data, status=200)
 

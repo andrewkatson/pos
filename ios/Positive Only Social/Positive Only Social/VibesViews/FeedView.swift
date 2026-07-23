@@ -96,17 +96,26 @@ struct ForYouFeedView: View {
                     VStack(alignment: .leading, spacing: 10) {
 
                         // Tapping the author opens their profile — or the
-                        // Profile tab when it's you (issue #347).
-                        AuthorNameLink(
-                            username: post.authorUsername,
-                            isCurrentUser: postActions.state(for: post).isOwn
-                        ) {
-                            Text(post.authorUsername)
-                                .font(.headline)
-                                .fontWeight(.bold)
-                                .padding(.horizontal)
+                        // Profile tab when it's you (issue #347). Their profile
+                        // photo sits next to the name (issue #7).
+                        HStack(spacing: 8) {
+                            ProfileAvatarView(
+                                imageUrl: post.authorProfileImageUrl,
+                                originalImageUrl: post.authorProfileImageOriginalUrl,
+                                size: 32
+                            )
+                            AuthorNameLink(
+                                username: post.authorUsername,
+                                isCurrentUser: postActions.state(for: post).isOwn
+                            ) {
+                                Text(post.authorUsername)
+                                    .font(.headline)
+                                    .fontWeight(.bold)
+                            }
+                            .accessibilityIdentifier("PostAuthor")
+                            Spacer()
                         }
-                        .accessibilityIdentifier("PostAuthor")
+                        .padding(.horizontal)
 
                         // Wrap image in a NavigationLink to go to post details.
                         // Force every post into an identical square, cropping to
@@ -176,16 +185,25 @@ struct FollowingFeedView: View {
                     VStack(alignment: .leading, spacing: 10) {
 
                         // Tapping the author opens their profile — or the
-                        // Profile tab when it's you (issue #347).
-                        AuthorNameLink(
-                            username: post.authorUsername,
-                            isCurrentUser: postActions.state(for: post).isOwn
-                        ) {
-                            Text(post.authorUsername)
-                                .font(.headline)
-                                .fontWeight(.bold)
-                                .padding(.horizontal)
+                        // Profile tab when it's you (issue #347). Their profile
+                        // photo sits next to the name (issue #7).
+                        HStack(spacing: 8) {
+                            ProfileAvatarView(
+                                imageUrl: post.authorProfileImageUrl,
+                                originalImageUrl: post.authorProfileImageOriginalUrl,
+                                size: 32
+                            )
+                            AuthorNameLink(
+                                username: post.authorUsername,
+                                isCurrentUser: postActions.state(for: post).isOwn
+                            ) {
+                                Text(post.authorUsername)
+                                    .font(.headline)
+                                    .fontWeight(.bold)
+                            }
+                            Spacer()
                         }
+                        .padding(.horizontal)
 
                         // Wrap image in a NavigationLink to go to post details.
                         // Force every post into an identical square, cropping to

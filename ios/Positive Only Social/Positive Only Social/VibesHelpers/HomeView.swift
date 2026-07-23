@@ -414,9 +414,13 @@ struct UserSearchResultsView: View {
 
     private func userRow(for user: User) -> some View {
         HStack(spacing: 15) {
-            Image(systemName: "person.circle.fill")
-                .font(.largeTitle)
-                .foregroundColor(.gray)
+            // The user's profile photo (issue #7), with the neutral placeholder
+            // as the fallback.
+            ProfileAvatarView(
+                imageUrl: user.authorProfileImageUrl,
+                originalImageUrl: user.authorProfileImageOriginalUrl,
+                size: 40
+            )
 
             Text(user.username)
                 .fontWeight(.bold)

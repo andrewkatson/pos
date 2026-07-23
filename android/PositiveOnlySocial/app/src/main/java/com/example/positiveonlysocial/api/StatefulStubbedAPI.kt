@@ -77,7 +77,14 @@ class StatefulStubbedAPI : PositiveOnlySocialAPI {
         // flag is a pending enrollment; recovery codes are removed as used.
         var totpSecret: String? = null,
         var totpEnabled: Boolean = false,
-        val recoveryCodes: MutableList<String> = mutableListOf()
+        val recoveryCodes: MutableList<String> = mutableListOf(),
+        // Profile photo (issue #7). Only the approved photo is ever exposed to
+        // others; the pending upload is the owner's immediate preview. Status is
+        // one of "none"|"pending"|"approved"|"rejected".
+        var profileImageUrl: String? = null,
+        var pendingProfileImageUrl: String? = null,
+        var profileImageStatus: String = "none",
+        var profileImageReasonCode: String? = null
     )
 
     // A pending two-factor login, issued by loginUser when the account has
@@ -753,8 +760,12 @@ class StatefulStubbedAPI : PositiveOnlySocialAPI {
         authorUsername: String,
         viewerId: String,
         isOwnGrid: Boolean = false
-    ): Post =
-        Post(
+    ): Post {
+        // The author's approved profile photo (issue #7): only an approved photo
+        // is exposed, and the stub has no separate compressed bucket, so the
+        // compressed and original URLs are the same.
+        val avatar = approvedAvatarFor(post.authorId)
+        return Post(
             post.postIdentifier,
             post.imageUrl,
             post.caption,
@@ -771,8 +782,17 @@ class StatefulStubbedAPI : PositiveOnlySocialAPI {
             status = if (isOwnGrid) classificationStatus(post) else null,
             hidden = if (isOwnGrid) post.hidden else null,
             hiddenReason = if (isOwnGrid) post.hiddenReason else null,
-            appealable = if (isOwnGrid) isAppealable(post) else null
+            appealable = if (isOwnGrid) isAppealable(post) else null,
+            authorProfileImageUrl = avatar,
+            authorProfileImageOriginalUrl = avatar
         )
+    }
+
+    /** The author's approved profile photo URL, or null when they have none (#7). */
+    private fun approvedAvatarFor(authorId: String): String? =
+        users.find { it.id == authorId }
+            ?.takeIf { it.profileImageStatus == "approved" }
+            ?.profileImageUrl
 
     private fun visibleCommentCount(postIdentifier: String): Int =
         commentThreads
@@ -784,6 +804,7 @@ class StatefulStubbedAPI : PositiveOnlySocialAPI {
         val post = posts.find { it.postIdentifier == postId }
             ?: return errorGeneric(404, "No post with that identifier")
         val author = users.find { it.id == post.authorId }!!
+        val avatar = approvedAvatarFor(post.authorId)
 
         return Response.success(Post(
             post.postIdentifier,
@@ -794,7 +815,9 @@ class StatefulStubbedAPI : PositiveOnlySocialAPI {
             isLiked = post.likes.contains(user.id),
             creationTime = post.creationTime.toString(),
             isReported = post.reports.contains(user.id),
-            reportReason = post.reports[user.id]
+            reportReason = post.reports[user.id],
+            authorProfileImageUrl = avatar,
+            authorProfileImageOriginalUrl = avatar
         ))
     }
 
@@ -909,6 +932,7 @@ class StatefulStubbedAPI : PositiveOnlySocialAPI {
 
         val dtos = batched.map { c ->
             val author = users.find { it.id == c.authorId }!!
+            val avatar = approvedAvatarFor(c.authorId)
             CommentDto(
                 c.commentIdentifier,
                 c.body,
@@ -918,7 +942,9 @@ class StatefulStubbedAPI : PositiveOnlySocialAPI {
                 c.likes.size,
                 isLiked = c.likes.contains(user.id),
                 isReported = c.reports.contains(user.id),
-                reportReason = c.reports[user.id]
+                reportReason = c.reports[user.id],
+                authorProfileImageUrl = avatar,
+                authorProfileImageOriginalUrl = avatar
             )
         }
         return Response.success(dtos)
@@ -937,7 +963,7 @@ class StatefulStubbedAPI : PositiveOnlySocialAPI {
                 (currentUser == null || !currentUser.blockedBy.contains(it.id))
             }
             .take(10)
-            .map { User(it.username, it.isVerified) }
+            .map { User(it.username, it.isVerified, approvedAvatarFor(it.id), approvedAvatarFor(it.id)) }
         return Response.success(matches)
     }
 
@@ -1001,7 +1027,7 @@ class StatefulStubbedAPI : PositiveOnlySocialAPI {
         val blockedUsers = users
             .filter { user.blocked.contains(it.id) }
             .sortedBy { it.username }
-            .map { User(it.username, it.isVerified) }
+            .map { User(it.username, it.isVerified, approvedAvatarFor(it.id), approvedAvatarFor(it.id)) }
         return Response.success(blockedUsers)
     }
 
@@ -1025,14 +1051,57 @@ class StatefulStubbedAPI : PositiveOnlySocialAPI {
             ))
         }
 
+        // Only the approved photo is exposed; the stub has no separate compressed
+        // bucket, so the compressed and original URLs are the same (issue #7).
+        val liveAvatar = approvedAvatarFor(target.id)
+        val isOwnProfile = user != null && user.id == target.id
         return Response.success(ProfileDetailsResponse(
             target.username,
             postCount,
             target.followers.size,
             target.following.size,
             isFollowing,
-            isBlocked
+            isBlocked,
+            profileImageUrl = liveAvatar,
+            profileImageOriginalUrl = liveAvatar,
+            // Owner-only moderation state, mirroring the backend: present only
+            // when viewing your own profile.
+            profileImageStatus = if (isOwnProfile) target.profileImageStatus else null,
+            profileImageReasonCode = if (isOwnProfile) target.profileImageReasonCode else null,
+            pendingProfileImageUrl = if (isOwnProfile) target.pendingProfileImageUrl else null
         ))
+    }
+
+    override suspend fun setProfilePhoto(token: String, request: SetProfilePhotoRequest): Response<SetProfilePhotoResponse> {
+        val user = getAuthorizedUser(token) ?: return errorGeneric(401, "Unauthorized")
+        // The real backend stores the photo pending and classifies it off the
+        // request path; the stub has no classifier, so — like the backend's
+        // eager (no-Redis) mode — it approves immediately, while the response
+        // still reports the initial "pending" state so clients exercise that path.
+        user.profileImageUrl = request.imageUrl
+        user.pendingProfileImageUrl = null
+        user.profileImageStatus = "approved"
+        user.profileImageReasonCode = null
+        return Response.success(
+            SetProfilePhotoResponse(
+                profileImageStatus = "pending",
+                message = "Your photo is being reviewed and will be shown once it is approved."
+            )
+        )
+    }
+
+    override suspend fun removeProfilePhoto(token: String): Response<RemoveProfilePhotoResponse> {
+        val user = getAuthorizedUser(token) ?: return errorGeneric(401, "Unauthorized")
+        user.profileImageUrl = null
+        user.pendingProfileImageUrl = null
+        user.profileImageStatus = "none"
+        user.profileImageReasonCode = null
+        return Response.success(
+            RemoveProfilePhotoResponse(
+                profileImageStatus = "none",
+                message = "Your profile photo has been removed."
+            )
+        )
     }
 
     // ============================================================================================

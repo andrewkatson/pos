@@ -40,6 +40,20 @@ POST_STATUS_REJECTED_FINAL = "rejected_final"
 # logs an error so an operator is alerted.
 CLASSIFICATION_MAX_ATTEMPTS = 5
 
+# Classification lifecycle of a user's profile photo (issue #7). A photo is
+# uploaded to S3, stored on the user as pending, and classified off the request
+# path by the same async pipeline posts use. Only an approved photo is ever
+# shown to others; a rejected one is dropped (its S3 object cleaned up) and the
+# owner is told in-app via profile_image_status/profile_image_reason_code so
+# they can pick a different picture. "none" means the user has no photo (never
+# set one, or removed it). Profile photos are not appealable — unlike a post,
+# the fix is simply to choose another image — so there is no appealable/final
+# split and no tombstone.
+PROFILE_IMAGE_STATUS_NONE = "none"
+PROFILE_IMAGE_STATUS_PENDING = "pending"
+PROFILE_IMAGE_STATUS_APPROVED = "approved"
+PROFILE_IMAGE_STATUS_REJECTED = "rejected"
+
 # Lifecycle of an appeal a user files against hidden content or a ban.
 APPEAL_STATUS_PENDING = "pending"
 APPEAL_STATUS_APPROVED = "approved"
@@ -146,6 +160,18 @@ class Fields:
     image_url = "image_url"
     original_image_url = "original_image_url"
     upload_url = "upload_url"
+    # A user's own profile photo (the approved, live one) and, for the owner,
+    # the pending/rejected state of a photo still under async review.
+    profile_image_url = "profile_image_url"
+    profile_image_original_url = "profile_image_original_url"
+    pending_profile_image_url = "pending_profile_image_url"
+    profile_image_status = "profile_image_status"
+    profile_image_reason_code = "profile_image_reason_code"
+    # An author's approved profile photo, threaded through every list/detail
+    # payload next to author_username (compressed variant + full-res fallback,
+    # mirroring image_url/original_image_url for posts).
+    author_profile_image_url = "author_profile_image_url"
+    author_profile_image_original_url = "author_profile_image_original_url"
     caption = "caption"
     post_likes = "post_likes"
     comment_count = "comment_count"

@@ -9,7 +9,6 @@ import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Search
-import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -104,10 +103,11 @@ fun HomeScreen(
                                     .testTag(user.username),
                                 verticalAlignment = androidx.compose.ui.Alignment.CenterVertically
                             ) {
-                                Icon(
-                                    imageVector = Icons.Default.Person,
-                                    contentDescription = null,
-                                    modifier = Modifier.size(40.dp)
+                                ProfileAvatar(
+                                    imageUrl = user.authorProfileImageUrl,
+                                    originalImageUrl = user.authorProfileImageOriginalUrl,
+                                    contentDescription = "${user.username}'s profile photo",
+                                    size = 40.dp
                                 )
                                 Spacer(modifier = Modifier.width(16.dp))
                                 Text(

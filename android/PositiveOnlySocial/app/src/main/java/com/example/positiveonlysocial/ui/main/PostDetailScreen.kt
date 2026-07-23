@@ -282,7 +282,19 @@ fun PostDetailScreen(
                             
                             Spacer(modifier = Modifier.height(8.dp))
                             
-                            Row {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                // Author avatar (issue #7) + name, both opening
+                                // the author's profile, same as in the feed.
+                                ProfileAvatar(
+                                    imageUrl = post.authorProfileImageUrl,
+                                    originalImageUrl = post.authorProfileImageOriginalUrl,
+                                    contentDescription = "${post.authorUsername}'s profile photo",
+                                    size = 28.dp,
+                                    modifier = Modifier.clickable {
+                                        navController.openProfileFor(post.authorUsername, currentUsername)
+                                    }
+                                )
+                                Spacer(modifier = Modifier.width(8.dp))
                                 // Tap the author's name to open their profile,
                                 // same as in the feed.
                                 Text(
@@ -452,12 +464,14 @@ fun CommentRow(
             ),
         verticalAlignment = Alignment.Top
     ) {
-        // Avatar Placeholder
-        Surface(
-            shape = MaterialTheme.shapes.small,
-            color = Color.Gray,
-            modifier = Modifier.size(32.dp)
-        ) {}
+        // Comment author's avatar (issue #7), tapping opens their profile.
+        ProfileAvatar(
+            imageUrl = comment.authorProfileImageUrl,
+            originalImageUrl = comment.authorProfileImageOriginalUrl,
+            contentDescription = "${comment.authorUsername}'s profile photo",
+            size = 32.dp,
+            modifier = Modifier.clickable { onAuthorClick(comment.authorUsername) }
+        )
 
         Spacer(modifier = Modifier.width(8.dp))
 

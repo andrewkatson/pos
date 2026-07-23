@@ -6,7 +6,6 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.CheckCircle
-import androidx.compose.material.icons.filled.Person
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -84,7 +83,12 @@ fun BlockedUsersScreen(
                         modifier = Modifier.fillMaxWidth().padding(16.dp),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        Icon(Icons.Filled.Person, contentDescription = null, tint = Color.Gray)
+                        ProfileAvatar(
+                            imageUrl = user.authorProfileImageUrl,
+                            originalImageUrl = user.authorProfileImageOriginalUrl,
+                            contentDescription = "${user.username}'s profile photo",
+                            size = 32.dp
+                        )
                         Spacer(Modifier.width(8.dp))
                         Text(user.username)
                         if (user.identityIsVerified) {

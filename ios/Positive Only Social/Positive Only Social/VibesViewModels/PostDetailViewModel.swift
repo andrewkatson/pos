@@ -164,6 +164,8 @@ final class PostDetailViewModel: ObservableObject {
                     likeCount: postFields.post_likes,
                     isLiked: postFields.is_liked,
                     authorUsername: postFields.author_username,
+                    authorProfileImageURL: postFields.author_profile_image_url,
+                    authorProfileImageOriginalURL: postFields.author_profile_image_original_url,
                     createdDate: postFields.creation_time.flatMap { Self.parseOptionalDate($0) },
                     isReported: postFields.is_reported ?? false,
                     reportReason: postFields.report_reason
@@ -193,6 +195,8 @@ final class PostDetailViewModel: ObservableObject {
                                     id: field.comment_identifier,
                                     threadId: threadId,
                                     authorUsername: field.author_username,
+                                    authorProfileImageURL: field.author_profile_image_url,
+                                    authorProfileImageOriginalURL: field.author_profile_image_original_url,
                                     body: field.body,
                                     likeCount: field.comment_likes,
                                     isLiked: field.is_liked,
@@ -250,13 +254,15 @@ final class PostDetailViewModel: ObservableObject {
                 likeCount: post.likeCount + 1, // Optimistic update
                 isLiked: true,
                 authorUsername: post.authorUsername,
+                authorProfileImageURL: post.authorProfileImageURL,
+                authorProfileImageOriginalURL: post.authorProfileImageOriginalURL,
                 createdDate: post.createdDate,
                 isReported: post.isReported,
                 reportReason: post.reportReason
             )
             self.postDetail = post
         }
-        
+
         Task {
             do {
                 guard let userSession = try keychainHelper.load(UserSession.self, from: keychainService, account: account) else {
@@ -287,6 +293,8 @@ final class PostDetailViewModel: ObservableObject {
                 likeCount: max(0, post.likeCount - 1), // Optimistic update
                 isLiked: false,
                 authorUsername: post.authorUsername,
+                authorProfileImageURL: post.authorProfileImageURL,
+                authorProfileImageOriginalURL: post.authorProfileImageOriginalURL,
                 createdDate: post.createdDate,
                 isReported: post.isReported,
                 reportReason: post.reportReason
@@ -440,6 +448,8 @@ final class PostDetailViewModel: ObservableObject {
             id: oldComment.id,
             threadId: oldComment.threadId,
             authorUsername: oldComment.authorUsername,
+            authorProfileImageURL: oldComment.authorProfileImageURL,
+            authorProfileImageOriginalURL: oldComment.authorProfileImageOriginalURL,
             body: oldComment.body,
             likeCount: oldComment.likeCount + 1, // The update
             isLiked: true,
@@ -490,6 +500,8 @@ final class PostDetailViewModel: ObservableObject {
             id: oldComment.id,
             threadId: oldComment.threadId,
             authorUsername: oldComment.authorUsername,
+            authorProfileImageURL: oldComment.authorProfileImageURL,
+            authorProfileImageOriginalURL: oldComment.authorProfileImageOriginalURL,
             body: oldComment.body,
             likeCount: newLikeCount, // The update
             isLiked: false,
@@ -652,16 +664,24 @@ final class PostDetailViewModel: ObservableObject {
         let is_reported: Bool?
         let report_reason: String?
         let author_username: String
+        /// The author's approved profile photo (issue #7); nil when they have
+        /// none or on older responses.
+        let author_profile_image_url: String?
+        let author_profile_image_original_url: String?
     }
-    
+
     private struct ThreadIDFields: Decodable {
         let comment_thread_identifier: String
     }
-    
+
     private struct CommentFields: Decodable {
         let comment_identifier: String
         let body: String
         let author_username: String
+        /// The comment author's approved profile photo (issue #7); nil when they
+        /// have none or on older responses.
+        let author_profile_image_url: String?
+        let author_profile_image_original_url: String?
         let creation_time: String
         let updated_time: String
         let comment_likes: Int

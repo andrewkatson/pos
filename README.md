@@ -38,6 +38,12 @@ Tapping **your own** name goes to the Profile tab instead of pushing a separate
 copy of the profile screen, so you always land on the same profile, with the
 bottom bar and search still in place.
 
+Each user may set a **profile photo**, shown next to their name everywhere it
+appears — post authors in the feed and on post details, comment authors, search
+results, and as a large avatar in the profile header. A user sets or replaces
+their own photo from their Profile tab (see **Profile photos** below); a user
+with no photo falls back to a neutral placeholder.
+
 Posts can be acted on directly from any list — the Profile grid, another user's
 profile grid, and the Feed — without opening the post first:
 
@@ -238,11 +244,47 @@ real login from the device they signed up on is not flagged. Both the
 password login and the remember-me login paths perform the check. Sending the
 email is best-effort — a mail failure is logged but never blocks the login.
 
+## Profile photos
+
+A user's profile photo is stored on the user (`profile_image_url`) and served
+next to their name in every list and detail payload as `author_profile_image_url`
+(the compressed variant) with `author_profile_image_original_url` as the
+full-resolution fallback — the same compressed-plus-original pairing posts use,
+for the same reason (the compressed copy can briefly lag; see below). Only an
+**approved** photo is ever shown to anyone else.
+
+Setting a photo reuses the post upload path: the client uploads a re-encoded,
+EXIF-stripped JPEG through the presigned-PUT flow (`POST /posts/upload-url/`,
+which scopes the key to the uploading user), then calls `POST /profile/photo/`
+with the returned URL. Because a profile photo is an image broadcast next to the
+user's name across the whole network, it is **moderated exactly like a post
+image** and off the request path (issue #282's async pipeline): the upload is
+stored on the user as `pending_profile_image_url` with
+`profile_image_status = "pending"` and classified by the same image cascade in a
+worker (`classify_profile_photo`). On approval it becomes the live
+`profile_image_url` and the previously approved photo is cleaned from S3; on
+rejection it is dropped (its S3 object deleted) and the owner is told in-app via
+`profile_image_status = "rejected"` and `profile_image_reason_code`, so they can
+pick a different picture. A previously approved photo stays live and visible
+while a new upload is under review, and a rejected upload never replaces it.
+Profile photos are **not appealable** — unlike a post, the remedy is simply to
+choose another image — so there is no appealable/final split or tombstone. The
+owner's own profile-details response carries the pending/rejected state
+(`profile_image_status`, `profile_image_reason_code`,
+`pending_profile_image_url`); no one else ever sees it. `POST /profile/photo/remove/`
+clears the photo entirely.
+
+Reconciliation mirrors posts: `sweep_classifications` re-enqueues a photo stuck
+in `pending` past the threshold, or — once its retry budget is spent — leaves it
+pending (fail closed, never shown) and alerts an operator exactly once.
+
 ## Post image cleanup
 
 Post images live in two S3 buckets: clients upload the original to the source
 bucket (`AWS_STORAGE_BUCKET_NAME`) and a Lambda mirrors a compressed copy to
-`AWS_COMPRESSED_STORAGE_BUCKET_NAME` under the same key.
+`AWS_COMPRESSED_STORAGE_BUCKET_NAME` under the same key. Profile photos live in
+the same buckets under the same `{user_id}/` prefix and are cleaned up the same
+way.
 
 Every client strips image metadata before uploading. Each uploader (web
 `s3Uploader.ts`, iOS `AWSManager.swift`, Android `ImageUploader.kt`) always
@@ -274,12 +316,16 @@ denied. Cleanup happens at two levels (see `backend/user_system/s3.py`):
   classification worker. It is best-effort: failures are logged and never
   block the request (or the worker).
 - **Sweeper** — the `cleanup_orphan_images` management command lists both
-  buckets and deletes any object no live `Post` references. A grace window
-  (default 24h, `--grace-hours`) protects objects too new to have become a post
-  yet and the brief window where the Lambda writes a compressed copy just after
-  a rejection cleaned up the original. Run it with `--dry-run` to preview. It is
-  scheduled as a daily systemd timer on the app host (`setup-django.sh`), not in
-  CI, because it needs both the database and AWS credentials.
+  buckets and deletes any object no live `Post` **and no user profile photo**
+  references. Both a user's approved `profile_image_url` and any
+  `pending_profile_image_url` still under review are treated as live, so the
+  sweep never reclaims an avatar out from under a user or deletes an upload
+  mid-review. A grace window (default 24h, `--grace-hours`) protects objects too
+  new to have become a post yet and the brief window where the Lambda writes a
+  compressed copy just after a rejection cleaned up the original. Run it with
+  `--dry-run` to preview. It is scheduled as a daily systemd timer on the app
+  host (`setup-django.sh`), not in CI, because it needs both the database and
+  AWS credentials.
 
 The backend's IAM credentials need `s3:DeleteObject` on both buckets for either
 path to take effect, plus `s3:ListBucket` on both buckets for the sweeper to

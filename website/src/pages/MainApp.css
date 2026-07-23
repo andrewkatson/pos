@@ -315,6 +315,79 @@
   color: #5ba4dc;
 }
 
+/* ---- Avatar (profile photo, issue #7) ----
+   One component (components/Avatar.tsx) rendered at every username site. As an
+   <img> it is a circular, cover-cropped photo; as the `◍` placeholder span it
+   shares the same box so layout is identical whether or not a user has a photo. */
+.avatar {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  border-radius: 50%;
+  object-fit: cover;
+  background: rgba(255, 255, 255, 0.08);
+  color: rgba(255, 255, 255, 0.5);
+  overflow: hidden;
+  line-height: 1;
+}
+
+.avatar--sm {
+  width: 2rem;
+  height: 2rem;
+  font-size: 1.4rem;
+}
+
+.avatar--md {
+  width: 2.75rem;
+  height: 2.75rem;
+  font-size: 1.9rem;
+}
+
+.avatar--lg {
+  width: 5rem;
+  height: 5rem;
+  font-size: 3.4rem;
+}
+
+/* An author byline that pairs the avatar with the (existing) name button. */
+.author-line {
+  display: flex;
+  align-items: center;
+  gap: 0.55rem;
+  padding-bottom: 0.5rem;
+}
+
+.author-line .feed-post__author {
+  padding-bottom: 0;
+}
+
+/* The large avatar + name block at the top of a profile. */
+.profile-identity {
+  display: flex;
+  align-items: center;
+  gap: 0.9rem;
+  margin-bottom: 1rem;
+}
+
+.profile-identity__name {
+  font-size: 1.15rem;
+  font-weight: 700;
+}
+
+/* The own-profile photo controls (set / change / remove). */
+.profile-photo-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  align-items: center;
+}
+
+.profile-photo-status {
+  font-size: 0.82rem;
+  color: rgba(255, 255, 255, 0.6);
+}
+
 /* ---- Segmented control (Feed tabs) ---- */
 
 .segmented {

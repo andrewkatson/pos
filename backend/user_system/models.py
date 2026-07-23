@@ -16,6 +16,7 @@ from .constants import (
     POST_STATUS_REJECTED_FINAL,
     APPEAL_STATUS_PENDING, APPEAL_STATUS_APPROVED, APPEAL_STATUS_DENIED,
     APPEAL_TARGET_POST, APPEAL_TARGET_COMMENT, APPEAL_TARGET_BAN,
+    PROFILE_IMAGE_STATUS_NONE,
 )
 
 logger = logging.getLogger(__name__)
@@ -145,6 +146,28 @@ class PositiveOnlySocialUser(AbstractUser):
     totp_secret = models.TextField(null=True, blank=True, default=None)
     totp_enabled = models.BooleanField(default=False)
     totp_last_used_step = models.BigIntegerField(null=True, blank=True, default=None)
+
+    # Profile photo (issue #7). profile_image_url is the approved, live photo
+    # shown to everyone next to this user's name; it is only ever set once the
+    # async image classifier approves it. pending_profile_image_url is a freshly
+    # uploaded photo still under review — visible only to its owner as a
+    # "reviewing" state — which the worker either promotes into
+    # profile_image_url (approving) or drops (rejecting), never showing an
+    # unclassified image to others. profile_image_status mirrors the post
+    # classification lifecycle (none/pending/approved/rejected) and
+    # profile_image_reason_code carries a rejected photo's public reason so the
+    # owner is told why. attempts/alerted/classification_time back the
+    # sweep_classifications reconciliation exactly like their Post counterparts
+    # (classification_time is bumped on every worker attempt so "stuck" means
+    # "no recent activity", not merely "old"). See constants
+    # PROFILE_IMAGE_STATUS_*.
+    profile_image_url = models.TextField(null=True, blank=True, default=None)
+    pending_profile_image_url = models.TextField(null=True, blank=True, default=None)
+    profile_image_status = models.TextField(default=PROFILE_IMAGE_STATUS_NONE)
+    profile_image_reason_code = models.TextField(null=True, blank=True, default=None)
+    profile_image_classification_attempts = models.IntegerField(default=0)
+    profile_image_classification_alerted = models.BooleanField(default=False)
+    profile_image_classification_time = models.DateTimeField(null=True, blank=True, default=None)
 
     creation_time = models.DateTimeField(auto_now_add=True, null=True, blank=True)
     updated_time = models.DateTimeField(auto_now=True, null=True, blank=True)

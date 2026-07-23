@@ -77,6 +77,32 @@ class CleanupOrphanImagesTests(TestCase):
         client.delete_object.assert_not_called()
         self.assertIn("kept 1 live", out)
 
+    def test_approved_profile_photo_key_is_kept(self):
+        """A user's approved profile photo lives in the same buckets under the
+        same {user_id}/ prefix as posts; the sweep must never reclaim it."""
+        key = f"{self.user.id}/avatar.jpeg"
+        get_user_model().objects.filter(pk=self.user.pk).update(
+            profile_image_url=_url_for_key(key))
+        client = _make_client({SOURCE_BUCKET: [{'Key': key, 'LastModified': self.old}]})
+
+        out = self._run(client)
+
+        client.delete_object.assert_not_called()
+        self.assertIn("kept 1 live", out)
+
+    def test_pending_profile_photo_key_is_kept(self):
+        """A profile photo still under async review is referenced only by
+        pending_profile_image_url; it must be protected too so the sweep cannot
+        delete an upload mid-review."""
+        key = f"{self.user.id}/pending-avatar.jpeg"
+        get_user_model().objects.filter(pk=self.user.pk).update(
+            pending_profile_image_url=_url_for_key(key))
+        client = _make_client({SOURCE_BUCKET: [{'Key': key, 'LastModified': self.old}]})
+
+        self._run(client)
+
+        client.delete_object.assert_not_called()
+
     def test_recent_orphan_is_kept(self):
         key = f"{self.user.id}/recent.jpeg"
         client = _make_client({SOURCE_BUCKET: [{'Key': key, 'LastModified': self.recent}]})

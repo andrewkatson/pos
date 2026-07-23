@@ -195,14 +195,26 @@ fun PostItem(
         modifier = Modifier.fillMaxWidth(),
         verticalArrangement = Arrangement.spacedBy(8.dp)
     ) {
-        Text(
-            text = post.authorUsername,
-            fontWeight = FontWeight.Bold,
+        // Author avatar + name, both opening the author's profile.
+        Row(
+            verticalAlignment = androidx.compose.ui.Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
             modifier = Modifier.clickable {
                 // Your own name goes to the Profile tab, not a pushed copy of it.
                 navController.openProfileFor(post.authorUsername, currentUsername)
             }
-        )
+        ) {
+            ProfileAvatar(
+                imageUrl = post.authorProfileImageUrl,
+                originalImageUrl = post.authorProfileImageOriginalUrl,
+                contentDescription = "${post.authorUsername}'s profile photo",
+                size = 32.dp
+            )
+            Text(
+                text = post.authorUsername,
+                fontWeight = FontWeight.Bold
+            )
+        }
 
         // Square, cropped to fill so images keep a standard size, with a thin
         // black border to match the grid views.

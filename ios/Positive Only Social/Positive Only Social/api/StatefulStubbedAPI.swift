@@ -30,6 +30,16 @@ struct MockUser {
     var totpSecret: String? = nil
     var totpEnabled: Bool = false
     var recoveryCodes: [String] = []
+    // Profile photo (issue #7). `profileImageUrl` is the approved photo shown to
+    // everyone; `pendingProfileImageUrl` is a photo still under (stubbed) review,
+    // shown to nobody until approved. The stub has no classifier, so it approves
+    // immediately — like the backend's eager (no-Redis) mode — leaving
+    // `profileImageStatus` "approved" while the set response still reports
+    // "pending".
+    var profileImageUrl: String? = nil
+    var pendingProfileImageUrl: String? = nil
+    var profileImageStatus: String = "none"
+    var profileImageReasonCode: String? = nil
 
     init(username: String, email: String, passwordHash: String) {
         self.username = username
@@ -89,6 +99,10 @@ fileprivate struct PostListingFields: Codable {
     let image_url: String?
     let caption: String
     let author_username: String
+    /// The post author's approved profile photo (issue #7), or nil. Compressed
+    /// and original point at the same stub URL, mirroring the backend fields.
+    let author_profile_image_url: String?
+    let author_profile_image_original_url: String?
     let post_likes: Int
     let is_liked: Bool
     let is_reported: Bool
@@ -205,11 +219,14 @@ final class StatefulStubbedAPI: Networking {
         isOwnGrid: Bool = false
     ) -> PostListingFields {
         let viewerReport = post.reports.first(where: { $0.username == viewer.username })
+        let authorAvatar = approvedAvatarUrl(forUserId: post.authorId)
         return PostListingFields(
             post_identifier: post.postIdentifier,
             image_url: post.imageURL,
             caption: post.caption,
             author_username: users.first(where: { $0.id == post.authorId })?.username ?? "Unknown User",
+            author_profile_image_url: authorAvatar,
+            author_profile_image_original_url: authorAvatar,
             post_likes: post.likes.count,
             is_liked: post.likes.contains(viewer.username),
             is_reported: viewerReport != nil,
@@ -237,6 +254,19 @@ final class StatefulStubbedAPI: Networking {
             commentThreads.filter { $0.postId == postIdentifier }.map { $0.commentThreadIdentifier }
         )
         return comments.filter { threadIdentifiers.contains($0.threadId) && !$0.isHidden }.count
+    }
+
+    /// An author's approved profile photo (issue #7), or nil — only an approved
+    /// photo is ever exposed to others, mirroring the backend. The compressed and
+    /// original variants point at the same stub URL.
+    private func approvedAvatarUrl(forUserId id: UUID) -> String? {
+        guard let user = users.first(where: { $0.id == id }) else { return nil }
+        return user.profileImageStatus == "approved" ? user.profileImageUrl : nil
+    }
+
+    private func approvedAvatarUrl(forUsername name: String) -> String? {
+        guard let user = users.first(where: { $0.username == name }) else { return nil }
+        return user.profileImageStatus == "approved" ? user.profileImageUrl : nil
     }
 
     private func createEmptySuccessResponse() throws -> Data {
@@ -933,8 +963,11 @@ final class StatefulStubbedAPI: Networking {
             let is_reported: Bool
             let report_reason: String?
             let author_username: String
+            let author_profile_image_url: String?
+            let author_profile_image_original_url: String?
         }
         let userReport = post.reports.first(where: { $0.username == user.username })
+        let authorAvatar = approvedAvatarUrl(forUserId: post.authorId)
         let fields = Fields(
             post_identifier: post.postIdentifier,
             image_url: post.imageURL,
@@ -951,7 +984,9 @@ final class StatefulStubbedAPI: Networking {
             is_liked: post.likes.contains(user.username),
             is_reported: userReport != nil,
             report_reason: userReport?.reason,
-            author_username: users.first(where: {$0.id == post.authorId})?.username ?? "Unknown User"
+            author_username: users.first(where: {$0.id == post.authorId})?.username ?? "Unknown User",
+            author_profile_image_url: authorAvatar,
+            author_profile_image_original_url: authorAvatar
         )
         return try createSerializedResponse(fields: fields)
     }
@@ -1078,6 +1113,8 @@ final class StatefulStubbedAPI: Networking {
 
         struct Fields: Codable {
             let comment_identifier, body, author_username: String
+            let author_profile_image_url: String?
+            let author_profile_image_original_url: String?
             let creation_time, updated_time: String
             let comment_likes: Int
             let is_liked: Bool
@@ -1088,7 +1125,10 @@ final class StatefulStubbedAPI: Networking {
         let dateFormatter = ISO8601DateFormatter()
         let fieldObjects = relevantComments.map { comment in
             let userReport = comment.reports.first(where: { $0.username == user.username })
+            let authorAvatar = approvedAvatarUrl(forUsername: comment.authorUsername)
             return Fields(comment_identifier: comment.commentIdentifier, body: comment.body, author_username: comment.authorUsername,
+                   author_profile_image_url: authorAvatar,
+                   author_profile_image_original_url: authorAvatar,
                    creation_time: dateFormatter.string(from: comment.createdDate),
                    updated_time: dateFormatter.string(from: comment.updatedDate),
                    comment_likes: comment.likes.count,
@@ -1110,11 +1150,20 @@ final class StatefulStubbedAPI: Networking {
             !findUser(bySessionToken: sessionManagementToken)!.blockedBy.contains($0.id)
         }
         
-        struct Fields: Codable { let username: String; let identity_is_verified: Bool }
-        let fieldObjects = matchingUsers.map { Fields(username: $0.username, identity_is_verified: $0.identityIsVerified) }
+        struct Fields: Codable {
+            let username: String
+            let identity_is_verified: Bool
+            let author_profile_image_url: String?
+            let author_profile_image_original_url: String?
+        }
+        let fieldObjects = matchingUsers.map { user -> Fields in
+            let avatar = user.profileImageStatus == "approved" ? user.profileImageUrl : nil
+            return Fields(username: user.username, identity_is_verified: user.identityIsVerified,
+                          author_profile_image_url: avatar, author_profile_image_original_url: avatar)
+        }
         return try createSerializedListResponse(fieldsList: fieldObjects)
     }
-    
+
     func getBlockedUsers(sessionManagementToken: String) async throws -> Data {
         await simulateNetwork()
         guard let currentUser = findUser(bySessionToken: sessionManagementToken) else {
@@ -1124,8 +1173,17 @@ final class StatefulStubbedAPI: Networking {
             .filter { currentUser.blocked.contains($0.id) }
             .sorted { $0.username < $1.username }
 
-        struct Fields: Codable { let username: String; let identity_is_verified: Bool }
-        let fieldObjects = blockedUsers.map { Fields(username: $0.username, identity_is_verified: $0.identityIsVerified) }
+        struct Fields: Codable {
+            let username: String
+            let identity_is_verified: Bool
+            let author_profile_image_url: String?
+            let author_profile_image_original_url: String?
+        }
+        let fieldObjects = blockedUsers.map { user -> Fields in
+            let avatar = user.profileImageStatus == "approved" ? user.profileImageUrl : nil
+            return Fields(username: user.username, identity_is_verified: user.identityIsVerified,
+                          author_profile_image_url: avatar, author_profile_image_original_url: avatar)
+        }
         return try createSerializedListResponse(fieldsList: fieldObjects)
     }
 
@@ -1240,7 +1298,15 @@ final class StatefulStubbedAPI: Networking {
         let isBlocked = requestingUser.blocked.contains(profileUser.id)
         let isBlockedBy = requestingUser.blockedBy.contains(profileUser.id)
 
-        // 5. Build the response data (matching the Swift struct)
+        // 5. Build the response data (matching the Swift struct). The owner-only
+        // photo moderation fields (issue #7) are present only when viewing your
+        // own profile; they're nil (and so read back as absent) otherwise,
+        // mirroring the backend.
+        let isOwnProfile = profileUser.id == requestingUser.id
+        // Only an approved photo is exposed, and never to someone the target has
+        // blocked (mirrors the website stub's liveAvatar).
+        let liveAvatar: String? = (isBlockedBy || profileUser.profileImageStatus != "approved")
+            ? nil : profileUser.profileImageUrl
         struct Fields: Codable {
             let username: String
             let post_count: Int
@@ -1250,8 +1316,14 @@ final class StatefulStubbedAPI: Networking {
             let is_blocked: Bool
             let identity_is_verified: Bool
             let is_adult: Bool
+            let profile_image_url: String?
+            let profile_image_original_url: String?
+            // Owner-only (issue #7).
+            let profile_image_status: String?
+            let profile_image_reason_code: String?
+            let pending_profile_image_url: String?
         }
-        
+
         if isBlockedBy {
              let fields = Fields(
                 username: profileUser.username,
@@ -1261,11 +1333,16 @@ final class StatefulStubbedAPI: Networking {
                 is_following: false,
                 is_blocked: isBlocked,
                 identity_is_verified: false,
-                is_adult: false
+                is_adult: false,
+                profile_image_url: nil,
+                profile_image_original_url: nil,
+                profile_image_status: nil,
+                profile_image_reason_code: nil,
+                pending_profile_image_url: nil
             )
             return try createSerializedResponse(fields: fields)
         }
-        
+
         let fields = Fields(
             username: profileUser.username,
             post_count: postCount,
@@ -1274,11 +1351,55 @@ final class StatefulStubbedAPI: Networking {
             is_following: isFollowing,
             is_blocked: isBlocked,
             identity_is_verified: profileUser.identityIsVerified,
-            is_adult: profileUser.isAdult
+            is_adult: profileUser.isAdult,
+            profile_image_url: liveAvatar,
+            profile_image_original_url: liveAvatar,
+            profile_image_status: isOwnProfile ? profileUser.profileImageStatus : nil,
+            profile_image_reason_code: isOwnProfile ? profileUser.profileImageReasonCode : nil,
+            pending_profile_image_url: isOwnProfile ? profileUser.pendingProfileImageUrl : nil
         )
 
         // 6. Return the data using your existing helper
         return try createSerializedResponse(fields: fields)
+    }
+
+    // MARK: - Profile Photo (issue #7)
+
+    func setProfilePhoto(sessionManagementToken: String, imageURL: String) async throws -> Data {
+        await simulateNetwork()
+        guard let user = findUser(bySessionToken: sessionManagementToken),
+              let userIndex = users.firstIndex(where: { $0.id == user.id })
+        else { throw APIError.badServerResponse(statusCode: 400) }
+        // The real backend stores the photo pending and classifies it off the
+        // request path; the stub has no classifier, so — like the backend's
+        // eager (no-Redis) mode — it approves immediately, while the response
+        // still reports the initial "pending" state so clients exercise the
+        // review-then-approve path.
+        users[userIndex].profileImageUrl = imageURL
+        users[userIndex].pendingProfileImageUrl = nil
+        users[userIndex].profileImageStatus = "approved"
+        users[userIndex].profileImageReasonCode = nil
+        struct Fields: Codable { let profile_image_status: String; let message: String }
+        return try createSerializedResponse(fields: Fields(
+            profile_image_status: "pending",
+            message: "Your photo is being reviewed and will be shown once it is approved."
+        ))
+    }
+
+    func removeProfilePhoto(sessionManagementToken: String) async throws -> Data {
+        await simulateNetwork()
+        guard let user = findUser(bySessionToken: sessionManagementToken),
+              let userIndex = users.firstIndex(where: { $0.id == user.id })
+        else { throw APIError.badServerResponse(statusCode: 400) }
+        users[userIndex].profileImageUrl = nil
+        users[userIndex].pendingProfileImageUrl = nil
+        users[userIndex].profileImageStatus = "none"
+        users[userIndex].profileImageReasonCode = nil
+        struct Fields: Codable { let profile_image_status: String; let message: String }
+        return try createSerializedResponse(fields: Fields(
+            profile_image_status: "none",
+            message: "Your profile photo has been removed."
+        ))
     }
 
     // MARK: - Appeals

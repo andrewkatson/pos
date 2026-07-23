@@ -272,6 +272,21 @@ interface PositiveOnlySocialAPI {
         @Path("username") username: String
     ): Response<ProfileDetailsResponse>
 
+    // Sets the signed-in user's profile photo (issue #7). The JPEG bytes are
+    // uploaded via the presigned post-image pipeline first; this hands over the
+    // canonical object URL. Returns HTTP 202 with a "pending" status — the photo
+    // is classified asynchronously.
+    @POST("profile/photo/")
+    suspend fun setProfilePhoto(
+        @Header("Authorization") token: String,
+        @Body request: SetProfilePhotoRequest
+    ): Response<SetProfilePhotoResponse>
+
+    @POST("profile/photo/remove/")
+    suspend fun removeProfilePhoto(
+        @Header("Authorization") token: String
+    ): Response<RemoveProfilePhotoResponse>
+
     // ============================================================================================
     // APPEALS
     // ============================================================================================

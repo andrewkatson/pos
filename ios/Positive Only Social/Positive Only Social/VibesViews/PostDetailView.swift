@@ -101,7 +101,14 @@ struct PostDetailView: View {
                             .accessibilityLabel("Post options")
                             .accessibilityIdentifier("PostOptionsButton")
                         }
-                        HStack(alignment: .firstTextBaseline, spacing: 4) {
+                        HStack(alignment: .center, spacing: 6) {
+                            // The author's profile photo (issue #7) next to their
+                            // name.
+                            ProfileAvatarView(
+                                imageUrl: post.authorProfileImageURL,
+                                originalImageUrl: post.authorProfileImageOriginalURL,
+                                size: 28
+                            )
                             // Tap the author's name to open their profile, same
                             // as in the feed. The User destination is registered
                             // on the parent NavigationStack; your own name goes

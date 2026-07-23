@@ -162,6 +162,12 @@ urlpatterns = [
     # GET /users/blocked/ (Token in header)
     path('users/blocked/', views.get_blocked_users, name='get_blocked_users'),
 
+    # POST /profile/photo/ (Token in header)
+    path('profile/photo/', views.set_profile_photo, name='set_profile_photo'),
+
+    # POST /profile/photo/remove/ (Token in header)
+    path('profile/photo/remove/', views.remove_profile_photo, name='remove_profile_photo'),
+
     # GET /users/<str:username>/profile/ (Token in header)
     path('users/<str:username>/profile/', views.get_profile_details, name='get_profile_details'),
 

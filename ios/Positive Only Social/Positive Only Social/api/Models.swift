@@ -90,6 +90,12 @@ struct Post: Codable, Identifiable, Hashable {
     let originalImageUrl: String?
     let caption: String
     let authorUsername: String
+    /// The post author's approved profile photo (issue #7), rendered as a
+    /// circular avatar next to their name in the feed rows. Compressed variant
+    /// with a full-resolution fallback, mirroring `imageUrl`/`originalImageUrl`;
+    /// both nil when the author has no approved photo or on older responses.
+    let authorProfileImageUrl: String?
+    let authorProfileImageOriginalUrl: String?
     /// Author-only classification state (issue #282): present on the viewer's
     /// own posts so grids can render pending/rejected states. Other users'
     /// posts never carry these (their pending/hidden posts are filtered out
@@ -131,6 +137,8 @@ struct Post: Codable, Identifiable, Hashable {
         case originalImageUrl = "original_image_url"
         case caption = "caption"
         case authorUsername = "author_username"
+        case authorProfileImageUrl = "author_profile_image_url"
+        case authorProfileImageOriginalUrl = "author_profile_image_original_url"
         case postLikes = "post_likes"
         case isLiked = "is_liked"
         case isReported = "is_reported"
@@ -149,6 +157,8 @@ struct Post: Codable, Identifiable, Hashable {
         originalImageUrl: String? = nil,
         caption: String,
         authorUsername: String,
+        authorProfileImageUrl: String? = nil,
+        authorProfileImageOriginalUrl: String? = nil,
         postLikes: Int = 0,
         isLiked: Bool = false,
         isReported: Bool = false,
@@ -165,6 +175,8 @@ struct Post: Codable, Identifiable, Hashable {
         self.originalImageUrl = originalImageUrl
         self.caption = caption
         self.authorUsername = authorUsername
+        self.authorProfileImageUrl = authorProfileImageUrl
+        self.authorProfileImageOriginalUrl = authorProfileImageOriginalUrl
         self.postLikes = postLikes
         self.isLiked = isLiked
         self.isReported = isReported
@@ -186,6 +198,10 @@ struct Post: Codable, Identifiable, Hashable {
         originalImageUrl = try container.decodeIfPresent(String.self, forKey: .originalImageUrl)
         caption = try container.decode(String.self, forKey: .caption)
         authorUsername = try container.decode(String.self, forKey: .authorUsername)
+        // Author avatar (issue #7); absent when the author has no approved photo
+        // or on older backends.
+        authorProfileImageUrl = try container.decodeIfPresent(String.self, forKey: .authorProfileImageUrl)
+        authorProfileImageOriginalUrl = try container.decodeIfPresent(String.self, forKey: .authorProfileImageOriginalUrl)
         postLikes = try container.decodeIfPresent(Int.self, forKey: .postLikes) ?? 0
         isLiked = try container.decodeIfPresent(Bool.self, forKey: .isLiked) ?? false
         isReported = try container.decodeIfPresent(Bool.self, forKey: .isReported) ?? false
@@ -212,6 +228,19 @@ struct UploadUrlResponse: Codable {
     enum CodingKeys: String, CodingKey {
         case uploadUrl = "upload_url"
         case imageUrl = "image_url"
+    }
+}
+
+/// The response from setProfilePhoto / removeProfilePhoto (issue #7). Setting a
+/// photo reports "pending" (async review), removing reports "none".
+struct ProfilePhotoResponse: Codable {
+    /// One of "none"/"pending"/"approved"/"rejected".
+    let profileImageStatus: String
+    let message: String?
+
+    enum CodingKeys: String, CodingKey {
+        case profileImageStatus = "profile_image_status"
+        case message
     }
 }
 
@@ -323,10 +352,35 @@ struct User: Codable, Identifiable, Hashable {
     var id: String { username }
     let username: String
     let identityIsVerified: Bool
-    
+    /// The user's approved profile photo (issue #7), shown as a circular avatar
+    /// in search results and the blocked-users list. Compressed variant with a
+    /// full-resolution fallback; both nil when the user has no approved photo or
+    /// on older responses. Optional, so a `User` built client-side (e.g. from a
+    /// tapped username) needs no avatar.
+    var authorProfileImageUrl: String? = nil
+    var authorProfileImageOriginalUrl: String? = nil
+
+    init(username: String, identityIsVerified: Bool,
+         authorProfileImageUrl: String? = nil, authorProfileImageOriginalUrl: String? = nil) {
+        self.username = username
+        self.identityIsVerified = identityIsVerified
+        self.authorProfileImageUrl = authorProfileImageUrl
+        self.authorProfileImageOriginalUrl = authorProfileImageOriginalUrl
+    }
+
     enum CodingKeys: String, CodingKey {
         case username
         case identityIsVerified = "identity_is_verified"
+        case authorProfileImageUrl = "author_profile_image_url"
+        case authorProfileImageOriginalUrl = "author_profile_image_original_url"
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        username = try container.decode(String.self, forKey: .username)
+        identityIsVerified = try container.decodeIfPresent(Bool.self, forKey: .identityIsVerified) ?? false
+        authorProfileImageUrl = try container.decodeIfPresent(String.self, forKey: .authorProfileImageUrl)
+        authorProfileImageOriginalUrl = try container.decodeIfPresent(String.self, forKey: .authorProfileImageOriginalUrl)
     }
 }
 
@@ -341,6 +395,18 @@ struct ProfileDetailsResponse: Codable, Identifiable, Hashable {
     var isBlocked: Bool = false
     var identityIsVerified: Bool = false
     var isAdult: Bool = false
+    /// The user's approved profile photo (issue #7), shown to everyone as the
+    /// large header avatar. Compressed variant with a full-resolution fallback;
+    /// both nil when they have no approved photo.
+    var profileImageUrl: String? = nil
+    var profileImageOriginalUrl: String? = nil
+    /// Owner-only moderation state, present only when viewing your own profile
+    /// (absent for anyone else). `profileImageStatus` is one of
+    /// "none"/"pending"/"approved"/"rejected"; `pendingProfileImageUrl` lets the
+    /// owner preview a not-yet-approved upload before it goes live for others.
+    var profileImageStatus: String? = nil
+    var profileImageReasonCode: String? = nil
+    var pendingProfileImageUrl: String? = nil
 
     enum CodingKeys: String, CodingKey {
         case username
@@ -351,6 +417,11 @@ struct ProfileDetailsResponse: Codable, Identifiable, Hashable {
         case isBlocked = "is_blocked"
         case identityIsVerified = "identity_is_verified"
         case isAdult = "is_adult"
+        case profileImageUrl = "profile_image_url"
+        case profileImageOriginalUrl = "profile_image_original_url"
+        case profileImageStatus = "profile_image_status"
+        case profileImageReasonCode = "profile_image_reason_code"
+        case pendingProfileImageUrl = "pending_profile_image_url"
     }
 }
 
@@ -391,6 +462,11 @@ struct PostDisplayData: Identifiable, Equatable {
     let likeCount: Int
     let isLiked: Bool // Whether the current user has liked this post
     let authorUsername: String // Added for context
+    /// The post author's approved profile photo (issue #7), shown next to their
+    /// name. Compressed variant with a full-resolution fallback; both nil when
+    /// the author has no approved photo.
+    var authorProfileImageURL: String? = nil
+    var authorProfileImageOriginalURL: String? = nil
     /// When the post was created. Optional for backward compatibility with
     /// backend responses that predate the field.
     let createdDate: Date?
@@ -406,6 +482,11 @@ struct CommentViewData: Identifiable, Equatable {
     let id: String // commentIdentifier
     let threadId: String // commentThreadIdentifier
     let authorUsername: String
+    /// The comment author's approved profile photo (issue #7), shown as a
+    /// circular avatar to the left of the comment. Compressed variant with a
+    /// full-resolution fallback; both nil when the author has no approved photo.
+    var authorProfileImageURL: String? = nil
+    var authorProfileImageOriginalURL: String? = nil
     let body: String
     let likeCount: Int
     let isLiked: Bool // Whether the current user has liked this comment

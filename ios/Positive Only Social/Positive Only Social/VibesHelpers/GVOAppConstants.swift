@@ -66,6 +66,11 @@ import Foundation
     static let pathSegmentNotification = "notification"
     static let pathSegmentNotifications = "notifications"
     static let pathSegmentPassword = "password"
+    // Profile photo endpoints (issue #7): POST profile/photo/ sets the photo,
+    // POST profile/photo/remove/ clears it. `pathSegmenProfile` supplies the
+    // shared leading "profile" segment.
+    static let pathSegmentPhoto = "photo"
+    static let pathSegmentRemove = "remove"
     static let pathSegmentPost = "post"
     static let pathSegmentPosts = "posts"
     static let pathSegmentRegister = "register"

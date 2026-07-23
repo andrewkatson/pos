@@ -30,8 +30,10 @@ from .constants import (
     CLASSIFICATION_MAX_ATTEMPTS,
     HIDDEN_REASON_NONE, HIDDEN_REASON_CLASSIFIER,
     HIDDEN_REASON_PENDING_CLASSIFICATION, HIDDEN_REASON_CLASSIFIER_FINAL,
+    PROFILE_IMAGE_STATUS_PENDING, PROFILE_IMAGE_STATUS_APPROVED,
+    PROFILE_IMAGE_STATUS_REJECTED,
 )
-from .models import Post
+from .models import Post, PositiveOnlySocialUser
 from .s3 import delete_image
 
 # Module-level aliases so tests can patch the classifiers here, mirroring the
@@ -49,6 +51,7 @@ _CLASSIFICATION_EXECUTOR = ThreadPoolExecutor(max_workers=8, thread_name_prefix=
 # The job is enqueued by dotted path so the web process never needs to pickle
 # a callable, and RQ retries provider failures with growing backoff.
 CLASSIFY_JOB_PATH = 'user_system.tasks.classify_post'
+CLASSIFY_PROFILE_PHOTO_JOB_PATH = 'user_system.tasks.classify_profile_photo'
 RETRY_INTERVALS_SECONDS = [60, 300, 900]
 
 # RQ kills jobs that exceed this. Worst case is two sequential cascades of
@@ -270,3 +273,131 @@ def classify_post(post_identifier):
         # the backstop for a missed delete (the row no longer references the
         # key, so the sweeper reclaims it after its grace window).
         delete_image(image_url_to_delete)
+
+
+def enqueue_profile_photo_classification(user_id):
+    """Schedule async classification for a freshly uploaded pending profile photo.
+
+    The user's pending_profile_image_url is already stored (and never shown to
+    others) before this runs, so — exactly like enqueue_classification for
+    posts — an eager failure is swallowed (the sweep re-enqueues) and the queued
+    enqueue is deferred to on_commit so the worker cannot fetch the job before
+    the pending photo is visible to it.
+    """
+    user_id = str(user_id)
+    if settings.CLASSIFICATION_EAGER:
+        try:
+            classify_profile_photo(user_id)
+        except Exception:
+            logger.exception("Eager profile-photo classification failed for user %s; it stays pending.", user_id)
+        return
+
+    def _enqueue():
+        from rq import Retry
+        try:
+            _queue().enqueue(
+                CLASSIFY_PROFILE_PHOTO_JOB_PATH,
+                user_id,
+                retry=Retry(max=len(RETRY_INTERVALS_SECONDS), interval=RETRY_INTERVALS_SECONDS),
+                job_timeout=JOB_TIMEOUT_SECONDS,
+            )
+        except Exception:
+            logger.exception("Failed to enqueue profile-photo classification for user %s; the sweep will retry it.", user_id)
+
+    transaction.on_commit(_enqueue)
+
+
+def classify_profile_photo(user_id):
+    """RQ job: classify one user's pending profile photo and record the outcome.
+
+    Transitions (one-way, from the pending state): approved — the pending photo
+    becomes the live profile_image_url and the previously approved photo (if
+    any) is cleaned from S3; or rejected — the pending photo is dropped and its
+    S3 object cleaned up, while any previously approved photo is left untouched.
+    Only acts on a user still in PROFILE_IMAGE_STATUS_PENDING and re-claims the
+    row under lock before transitioning, so a redelivered or duplicate job is a
+    no-op (the idempotency story for at-least-once delivery, mirroring
+    classify_post). A provider failure raises so RQ retries with backoff; the
+    photo stays pending (never shown) meanwhile.
+    """
+    try:
+        user = PositiveOnlySocialUser.objects.get(pk=user_id)
+    except PositiveOnlySocialUser.DoesNotExist:
+        logger.info("classify_profile_photo: user %s no longer exists; nothing to do.", user_id)
+        return
+    if user.profile_image_status != PROFILE_IMAGE_STATUS_PENDING or not user.pending_profile_image_url:
+        logger.info("classify_profile_photo: user %s has no pending photo (status=%s); nothing to do.",
+                    user_id, user.profile_image_status)
+        return
+
+    # Hard cap on the retry budget: once spent, return successfully (no raise)
+    # so RQ stops retrying and no further billable provider work runs; the photo
+    # stays pending (fail closed — never shown) and the sweep alerts.
+    if user.profile_image_classification_attempts >= CLASSIFICATION_MAX_ATTEMPTS:
+        logger.error(
+            "classify_profile_photo: user %s has exhausted its %d classification attempts; "
+            "leaving the photo pending (fail closed) and dropping the job.",
+            user_id, user.profile_image_classification_attempts)
+        return
+
+    # Count the attempt before the fallible external work (so the sweep sees
+    # every try) and bump classification_time so "stuck" means "no recent
+    # activity". The pending filter makes the re-check and increment one atomic
+    # UPDATE, so a duplicate delivery that lost the race neither burns budget nor
+    # runs the billable cascade below.
+    still_pending = PositiveOnlySocialUser.objects.filter(
+        pk=user.pk, profile_image_status=PROFILE_IMAGE_STATUS_PENDING,
+    ).update(profile_image_classification_attempts=F('profile_image_classification_attempts') + 1,
+             profile_image_classification_time=timezone.now())
+    if not still_pending:
+        logger.info("classify_profile_photo: user %s was resolved concurrently; nothing to do.", user_id)
+        return
+
+    pending_url = user.pending_profile_image_url
+    result = image_classifier_class.is_image_positive(pending_url)
+    if result.provider_failure:
+        # Not a verdict on the content: fail closed (stay pending) and let RQ
+        # retry with backoff.
+        raise ClassificationProviderError(
+            f"Provider unavailable while classifying profile photo for user {user_id}")
+
+    allowed = bool(result)
+    old_live_url = None
+    rejected_url = None
+    with transaction.atomic():
+        claimed = PositiveOnlySocialUser.objects.select_for_update().filter(
+            pk=user.pk, profile_image_status=PROFILE_IMAGE_STATUS_PENDING).first()
+        if claimed is None:
+            logger.info("classify_profile_photo: user %s was resolved concurrently; nothing to do.", user_id)
+            return
+        if allowed:
+            # Promote the pending photo to live; the previously approved photo
+            # (if different) is now orphaned and deleted after the commit.
+            old_live_url = claimed.profile_image_url
+            claimed.profile_image_url = claimed.pending_profile_image_url
+            claimed.pending_profile_image_url = None
+            claimed.profile_image_status = PROFILE_IMAGE_STATUS_APPROVED
+            claimed.profile_image_reason_code = None
+        else:
+            # Drop the rejected photo; keep any previously approved photo intact
+            # so a bad new upload does not wipe out a good current avatar.
+            rejected_url = claimed.pending_profile_image_url
+            claimed.pending_profile_image_url = None
+            claimed.profile_image_status = PROFILE_IMAGE_STATUS_REJECTED
+            claimed.profile_image_reason_code = result.public_reason_code()
+        claimed.save(update_fields=[
+            'profile_image_url', 'pending_profile_image_url',
+            'profile_image_status', 'profile_image_reason_code',
+        ])
+
+    # Side effects only after the one-time transition has committed, so they can
+    # neither fire twice nor fire for a rolled-back transition.
+    if allowed:
+        logger.info("classify_profile_photo: user %s photo approved.", user_id)
+        if old_live_url and old_live_url != claimed.profile_image_url:
+            delete_image(old_live_url)
+        return
+    logger.info("classify_profile_photo: user %s photo rejected (reason=%s).",
+                user_id, result.public_reason_code())
+    if rejected_url:
+        delete_image(rejected_url)

@@ -538,6 +538,27 @@ class MockPositiveOnlySocialAPI : PositiveOnlySocialAPI {
         )
     }
 
+    override suspend fun setProfilePhoto(
+        token: String,
+        request: SetProfilePhotoRequest
+    ): Response<SetProfilePhotoResponse> {
+        return Response.success(
+            SetProfilePhotoResponse(
+                profileImageStatus = "pending",
+                message = "Your photo is being reviewed and will be shown once it is approved."
+            )
+        )
+    }
+
+    override suspend fun removeProfilePhoto(token: String): Response<RemoveProfilePhotoResponse> {
+        return Response.success(
+            RemoveProfilePhotoResponse(
+                profileImageStatus = "none",
+                message = "Your profile photo has been removed."
+            )
+        )
+    }
+
     override suspend fun getHiddenPosts(token: String, batch: Int): Response<List<HiddenPost>> =
         Response.success(emptyList())
 

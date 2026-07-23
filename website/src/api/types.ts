@@ -142,6 +142,41 @@ export interface CreatePostRequest {
 }
 
 /**
+ * Moderation lifecycle of a user's own profile photo (issue #7). A newly
+ * uploaded photo is 'pending' (classified asynchronously, shown to nobody else
+ * until approved), then resolves to 'approved' (live) or 'rejected' (dropped,
+ * with a reason so the owner can pick another). 'none' means no photo set.
+ */
+export type ProfileImageStatus = 'none' | 'pending' | 'approved' | 'rejected'
+
+export interface SetProfilePhotoRequest {
+  /** Canonical S3 object URL from createUploadUrl (the client uploads the JPEG
+   * via the presigned PUT first, exactly like a post image). */
+  image_url: string
+}
+
+export interface SetProfilePhotoResponse {
+  /** 'pending' — the photo is under async review and not yet shown to others. */
+  profile_image_status: ProfileImageStatus
+  message?: string
+}
+
+export interface RemoveProfilePhotoResponse {
+  profile_image_status: ProfileImageStatus
+  message?: string
+}
+
+/** The approved profile photo of an author, threaded next to author_username
+ * through every list/detail payload. Compressed variant with a full-resolution
+ * fallback, mirroring a post's image_url/original_image_url (and null when the
+ * author has no approved photo). Older responses that predate the field omit
+ * it. */
+export interface AuthorAvatarFields {
+  author_profile_image_url?: string | null
+  author_profile_image_original_url?: string | null
+}
+
+/**
  * Classification lifecycle of a post as reported to its author (issue #282).
  * Classification runs asynchronously: a new post starts 'pending' (hidden from
  * everyone but its author) and later resolves to 'approved' (live),
@@ -178,7 +213,7 @@ export interface PostStatusResponse {
 }
 
 /** A post as returned by the feed/listing endpoints. */
-export interface FeedPost {
+export interface FeedPost extends AuthorAvatarFields {
   post_identifier: string
   /** Null for a text-only post (#307), which renders as a caption tile. */
   image_url: string | null
@@ -221,7 +256,7 @@ export interface FeedPost {
 }
 
 /** A post as returned by the post-details endpoint. */
-export interface PostDetails {
+export interface PostDetails extends AuthorAvatarFields {
   post_identifier: string
   /** Null for a text-only post (#307), which renders as a caption tile. */
   image_url: string | null
@@ -264,7 +299,7 @@ export interface CommentThreadRef {
   comment_thread_identifier: string
 }
 
-export interface Comment {
+export interface Comment extends AuthorAvatarFields {
   comment_identifier: string
   body: string
   author_username: string
@@ -280,7 +315,7 @@ export interface Comment {
   report_reason?: string | null
 }
 
-export interface UserSearchResult {
+export interface UserSearchResult extends AuthorAvatarFields {
   username: string
   identity_is_verified: boolean
 }
@@ -294,6 +329,17 @@ export interface ProfileDetails {
   is_blocked: boolean
   identity_is_verified: boolean
   is_adult: boolean
+  /** The user's approved profile photo (compressed) with a full-resolution
+   * fallback, or null when they have none. Shown to everyone. */
+  profile_image_url?: string | null
+  profile_image_original_url?: string | null
+  /** Owner-only: the moderation state of a photo still under review (or the
+   * last rejected upload). Present only when viewing your own profile, so your
+   * client can show a "reviewing" / "not approved" affordance; never returned
+   * for other users. */
+  profile_image_status?: ProfileImageStatus
+  profile_image_reason_code?: string | null
+  pending_profile_image_url?: string | null
 }
 
 // ---------------------------------------------------------------------------

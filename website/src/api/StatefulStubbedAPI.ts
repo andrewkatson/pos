@@ -30,14 +30,19 @@ import type {
   PostDetails,
   PostStatusResponse,
   ProfileDetails,
+  ProfileImageStatus,
   RegisterRequest,
+  RemoveProfilePhotoResponse,
   ReplyResponse,
   RequestResetRequest,
   ResendVerificationEmailRequest,
   ResetPasswordRequest,
+  SetProfilePhotoRequest,
+  SetProfilePhotoResponse,
   SubmitAppealRequest,
   SubmitAppealResponse,
   TwoFactorSetupResponse,
+  AuthorAvatarFields,
   UserSearchResult,
   VerifyEmailRequest,
   VerifyResetRequest,
@@ -102,6 +107,12 @@ interface UserMock {
   totpEnabled: boolean
   /** Unused recovery codes; consumed codes are removed. */
   recoveryCodes: Set<string>
+  /** Approved profile photo shown to everyone (issue #7), or null. */
+  profileImageUrl: string | null
+  /** A photo still under async review, shown to nobody until approved. */
+  pendingProfileImageUrl: string | null
+  profileImageStatus: ProfileImageStatus
+  profileImageReasonCode: string | null
 }
 
 interface TwoFactorChallengeMock {
@@ -296,6 +307,10 @@ export class StatefulStubbedAPI implements PositiveOnlySocialAPI {
       totpSecret: null,
       totpEnabled: false,
       recoveryCodes: new Set(),
+      profileImageUrl: null,
+      pendingProfileImageUrl: null,
+      profileImageStatus: 'none',
+      profileImageReasonCode: null,
     }
     this.users.push(user)
 
@@ -673,6 +688,19 @@ export class StatefulStubbedAPI implements PositiveOnlySocialAPI {
     )
   }
 
+  /** An author's approved profile photo, merged next to author_username in
+   * every list/detail payload (issue #7). Mirrors the backend: only the
+   * approved photo is exposed, compressed variant plus original fallback (the
+   * stub has no separate compressed bucket, so both are the same URL). */
+  private authorAvatarFields(authorId: string): AuthorAvatarFields {
+    const author = this.users.find((u) => u.id === authorId)
+    const url = author ? author.profileImageUrl : null
+    return {
+      author_profile_image_url: url,
+      author_profile_image_original_url: url,
+    }
+  }
+
   /** The author-only classification fields merged into post payloads. */
   private authorStatusFields(post: PostMock, viewerId: string): Partial<FeedPost> {
     if (post.authorId !== viewerId) return {}
@@ -768,6 +796,7 @@ export class StatefulStubbedAPI implements PositiveOnlySocialAPI {
       original_image_url: post.imageUrl,
       author_username: author ? author.username : '',
       caption: post.caption,
+      ...this.authorAvatarFields(post.authorId),
       ...this.authorStatusFields(post, viewerId),
     }
   }
@@ -829,6 +858,7 @@ export class StatefulStubbedAPI implements PositiveOnlySocialAPI {
       is_reported: post.reports.has(user.id),
       report_reason: post.reports.get(user.id) ?? null,
       author_username: author ? author.username : '',
+      ...this.authorAvatarFields(post.authorId),
       ...this.authorStatusFields(post, user.id),
     }
   }
@@ -953,6 +983,7 @@ export class StatefulStubbedAPI implements PositiveOnlySocialAPI {
         comment_identifier: c.commentIdentifier,
         body: c.body,
         author_username: author ? author.username : '',
+        ...this.authorAvatarFields(c.authorId),
         creation_time: time,
         updated_time: time,
         comment_likes: c.likes.size,
@@ -1073,7 +1104,11 @@ export class StatefulStubbedAPI implements PositiveOnlySocialAPI {
           !current.blockedBy.has(u.id),
       )
       .slice(0, 10)
-      .map((u) => ({ username: u.username, identity_is_verified: u.isVerified }))
+      .map((u) => ({
+        username: u.username,
+        identity_is_verified: u.isVerified,
+        ...this.authorAvatarFields(u.id),
+      }))
   }
 
   async followUser(username: string): Promise<MessageResponse> {
@@ -1136,7 +1171,11 @@ export class StatefulStubbedAPI implements PositiveOnlySocialAPI {
     return this.users
       .filter((u) => user.blocked.has(u.id))
       .sort((a, b) => a.username.localeCompare(b.username))
-      .map((u) => ({ username: u.username, identity_is_verified: u.isVerified }))
+      .map((u) => ({
+        username: u.username,
+        identity_is_verified: u.isVerified,
+        ...this.authorAvatarFields(u.id),
+      }))
   }
 
   async getProfile(username: string): Promise<ProfileDetails> {
@@ -1147,7 +1186,8 @@ export class StatefulStubbedAPI implements PositiveOnlySocialAPI {
     }
     const isBlockedBy = user.blockedBy.has(target.id)
     const postCount = isBlockedBy ? 0 : this.posts.filter((p) => p.authorId === target.id).length
-    return {
+    const liveAvatar = isBlockedBy ? null : target.profileImageUrl
+    const details: ProfileDetails = {
       username: target.username,
       post_count: postCount,
       follower_count: isBlockedBy ? 0 : target.followers.size,
@@ -1156,7 +1196,41 @@ export class StatefulStubbedAPI implements PositiveOnlySocialAPI {
       is_blocked: user.blocked.has(target.id),
       identity_is_verified: target.isVerified,
       is_adult: target.isAdult,
+      profile_image_url: liveAvatar,
+      profile_image_original_url: liveAvatar,
     }
+    // Owner-only moderation state, mirroring the backend.
+    if (target.id === user.id) {
+      details.profile_image_status = target.profileImageStatus
+      details.profile_image_reason_code = target.profileImageReasonCode
+      details.pending_profile_image_url = target.pendingProfileImageUrl
+    }
+    return details
+  }
+
+  async setProfilePhoto(body: SetProfilePhotoRequest): Promise<SetProfilePhotoResponse> {
+    const user = this.requireUser()
+    // The real backend stores the photo pending and classifies it off the
+    // request path; the stub has no classifier, so — like the backend's eager
+    // (no-Redis) mode — it approves immediately, while the response still
+    // reports the initial 'pending' state.
+    user.profileImageUrl = body.image_url
+    user.pendingProfileImageUrl = null
+    user.profileImageStatus = 'approved'
+    user.profileImageReasonCode = null
+    return {
+      profile_image_status: 'pending',
+      message: 'Your photo is being reviewed and will be shown once it is approved.',
+    }
+  }
+
+  async removeProfilePhoto(): Promise<RemoveProfilePhotoResponse> {
+    const user = this.requireUser()
+    user.profileImageUrl = null
+    user.pendingProfileImageUrl = null
+    user.profileImageStatus = 'none'
+    user.profileImageReasonCode = null
+    return { profile_image_status: 'none', message: 'Your profile photo has been removed.' }
   }
 
   // ---------------------------------------------------------------------------
