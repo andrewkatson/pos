@@ -1628,6 +1628,12 @@ def retract_report_post(request, post_identifier):
         logger.warning(f"Retract report post failed: Post {post_identifier} not found")
         return log_and_return_json("retract_report_post", {'error': "No post with that identifier"}, status=400)
 
+    # Treat a cross-band post as absent (issue #329) so the "not reported yet"
+    # vs "no such post" responses cannot be used as an existence oracle.
+    if not in_same_age_band(post.author, request.user):
+        logger.warning(f"Retract report post failed: Post {post_identifier} not visible to user_id: {request.user.id}")
+        return log_and_return_json("retract_report_post", {'error': "No post with that identifier"}, status=400)
+
     deleted_count, _ = post.postreport_set.filter(user=request.user).delete()
     if deleted_count == 0:
         logger.warning(f"Retract report post failed: Post not reported by user_id: {request.user.id}")
@@ -1697,6 +1703,12 @@ def unlike_post(request, post_identifier):
 
     post = get_post_with_identifier(post_identifier)
     if post is not None:
+        # Treat a cross-band post as absent (issue #329) so the "not liked yet"
+        # vs "no such post" responses cannot be used as an existence oracle.
+        if not in_same_age_band(post.author, request.user):
+            logger.warning(f"Unlike post failed: Post {post_identifier} not visible to user_id: {request.user.id}")
+            return log_and_return_json("unlike_post", {'error': "No post with that identifier"}, status=400)
+
         if post.author == request.user:
             logger.warning(f"Unlike post failed: Cannot unlike own post for user_id: {request.user.id}")
             return log_and_return_json("unlike_post", {'error': "Cannot unlike own post"}, status=400)
@@ -2255,6 +2267,13 @@ def unlike_comment(request, post_identifier, comment_thread_identifier, comment_
         logger.warning(f"Unlike comment failed: Comment {comment_identifier} not found")
         return log_and_return_json("unlike_comment", {'error': "Comment not found"}, status=400)
 
+    # Treat a cross-band comment as absent (issue #329) so the "not liked yet"
+    # vs "no such comment" responses cannot be used as an existence oracle.
+    if not in_same_age_band(comment.author, request.user) \
+            or not in_same_age_band(comment.comment_thread.post.author, request.user):
+        logger.warning(f"Unlike comment failed: Comment {comment_identifier} not visible to user_id: {request.user.id}")
+        return log_and_return_json("unlike_comment", {'error': "Comment not found"}, status=400)
+
     if comment.author == request.user:
         logger.warning(f"Unlike comment failed: Cannot unlike own comment for user_id: {request.user.id}")
         return log_and_return_json("unlike_comment", {'error': "Cannot unlike own comment"}, status=400)
@@ -2396,6 +2415,13 @@ def retract_report_comment(request, post_identifier, comment_thread_identifier, 
         )
     except Comment.DoesNotExist:
         logger.warning(f"Retract report comment failed: Comment {comment_identifier} not found")
+        return log_and_return_json("retract_report_comment", {'error': "Comment not found"}, status=400)
+
+    # Treat a cross-band comment as absent (issue #329) so the "not reported
+    # yet" vs "no such comment" responses cannot be used as an existence oracle.
+    if not in_same_age_band(comment.author, request.user) \
+            or not in_same_age_band(comment.comment_thread.post.author, request.user):
+        logger.warning(f"Retract report comment failed: Comment {comment_identifier} not visible to user_id: {request.user.id}")
         return log_and_return_json("retract_report_comment", {'error': "Comment not found"}, status=400)
 
     deleted_count, _ = comment.commentreport_set.filter(user=request.user).delete()

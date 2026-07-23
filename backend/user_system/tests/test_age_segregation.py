@@ -182,6 +182,21 @@ class AgeSegregationTests(PositiveOnlySocialTestCase):
     def test_same_band_like_allowed(self):
         self.assertEqual(self._like_post(self.adult_a, self.adult_b_post).status_code, 200)
 
+    def test_adult_cannot_unlike_or_retract_minor_post(self):
+        # The "undo" endpoints must not leak a cross-band post's existence via a
+        # distinct "not liked/reported yet" response.
+        unlike = self.client.post(
+            reverse('unlike_post', kwargs={'post_identifier': self.minor_a_post}),
+            **self._header(self.adult_a))
+        self.assertEqual(unlike.status_code, 400)
+        self.assertEqual(unlike.json()['error'], "No post with that identifier")
+
+        retract = self.client.post(
+            reverse('retract_report_post', kwargs={'post_identifier': self.minor_a_post}),
+            **self._header(self.adult_a))
+        self.assertEqual(retract.status_code, 400)
+        self.assertEqual(retract.json()['error'], "No post with that identifier")
+
     def test_adult_cannot_like_or_report_minor_comment(self):
         # A minor comments on another minor's post; an adult with the ids must
         # not be able to touch the comment.
@@ -206,3 +221,20 @@ class AgeSegregationTests(PositiveOnlySocialTestCase):
                                   content_type='application/json', **self._header(self.adult_a))
         self.assertEqual(report.status_code, 400)
         self.assertEqual(report.json()['error'], "Comment not found")
+
+        # The comment "undo" endpoints must not leak existence either.
+        unlike_url = reverse('unlike_comment', kwargs={
+            'post_identifier': self.minor_b_post,
+            'comment_thread_identifier': thread_id,
+            'comment_identifier': comment_id})
+        unlike = self.client.post(unlike_url, **self._header(self.adult_a))
+        self.assertEqual(unlike.status_code, 400)
+        self.assertEqual(unlike.json()['error'], "Comment not found")
+
+        retract_url = reverse('retract_report_comment', kwargs={
+            'post_identifier': self.minor_b_post,
+            'comment_thread_identifier': thread_id,
+            'comment_identifier': comment_id})
+        retract = self.client.post(retract_url, **self._header(self.adult_a))
+        self.assertEqual(retract.status_code, 400)
+        self.assertEqual(retract.json()['error'], "Comment not found")

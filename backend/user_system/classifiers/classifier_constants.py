@@ -64,7 +64,7 @@ REASON_PHRASES = {
     'harassment': 'may contain harassment',
     'bullying': 'may contain bullying',
     'misinformation': 'may contain misinformation',
-    'minors': 'may contain images of babies or children',
+    'minors': 'may contain images of babies, children, or anyone under 18',
     GENERIC_REASON_CODE: 'did not meet our positivity guidelines',
 }
 
