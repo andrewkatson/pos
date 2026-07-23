@@ -2206,8 +2206,12 @@ def like_comment(request, post_identifier, comment_thread_identifier, comment_id
         return log_and_return_json("like_comment", {'error': "Comment not found"}, status=400)
 
     # A comment from a different age band is treated as absent, so cross-band
-    # interaction cannot be smuggled in via known ids (issue #329).
-    if not in_same_age_band(comment.author, request.user):
+    # interaction cannot be smuggled in via known ids (issue #329). Both the
+    # comment's author and its post's author must share the caller's band, so
+    # even an inconsistent legacy record (a cross-band comment on a post) stays
+    # unreachable.
+    if not in_same_age_band(comment.author, request.user) \
+            or not in_same_age_band(comment.comment_thread.post.author, request.user):
         logger.warning(f"Like comment failed: Comment {comment_identifier} not visible to user_id: {request.user.id}")
         return log_and_return_json("like_comment", {'error': "Comment not found"}, status=400)
 
@@ -2336,8 +2340,12 @@ def report_comment(request, post_identifier, comment_thread_identifier, comment_
         return log_and_return_json("report_comment", {'error': "Comment not found"}, status=400)
 
     # A comment from a different age band is treated as absent, so cross-band
-    # interaction cannot be smuggled in via known ids (issue #329).
-    if not in_same_age_band(comment.author, request.user):
+    # interaction cannot be smuggled in via known ids (issue #329). Both the
+    # comment's author and its post's author must share the caller's band, so
+    # even an inconsistent legacy record (a cross-band comment on a post) stays
+    # unreachable.
+    if not in_same_age_band(comment.author, request.user) \
+            or not in_same_age_band(comment.comment_thread.post.author, request.user):
         logger.warning(f"Report comment failed: Comment {comment_identifier} not visible to user_id: {request.user.id}")
         return log_and_return_json("report_comment", {'error': "Comment not found"}, status=400)
 
@@ -2655,9 +2663,9 @@ def get_profile_details(request, username):
         logger.warning(f"Get profile details failed: User with username fragment not found")
         return log_and_return_json("get_profile_details", {'error': "User not found"}, status=400)
 
-    # Adults and underage accounts cannot view each other's profiles (issue
-    # #329). Report it as not found (not a distinct error) so neither side can
-    # confirm the other exists by name. The account always sees its own profile.
+    # Adults and underage accounts cannot view each other's profiles
+    # (issue #329). Report it as not found (not a distinct error) so neither
+    # side can confirm the other exists by name. An account sees its own profile.
     if profile_user != request.user and not in_same_age_band(request.user, profile_user):
         logger.warning("Get profile details refused: requester and profile are in different age bands")
         return log_and_return_json("get_profile_details", {'error': "User not found"}, status=400)
