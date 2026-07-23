@@ -49,12 +49,27 @@ def _private_key_pem():
         return inline
     path = (getattr(settings, 'CLOUDFRONT_PRIVATE_KEY_PATH', '') or '').strip()
     if path:
-        try:
-            with open(path, 'r', encoding='utf-8') as f:
-                return f.read().strip()
-        except OSError:
-            logger.exception("Could not read CLOUDFRONT_PRIVATE_KEY_PATH=%s", path)
+        return _read_key_file(path)
     return None
+
+
+# Successful PEM file reads are cached per path so the key is read from disk at
+# most once per process (a signed URL is built once per serialized image, many
+# times per request). Failures are not cached, so a transient read error retries.
+_key_file_cache = {}
+
+
+def _read_key_file(path):
+    if path in _key_file_cache:
+        return _key_file_cache[path]
+    try:
+        with open(path, 'r', encoding='utf-8') as f:
+            pem = f.read().strip()
+    except OSError:
+        logger.exception("Could not read CLOUDFRONT_PRIVATE_KEY_PATH=%s", path)
+        return None
+    _key_file_cache[path] = pem
+    return pem
 
 
 @lru_cache(maxsize=1)
@@ -87,10 +102,13 @@ def _sign(domain, stored_image_url, fallback):
         return fallback
 
     url = urlunparse(('https', domain, f'/{key}', '', '', ''))
-    expiry_seconds = getattr(settings, 'CLOUDFRONT_SIGNED_URL_EXPIRY_SECONDS', 86400)
-    expires_at = datetime.now(timezone.utc) + timedelta(seconds=expiry_seconds)
 
     try:
+        # Inside the try so a mis-typed expiry (e.g. injected via override_settings)
+        # degrades to the fallback rather than 500ing — honoring the graceful
+        # fallback contract.
+        expiry_seconds = int(getattr(settings, 'CLOUDFRONT_SIGNED_URL_EXPIRY_SECONDS', 86400))
+        expires_at = datetime.now(timezone.utc) + timedelta(seconds=expiry_seconds)
         return _signer(key_pair_id, private_key_pem).generate_presigned_url(
             url, date_less_than=expires_at
         )

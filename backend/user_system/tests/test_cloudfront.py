@@ -72,15 +72,20 @@ class CloudFrontSigningTests(SimpleTestCase):
 
     def test_key_pair_id_read_from_file_path(self):
         """The private key may be supplied via a mounted file rather than inline."""
+        import os
         import tempfile
 
         with tempfile.NamedTemporaryFile('w', suffix='.pem', delete=False) as f:
             f.write(PRIVATE_KEY_PEM)
             key_path = f.name
 
-        with override_settings(CLOUDFRONT_PRIVATE_KEY='', CLOUDFRONT_PRIVATE_KEY_PATH=key_path):
-            cloudfront._signer.cache_clear()
-            self._assert_signed(sign_compressed_url(STORED_URL), 'images.example.com')
+        try:
+            with override_settings(CLOUDFRONT_PRIVATE_KEY='', CLOUDFRONT_PRIVATE_KEY_PATH=key_path):
+                cloudfront._signer.cache_clear()
+                self._assert_signed(sign_compressed_url(STORED_URL), 'images.example.com')
+        finally:
+            cloudfront._key_file_cache.pop(key_path, None)
+            os.unlink(key_path)
 
 
 class CloudFrontFallbackTests(SimpleTestCase):

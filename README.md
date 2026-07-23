@@ -282,7 +282,8 @@ file); optionally `CLOUDFRONT_SIGNED_URL_EXPIRY_SECONDS`.
 **One-time AWS setup (not automated):**
 
 1. Two CloudFront distributions with Origin Access Control to the compressed and
-   source buckets, each on a custom domain (`images.` / `originals.smiling.social`)
+   source buckets, each on a custom domain (`images.smiling.social` /
+   `originals.smiling.social`)
    with an ACM cert and DNS.
 2. Turn on Block Public Access for both buckets and set a bucket policy allowing
    only the two OAC principals (removing any legacy public-read).
