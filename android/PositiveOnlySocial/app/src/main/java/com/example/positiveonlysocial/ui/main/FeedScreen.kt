@@ -207,7 +207,8 @@ fun PostItem(
             ProfileAvatar(
                 imageUrl = post.authorProfileImageUrl,
                 originalImageUrl = post.authorProfileImageOriginalUrl,
-                contentDescription = "${post.authorUsername}'s profile photo",
+                // Decorative — the author username is rendered right next to it.
+                contentDescription = null,
                 size = 32.dp
             )
             Text(

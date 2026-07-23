@@ -86,7 +86,8 @@ fun BlockedUsersScreen(
                         ProfileAvatar(
                             imageUrl = user.authorProfileImageUrl,
                             originalImageUrl = user.authorProfileImageOriginalUrl,
-                            contentDescription = "${user.username}'s profile photo",
+                            // Decorative — the username is rendered next to it.
+                            contentDescription = null,
                             size = 32.dp
                         )
                         Spacer(Modifier.width(8.dp))

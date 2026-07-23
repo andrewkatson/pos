@@ -185,7 +185,10 @@ fun ProfileBody(
             ProfileAvatar(
                 imageUrl = pendingAvatar ?: profileDetails?.profileImageUrl,
                 originalImageUrl = pendingAvatar ?: profileDetails?.profileImageOriginalUrl,
-                contentDescription = "$username's profile photo",
+                // Decorative: the username is shown right here in the header, so a
+                // contentDescription would make TalkBack announce it twice (the
+                // website uses alt="" and iOS accessibilityHidden for the same).
+                contentDescription = null,
                 size = 96.dp
             )
 

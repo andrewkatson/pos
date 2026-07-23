@@ -106,7 +106,8 @@ fun HomeScreen(
                                 ProfileAvatar(
                                     imageUrl = user.authorProfileImageUrl,
                                     originalImageUrl = user.authorProfileImageOriginalUrl,
-                                    contentDescription = "${user.username}'s profile photo",
+                                    // Decorative — the username is rendered next to it.
+                                    contentDescription = null,
                                     size = 40.dp
                                 )
                                 Spacer(modifier = Modifier.width(16.dp))

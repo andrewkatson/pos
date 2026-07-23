@@ -5,8 +5,10 @@ interface AvatarProps {
   src?: string | null
   /** Full-resolution fallback used if the compressed URL fails to load. */
   originalSrc?: string | null
-  /** The user the photo belongs to, for the alt text. */
-  username: string
+  /** Whose avatar this is. Optional and currently unused: the avatar is
+   * decorative (the username is always rendered adjacent, so the image carries
+   * an empty alt); kept for callers and any future non-decorative use. */
+  username?: string
   size?: 'sm' | 'md' | 'lg'
   className?: string
 }

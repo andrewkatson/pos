@@ -288,7 +288,8 @@ fun PostDetailScreen(
                                 ProfileAvatar(
                                     imageUrl = post.authorProfileImageUrl,
                                     originalImageUrl = post.authorProfileImageOriginalUrl,
-                                    contentDescription = "${post.authorUsername}'s profile photo",
+                                    // Decorative — the author username is next to it.
+                                    contentDescription = null,
                                     size = 28.dp,
                                     modifier = Modifier.clickable {
                                         navController.openProfileFor(post.authorUsername, currentUsername)
@@ -468,7 +469,8 @@ fun CommentRow(
         ProfileAvatar(
             imageUrl = comment.authorProfileImageUrl,
             originalImageUrl = comment.authorProfileImageOriginalUrl,
-            contentDescription = "${comment.authorUsername}'s profile photo",
+            // Decorative — the comment author username is rendered next to it.
+            contentDescription = null,
             size = 32.dp,
             modifier = Modifier.clickable { onAuthorClick(comment.authorUsername) }
         )
