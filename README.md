@@ -238,6 +238,59 @@ real login from the device they signed up on is not flagged. Both the
 password login and the remember-me login paths perform the check. Sending the
 email is best-effort — a mail failure is logged but never blocks the login.
 
+## Serving post images
+
+Post images live in two S3 buckets: clients upload the original to the source
+bucket (`AWS_STORAGE_BUCKET_NAME`) and a Lambda mirrors a compressed copy to
+`AWS_COMPRESSED_STORAGE_BUCKET_NAME` under the same key.
+
+Both buckets are **private** (S3 Block Public Access + an Origin Access Control
+bucket policy). Reads happen only through CloudFront, and the backend signs every
+image URL it hands to a client, so an image is fetchable only with a valid,
+time-limited signature — a bare object URL returns 403 (issues #332, #341).
+Uploads are likewise never anonymous: clients PUT via short-lived presigned URLs
+minted by `POST /posts/upload-url/` (issue #310), so no client ever holds AWS
+credentials for either direction.
+
+Because the two buckets hold the same object key, two CloudFront domains front
+them (no URI rewriting needed):
+
+- `CLOUDFRONT_IMAGES_DOMAIN` → distribution → compressed bucket. The serialized
+  `image_url` is signed on this domain.
+- `CLOUDFRONT_ORIGINALS_DOMAIN` → distribution → source bucket. The serialized
+  `original_image_url` (the full-res fallback used while the async-compressed copy
+  is still missing, #252/#254) is signed on this domain.
+
+Signing lives in `backend/user_system/cloudfront.py` (`sign_compressed_url` /
+`sign_original_url`), invoked from every post-serialization site in `views.py`. A
+signed URL carries the object key as its path but **no bucket name**, and stays
+valid for `CLOUDFRONT_SIGNED_URL_EXPIRY_SECONDS` (default 24h — comfortably longer
+than a session, since clients embed these URLs in payloads they refetch on
+mount/refresh, while still bounding a leaked URL). Server-side image access (the
+classifier, `delete_image`, the orphan sweeper, `strip_image_metadata`) goes
+through credentialed boto3 and is unaffected by the buckets being private.
+
+If the CloudFront settings are unset — local dev, tests, or a not-yet-provisioned
+deploy — signing degrades gracefully to the legacy unsigned URLs, so nothing
+breaks; the read hole only actually closes once the infra below exists.
+
+**Backend env vars:** `CLOUDFRONT_IMAGES_DOMAIN`, `CLOUDFRONT_ORIGINALS_DOMAIN`,
+`CLOUDFRONT_KEY_PAIR_ID`, and the signing private key as either
+`CLOUDFRONT_PRIVATE_KEY` (inline PEM) or `CLOUDFRONT_PRIVATE_KEY_PATH` (a mounted
+file); optionally `CLOUDFRONT_SIGNED_URL_EXPIRY_SECONDS`.
+
+**One-time AWS setup (not automated):**
+
+1. Two CloudFront distributions with Origin Access Control to the compressed and
+   source buckets, each on a custom domain (`images.smiling.social` /
+   `originals.smiling.social`)
+   with an ACM cert and DNS.
+2. Turn on Block Public Access for both buckets and set a bucket policy allowing
+   only the two OAC principals (removing any legacy public-read).
+3. Create a CloudFront public key + key group (trusted signer) and attach it to
+   both distributions; deliver the matching private key to the backend as
+   `CLOUDFRONT_PRIVATE_KEY[_PATH]` and its id as `CLOUDFRONT_KEY_PAIR_ID`.
+
 ## Post image cleanup
 
 Post images live in two S3 buckets: clients upload the original to the source

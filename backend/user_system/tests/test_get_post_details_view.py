@@ -1,5 +1,10 @@
+from urllib.parse import parse_qs, urlparse
+
+from django.test import override_settings
 from django.urls import reverse
 from .test_parent_case import PositiveOnlySocialTestCase
+from .test_cloudfront import PRIVATE_KEY_PEM
+from .. import cloudfront
 from ..constants import Fields
 
 invalid_post_identifier = '?'
@@ -128,6 +133,36 @@ class GetPostDetailsTests(PositiveOnlySocialTestCase):
         data = response.json()
         self.assertIsNone(data[Fields.image_url])
         self.assertEqual(data[Fields.caption], self.post.caption)
+
+    @override_settings(
+        CLOUDFRONT_IMAGES_DOMAIN='images.example.com',
+        CLOUDFRONT_ORIGINALS_DOMAIN='originals.example.com',
+        CLOUDFRONT_KEY_PAIR_ID='K123456789',
+        CLOUDFRONT_PRIVATE_KEY=PRIVATE_KEY_PEM,
+        CLOUDFRONT_PRIVATE_KEY_PATH='',
+    )
+    def test_image_urls_are_cloudfront_signed_when_configured(self):
+        """
+        With CloudFront configured, image_url/original_image_url are served as
+        signed URLs on the custom domains (#332/#341): no bucket name, and a
+        stripped bare URL would be rejected by CloudFront.
+        """
+        cloudfront._signer.cache_clear()
+
+        data = self.client.get(self.url, **self.header).json()
+
+        for field, expected_host in (
+            (Fields.image_url, 'images.example.com'),
+            (Fields.original_image_url, 'originals.example.com'),
+        ):
+            parsed = urlparse(data[field])
+            self.assertEqual(parsed.netloc, expected_host)
+            # The stored key is preserved; the bucket name is gone.
+            self.assertEqual(parsed.path, urlparse(self.post.image_url).path)
+            self.assertNotIn('test-bucket', data[field])
+            qs = parse_qs(parsed.query)
+            self.assertIn('Signature', qs)
+            self.assertEqual(qs['Key-Pair-Id'], ['K123456789'])
 
     def test_is_liked_true_when_requesting_user_liked_post(self):
         """
