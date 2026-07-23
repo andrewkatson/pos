@@ -198,13 +198,15 @@ function NewPostTab({ onPosted }: NewPostTabProps) {
         <span className="auth-label" id="bg-color-label">
           Background color
         </span>
-        <div className="color-swatches" role="radiogroup" aria-labelledby="bg-color-label">
+        {/* Toggle buttons in a labeled group rather than an ARIA radiogroup:
+            a radiogroup implies roving-tabindex/arrow-key navigation we don't
+            implement, so aria-pressed toggles are the more honest semantics. */}
+        <div className="color-swatches" role="group" aria-labelledby="bg-color-label">
           {BACKGROUND_COLOR_OPTIONS.map(option => (
             <button
               key={option.key}
               type="button"
-              role="radio"
-              aria-checked={option.key === backgroundColor}
+              aria-pressed={option.key === backgroundColor}
               aria-label={option.label}
               className={`color-swatch post-bg--${option.key}${
                 option.key === backgroundColor ? ' color-swatch--selected' : ''

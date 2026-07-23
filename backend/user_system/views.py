@@ -220,8 +220,10 @@ def _utf16_length(text):
     expressed in UTF-16 units so JS/Kotlin/Swift clients (all UTF-16 or with a
     native .utf16 view) can index the string identically; Python strings are
     code-point based, so we measure the UTF-16 length explicitly for bounds
-    checks."""
-    return len(text.encode("utf-16-le")) // 2
+    checks. `surrogatepass` is used so a payload containing a lone surrogate
+    (which the JSON decoder can produce, e.g. "\\ud800") is measured rather than
+    raising UnicodeEncodeError and turning a malformed request into a 500."""
+    return len(text.encode("utf-16-le", "surrogatepass")) // 2
 
 
 def validate_comment_formatting(raw, body):

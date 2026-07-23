@@ -38,19 +38,23 @@ function FormattedText({ text, spans, className }: FormattedTextProps) {
       parts.push(<span key={`plain-${i}`}>{text.slice(cursor, start)}</span>)
     }
 
-    const styleClass = [
-      span.bold ? 'fmt-bold' : '',
-      span.italic ? 'fmt-italic' : '',
-      textSizeClass(span.size),
-    ]
-      .filter(Boolean)
-      .join(' ')
+    // Skip zero-length spans (e.g. a malformed payload clamped to start===end)
+    // so we don't emit empty styled nodes; still advance the cursor.
+    if (end > start) {
+      const styleClass = [
+        span.bold ? 'fmt-bold' : '',
+        span.italic ? 'fmt-italic' : '',
+        textSizeClass(span.size),
+      ]
+        .filter(Boolean)
+        .join(' ')
 
-    parts.push(
-      <span key={`fmt-${i}`} className={styleClass || undefined}>
-        {text.slice(start, end)}
-      </span>,
-    )
+      parts.push(
+        <span key={`fmt-${i}`} className={styleClass || undefined}>
+          {text.slice(start, end)}
+        </span>,
+      )
+    }
     cursor = end
   })
 

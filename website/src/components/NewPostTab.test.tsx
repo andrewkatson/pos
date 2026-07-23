@@ -112,7 +112,7 @@ test('sends the chosen caption font and background color (#318)', async () => {
 
   await userEvent.type(screen.getByLabelText('Caption'), 'styled words')
   await userEvent.selectOptions(screen.getByLabelText('Font'), 'serif')
-  await userEvent.click(screen.getByRole('radio', { name: 'Mint' }))
+  await userEvent.click(screen.getByRole('button', { name: 'Mint' }))
   await userEvent.click(screen.getByRole('button', { name: 'Share Post' }))
 
   await waitFor(() =>

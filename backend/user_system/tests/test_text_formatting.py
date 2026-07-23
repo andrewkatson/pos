@@ -144,3 +144,14 @@ class CommentFormattingTests(PositiveOnlySocialTestCase):
     def test_non_list_formatting_rejected(self):
         response = self._comment(formatting={'start': 0, 'end': 4, 'bold': True})
         self.assertEqual(response.status_code, 400)
+
+    def test_lone_surrogate_does_not_crash_length_check(self):
+        # A crafted lone surrogate (which json.loads can produce, e.g. "\ud800")
+        # must be measured, not raise UnicodeEncodeError -> 500 (a trivial DoS).
+        from ..views import _utf16_length, validate_comment_formatting
+        text = "hi \ud800 there"  # 10 code points, all single UTF-16 units
+        self.assertEqual(_utf16_length(text), len(text))
+        formatting, error = validate_comment_formatting(
+            [{'start': 0, 'end': 2, 'bold': True}], text)
+        self.assertIsNone(error)
+        self.assertEqual(formatting[0]['end'], 2)
