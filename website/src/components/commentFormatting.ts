@@ -37,6 +37,11 @@ export function emptyAttrs(len: number): CharAttrs {
 export function reconcileAttrs(prev: CharAttrs, oldText: string, newText: string): CharAttrs {
   if (oldText === newText) return prev
 
+  // Normalize to the expected length first, so a `prev` that has drifted out of
+  // sync with `oldText` (batched updates, an out-of-sync caller) can't produce a
+  // wrongly sized result that later indexing would run off the end of.
+  const base = prev.length === oldText.length ? prev : emptyAttrs(oldText.length)
+
   const minLen = Math.min(oldText.length, newText.length)
   let prefix = 0
   while (prefix < minLen && oldText[prefix] === newText[prefix]) prefix++
@@ -49,8 +54,8 @@ export function reconcileAttrs(prev: CharAttrs, oldText: string, newText: string
     suffix++
   }
 
-  const head = prev.slice(0, prefix)
-  const tail = prev.slice(oldText.length - suffix)
+  const head = base.slice(0, prefix)
+  const tail = base.slice(oldText.length - suffix)
   const insertedLen = newText.length - suffix - prefix
   const inserted = emptyAttrs(Math.max(0, insertedLen))
   return [...head, ...inserted, ...tail]
@@ -81,7 +86,9 @@ export function toggleRange(
   if (start >= end) return attrs
   let allOn = true
   for (let i = start; i < end; i++) {
-    if (!attrs[i][key]) {
+    // Guard the index: a missing entry (if attrs ever falls behind text) counts
+    // as "off" rather than throwing.
+    if (!attrs[i]?.[key]) {
       allOn = false
       break
     }
