@@ -197,7 +197,9 @@ struct RegisterView: View {
                     ip: "127.0.0.1",
                     dateOfBirth: dateString
                 )
-                let membershipNumber = (try? JSONDecoder().decode(RegisterResponse.self, from: data))?.membershipNumber
+                // `flatMap` keeps the result a plain `Int?` (the decode is
+                // optional and so is the field) rather than a nested optional.
+                let membershipNumber = (try? JSONDecoder().decode(RegisterResponse.self, from: data)).flatMap { $0.membershipNumber }
 
                 // The account can't do anything until the emailed verification
                 // link is used (issue #237), so don't keep the registration
