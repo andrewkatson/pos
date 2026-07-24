@@ -75,6 +75,34 @@ advertises comments the viewer would not be shown.
 
 Deleting a post from a list removes just that row; the list is not reloaded,
 which would otherwise reshuffle the weighted feed ordering under the user.
+
+## Text formatting (issue #318)
+
+Authors can style their text. The two surfaces work differently because the
+styling means different things:
+
+- **Post captions** carry a **whole-caption font** (`caption_font`) and a
+  **whole-tile background color** (`background_color`). Both are single
+  curated **keys**, not free-form values: fonts are `default`, `serif`,
+  `monospace`, `rounded`, `handwriting`; colors are `default`, `sky`, `mint`,
+  `blush`, `lemon`, `lavender`. Each client maps a key to a concrete,
+  contrast-checked font/color, so rendering stays consistent and legible across
+  web, iOS, and Android. Unknown keys are rejected; `default` reproduces the
+  original rendering, so legacy posts and older clients are unaffected.
+- **Comments** carry **inline** formatting (`body_formatting`): a list of range
+  **spans** over the plain comment text, each `{start, end, bold, italic,
+  size}`, where `size` is one of `small`/`normal`/`large`/`xlarge` and offsets
+  are **UTF-16 code-unit** indices (so JS/Kotlin/Swift index the string
+  identically). Spans must stay within bounds, be sorted and non-overlapping,
+  carry at least one active style, and number at most 100.
+
+The key invariant: **formatting never changes the text itself.** The caption
+and comment body are stored and moderated exactly as before — the AI
+classifiers and every input-validation rule run on the untouched plain text,
+and the formatting is separate metadata. There is no markup to parse, sanitize,
+or classify, and clients render styles by applying attributes to plain-text
+spans rather than interpreting embedded markup.
+
 ## Post classification (async)
 
 Every new post is checked against the guidelines by an AI classifier — a text

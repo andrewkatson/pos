@@ -161,6 +161,8 @@ final class PostDetailViewModel: ObservableObject {
                     imageURL: postFields.image_url,
                     originalImageURL: postFields.original_image_url,
                     caption: postFields.caption,
+                    captionFont: postFields.caption_font ?? "default",
+                    backgroundColor: postFields.background_color ?? "default",
                     likeCount: postFields.post_likes,
                     isLiked: postFields.is_liked,
                     authorUsername: postFields.author_username,
@@ -198,6 +200,7 @@ final class PostDetailViewModel: ObservableObject {
                                     authorProfileImageURL: field.author_profile_image_url,
                                     authorProfileImageOriginalURL: field.author_profile_image_original_url,
                                     body: field.body,
+                                    formatting: field.body_formatting,
                                     likeCount: field.comment_likes,
                                     isLiked: field.is_liked,
                                     createdDate: Self.parseDate(field.creation_time),
@@ -251,6 +254,8 @@ final class PostDetailViewModel: ObservableObject {
                 imageURL: post.imageURL,
                 originalImageURL: post.originalImageURL,
                 caption: post.caption,
+                captionFont: post.captionFont,
+                backgroundColor: post.backgroundColor,
                 likeCount: post.likeCount + 1, // Optimistic update
                 isLiked: true,
                 authorUsername: post.authorUsername,
@@ -290,6 +295,8 @@ final class PostDetailViewModel: ObservableObject {
                 imageURL: post.imageURL,
                 originalImageURL: post.originalImageURL,
                 caption: post.caption,
+                captionFont: post.captionFont,
+                backgroundColor: post.backgroundColor,
                 likeCount: max(0, post.likeCount - 1), // Optimistic update
                 isLiked: false,
                 authorUsername: post.authorUsername,
@@ -451,6 +458,7 @@ final class PostDetailViewModel: ObservableObject {
             authorProfileImageURL: oldComment.authorProfileImageURL,
             authorProfileImageOriginalURL: oldComment.authorProfileImageOriginalURL,
             body: oldComment.body,
+            formatting: oldComment.formatting,
             likeCount: oldComment.likeCount + 1, // The update
             isLiked: true,
             createdDate: oldComment.createdDate,
@@ -503,6 +511,7 @@ final class PostDetailViewModel: ObservableObject {
             authorProfileImageURL: oldComment.authorProfileImageURL,
             authorProfileImageOriginalURL: oldComment.authorProfileImageOriginalURL,
             body: oldComment.body,
+            formatting: oldComment.formatting,
             likeCount: newLikeCount, // The update
             isLiked: false,
             createdDate: oldComment.createdDate,
@@ -583,9 +592,10 @@ final class PostDetailViewModel: ObservableObject {
     }
 
     /// Creates a new comment (and thus a new thread) on the post.
-    func commentOnPost(commentText: String) {
+    /// `formatting` carries optional inline styling spans (issue #318).
+    func commentOnPost(commentText: String, formatting: [CommentFormatSpan]? = nil) {
         guard !commentText.isEmpty else { return }
-        
+
         NSLog("%@", "ACTION: Commenting on post \(postIdentifier)")
         Task {
             do {
@@ -599,7 +609,8 @@ final class PostDetailViewModel: ObservableObject {
                 _ = try await api.commentOnPost(
                     sessionManagementToken: token,
                     postIdentifier: postIdentifier,
-                    commentText: commentText
+                    commentText: commentText,
+                    formatting: formatting
                 )
                 
                 // Success! Clear the text field and reload all data to show the new comment.
@@ -613,9 +624,10 @@ final class PostDetailViewModel: ObservableObject {
     }
     
     /// Replies to an existing comment thread.
-    func replyToCommentThread(thread: CommentThreadViewData, commentText: String) {
+    /// `formatting` carries optional inline styling spans (issue #318).
+    func replyToCommentThread(thread: CommentThreadViewData, commentText: String, formatting: [CommentFormatSpan]? = nil) {
         guard !commentText.isEmpty else { return }
-        
+
         NSLog("%@", "ACTION: Replying to thread \(thread.id)")
         Task {
             do {
@@ -630,7 +642,8 @@ final class PostDetailViewModel: ObservableObject {
                     sessionManagementToken: token,
                     postIdentifier: postIdentifier,
                     commentThreadIdentifier: thread.id,
-                    commentText: commentText
+                    commentText: commentText,
+                    formatting: formatting
                 )
                 
                 // Success! Reload all data to show the new reply.
@@ -653,6 +666,10 @@ final class PostDetailViewModel: ObservableObject {
         /// Optional so responses that predate the field still decode.
         let original_image_url: String?
         let caption: String
+        /// Caption font + background color keys (issue #318); optional so
+        /// responses that predate the fields still decode.
+        let caption_font: String?
+        let background_color: String?
         /// When the post was created. Optional so responses that predate the
         /// field still decode.
         //TODO: eBlender rename to camelCase creationTime (via CodingKeys).
@@ -677,6 +694,8 @@ final class PostDetailViewModel: ObservableObject {
     private struct CommentFields: Decodable {
         let comment_identifier: String
         let body: String
+        /// Inline formatting spans over `body` (issue #318); nil = plain text.
+        let body_formatting: [CommentFormatSpan]?
         let author_username: String
         /// The comment author's approved profile photo (issue #7); nil when they
         /// have none or on older responses.

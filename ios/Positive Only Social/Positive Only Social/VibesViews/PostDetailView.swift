@@ -41,7 +41,9 @@ struct PostDetailView: View {
                     PostDetailImage(
                         imageUrl: post.imageURL,
                         originalImageUrl: post.originalImageURL,
-                        caption: post.caption
+                        caption: post.caption,
+                        captionFont: post.captionFont,
+                        backgroundColor: post.backgroundColor
                     )
                     .accessibilityElement(children: .ignore)  // Treat as single element
                     .accessibilityIdentifier("PostImage")
@@ -121,7 +123,9 @@ struct PostDetailView: View {
                                     .fontWeight(.bold)
                             }
                             .accessibilityIdentifier("PostAuthor")
+                            // Apply the author's chosen caption font (issue #318).
                             Text(post.caption)
+                                .font(TextFormatting.captionFont(post.captionFont, size: UIFont.preferredFont(forTextStyle: .body).pointSize))
                         }
                         // When the post was made, at the same coarse granularity
                         // as comment times (issue #174). Older backend responses
@@ -289,14 +293,14 @@ struct PostDetailView: View {
         }
         // The "Add a comment" composer for a brand new comment on the post.
         .sheet(isPresented: $viewModel.showAddCommentSheet) {
-            CommentComposerView(title: "Add Comment") { commentText in
-                viewModel.commentOnPost(commentText: commentText)
+            CommentComposerView(title: "Add Comment") { commentText, formatting in
+                viewModel.commentOnPost(commentText: commentText, formatting: formatting)
             }
         }
         // The same composer, reused for replying to an existing thread.
         .sheet(item: $viewModel.threadToReplyTo) { thread in
-            CommentComposerView(title: "Post Reply") { commentText in
-                viewModel.replyToCommentThread(thread: thread, commentText: commentText)
+            CommentComposerView(title: "Post Reply") { commentText, formatting in
+                viewModel.replyToCommentThread(thread: thread, commentText: commentText, formatting: formatting)
             }
         }
         .alert(isPresented: .constant(viewModel.alertMessage != nil), content: {
@@ -328,6 +332,9 @@ struct PostDetailImage: View {
     let imageUrl: String?
     let originalImageUrl: String?
     let caption: String
+    /// Caption font + background color keys for a text-only tile (issue #318).
+    var captionFont: String = "default"
+    var backgroundColor: String = "default"
 
     // Once the compressed URL genuinely fails, switch to the original and let
     // Kingfisher load the new URL.
@@ -360,8 +367,9 @@ struct PostDetailImage: View {
                 .aspectRatio(1, contentMode: .fit)
         } else {
             // A text-only post (#307): the caption is the tile,
-            // with the same square footprint and gestures.
-            CaptionTileView(caption: caption, lineLimit: nil)
+            // with the same square footprint and gestures, styled with the
+            // author's chosen font/background color (issue #318).
+            CaptionTileView(caption: caption, lineLimit: nil, captionFont: captionFont, backgroundColor: backgroundColor)
                 .aspectRatio(1, contentMode: .fit)
         }
     }

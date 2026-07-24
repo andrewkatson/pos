@@ -81,6 +81,9 @@ fileprivate struct MockPost {
     // Nil for a text-only post (#307).
     var imageURL: String?
     var caption: String
+    // Whole-caption font + whole-tile background color keys (issue #318).
+    var captionFont: String = "default"
+    var backgroundColor: String = "default"
     var likes: [String] = [] // Usernames of likers
     var reports: [(username: String, reason: String)] = []
     var commentThreads: [MockCommentThread] = []
@@ -98,6 +101,8 @@ fileprivate struct PostListingFields: Codable {
     let post_identifier: String
     let image_url: String?
     let caption: String
+    let caption_font: String
+    let background_color: String
     let author_username: String
     /// The post author's approved profile photo (issue #7), or nil. Compressed
     /// and original point at the same stub URL, mirroring the backend fields.
@@ -132,6 +137,8 @@ fileprivate struct MockComment {
     let threadId: String
     var authorUsername: String
     var body: String
+    /// Inline formatting spans over `body` (issue #318); nil = plain.
+    var bodyFormatting: [CommentFormatSpan]? = nil
     var likes: [String] = []
     var reports: [(username: String, reason: String)] = []
     var isHidden: Bool = false
@@ -224,6 +231,8 @@ final class StatefulStubbedAPI: Networking {
             post_identifier: post.postIdentifier,
             image_url: post.imageURL,
             caption: post.caption,
+            caption_font: post.captionFont,
+            background_color: post.backgroundColor,
             author_username: users.first(where: { $0.id == post.authorId })?.username ?? "Unknown User",
             author_profile_image_url: authorAvatar,
             author_profile_image_original_url: authorAvatar,
@@ -652,7 +661,7 @@ final class StatefulStubbedAPI: Networking {
         return try createSerializedResponse(fields: Fields(upload_url: "\(imageUrl)?X-Amz-Signature=stub", image_url: imageUrl))
     }
 
-    func makePost(sessionManagementToken: String, imageURL: String?, caption: String) async throws -> Data {
+    func makePost(sessionManagementToken: String, imageURL: String?, caption: String, captionFont: String = "default", backgroundColor: String = "default") async throws -> Data {
         await simulateNetwork()
         guard let user = findUser(bySessionToken: sessionManagementToken) else { throw APIError.badServerResponse(statusCode: 400) }
         // Stub pre-filter, mirroring the backend's cheap inline check (#282): a
@@ -661,6 +670,8 @@ final class StatefulStubbedAPI: Networking {
             throw APIError.serverError(statusCode: 400, serverMessage: "Text is not positive because your caption did not meet our positivity guidelines. This decision is final and cannot be appealed.")
         }
         var newPost = MockPost(authorId: user.id, imageURL: imageURL, caption: caption)
+        newPost.captionFont = captionFont
+        newPost.backgroundColor = backgroundColor
         newPost.isHidden = true
         newPost.hiddenReason = "pending_classification"
         // The real backend classifies asynchronously in a worker; the stub
@@ -956,6 +967,8 @@ final class StatefulStubbedAPI: Networking {
             let post_identifier: String
             let image_url: String?
             let caption: String
+            let caption_font: String
+            let background_color: String
             //TODO: eBlender rename to camelCase creationTime (via CodingKeys).
             let creation_time: String
             let post_likes: Int
@@ -972,6 +985,8 @@ final class StatefulStubbedAPI: Networking {
             post_identifier: post.postIdentifier,
             image_url: post.imageURL,
             caption: post.caption,
+            caption_font: post.captionFont,
+            background_color: post.backgroundColor,
             // Mirror Django's DjangoJSONEncoder, which emits a colon-separated UTC
             // offset with fractional seconds (e.g. "…+00:00"), not a "Z" suffix, so
             // the client's date parsing is exercised against the real backend format.
@@ -991,13 +1006,14 @@ final class StatefulStubbedAPI: Networking {
         return try createSerializedResponse(fields: fields)
     }
 
-    func commentOnPost(sessionManagementToken: String, postIdentifier: String, commentText: String) async throws -> Data {
+    func commentOnPost(sessionManagementToken: String, postIdentifier: String, commentText: String, formatting: [CommentFormatSpan]? = nil) async throws -> Data {
         await simulateNetwork()
         guard let user = findUser(bySessionToken: sessionManagementToken) else { throw APIError.badServerResponse(statusCode: 400) }
         guard findPost(byIdentifier: postIdentifier) != nil else { throw APIError.badServerResponse(statusCode: 400) }
 
         var newThread = MockCommentThread(postId: postIdentifier)
-        let newComment = MockComment(threadId: newThread.commentThreadIdentifier, authorUsername: user.username, body: commentText)
+        var newComment = MockComment(threadId: newThread.commentThreadIdentifier, authorUsername: user.username, body: commentText)
+        newComment.bodyFormatting = formatting
         newThread.comments.append(newComment)
         
         comments.append(newComment)
@@ -1008,12 +1024,13 @@ final class StatefulStubbedAPI: Networking {
         return try createSerializedResponse(fields: fields)
     }
 
-    func replyToCommentThread(sessionManagementToken: String, postIdentifier: String, commentThreadIdentifier: String, commentText: String) async throws -> Data {
+    func replyToCommentThread(sessionManagementToken: String, postIdentifier: String, commentThreadIdentifier: String, commentText: String, formatting: [CommentFormatSpan]? = nil) async throws -> Data {
         await simulateNetwork()
         guard let user = findUser(bySessionToken: sessionManagementToken) else { throw APIError.badServerResponse(statusCode: 400) }
         guard let threadIndex = commentThreads.firstIndex(where: { $0.commentThreadIdentifier == commentThreadIdentifier }) else { throw APIError.badServerResponse(statusCode: 400) }
 
-        let newComment = MockComment(threadId: commentThreadIdentifier, authorUsername: user.username, body: commentText)
+        var newComment = MockComment(threadId: commentThreadIdentifier, authorUsername: user.username, body: commentText)
+        newComment.bodyFormatting = formatting
         commentThreads[threadIndex].comments.append(newComment)
         comments.append(newComment)
         
@@ -1115,6 +1132,7 @@ final class StatefulStubbedAPI: Networking {
             let comment_identifier, body, author_username: String
             let author_profile_image_url: String?
             let author_profile_image_original_url: String?
+            let body_formatting: [CommentFormatSpan]?
             let creation_time, updated_time: String
             let comment_likes: Int
             let is_liked: Bool
@@ -1129,6 +1147,7 @@ final class StatefulStubbedAPI: Networking {
             return Fields(comment_identifier: comment.commentIdentifier, body: comment.body, author_username: comment.authorUsername,
                    author_profile_image_url: authorAvatar,
                    author_profile_image_original_url: authorAvatar,
+                   body_formatting: comment.bodyFormatting,
                    creation_time: dateFormatter.string(from: comment.createdDate),
                    updated_time: dateFormatter.string(from: comment.updatedDate),
                    comment_likes: comment.likes.count,
@@ -1455,6 +1474,8 @@ final class StatefulStubbedAPI: Networking {
             let post_identifier: String
             let image_url: String?
             let caption: String
+            let caption_font: String
+            let background_color: String
             let hidden_reason: String
             let has_appeal: Bool
         }
@@ -1463,6 +1484,7 @@ final class StatefulStubbedAPI: Networking {
 
         let fields = hidden[startIndex..<endIndex].map {
             Fields(post_identifier: $0.postIdentifier, image_url: $0.imageURL, caption: $0.caption,
+                   caption_font: $0.captionFont, background_color: $0.backgroundColor,
                    hidden_reason: $0.hiddenReason, has_appeal: hasAppeal(forTarget: $0.postIdentifier))
         }
         return try createSerializedListResponse(fieldsList: fields)
@@ -1480,6 +1502,7 @@ final class StatefulStubbedAPI: Networking {
         struct Fields: Codable {
             let comment_identifier: String
             let body: String
+            let body_formatting: [CommentFormatSpan]?
             let hidden_reason: String
             let has_appeal: Bool
         }
@@ -1488,6 +1511,7 @@ final class StatefulStubbedAPI: Networking {
 
         let fields = hidden[startIndex..<endIndex].map {
             Fields(comment_identifier: $0.commentIdentifier, body: $0.body,
+                   body_formatting: $0.bodyFormatting,
                    hidden_reason: $0.hiddenReason, has_appeal: hasAppeal(forTarget: $0.commentIdentifier))
         }
         return try createSerializedListResponse(fieldsList: fields)

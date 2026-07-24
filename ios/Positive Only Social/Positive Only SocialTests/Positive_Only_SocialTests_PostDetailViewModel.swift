@@ -545,4 +545,53 @@ struct Positive_Only_SocialTests_PostDetailViewModel {
         sut.toggleCommentCollapsed("c1")
         #expect(sut.collapsedCommentIds == ["c2"])
     }
+
+    // MARK: - Text formatting (issue #318)
+
+    @Test func testCaptionStyleRoundTrips() async throws {
+        let account = "captionStyle_account"
+        _ = try await setupLoggedInUser(username: "viewer", account: account)
+        let ownerToken = try await registerUserAndGetToken(username: "styleOwner")
+
+        let data = try await stubAPI.makePost(
+            sessionManagementToken: ownerToken, imageURL: nil, caption: "styled words",
+            captionFont: "serif", backgroundColor: "mint")
+        struct PostFields: Decodable { let post_identifier: String }
+        let postID = try JSONDecoder().decode(PostFields.self, from: data).post_identifier
+
+        let sut = PostDetailViewModel(postIdentifier: postID, api: stubAPI, keychainHelper: keychainHelper, account: account)
+        await yield()
+
+        #expect(sut.postDetail?.captionFont == "serif")
+        #expect(sut.postDetail?.backgroundColor == "mint")
+    }
+
+    @Test func testCommentFormattingRoundTrips() async throws {
+        let account = "commentFormatting_account"
+        _ = try await setupLoggedInUser(username: "viewer", account: account)
+        let ownerToken = try await registerUserAndGetToken(username: "fmtOwner")
+        let postID = try await makePostAndGetID(token: ownerToken, caption: "a post")
+
+        let spans = [
+            CommentFormatSpan(start: 0, end: 4, bold: true),
+            CommentFormatSpan(start: 5, end: 9, italic: true, size: "large"),
+        ]
+        _ = try await stubAPI.commentOnPost(
+            sessionManagementToken: ownerToken, postIdentifier: postID,
+            commentText: "love this", formatting: spans)
+
+        let sut = PostDetailViewModel(postIdentifier: postID, api: stubAPI, keychainHelper: keychainHelper, account: account)
+        await yield()
+
+        let comment = sut.commentThreads.first?.comments.first
+        #expect(comment?.body == "love this")
+        #expect(comment?.formatting == spans)
+    }
+
+    @Test func testAttributedCommentPreservesPlainText() throws {
+        let spans = [CommentFormatSpan(start: 0, end: 5, bold: true, italic: true, size: "large")]
+        let attributed = TextFormatting.attributedComment("hello world", spans: spans, baseSize: 15)
+        // The rendered text is the same plain string — formatting is styling only.
+        #expect(NSAttributedString(attributed).string == "hello world")
+    }
 }

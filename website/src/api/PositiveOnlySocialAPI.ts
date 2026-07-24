@@ -6,6 +6,7 @@
 import type {
   AuthResponse,
   Comment,
+  CommentFormatSpan,
   CommentOnPostResponse,
   CommentThreadRef,
   ConfirmTotpRequest,
@@ -92,12 +93,17 @@ export interface PositiveOnlySocialAPI {
   /** Classification status of one of the caller's own posts (issue #282). */
   getPostStatus(postIdentifier: string): Promise<PostStatusResponse>
 
-  // Comments
-  commentOnPost(postIdentifier: string, commentText: string): Promise<CommentOnPostResponse>
+  // Comments. `formatting` carries optional inline styling spans (issue #318).
+  commentOnPost(
+    postIdentifier: string,
+    commentText: string,
+    formatting?: CommentFormatSpan[],
+  ): Promise<CommentOnPostResponse>
   replyToCommentThread(
     postIdentifier: string,
     commentThreadIdentifier: string,
     commentText: string,
+    formatting?: CommentFormatSpan[],
   ): Promise<ReplyResponse>
   getCommentsForPost(postIdentifier: string, batch: number): Promise<CommentThreadRef[]>
   getCommentsForThread(commentThreadIdentifier: string, batch: number): Promise<Comment[]>

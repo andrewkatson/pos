@@ -589,3 +589,59 @@ test('other users never see your pending photo status (#7)', async () => {
   // But the approved photo is visible to everyone.
   expect(adaFromBob.profile_image_url).toBe('https://b.s3.amazonaws.com/ada/a.jpeg')
 })
+
+test('a post round-trips its caption font and background color (#318)', async () => {
+  const api = new StatefulStubbedAPI()
+  await register(api, 'author')
+  const created = await api.createPost({
+    caption: 'styled words',
+    caption_font: 'serif',
+    background_color: 'mint',
+  })
+
+  const details = await api.getPostDetails(created.post_identifier)
+  expect(details.caption_font).toBe('serif')
+  expect(details.background_color).toBe('mint')
+
+  await register(api, 'viewer')
+  const feed = await api.getFeed(0)
+  const post = feed.find((p) => p.post_identifier === created.post_identifier)
+  expect(post?.caption_font).toBe('serif')
+  expect(post?.background_color).toBe('mint')
+})
+
+test('a post defaults caption font and background color when unset (#318)', async () => {
+  const api = new StatefulStubbedAPI()
+  await register(api, 'author')
+  const created = await api.createPost({ caption: 'plain' })
+
+  const details = await api.getPostDetails(created.post_identifier)
+  expect(details.caption_font).toBe('default')
+  expect(details.background_color).toBe('default')
+})
+
+test('a comment round-trips its inline formatting spans (#318)', async () => {
+  const api = new StatefulStubbedAPI()
+  await register(api, 'author')
+  const post = await api.createPost({ caption: 'nice' })
+
+  const spans = [
+    { start: 0, end: 4, bold: true, italic: false, size: 'normal' as const },
+    { start: 5, end: 9, bold: false, italic: true, size: 'large' as const },
+  ]
+  const comment = await api.commentOnPost(post.post_identifier, 'love this', spans)
+
+  const comments = await api.getCommentsForThread(comment.comment_thread_identifier, 0)
+  expect(comments[0].body).toBe('love this')
+  expect(comments[0].body_formatting).toEqual(spans)
+})
+
+test('a comment with no formatting reports null spans (#318)', async () => {
+  const api = new StatefulStubbedAPI()
+  await register(api, 'author')
+  const post = await api.createPost({ caption: 'nice' })
+  const comment = await api.commentOnPost(post.post_identifier, 'plain comment')
+
+  const comments = await api.getCommentsForThread(comment.comment_thread_identifier, 0)
+  expect(comments[0].body_formatting).toBeNull()
+})

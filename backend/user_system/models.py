@@ -17,6 +17,7 @@ from .constants import (
     APPEAL_STATUS_PENDING, APPEAL_STATUS_APPROVED, APPEAL_STATUS_DENIED,
     APPEAL_TARGET_POST, APPEAL_TARGET_COMMENT, APPEAL_TARGET_BAN,
     PROFILE_IMAGE_STATUS_NONE,
+    DEFAULT_STYLE_KEY,
 )
 
 logger = logging.getLogger(__name__)
@@ -331,6 +332,11 @@ class Post(models.Model):
     post_identifier = models.UUIDField(default=uuid.uuid4, primary_key=True, unique=True, editable=False)
     image_url = models.TextField(null=True)
     caption = models.TextField(null=True)
+    # Whole-caption font choice and whole-tile background color (issue #318),
+    # stored as curated allow-list keys (see ALLOWED_CAPTION_FONTS /
+    # ALLOWED_BACKGROUND_COLORS). "default" reproduces the pre-#318 rendering.
+    caption_font = models.TextField(default=DEFAULT_STYLE_KEY)
+    background_color = models.TextField(default=DEFAULT_STYLE_KEY)
     creation_time = models.DateTimeField(auto_now_add=True, null=True,
                                          blank=True)
     updated_time = models.DateTimeField(auto_now=True, null=True, blank=True)
@@ -408,6 +414,12 @@ class Comment(models.Model):
     comment_identifier = models.UUIDField(default=uuid.uuid4, primary_key=True, unique=True, editable=False)
     comment_thread = models.ForeignKey(CommentThread, on_delete=models.CASCADE)
     body = models.TextField(null=True)
+    # Inline rich-text formatting (issue #318): a list of range spans over the
+    # plain `body`, e.g. [{"start": 0, "end": 4, "bold": true, "size": "large"}].
+    # The `body` text itself is left untouched so moderation/classification and
+    # all existing validation keep operating on plain text. Null means no
+    # formatting (the common case).
+    body_formatting = models.JSONField(null=True, blank=True, default=None)
     author = models.ForeignKey(settings.AUTH_USER_MODEL,
                                on_delete=models.CASCADE)
     creation_time = models.DateTimeField(auto_now_add=True, null=True,

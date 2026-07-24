@@ -12,6 +12,7 @@ import type { PositiveOnlySocialAPI } from './PositiveOnlySocialAPI'
 import type {
   AuthResponse,
   Comment,
+  CommentFormatSpan,
   CommentOnPostResponse,
   CommentThreadRef,
   ConfirmTotpRequest,
@@ -53,6 +54,12 @@ import type {
 import { isTwoFactorRequired } from './types'
 
 const DEFAULT_BASE_URL = 'https://api.smiling.social/user_index'
+
+/** Only send `body_formatting` when there are spans, so unformatted comments
+ * keep sending exactly the old payload (issue #318). */
+function formattingBody(formatting?: CommentFormatSpan[]): { body_formatting?: CommentFormatSpan[] } {
+  return formatting && formatting.length > 0 ? { body_formatting: formatting } : {}
+}
 
 /** Error code the backend returns when the account has an active outright ban. */
 export const ACCOUNT_BANNED = 'account_banned'
@@ -498,10 +505,14 @@ export class ApiClient implements PositiveOnlySocialAPI {
   // COMMENTS
   // ===========================================================================
 
-  commentOnPost(postIdentifier: string, commentText: string): Promise<CommentOnPostResponse> {
+  commentOnPost(
+    postIdentifier: string,
+    commentText: string,
+    formatting?: CommentFormatSpan[],
+  ): Promise<CommentOnPostResponse> {
     return this.request<CommentOnPostResponse>('POST', `/posts/${postIdentifier}/comment/`, {
       auth: true,
-      body: { comment_text: commentText },
+      body: { comment_text: commentText, ...formattingBody(formatting) },
     })
   }
 
@@ -509,11 +520,12 @@ export class ApiClient implements PositiveOnlySocialAPI {
     postIdentifier: string,
     commentThreadIdentifier: string,
     commentText: string,
+    formatting?: CommentFormatSpan[],
   ): Promise<ReplyResponse> {
     return this.request<ReplyResponse>(
       'POST',
       `/posts/${postIdentifier}/threads/${commentThreadIdentifier}/reply/`,
-      { auth: true, body: { comment_text: commentText } },
+      { auth: true, body: { comment_text: commentText, ...formattingBody(formatting) } },
     )
   }
 

@@ -354,6 +354,9 @@ struct GridPostImage: View {
     let originalImageUrl: String?
     /// The post caption, rendered as the tile for a text-only post.
     var caption: String = ""
+    /// Caption font + background color keys for a text-only tile (issue #318).
+    var captionFont: String = "default"
+    var backgroundColor: String = "default"
     /// Shown while loading and when both the compressed and original images fail.
     /// Defaults to the grid's grey backing; callers (e.g. the feed) override it to
     /// match their own placeholder shade.
@@ -383,7 +386,7 @@ struct GridPostImage: View {
                 .resizable()
                 .scaledToFill()
         } else {
-            CaptionTileView(caption: caption)
+            CaptionTileView(caption: caption, captionFont: captionFont, backgroundColor: backgroundColor)
         }
     }
 }

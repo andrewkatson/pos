@@ -248,6 +248,7 @@ class PostDetailViewModel(
                                 threadId = threadId,
                                 authorUsername = c.authorUsername,
                                 body = c.body,
+                                formatting = c.bodyFormatting,
                                 likeCount = c.likeCount,
                                 isLiked = c.isLiked,
                                 isReported = c.isReported,
@@ -532,7 +533,7 @@ class PostDetailViewModel(
         }
     }
 
-    fun commentOnPost(commentText: String) {
+    fun commentOnPost(commentText: String, formatting: List<CommentFormatSpan>? = null) {
         if (commentText.isEmpty()) return
 
         viewModelScope.launch {
@@ -543,11 +544,11 @@ class PostDetailViewModel(
                     _alertMessage.value = "Not logged in."
                     return@launch
                 }
-                
+
                 val response = api.commentOnPost(
                     userSession.sessionToken,
                     postIdentifier,
-                    CommentRequest(commentText)
+                    CommentRequest(commentText, formatting)
                 )
                 
                 if (response.isSuccessful) {
@@ -562,7 +563,7 @@ class PostDetailViewModel(
         }
     }
 
-    fun replyToCommentThread(thread: CommentThreadViewData, commentText: String) {
+    fun replyToCommentThread(thread: CommentThreadViewData, commentText: String, formatting: List<CommentFormatSpan>? = null) {
         if (commentText.isEmpty()) return
 
         viewModelScope.launch {
@@ -573,12 +574,12 @@ class PostDetailViewModel(
                     _alertMessage.value = "Not logged in."
                     return@launch
                 }
-                
+
                 val response = api.replyToThread(
                     userSession.sessionToken,
                     postIdentifier,
                     thread.id,
-                    CommentRequest(commentText)
+                    CommentRequest(commentText, formatting)
                 )
                 
                 if (response.isSuccessful) {
