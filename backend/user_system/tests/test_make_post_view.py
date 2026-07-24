@@ -244,6 +244,29 @@ class MakePostTests(PositiveOnlySocialTestCase):
 
         self.assertEqual(response.status_code, 400)
 
+    @patch.dict(os.environ, {"TESTING": "True"}, clear=True)
+    def test_presigned_query_params_stripped_before_storage(self):
+        """
+        A client that mistakenly sends the presigned PUT URL (with X-Amz-*
+        signing params) must not have those params validated or persisted —
+        only the canonical object URL is stored (mirrors set_profile_photo).
+        """
+        canonical = f'https://test-bucket.s3.amazonaws.com/{self.user.id}/{POSITIVE_IMAGE_FILENAME}'
+        data = self.valid_data.copy()
+        data['image_url'] = canonical + '?X-Amz-Signature=supersecret&X-Amz-Credential=abc'
+
+        response = self.client.post(
+            self.url,
+            data=data,
+            content_type='application/json',
+            **self.valid_header
+        )
+
+        self.assertEqual(response.status_code, 201)
+        post = self.user.post_set.get()
+        self.assertEqual(post.image_url, canonical)
+        self.assertNotIn('X-Amz-Signature', post.image_url)
+
     def test_image_url_with_no_user_prefix_returns_bad_response(self):
         """
         A valid S3 URL whose key has no user ID prefix must be rejected.

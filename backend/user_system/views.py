@@ -1600,7 +1600,16 @@ def make_post(request):
         image_url = None
         invalid_fields.append(Params.image)
     else:
-        image_url = raw_image_url
+        # Strip any query/fragment first (e.g. a client that sends the presigned
+        # PUT URL by mistake) so the signing params (X-Amz-*) are never
+        # validated, stored, or later echoed back to clients — only the
+        # canonical object URL is. Mirrors set_profile_photo.
+        image_url = strip_query_and_fragment(raw_image_url)
+        if not image_url:
+            # A non-empty value that is nothing but a query/fragment is a
+            # provided-but-invalid image, not a text-only post — reject it.
+            image_url = None
+            invalid_fields.append(Params.image)
     
     caption = data.get(Fields.caption)
 
