@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useCallback, useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import Logo from '../components/Logo'
 import { apiClient } from '../api/client'
@@ -55,6 +55,12 @@ function RegisterPage() {
         remember_me: false,
         date_of_birth: dateOfBirth,
       })
+      // Drop the registration session and any persisted session/remember-me
+      // tokens right away: the account can't act until email verification, and
+      // if the user reloads while the welcome modal is up, main.tsx must not
+      // restore a stale session from a previous login. Do this before showing
+      // the modal so there's no window where an old session could be restored.
+      clearSession()
       // Greet the new member with their join number before sending them off to
       // verify their email (#198). Navigation happens when they dismiss it.
       setMemberNumber(result.membership_number ?? null)
@@ -67,14 +73,23 @@ function RegisterPage() {
     }
   }
 
-  function dismissWelcome() {
-    // The account can't do anything until the emailed verification link is
-    // used, so don't keep the registration session — and drop any persisted
-    // session/remember-me tokens from a previous login, which main.tsx would
-    // otherwise restore on reload. The user logs in after verifying.
-    clearSession()
+  // Dismissing the welcome modal just moves on to email verification; the
+  // session was already cleared in handleRegister. The user logs in after
+  // verifying.
+  const dismissWelcome = useCallback(() => {
     navigate('/check-email', { state: { email: email.trim() } })
-  }
+  }, [navigate, email])
+
+  // Escape dismisses the welcome modal too, matching the privacy-policy modal
+  // so keyboard users get consistent behavior.
+  useEffect(() => {
+    if (!showWelcome) return
+    function onKeyDown(e: KeyboardEvent) {
+      if (e.key === 'Escape') dismissWelcome()
+    }
+    document.addEventListener('keydown', onKeyDown)
+    return () => document.removeEventListener('keydown', onKeyDown)
+  }, [showWelcome, dismissWelcome])
 
   return (
     <div className="auth-page">

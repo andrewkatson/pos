@@ -443,8 +443,9 @@ def _assign_membership_number(user):
     two registrations racing for the same value make one of the saves raise
     IntegrityError; that attempt is rolled back to a savepoint and retried
     against the now-higher maximum. Assignment must never block registration, so
-    after a few failed attempts we give up and leave the number null — the
-    account is fully usable and the backfill migration will number it later.
+    after a few failed attempts we give up and leave the number null —
+    registration still succeeds (the account is created just as it would be
+    otherwise) and the backfill migration numbers it later.
     """
     UserModel = get_user_model()
     for _ in range(10):

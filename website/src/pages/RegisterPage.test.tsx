@@ -212,20 +212,35 @@ test('greets the new member with their join number, then navigates to check-emai
   // The "You're member #n!" welcome greets them before they leave the page (#198).
   const welcome = await screen.findByRole('dialog', { name: /Welcome to Good Vibes Only/ })
   expect(welcome).toHaveTextContent("You're member #42!")
-  // Nothing is torn down until they acknowledge the greeting.
+  // Nothing is navigated until they acknowledge the greeting.
   expect(screen.queryByText('Check Email')).not.toBeInTheDocument()
-
-  await userEvent.click(screen.getByRole('button', { name: 'Continue' }))
-  expect(await screen.findByText('Check Email')).toBeInTheDocument()
-  // The registration session must not be kept: the account can't act until
-  // the email is verified, so the user logs in afterwards instead. Any
-  // persisted session from a previous login must be dropped too, or main.tsx
-  // would restore it on reload.
+  // The session is dropped immediately — not deferred to Continue — so a reload
+  // while the modal is open can't restore a stale session (main.tsx).
   expect(vi.mocked(apiClient.setToken)).toHaveBeenCalledWith(null)
   expect(localStorageMock.removeItem).toHaveBeenCalledWith('session_token')
   expect(sessionStorageMock.removeItem).toHaveBeenCalledWith('session_token')
   expect(localStorageMock.removeItem).toHaveBeenCalledWith('series_identifier')
   expect(localStorageMock.removeItem).toHaveBeenCalledWith('login_cookie_token')
+
+  await userEvent.click(screen.getByRole('button', { name: 'Continue' }))
+  expect(await screen.findByText('Check Email')).toBeInTheDocument()
+})
+
+test('Escape dismisses the welcome modal and continues to check-email', async () => {
+  mockRegister.mockResolvedValueOnce({
+    session_management_token: 'tok',
+    user_id: 'uuid-abc',
+    username: VALID_USERNAME,
+    membership_number: 42,
+  })
+  renderRegisterPage()
+  await fillValidForm()
+  await userEvent.click(screen.getByRole('button', { name: 'Register' }))
+  await userEvent.click(screen.getByRole('button', { name: 'Ok' }))
+
+  await screen.findByRole('dialog', { name: /Welcome to Good Vibes Only/ })
+  await userEvent.keyboard('{Escape}')
+  expect(await screen.findByText('Check Email')).toBeInTheDocument()
 })
 
 test('welcome greeting still appears (without a number) when none was assigned', async () => {
