@@ -3,7 +3,7 @@ from unittest.mock import MagicMock, patch
 
 from django.test import SimpleTestCase, override_settings
 
-from ..s3 import delete_image, image_url_to_key
+from ..s3 import delete_image, image_url_bucket, image_url_to_key, is_source_bucket_url
 
 _AWS_CREDS = {
     "AWS_ACCESS_KEY_ID": "fake_key",
@@ -16,6 +16,33 @@ COMPRESSED_BUCKET = "compressed-bucket"
 # A virtual-hosted-style URL and the object key it maps to, reused across tests.
 VIRTUAL_HOSTED_URL = "https://my-bucket.s3.us-east-2.amazonaws.com/123/abc.jpeg"
 EXPECTED_KEY = "123/abc.jpeg"
+
+
+class ImageUrlBucketTests(SimpleTestCase):
+    """The bucket parser behind is_source_bucket_url (issue #7 security fix)."""
+
+    def test_virtual_hosted_style(self):
+        self.assertEqual(image_url_bucket("https://my-bucket.s3.us-east-2.amazonaws.com/1/a.jpeg"), "my-bucket")
+
+    def test_virtual_hosted_no_region(self):
+        self.assertEqual(image_url_bucket("https://my-bucket.s3.amazonaws.com/1/a.jpeg"), "my-bucket")
+
+    def test_path_style(self):
+        self.assertEqual(image_url_bucket("https://s3.us-east-2.amazonaws.com/my-bucket/1/a.jpeg"), "my-bucket")
+
+    def test_empty_for_blank(self):
+        self.assertEqual(image_url_bucket(""), "")
+
+    @override_settings(AWS_STORAGE_BUCKET_NAME="my-bucket")
+    def test_is_source_bucket_url_accepts_matching_bucket(self):
+        self.assertTrue(is_source_bucket_url("https://my-bucket.s3.us-east-2.amazonaws.com/1/a.jpeg"))
+        self.assertTrue(is_source_bucket_url("https://s3.us-east-2.amazonaws.com/my-bucket/1/a.jpeg"))
+
+    @override_settings(AWS_STORAGE_BUCKET_NAME="my-bucket")
+    def test_is_source_bucket_url_rejects_other_bucket(self):
+        # A key under the right prefix but in an attacker-controlled bucket.
+        self.assertFalse(is_source_bucket_url("https://attacker.s3.amazonaws.com/1/a.jpeg"))
+        self.assertFalse(is_source_bucket_url("https://s3.amazonaws.com/attacker/1/a.jpeg"))
 
 
 class ImageUrlToKeyTests(SimpleTestCase):

@@ -49,7 +49,7 @@ from .models import LoginCookie, Session, Post, CommentThread, PositiveOnlySocia
 from .utils import convert_to_bool, generate_login_cookie_token, generate_management_token, generate_series_identifier, \
     get_batch, get_queryset_batch
 from .cloudfront import sign_compressed_url, sign_original_url
-from .s3 import delete_image, generate_presigned_upload, image_url_to_key
+from .s3 import delete_image, generate_presigned_upload, image_url_to_key, is_source_bucket_url
 from .visibility import can_view_post, in_same_age_band, searchable_users, visible_comment_threads, \
     visible_comments, visible_posts
 
@@ -2895,12 +2895,16 @@ def set_profile_photo(request):
         return log_and_return_json("set_profile_photo", {'error': "Invalid JSON data"}, status=400)
 
     raw_image_url = data.get(Fields.image_url)
-    # The URL must be a well-formed S3 image URL whose key is scoped to this
-    # user (clients upload to `{user_id}/...`), so one user cannot point their
-    # avatar at another user's — or an arbitrary — object.
+    # The URL must be a well-formed S3 image URL in *our* source bucket whose key
+    # is scoped to this user (clients upload to `{user_id}/...` via our presigned
+    # flow). The bucket check — not just the key prefix — stops a client from
+    # pointing their avatar at another (attacker-controlled) bucket, which would
+    # make the classifier fetch arbitrary remote content and mint CloudFront URLs
+    # for objects that don't exist in our buckets.
     if (not isinstance(raw_image_url, str)
             or not raw_image_url
             or not is_valid_pattern(raw_image_url, Patterns.image_url)
+            or not is_source_bucket_url(raw_image_url)
             or not image_url_to_key(raw_image_url).startswith(f"{request.user.id}/")):
         logger.warning(f"Set profile photo failed: invalid image_url for user_id: {request.user.id}")
         return log_and_return_json("set_profile_photo", {'error': f"Invalid fields ['{Params.image_url}']"}, status=400)

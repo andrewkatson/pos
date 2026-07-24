@@ -1,5 +1,6 @@
 from unittest.mock import patch
 
+from django.test import override_settings
 from django.urls import reverse
 
 from .test_parent_case import PositiveOnlySocialTestCase
@@ -19,7 +20,12 @@ IMAGE = 'user_system.tasks.image_classifier_class.is_image_positive'
 
 invalid_session_management_token = '?'
 
+# The endpoint accepts only URLs in the configured source bucket; the tests
+# build 'test-bucket' URLs, so point the setting at that bucket.
+SOURCE_BUCKET = 'test-bucket'
 
+
+@override_settings(AWS_STORAGE_BUCKET_NAME=SOURCE_BUCKET)
 class ProfilePhotoViewTests(PositiveOnlySocialTestCase):
 
     def setUp(self):
@@ -29,7 +35,7 @@ class ProfilePhotoViewTests(PositiveOnlySocialTestCase):
         self.valid_header = {'HTTP_AUTHORIZATION': f'Bearer {self.session_management_token}'}
         self.set_url = reverse('set_profile_photo')
         self.remove_url = reverse('remove_profile_photo')
-        self.scoped_url = f'https://test-bucket.s3.amazonaws.com/{self.user.id}/photo.jpeg'
+        self.scoped_url = f'https://{SOURCE_BUCKET}.s3.amazonaws.com/{self.user.id}/photo.jpeg'
 
     def _set(self, image_url):
         return self.client.post(
@@ -57,8 +63,17 @@ class ProfilePhotoViewTests(PositiveOnlySocialTestCase):
     def test_image_url_scoped_to_other_user_rejected(self):
         other = self.make_user_with_prefix(prefix='other')
         other_user = get_user_with_username(other['username'])
-        foreign_url = f'https://test-bucket.s3.amazonaws.com/{other_user.id}/photo.jpeg'
+        foreign_url = f'https://{SOURCE_BUCKET}.s3.amazonaws.com/{other_user.id}/photo.jpeg'
         response = self._set(foreign_url)
+        self.assertEqual(response.status_code, 400)
+        self.assertIsNone(self._reload().pending_profile_image_url)
+
+    def test_image_url_in_foreign_bucket_rejected(self):
+        # A URL with this user's key prefix but in another (attacker-controlled)
+        # bucket must be rejected, so the classifier never fetches arbitrary
+        # remote content and we never mint CloudFront URLs for foreign objects.
+        foreign_bucket_url = f'https://attacker-bucket.s3.amazonaws.com/{self.user.id}/photo.jpeg'
+        response = self._set(foreign_bucket_url)
         self.assertEqual(response.status_code, 400)
         self.assertIsNone(self._reload().pending_profile_image_url)
 
