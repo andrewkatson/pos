@@ -448,7 +448,13 @@ fun SettingsScreen(
             )
         }
 
-        Column(modifier = Modifier.fillMaxSize()) {
+        // Scrollable: the screen now carries contact info, a change-password
+        // entry, and both 2FA rows, which overflow a phone screen in portrait.
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .verticalScroll(rememberScrollState())
+        ) {
             Text(
                 text = "Settings",
                 style = MaterialTheme.typography.headlineMedium,
