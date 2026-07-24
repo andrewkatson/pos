@@ -48,7 +48,7 @@ from .models import LoginCookie, Session, Post, CommentThread, PositiveOnlySocia
 from .utils import convert_to_bool, generate_login_cookie_token, generate_management_token, generate_series_identifier, \
     get_batch, get_queryset_batch
 from .cloudfront import sign_compressed_url, sign_original_url
-from .s3 import delete_image, generate_presigned_upload, image_url_to_key
+from .s3 import delete_image, generate_presigned_upload, image_url_to_key, is_source_bucket_url
 from .visibility import can_view_post, in_same_age_band, searchable_users, visible_comment_threads, \
     visible_comments, visible_posts
 
@@ -1608,6 +1608,12 @@ def make_post(request):
 
     if image_url:
         if not is_valid_pattern(image_url, Patterns.image_url):
+            invalid_fields.append(Params.image)
+        # The URL must target our own images bucket, not an attacker-controlled
+        # S3 host — otherwise the classifier fetch and the CloudFront/compressed
+        # URL minting below would run against objects we do not own (an
+        # SSRF-ish gap).
+        elif not is_source_bucket_url(image_url):
             invalid_fields.append(Params.image)
         # The key must be scoped to this user (clients upload to `{user_id}/...`).
         elif not image_url_to_key(image_url).startswith(f"{request.user.id}/"):

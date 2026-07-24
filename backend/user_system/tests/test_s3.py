@@ -3,7 +3,7 @@ from unittest.mock import MagicMock, patch
 
 from django.test import SimpleTestCase, override_settings
 
-from ..s3 import delete_image, image_url_to_key
+from ..s3 import delete_image, image_url_to_key, is_source_bucket_url
 
 _AWS_CREDS = {
     "AWS_ACCESS_KEY_ID": "fake_key",
@@ -60,6 +60,51 @@ class ImageUrlToKeyTests(SimpleTestCase):
     def test_empty_url_returns_empty(self):
         self.assertEqual(image_url_to_key(""), "")
         self.assertEqual(image_url_to_key(None), "")
+
+
+@override_settings(AWS_STORAGE_BUCKET_NAME=SOURCE_BUCKET)
+class IsSourceBucketUrlTests(SimpleTestCase):
+
+    def test_virtual_hosted_matching_bucket(self):
+        url = f"https://{SOURCE_BUCKET}.s3.amazonaws.com/123/abc.jpeg"
+        self.assertTrue(is_source_bucket_url(url))
+
+    def test_virtual_hosted_matching_bucket_with_region(self):
+        url = f"https://{SOURCE_BUCKET}.s3.us-east-2.amazonaws.com/123/abc.jpeg"
+        self.assertTrue(is_source_bucket_url(url))
+
+    def test_path_style_matching_bucket(self):
+        url = f"https://s3.amazonaws.com/{SOURCE_BUCKET}/123/abc.jpeg"
+        self.assertTrue(is_source_bucket_url(url))
+
+    def test_path_style_matching_bucket_dashed_region(self):
+        url = f"https://s3-us-west-1.amazonaws.com/{SOURCE_BUCKET}/123/abc.jpeg"
+        self.assertTrue(is_source_bucket_url(url))
+
+    def test_virtual_hosted_foreign_bucket_rejected(self):
+        # The SSRF-ish gap this guards: a valid-looking key on someone else's
+        # S3 bucket must be rejected.
+        url = "https://attacker-bucket.s3.amazonaws.com/123/abc.jpeg"
+        self.assertFalse(is_source_bucket_url(url))
+
+    def test_path_style_foreign_bucket_rejected(self):
+        url = "https://s3.amazonaws.com/attacker-bucket/123/abc.jpeg"
+        self.assertFalse(is_source_bucket_url(url))
+
+    def test_non_s3_host_rejected(self):
+        # A non-S3 host whose first label equals our bucket name must not pass —
+        # only real *.amazonaws.com hosts count.
+        self.assertFalse(is_source_bucket_url(f"https://{SOURCE_BUCKET}.evil.com/123/abc.jpeg"))
+        self.assertFalse(is_source_bucket_url("https://evil.com/123/abc.jpeg"))
+
+    def test_empty_and_none_rejected(self):
+        self.assertFalse(is_source_bucket_url(""))
+        self.assertFalse(is_source_bucket_url(None))
+
+    @override_settings(AWS_STORAGE_BUCKET_NAME="")
+    def test_unconfigured_bucket_rejects_everything(self):
+        url = f"https://{SOURCE_BUCKET}.s3.amazonaws.com/123/abc.jpeg"
+        self.assertFalse(is_source_bucket_url(url))
 
 
 @override_settings(

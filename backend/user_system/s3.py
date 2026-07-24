@@ -19,6 +19,27 @@ def _redact(image_url):
         return '<unparseable url>'
 
 
+def _is_path_style_host(hostname):
+    """Whether an S3 URL host uses path-style addressing (bucket is the first
+    path segment, e.g. `s3.amazonaws.com/bucket/key`) rather than virtual-hosted
+    addressing (bucket is the first host label, e.g. `bucket.s3.../key`).
+
+    Path-style hosts (s3.amazonaws.com, s3.<region>.amazonaws.com,
+    s3-<region>.amazonaws.com) carry the bucket as the first path segment. A
+    virtual-hosted bucket whose own name starts with "s3-" is NOT path-style —
+    there the second label is the S3 service label (e.g. "s3" in
+    s3-my-bucket.s3.amazonaws.com, or "s3-accelerate" in
+    s3-my-bucket.s3-accelerate.amazonaws.com) and the path is already just the
+    key — so exclude any host whose second label starts with "s3". A genuine
+    path-style host's second label is a region or "amazonaws", neither of which
+    starts with "s3", so this is safe.
+    """
+    labels = hostname.split('.') if hostname else []
+    first_label = labels[0] if labels else ''
+    second_label = labels[1] if len(labels) > 1 else ''
+    return (first_label == 's3' or first_label.startswith('s3-')) and not second_label.startswith('s3')
+
+
 def image_url_to_key(image_url):
     """Extract the S3 object key from an uploaded image URL.
 
@@ -31,22 +52,42 @@ def image_url_to_key(image_url):
         return ''
     parsed = urlparse(image_url)
     key = parsed.path.lstrip('/')
-    labels = parsed.hostname.split('.') if parsed.hostname else []
-    first_label = labels[0] if labels else ''
-    second_label = labels[1] if len(labels) > 1 else ''
-    # Path-style hosts (s3.amazonaws.com, s3.<region>.amazonaws.com,
-    # s3-<region>.amazonaws.com) carry the bucket as the first path segment, so
-    # strip it. A virtual-hosted bucket whose own name starts with "s3-" is NOT
-    # path-style — there the second label is the S3 service label (e.g. "s3" in
-    # s3-my-bucket.s3.amazonaws.com, or "s3-accelerate" in
-    # s3-my-bucket.s3-accelerate.amazonaws.com) and the path is already just the
-    # key — so exclude any host whose second label starts with "s3". A genuine
-    # path-style host's second label is a region or "amazonaws", neither of
-    # which starts with "s3", so this is safe.
-    is_path_style = (first_label == 's3' or first_label.startswith('s3-')) and not second_label.startswith('s3')
-    if is_path_style:
+    if _is_path_style_host(parsed.hostname):
         _, _, key = key.partition('/')
     return key
+
+
+def is_source_bucket_url(image_url):
+    """True iff `image_url` points at our own source images bucket
+    (settings.AWS_STORAGE_BUCKET_NAME).
+
+    make_post accepts a client-supplied image URL and then both fetches it (the
+    moderation classifier) and mints CloudFront/compressed URLs from its key.
+    Without this check a client could supply an
+    attacker-controlled S3 host — e.g.
+    `https://attacker-bucket.s3.amazonaws.com/{user_id}/x.jpeg`, which still
+    passes the pattern and `{user_id}/` key-prefix checks — turning the backend
+    into an SSRF fetcher and letting it mint URLs for objects it does not own.
+
+    Parses the bucket from both virtual-hosted (`bucket.s3....amazonaws.com/key`)
+    and path-style (`s3....amazonaws.com/bucket/key`) URLs and compares it to
+    our configured bucket. Returns False for anything unparseable, off-host, or
+    when no bucket is configured.
+    """
+    bucket = settings.AWS_STORAGE_BUCKET_NAME
+    if not image_url or not bucket:
+        return False
+    parsed = urlparse(image_url)
+    hostname = parsed.hostname or ''
+    # Only real S3 hosts count — otherwise `bucket.evil.com` (whose first host
+    # label equals our bucket name) would masquerade as ours.
+    if not hostname.endswith('.amazonaws.com'):
+        return False
+    if _is_path_style_host(hostname):
+        url_bucket = parsed.path.lstrip('/').partition('/')[0]
+    else:
+        url_bucket = hostname.split('.')[0]
+    return url_bucket == bucket
 
 
 def _s3_client():

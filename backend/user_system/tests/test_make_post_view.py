@@ -225,6 +225,25 @@ class MakePostTests(PositiveOnlySocialTestCase):
 
         self.assertEqual(response.status_code, 400)
 
+    def test_image_url_on_foreign_bucket_returns_bad_response(self):
+        """
+        A pattern-valid, user-scoped key that lives on someone else's S3 bucket
+        must be rejected (the SSRF-ish gap): otherwise the classifier would
+        fetch attacker-controlled content and we would mint CloudFront URLs for
+        objects we do not own.
+        """
+        data = self.valid_data.copy()
+        data['image_url'] = f'https://attacker-bucket.s3.amazonaws.com/{self.user.id}/{POSITIVE_IMAGE_FILENAME}'
+
+        response = self.client.post(
+            self.url,
+            data=data,
+            content_type='application/json',
+            **self.valid_header
+        )
+
+        self.assertEqual(response.status_code, 400)
+
     def test_image_url_with_no_user_prefix_returns_bad_response(self):
         """
         A valid S3 URL whose key has no user ID prefix must be rejected.
