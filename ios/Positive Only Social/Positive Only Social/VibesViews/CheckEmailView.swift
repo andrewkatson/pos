@@ -10,7 +10,14 @@ import SwiftUI
 /// new account — the member's join number (issue #198), used to welcome them.
 struct CheckEmailRoute: Hashable {
     let email: String
-    var membershipNumber: Int? = nil
+    let membershipNumber: Int?
+
+    // Explicit init so the number stays a `let` (immutable, safe as a
+    // NavigationPath hash key) while callers can still omit it.
+    init(email: String, membershipNumber: Int? = nil) {
+        self.email = email
+        self.membershipNumber = membershipNumber
+    }
 }
 
 /// Shown right after registration: the account exists but cannot log in until
@@ -20,13 +27,22 @@ struct CheckEmailView: View {
     let email: String
     /// The new member's join number (issue #198). Non-nil right after
     /// registration; nil when the screen is reached any other way.
-    var membershipNumber: Int? = nil
+    let membershipNumber: Int?
 
     @Binding var path: NavigationPath
 
     @State private var isResending = false
     @State private var resendMessage: String?
     @State private var showingWelcome = false
+
+    // Explicit init so `membershipNumber` stays an immutable `let` while
+    // callers that don't have a number (e.g. previews) can still omit it.
+    init(api: Networking, email: String, membershipNumber: Int? = nil, path: Binding<NavigationPath>) {
+        self.api = api
+        self.email = email
+        self.membershipNumber = membershipNumber
+        self._path = path
+    }
 
     var body: some View {
         VStack(spacing: 20) {
