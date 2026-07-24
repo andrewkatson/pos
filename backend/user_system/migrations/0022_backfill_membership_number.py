@@ -4,44 +4,70 @@
 # timestamp. Rows with a NULL creation_time (grandfathered/fixture accounts) are
 # numbered first, before any timestamped account, so real join order is
 # preserved. New members are numbered at registration time (see views.register).
-from django.db import migrations
+from django.db import migrations, transaction, IntegrityError
 from django.db.models import F, Max
+
+# Update in bounded chunks so a large user table isn't held entirely in memory
+# (or in one long-lived write transaction). Each chunk commits on its own.
+BATCH_SIZE = 500
+# Retries when a concurrent signup (the live register() also hands out max+1)
+# claims a number this chunk was about to write, which would otherwise raise a
+# UNIQUE violation. On conflict we re-read the max and rebuild the chunk.
+MAX_ATTEMPTS = 5
+
+
+def _next_chunk(User):
+    return list(
+        User.objects
+        .filter(membership_number__isnull=True)
+        .order_by(F('creation_time').asc(nulls_first=True), 'id')[:BATCH_SIZE]
+    )
 
 
 def backfill_membership_numbers(apps, schema_editor):
     User = apps.get_model('user_system', 'PositiveOnlySocialUser')
 
-    # Start numbering one past whatever's already assigned, so a re-run (or a run
-    # after some accounts were numbered at registration) never clobbers or
-    # reuses an existing number. Only the still-null accounts are touched.
-    number = User.objects.aggregate(m=Max('membership_number'))['m'] or 0
-    unnumbered = (
-        User.objects
-        .filter(membership_number__isnull=True)
-        .order_by(F('creation_time').asc(nulls_first=True), 'id')
-    )
+    # Process the still-null accounts a chunk at a time. Re-querying each round
+    # naturally skips rows a concurrent signup numbered in the meantime.
+    while True:
+        chunk = _next_chunk(User)
+        if not chunk:
+            break
 
-    to_update = []
-    for user in unnumbered.iterator():
-        number += 1
-        user.membership_number = number
-        to_update.append(user)
-
-    if to_update:
-        User.objects.bulk_update(to_update, ['membership_number'])
-
-
-def unset_membership_numbers(apps, schema_editor):
-    User = apps.get_model('user_system', 'PositiveOnlySocialUser')
-    User.objects.update(membership_number=None)
+        for attempt in range(MAX_ATTEMPTS):
+            # Number one past whatever's currently assigned, re-read every
+            # attempt so a racing registration's number is accounted for. This
+            # also makes a re-run of the whole migration safe.
+            number = User.objects.aggregate(m=Max('membership_number'))['m'] or 0
+            for user in chunk:
+                number += 1
+                user.membership_number = number
+            try:
+                with transaction.atomic():
+                    User.objects.bulk_update(chunk, ['membership_number'])
+                break
+            except IntegrityError:
+                if attempt == MAX_ATTEMPTS - 1:
+                    raise
+                for user in chunk:
+                    user.membership_number = None
 
 
 class Migration(migrations.Migration):
+    # Non-atomic so each chunk commits independently: bounds memory/lock time and
+    # lets a chunk be retried on the concurrency race above without rolling back
+    # the whole backfill.
+    atomic = False
 
     dependencies = [
         ('user_system', '0021_positiveonlysocialuser_membership_number'),
     ]
 
     operations = [
-        migrations.RunPython(backfill_membership_numbers, unset_membership_numbers),
+        # Reverse is a deliberate noop: by the time a rollback happens, accounts
+        # registered after the backfill have their own numbers, and wiping every
+        # membership_number to undo this migration would destroy that
+        # non-recoverable data. Dropping the column (reversing 0021) is the way
+        # to fully unwind the feature.
+        migrations.RunPython(backfill_membership_numbers, migrations.RunPython.noop),
     ]
