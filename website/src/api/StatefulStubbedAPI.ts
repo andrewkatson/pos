@@ -68,6 +68,13 @@ const MAX_BEFORE_HIDING_COMMENT = 5
 export const STUB_TOTP_CODE = '123456'
 const STUB_RECOVERY_CODE_COUNT = 10
 
+// The registration strength policy the real backend enforces (Patterns.password
+// in backend/user_system/constants.py): at least eight non-whitespace characters
+// with a lower- and upper-case letter and a digit. The stub applies it to
+// changePassword too, so a weak new password fails here exactly as it would in
+// production rather than silently succeeding against the stub.
+const STRONG_PASSWORD = /^(?=.*[0-9])(?=.*[a-z])(?=.*[A-Z])(?=\S+$).{8,}$/
+
 /** Cryptographically secure random bytes. These feed credential-shaped values
  * (TOTP secret, recovery codes), so Math.random() is not appropriate even in a
  * stub — it would model the real flow with an insecure generator. */
@@ -630,6 +637,11 @@ export class StatefulStubbedAPI implements PositiveOnlySocialAPI {
 
   async changePassword(body: ChangePasswordRequest): Promise<MessageResponse> {
     const user = this.requireUser()
+    // Field validation first, mirroring the backend: the new password must meet
+    // the registration strength policy before the current password is checked.
+    if (!STRONG_PASSWORD.test(body.new_password)) {
+      throw new ApiError(400, "Invalid fields ['NEW_PASSWORD']")
+    }
     if (user.passwordHash !== body.password) {
       throw new ApiError(400, 'Invalid password')
     }

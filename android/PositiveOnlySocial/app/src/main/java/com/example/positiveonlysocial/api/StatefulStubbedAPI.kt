@@ -462,6 +462,14 @@ class StatefulStubbedAPI : PositiveOnlySocialAPI {
 
     override suspend fun changePassword(token: String, request: ChangePasswordRequest): Response<GenericResponse> {
         val user = getAuthorizedUser(token) ?: return error(401, "Invalid session")
+        // Field validation first, mirroring the backend: the new password must
+        // meet the registration strength policy (Patterns.password) before the
+        // current password is checked, so a weak password fails here exactly as
+        // it would in production rather than silently succeeding against the stub.
+        val strongPassword = Regex("^(?=.*[0-9])(?=.*[a-z])(?=.*[A-Z])(?=\\S+\$).{8,}\$")
+        if (!strongPassword.matches(request.newPassword)) {
+            return error(400, "Invalid fields ['NEW_PASSWORD']")
+        }
         // The current password is required as well as the session, mirroring the
         // backend: a stolen session alone must not be able to change it.
         if (user.passwordHash != request.password) {

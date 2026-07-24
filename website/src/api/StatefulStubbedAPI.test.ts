@@ -276,25 +276,31 @@ test('getCurrentUser returns the signed-in account’s own username and email', 
   expect(await api.getCurrentUser()).toEqual({ username: 'ada', email: 'ada@example.com' })
 })
 
-test('changePassword requires the current password and then updates it', async () => {
+test('changePassword enforces the current password and strength, then updates it', async () => {
   const api = new StatefulStubbedAPI()
   await register(api, 'ada')
 
   // Wrong current password is rejected.
   await expect(
-    api.changePassword({ password: 'wrongpass1', new_password: 'newpassword1' }),
+    api.changePassword({ password: 'wrongpass1', new_password: 'NewPassword1' }),
   ).rejects.toThrow()
 
-  // Reusing the same password is rejected.
+  // A weak new password is rejected, mirroring the backend strength policy, so
+  // the stub can't mask a client that forgot to validate.
   await expect(
-    api.changePassword({ password: 'password123', new_password: 'password123' }),
+    api.changePassword({ password: 'password123', new_password: 'weak' }),
   ).rejects.toThrow()
 
-  await api.changePassword({ password: 'password123', new_password: 'newpassword1' })
+  await api.changePassword({ password: 'password123', new_password: 'NewPassword1' })
+
+  // Reusing the (now current) password is rejected.
+  await expect(
+    api.changePassword({ password: 'NewPassword1', new_password: 'NewPassword1' }),
+  ).rejects.toThrow()
 
   // The old password no longer logs in; the new one does.
   await expect(api.login({ username_or_email: 'ada', password: 'password123' })).rejects.toThrow()
-  const login = await api.login({ username_or_email: 'ada', password: 'newpassword1' })
+  const login = await api.login({ username_or_email: 'ada', password: 'NewPassword1' })
   if (isTwoFactorRequired(login)) throw new Error('expected a session, not a challenge')
   expect(login.username).toBe('ada')
 })

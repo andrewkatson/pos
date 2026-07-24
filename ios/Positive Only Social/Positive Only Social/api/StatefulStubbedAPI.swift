@@ -609,6 +609,14 @@ final class StatefulStubbedAPI: Networking {
         guard let user = findUser(bySessionToken: sessionManagementToken),
               let userIndex = users.firstIndex(where: { $0.id == user.id })
         else { throw APIError.badServerResponse(statusCode: 401) }
+        // Field validation first, mirroring the backend: the new password must
+        // meet the registration strength policy (Patterns.password) before the
+        // current password is checked, so a weak password fails here exactly as
+        // it would in production rather than silently succeeding against the stub.
+        let strongPassword = "^(?=.*[0-9])(?=.*[a-z])(?=.*[A-Z])(?=\\S+$).{8,}$"
+        guard newPassword.range(of: strongPassword, options: .regularExpression) != nil else {
+            throw APIError.serverError(statusCode: 400, serverMessage: "Invalid fields ['NEW_PASSWORD']")
+        }
         // The current password is required as well as the session: a stolen
         // session alone must not be enough to lock the real owner out.
         guard users[userIndex].passwordHash == currentPassword else {
