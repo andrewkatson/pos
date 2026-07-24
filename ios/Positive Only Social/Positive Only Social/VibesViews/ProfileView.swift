@@ -279,14 +279,18 @@ struct ProfileBodyView: View {
             }
         }
         .padding(.top, 4)
-        // Upload and set the picked photo, then clear the selection so picking
-        // the same photo again still fires.
+        // Upload and set the picked photo. The picked item is captured and the
+        // selection cleared *synchronously* (on the main actor, before the async
+        // work) so an in-flight upload can never nil out a newer selection — and
+        // clearing lets re-picking the same photo fire onChange again. The
+        // guard makes the resulting change-to-nil a no-op.
         .onChange(of: selectedPhotoItem) {
+            guard let item = selectedPhotoItem else { return }
+            selectedPhotoItem = nil
             Task {
-                if let data = try? await selectedPhotoItem?.loadTransferable(type: Data.self) {
+                if let data = try? await item.loadTransferable(type: Data.self) {
                     await viewModel.updateProfilePhoto(imageData: data)
                 }
-                selectedPhotoItem = nil
             }
         }
     }
