@@ -42,6 +42,11 @@ class StatefulStubbedAPI : PositiveOnlySocialAPI {
     private val commentThreads = mutableListOf<CommentThreadMock>()
     private val appeals = mutableListOf<AppealMock>()
 
+    // Monotonic source for membership numbers (issue #198). A dedicated counter
+    // rather than users.size so a delete + re-register never reuses a number,
+    // matching the backend's "creation order, never reused" behavior.
+    private var membershipCounter = 0
+
     // Simulates the "Authorization: Bearer <token>" header.
     // Set this variable before making authenticated calls.
     var simulatedAuthToken: String? = null
@@ -193,12 +198,13 @@ class StatefulStubbedAPI : PositiveOnlySocialAPI {
         }
 
         // Create User. Assign the next sequential membership number (issue
-        // #198), mirroring the backend which numbers accounts in creation order.
+        // #198), mirroring the backend which numbers accounts in creation order
+        // and never reuses a number even after a delete.
         val newUser = UserMock(
             username = request.username,
             email = request.email,
             passwordHash = request.password, // Stub: Plain text
-            membershipNumber = users.size + 1
+            membershipNumber = ++membershipCounter
         )
         users.add(newUser)
 

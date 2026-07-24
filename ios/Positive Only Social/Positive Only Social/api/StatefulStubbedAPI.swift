@@ -179,6 +179,11 @@ final class StatefulStubbedAPI: Networking {
     private var appeals: [MockAppeal] = []
     private var userFollows: [MockUserFollow] = []
 
+    // Monotonic source for membership numbers (issue #198). A dedicated counter
+    // rather than users.count so a delete + re-register never reuses a number,
+    // matching the backend's "creation order, never reused" behavior.
+    private var membershipCounter = 0
+
     // MARK: - Configuration
     public var simulatedLatency: TimeInterval = 0.1
     private let maxReportsBeforeHiding = 5
@@ -295,8 +300,10 @@ final class StatefulStubbedAPI: Networking {
         }
         var newUser = MockUser(username: username, email: email, passwordHash: password)
         // Assign the next sequential membership number (issue #198), mirroring
-        // the backend which numbers accounts in creation order.
-        newUser.membershipNumber = users.count + 1
+        // the backend which numbers accounts in creation order and never reuses
+        // a number even after a delete.
+        membershipCounter += 1
+        newUser.membershipNumber = membershipCounter
         let membershipNumber = newUser.membershipNumber
         users.append(newUser)
         let newSession = MockSession(managementToken: generateToken(), userId: newUser.id, ip: ip)
