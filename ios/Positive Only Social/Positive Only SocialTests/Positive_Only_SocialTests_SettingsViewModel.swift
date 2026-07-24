@@ -166,6 +166,99 @@ struct Positive_Only_SocialTests_SettingsViewModel {
         #expect(user?.identityIsVerified == true, "User should be verified in the backend")
     }
 
+    // --- Contact Information Tests (issues #194 / #197) ---
+
+    @Test func testLoadCurrentUser_PopulatesUsernameAndEmail() async throws {
+        _ = try await setupLoggedInUser(username: "contactUser")
+        let sut = SettingsViewModel(api: stubAPI, keychainHelper: keychainHelper, account: "contactUser_account")
+
+        sut.loadCurrentUser()
+        await yield()
+
+        #expect(sut.currentUsername == "contactUser")
+        #expect(sut.currentEmail == "contactUser@test.com")
+    }
+
+    @Test func testLoadCurrentUser_NoSession_LeavesPlaceholder() async throws {
+        // No user in the keychain: the request is skipped and the fields stay
+        // nil so the view keeps its placeholder rather than showing an error.
+        let sut = SettingsViewModel(api: stubAPI, keychainHelper: keychainHelper, account: "contactNoSession_account")
+
+        sut.loadCurrentUser()
+        await yield()
+
+        #expect(sut.currentUsername == nil)
+        #expect(sut.currentEmail == nil)
+        #expect(sut.showingErrorAlert == false)
+    }
+
+    // --- Change Password Tests (issue #197) ---
+
+    @Test func testChangePassword_Success_SucceedsAndRaisesConfirmation() async throws {
+        _ = try await setupLoggedInUser(username: "changePwUser")
+        let sut = SettingsViewModel(api: stubAPI, keychainHelper: keychainHelper, account: "changePwUser_account")
+
+        // The registration helper uses "123" as the password.
+        sut.changePassword(currentPassword: "123", newPassword: "NewStrongPass1")
+        await yield()
+
+        #expect(sut.passwordChangeSucceeded == true)
+        #expect(sut.passwordChangeErrorMessage == nil)
+
+        // The view raises the confirmation alert once the sheet dismisses.
+        sut.finishPasswordChange()
+        #expect(sut.showingPasswordChangeStatusAlert == true)
+        #expect(sut.passwordChangeStatusMessage == "Your password has been changed.")
+        #expect(sut.passwordChangeSucceeded == false)
+
+        // The new password is what the backend now accepts.
+        let loginData = try await stubAPI.loginUser(usernameOrEmail: "changePwUser", password: "NewStrongPass1", rememberMe: "false", ip: "127.0.0.1")
+        let session = try JSONDecoder().decode(LoginResponseFields.self, from: loginData)
+        #expect(stubAPI.findSession(byToken: session.sessionManagementToken) != nil)
+    }
+
+    @Test func testChangePassword_WrongCurrentPassword_ShowsErrorAndKeepsPassword() async throws {
+        _ = try await setupLoggedInUser(username: "changePwWrongUser")
+        let sut = SettingsViewModel(api: stubAPI, keychainHelper: keychainHelper, account: "changePwWrongUser_account")
+
+        sut.changePassword(currentPassword: "wrong", newPassword: "NewStrongPass1")
+        await yield()
+
+        // The sheet stays open (no success) with the backend error surfaced inline.
+        #expect(sut.passwordChangeSucceeded == false)
+        #expect(sut.passwordChangeErrorMessage != nil)
+
+        // The old password still works; the new one was never applied.
+        _ = try await stubAPI.loginUser(usernameOrEmail: "changePwWrongUser", password: "123", rememberMe: "false", ip: "127.0.0.1")
+    }
+
+    @Test func testChangePassword_SamePassword_ShowsError() async throws {
+        _ = try await setupLoggedInUser(username: "changePwSameUser")
+        let sut = SettingsViewModel(api: stubAPI, keychainHelper: keychainHelper, account: "changePwSameUser_account")
+
+        // The backend rejects a new password equal to the current one; the
+        // client guards against it too, but this proves the API path.
+        sut.changePassword(currentPassword: "123", newPassword: "123")
+        await yield()
+
+        #expect(sut.passwordChangeSucceeded == false)
+        #expect(sut.passwordChangeErrorMessage != nil)
+    }
+
+    @Test func testChangePassword_KeepsCurrentSessionSignedIn() async throws {
+        // A password change evicts the account's *other* sessions and
+        // remember-me cookies on the backend, but must keep the caller's current
+        // session so they aren't logged out of the device they just used.
+        let currentToken = try await setupLoggedInUser(username: "changePwKeepUser")
+        let sut = SettingsViewModel(api: stubAPI, keychainHelper: keychainHelper, account: "changePwKeepUser_account")
+
+        sut.changePassword(currentPassword: "123", newPassword: "NewStrongPass1")
+        await yield()
+
+        #expect(sut.passwordChangeSucceeded == true)
+        #expect(stubAPI.findSession(byToken: currentToken) != nil, "The current device should stay signed in")
+    }
+
     // --- Two-Factor Authentication Tests (issue #348) ---
 
     /// Helper to run setup + confirm through the view model, returning the SUT.

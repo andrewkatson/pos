@@ -104,6 +104,64 @@ fun SettingsScreen(
         val twoFactorStatusMessage by viewModel.twoFactorStatusMessage.collectAsState()
         val clipboardManager = LocalClipboardManager.current
 
+        // Change-password + contact info (issue #197/#194).
+        var showingChangePassword by remember { mutableStateOf(false) }
+        var changeCurrentPassword by remember { mutableStateOf("") }
+        var changeNewPassword by remember { mutableStateOf("") }
+        var changeConfirmPassword by remember { mutableStateOf("") }
+        val isChangingPassword by viewModel.isChangingPassword.collectAsState()
+        val passwordChangeMessage by viewModel.passwordChangeMessage.collectAsState()
+        val currentUser by viewModel.currentUser.collectAsState()
+
+        // Load the signed-in account's own username + email once, on mount.
+        LaunchedEffect(Unit) { viewModel.loadCurrentUser() }
+
+        // Once the change succeeds, close the dialog and wipe the entered
+        // passwords — they're sensitive and must not linger in composition state.
+        LaunchedEffect(passwordChangeMessage) {
+            if (passwordChangeMessage != null && showingChangePassword) {
+                showingChangePassword = false
+                changeCurrentPassword = ""
+                changeNewPassword = ""
+                changeConfirmPassword = ""
+            }
+        }
+
+        if (passwordChangeMessage != null) {
+            AlertDialog(
+                onDismissRequest = { viewModel.clearPasswordChangeMessage() },
+                title = { Text("Change Password") },
+                text = { Text(passwordChangeMessage!!) },
+                confirmButton = {
+                    Button(onClick = { viewModel.clearPasswordChangeMessage() }) {
+                        Text("OK")
+                    }
+                }
+            )
+        }
+
+        if (showingChangePassword) {
+            // Cancelling clears the entered passwords too, so they don't linger
+            // (or reappear if the dialog is reopened).
+            val closeChangePasswordDialog = {
+                showingChangePassword = false
+                changeCurrentPassword = ""
+                changeNewPassword = ""
+                changeConfirmPassword = ""
+            }
+            ChangePasswordDialog(
+                currentPassword = changeCurrentPassword,
+                onCurrentPasswordChange = { changeCurrentPassword = it },
+                newPassword = changeNewPassword,
+                onNewPasswordChange = { changeNewPassword = it },
+                confirmPassword = changeConfirmPassword,
+                onConfirmPasswordChange = { changeConfirmPassword = it },
+                isChanging = isChangingPassword,
+                onChange = { viewModel.changePassword(changeCurrentPassword, changeNewPassword) },
+                onCancel = closeChangePasswordDialog
+            )
+        }
+
         if (twoFactorStatusMessage != null) {
             AlertDialog(
                 onDismissRequest = { viewModel.clearTwoFactorStatusMessage() },
@@ -427,6 +485,15 @@ fun SettingsScreen(
                 modifier = Modifier.padding(16.dp)
             )
 
+            ListListItem(text = "Change Password", textColor = Color.Blue) {
+                changeCurrentPassword = ""
+                changeNewPassword = ""
+                changeConfirmPassword = ""
+                showingChangePassword = true
+            }
+
+            HorizontalDivider()
+
             ListListItem(text = "Enable Two-Factor Authentication", textColor = Color.Blue) {
                 twoFactorConfirmCode = ""
                 twoFactorConfirmPassword = ""
@@ -456,13 +523,31 @@ fun SettingsScreen(
                 style = MaterialTheme.typography.titleMedium,
                 modifier = Modifier.padding(16.dp)
             )
-            
-            ListListItem(text = "katsonsoftware@gmail.com") {
+
+            // The signed-in user's own username + email (issue #197/#194). Shows
+            // a placeholder until loadCurrentUser() resolves.
+            ListListItem(text = currentUser?.username ?: "…") { }
+
+            HorizontalDivider()
+
+            ListListItem(text = currentUser?.email ?: "…") { }
+
+            HorizontalDivider()
+
+            Text(
+                text = "Contact Us",
+                style = MaterialTheme.typography.titleMedium,
+                modifier = Modifier.padding(16.dp)
+            )
+
+            // Support address for feedback/help — a constant, not the user's own
+            // email (issue #194).
+            ListListItem(text = Constants.SUPPORT_EMAIL) {
                 // Optional: Add logic to open email app
             }
 
             HorizontalDivider()
-            
+
             Text(
                 text = "Account Actions",
                 style = MaterialTheme.typography.titleMedium,
@@ -624,6 +709,115 @@ private fun EnrollTwoFactorDialog(
                 // tearing the dialog down discards the response carrying the only
                 // copy of the recovery codes.
                 Button(onClick = onCancel, enabled = !isConfirming) { Text("Cancel") }
+            }
+        }
+    )
+}
+
+/**
+ * Change-password dialog (issue #197). Three password fields with client-side
+ * validation mirroring the backend's registration strength policy; the current
+ * password is required as well as the session so a stolen session alone can't
+ * change it. Passwords are cleared from composition state on every exit path by
+ * the caller.
+ */
+@Composable
+private fun ChangePasswordDialog(
+    currentPassword: String,
+    onCurrentPasswordChange: (String) -> Unit,
+    newPassword: String,
+    onNewPasswordChange: (String) -> Unit,
+    confirmPassword: String,
+    onConfirmPasswordChange: (String) -> Unit,
+    isChanging: Boolean,
+    onChange: () -> Unit,
+    onCancel: () -> Unit
+) {
+    // The full strength policy the backend enforces at registration (see
+    // Patterns.password in backend/user_system/constants.py): at least eight
+    // non-whitespace characters with a lower- and upper-case letter and a digit.
+    val strongPassword = remember { Regex("^(?=.*[0-9])(?=.*[a-z])(?=.*[A-Z])(?=\\S+$).{8,}$") }
+    val isNewStrong = strongPassword.matches(newPassword)
+    val doPasswordsMatch = newPassword == confirmPassword
+    val isNewDifferent = newPassword != currentPassword
+    // Blocked while a change is in flight, mirroring the 2FA dialogs: a second
+    // tap would enqueue another request before the first settles.
+    val canSubmit = currentPassword.isNotEmpty() && isNewStrong &&
+        doPasswordsMatch && isNewDifferent && !isChanging
+
+    AlertDialog(
+        onDismissRequest = onCancel,
+        title = { Text("Change Password") },
+        text = {
+            Column(modifier = Modifier.verticalScroll(rememberScrollState())) {
+                Text(
+                    "Enter your current password and choose a new one. Your new password must " +
+                        "be at least 8 characters and include an uppercase letter, a lowercase " +
+                        "letter, and a number."
+                )
+                Spacer(modifier = Modifier.height(8.dp))
+                TextField(
+                    value = currentPassword,
+                    onValueChange = onCurrentPasswordChange,
+                    label = { Text("Current password") },
+                    singleLine = true,
+                    visualTransformation = PasswordVisualTransformation(),
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
+                    modifier = Modifier.testTag("ChangePasswordCurrentField")
+                )
+                Spacer(modifier = Modifier.height(8.dp))
+                TextField(
+                    value = newPassword,
+                    onValueChange = onNewPasswordChange,
+                    label = { Text("New password") },
+                    singleLine = true,
+                    visualTransformation = PasswordVisualTransformation(),
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
+                    modifier = Modifier.testTag("ChangePasswordNewField")
+                )
+                Spacer(modifier = Modifier.height(8.dp))
+                TextField(
+                    value = confirmPassword,
+                    onValueChange = onConfirmPasswordChange,
+                    label = { Text("Confirm new password") },
+                    singleLine = true,
+                    visualTransformation = PasswordVisualTransformation(),
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
+                    modifier = Modifier.testTag("ChangePasswordConfirmField")
+                )
+                // Inline guidance so the disabled Change button isn't a dead end.
+                if (newPassword.isNotEmpty() && !isNewStrong) {
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Text(
+                        "New password doesn't meet the requirements.",
+                        color = MaterialTheme.colorScheme.error
+                    )
+                }
+                if (confirmPassword.isNotEmpty() && !doPasswordsMatch) {
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Text("Passwords don't match.", color = MaterialTheme.colorScheme.error)
+                }
+                if (isNewStrong && !isNewDifferent) {
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Text(
+                        "New password must be different from your current one.",
+                        color = MaterialTheme.colorScheme.error
+                    )
+                }
+            }
+        },
+        confirmButton = {
+            Button(
+                onClick = onChange,
+                enabled = canSubmit,
+                modifier = Modifier.testTag("ConfirmChangePasswordButton")
+            ) {
+                Text("Change Password")
+            }
+        },
+        dismissButton = {
+            Button(onClick = onCancel, enabled = !isChanging) {
+                Text("Cancel")
             }
         }
     )

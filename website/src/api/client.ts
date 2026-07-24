@@ -14,9 +14,11 @@ import type {
   Comment,
   CommentOnPostResponse,
   CommentThreadRef,
+  ChangePasswordRequest,
   ConfirmTotpRequest,
   ConfirmTotpResponse,
   CreatePostRequest,
+  CurrentUser,
   CreatePostResponse,
   CreateUploadUrlResponse,
   DisableTotpRequest,
@@ -422,6 +424,16 @@ export class ApiClient implements PositiveOnlySocialAPI {
 
   resetPassword(body: ResetPasswordRequest): Promise<MessageResponse> {
     return this.request<MessageResponse>('POST', '/password/reset/', { body })
+  }
+
+  /** Change the signed-in account's password (requires the current one). */
+  changePassword(body: ChangePasswordRequest): Promise<MessageResponse> {
+    return this.request<MessageResponse>('POST', '/password/change/', { body, auth: true })
+  }
+
+  /** The signed-in account's own username and registered email (Settings). */
+  getCurrentUser(): Promise<CurrentUser> {
+    return this.request<CurrentUser>('GET', '/me/', { auth: true })
   }
 
   // ===========================================================================

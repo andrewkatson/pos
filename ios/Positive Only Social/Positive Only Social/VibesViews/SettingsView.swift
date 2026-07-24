@@ -32,6 +32,22 @@ struct SettingsView: View {
     @State private var disableCode = ""
     @State private var disableUsesRecoveryCode = false
 
+    // Change-password sheet (issue #197).
+    @State private var showingChangePassword = false
+    @State private var changePasswordCurrent = ""
+    @State private var changePasswordNew = ""
+    @State private var changePasswordConfirm = ""
+
+    /// The support address shown under "Contact Us" (issue #194). Constant,
+    /// unlike the Contact Information section which now shows the signed-in
+    /// user's own username and email.
+    private let supportEmail = "katsonsoftware@gmail.com"
+
+    /// The full strength policy the backend enforces (Patterns.password): at
+    /// least eight non-whitespace characters with a lower- and upper-case letter
+    /// and a digit. Kept in sync with the website's change-password modal.
+    private let strongPasswordRegex = "^(?=.*[0-9])(?=.*[a-z])(?=.*[A-Z])(?=\\S+$).{8,}$"
+
     // Kept so the appeals screen can be built with the same API/keychain.
     private let api: Networking
     private let keychainHelper: KeychainHelperProtocol
@@ -45,10 +61,24 @@ struct SettingsView: View {
     var body: some View {
         NavigationStack {
             List {
-                // MARK: - Contact Information Section
+                // MARK: - Contact Information Section (issues #194/#197)
+                // The signed-in user's own username + email (was a hardcoded
+                // support address). Falls back to a placeholder while loading.
                 Section(header: Text("Contact Information")) {
-                    Text("katsonsoftware@gmail.com")
+                    Text(viewModel.currentUsername ?? "…")
                         .foregroundColor(.gray)
+                        .accessibilityIdentifier("ContactInfoUsername")
+                    Text(viewModel.currentEmail ?? "…")
+                        .foregroundColor(.gray)
+                        .accessibilityIdentifier("ContactInfoEmail")
+                }
+
+                // MARK: - Contact Us Section (issue #194)
+                // The support address, kept constant, for feedback and help.
+                Section(header: Text("Contact Us")) {
+                    Text(supportEmail)
+                        .foregroundColor(.gray)
+                        .accessibilityIdentifier("ContactUsEmail")
                 }
 
                 // MARK: - Logout Section
@@ -97,8 +127,19 @@ struct SettingsView: View {
                     }.accessibilityIdentifier("BlockedUsersButton")
                 }
 
-                // MARK: - Security Section (issue #348)
+                // MARK: - Security Section (issues #348 / #197)
                 Section(header: Text("Security")) {
+                    Button {
+                        changePasswordCurrent = ""
+                        changePasswordNew = ""
+                        changePasswordConfirm = ""
+                        viewModel.cancelPasswordChange()
+                        showingChangePassword = true
+                    } label: {
+                        Text("Change Password")
+                            .foregroundColor(.blue)
+                    }.accessibilityIdentifier("ChangePasswordButton")
+
                     Button {
                         twoFactorConfirmCode = ""
                         twoFactorConfirmPassword = ""
@@ -132,6 +173,11 @@ struct SettingsView: View {
                 }
             }
             .navigationTitle("Settings")
+            // Load the signed-in account's own username + email for the Contact
+            // Information section (load-on-mount, matching the rest of the app).
+            .onAppear {
+                viewModel.loadCurrentUser()
+            }
             // MARK: - Confirmation Alerts
             .alert("Are you sure you want to log out?", isPresented: $viewModel.showingLogoutConfirm) {
                 Button("Cancel", role: .cancel) { }.accessibilityIdentifier("CancelLogoutButton")
@@ -167,6 +213,11 @@ struct SettingsView: View {
             } message: {
                 Text(viewModel.twoFactorStatusMessage)
             }
+            .alert("Change Password", isPresented: $viewModel.showingPasswordChangeStatusAlert) {
+                Button("OK", role: .cancel) { }
+            } message: {
+                Text(viewModel.passwordChangeStatusMessage)
+            }
             .sheet(isPresented: $showingEnrollTwoFactor, onDismiss: {
                 // A swipe-down (or the Done/Cancel buttons, which just close the
                 // sheet) ends enrollment here. If recovery codes were already
@@ -192,6 +243,30 @@ struct SettingsView: View {
             }
             .sheet(isPresented: $showingDisableTwoFactor) {
                 disableTwoFactorSheet
+            }
+            .sheet(isPresented: $showingChangePassword, onDismiss: {
+                // Clear the entered passwords from memory once the sheet closes —
+                // they're sensitive and there's no reason to keep them around.
+                // If the change went through, raise the confirmation alert;
+                // otherwise it was cancelled, so just clear any inline error.
+                changePasswordCurrent = ""
+                changePasswordNew = ""
+                changePasswordConfirm = ""
+                if viewModel.passwordChangeSucceeded {
+                    viewModel.finishPasswordChange()
+                } else {
+                    viewModel.cancelPasswordChange()
+                }
+            }) {
+                changePasswordSheet
+                    // A successful change closes the sheet automatically; the
+                    // confirmation alert is then raised from onDismiss.
+                    .onChange(of: viewModel.passwordChangeSucceeded) { _, succeeded in
+                        if succeeded { showingChangePassword = false }
+                    }
+                    // Don't let a swipe-down drop an in-flight request; the
+                    // backend may already have rotated the password.
+                    .interactiveDismissDisabled(viewModel.isChangingPassword)
             }
             .sheet(isPresented: $showingDatePicker) {
                 VStack(spacing: 20) {
@@ -226,6 +301,98 @@ struct SettingsView: View {
                 .presentationDetents([.medium])
             }
         }
+    }
+
+    // MARK: - Change Password Sheet (issue #197)
+
+    /// Changing the password asks for the current one as well: the current
+    /// password is required by the backend so a stolen session alone can't
+    /// change it, and a successful change evicts the account's other sessions
+    /// and remember-me cookies (only this device stays signed in).
+    @ViewBuilder
+    private var changePasswordSheet: some View {
+        VStack(spacing: 16) {
+            Text("Change Password")
+                .font(.headline)
+                .padding(.top)
+
+            Text("Enter your current password and choose a new one. Your new password must be at least 8 characters and include an uppercase letter, a lowercase letter, and a number.")
+                .font(.subheadline)
+                .multilineTextAlignment(.center)
+
+            if let changeError = viewModel.passwordChangeErrorMessage {
+                Text(changeError)
+                    .font(.subheadline)
+                    .foregroundColor(.red)
+                    .multilineTextAlignment(.center)
+            }
+
+            SecureField("Current password", text: $changePasswordCurrent)
+                .padding().background(Color(.systemGray6)).cornerRadius(10)
+                .textContentType(.password)
+                .accessibilityIdentifier("ChangePasswordCurrentField")
+            SecureField("New password", text: $changePasswordNew)
+                .padding().background(Color(.systemGray6)).cornerRadius(10)
+                .textContentType(.newPassword)
+                .accessibilityIdentifier("ChangePasswordNewField")
+            SecureField("Confirm new password", text: $changePasswordConfirm)
+                .padding().background(Color(.systemGray6)).cornerRadius(10)
+                .textContentType(.newPassword)
+                .accessibilityIdentifier("ChangePasswordConfirmField")
+
+            // Inline guidance so the disabled Change button isn't a dead end.
+            if !changePasswordNew.isEmpty && !newPasswordIsStrong {
+                Text("New password doesn't meet the requirements.")
+                    .font(.footnote)
+                    .foregroundColor(.red)
+                    .multilineTextAlignment(.center)
+            }
+            if !changePasswordConfirm.isEmpty && changePasswordNew != changePasswordConfirm {
+                Text("Passwords don't match.")
+                    .font(.footnote)
+                    .foregroundColor(.red)
+            }
+            if newPasswordIsStrong && changePasswordNew == changePasswordCurrent {
+                Text("New password must be different from your current one.")
+                    .font(.footnote)
+                    .foregroundColor(.red)
+                    .multilineTextAlignment(.center)
+            }
+
+            Button("Change Password") {
+                viewModel.changePassword(currentPassword: changePasswordCurrent,
+                                         newPassword: changePasswordNew)
+            }
+            .disabled(!changePasswordIsValid || viewModel.isChangingPassword)
+            .padding()
+            .background(Color.blue)
+            .foregroundColor(.white)
+            .cornerRadius(8)
+            .accessibilityIdentifier("ConfirmChangePasswordButton")
+
+            Button("Cancel") {
+                showingChangePassword = false
+            }
+            .disabled(viewModel.isChangingPassword)
+            .foregroundColor(.red)
+        }
+        .padding()
+        .presentationDetents([.large])
+    }
+
+    /// Whether the new password satisfies the backend's strength policy.
+    private var newPasswordIsStrong: Bool {
+        changePasswordNew.range(of: strongPasswordRegex, options: .regularExpression) != nil
+    }
+
+    /// The client-side gate on the Change button: the new password must be
+    /// strong, match its confirmation, and differ from the current one, and the
+    /// current password must be present. The backend re-checks all of this.
+    private var changePasswordIsValid: Bool {
+        !changePasswordCurrent.isEmpty
+            && newPasswordIsStrong
+            && changePasswordNew == changePasswordConfirm
+            && changePasswordNew != changePasswordCurrent
     }
 
     // MARK: - Two-Factor Sheets (issue #348)

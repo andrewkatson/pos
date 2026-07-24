@@ -53,6 +53,24 @@ interface PositiveOnlySocialAPI {
         @Body request: IdentityVerificationRequest
     ): Response<GenericResponse>
 
+    // =============================================================================
+    // ACCOUNT / CONTACT (issue #197/#194)
+    // =============================================================================
+
+    // The signed-in account's own username + email, for the Settings "Contact
+    // Information" section.
+    @GET("me/")
+    suspend fun getCurrentUser(@Header("Authorization") token: String): Response<CurrentUserResponse>
+
+    // Change the account password. Requires the current password as well as the
+    // session, so a stolen session alone can't change it; the backend evicts the
+    // account's other sessions on success.
+    @POST("password/change/")
+    suspend fun changePassword(
+        @Header("Authorization") token: String,
+        @Body request: ChangePasswordRequest
+    ): Response<GenericResponse>
+
     // ============================================================================================
     // EMAIL VERIFICATION
     // ============================================================================================

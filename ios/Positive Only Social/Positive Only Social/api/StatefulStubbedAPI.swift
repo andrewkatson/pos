@@ -558,6 +558,36 @@ final class StatefulStubbedAPI: Networking {
         return try createEmptySuccessResponse()
     }
 
+    func getCurrentUser(sessionManagementToken: String) async throws -> Data {
+        await simulateNetwork()
+        guard let user = findUser(bySessionToken: sessionManagementToken) else { throw APIError.badServerResponse(statusCode: 401) }
+        struct Fields: Codable { let username, email: String }
+        return try createSerializedResponse(fields: Fields(username: user.username, email: user.email))
+    }
+
+    func changePassword(sessionManagementToken: String, currentPassword: String, newPassword: String) async throws -> Data {
+        await simulateNetwork()
+        guard let user = findUser(bySessionToken: sessionManagementToken),
+              let userIndex = users.firstIndex(where: { $0.id == user.id })
+        else { throw APIError.badServerResponse(statusCode: 401) }
+        // The current password is required as well as the session: a stolen
+        // session alone must not be enough to lock the real owner out.
+        guard users[userIndex].passwordHash == currentPassword else {
+            throw APIError.serverError(statusCode: 400, serverMessage: "Invalid password")
+        }
+        guard newPassword != currentPassword else {
+            throw APIError.serverError(statusCode: 400, serverMessage: "New password must be different from the current password")
+        }
+        users[userIndex].passwordHash = newPassword
+        // Mirror the backend: a password change evicts every *other* session and
+        // all remember-me cookies, keeping only the caller's current session so
+        // they aren't logged out of the device they just used.
+        sessions.removeAll { $0.userId == user.id && $0.managementToken != sessionManagementToken }
+        loginCookies.removeAll { $0.userId == user.id }
+        struct Fields: Codable { let message: String }
+        return try createSerializedResponse(fields: Fields(message: "Password changed successfully"))
+    }
+
     func logoutUser(sessionManagementToken: String) async throws -> Data {
         await simulateNetwork()
         if let sessionIndex = sessions.firstIndex(where: { $0.managementToken == sessionManagementToken }) {

@@ -11,6 +11,8 @@ import com.example.positiveonlysocial.data.model.IdentityVerificationRequest
 import com.example.positiveonlysocial.data.model.ConfirmTotpRequest
 import com.example.positiveonlysocial.data.model.DisableTotpRequest
 import com.example.positiveonlysocial.data.model.TotpSetupResponse
+import com.example.positiveonlysocial.data.model.ChangePasswordRequest
+import com.example.positiveonlysocial.data.model.CurrentUserResponse
 import com.example.positiveonlysocial.data.security.KeychainHelperProtocol
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -60,6 +62,21 @@ class SettingsViewModel(
 
     private val _twoFactorStatusMessage = MutableStateFlow<String?>(null)
     val twoFactorStatusMessage: StateFlow<String?> = _twoFactorStatusMessage.asStateFlow()
+
+    // The signed-in account's own username + email for the "Contact Information"
+    // section (issue #197/#194). Loaded on demand; null until it arrives.
+    private val _currentUser = MutableStateFlow<CurrentUserResponse?>(null)
+    val currentUser: StateFlow<CurrentUserResponse?> = _currentUser.asStateFlow()
+
+    // Change-password state (issue #197). `passwordChangeMessage` drives the
+    // one-shot confirmation dialog, mirroring `twoFactorStatusMessage`.
+    private val _passwordChangeMessage = MutableStateFlow<String?>(null)
+    val passwordChangeMessage: StateFlow<String?> = _passwordChangeMessage.asStateFlow()
+
+    // True while a change-password request is in flight, so the UI can stop a
+    // second submission racing the first.
+    private val _isChangingPassword = MutableStateFlow(false)
+    val isChangingPassword: StateFlow<Boolean> = _isChangingPassword.asStateFlow()
 
     private val service = "positive-only-social.Positive-Only-Social"
 
@@ -284,6 +301,72 @@ class SettingsViewModel(
             } catch (e: Exception) {
                 _errorMessage.value = ApiErrors.messageFor(e, fallback = "Could not disable two-factor authentication.")
                 _showingErrorAlert.value = true
+            }
+        }
+    }
+
+    // MARK: - Account / Contact (issue #197/#194)
+
+    /**
+     * Loads the signed-in account's own username + email for the Contact
+     * Information section. Non-fatal on failure — the section just shows a
+     * placeholder rather than raising an error alert (load-on-mount, matching
+     * the rest of the app).
+     */
+    fun loadCurrentUser() {
+        viewModelScope.launch {
+            try {
+                val userSession = keychainHelper.load(UserSession::class.java, service, account) ?: return@launch
+                val response = api.getCurrentUser(userSession.sessionToken)
+                if (response.isSuccessful) {
+                    _currentUser.value = response.body()
+                }
+            } catch (e: Exception) {
+                // Non-fatal: leave the section on its placeholder.
+                Log.w(TAG, "Could not load current user: ${e.message}")
+            }
+        }
+    }
+
+    fun clearPasswordChangeMessage() {
+        _passwordChangeMessage.value = null
+    }
+
+    /**
+     * Changes the account password. The current password is verified alongside
+     * the session, mirroring the backend, so a stolen session alone can't change
+     * it; on success the backend evicts the account's other sessions.
+     */
+    fun changePassword(currentPassword: String, newPassword: String) {
+        // Ignore a duplicate submission while one is already running. Disabling
+        // the button only takes effect on the next recomposition, so a fast
+        // double-tap can reach here twice; set the flag synchronously before the
+        // coroutine launches so the second call bails.
+        if (_isChangingPassword.value) return
+        _isChangingPassword.value = true
+        viewModelScope.launch {
+            try {
+                val userSession = keychainHelper.load(UserSession::class.java, service, account)
+                if (userSession == null) {
+                    _errorMessage.value = "Session not found."
+                    _showingErrorAlert.value = true
+                    return@launch
+                }
+                val response = api.changePassword(
+                    userSession.sessionToken,
+                    ChangePasswordRequest(password = currentPassword, newPassword = newPassword)
+                )
+                if (response.isSuccessful) {
+                    _passwordChangeMessage.value = "Your password has been changed."
+                } else {
+                    _errorMessage.value = ApiErrors.messageFor(response, fallback = "Could not change your password.")
+                    _showingErrorAlert.value = true
+                }
+            } catch (e: Exception) {
+                _errorMessage.value = ApiErrors.messageFor(e, fallback = "Could not change your password.")
+                _showingErrorAlert.value = true
+            } finally {
+                _isChangingPassword.value = false
             }
         }
     }

@@ -1388,6 +1388,68 @@ def reset_password(request):
     return log_and_return_json("reset_password", {'message': 'Password reset successfully'})
 
 
+@csrf_exempt
+@api_login_required
+@ratelimit(key='user', rate='10/h', block=True)
+@require_POST
+def change_password(request):
+    """Change the signed-in account's password from the Settings menu
+    (issue #197). Requires the current password as well as the session, so a
+    stolen session alone cannot lock the real owner out. On success every
+    *other* session and all remember-me cookies are invalidated (a password
+    change should evict other devices), while the caller's current session is
+    preserved so they are not logged out of the device they just used."""
+    logger.info("Endpoint change_password invoked by IP or User")
+    data = _get_json_body(request)
+    if data is None:
+        return log_and_return_json("change_password", {'error': "Invalid JSON data"}, status=400)
+
+    current_password = data.get(Fields.password)
+    new_password = data.get(Fields.new_password)
+
+    invalid_fields = []
+    # isinstance matters here: is_valid_pattern coerces with str(), so a JSON
+    # number would satisfy the regex and then blow up inside check_password —
+    # a 500 where this should be a plain 400. Matches disable_totp. The current
+    # password is validated with the lax login pattern (it only has to match an
+    # already-stored hash), while the new one must satisfy the full strength
+    # policy used at registration.
+    if not current_password or not isinstance(current_password, str) \
+            or not is_valid_pattern(current_password, Patterns.login_password):
+        invalid_fields.append(Params.password)
+    if not new_password or not isinstance(new_password, str) \
+            or not is_valid_pattern(new_password, Patterns.password):
+        invalid_fields.append(Params.new_password)
+    if len(invalid_fields) > 0:
+        return log_and_return_json("change_password", {'error': f"Invalid fields {invalid_fields}"}, status=400)
+
+    # Lock the user row so the password check and update can't race a concurrent
+    # change, and so the new hash is written against the row we validated.
+    with transaction.atomic():
+        user = get_user_model().objects.select_for_update().get(pk=request.user.pk)
+
+        if not check_password(current_password, user.password):
+            logger.warning(f"Password change failed: Current password was not correct for user_id: {user.id}")
+            return log_and_return_json("change_password", {'error': "Invalid password"}, status=400)
+
+        if check_password(new_password, user.password):
+            return log_and_return_json(
+                "change_password",
+                {'error': "New password must be different from the current password"},
+                status=400,
+            )
+
+        user.set_password(new_password)
+        user.save()
+        # Evict other devices but keep the session that made this request, so the
+        # caller isn't logged out of the device they just changed the password on.
+        Session.objects.filter(management_user=user).exclude(management_token=request.token).delete()
+        LoginCookie.objects.filter(cookie_user=user).delete()
+
+    logger.info(f"Password change successful for user_id: {user.id}, username: {user.username}")
+    return log_and_return_json("change_password", {'message': 'Password changed successfully'})
+
+
 # =============================================================================
 # POST VIEWS
 # =============================================================================
@@ -2586,6 +2648,22 @@ def get_blocked_users(request):
     ]
     logger.info(f"Get blocked users successful: count: {len(users_data)} for user_id: {request.user.id}")
     return log_and_return_json("get_blocked_users", users_data, safe=False)
+
+
+@api_login_required
+@ratelimit(key='user', rate='30/m', block=True)
+@require_GET
+def get_current_user(request):
+    """Return the signed-in account's own username and registered email for the
+    Settings "Contact Information" section (issues #194/#197). Scoped to
+    request.user, so it can only ever reveal the requester's own address."""
+    logger.info("Endpoint get_current_user invoked by User")
+    data = {
+        Fields.username: request.user.username,
+        Fields.email: request.user.email,
+    }
+    logger.info(f"Get current user successful for user_id: {request.user.id}")
+    return log_and_return_json("get_current_user", data, status=200)
 
 
 @api_login_required

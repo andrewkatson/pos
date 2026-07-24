@@ -440,6 +440,33 @@ class StatefulStubbedAPI : PositiveOnlySocialAPI {
     }
 
     // ============================================================================================
+    // ACCOUNT / CONTACT (issue #197/#194)
+    // ============================================================================================
+
+    override suspend fun getCurrentUser(token: String): Response<CurrentUserResponse> {
+        val user = getAuthorizedUser(token) ?: return errorGeneric(401, "Invalid session")
+        return Response.success(CurrentUserResponse(username = user.username, email = user.email))
+    }
+
+    override suspend fun changePassword(token: String, request: ChangePasswordRequest): Response<GenericResponse> {
+        val user = getAuthorizedUser(token) ?: return error(401, "Invalid session")
+        // The current password is required as well as the session, mirroring the
+        // backend: a stolen session alone must not be able to change it.
+        if (user.passwordHash != request.password) {
+            return error(400, "Invalid password")
+        }
+        if (user.passwordHash == request.newPassword) {
+            return error(400, "New password must be different from the current password")
+        }
+        user.passwordHash = request.newPassword
+        // Evict the account's other sessions (and any remember-me cookies) but
+        // keep the current one, so a leaked session can't outlive the change.
+        sessions.removeIf { it.userId == user.id && it.managementToken != token }
+        loginCookies.removeIf { it.userId == user.id }
+        return Response.success(GenericResponse("Password changed successfully", null))
+    }
+
+    // ============================================================================================
     // PASSWORD RESET
 
     override suspend fun requestReset(request: ResetRequest): Response<GenericResponse> {

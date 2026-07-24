@@ -10,11 +10,13 @@ import type {
   Comment,
   CommentOnPostResponse,
   CommentThreadRef,
+  ChangePasswordRequest,
   ConfirmTotpRequest,
   ConfirmTotpResponse,
   CreatePostRequest,
   CreatePostResponse,
   CreateUploadUrlResponse,
+  CurrentUser,
   DisableTotpRequest,
   DisableTotpResponse,
   FeedPost,
@@ -530,6 +532,11 @@ export class StatefulStubbedAPI implements PositiveOnlySocialAPI {
     return { message: 'User deleted successfully' }
   }
 
+  async getCurrentUser(): Promise<CurrentUser> {
+    const user = this.requireUser()
+    return { username: user.username, email: user.email }
+  }
+
   // ---------------------------------------------------------------------------
   // Password reset
   // ---------------------------------------------------------------------------
@@ -596,6 +603,23 @@ export class StatefulStubbedAPI implements PositiveOnlySocialAPI {
       return { message: 'Password reset successfully' }
     }
     throw new ApiError(400, 'Invalid reset token')
+  }
+
+  async changePassword(body: ChangePasswordRequest): Promise<MessageResponse> {
+    const user = this.requireUser()
+    if (user.passwordHash !== body.password) {
+      throw new ApiError(400, 'Invalid password')
+    }
+    if (user.passwordHash === body.new_password) {
+      throw new ApiError(400, 'New password must be different from the current password')
+    }
+    user.passwordHash = body.new_password
+    // Evict other devices but keep the current session (mirrors the backend).
+    this.sessions = this.sessions.filter(
+      (s) => s.userId !== user.id || s.managementToken === this.token,
+    )
+    this.loginCookies = this.loginCookies.filter((c) => c.userId !== user.id)
+    return { message: 'Password changed successfully' }
   }
 
   // ---------------------------------------------------------------------------

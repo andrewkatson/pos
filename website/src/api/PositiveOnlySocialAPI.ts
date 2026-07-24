@@ -8,11 +8,13 @@ import type {
   Comment,
   CommentOnPostResponse,
   CommentThreadRef,
+  ChangePasswordRequest,
   ConfirmTotpRequest,
   ConfirmTotpResponse,
   CreatePostRequest,
   CreatePostResponse,
   CreateUploadUrlResponse,
+  CurrentUser,
   DisableTotpRequest,
   DisableTotpResponse,
   FeedPost,
@@ -56,6 +58,8 @@ export interface PositiveOnlySocialAPI {
   logout(): Promise<MessageResponse>
   verifyIdentity(dateOfBirth: string): Promise<MessageResponse>
   deleteAccount(): Promise<MessageResponse>
+  /** The signed-in account's own username and registered email (Settings). */
+  getCurrentUser(): Promise<CurrentUser>
 
   // Two-factor authentication (TOTP)
   loginWithTwoFactor(body: LoginTwoFactorRequest): Promise<AuthResponse>
@@ -71,6 +75,8 @@ export interface PositiveOnlySocialAPI {
   requestReset(body: RequestResetRequest): Promise<MessageResponse>
   verifyReset(body: VerifyResetRequest): Promise<VerifyResetResponse>
   resetPassword(body: ResetPasswordRequest): Promise<MessageResponse>
+  /** Change the signed-in account's password (requires the current one). */
+  changePassword(body: ChangePasswordRequest): Promise<MessageResponse>
 
   // Posts
   createUploadUrl(): Promise<CreateUploadUrlResponse>

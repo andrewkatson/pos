@@ -100,6 +100,13 @@ final class RealAPI: Networking {
         let recovery_code: String?
     }
     
+    // The current password is `password` and the replacement is `new_password`,
+    // matching the backend's change_password fields.
+    private struct ChangePasswordBody: Encodable {
+        let password: String
+        let new_password: String
+    }
+
     private struct ResetPasswordBody: Encodable {
         let username: String
         let email: String
@@ -332,6 +339,31 @@ final class RealAPI: Networking {
 
         return try await performRequest(
             pathSegments: [GVOAppConstants.pathSegmentTwoFactor, GVOAppConstants.pathSegmentDisable],
+            method: .post,
+            body: requestBody,
+            authToken: sessionManagementToken
+        )
+    }
+
+    // MARK: - Account (issues #194 / #197)
+
+    /// Fetches the signed-in account's own username and email.
+    func getCurrentUser(sessionManagementToken: String) async throws -> Data {
+        // Authenticated GET, no body; scoped to the caller on the backend.
+        return try await performRequest(
+            pathSegments: [GVOAppConstants.pathSegmentMe],
+            method: .get,
+            authToken: sessionManagementToken
+        )
+    }
+
+    /// Changes the signed-in account's password.
+    func changePassword(sessionManagementToken: String, currentPassword: String, newPassword: String) async throws -> Data {
+        let body = ChangePasswordBody(password: currentPassword, new_password: newPassword)
+        let requestBody = try encode(body)
+
+        return try await performRequest(
+            pathSegments: [GVOAppConstants.pathSegmentPassword, GVOAppConstants.pathSegmentChange],
             method: .post,
             body: requestBody,
             authToken: sessionManagementToken
