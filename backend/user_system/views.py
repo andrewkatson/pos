@@ -1600,7 +1600,16 @@ def make_post(request):
         image_url = None
         invalid_fields.append(Params.image)
     else:
-        image_url = raw_image_url
+        # Strip any query/fragment first (e.g. a client that sends the presigned
+        # PUT URL by mistake) so the signing params (X-Amz-*) are never
+        # validated, stored, or later echoed back to clients — only the
+        # canonical object URL is. Mirrors set_profile_photo.
+        image_url = strip_query_and_fragment(raw_image_url)
+        if not image_url:
+            # A non-empty value that is nothing but a query/fragment is a
+            # provided-but-invalid image, not a text-only post — reject it.
+            image_url = None
+            invalid_fields.append(Params.image)
     
     caption = data.get(Fields.caption)
 
@@ -1610,6 +1619,12 @@ def make_post(request):
 
     if image_url:
         if not is_valid_pattern(image_url, Patterns.image_url):
+            invalid_fields.append(Params.image)
+        # The URL must target our own images bucket, not an attacker-controlled
+        # S3 host — otherwise the classifier fetch and the CloudFront/compressed
+        # URL minting below would run against objects we do not own (an
+        # SSRF-ish gap).
+        elif not is_source_bucket_url(image_url):
             invalid_fields.append(Params.image)
         # The key must be scoped to this user (clients upload to `{user_id}/...`).
         elif not image_url_to_key(image_url).startswith(f"{request.user.id}/"):
