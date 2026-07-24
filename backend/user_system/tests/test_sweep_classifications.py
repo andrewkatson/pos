@@ -10,6 +10,7 @@ from ..constants import (
     CLASSIFICATION_MAX_ATTEMPTS,
     HIDDEN_REASON_CLASSIFIER, HIDDEN_REASON_CLASSIFIER_FINAL,
     HIDDEN_REASON_PENDING_CLASSIFICATION,
+    PROFILE_IMAGE_STATUS_PENDING,
 )
 from ..models import PositiveOnlySocialUser, Post
 
@@ -140,3 +141,39 @@ class SweepClassificationsTests(TestCase):
         from django.core.management.base import CommandError
         with self.assertRaises(CommandError):
             self._run('--stuck-minutes=-1')
+
+    # --- Profile photos (issue #7) ---
+
+    def _pending_photo(self, attempts=0, minutes_ago=30):
+        """A user with a profile photo stuck in pending classification for the
+        given number of minutes."""
+        PositiveOnlySocialUser.objects.filter(pk=self.user.pk).update(
+            profile_image_status=PROFILE_IMAGE_STATUS_PENDING,
+            pending_profile_image_url='https://b.s3.amazonaws.com/x/p.jpeg',
+            profile_image_classification_attempts=attempts,
+            profile_image_classification_time=timezone.now() - timedelta(minutes=minutes_ago))
+
+    @patch('user_system.tasks.enqueue_profile_photo_classification')
+    def test_stuck_pending_photo_is_reenqueued(self, mock_enqueue):
+        self._pending_photo()
+        out = self._run()
+        mock_enqueue.assert_called_once_with(self.user.id)
+        self.assertIn('1 stuck pending profile photo', out)
+
+    @patch('user_system.tasks.enqueue_profile_photo_classification')
+    def test_recent_pending_photo_is_left_alone(self, mock_enqueue):
+        self._pending_photo(minutes_ago=1)
+        self._run()
+        mock_enqueue.assert_not_called()
+
+    @patch('user_system.tasks.enqueue_profile_photo_classification')
+    def test_exhausted_pending_photo_alerts_instead_of_reenqueueing(self, mock_enqueue):
+        self._pending_photo(attempts=CLASSIFICATION_MAX_ATTEMPTS)
+        with self.assertLogs('user_system.management.commands.sweep_classifications', level='ERROR'):
+            out = self._run()
+        mock_enqueue.assert_not_called()
+        self.assertIn('1 photo(s) exhausted', out)
+        self.user.refresh_from_db()
+        # Fail closed: the photo stays pending, never shown, alert recorded.
+        self.assertEqual(self.user.profile_image_status, PROFILE_IMAGE_STATUS_PENDING)
+        self.assertTrue(self.user.profile_image_classification_alerted)

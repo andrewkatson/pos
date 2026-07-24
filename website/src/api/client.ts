@@ -36,10 +36,13 @@ import type {
   PostStatusResponse,
   ProfileDetails,
   RegisterRequest,
+  RemoveProfilePhotoResponse,
   ReplyResponse,
   RequestResetRequest,
   ResendVerificationEmailRequest,
   ResetPasswordRequest,
+  SetProfilePhotoRequest,
+  SetProfilePhotoResponse,
   SubmitAppealRequest,
   SubmitAppealResponse,
   TwoFactorSetupResponse,
@@ -641,6 +644,14 @@ export class ApiClient implements PositiveOnlySocialAPI {
 
   getProfile(username: string): Promise<ProfileDetails> {
     return this.request<ProfileDetails>('GET', `/users/${username}/profile/`, { auth: true })
+  }
+
+  setProfilePhoto(body: SetProfilePhotoRequest): Promise<SetProfilePhotoResponse> {
+    return this.request<SetProfilePhotoResponse>('POST', '/profile/photo/', { auth: true, body })
+  }
+
+  removeProfilePhoto(): Promise<RemoveProfilePhotoResponse> {
+    return this.request<RemoveProfilePhotoResponse>('POST', '/profile/photo/remove/', { auth: true })
   }
 
   // ===========================================================================

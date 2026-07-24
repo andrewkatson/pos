@@ -538,6 +538,58 @@ test('getPostStatus only answers for your own posts (#282)', async () => {
   )
 })
 
+test('setProfilePhoto reports pending then serializes the approved photo (#7)', async () => {
+  const api = new StatefulStubbedAPI()
+  await register(api, 'ada')
+
+  const res = await api.setProfilePhoto({ image_url: 'https://b.s3.amazonaws.com/ada/a.jpeg' })
+  // The response mirrors the async backend contract: it reports 'pending'...
+  expect(res.profile_image_status).toBe('pending')
+  // ...but the stub has no classifier, so the photo is already approved and live.
+  const profile = await api.getProfile('ada')
+  expect(profile.profile_image_url).toBe('https://b.s3.amazonaws.com/ada/a.jpeg')
+})
+
+test('an author photo appears next to their name in feed and comments (#7)', async () => {
+  const api = new StatefulStubbedAPI()
+  await register(api, 'ada')
+  await api.setProfilePhoto({ image_url: 'https://b.s3.amazonaws.com/ada/a.jpeg' })
+  const post = await api.createPost({ caption: 'hello world caption' })
+
+  const own = await api.getPostsForUser('ada', 0)
+  const row = own.find((p) => p.post_identifier === post.post_identifier)
+  expect(row?.author_profile_image_url).toBe('https://b.s3.amazonaws.com/ada/a.jpeg')
+
+  const comment = await api.commentOnPost(post.post_identifier, 'nice one here friend')
+  const comments = await api.getCommentsForThread(comment.comment_thread_identifier, 0)
+  expect(comments[0]?.author_profile_image_url).toBe('https://b.s3.amazonaws.com/ada/a.jpeg')
+})
+
+test('removeProfilePhoto clears the photo (#7)', async () => {
+  const api = new StatefulStubbedAPI()
+  await register(api, 'ada')
+  await api.setProfilePhoto({ image_url: 'https://b.s3.amazonaws.com/ada/a.jpeg' })
+
+  const res = await api.removeProfilePhoto()
+  expect(res.profile_image_status).toBe('none')
+  const profile = await api.getProfile('ada')
+  expect(profile.profile_image_url).toBeNull()
+})
+
+test('other users never see your pending photo status (#7)', async () => {
+  const api = new StatefulStubbedAPI()
+  await register(api, 'ada')
+  await api.setProfilePhoto({ image_url: 'https://b.s3.amazonaws.com/ada/a.jpeg' })
+
+  await register(api, 'bob')
+  const adaFromBob = await api.getProfile('ada')
+  // The owner-only moderation fields are not exposed to other viewers.
+  expect(adaFromBob.profile_image_status).toBeUndefined()
+  expect(adaFromBob.pending_profile_image_url).toBeUndefined()
+  // But the approved photo is visible to everyone.
+  expect(adaFromBob.profile_image_url).toBe('https://b.s3.amazonaws.com/ada/a.jpeg')
+})
+
 test('a post round-trips its caption font and background color (#318)', async () => {
   const api = new StatefulStubbedAPI()
   await register(api, 'author')

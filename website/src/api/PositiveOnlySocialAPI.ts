@@ -30,10 +30,13 @@ import type {
   PostStatusResponse,
   ProfileDetails,
   RegisterRequest,
+  RemoveProfilePhotoResponse,
   ReplyResponse,
   RequestResetRequest,
   ResendVerificationEmailRequest,
   ResetPasswordRequest,
+  SetProfilePhotoRequest,
+  SetProfilePhotoResponse,
   SubmitAppealRequest,
   SubmitAppealResponse,
   TwoFactorSetupResponse,
@@ -140,6 +143,12 @@ export interface PositiveOnlySocialAPI {
   getFollowers(): Promise<UserSearchResult[]>
   getFollowing(): Promise<UserSearchResult[]>
   getProfile(username: string): Promise<ProfileDetails>
+  /** Set the signed-in user's profile photo to an already-uploaded image
+   * (issue #7). The photo is classified asynchronously and shown to others only
+   * once approved; the response reports the initial 'pending' state. */
+  setProfilePhoto(body: SetProfilePhotoRequest): Promise<SetProfilePhotoResponse>
+  /** Remove the signed-in user's profile photo entirely. */
+  removeProfilePhoto(): Promise<RemoveProfilePhotoResponse>
 
   // Appeals
   getHiddenPosts(batch: number): Promise<HiddenPost[]>

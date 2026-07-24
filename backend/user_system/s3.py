@@ -40,6 +40,22 @@ def _is_path_style_host(hostname):
     return (first_label == 's3' or first_label.startswith('s3-')) and not second_label.startswith('s3')
 
 
+def strip_query_and_fragment(image_url):
+    """The canonical object URL with any query and fragment removed.
+
+    A client should send back the canonical (unsigned) object URL, but if it
+    sends the presigned PUT URL instead, its signing parameters (X-Amz-*) must
+    never be validated, persisted, or echoed back to clients — so strip them.
+    Returns the input unchanged if it is falsy or cannot be parsed.
+    """
+    if not image_url:
+        return image_url
+    try:
+        return urlparse(image_url)._replace(query='', fragment='').geturl()
+    except Exception:
+        return image_url
+
+
 def image_url_to_key(image_url):
     """Extract the S3 object key from an uploaded image URL.
 
@@ -57,46 +73,44 @@ def image_url_to_key(image_url):
     return key
 
 
-def is_source_bucket_url(image_url):
-    """True iff `image_url` points at our own source images bucket
-    (settings.AWS_STORAGE_BUCKET_NAME).
+def image_url_bucket(image_url):
+    """The S3 bucket an uploaded-image URL targets, or '' if none can be derived.
 
-    make_post accepts a client-supplied image URL and then both fetches it (the
-    moderation classifier) and mints CloudFront/compressed URLs from its key.
-    Without this check a client could supply an
-    attacker-controlled S3 host — e.g.
-    `https://attacker-bucket.s3.amazonaws.com/{user_id}/x.jpeg`, which still
-    passes the pattern and `{user_id}/` key-prefix checks — turning the backend
-    into an SSRF fetcher and letting it mint URLs for objects it does not own.
-
-    Matches the bucket from both virtual-hosted (`bucket.s3....amazonaws.com/key`)
-    and path-style (`s3....amazonaws.com/bucket/key`) URLs against our configured
-    bucket. Returns False for anything unparseable, off-host, or when no bucket
-    is configured.
+    Mirrors image_url_to_key's path-style vs virtual-hosted host detection: for a
+    path-style host the bucket is the first path segment; for a virtual-hosted
+    host it is the host labels before the `s3`/`s3-...` service label. Only real
+    `*.amazonaws.com` S3 hosts resolve to a bucket, so a look-alike host such as
+    `bucket.evil.com` (or `bucket.s3.evil.com`) never masquerades as our bucket.
     """
-    bucket = settings.AWS_STORAGE_BUCKET_NAME
-    if not image_url or not bucket:
-        return False
+    if not image_url:
+        return ''
     parsed = urlparse(image_url)
     hostname = parsed.hostname or ''
-    # Only real S3 hosts count — otherwise `bucket.evil.com` (whose first host
-    # label equals our bucket name) would masquerade as ours.
     if not hostname.endswith('.amazonaws.com'):
-        return False
+        return ''
     if _is_path_style_host(hostname):
-        # s3....amazonaws.com/{bucket}/{key}: the bucket is the first path
-        # segment and must match exactly.
-        return parsed.path.lstrip('/').partition('/')[0] == bucket
-    # Virtual-hosted: {bucket}.s3....amazonaws.com/{key}. Match the full bucket
-    # as a prefix (bucket names may contain dots) and require the label right
-    # after it to be the S3 service label ("s3" or "s3-..."). This rejects a
-    # foreign host like `{bucket}.evil.s3.amazonaws.com` whose real bucket is
-    # `{bucket}.evil` — splitting on the first dot would wrongly accept it.
-    prefix = bucket + '.'
-    if not hostname.startswith(prefix):
-        return False
-    service_label = hostname[len(prefix):].split('.')[0]
-    return service_label == 's3' or service_label.startswith('s3-')
+        return parsed.path.lstrip('/').split('/', 1)[0]
+    labels = hostname.split('.')
+    for i, label in enumerate(labels):
+        if label == 's3' or label.startswith('s3-'):
+            return '.'.join(labels[:i])
+    return ''
+
+
+def is_source_bucket_url(image_url):
+    """Whether image_url targets an object in the configured source bucket
+    (settings.AWS_STORAGE_BUCKET_NAME).
+
+    Clients only ever legitimately hold an object URL our own presigned-upload
+    flow minted, which lives in the source bucket. Checking the bucket — not just
+    that the key is under the user's `{user_id}/` prefix — stops a client from
+    pointing an uploaded-image URL at some *other* (attacker-controlled) bucket
+    with a `{user_id}/...` key, which would otherwise make the classifier fetch
+    arbitrary remote content and mint CloudFront/compressed URLs for objects that
+    don't exist in our buckets.
+    """
+    bucket = settings.AWS_STORAGE_BUCKET_NAME
+    return bool(bucket) and image_url_bucket(image_url) == bucket
 
 
 def _s3_client():

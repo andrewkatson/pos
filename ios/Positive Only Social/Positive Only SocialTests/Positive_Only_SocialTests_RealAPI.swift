@@ -76,4 +76,32 @@ struct Positive_Only_SocialTests_RealAPI {
             CapturingURLProtocol.lastRequestURL?.path
                 == "/user_index/posts/11111111-1111-1111-1111-111111111111/comment")
     }
+
+    // Setting a profile photo (issue #7) must POST to profile/photo/.
+    @Test func testSetProfilePhotoUsesProfilePhotoPath() async throws {
+        CapturingURLProtocol.lastRequestURL = nil
+        URLProtocol.registerClass(CapturingURLProtocol.self)
+        defer { URLProtocol.unregisterClass(CapturingURLProtocol.self) }
+
+        _ = try await RealAPI().setProfilePhoto(
+            sessionManagementToken: "token",
+            imageURL: "https://example.com/avatar.jpeg"
+        )
+
+        // `URL.path` strips the trailing slash that `RealAPI` appends (see the
+        // comment endpoint test above), so the expected value omits it.
+        #expect(CapturingURLProtocol.lastRequestURL?.path == "/user_index/profile/photo")
+    }
+
+    // Removing a profile photo (issue #7) must POST to profile/photo/remove/.
+    @Test func testRemoveProfilePhotoUsesProfilePhotoRemovePath() async throws {
+        CapturingURLProtocol.lastRequestURL = nil
+        URLProtocol.registerClass(CapturingURLProtocol.self)
+        defer { URLProtocol.unregisterClass(CapturingURLProtocol.self) }
+
+        _ = try await RealAPI().removeProfilePhoto(sessionManagementToken: "token")
+
+        // `URL.path` strips the trailing slash `RealAPI` appends.
+        #expect(CapturingURLProtocol.lastRequestURL?.path == "/user_index/profile/photo/remove")
+    }
 }

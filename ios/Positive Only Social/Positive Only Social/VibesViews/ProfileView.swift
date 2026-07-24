@@ -5,6 +5,7 @@
 //  Created by Andrew Katson on 10/20/25.
 //
 
+import PhotosUI
 import SwiftUI
 
 // A helper view for displaying stats
@@ -71,6 +72,10 @@ struct ProfileBodyView: View {
     @ObservedObject var viewModel: ProfileViewModel
     @ObservedObject var postActions: PostActionsViewModel
 
+    /// The photo the owner picked from their library, uploaded and set as their
+    /// profile photo when it changes (issue #7).
+    @State private var selectedPhotoItem: PhotosPickerItem?
+
     /// The accessibility identifier for each grid tile. The Profile tab keeps
     /// "MyPostImage" so your own grid stays distinguishable from someone else's.
     var postAccessibilityIdentifier: String = "ProfilePostImage"
@@ -126,6 +131,22 @@ struct ProfileBodyView: View {
     @ViewBuilder
     private var profileHeader: some View {
         VStack {
+            // The large header avatar (issue #7). The owner previews a
+            // not-yet-approved upload immediately; everyone else sees the live
+            // approved photo (or the placeholder).
+            ProfileAvatarView(
+                imageUrl: viewModel.headerAvatarUrl,
+                originalImageUrl: viewModel.headerAvatarOriginalUrl,
+                size: 96
+            )
+            .padding(.top)
+            .accessibilityIdentifier("ProfileHeaderAvatar")
+
+            // The owner's own set / remove controls.
+            if viewModel.isOwnProfile {
+                ownPhotoControls
+            }
+
             // Placeholder for profile stats (you can build this out)
             HStack {
                 Spacer()
@@ -190,6 +211,90 @@ struct ProfileBodyView: View {
         }
     }
     
+    /// The owner's profile-photo controls (issue #7): pick a photo to upload and
+    /// set, remove the current one, plus the async review status. Only shown on
+    /// your own profile.
+    @ViewBuilder
+    private var ownPhotoControls: some View {
+        VStack(spacing: 8) {
+            HStack(spacing: 12) {
+                let pickerLabel = Label(
+                    viewModel.hasProfilePhoto ? "Change Photo" : "Add Photo",
+                    systemImage: "photo.on.rectangle.angled"
+                )
+                if isUITesting() {
+                    // UI-test mode: a plain button that loads a bundled system
+                    // image, since the PhotosPicker can't be driven by XCUITest.
+                    Button {
+                        if let testImage = UIImage(systemName: "person.fill"),
+                           let data = testImage.jpegData(compressionQuality: 0.8) {
+                            Task { await viewModel.updateProfilePhoto(imageData: data) }
+                        }
+                    } label: {
+                        pickerLabel
+                    }
+                    .accessibilityIdentifier("ProfilePhotoPicker")
+                } else {
+                    PhotosPicker(
+                        selection: $selectedPhotoItem,
+                        matching: .images,
+                        photoLibrary: .shared()
+                    ) {
+                        pickerLabel
+                    }
+                    .accessibilityIdentifier("ProfilePhotoPicker")
+                }
+
+                if viewModel.hasProfilePhoto {
+                    Button(role: .destructive) {
+                        Task { await viewModel.removeProfilePhoto() }
+                    } label: {
+                        Text("Remove")
+                    }
+                    .accessibilityIdentifier("RemoveProfilePhotoButton")
+                }
+            }
+            .disabled(viewModel.isUpdatingPhoto)
+            .font(.subheadline)
+
+            if viewModel.isUpdatingPhoto {
+                ProgressView()
+            } else if viewModel.profileImageStatus == "pending" {
+                Text("Your new photo is being reviewed.")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+                    .accessibilityIdentifier("ProfilePhotoStatus")
+            } else if viewModel.profileImageStatus == "rejected" {
+                Text("Your last photo wasn't approved — try another.")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+                    .accessibilityIdentifier("ProfilePhotoStatus")
+            }
+
+            if let photoError = viewModel.photoErrorMessage {
+                Text(photoError)
+                    .font(.caption)
+                    .foregroundColor(.red)
+                    .accessibilityIdentifier("ProfilePhotoError")
+            }
+        }
+        .padding(.top, 4)
+        // Upload and set the picked photo. The picked item is captured and the
+        // selection cleared *synchronously* (on the main actor, before the async
+        // work) so an in-flight upload can never nil out a newer selection — and
+        // clearing lets re-picking the same photo fire onChange again. The
+        // guard makes the resulting change-to-nil a no-op.
+        .onChange(of: selectedPhotoItem) {
+            guard let item = selectedPhotoItem else { return }
+            selectedPhotoItem = nil
+            Task {
+                if let data = try? await item.loadTransferable(type: Data.self) {
+                    await viewModel.updateProfilePhoto(imageData: data)
+                }
+            }
+        }
+    }
+
     /// The view for displaying the user's posts
     @ViewBuilder
     private var postGrid: some View {

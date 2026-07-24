@@ -6,6 +6,7 @@ import type { Comment, CommentFormatSpan, PostDetails, TextSize } from '../api/t
 import { isWithinLimit, MAX_COMMENT_LENGTH } from '../auth/requirements'
 import PostThumbnail from '../components/PostThumbnail'
 import CharacterCounter from '../components/CharacterCounter'
+import Avatar from '../components/Avatar'
 import FormattedText from '../components/FormattedText'
 import { captionFontClass, TEXT_SIZE_OPTIONS } from '../components/textFormatting'
 import {
@@ -24,6 +25,10 @@ interface CommentView {
   id: string
   threadId: string
   authorUsername: string
+  /** The comment author's approved profile photo (compressed + original
+   * fallback), or null when they have none (issue #7). */
+  authorAvatarUrl: string | null
+  authorAvatarOriginalUrl: string | null
   body: string
   /** Inline formatting spans over `body` (issue #318); null = plain text. */
   formatting: CommentFormatSpan[] | null
@@ -167,6 +172,8 @@ function PostDetailView({ postId }: { postId: string }) {
         id: c.comment_identifier,
         threadId,
         authorUsername: c.author_username,
+        authorAvatarUrl: c.author_profile_image_url ?? null,
+        authorAvatarOriginalUrl: c.author_profile_image_original_url ?? null,
         body: c.body,
         formatting: c.body_formatting ?? null,
         createdTime: c.creation_time,
@@ -562,15 +569,22 @@ function PostDetailView({ postId }: { postId: string }) {
           </button>
         </div>
 
-        <p className="detail-caption">
+        <div className="author-line">
+          <Avatar
+            src={post.author_profile_image_url}
+            originalSrc={post.author_profile_image_original_url}
+            username={post.author_username}
+            size="sm"
+          />
           <button
             type="button"
             className="feed-post__author"
-            style={{ display: 'inline', padding: 0 }}
             onClick={() => navigate(profilePathFor(post.author_username))}
           >
             {post.author_username}
-          </button>{' '}
+          </button>
+        </div>
+        <p className="detail-caption">
           <span className={captionFontClass(post.caption_font)}>{post.caption}</span>
         </p>
 
@@ -934,9 +948,12 @@ function CommentRow({
 }: CommentRowProps) {
   return (
     <div className="comment-row">
-      <span className="comment-row__avatar" aria-hidden="true">
-        ◍
-      </span>
+      <Avatar
+        src={comment.authorAvatarUrl}
+        originalSrc={comment.authorAvatarOriginalUrl}
+        username={comment.authorUsername}
+        size="sm"
+      />
       <div className="comment-row__main">
         {/* The username + time form a header band. The chevron is the real,
             keyboard-accessible collapse control; the surrounding band also

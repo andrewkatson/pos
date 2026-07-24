@@ -32,8 +32,11 @@ struct FollowListView: View {
             ForEach(viewModel.users) { user in
                 AuthorNameLink(username: user.username, isCurrentUser: user.username == currentUsername) {
                     HStack {
-                        Image(systemName: "person.circle.fill")
-                            .foregroundColor(.gray)
+                        ProfileAvatarView(
+                            imageUrl: user.authorProfileImageUrl,
+                            originalImageUrl: user.authorProfileImageOriginalUrl,
+                            size: 28
+                        )
                         Text(user.username)
                         if user.identityIsVerified {
                             Image(systemName: "checkmark.seal.fill")

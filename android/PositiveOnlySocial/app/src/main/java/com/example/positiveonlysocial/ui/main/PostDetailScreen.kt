@@ -285,7 +285,21 @@ fun PostDetailScreen(
                             
                             Spacer(modifier = Modifier.height(8.dp))
                             
-                            Row {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                // Author avatar (issue #7) + name, both opening
+                                // the author's profile, same as in the feed.
+                                // Decorative and NOT clickable: the adjacent author
+                                // name (below) is the tap target that opens the
+                                // profile. A clickable avatar with a null
+                                // contentDescription would be an unlabeled button to
+                                // TalkBack.
+                                ProfileAvatar(
+                                    imageUrl = post.authorProfileImageUrl,
+                                    originalImageUrl = post.authorProfileImageOriginalUrl,
+                                    contentDescription = null,
+                                    size = 28.dp
+                                )
+                                Spacer(modifier = Modifier.width(8.dp))
                                 // Tap the author's name to open their profile,
                                 // same as in the feed.
                                 Text(
@@ -456,12 +470,15 @@ fun CommentRow(
             ),
         verticalAlignment = Alignment.Top
     ) {
-        // Avatar Placeholder
-        Surface(
-            shape = MaterialTheme.shapes.small,
-            color = Color.Gray,
-            modifier = Modifier.size(32.dp)
-        ) {}
+        // Comment author's avatar (issue #7). Decorative and NOT clickable: the
+        // adjacent author name (below) opens their profile. A clickable avatar
+        // with a null contentDescription would be an unlabeled button to TalkBack.
+        ProfileAvatar(
+            imageUrl = comment.authorProfileImageUrl,
+            originalImageUrl = comment.authorProfileImageOriginalUrl,
+            contentDescription = null,
+            size = 32.dp
+        )
 
         Spacer(modifier = Modifier.width(8.dp))
 
