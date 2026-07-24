@@ -218,6 +218,7 @@ class Fields:
     updated_time = "updated_time"
     comment_likes = "comment_likes"
     identity_is_verified = "identity_is_verified"
+    membership_number = "membership_number"
     reset_token = "reset_token"
     verification_token = "verification_token"
     hidden = "hidden"

@@ -423,6 +423,12 @@ function ProfileView({ username, isOwnProfile, currentUsername }: ProfileViewPro
           )}
         </div>
 
+        {profile?.membership_number != null && (
+          <p className="profile-membership" title="Join number — position in line since launch">
+            🎉 Member #{profile.membership_number.toLocaleString()}
+          </p>
+        )}
+
         {!isOwnProfile && (
           <div className="profile-actions">
             <button

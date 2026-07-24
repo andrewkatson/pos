@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useCallback, useRef, useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import Logo from '../components/Logo'
 import { apiClient } from '../api/client'
@@ -19,6 +19,11 @@ function RegisterPage() {
   const [isLoading, setIsLoading] = useState(false)
   const [errorMessage, setErrorMessage] = useState<string | null>(null)
   const [showPrivacyPolicy, setShowPrivacyPolicy] = useState(false)
+  // The "You're member #n!" greeting shown after a successful signup (#198).
+  // memberNumber is null in the rare case the backend couldn't assign one.
+  const [showWelcome, setShowWelcome] = useState(false)
+  const [memberNumber, setMemberNumber] = useState<number | null>(null)
+  const continueButtonRef = useRef<HTMLButtonElement>(null)
 
   useEffect(() => {
     if (!showPrivacyPolicy) return
@@ -44,19 +49,23 @@ function RegisterPage() {
     setShowPrivacyPolicy(false)
     setIsLoading(true)
     try {
-      await apiClient.register({
+      const result = await apiClient.register({
         username: username.trim(),
         email: email.trim(),
         password,
         remember_me: false,
         date_of_birth: dateOfBirth,
       })
-      // The account can't do anything until the emailed verification link is
-      // used, so don't keep the registration session — and drop any persisted
-      // session/remember-me tokens from a previous login, which main.tsx would
-      // otherwise restore on reload. The user logs in after verifying.
+      // Drop the registration session and any persisted session/remember-me
+      // tokens right away: the account can't act until email verification, and
+      // if the user reloads while the welcome modal is up, main.tsx must not
+      // restore a stale session from a previous login. Do this before showing
+      // the modal so there's no window where an old session could be restored.
       clearSession()
-      navigate('/check-email', { state: { email: email.trim() } })
+      // Greet the new member with their join number before sending them off to
+      // verify their email (#198). Navigation happens when they dismiss it.
+      setMemberNumber(result.membership_number ?? null)
+      setShowWelcome(true)
     } catch (err) {
       const apiErr = err as ApiError
       setErrorMessage(apiErr.message ?? 'Registration failed. Username or email may be taken.')
@@ -65,8 +74,66 @@ function RegisterPage() {
     }
   }
 
+  // Dismissing the welcome modal just moves on to email verification; the
+  // session was already cleared in handleRegister. The user logs in after
+  // verifying.
+  const dismissWelcome = useCallback(() => {
+    navigate('/check-email', { state: { email: email.trim() } })
+  }, [navigate, email])
+
+  // While the welcome modal is open, Escape dismisses it (matching the
+  // privacy-policy modal) and Tab is trapped on the modal's only control so
+  // keyboard/screen-reader users can't tab "behind" it into the page.
+  useEffect(() => {
+    if (!showWelcome) return
+    function onKeyDown(e: KeyboardEvent) {
+      if (e.key === 'Escape') {
+        dismissWelcome()
+      } else if (e.key === 'Tab') {
+        // Single-control dialog: keep focus on Continue rather than letting it
+        // escape to the still-mounted form/Back button underneath.
+        e.preventDefault()
+        continueButtonRef.current?.focus()
+      }
+    }
+    document.addEventListener('keydown', onKeyDown)
+    return () => document.removeEventListener('keydown', onKeyDown)
+  }, [showWelcome, dismissWelcome])
+
   return (
     <div className="auth-page">
+      {showWelcome && (
+        <div className="modal-overlay">
+          <div
+            className="modal"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="welcome-title"
+            aria-describedby="welcome-body"
+          >
+            <h2 className="modal__title" id="welcome-title">
+              Welcome to Good Vibes Only! 🎉
+            </h2>
+            <p className="modal__body" id="welcome-body">
+              {memberNumber != null
+                ? `You're member #${memberNumber.toLocaleString()}! Check your email to verify your account and start spreading good vibes.`
+                : `You're all set! Check your email to verify your account and start spreading good vibes.`}
+            </p>
+            <div className="modal__actions">
+              <button
+                ref={continueButtonRef}
+                type="button"
+                className="modal__confirm"
+                onClick={dismissWelcome}
+                autoFocus
+              >
+                Continue
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {showPrivacyPolicy && (
         <div className="modal-overlay">
           <div
