@@ -2008,8 +2008,9 @@ def get_saved_posts(request, batch):
         return log_and_return_json("get_saved_posts", {'error': "Invalid batch parameter"}, status=400)
 
     # Order by when the post was saved, not when it was created, so the most
-    # recently bookmarked post is first. The subquery carries the save time onto
-    # each Post row without a join that could duplicate rows.
+    # recently bookmarked post is first. The save time is pulled onto each Post
+    # row via a correlated subquery rather than ordering on the savedpost join
+    # itself, which would let a future non-unique relation duplicate rows.
     saved_time = SavedPost.objects.filter(
         user=request.user, post=OuterRef('pk')
     ).values('creation_time')[:1]

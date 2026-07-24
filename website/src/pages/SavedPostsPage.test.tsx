@@ -118,10 +118,17 @@ test('a failed unsave surfaces an error and keeps the tile', async () => {
   expect(screen.getByRole('button', { name: 'Post by ada' })).toBeInTheDocument()
 })
 
-test('surfaces a load error without the misleading empty state', async () => {
-  mockGetSavedPosts.mockRejectedValue(new Error('boom'))
+test('surfaces the load error message without the misleading empty state', async () => {
+  // ApiClient throws sanitized, user-facing messages; the page shows them.
+  mockGetSavedPosts.mockRejectedValue(new Error('Your session has expired.'))
   renderPage()
-  expect(await screen.findByText('Failed to load your saved posts.')).toBeInTheDocument()
+  expect(await screen.findByText('Your session has expired.')).toBeInTheDocument()
   // The empty-state copy would wrongly claim the collection is empty on an error.
   expect(screen.queryByText("You haven't saved any posts yet.")).not.toBeInTheDocument()
+})
+
+test('falls back to generic copy when the load error carries no message', async () => {
+  mockGetSavedPosts.mockRejectedValue({})
+  renderPage()
+  expect(await screen.findByText('Failed to load your saved posts.')).toBeInTheDocument()
 })

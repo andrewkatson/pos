@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { Navigate, useNavigate } from 'react-router-dom'
 import { apiClient } from '../api/client'
+import type { ApiError } from '../api/client'
 import { getCurrentUsername } from '../api/session'
 import type { FeedPost } from '../api/types'
 import PostGrid from '../components/PostGrid'
@@ -50,9 +51,12 @@ function SavedPostsView() {
         setPosts(prev => [...prev, ...newPosts])
         setPage(prev => prev + 1)
       }
-    } catch {
+    } catch (err) {
       if (isMounted.current) {
-        setErrorMessage('Failed to load your saved posts.')
+        // Surface the client's sanitized, user-facing message (offline, auth
+        // expiry, rate limit) when there is one, matching the other settings
+        // pages; fall back to generic copy otherwise.
+        setErrorMessage((err as ApiError).message ?? 'Failed to load your saved posts.')
         setCanLoadMore(false)
       }
     } finally {
