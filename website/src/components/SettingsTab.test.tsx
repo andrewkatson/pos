@@ -32,6 +32,7 @@ function renderTab() {
         <Route path="/" element={<div>Landing page</div>} />
         <Route path="/appeals" element={<div>Appeals page</div>} />
         <Route path="/blocked" element={<div>Blocked users page</div>} />
+        <Route path="/saved" element={<div>Saved posts page</div>} />
       </Routes>
     </MemoryRouter>,
   )
@@ -187,4 +188,10 @@ test('opens the blocked users page', async () => {
   renderTab()
   await userEvent.click(screen.getByRole('button', { name: 'Blocked Users' }))
   expect(await screen.findByText('Blocked users page')).toBeInTheDocument()
+})
+
+test('opens the saved posts page', async () => {
+  renderTab()
+  await userEvent.click(screen.getByRole('button', { name: 'Saved Posts' }))
+  expect(await screen.findByText('Saved posts page')).toBeInTheDocument()
 })

@@ -58,6 +58,10 @@ profile grid, and the Feed — without opening the post first:
 
 - **Like / unlike**, with the current like count. Hidden on your own posts,
   which the backend refuses to let you like.
+- **Save / unsave** (issue #193), a personal bookmark. Unlike a like it is
+  offered on every post, including your own, since the saved list is a private
+  collection rather than a public signal. Saved posts are collected on the
+  **Saved Posts** screen, reachable from the Settings tab.
 - **Report**, with a reason. A flag marks posts you have an active report on.
 - **Retract report**, which shows the reason you originally gave.
 - **Delete**, offered only on your own posts.
@@ -67,15 +71,21 @@ a comment count that opens the post when tapped. The square profile tiles omit
 those two — there is no room for them.
 
 The post listing endpoints (`get_posts_in_feed`, `get_posts_for_followed_users`,
-`get_posts_for_user`) therefore return `post_likes`, `is_liked`, `is_reported`,
-`report_reason`, `comment_count` and `creation_time` per post, matching what the
-post-details endpoint returns. The state is gathered in grouped queries per
+`get_posts_for_user`) therefore return `post_likes`, `is_liked`, `is_saved`,
+`is_reported`, `report_reason`, `comment_count` and `creation_time` per post,
+matching what the post-details endpoint returns. The state is gathered in grouped queries per
 batch rather than per post, so a larger batch does not add queries. The comment
 count respects the same visibility rule as the thread listing, so a row never
 advertises comments the viewer would not be shown.
 
 Deleting a post from a list removes just that row; the list is not reloaded,
 which would otherwise reshuffle the weighted feed ordering under the user.
+
+The **Saved Posts** screen (`get_saved_posts`) lists the posts you have saved,
+most recently saved first. It runs through the same visibility filter as every
+other listing, so a post that is hidden or whose author is shadow-banned after
+you saved it silently drops off rather than rendering as an empty tile.
+Unsaving a post from that screen removes its tile.
 
 ## Text formatting (issue #318)
 

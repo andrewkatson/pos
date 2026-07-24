@@ -10,6 +10,9 @@ interface PostGridProps {
   currentUsername: string | null
   /** Called after a post is deleted so the owner can drop it from its list. */
   onPostDeleted: (postIdentifier: string) => void
+  /** Called after a post is unsaved. The Saved Posts screen passes this to drop
+   * the tile; other grids leave it in place (issue #193). */
+  onPostUnsaved?: (postIdentifier: string) => void
   /** Surfaces a failed action to the parent's error banner. */
   onError: (message: string) => void
 }
@@ -30,11 +33,12 @@ function statusBadgeLabel(post: FeedPost): string | null {
  * else's pending/hidden posts are filtered out server-side — so the badge
  * simply appears when the server sends a status.
  */
-function PostGrid({ posts, currentUsername, onPostDeleted, onError }: PostGridProps) {
+function PostGrid({ posts, currentUsername, onPostDeleted, onPostUnsaved, onError }: PostGridProps) {
   const navigate = useNavigate()
-  const { stateFor, toggleLike, openMenu, dialogs } = usePostActions({
+  const { stateFor, toggleLike, toggleSave, openMenu, dialogs } = usePostActions({
     currentUsername,
     onPostDeleted,
+    onPostUnsaved,
     onError,
   })
 
@@ -66,6 +70,7 @@ function PostGrid({ posts, currentUsername, onPostDeleted, onError }: PostGridPr
                 post={post}
                 state={stateFor(post)}
                 onToggleLike={toggleLike}
+                onToggleSave={toggleSave}
                 onOpenMenu={openMenu}
               />
             </div>
