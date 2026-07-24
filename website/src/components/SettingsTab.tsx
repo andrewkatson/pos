@@ -1,14 +1,28 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { apiClient } from '../api/client'
 import { clearSession } from '../api/session'
+import type { CurrentUser } from '../api/types'
 import { PRIVACY_POLICY_TEXT } from '../privacyPolicy'
 import Modal from './Modal'
-import { DisableTwoFactorModal, EnableTwoFactorModal } from './TwoFactorAuthModals'
+import {
+  ChangePasswordModal,
+  DisableTwoFactorModal,
+  EnableTwoFactorModal,
+} from './TwoFactorAuthModals'
 
-type ActiveModal = 'logout' | 'delete' | 'verify' | 'privacy' | 'enable2fa' | 'disable2fa' | null
+type ActiveModal =
+  | 'logout'
+  | 'delete'
+  | 'verify'
+  | 'privacy'
+  | 'enable2fa'
+  | 'disable2fa'
+  | 'changePassword'
+  | null
 
-const CONTACT_EMAIL = 'katsonsoftware@gmail.com'
+/** Support address shown under "Contact Us" for feedback and help (issue #194). */
+const SUPPORT_EMAIL = 'katsonsoftware@gmail.com'
 
 /**
  * The "Settings" tab: contact info, logout, identity verification, privacy
@@ -21,6 +35,24 @@ function SettingsTab() {
   const [dateOfBirth, setDateOfBirth] = useState('')
   const [errorMessage, setErrorMessage] = useState<string | null>(null)
   const [infoMessage, setInfoMessage] = useState<string | null>(null)
+  const [currentUser, setCurrentUser] = useState<CurrentUser | null>(null)
+
+  // Load the signed-in account's own username + email for the Contact
+  // Information section (load-on-mount, matching the rest of the app).
+  useEffect(() => {
+    let cancelled = false
+    apiClient
+      .getCurrentUser()
+      .then(user => {
+        if (!cancelled) setCurrentUser(user)
+      })
+      .catch(() => {
+        // Non-fatal: the section falls back to a placeholder if this fails.
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [])
 
   const close = () => setActiveModal(null)
 
@@ -79,7 +111,19 @@ function SettingsTab() {
 
       <div className="settings-group">
         <span className="settings-group__header">Contact Information</span>
-        <div className="settings-row settings-row--static">{CONTACT_EMAIL}</div>
+        <div className="settings-row settings-row--static">
+          {currentUser ? currentUser.username : '…'}
+        </div>
+        <div className="settings-row settings-row--static">
+          {currentUser ? currentUser.email : '…'}
+        </div>
+      </div>
+
+      <div className="settings-group">
+        <span className="settings-group__header">Contact Us</span>
+        <a className="settings-row settings-row--static" href={`mailto:${SUPPORT_EMAIL}`}>
+          {SUPPORT_EMAIL}
+        </a>
       </div>
 
       <div className="settings-group">
@@ -122,6 +166,13 @@ function SettingsTab() {
 
       <div className="settings-group">
         <span className="settings-group__header">Security</span>
+        <button
+          type="button"
+          className="settings-row settings-row--action"
+          onClick={() => setActiveModal('changePassword')}
+        >
+          Change Password
+        </button>
         <button
           type="button"
           className="settings-row settings-row--action"
@@ -216,6 +267,16 @@ function SettingsTab() {
           onDisabled={() => {
             close()
             setInfoMessage('Two-factor authentication has been disabled.')
+          }}
+        />
+      )}
+
+      {activeModal === 'changePassword' && (
+        <ChangePasswordModal
+          onClose={close}
+          onChanged={() => {
+            close()
+            setInfoMessage('Your password has been changed.')
           }}
         />
       )}

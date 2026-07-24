@@ -58,6 +58,9 @@ urlpatterns = [
     # POST /password/reset/
     path('password/reset/', views.reset_password, name='reset_password'),
 
+    # POST /password/change/ (Token in header) — change password from Settings
+    path('password/change/', views.change_password, name='change_password'),
+
     # =========================================================================
     # POSTS
     # =========================================================================
@@ -161,6 +164,9 @@ urlpatterns = [
 
     # GET /users/blocked/ (Token in header)
     path('users/blocked/', views.get_blocked_users, name='get_blocked_users'),
+
+    # GET /me/ (Token in header) — the signed-in account's own username + email
+    path('me/', views.get_current_user, name='get_current_user'),
 
     # POST /profile/photo/ (Token in header)
     path('profile/photo/', views.set_profile_photo, name='set_profile_photo'),

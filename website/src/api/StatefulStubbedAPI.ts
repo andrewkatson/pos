@@ -13,11 +13,13 @@ import type {
   CommentFormatSpan,
   CommentOnPostResponse,
   CommentThreadRef,
+  ChangePasswordRequest,
   ConfirmTotpRequest,
   ConfirmTotpResponse,
   CreatePostRequest,
   CreatePostResponse,
   CreateUploadUrlResponse,
+  CurrentUser,
   DisableTotpRequest,
   DisableTotpResponse,
   FeedPost,
@@ -65,6 +67,13 @@ const MAX_BEFORE_HIDING_COMMENT = 5
 // accepts, mirroring the fixed codes in the iOS/Android stubs.
 export const STUB_TOTP_CODE = '123456'
 const STUB_RECOVERY_CODE_COUNT = 10
+
+// The registration strength policy the real backend enforces (Patterns.password
+// in backend/user_system/constants.py): at least eight non-whitespace characters
+// with a lower- and upper-case letter and a digit. The stub applies it to
+// changePassword too, so a weak new password fails here exactly as it would in
+// production rather than silently succeeding against the stub.
+const STRONG_PASSWORD = /^(?=.*[0-9])(?=.*[a-z])(?=.*[A-Z])(?=\S+$).{8,}$/
 
 /** Cryptographically secure random bytes. These feed credential-shaped values
  * (TOTP secret, recovery codes), so Math.random() is not appropriate even in a
@@ -553,6 +562,11 @@ export class StatefulStubbedAPI implements PositiveOnlySocialAPI {
     return { message: 'User deleted successfully' }
   }
 
+  async getCurrentUser(): Promise<CurrentUser> {
+    const user = this.requireUser()
+    return { username: user.username, email: user.email }
+  }
+
   // ---------------------------------------------------------------------------
   // Password reset
   // ---------------------------------------------------------------------------
@@ -619,6 +633,28 @@ export class StatefulStubbedAPI implements PositiveOnlySocialAPI {
       return { message: 'Password reset successfully' }
     }
     throw new ApiError(400, 'Invalid reset token')
+  }
+
+  async changePassword(body: ChangePasswordRequest): Promise<MessageResponse> {
+    const user = this.requireUser()
+    // Field validation first, mirroring the backend: the new password must meet
+    // the registration strength policy before the current password is checked.
+    if (!STRONG_PASSWORD.test(body.new_password)) {
+      throw new ApiError(400, "Invalid fields ['NEW_PASSWORD']")
+    }
+    if (user.passwordHash !== body.password) {
+      throw new ApiError(400, 'Invalid password')
+    }
+    if (user.passwordHash === body.new_password) {
+      throw new ApiError(400, 'New password must be different from the current password')
+    }
+    user.passwordHash = body.new_password
+    // Evict other devices but keep the current session (mirrors the backend).
+    this.sessions = this.sessions.filter(
+      (s) => s.userId !== user.id || s.managementToken === this.token,
+    )
+    this.loginCookies = this.loginCookies.filter((c) => c.userId !== user.id)
+    return { message: 'Password changed successfully' }
   }
 
   // ---------------------------------------------------------------------------

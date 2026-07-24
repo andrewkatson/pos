@@ -29,6 +29,9 @@ import com.example.positiveonlysocial.data.model.ConfirmTotpResponse
 import com.example.positiveonlysocial.data.model.DisableTotpRequest
 import com.example.positiveonlysocial.data.model.DisableTotpResponse
 import com.example.positiveonlysocial.data.model.TotpSetupResponse
+import com.example.positiveonlysocial.data.model.ChangePasswordRequest
+import com.example.positiveonlysocial.data.model.CurrentUserResponse
+import org.mockito.kotlin.eq
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
 import retrofit2.Response
@@ -254,5 +257,83 @@ class SettingsViewModelTest {
         viewModel.disableTotp(password = "wrong", code = "123456", isRecoveryCode = false)
 
         assertTrue(viewModel.showingErrorAlert.value)
+    }
+
+    // --- Contact info + change password Tests (issue #197/#194) ---
+
+    @Test
+    fun `loadCurrentUser populates username and email`() = runTest {
+        whenever(api.getCurrentUser("token123")).thenReturn(
+            Response.success(CurrentUserResponse(username = "testuser", email = "testuser@example.com"))
+        )
+
+        viewModel.loadCurrentUser()
+
+        verify(api).getCurrentUser("token123")
+        assertEquals("testuser", viewModel.currentUser.value?.username)
+        assertEquals("testuser@example.com", viewModel.currentUser.value?.email)
+    }
+
+    @Test
+    fun `loadCurrentUser failure is non-fatal and raises no error alert`() = runTest {
+        whenever(api.getCurrentUser("token123")).thenThrow(RuntimeException("Network error"))
+
+        viewModel.loadCurrentUser()
+
+        assertNull(viewModel.currentUser.value)
+        assertEquals(false, viewModel.showingErrorAlert.value)
+    }
+
+    @Test
+    fun `changePassword success sets confirmation message and clears in-flight flag`() = runTest {
+        whenever(api.changePassword("token123", ChangePasswordRequest("Oldpass1", "Newpass1"))).thenReturn(
+            Response.success(GenericResponse("Password changed successfully", null))
+        )
+
+        viewModel.changePassword("Oldpass1", "Newpass1")
+
+        verify(api).changePassword("token123", ChangePasswordRequest("Oldpass1", "Newpass1"))
+        assertEquals("Your password has been changed.", viewModel.passwordChangeMessage.value)
+        assertEquals(false, viewModel.isChangingPassword.value)
+        assertEquals(false, viewModel.showingErrorAlert.value)
+    }
+
+    @Test
+    fun `changePassword failure surfaces backend error and no confirmation`() = runTest {
+        whenever(api.changePassword(eq("token123"), any())).thenReturn(
+            Response.error(400, "{\"error\":\"Invalid password\"}".toResponseBody())
+        )
+
+        viewModel.changePassword("wrongpass", "Newpass1")
+
+        // ApiErrors.messageFor sanitizes the backend's "Invalid password" into
+        // the friendlier "Password is incorrect" (see ApiErrors.sanitizeErrorMessage).
+        assertEquals("Password is incorrect", viewModel.errorMessage.value)
+        assertTrue(viewModel.showingErrorAlert.value)
+        assertNull(viewModel.passwordChangeMessage.value)
+        // A failed change must not leave the button stuck disabled on retry.
+        assertEquals(false, viewModel.isChangingPassword.value)
+    }
+
+    @Test
+    fun `changePassword ignores a duplicate submission while one is in flight`() = runTest {
+        // Disabling the button only takes effect on the next recomposition, so a
+        // fast double-tap can reach the view model twice. Park the first call
+        // inside its request, then confirm the second is dropped.
+        val gate = CompletableDeferred<Unit>()
+        api.stub {
+            onBlocking { changePassword(any(), any()) } doSuspendableAnswer {
+                gate.await()
+                Response.success(GenericResponse("Password changed successfully", null))
+            }
+        }
+
+        viewModel.changePassword("Oldpass1", "Newpass1") // suspends at the gate, in flight
+        viewModel.changePassword("Oldpass1", "Newpass1") // must be ignored by the guard
+
+        gate.complete(Unit)
+        advanceUntilIdle()
+
+        verify(api, times(1)).changePassword(any(), any())
     }
 }

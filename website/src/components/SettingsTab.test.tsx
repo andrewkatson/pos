@@ -1,4 +1,4 @@
-import { render, screen } from '@testing-library/react'
+import { render, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { MemoryRouter, Routes, Route } from 'react-router-dom'
 import { vi, beforeEach, afterEach, test, expect } from 'vitest'
@@ -13,6 +13,8 @@ vi.mock('../api/client', () => ({
     setupTotp: vi.fn(),
     confirmTotp: vi.fn(),
     disableTotp: vi.fn(),
+    getCurrentUser: vi.fn(),
+    changePassword: vi.fn(),
   },
 }))
 
@@ -23,6 +25,8 @@ const mockVerify = vi.mocked(apiClient.verifyIdentity)
 const mockSetupTotp = vi.mocked(apiClient.setupTotp)
 const mockConfirmTotp = vi.mocked(apiClient.confirmTotp)
 const mockDisableTotp = vi.mocked(apiClient.disableTotp)
+const mockGetCurrentUser = vi.mocked(apiClient.getCurrentUser)
+const mockChangePassword = vi.mocked(apiClient.changePassword)
 
 function renderTab() {
   return render(
@@ -50,6 +54,10 @@ beforeEach(() => {
     recovery_codes: ['aaaaaaaaaa', 'bbbbbbbbbb'],
   })
   mockDisableTotp.mockReset().mockResolvedValue({ totp_enabled: false })
+  mockGetCurrentUser
+    .mockReset()
+    .mockResolvedValue({ username: 'ada', email: 'ada@example.com' })
+  mockChangePassword.mockReset().mockResolvedValue({ message: 'ok' })
   vi.stubGlobal('localStorage', {
     getItem: vi.fn(),
     setItem: vi.fn(),
@@ -187,4 +195,59 @@ test('opens the blocked users page', async () => {
   renderTab()
   await userEvent.click(screen.getByRole('button', { name: 'Blocked Users' }))
   expect(await screen.findByText('Blocked users page')).toBeInTheDocument()
+})
+
+test('shows the signed-in user’s username and email, plus the support address', async () => {
+  renderTab()
+  // Contact Information is the current account's own username + email.
+  expect(await screen.findByText('ada')).toBeInTheDocument()
+  expect(screen.getByText('ada@example.com')).toBeInTheDocument()
+  expect(mockGetCurrentUser).toHaveBeenCalled()
+  // Contact Us links to the support address.
+  const support = screen.getByRole('link', { name: 'katsonsoftware@gmail.com' })
+  expect(support).toHaveAttribute('href', 'mailto:katsonsoftware@gmail.com')
+})
+
+test('change password requires the current password and a matching strong new one', async () => {
+  renderTab()
+  await userEvent.click(screen.getByRole('button', { name: 'Change Password' }))
+  const dialog = within(screen.getByRole('dialog', { name: 'Change Password' }))
+  const submit = () => dialog.getByRole('button', { name: 'Change Password' })
+
+  await userEvent.type(dialog.getByLabelText('Current password'), 'OldPassword1-')
+  // A weak new password keeps the button disabled.
+  await userEvent.type(dialog.getByLabelText('New password'), 'weak')
+  expect(submit()).toBeDisabled()
+
+  await userEvent.clear(dialog.getByLabelText('New password'))
+  await userEvent.type(dialog.getByLabelText('New password'), 'NewPassword1-')
+  // Mismatched confirmation still blocks submission.
+  await userEvent.type(dialog.getByLabelText('Confirm new password'), 'NewPassword2-')
+  expect(submit()).toBeDisabled()
+
+  await userEvent.clear(dialog.getByLabelText('Confirm new password'))
+  await userEvent.type(dialog.getByLabelText('Confirm new password'), 'NewPassword1-')
+  await userEvent.click(submit())
+
+  expect(mockChangePassword).toHaveBeenCalledWith({
+    password: 'OldPassword1-',
+    new_password: 'NewPassword1-',
+  })
+  expect(await screen.findByText('Your password has been changed.')).toBeInTheDocument()
+})
+
+test('a rejected password change surfaces the error and stays open', async () => {
+  mockChangePassword.mockRejectedValueOnce({ message: 'Invalid password' })
+  renderTab()
+  await userEvent.click(screen.getByRole('button', { name: 'Change Password' }))
+  const dialog = within(screen.getByRole('dialog', { name: 'Change Password' }))
+
+  await userEvent.type(dialog.getByLabelText('Current password'), 'WrongPassword1-')
+  await userEvent.type(dialog.getByLabelText('New password'), 'NewPassword1-')
+  await userEvent.type(dialog.getByLabelText('Confirm new password'), 'NewPassword1-')
+  await userEvent.click(dialog.getByRole('button', { name: 'Change Password' }))
+
+  expect(await screen.findByRole('alert')).toHaveTextContent('Invalid password')
+  // Still on the form so the user can retry.
+  expect(dialog.getByLabelText('Current password')).toBeInTheDocument()
 })

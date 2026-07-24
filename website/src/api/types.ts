@@ -128,6 +128,19 @@ export interface ResetPasswordRequest {
   reset_token: string
 }
 
+/** The signed-in account's own contact details, from `GET /me/`. */
+export interface CurrentUser {
+  username: string
+  email: string
+}
+
+export interface ChangePasswordRequest {
+  /** The account's current password, re-confirmed for the change. */
+  password: string
+  /** The new password; must satisfy the registration strength policy. */
+  new_password: string
+}
+
 export interface CreateUploadUrlResponse {
   /** Short-lived presigned S3 PUT URL to send the JPEG bytes to. */
   upload_url: string

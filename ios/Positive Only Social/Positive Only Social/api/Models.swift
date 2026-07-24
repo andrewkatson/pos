@@ -74,6 +74,13 @@ struct DisableTotpFields: Codable {
     }
 }
 
+/// The signed-in account's own username and registered email, from GET /me/
+/// (issues #194/#197). Shown in the Settings "Contact Information" section.
+struct CurrentUserFields: Codable {
+    let username: String
+    let email: String
+}
+
 // Represents a single post in the user's grid.
 // Conforms to Identifiable and Hashable to be used in grids and lists.
 struct Post: Codable, Identifiable, Hashable {

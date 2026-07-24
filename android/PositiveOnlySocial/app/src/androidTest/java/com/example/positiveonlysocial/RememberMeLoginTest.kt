@@ -146,7 +146,8 @@ class RememberMeLoginTest {
         composeTestRule.onNodeWithText("Settings").performClick()
         assertOnSettingsView()
 
-        composeTestRule.onNodeWithText("Logout").performClick()
+        // The Settings list scrolls, so bring Logout into view before tapping.
+        composeTestRule.onNodeWithText("Logout").performScrollTo().performClick()
         composeTestRule.onNodeWithText("Confirm").performClick()
 
         assertOnLoginView()

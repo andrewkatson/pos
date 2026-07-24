@@ -237,6 +237,23 @@ for the blocked user). Every client has a "Blocked Users" page under Settings,
 backed by `GET /users/blocked/`, that lists everyone the signed-in user has
 blocked and lets them unblock (the same toggle endpoint).
 
+## Account settings
+
+The Settings screen shows the signed-in account's own **username and registered
+email** under a "Contact Information" heading, backed by `GET /me/` (scoped to
+`request.user`, so it can only ever return the requester's own address). A
+separate "Contact Us" entry lists the support address `katsonsoftware@gmail.com`
+for feedback and help (issues #194/#197).
+
+Users can also **change their password** from Settings via
+`POST /password/change/` (issue #197). Unlike the reset flow, this requires an
+authenticated session *and* the current password — a stolen session alone
+cannot lock the real owner out. The new password must satisfy the same strength
+policy as registration and must differ from the current one. On success every
+*other* session and all remember-me cookies are invalidated (a password change
+should evict other devices), while the caller's current session is preserved so
+they stay logged in on the device they just used.
+
 ## Email verification
 
 Registering does not prove you own the email address you signed up with, so

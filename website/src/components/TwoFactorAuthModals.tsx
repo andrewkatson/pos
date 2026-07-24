@@ -313,3 +313,124 @@ export function DisableTwoFactorModal({ onClose, onDisabled }: DisableTwoFactorM
   )
 }
 
+interface ChangePasswordModalProps {
+  onClose: () => void
+  /** Called once the password has been changed. */
+  onChanged: () => void
+}
+
+// The full strength policy the backend enforces at registration (see
+// Patterns.password in backend/user_system/constants.py): at least eight
+// non-whitespace characters with a lower- and upper-case letter and a digit.
+const STRONG_PASSWORD = /^(?=.*[0-9])(?=.*[a-z])(?=.*[A-Z])(?=\S+$).{8,}$/
+
+/**
+ * Change the signed-in account's password from Settings (issue #197). The
+ * current password is required as well as the session, mirroring the backend,
+ * so a stolen session alone cannot change it.
+ */
+export function ChangePasswordModal({ onClose, onChanged }: ChangePasswordModalProps) {
+  const [currentPassword, setCurrentPassword] = useState('')
+  const [newPassword, setNewPassword] = useState('')
+  const [confirmPassword, setConfirmPassword] = useState('')
+  const [errorMessage, setErrorMessage] = useState<string | null>(null)
+  const [isBusy, setIsBusy] = useState(false)
+
+  const isNewStrong = STRONG_PASSWORD.test(newPassword)
+  const doPasswordsMatch = newPassword === confirmPassword
+  const isNewDifferent = newPassword !== currentPassword
+  const canSubmit =
+    currentPassword.length > 0 && isNewStrong && doPasswordsMatch && isNewDifferent && !isBusy
+
+  async function handleChange() {
+    if (!canSubmit) return
+    setIsBusy(true)
+    setErrorMessage(null)
+    try {
+      await apiClient.changePassword({ password: currentPassword, new_password: newPassword })
+      onChanged()
+    } catch (err) {
+      setErrorMessage((err as ApiError).message ?? 'Could not change your password.')
+    } finally {
+      setIsBusy(false)
+    }
+  }
+
+  return (
+    <Modal title="Change Password">
+      <p className="modal__body">
+        Enter your current password and choose a new one. Your new password must be at least 8
+        characters and include an uppercase letter, a lowercase letter, and a number.
+      </p>
+
+      {errorMessage && (
+        <p className="twofa-error" role="alert">
+          {errorMessage}
+        </p>
+      )}
+
+      <input
+        className="search-bar"
+        type="password"
+        autoComplete="current-password"
+        aria-label="Current password"
+        placeholder="Current password"
+        value={currentPassword}
+        onChange={e => setCurrentPassword(e.target.value)}
+        disabled={isBusy}
+      />
+      <input
+        className="search-bar"
+        type="password"
+        autoComplete="new-password"
+        aria-label="New password"
+        placeholder="New password"
+        value={newPassword}
+        onChange={e => setNewPassword(e.target.value)}
+        disabled={isBusy}
+      />
+      <input
+        className="search-bar"
+        type="password"
+        autoComplete="new-password"
+        aria-label="Confirm new password"
+        placeholder="Confirm new password"
+        value={confirmPassword}
+        onChange={e => setConfirmPassword(e.target.value)}
+        disabled={isBusy}
+      />
+
+      {/* Inline guidance so the disabled Change button isn't a dead end. */}
+      {newPassword.length > 0 && !isNewStrong && (
+        <p className="modal__body" role="alert">
+          New password doesn't meet the requirements.
+        </p>
+      )}
+      {confirmPassword.length > 0 && !doPasswordsMatch && (
+        <p className="modal__body" role="alert">
+          Passwords don't match.
+        </p>
+      )}
+      {isNewStrong && !isNewDifferent && (
+        <p className="modal__body" role="alert">
+          New password must be different from your current one.
+        </p>
+      )}
+
+      <div className="modal__actions">
+        <button type="button" className="modal__cancel" onClick={onClose} disabled={isBusy}>
+          Cancel
+        </button>
+        <button
+          type="button"
+          className="modal__confirm"
+          disabled={!canSubmit}
+          onClick={handleChange}
+        >
+          Change Password
+        </button>
+      </div>
+    </Modal>
+  )
+}
+

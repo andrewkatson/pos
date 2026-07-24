@@ -45,6 +45,19 @@ protocol Networking {
     /// exactly one of `totpCode` / `recoveryCode`.
     func disableTotp(sessionManagementToken: String, password: String, totpCode: String?, recoveryCode: String?) async throws -> Data
 
+    // MARK: - Account (issues #194 / #197)
+
+    /// Fetches the signed-in account's own username and email for the Settings
+    /// "Contact Information" section. Scoped to the caller on the backend, so it
+    /// can only ever reveal the requester's own address.
+    func getCurrentUser(sessionManagementToken: String) async throws -> Data
+
+    /// Changes the signed-in account's password. Requires the current password
+    /// as well as the session, so a stolen session alone cannot change it. On
+    /// success the backend evicts every *other* session and all remember-me
+    /// cookies, keeping only the caller's current session.
+    func changePassword(sessionManagementToken: String, currentPassword: String, newPassword: String) async throws -> Data
+
     /// Resets the user's password. Requires a reset token issued by verifyPasswordReset.
     func resetPassword(username: String, email: String, newPassword: String, resetToken: String) async throws -> Data
 

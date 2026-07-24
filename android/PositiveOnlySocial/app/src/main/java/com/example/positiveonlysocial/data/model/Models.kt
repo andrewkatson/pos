@@ -93,6 +93,22 @@ data class DisableTotpResponse(
     @SerializedName("totp_enabled") val totpEnabled: Boolean
 )
 
+/** The signed-in account's own contact details, from `GET /me/` (issue #197/#194). */
+data class CurrentUserResponse(
+    @SerializedName("username") val username: String,
+    @SerializedName("email") val email: String
+)
+
+/**
+ * Changing the password requires the current password as well as the session,
+ * mirroring the backend (issue #197): a stolen session alone must not be able to
+ * change it. On success the backend evicts the account's other sessions.
+ */
+data class ChangePasswordRequest(
+    @SerializedName("password") val password: String,
+    @SerializedName("new_password") val newPassword: String
+)
+
 data class TokenRefreshRequest(
     @SerializedName("session_management_token") val sessionToken: String,
     @SerializedName("series_identifier") val seriesIdentifier: String,
