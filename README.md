@@ -271,9 +271,15 @@ with one past the current highest number; because the field is unique, two
 simultaneous signups that race for the same value cause one save to fail and
 retry against the now-higher maximum. Assignment never blocks registration —
 if it can't get a number after a few attempts the account is still created with
-a null number, which the backfill will fill in later. Accounts that predate the
-feature were numbered by a data migration in `creation_time` order (rows with
-no `creation_time` sort first), so existing members keep their true join order.
+a null number. Accounts that predate the feature were numbered by a one-time
+data migration in `creation_time` order (rows with no `creation_time` sort
+first), so existing members keep their true join order.
+
+That migration runs only once, so a null left by the rare registration-time
+failure is not self-healing. The `backfill_membership_numbers` management
+command is the repair path: it numbers any still-null accounts (in the same
+join order, safe to re-run, `--dry-run` to preview), so every account ends up
+with a permanent number.
 
 The number is public: it's returned on the profile endpoint and shown on every
 member's profile, and the registration response includes it so a new member is

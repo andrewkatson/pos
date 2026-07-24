@@ -4,10 +4,12 @@ profile endpoint."""
 import importlib
 import os
 from datetime import timedelta
+from io import StringIO
 from unittest.mock import patch
 
 from django.apps import apps as django_apps
 from django.contrib.auth import get_user_model
+from django.core.management import call_command
 from django.urls import reverse
 from django.utils import timezone
 
@@ -110,3 +112,51 @@ class MembershipNumberTests(PositiveOnlySocialTestCase):
 
         numbered.refresh_from_db()
         self.assertEqual(numbered.membership_number, 500)
+
+    def test_repair_command_numbers_null_accounts_in_join_order(self):
+        """The management command is the repair path for accounts left null by a
+        failed registration-time assignment (the data migration runs only once)."""
+        UserModel = get_user_model()
+        earlier = UserModel.objects.create_user(username='repair_earlier', email='re@e.com')
+        later = UserModel.objects.create_user(username='repair_later', email='rl@e.com')
+
+        now = timezone.now()
+        UserModel.objects.filter(pk=earlier.pk).update(
+            creation_time=now - timedelta(days=2), membership_number=None)
+        UserModel.objects.filter(pk=later.pk).update(
+            creation_time=now - timedelta(days=1), membership_number=None)
+
+        call_command('backfill_membership_numbers', stdout=StringIO())
+
+        earlier.refresh_from_db()
+        later.refresh_from_db()
+        self.assertIsNotNone(earlier.membership_number)
+        # Numbered in join order: the earlier account comes first.
+        self.assertEqual(later.membership_number, earlier.membership_number + 1)
+
+    def test_repair_command_is_idempotent(self):
+        """Re-running never renumbers an account that already has a number."""
+        UserModel = get_user_model()
+        user = UserModel.objects.create_user(username='repair_idem', email='ri@e.com')
+        UserModel.objects.filter(pk=user.pk).update(membership_number=None)
+
+        call_command('backfill_membership_numbers', stdout=StringIO())
+        user.refresh_from_db()
+        assigned = user.membership_number
+        self.assertIsNotNone(assigned)
+
+        call_command('backfill_membership_numbers', stdout=StringIO())
+        user.refresh_from_db()
+        self.assertEqual(user.membership_number, assigned)
+
+    def test_repair_command_dry_run_writes_nothing(self):
+        UserModel = get_user_model()
+        user = UserModel.objects.create_user(username='repair_dry', email='rd@e.com')
+        UserModel.objects.filter(pk=user.pk).update(membership_number=None)
+
+        out = StringIO()
+        call_command('backfill_membership_numbers', '--dry-run', stdout=out)
+
+        user.refresh_from_db()
+        self.assertIsNone(user.membership_number)
+        self.assertIn('dry-run', out.getvalue())

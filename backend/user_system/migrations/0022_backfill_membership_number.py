@@ -12,7 +12,7 @@ from django.db.models import F, Max
 BATCH_SIZE = 500
 # Retries when a concurrent signup (the live register() also hands out max+1)
 # claims a number this chunk was about to write, which would otherwise raise a
-# UNIQUE violation. On conflict we re-read the max and rebuild the chunk.
+# UNIQUE violation. On conflict we re-read the max and re-number the same rows.
 MAX_ATTEMPTS = 5
 
 

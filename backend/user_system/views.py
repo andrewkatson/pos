@@ -441,11 +441,12 @@ def _assign_membership_number(user):
 
     The number is one past the current maximum. membership_number is unique, so
     two registrations racing for the same value make one of the saves raise
-    IntegrityError; that attempt is rolled back to a savepoint and retried
-    against the now-higher maximum. Assignment must never block registration, so
-    after a few failed attempts we give up and leave the number null —
-    registration still succeeds (the account is created just as it would be
-    otherwise) and the backfill migration numbers it later.
+    IntegrityError; that save's transaction is rolled back and retried against
+    the now-higher maximum. Assignment must never block registration, so after a
+    few failed attempts we give up and leave the number null — registration still
+    succeeds (the account is created just as it would be otherwise). A null number
+    is not self-healing (the 0022 data migration runs only once): the
+    ``backfill_membership_numbers`` management command assigns one afterward.
     """
     UserModel = get_user_model()
     for _ in range(10):

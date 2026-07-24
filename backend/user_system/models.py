@@ -177,9 +177,10 @@ class PositiveOnlySocialUser(AbstractUser):
     # in registration order, and never reused. Nullable because: the primary key
     # is a UUID (so the number can't be derived from it), existing rows are
     # backfilled by a data migration ordered on creation_time, and a rare
-    # assignment failure must not block registration — a null number is
-    # harmless and gets picked up by the next backfill. unique so two members
-    # can never claim the same number.
+    # assignment failure must not block registration. A null number is harmless
+    # but not self-healing — the `backfill_membership_numbers` management command
+    # assigns one to any account left null. unique so two members can never claim
+    # the same number.
     membership_number = models.PositiveIntegerField(null=True, blank=True, unique=True, default=None)
     id = models.UUIDField(default=uuid.uuid4, primary_key=True, unique=True, editable=False)
     following = models.ManyToManyField('self', through=UserFollow, through_fields=('user_from', 'user_to'),
