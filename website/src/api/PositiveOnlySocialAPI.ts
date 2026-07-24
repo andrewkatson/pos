@@ -6,6 +6,7 @@
 import type {
   AuthResponse,
   Comment,
+  CommentFormatSpan,
   CommentOnPostResponse,
   CommentThreadRef,
   ChangePasswordRequest,
@@ -31,10 +32,13 @@ import type {
   PostStatusResponse,
   ProfileDetails,
   RegisterRequest,
+  RemoveProfilePhotoResponse,
   ReplyResponse,
   RequestResetRequest,
   ResendVerificationEmailRequest,
   ResetPasswordRequest,
+  SetProfilePhotoRequest,
+  SetProfilePhotoResponse,
   SubmitAppealRequest,
   SubmitAppealResponse,
   TwoFactorSetupResponse,
@@ -95,12 +99,17 @@ export interface PositiveOnlySocialAPI {
   /** Classification status of one of the caller's own posts (issue #282). */
   getPostStatus(postIdentifier: string): Promise<PostStatusResponse>
 
-  // Comments
-  commentOnPost(postIdentifier: string, commentText: string): Promise<CommentOnPostResponse>
+  // Comments. `formatting` carries optional inline styling spans (issue #318).
+  commentOnPost(
+    postIdentifier: string,
+    commentText: string,
+    formatting?: CommentFormatSpan[],
+  ): Promise<CommentOnPostResponse>
   replyToCommentThread(
     postIdentifier: string,
     commentThreadIdentifier: string,
     commentText: string,
+    formatting?: CommentFormatSpan[],
   ): Promise<ReplyResponse>
   getCommentsForPost(postIdentifier: string, batch: number): Promise<CommentThreadRef[]>
   getCommentsForThread(commentThreadIdentifier: string, batch: number): Promise<Comment[]>
@@ -137,7 +146,15 @@ export interface PositiveOnlySocialAPI {
   unfollowUser(username: string): Promise<MessageResponse>
   toggleBlock(username: string): Promise<MessageResponse>
   getBlockedUsers(): Promise<UserSearchResult[]>
+  getFollowers(): Promise<UserSearchResult[]>
+  getFollowing(): Promise<UserSearchResult[]>
   getProfile(username: string): Promise<ProfileDetails>
+  /** Set the signed-in user's profile photo to an already-uploaded image
+   * (issue #7). The photo is classified asynchronously and shown to others only
+   * once approved; the response reports the initial 'pending' state. */
+  setProfilePhoto(body: SetProfilePhotoRequest): Promise<SetProfilePhotoResponse>
+  /** Remove the signed-in user's profile photo entirely. */
+  removeProfilePhoto(): Promise<RemoveProfilePhotoResponse>
 
   // Appeals
   getHiddenPosts(batch: number): Promise<HiddenPost[]>

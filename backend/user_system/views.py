@@ -37,15 +37,28 @@ from .constants import Patterns, Params, POST_BATCH_SIZE, MAX_BEFORE_HIDING_POST
     APPEAL_TARGET_POST, APPEAL_TARGET_COMMENT, APPEAL_TARGET_BAN, \
     MAX_APPEAL_REASON_LENGTH, \
     TWO_FACTOR_CHALLENGE_MINUTES, TWO_FACTOR_MAX_ATTEMPTS, NUM_RECOVERY_CODES, \
-    LEN_RECOVERY_CODE_HEX, TOTP_ISSUER, INVALID_TWO_FACTOR_CHALLENGE
+    LEN_RECOVERY_CODE_HEX, TOTP_ISSUER, INVALID_TWO_FACTOR_CHALLENGE, \
+    PROFILE_IMAGE_STATUS_NONE, PROFILE_IMAGE_STATUS_PENDING, \
+    DEFAULT_STYLE_KEY, ALLOWED_CAPTION_FONTS, ALLOWED_BACKGROUND_COLORS, \
+    ALLOWED_TEXT_SIZES, MAX_COMMENT_FORMAT_SPANS, \
+    MINIMUM_AGE, ADULT_AGE, AGE_RESTRICTED
 from .feed_algorithm import feed_algorithm
 from .input_validator import is_valid_pattern
 from .models import LoginCookie, Session, Post, CommentThread, PositiveOnlySocialUser, Comment, CommentLike, \
     PostLike, UserBlock, UserBan, KnownDevice, Appeal, TwoFactorChallenge, RecoveryCode
 from .utils import convert_to_bool, generate_login_cookie_token, generate_management_token, generate_series_identifier, \
-    get_batch, get_queryset_batch, get_compressed_image_url
-from .s3 import delete_image, generate_presigned_upload, image_url_to_key
-from .visibility import can_view_post, searchable_users, visible_comment_threads, visible_comments, visible_posts
+    get_batch, get_queryset_batch
+from .cloudfront import sign_compressed_url, sign_original_url
+from .s3 import delete_image, generate_presigned_upload, image_url_to_key, is_source_bucket_url, \
+    strip_query_and_fragment
+from .visibility import can_view_post, in_same_age_band, searchable_users, visible_comment_threads, \
+    visible_comments, visible_posts
+
+
+def _age_from_dob(dob):
+    """Whole years old today for a date of birth."""
+    today = date.today()
+    return today.year - dob.year - ((today.month, today.day) < (dob.month, dob.day))
 
 image_classifier_class = image_classifier
 text_classifier_class = text_classifier
@@ -168,6 +181,123 @@ def _get_json_body(request):
         return json.loads(request.body)
     except json.JSONDecodeError:
         return None
+
+
+# =============================================================================
+# TEXT-FORMATTING VALIDATION (issue #318)
+# =============================================================================
+
+def _normalize_caption_style(data):
+    """Read and validate the optional caption font + background color from a
+    make_post payload. Returns (font, color, invalid_fields): the values are
+    always usable (they fall back to DEFAULT_STYLE_KEY), and invalid_fields
+    names any field whose provided value was not an allowed key so the caller
+    can reject the request. Absent/None fields are treated as the default and
+    are not errors, keeping the fields optional and back-compatible."""
+    invalid_fields = []
+
+    raw_font = data.get(Fields.caption_font)
+    if raw_font in (None, ""):
+        font = DEFAULT_STYLE_KEY
+    elif isinstance(raw_font, str) and raw_font in ALLOWED_CAPTION_FONTS:
+        font = raw_font
+    else:
+        font = DEFAULT_STYLE_KEY
+        invalid_fields.append(Params.caption_font)
+
+    raw_color = data.get(Fields.background_color)
+    if raw_color in (None, ""):
+        color = DEFAULT_STYLE_KEY
+    elif isinstance(raw_color, str) and raw_color in ALLOWED_BACKGROUND_COLORS:
+        color = raw_color
+    else:
+        color = DEFAULT_STYLE_KEY
+        invalid_fields.append(Params.background_color)
+
+    return font, color, invalid_fields
+
+
+def _utf16_length(text):
+    """Length of `text` in UTF-16 code units. Comment formatting offsets are
+    expressed in UTF-16 units so JS/Kotlin/Swift clients (all UTF-16 or with a
+    native .utf16 view) can index the string identically; Python strings are
+    code-point based, so we measure the UTF-16 length explicitly for bounds
+    checks. `surrogatepass` is used so a payload containing a lone surrogate
+    (which the JSON decoder can produce, e.g. "\\ud800") is measured rather than
+    raising UnicodeEncodeError and turning a malformed request into a 500."""
+    return len(text.encode("utf-16-le", "surrogatepass")) // 2
+
+
+def validate_comment_formatting(raw, body):
+    """Validate an inline comment-formatting payload against `body`.
+
+    Returns (formatting, error): on success `formatting` is the normalized list
+    of spans to store (or None when absent/empty) and `error` is None; on
+    failure `formatting` is None and `error` is a short message.
+
+    Rules (see issue #318): the payload is optional (None/absent/[] -> no
+    formatting). Otherwise it must be a list of at most MAX_COMMENT_FORMAT_SPANS
+    spans, each a dict with integer start/end satisfying
+    0 <= start < end <= utf16_len(body), an optional size in ALLOWED_TEXT_SIZES,
+    optional boolean bold/italic, and at least one active style (so empty spans
+    can't accumulate). Spans must be sorted by start and non-overlapping, which
+    makes client rendering a deterministic slice of the plain text."""
+    if raw in (None, []):
+        return None, None
+    if not isinstance(raw, list):
+        return None, "formatting must be a list"
+    if len(raw) > MAX_COMMENT_FORMAT_SPANS:
+        return None, "too many formatting spans"
+
+    max_offset = _utf16_length(body)
+    normalized = []
+    prev_end = 0
+    for span in raw:
+        if not isinstance(span, dict):
+            return None, "each formatting span must be an object"
+        start = span.get("start")
+        end = span.get("end")
+        # bool is a subclass of int; reject it explicitly so True/False can't be
+        # smuggled in as offsets.
+        if (not isinstance(start, int) or isinstance(start, bool)
+                or not isinstance(end, int) or isinstance(end, bool)):
+            return None, "span start/end must be integers"
+        if not (0 <= start < end <= max_offset):
+            return None, "span out of bounds"
+        if start < prev_end:
+            return None, "spans must be sorted and non-overlapping"
+
+        bold = span.get("bold", False)
+        italic = span.get("italic", False)
+        if not isinstance(bold, bool) or not isinstance(italic, bool):
+            return None, "span bold/italic must be booleans"
+
+        size = span.get("size", "normal")
+        if size is None:
+            size = "normal"
+        if size not in ALLOWED_TEXT_SIZES:
+            return None, "invalid span size"
+
+        if not bold and not italic and size == "normal":
+            return None, "span has no formatting"
+
+        normalized.append({
+            "start": start, "end": end,
+            "bold": bold, "italic": italic, "size": size,
+        })
+        prev_end = end
+
+    return normalized, None
+
+
+def _caption_style_fields(post):
+    """The caption font + background color fields for a serialized post (#318).
+    Falls back to the default key so legacy rows with NULL values still render
+    consistently."""
+    return {
+        Fields.caption_font: post.caption_font or DEFAULT_STYLE_KEY,
+        Fields.background_color: post.background_color or DEFAULT_STYLE_KEY,
+    }
 
 
 def api_login_required(view_func):
@@ -475,19 +605,29 @@ def register(request):
         invalid_fields.append(Params.password)
 
     is_adult = False
+    too_young = False
     if date_of_birth_str:
         try:
             dob = datetime.strptime(date_of_birth_str, '%Y-%m-%d').date()
-            today = date.today()
-            age = today.year - dob.year - ((today.month, today.day) < (dob.month, dob.day))
-            if age >= 18:
-                is_adult = True
+            if dob > date.today():
+                # A future date of birth is impossible input, not an age-policy
+                # matter — reject it as a validation error rather than as "too
+                # young" (a negative age would otherwise read as under-minimum).
+                logger.warning("Registration failed: date_of_birth is in the future")
+                invalid_fields.append('date_of_birth')
+            else:
+                age = _age_from_dob(dob)
+                if age < MINIMUM_AGE:
+                    too_young = True
+                elif age >= ADULT_AGE:
+                    is_adult = True
         except ValueError:
             logger.warning("Registration failed: Invalid date_of_birth format")
             invalid_fields.append('date_of_birth')
     else:
-        # If date_of_birth is mandatory, uncomment the next line
-        # invalid_fields.append('date_of_birth')
+        # date_of_birth is optional. An account registered without it is left
+        # identity-unverified (see identity_is_verified below) rather than
+        # rejected — the age gate only bites once an age is actually given.
         pass
 
     try:
@@ -499,6 +639,14 @@ def register(request):
     if len(invalid_fields) > 0:
         logger.warning(f"Registration failed: Invalid fields {invalid_fields}")
         return log_and_return_json("register", {'error': f"Invalid fields {invalid_fields}"}, status=400)
+
+    # No account is ever created for someone under the minimum age (issue #337).
+    if too_young:
+        logger.warning("Registration failed: applicant is under the minimum age")
+        return log_and_return_json("register", {
+            'error': f"You must be at least {MINIMUM_AGE} years old to use this service.",
+            Fields.reason_code: AGE_RESTRICTED,
+        }, status=403)
 
     # Check no user has this email or username.
     if get_user_with_username(username) is not None or get_user_with_email(email) is not None:
@@ -588,15 +736,27 @@ def verify_identity(request):
 
     try:
         dob = datetime.strptime(date_of_birth_str, '%Y-%m-%d').date()
-        today = date.today()
-        age = today.year - dob.year - ((today.month, today.day) < (dob.month, dob.day))
+
+        # A future date of birth is impossible input, not an age-policy matter —
+        # reject it as a validation error rather than as "too young".
+        if dob > date.today():
+            logger.warning(f"Identity verification failed: date_of_birth in the future for user_id: {request.user.id}")
+            return log_and_return_json("verify_identity", {'error': "Invalid date of birth"}, status=400)
+
+        age = _age_from_dob(dob)
+
+        # Under-minimum applicants are refused outright and left unverified
+        # (issue #337): the account must not gain a verified identity that would
+        # let it interact, and we do not record it as an adult.
+        if age < MINIMUM_AGE:
+            logger.warning(f"Identity verification refused: user_id {request.user.id} is under the minimum age")
+            return log_and_return_json("verify_identity", {
+                'error': f"You must be at least {MINIMUM_AGE} years old to use this service.",
+                Fields.reason_code: AGE_RESTRICTED,
+            }, status=403)
 
         request.user.identity_is_verified = True
-        if age >= 18:
-            request.user.is_adult = True
-        else:
-            request.user.is_adult = False
-
+        request.user.is_adult = age >= ADULT_AGE
         request.user.save()
 
         logger.info(f"Identity verification successful for user_id: {request.user.id}")
@@ -1505,7 +1665,11 @@ def make_post(request):
         image_url = raw_image_url
     
     caption = data.get(Fields.caption)
-    
+
+    # Optional whole-caption font + whole-tile background color (issue #318).
+    caption_font, background_color, style_invalid = _normalize_caption_style(data)
+    invalid_fields.extend(style_invalid)
+
     if image_url:
         if not is_valid_pattern(image_url, Patterns.image_url):
             invalid_fields.append(Params.image)
@@ -1549,8 +1713,9 @@ def make_post(request):
     # to its author with no extra wiring; the worker later flips it to visible,
     # or to hidden + appealable, or to a final-rejection tombstone.
     new_post = request.user.post_set.create(
-        image_url=image_url, caption=caption, hidden=True,
-        hidden_reason=HIDDEN_REASON_PENDING_CLASSIFICATION)
+        image_url=image_url, caption=caption,
+        caption_font=caption_font, background_color=background_color,
+        hidden=True, hidden_reason=HIDDEN_REASON_PENDING_CLASSIFICATION)
     tasks.enqueue_classification(new_post.post_identifier)
 
     logger.info(f"Post created pending classification: post_id: {new_post.post_identifier} for user_id: {request.user.id}")
@@ -1615,6 +1780,13 @@ def report_post(request, post_identifier):
 
     post = get_post_with_identifier(post_identifier)
     if post is not None:
+        # A post from a different age band is treated as absent, so an adult
+        # cannot interact with an underage account's post (or vice versa) even
+        # with a known post id (issue #329).
+        if not in_same_age_band(post.author, request.user):
+            logger.warning(f"Report post failed: Post {post_identifier} not visible to user_id: {request.user.id}")
+            return log_and_return_json("report_post", {'error': "No post with that identifier"}, status=400)
+
         if post.author == request.user:
             logger.warning(f"Report post failed: Cannot report own post for user_id: {request.user.id}")
             return log_and_return_json("report_post", {'error': "Cannot report own post"}, status=400)
@@ -1659,6 +1831,12 @@ def retract_report_post(request, post_identifier):
         logger.warning(f"Retract report post failed: Post {post_identifier} not found")
         return log_and_return_json("retract_report_post", {'error': "No post with that identifier"}, status=400)
 
+    # Treat a cross-band post as absent (issue #329) so the "not reported yet"
+    # vs "no such post" responses cannot be used as an existence oracle.
+    if not in_same_age_band(post.author, request.user):
+        logger.warning(f"Retract report post failed: Post {post_identifier} not visible to user_id: {request.user.id}")
+        return log_and_return_json("retract_report_post", {'error': "No post with that identifier"}, status=400)
+
     deleted_count, _ = post.postreport_set.filter(user=request.user).delete()
     if deleted_count == 0:
         logger.warning(f"Retract report post failed: Post not reported by user_id: {request.user.id}")
@@ -1691,6 +1869,13 @@ def like_post(request, post_identifier):
 
     post = get_post_with_identifier(post_identifier)
     if post is not None:
+        # A post from a different age band is treated as absent, so an adult
+        # cannot interact with an underage account's post (or vice versa) even
+        # with a known post id (issue #329).
+        if not in_same_age_band(post.author, request.user):
+            logger.warning(f"Like post failed: Post {post_identifier} not visible to user_id: {request.user.id}")
+            return log_and_return_json("like_post", {'error': "No post with that identifier"}, status=400)
+
         if post.author == request.user:
             logger.warning(f"Like post failed: Cannot like own post for user_id: {request.user.id}")
             return log_and_return_json("like_post", {'error': "Cannot like own post"}, status=400)
@@ -1721,6 +1906,12 @@ def unlike_post(request, post_identifier):
 
     post = get_post_with_identifier(post_identifier)
     if post is not None:
+        # Treat a cross-band post as absent (issue #329) so the "not liked yet"
+        # vs "no such post" responses cannot be used as an existence oracle.
+        if not in_same_age_band(post.author, request.user):
+            logger.warning(f"Unlike post failed: Post {post_identifier} not visible to user_id: {request.user.id}")
+            return log_and_return_json("unlike_post", {'error': "No post with that identifier"}, status=400)
+
         if post.author == request.user:
             logger.warning(f"Unlike post failed: Cannot unlike own post for user_id: {request.user.id}")
             return log_and_return_json("unlike_post", {'error': "Cannot unlike own post"}, status=400)
@@ -1757,6 +1948,22 @@ def _classification_message(post):
         return (f"Your post did not pass automated review because it {phrase}. "
                 "This decision is final and cannot be appealed.")
     return None
+
+
+def _author_avatar_fields(user):
+    """The author's approved profile photo, merged into every list/detail
+    payload alongside author_username. Only the approved, live photo is ever
+    exposed to others; a pending or rejected one is never surfaced here. The
+    compressed variant is primary with the full-resolution original as a
+    fallback, mirroring image_url/original_image_url for posts — the same
+    CloudFront-signed URLs post images use (sign_* returns None for a missing
+    photo and degrades to the unsigned bucket URL when CloudFront is not
+    configured). Both are None when the user has no approved photo."""
+    live_url = user.profile_image_url if user is not None else None
+    return {
+        Fields.author_profile_image_url: sign_compressed_url(live_url),
+        Fields.author_profile_image_original_url: sign_original_url(live_url),
+    }
 
 
 def _author_status_fields(post, viewer):
@@ -1904,12 +2111,14 @@ def get_posts_in_feed(request, batch):
         posts_data = [
             {
                 Fields.post_identifier: post.post_identifier,
-                Fields.image_url: get_compressed_image_url(post.image_url),
+                Fields.image_url: sign_compressed_url(post.image_url),
                 # Full-res original, used as a client fallback while the async
                 # Lambda-generated compressed copy is still missing (#252/#254).
-                Fields.original_image_url: post.image_url,
+                Fields.original_image_url: sign_original_url(post.image_url),
                 Fields.author_username: post.author.username,
+                **_author_avatar_fields(post.author),
                 Fields.caption: post.caption,
+                **_caption_style_fields(post),
                 **interaction_state(post),
                 # Authors see their own pending/hidden posts in feeds, so their
                 # payloads carry the classification state for the client to
@@ -1951,12 +2160,14 @@ def get_posts_for_followed_users(request, batch):
     posts_data = [
         {
             Fields.post_identifier: post.post_identifier,
-            Fields.image_url: get_compressed_image_url(post.image_url),
+            Fields.image_url: sign_compressed_url(post.image_url),
             # Full-res original, used as a client fallback while the async
             # Lambda-generated compressed copy is still missing (#252/#254).
-            Fields.original_image_url: post.image_url,
+            Fields.original_image_url: sign_original_url(post.image_url),
             Fields.author_username: post.author.username,
+            **_author_avatar_fields(post.author),
             Fields.caption: post.caption,
+            **_caption_style_fields(post),
             **interaction_state(post),
             **_author_status_fields(post, request.user),
         }
@@ -1982,6 +2193,12 @@ def get_posts_for_user(request, username, batch):
     if not target_user:
         return log_and_return_json("get_posts_for_user", {'error': "User not found"}, status=400)
 
+    # An account in a different age band is indistinguishable from a missing
+    # user (issue #329), so it cannot be confirmed by name. Reported as not
+    # found rather than as an empty grid.
+    if target_user != request.user and not in_same_age_band(request.user, target_user):
+        return log_and_return_json("get_posts_for_user", {'error': "User not found"}, status=400)
+
     # Check if blocking relationship exists
     if request.user.blocked.filter(pk=target_user.pk).exists() or target_user.blocked.filter(pk=request.user.pk).exists():
         logger.info(f"Get posts for user: Blocking relationship exists for user_id: {request.user.id} and target_user_id: {target_user.id}")
@@ -1997,16 +2214,18 @@ def get_posts_for_user(request, username, batch):
         posts_data = [
             {
                 Fields.post_identifier: post.post_identifier,
-                Fields.image_url: get_compressed_image_url(post.image_url),
+                Fields.image_url: sign_compressed_url(post.image_url),
                 # The full-resolution original, used by clients as a fallback when
                 # the compressed copy 404s. Compression runs in an async Lambda, so
                 # a just-posted (or recently hidden-pending-appeal) image can be
                 # missing from the compressed bucket for a short while — without a
                 # fallback those tiles render as empty grey/black boxes until the
                 # user re-logs in. See issues #252 and #254.
-                Fields.original_image_url: post.image_url,
+                Fields.original_image_url: sign_original_url(post.image_url),
                 Fields.caption: post.caption,
+                **_caption_style_fields(post),
                 Fields.author_username: target_user.username,
+                **_author_avatar_fields(target_user),
                 **interaction_state(post),
                 # The author's own profile grid includes pending/hidden posts;
                 # these fields let the client render their state.
@@ -2035,17 +2254,19 @@ def get_post_details(request, post_identifier):
         my_report = post.postreport_set.filter(user=request.user).first()
         post_data = {
             Fields.post_identifier: post.post_identifier,
-            Fields.image_url: get_compressed_image_url(post.image_url),
+            Fields.image_url: sign_compressed_url(post.image_url),
             # Full-res original, used as a client fallback while the async
             # Lambda-generated compressed copy is still missing (#252/#254).
-            Fields.original_image_url: post.image_url,
+            Fields.original_image_url: sign_original_url(post.image_url),
             Fields.caption: post.caption,
+            **_caption_style_fields(post),
             Fields.creation_time: post.creation_time,
             Fields.post_likes: total_likes,
             Fields.is_liked: post.postlike_set.filter(user=request.user).exists(),
             Fields.is_reported: my_report is not None,
             Fields.report_reason: my_report.reason if my_report is not None else None,
             Fields.author_username: post.author.username,
+            **_author_avatar_fields(post.author),
             **_author_status_fields(post, request.user),
         }
         return log_and_return_json("get_post_details", post_data)
@@ -2081,6 +2302,12 @@ def comment_on_post(request, post_identifier):
     if len(comment_text) > MAX_COMMENT_LENGTH:
         return log_and_return_json("comment_on_post", {'error': f"Comment exceeds maximum length of {MAX_COMMENT_LENGTH} characters"}, status=400)
 
+    # Optional inline formatting (issue #318) over the plain comment text.
+    body_formatting, formatting_error = validate_comment_formatting(
+        data.get(Fields.body_formatting), comment_text)
+    if formatting_error is not None:
+        return log_and_return_json("comment_on_post", {'error': f"Invalid formatting: {formatting_error}"}, status=400)
+
     # Resolve and visibility-check the post before running the (expensive) AI
     # classifier, so a leaked/guessed UUID for a missing or hidden post cannot
     # trigger classifier calls (avoidable cost / billing amplification). Treat a
@@ -2107,7 +2334,8 @@ def comment_on_post(request, post_identifier):
     # Create a new thread for this top-level comment
     comment_thread = post.commentthread_set.create()
     new_comment = comment_thread.comment_set.create(
-        author=request.user, body=comment_text, hidden=hidden,
+        author=request.user, body=comment_text, body_formatting=body_formatting,
+        hidden=hidden,
         hidden_reason=HIDDEN_REASON_CLASSIFIER if hidden else HIDDEN_REASON_NONE)
 
     response_data = {
@@ -2155,6 +2383,12 @@ def reply_to_comment_thread(request, post_identifier, comment_thread_identifier)
     if len(comment_text) > MAX_COMMENT_LENGTH:
         return log_and_return_json("reply_to_comment_thread", {'error': f"Comment exceeds maximum length of {MAX_COMMENT_LENGTH} characters"}, status=400)
 
+    # Optional inline formatting (issue #318) over the plain reply text.
+    body_formatting, formatting_error = validate_comment_formatting(
+        data.get(Fields.body_formatting), comment_text)
+    if formatting_error is not None:
+        return log_and_return_json("reply_to_comment_thread", {'error': f"Invalid formatting: {formatting_error}"}, status=400)
+
     # Resolve and visibility-check the thread/parent post before running the
     # (expensive) AI classifier, so a leaked/guessed UUID for a missing or
     # hidden thread cannot trigger classifier calls (avoidable cost / billing
@@ -2184,7 +2418,8 @@ def reply_to_comment_thread(request, post_identifier, comment_thread_identifier)
 
     hidden = not text_result
     new_comment = comment_thread.comment_set.create(
-        author=request.user, body=comment_text, hidden=hidden,
+        author=request.user, body=comment_text, body_formatting=body_formatting,
+        hidden=hidden,
         hidden_reason=HIDDEN_REASON_CLASSIFIER if hidden else HIDDEN_REASON_NONE)
 
     response_data = {Fields.comment_identifier: new_comment.comment_identifier}
@@ -2229,6 +2464,16 @@ def like_comment(request, post_identifier, comment_thread_identifier, comment_id
         logger.warning(f"Like comment failed: Comment {comment_identifier} not found")
         return log_and_return_json("like_comment", {'error': "Comment not found"}, status=400)
 
+    # A comment from a different age band is treated as absent, so cross-band
+    # interaction cannot be smuggled in via known ids (issue #329). Both the
+    # comment's author and its post's author must share the caller's band, so
+    # even an inconsistent legacy record (a cross-band comment on a post) stays
+    # unreachable.
+    if not in_same_age_band(comment.author, request.user) \
+            or not in_same_age_band(comment.comment_thread.post.author, request.user):
+        logger.warning(f"Like comment failed: Comment {comment_identifier} not visible to user_id: {request.user.id}")
+        return log_and_return_json("like_comment", {'error': "Comment not found"}, status=400)
+
     if comment.author == request.user:
         logger.warning(f"Like comment failed: Cannot like own comment for user_id: {request.user.id}")
         return log_and_return_json("like_comment", {'error': "Cannot like own comment"}, status=400)
@@ -2267,6 +2512,13 @@ def unlike_comment(request, post_identifier, comment_thread_identifier, comment_
         )
     except Comment.DoesNotExist:
         logger.warning(f"Unlike comment failed: Comment {comment_identifier} not found")
+        return log_and_return_json("unlike_comment", {'error': "Comment not found"}, status=400)
+
+    # Treat a cross-band comment as absent (issue #329) so the "not liked yet"
+    # vs "no such comment" responses cannot be used as an existence oracle.
+    if not in_same_age_band(comment.author, request.user) \
+            or not in_same_age_band(comment.comment_thread.post.author, request.user):
+        logger.warning(f"Unlike comment failed: Comment {comment_identifier} not visible to user_id: {request.user.id}")
         return log_and_return_json("unlike_comment", {'error': "Comment not found"}, status=400)
 
     if comment.author == request.user:
@@ -2353,6 +2605,16 @@ def report_comment(request, post_identifier, comment_thread_identifier, comment_
         logger.warning(f"Report comment failed: Comment {comment_identifier} not found")
         return log_and_return_json("report_comment", {'error': "Comment not found"}, status=400)
 
+    # A comment from a different age band is treated as absent, so cross-band
+    # interaction cannot be smuggled in via known ids (issue #329). Both the
+    # comment's author and its post's author must share the caller's band, so
+    # even an inconsistent legacy record (a cross-band comment on a post) stays
+    # unreachable.
+    if not in_same_age_band(comment.author, request.user) \
+            or not in_same_age_band(comment.comment_thread.post.author, request.user):
+        logger.warning(f"Report comment failed: Comment {comment_identifier} not visible to user_id: {request.user.id}")
+        return log_and_return_json("report_comment", {'error': "Comment not found"}, status=400)
+
     if comment.author == request.user:
         logger.warning(f"Report comment failed: Cannot report own comment for user_id: {request.user.id}")
         return log_and_return_json("report_comment", {'error': "Cannot report own comment"}, status=400)
@@ -2400,6 +2662,13 @@ def retract_report_comment(request, post_identifier, comment_thread_identifier, 
         )
     except Comment.DoesNotExist:
         logger.warning(f"Retract report comment failed: Comment {comment_identifier} not found")
+        return log_and_return_json("retract_report_comment", {'error': "Comment not found"}, status=400)
+
+    # Treat a cross-band comment as absent (issue #329) so the "not reported
+    # yet" vs "no such comment" responses cannot be used as an existence oracle.
+    if not in_same_age_band(comment.author, request.user) \
+            or not in_same_age_band(comment.comment_thread.post.author, request.user):
+        logger.warning(f"Retract report comment failed: Comment {comment_identifier} not visible to user_id: {request.user.id}")
         return log_and_return_json("retract_report_comment", {'error': "Comment not found"}, status=400)
 
     deleted_count, _ = comment.commentreport_set.filter(user=request.user).delete()
@@ -2464,7 +2733,11 @@ def get_comments_for_thread(request, comment_thread_identifier, batch):
         logger.warning(f"Get comments for thread failed: Thread {comment_thread_identifier} not found or not visible")
         return log_and_return_json("get_comments_for_thread", {'error': "No comment thread with that identifier"}, status=400)
 
-    comments = visible_comments(comment_thread.comment_set.all(), request.user).order_by('creation_time')
+    # select_related('author') so serializing author_username and the author's
+    # profile photo per comment does not fan out into a query per row.
+    comments = visible_comments(
+        comment_thread.comment_set.select_related('author'), request.user
+    ).order_by('creation_time')
     relevant_comments = feed_algorithm_class.get_comments_weighted_for_thread(comments)
 
     if not relevant_comments.count() > 0:
@@ -2499,7 +2772,9 @@ def get_comments_for_thread(request, comment_thread_identifier, batch):
         {
             Fields.comment_identifier: comment.comment_identifier,
             Fields.body: comment.body,
+            Fields.body_formatting: comment.body_formatting,
             Fields.author_username: comment.author.username,
+            **_author_avatar_fields(comment.author),
             Fields.creation_time: comment.creation_time,
             Fields.updated_time: comment.updated_time,
             Fields.comment_likes: like_counts.get(comment.comment_identifier, 0),
@@ -2537,12 +2812,13 @@ def get_users_matching_fragment(request, username_fragment):
     # So if I blocked someone, I can still search them.
     # But if someone blocked me, I cannot search them.
     users_who_blocked_me = request.user.blocked_by.all()
-    users = searchable_users(users.exclude(pk__in=users_who_blocked_me))[:10]
+    users = searchable_users(users.exclude(pk__in=users_who_blocked_me), request.user)[:10]
 
     users_data = [
         {
             Fields.username: user.username,
-            Fields.identity_is_verified: user.identity_is_verified
+            Fields.identity_is_verified: user.identity_is_verified,
+            **_author_avatar_fields(user),
         }
         for user in users
     ]
@@ -2561,7 +2837,10 @@ def follow_user(request, username_to_follow):
         return log_and_return_json("follow_user", {'error': "Invalid username fragment"}, status=400)
 
     user_to_follow_obj = get_user_with_username(username_to_follow)
-    if not user_to_follow_obj:
+    # An account outside the follower's age band is treated as if it does not
+    # exist (issue #329) — the same response as a genuinely missing user, so an
+    # adult cannot even confirm an underage account by name, and vice versa.
+    if not user_to_follow_obj or not in_same_age_band(request.user, user_to_follow_obj):
         return log_and_return_json("follow_user", {'error': "User does not exist"}, status=400)
 
     if request.user == user_to_follow_obj:
@@ -2586,7 +2865,10 @@ def unfollow_user(request, username_to_unfollow):
         return log_and_return_json("unfollow_user", {'error': "Invalid username fragment"}, status=400)
 
     user_to_unfollow_obj = get_user_with_username(username_to_unfollow)
-    if not user_to_unfollow_obj:
+    # A cross-band account is treated as if it does not exist (issue #329), the
+    # same response as a genuinely missing user, so neither band can confirm the
+    # other by name.
+    if not user_to_unfollow_obj or not in_same_age_band(request.user, user_to_unfollow_obj):
         return log_and_return_json("unfollow_user", {'error': "User does not exist"}, status=400)
 
     if not request.user.following.filter(pk=user_to_unfollow_obj.pk).exists():
@@ -2608,7 +2890,10 @@ def toggle_block(request, username_to_toggle_block):
         return log_and_return_json("toggle_block", {'error': "Invalid username"}, status=400)
 
     user_to_toggle_obj = get_user_with_username(username_to_toggle_block)
-    if not user_to_toggle_obj:
+    # A cross-band account is treated as if it does not exist (issue #329): the
+    # bands never interact, so there is nothing to block, and the response must
+    # not confirm the account by name.
+    if not user_to_toggle_obj or not in_same_age_band(request.user, user_to_toggle_obj):
         return log_and_return_json("toggle_block", {'error': "User does not exist"}, status=400)
 
     if request.user == user_to_toggle_obj:
@@ -2642,12 +2927,167 @@ def get_blocked_users(request):
     users_data = [
         {
             Fields.username: user.username,
-            Fields.identity_is_verified: user.identity_is_verified
+            Fields.identity_is_verified: user.identity_is_verified,
+            **_author_avatar_fields(user),
         }
         for user in blocked_users
     ]
     logger.info(f"Get blocked users successful: count: {len(users_data)} for user_id: {request.user.id}")
     return log_and_return_json("get_blocked_users", users_data, safe=False)
+
+
+@csrf_exempt
+@api_login_required
+@ratelimit(key='user', rate='10/h', block=True)
+@require_POST
+def set_profile_photo(request):
+    """Set the caller's profile photo to an already-uploaded S3 image.
+
+    The client first uploads the JPEG through the presigned-PUT flow
+    (POST /posts/upload-url/, which scopes the key to the user), then calls this
+    with the returned canonical image_url. The photo is stored *pending* and
+    shown to nobody else until the async image classifier approves it (issue
+    #7) — the same off-the-request-path moderation posts use. A previously
+    approved photo stays live and visible while the new one is under review; a
+    still-pending upload being replaced is cleaned up from S3. Rate limited like
+    make_post since each call enqueues a billable classification.
+    """
+    logger.info("Endpoint set_profile_photo invoked by IP or User")
+    data = _get_json_body(request)
+    if data is None:
+        return log_and_return_json("set_profile_photo", {'error': "Invalid JSON data"}, status=400)
+
+    raw_image_url = data.get(Fields.image_url)
+    # Strip any query/fragment first (e.g. a client that sends the presigned PUT
+    # URL by mistake) so the signing params (X-Amz-*) are never validated,
+    # stored, or later echoed back to clients — only the canonical object URL is.
+    if isinstance(raw_image_url, str):
+        raw_image_url = strip_query_and_fragment(raw_image_url)
+    # The URL must be a well-formed S3 image URL in *our* source bucket whose key
+    # is scoped to this user (clients upload to `{user_id}/...` via our presigned
+    # flow). The bucket check — not just the key prefix — stops a client from
+    # pointing their avatar at another (attacker-controlled) bucket, which would
+    # make the classifier fetch arbitrary remote content and mint CloudFront URLs
+    # for objects that don't exist in our buckets.
+    if (not isinstance(raw_image_url, str)
+            or not raw_image_url
+            or not is_valid_pattern(raw_image_url, Patterns.image_url)
+            or not is_source_bucket_url(raw_image_url)
+            or not image_url_to_key(raw_image_url).startswith(f"{request.user.id}/")):
+        logger.warning(f"Set profile photo failed: invalid image_url for user_id: {request.user.id}")
+        return log_and_return_json("set_profile_photo", {'error': f"Invalid fields ['{Params.image_url}']"}, status=400)
+
+    user = request.user
+    # A previous pending upload that never finished review is now superseded and
+    # orphaned; its S3 object is dropped after the row is saved. Any approved
+    # photo is left untouched so it stays visible while the new one is reviewed.
+    superseded_pending = user.pending_profile_image_url
+
+    user.pending_profile_image_url = raw_image_url
+    user.profile_image_status = PROFILE_IMAGE_STATUS_PENDING
+    user.profile_image_reason_code = None
+    user.profile_image_classification_attempts = 0
+    user.profile_image_classification_alerted = False
+    user.profile_image_classification_time = timezone.now()
+    user.save(update_fields=[
+        'pending_profile_image_url', 'profile_image_status',
+        'profile_image_reason_code', 'profile_image_classification_attempts',
+        'profile_image_classification_alerted', 'profile_image_classification_time',
+    ])
+
+    tasks.enqueue_profile_photo_classification(user.id)
+
+    if superseded_pending and superseded_pending != raw_image_url:
+        delete_image(superseded_pending)
+
+    logger.info(f"Profile photo set pending classification for user_id: {user.id}")
+    return log_and_return_json("set_profile_photo", {
+        Fields.profile_image_status: PROFILE_IMAGE_STATUS_PENDING,
+        'message': "Your photo is being reviewed and will be shown once it is approved.",
+    }, status=202)
+
+
+@csrf_exempt
+@api_login_required
+@ratelimit(key='user', rate='10/h', block=True)
+@require_POST
+def remove_profile_photo(request):
+    """Remove the caller's profile photo entirely — the approved one and any
+    pending upload. Clears the stored URLs and best-effort deletes both S3
+    objects (the orphan sweeper backstops any delete that fails)."""
+    logger.info("Endpoint remove_profile_photo invoked by IP or User")
+    user = request.user
+    live_url = user.profile_image_url
+    pending_url = user.pending_profile_image_url
+
+    user.profile_image_url = None
+    user.pending_profile_image_url = None
+    user.profile_image_status = PROFILE_IMAGE_STATUS_NONE
+    user.profile_image_reason_code = None
+    user.save(update_fields=[
+        'profile_image_url', 'pending_profile_image_url',
+        'profile_image_status', 'profile_image_reason_code',
+    ])
+
+    for url in (live_url, pending_url):
+        if url:
+            delete_image(url)
+
+    logger.info(f"Profile photo removed for user_id: {user.id}")
+    return log_and_return_json("remove_profile_photo", {
+        Fields.profile_image_status: PROFILE_IMAGE_STATUS_NONE,
+        'message': "Your profile photo has been removed.",
+    })
+
+
+@api_login_required
+@ratelimit(key='user', rate='30/m', block=True)
+@require_GET
+def get_followers(request):
+    """List the users who follow the requester.
+
+    Only ever returns the signed-in user's own followers — there is no username
+    parameter, so a follower/following list can't be requested for anyone else.
+    """
+    logger.info("Endpoint get_followers invoked by IP or User")
+    # request.user.followers is the reverse side of the (non-symmetrical)
+    # `following` relation: everyone with request.user in their `following`.
+    followers = request.user.followers.order_by('username')
+
+    users_data = [
+        {
+            Fields.username: user.username,
+            Fields.identity_is_verified: user.identity_is_verified,
+            **_author_avatar_fields(user),
+        }
+        for user in followers
+    ]
+    logger.info(f"Get followers successful: count: {len(users_data)} for user_id: {request.user.id}")
+    return log_and_return_json("get_followers", users_data, safe=False)
+
+
+@api_login_required
+@ratelimit(key='user', rate='30/m', block=True)
+@require_GET
+def get_following(request):
+    """List the users the requester follows.
+
+    Only ever returns the signed-in user's own following list — there is no
+    username parameter, so this can't be requested for anyone else.
+    """
+    logger.info("Endpoint get_following invoked by IP or User")
+    following = request.user.following.order_by('username')
+
+    users_data = [
+        {
+            Fields.username: user.username,
+            Fields.identity_is_verified: user.identity_is_verified,
+            **_author_avatar_fields(user),
+        }
+        for user in following
+    ]
+    logger.info(f"Get following successful: count: {len(users_data)} for user_id: {request.user.id}")
+    return log_and_return_json("get_following", users_data, safe=False)
 
 
 @api_login_required
@@ -2680,6 +3120,13 @@ def get_profile_details(request, username):
         logger.warning(f"Get profile details failed: User with username fragment not found")
         return log_and_return_json("get_profile_details", {'error': "User not found"}, status=400)
 
+    # Adults and underage accounts cannot view each other's profiles
+    # (issue #329). Report it as not found (not a distinct error) so neither
+    # side can confirm the other exists by name. An account sees its own profile.
+    if profile_user != request.user and not in_same_age_band(request.user, profile_user):
+        logger.warning("Get profile details refused: requester and profile are in different age bands")
+        return log_and_return_json("get_profile_details", {'error': "User not found"}, status=400)
+
     # Count only the posts the requesting user is allowed to see, so a
     # shadow-banned profile shows no posts to others (but all to its owner).
     post_count = visible_posts(profile_user.post_set.all(), request.user).count()
@@ -2710,6 +3157,11 @@ def get_profile_details(request, username):
         following_count = 0
         is_following = False
 
+    # The approved, live profile photo (compressed + full-res fallback, like
+    # posts). Hidden along with the stats when the profile has blocked the
+    # requester, so a blocked user cannot even see their avatar.
+    live_avatar = None if is_blocked_by else profile_user.profile_image_url
+
     data = {
         Fields.username: profile_user.username,
         Fields.post_count: post_count,
@@ -2718,8 +3170,24 @@ def get_profile_details(request, username):
         Fields.is_following: is_following,
         'is_blocked': is_blocked,
         Fields.identity_is_verified: profile_user.identity_is_verified,
-        Fields.is_adult: profile_user.is_adult
+        Fields.is_adult: profile_user.is_adult,
+        Fields.profile_image_url: sign_compressed_url(live_avatar),
+        Fields.profile_image_original_url: sign_original_url(live_avatar),
     }
+
+    # Owner-only: the moderation state of a photo still under async review (or
+    # the last rejected upload), so the owner's own client can show a
+    # "reviewing" / "not approved" affordance. Never exposed for other users —
+    # only the approved photo above is anyone else's business.
+    if profile_user.pk == request.user.pk:
+        pending_avatar = profile_user.pending_profile_image_url
+        data[Fields.profile_image_status] = profile_user.profile_image_status
+        data[Fields.profile_image_reason_code] = profile_user.profile_image_reason_code
+        # The original (source-bucket) URL, not the compressed one: a just-
+        # uploaded pending photo has no compressed copy yet (the Lambda runs
+        # async), so the owner's immediate preview must point at the full-res
+        # original or it would 404 to the placeholder.
+        data[Fields.pending_profile_image_url] = sign_original_url(pending_avatar)
 
     return log_and_return_json("get_profile_details", data, status=200)
 
@@ -2771,8 +3239,9 @@ def get_hidden_posts(request, batch):
     data = [
         {
             Fields.post_identifier: post.post_identifier,
-            Fields.image_url: get_compressed_image_url(post.image_url),
+            Fields.image_url: sign_compressed_url(post.image_url),
             Fields.caption: post.caption,
+            **_caption_style_fields(post),
             Fields.hidden_reason: post.hidden_reason,
             Fields.creation_time: post.creation_time,
             Fields.has_appeal: post.post_identifier in appealed_ids,
@@ -2800,6 +3269,7 @@ def get_hidden_comments(request, batch):
         {
             Fields.comment_identifier: comment.comment_identifier,
             Fields.body: comment.body,
+            Fields.body_formatting: comment.body_formatting,
             Fields.hidden_reason: comment.hidden_reason,
             Fields.creation_time: comment.creation_time,
             Fields.has_appeal: comment.comment_identifier in appealed_ids,

@@ -138,20 +138,29 @@ final class RealAPI: Networking {
         // Nil for a text-only post (#307); JSONEncoder omits nil fields.
         let image_url: String?
         let caption: String
+        // Whole-caption font + whole-tile background color keys (issue #318).
+        let caption_font: String
+        let background_color: String
     }
-    
+
     private struct ReportBody: Encodable { // Re-used for posts and comments
         let reason: String
     }
-    
+
     private struct CommentBody: Encodable {
         let comment_text: String
+        // Inline formatting spans (issue #318); nil omits the field.
+        let body_formatting: [CommentFormatSpan]?
     }
 
     private struct SubmitAppealBody: Codable {
         let target_type: String
         let target_identifier: String
         let reason: String
+    }
+
+    private struct SetProfilePhotoBody: Encodable {
+        let image_url: String
     }
 
     // MARK: - Private Helpers
@@ -509,8 +518,8 @@ final class RealAPI: Networking {
     }
 
     /// Creates and stores a new post. A nil `imageURL` creates a text-only post (#307).
-    func makePost(sessionManagementToken: String, imageURL: String?, caption: String) async throws -> Data {
-        let body = MakePostBody(image_url: imageURL, caption: caption)
+    func makePost(sessionManagementToken: String, imageURL: String?, caption: String, captionFont: String = "default", backgroundColor: String = "default") async throws -> Data {
+        let body = MakePostBody(image_url: imageURL, caption: caption, caption_font: captionFont, background_color: backgroundColor)
         let requestBody = try encode(body)
         
         return try await performRequest(
@@ -627,8 +636,8 @@ final class RealAPI: Networking {
     // MARK: - Comment Management
     
     /// Adds a direct comment to a post.
-    func commentOnPost(sessionManagementToken: String, postIdentifier: String, commentText: String) async throws -> Data {
-        let body = CommentBody(comment_text: commentText)
+    func commentOnPost(sessionManagementToken: String, postIdentifier: String, commentText: String, formatting: [CommentFormatSpan]? = nil) async throws -> Data {
+        let body = CommentBody(comment_text: commentText, body_formatting: formatting)
         let requestBody = try encode(body)
         
         return try await performRequest(
@@ -712,8 +721,8 @@ final class RealAPI: Networking {
     }
     
     /// Replies to a comment thread.
-    func replyToCommentThread(sessionManagementToken: String, postIdentifier: String, commentThreadIdentifier: String, commentText: String) async throws -> Data {
-        let body = CommentBody(comment_text: commentText)
+    func replyToCommentThread(sessionManagementToken: String, postIdentifier: String, commentThreadIdentifier: String, commentText: String, formatting: [CommentFormatSpan]? = nil) async throws -> Data {
+        let body = CommentBody(comment_text: commentText, body_formatting: formatting)
         let requestBody = try encode(body)
         
         return try await performRequest(
@@ -747,12 +756,53 @@ final class RealAPI: Networking {
         )
     }
 
+    func getFollowers(sessionManagementToken: String) async throws -> Data {
+        // GET users/followers/ with auth — the signed-in user's own followers.
+        return try await performRequest(
+            pathSegments: [GVOAppConstants.pathSegmentUsers, GVOAppConstants.pathSegmentFollowers],
+            method: .get,
+            authToken: sessionManagementToken
+        )
+    }
+
+    func getFollowing(sessionManagementToken: String) async throws -> Data {
+        // GET users/following/ with auth — the users the signed-in user follows.
+        return try await performRequest(
+            pathSegments: [GVOAppConstants.pathSegmentUsers, GVOAppConstants.pathSegmentFollowing],
+            method: .get,
+            authToken: sessionManagementToken
+        )
+    }
+
     /// Gets the profile details for a user
     func getProfileDetails(sessionManagementToken: String, username: String) async throws -> Data {
         // This is a GET request, no body, with auth. Username is in path.
         return try await performRequest(
             pathSegments: [GVOAppConstants.pathSegmentUsers, username, GVOAppConstants.pathSegmenProfile],
             method: .get,
+            authToken: sessionManagementToken
+        )
+    }
+
+    // MARK: - Profile Photo (issue #7)
+
+    /// Sets the signed-in user's profile photo. Path: profile/photo/.
+    func setProfilePhoto(sessionManagementToken: String, imageURL: String) async throws -> Data {
+        let body = SetProfilePhotoBody(image_url: imageURL)
+        let requestBody = try encode(body)
+        return try await performRequest(
+            pathSegments: [GVOAppConstants.pathSegmenProfile, GVOAppConstants.pathSegmentPhoto],
+            method: .post,
+            body: requestBody,
+            authToken: sessionManagementToken
+        )
+    }
+
+    /// Removes the signed-in user's profile photo. Path: profile/photo/remove/.
+    func removeProfilePhoto(sessionManagementToken: String) async throws -> Data {
+        return try await performRequest(
+            pathSegments: [GVOAppConstants.pathSegmenProfile, GVOAppConstants.pathSegmentPhoto, GVOAppConstants.pathSegmentRemove],
+            method: .post,
             authToken: sessionManagementToken
         )
     }

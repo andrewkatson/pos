@@ -40,6 +40,20 @@ POST_STATUS_REJECTED_FINAL = "rejected_final"
 # logs an error so an operator is alerted.
 CLASSIFICATION_MAX_ATTEMPTS = 5
 
+# Classification lifecycle of a user's profile photo (issue #7). A photo is
+# uploaded to S3, stored on the user as pending, and classified off the request
+# path by the same async pipeline posts use. Only an approved photo is ever
+# shown to others; a rejected one is dropped (its S3 object cleaned up) and the
+# owner is told in-app via profile_image_status/profile_image_reason_code so
+# they can pick a different picture. "none" means the user has no photo (never
+# set one, or removed it). Profile photos are not appealable — unlike a post,
+# the fix is simply to choose another image — so there is no appealable/final
+# split and no tombstone.
+PROFILE_IMAGE_STATUS_NONE = "none"
+PROFILE_IMAGE_STATUS_PENDING = "pending"
+PROFILE_IMAGE_STATUS_APPROVED = "approved"
+PROFILE_IMAGE_STATUS_REJECTED = "rejected"
+
 # Lifecycle of an appeal a user files against hidden content or a ban.
 APPEAL_STATUS_PENDING = "pending"
 APPEAL_STATUS_APPROVED = "approved"
@@ -53,6 +67,20 @@ APPEAL_TARGET_TYPES = (APPEAL_TARGET_POST, APPEAL_TARGET_COMMENT, APPEAL_TARGET_
 
 # Error code returned when an outright-banned user attempts to authenticate
 ACCOUNT_BANNED = "account_banned"
+
+# Age policy. Registration and identity verification refuse anyone under
+# MINIMUM_AGE outright (issue #337); an account is only ever created/verified
+# for someone MINIMUM_AGE or older, so any identity-verified non-adult is
+# necessarily between MINIMUM_AGE and ADULT_AGE. is_adult is set at/above
+# ADULT_AGE. Verified minors (MINIMUM_AGE..ADULT_AGE-1) are segregated from
+# adults and unverified accounts (issue #329).
+MINIMUM_AGE = 16
+ADULT_AGE = 18
+
+# Error code returned when someone under MINIMUM_AGE tries to register or
+# verify their identity. A stable machine-readable code (like ACCOUNT_BANNED)
+# so clients can branch on it rather than parsing prose.
+AGE_RESTRICTED = "age_restricted"
 
 # Error code returned when a user whose email address has not been verified
 # attempts to authenticate or call an authenticated endpoint
@@ -126,6 +154,9 @@ class Params:
     login_cookie_token = "LOGIN_COOKIE_TOKEN"
     remember_me = "REMEMBER_ME"
     caption = "CAPTION"
+    caption_font = "CAPTION_FONT"
+    background_color = "BACKGROUND_COLOR"
+    body_formatting = "BODY_FORMATTING"
     image = "IMAGE_URL"
     post_identifier = "POST_IDENTIFIER"
     reason = "REASON"
@@ -147,7 +178,22 @@ class Fields:
     image_url = "image_url"
     original_image_url = "original_image_url"
     upload_url = "upload_url"
+    # A user's own profile photo (the approved, live one) and, for the owner,
+    # the pending/rejected state of a photo still under async review.
+    profile_image_url = "profile_image_url"
+    profile_image_original_url = "profile_image_original_url"
+    pending_profile_image_url = "pending_profile_image_url"
+    profile_image_status = "profile_image_status"
+    profile_image_reason_code = "profile_image_reason_code"
+    # An author's approved profile photo, threaded through every list/detail
+    # payload next to author_username (compressed variant + full-res fallback,
+    # mirroring image_url/original_image_url for posts).
+    author_profile_image_url = "author_profile_image_url"
+    author_profile_image_original_url = "author_profile_image_original_url"
     caption = "caption"
+    caption_font = "caption_font"
+    background_color = "background_color"
+    body_formatting = "body_formatting"
     post_likes = "post_likes"
     comment_count = "comment_count"
     comment_thread_identifier = "comment_thread_identifier"
@@ -220,6 +266,36 @@ MAX_APPEAL_REASON_LENGTH = 1000
 # Number of reports before hiding
 MAX_BEFORE_HIDING_POST = 10
 MAX_BEFORE_HIDING_COMMENT = 5
+
+# =============================================================================
+# TEXT FORMATTING (issue #318)
+# =============================================================================
+# Post captions carry a whole-caption font choice and a whole-tile background
+# color; comments carry inline formatting as a list of range "spans". All of
+# these are curated allow-lists rather than free-form values so every client
+# (web, iOS, Android) can map a key to a concrete, legible font/color and the
+# set of stored values stays bounded and safe. The default key reproduces the
+# pre-#318 rendering, so absent/legacy values need no special handling.
+DEFAULT_STYLE_KEY = "default"
+
+# Font keys a caption may use. Each client maps the key to a real font family
+# (e.g. "serif" -> a serif face); "default" is the platform's normal UI font.
+ALLOWED_CAPTION_FONTS = frozenset({
+    DEFAULT_STYLE_KEY, "serif", "monospace", "rounded", "handwriting",
+})
+
+# Background-color keys for a post tile. Each client maps the key to a concrete
+# (contrast-checked) color; "default" is the normal tile background.
+ALLOWED_BACKGROUND_COLORS = frozenset({
+    DEFAULT_STYLE_KEY, "sky", "mint", "blush", "lemon", "lavender",
+})
+
+# Text-size keys an inline comment span may use.
+ALLOWED_TEXT_SIZES = frozenset({"small", "normal", "large", "xlarge"})
+
+# Cap on the number of formatting spans on a single comment, so a crafted
+# request cannot attach an unbounded amount of range metadata.
+MAX_COMMENT_FORMAT_SPANS = 100
 
 # verify_reset lockout: lock the account after this many consecutive failures
 VERIFY_RESET_MAX_ATTEMPTS = 5

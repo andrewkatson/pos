@@ -31,4 +31,10 @@ sealed class Screen(val route: String) {
     object Settings : Screen("settings")
     object Appeals : Screen("appeals")
     object BlockedUsers : Screen("blocked_users")
+
+    // The signed-in user's own followers/following list — mode is "followers"
+    // or "following". Only your own lists are viewable (issue #8).
+    object FollowList : Screen("follow_list/{mode}") {
+        fun createRoute(mode: String) = "follow_list/$mode"
+    }
 }

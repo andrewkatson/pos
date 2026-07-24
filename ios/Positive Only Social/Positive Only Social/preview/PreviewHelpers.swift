@@ -179,7 +179,7 @@ struct MockedAPI: Networking {
         return try JSONEncoder().encode(response)
     }
 
-    func makePost(sessionManagementToken: String, imageURL: String?, caption: String) async throws -> Data {
+    func makePost(sessionManagementToken: String, imageURL: String?, caption: String, captionFont: String = "default", backgroundColor: String = "default") async throws -> Data {
         return try encodeGenericSuccess()
     }
 
@@ -268,7 +268,7 @@ struct MockedAPI: Networking {
     
     // MARK: - Comment Management
 
-    func commentOnPost(sessionManagementToken: String, postIdentifier: String, commentText: String) async throws -> Data {
+    func commentOnPost(sessionManagementToken: String, postIdentifier: String, commentText: String, formatting: [CommentFormatSpan]? = nil) async throws -> Data {
         return try encodeGenericSuccess()
     }
 
@@ -340,7 +340,7 @@ struct MockedAPI: Networking {
         return try encode(comments)
     }
 
-    func replyToCommentThread(sessionManagementToken: String, postIdentifier: String, commentThreadIdentifier: String, commentText: String) async throws -> Data {
+    func replyToCommentThread(sessionManagementToken: String, postIdentifier: String, commentThreadIdentifier: String, commentText: String, formatting: [CommentFormatSpan]? = nil) async throws -> Data {
         return try encodeGenericSuccess()
     }
 
@@ -362,6 +362,22 @@ struct MockedAPI: Networking {
         return try encode(users)
     }
 
+    func getFollowers(sessionManagementToken: String) async throws -> Data {
+        let users = [
+            User(username: "follower_1", identityIsVerified: true),
+            User(username: "follower_2", identityIsVerified: false)
+        ]
+        return try encode(users)
+    }
+
+    func getFollowing(sessionManagementToken: String) async throws -> Data {
+        let users = [
+            User(username: "following_1", identityIsVerified: true),
+            User(username: "following_2", identityIsVerified: false)
+        ]
+        return try encode(users)
+    }
+
     func getProfileDetails(sessionManagementToken: String, username: String) async throws -> Data {
         let profile = ProfileDetailsResponse(
             username: username,
@@ -371,6 +387,18 @@ struct MockedAPI: Networking {
             isFollowing: false
         )
         return try encode(profile)
+    }
+
+    // MARK: - Profile Photo (issue #7)
+
+    func setProfilePhoto(sessionManagementToken: String, imageURL: String) async throws -> Data {
+        let response = ProfilePhotoResponse(profileImageStatus: "pending", message: "Your photo is being reviewed.")
+        return try encode(response)
+    }
+
+    func removeProfilePhoto(sessionManagementToken: String) async throws -> Data {
+        let response = ProfilePhotoResponse(profileImageStatus: "none", message: "Your profile photo has been removed.")
+        return try encode(response)
     }
 
     // MARK: - Appeals
