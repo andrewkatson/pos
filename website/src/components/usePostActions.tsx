@@ -16,6 +16,7 @@ function messageFrom(err: unknown, fallback: string): string {
 interface PostOverride {
   isLiked?: boolean
   likeCount?: number
+  isSaved?: boolean
   isReported?: boolean
   reportReason?: string | null
 }
@@ -27,6 +28,8 @@ export interface PostActionState {
   isOwn: boolean
   isLiked: boolean
   likeCount: number
+  /** Whether the post is in the user's saved collection (issue #193). */
+  isSaved: boolean
   isReported: boolean
   reportReason: string | null
 }
@@ -42,6 +45,9 @@ interface UsePostActionsOptions {
   currentUsername: string | null
   /** Called after a post is deleted so the caller can drop it from its list. */
   onPostDeleted: (postIdentifier: string) => void
+  /** Called after a post is unsaved. The Saved Posts screen uses this to drop
+   * the row; feed and profile grids leave it in place (issue #193). */
+  onPostUnsaved?: (postIdentifier: string) => void
   /** Surfaces a failed action to the caller's error banner. */
   onError: (message: string) => void
 }
@@ -61,10 +67,12 @@ interface UsePostActionsOptions {
 export function usePostActions({
   currentUsername,
   onPostDeleted,
+  onPostUnsaved,
   onError,
 }: UsePostActionsOptions): {
   stateFor: (post: FeedPost) => PostActionState
   toggleLike: (post: FeedPost) => void
+  toggleSave: (post: FeedPost) => void
   openMenu: (post: FeedPost) => void
   dialogs: ReactNode
 } {
@@ -78,6 +86,7 @@ export function usePostActions({
       isOwn: post.author_username === currentUsername,
       isLiked: override.isLiked ?? post.is_liked ?? false,
       likeCount: override.likeCount ?? post.post_likes ?? 0,
+      isSaved: override.isSaved ?? post.is_saved ?? false,
       isReported: override.isReported ?? post.is_reported ?? false,
       // Retracting sets the override to null, which ?? would treat as absent and
       // fall back to the stale server reason — so test for the key instead.
@@ -112,6 +121,22 @@ export function usePostActions({
       // Revert to the pre-click values.
       setOverride(post.post_identifier, { isLiked, likeCount })
       onError(messageFrom(err, 'Action failed.'))
+    }
+  }
+
+  async function toggleSaveAsync(post: FeedPost) {
+    const { isSaved } = stateFor(post)
+    const saving = !isSaved
+    setOverride(post.post_identifier, { isSaved: saving })
+    try {
+      if (saving) await apiClient.savePost(post.post_identifier)
+      else await apiClient.unsavePost(post.post_identifier)
+      // Only after the server confirms the unsave does the caller drop the row,
+      // so a failed request leaves the post on the Saved screen to retry.
+      if (!saving) onPostUnsaved?.(post.post_identifier)
+    } catch (err) {
+      setOverride(post.post_identifier, { isSaved })
+      onError(messageFrom(err, saving ? 'Failed to save.' : 'Failed to unsave.'))
     }
   }
 
@@ -288,6 +313,7 @@ export function usePostActions({
   return {
     stateFor,
     toggleLike: post => void toggleLikeAsync(post),
+    toggleSave: post => void toggleSaveAsync(post),
     openMenu: post => setDialog({ kind: 'menu', post }),
     dialogs,
   }

@@ -465,6 +465,16 @@ export class ApiClient implements PositiveOnlySocialAPI {
     })
   }
 
+  savePost(postIdentifier: string): Promise<MessageResponse> {
+    return this.request<MessageResponse>('POST', `/posts/${postIdentifier}/save/`, { auth: true })
+  }
+
+  unsavePost(postIdentifier: string): Promise<MessageResponse> {
+    return this.request<MessageResponse>('POST', `/posts/${postIdentifier}/unsave/`, {
+      auth: true,
+    })
+  }
+
   // ===========================================================================
   // FEEDS & POST RETRIEVAL
   // ===========================================================================
@@ -479,6 +489,10 @@ export class ApiClient implements PositiveOnlySocialAPI {
 
   getPostsForUser(username: string, batch: number): Promise<FeedPost[]> {
     return this.request<FeedPost[]>('GET', `/users/${username}/posts/${batch}/`, { auth: true })
+  }
+
+  getSavedPosts(batch: number): Promise<FeedPost[]> {
+    return this.request<FeedPost[]>('GET', `/posts/saved/${batch}/`, { auth: true })
   }
 
   getPostDetails(postIdentifier: string): Promise<PostDetails> {

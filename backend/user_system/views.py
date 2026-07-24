@@ -14,7 +14,7 @@ from django.contrib.auth import login, logout, get_user_model
 from django.contrib.auth.hashers import check_password, make_password
 from django.core.mail import send_mail
 from django.db import transaction, IntegrityError
-from django.db.models import Count
+from django.db.models import Count, OuterRef, Subquery
 from django.http import JsonResponse
 from django.utils import timezone
 from django.views.decorators.csrf import csrf_exempt
@@ -41,7 +41,7 @@ from .constants import Patterns, Params, POST_BATCH_SIZE, MAX_BEFORE_HIDING_POST
 from .feed_algorithm import feed_algorithm
 from .input_validator import is_valid_pattern
 from .models import LoginCookie, Session, Post, CommentThread, PositiveOnlySocialUser, Comment, CommentLike, \
-    PostLike, UserBlock, UserBan, KnownDevice, Appeal, TwoFactorChallenge, RecoveryCode
+    PostLike, SavedPost, UserBlock, UserBan, KnownDevice, Appeal, TwoFactorChallenge, RecoveryCode
 from .utils import convert_to_bool, generate_login_cookie_token, generate_management_token, generate_series_identifier, \
     get_batch, get_queryset_batch, get_compressed_image_url
 from .s3 import delete_image, generate_presigned_upload, image_url_to_key
@@ -1676,6 +1676,112 @@ def unlike_post(request, post_identifier):
         return log_and_return_json("unlike_post", {'error': "No post with that identifier"}, status=400)
 
 
+@csrf_exempt
+@api_login_required
+@ratelimit(key='user', rate='60/m', block=True)
+@require_POST
+def save_post(request, post_identifier):
+    """Bookmark a post so the user can revisit it later (issue #193). Unlike a
+    like, a user may save their own post — the saved list is a personal
+    collection, not a public signal."""
+    logger.info("Endpoint save_post invoked by IP or User")
+    if not is_valid_pattern(post_identifier, Patterns.uuid4):
+        return log_and_return_json("save_post", {'error': f"Invalid fields {Fields.post_identifier}"}, status=400)
+
+    post = get_post_with_identifier(post_identifier)
+    if post is not None:
+        # Only posts the user can actually see are worth saving; a hidden or
+        # shadow-banned post would just be an empty row on the saved screen.
+        if not can_view_post(post, request.user):
+            logger.warning(f"Save post failed: Post {post_identifier} not visible to user_id: {request.user.id}")
+            return log_and_return_json("save_post", {'error': "No post with that identifier"}, status=400)
+
+        saved, created = post.savedpost_set.get_or_create(user=request.user)
+
+        if not created:
+            logger.warning(f"Save post failed: Already saved for user_id: {request.user.id} on post: {post_identifier}")
+            return log_and_return_json("save_post", {'error': "Already saved post"}, status=400)
+
+        logger.info(f"Post saved successful: post_id: {post_identifier} by user_id: {request.user.id}")
+        return log_and_return_json("save_post", {'message': 'Post saved'})
+    else:
+        logger.warning(f"Save post failed: Post {post_identifier} not found")
+        return log_and_return_json("save_post", {'error': "No post with that identifier"}, status=400)
+
+
+@csrf_exempt
+@api_login_required
+@ratelimit(key='user', rate='60/m', block=True)
+@require_POST
+def unsave_post(request, post_identifier):
+    """Remove a post from the user's saved collection (issue #193)."""
+    logger.info("Endpoint unsave_post invoked by IP or User")
+    if not is_valid_pattern(post_identifier, Patterns.uuid4):
+        return log_and_return_json("unsave_post", {'error': f"Invalid fields {Fields.post_identifier}"}, status=400)
+
+    post = get_post_with_identifier(post_identifier)
+    if post is not None:
+        deleted_count, _ = post.savedpost_set.filter(user=request.user).delete()
+
+        if deleted_count > 0:
+            logger.info(f"Post unsaved successful: post_id: {post_identifier} by user_id: {request.user.id}")
+            return log_and_return_json("unsave_post", {'message': 'Post unsaved'})
+        else:
+            logger.warning(f"Unsave post failed: Post not saved yet for user_id: {request.user.id} on post: {post_identifier}")
+            return log_and_return_json("unsave_post", {'error': "Post not saved yet"}, status=400)
+    else:
+        logger.warning(f"Unsave post failed: Post {post_identifier} not found")
+        return log_and_return_json("unsave_post", {'error': "No post with that identifier"}, status=400)
+
+
+@api_login_required
+@ratelimit(key='user', rate='60/m', block=True)
+@require_GET
+def get_saved_posts(request, batch):
+    """The requesting user's saved posts, newest save first (issue #193). Runs
+    through the same visibility filter as every other listing, so a post that
+    was hidden or whose author was shadow-banned after it was saved silently
+    drops off rather than rendering as an empty tile."""
+    logger.info("Endpoint get_saved_posts invoked by IP or User")
+    if batch < 0:
+        return log_and_return_json("get_saved_posts", {'error': "Invalid batch parameter"}, status=400)
+
+    # Order by when the post was saved, not when it was created, so the most
+    # recently bookmarked post is first. The subquery carries the save time onto
+    # each Post row without a join that could duplicate rows.
+    saved_time = SavedPost.objects.filter(
+        user=request.user, post=OuterRef('pk')
+    ).values('creation_time')[:1]
+    saved_posts = Post.objects.filter(savedpost__user=request.user).annotate(
+        saved_time=Subquery(saved_time))
+    # Drop posts by users on either side of a block, mirroring the feed, so a
+    # post saved before a block doesn't keep surfacing afterward.
+    saved_posts = saved_posts.exclude(author__in=request.user.blocked.all()).exclude(
+        author__in=request.user.blocked_by.all())
+    saved_posts = visible_posts(saved_posts, request.user).order_by('-saved_time')
+
+    if saved_posts.count() > 0:
+        batched_posts = get_queryset_batch(saved_posts, batch, POST_BATCH_SIZE)
+        interaction_state = build_post_interaction_state(request.user, batched_posts)
+        posts_data = [
+            {
+                Fields.post_identifier: post.post_identifier,
+                Fields.image_url: get_compressed_image_url(post.image_url),
+                # Full-res original, used as a client fallback while the async
+                # Lambda-generated compressed copy is still missing (#252/#254).
+                Fields.original_image_url: post.image_url,
+                Fields.caption: post.caption,
+                Fields.author_username: post.author.username,
+                **interaction_state(post),
+                **_author_status_fields(post, request.user),
+            }
+            for post in batched_posts
+        ]
+        return log_and_return_json("get_saved_posts", posts_data, safe=False)
+    else:
+        return log_and_return_json("get_saved_posts", [], safe=False)
+
+
 def _classification_message(post):
     """User-facing sentence describing a post's classification state, or None
     when there is nothing to explain (approved). Built exclusively from fixed
@@ -1768,6 +1874,7 @@ def build_post_interaction_state(user, posts):
     merge into that post's payload.
     """
     liked_post_ids = set()
+    saved_post_ids = set()
     my_report_reasons = {}
     like_counts = {}
     comment_counts = {}
@@ -1778,6 +1885,13 @@ def build_post_interaction_state(user, posts):
     if posts:
         liked_post_ids = set(
             user.postlike_set
+            .filter(post__in=posts)
+            .values_list('post_id', flat=True)
+        )
+        # The posts the viewer has saved, so a row can show its bookmark filled
+        # without opening the post first (issue #193).
+        saved_post_ids = set(
+            user.savedpost_set
             .filter(post__in=posts)
             .values_list('post_id', flat=True)
         )
@@ -1808,6 +1922,7 @@ def build_post_interaction_state(user, posts):
         return {
             Fields.post_likes: like_counts.get(post.post_identifier, 0),
             Fields.is_liked: post.post_identifier in liked_post_ids,
+            Fields.is_saved: post.post_identifier in saved_post_ids,
             Fields.is_reported: post.post_identifier in my_report_reasons,
             Fields.report_reason: my_report_reasons.get(post.post_identifier),
             Fields.comment_count: comment_counts.get(post.post_identifier, 0),
@@ -1981,6 +2096,7 @@ def get_post_details(request, post_identifier):
             Fields.creation_time: post.creation_time,
             Fields.post_likes: total_likes,
             Fields.is_liked: post.postlike_set.filter(user=request.user).exists(),
+            Fields.is_saved: post.savedpost_set.filter(user=request.user).exists(),
             Fields.is_reported: my_report is not None,
             Fields.report_reason: my_report.reason if my_report is not None else None,
             Fields.author_username: post.author.username,
