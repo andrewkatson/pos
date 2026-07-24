@@ -525,12 +525,13 @@ fun SettingsScreen(
             )
 
             // The signed-in user's own username + email (issue #197/#194). Shows
-            // a placeholder until loadCurrentUser() resolves.
-            ListListItem(text = currentUser?.username ?: "…") { }
+            // a placeholder until loadCurrentUser() resolves. Read-only rows, so
+            // they aren't rendered as clickable no-op tap targets.
+            StaticListItem(text = currentUser?.username ?: "…")
 
             HorizontalDivider()
 
-            ListListItem(text = currentUser?.email ?: "…") { }
+            StaticListItem(text = currentUser?.email ?: "…")
 
             HorizontalDivider()
 
@@ -541,10 +542,8 @@ fun SettingsScreen(
             )
 
             // Support address for feedback/help — a constant, not the user's own
-            // email (issue #194).
-            ListListItem(text = Constants.SUPPORT_EMAIL) {
-                // Optional: Add logic to open email app
-            }
+            // email (issue #194). Read-only, like the contact-info rows above.
+            StaticListItem(text = Constants.SUPPORT_EMAIL)
 
             HorizontalDivider()
 
@@ -857,6 +856,22 @@ fun ListListItem(text: String, textColor: Color = Color.Unspecified, onClick: ()
             modifier = Modifier.padding(16.dp)
         )
     }
+}
+
+/**
+ * A read-only settings row: same padding/typography as [ListListItem] but with
+ * no clickable surface, so informational rows (the account's own contact details
+ * and the support address) aren't misleading no-op tap targets.
+ */
+@Composable
+fun StaticListItem(text: String, textColor: Color = Color.Unspecified) {
+    Text(
+        text = text,
+        color = textColor,
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(16.dp)
+    )
 }
 
 @Preview(showBackground = true)
