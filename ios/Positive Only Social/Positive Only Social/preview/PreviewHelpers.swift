@@ -381,6 +381,18 @@ struct MockedAPI: Networking {
         return try encode(profile)
     }
 
+    // MARK: - Profile Photo (issue #7)
+
+    func setProfilePhoto(sessionManagementToken: String, imageURL: String) async throws -> Data {
+        let response = ProfilePhotoResponse(profileImageStatus: "pending", message: "Your photo is being reviewed.")
+        return try encode(response)
+    }
+
+    func removeProfilePhoto(sessionManagementToken: String) async throws -> Data {
+        let response = ProfilePhotoResponse(profileImageStatus: "none", message: "Your profile photo has been removed.")
+        return try encode(response)
+    }
+
     // MARK: - Appeals
 
     func getHiddenPosts(sessionManagementToken: String, batch: Int) async throws -> Data {

@@ -173,6 +173,19 @@ protocol Networking {
     /// Gets the details of a profile
     func getProfileDetails(sessionManagementToken: String, username: String) async throws -> Data
 
+    // MARK: - Profile Photo (issue #7)
+
+    /// Sets the signed-in user's profile photo. The JPEG bytes are uploaded
+    /// first to a presigned S3 URL (reusing `createUploadUrl` + `S3Uploader`,
+    /// exactly like a post image); `imageURL` is the canonical object URL that
+    /// upload returned. The photo is classified asynchronously, so the response
+    /// reports a "pending" status until review approves it.
+    func setProfilePhoto(sessionManagementToken: String, imageURL: String) async throws -> Data
+
+    /// Removes the signed-in user's profile photo, reverting them to the
+    /// neutral placeholder everywhere.
+    func removeProfilePhoto(sessionManagementToken: String) async throws -> Data
+
     // MARK: - Appeals
 
     /// Gets a batch of the signed-in user's own hidden posts.

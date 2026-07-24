@@ -253,7 +253,9 @@ class PostDetailViewModel(
                                 isLiked = c.isLiked,
                                 isReported = c.isReported,
                                 reportReason = c.reportReason,
-                                createdDate = parseBackendDate(c.creationTime) ?: Date()
+                                createdDate = parseBackendDate(c.creationTime) ?: Date(),
+                                authorProfileImageUrl = c.authorProfileImageUrl,
+                                authorProfileImageOriginalUrl = c.authorProfileImageOriginalUrl
                             )
                         }
 

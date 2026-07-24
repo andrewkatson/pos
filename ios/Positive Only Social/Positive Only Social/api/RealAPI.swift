@@ -152,6 +152,10 @@ final class RealAPI: Networking {
         let reason: String
     }
 
+    private struct SetProfilePhotoBody: Encodable {
+        let image_url: String
+    }
+
     // MARK: - Private Helpers
     
     /// Encodes an `Encodable` value into `Data`.
@@ -744,6 +748,29 @@ final class RealAPI: Networking {
         return try await performRequest(
             pathSegments: [GVOAppConstants.pathSegmentUsers, username, GVOAppConstants.pathSegmenProfile],
             method: .get,
+            authToken: sessionManagementToken
+        )
+    }
+
+    // MARK: - Profile Photo (issue #7)
+
+    /// Sets the signed-in user's profile photo. Path: profile/photo/.
+    func setProfilePhoto(sessionManagementToken: String, imageURL: String) async throws -> Data {
+        let body = SetProfilePhotoBody(image_url: imageURL)
+        let requestBody = try encode(body)
+        return try await performRequest(
+            pathSegments: [GVOAppConstants.pathSegmenProfile, GVOAppConstants.pathSegmentPhoto],
+            method: .post,
+            body: requestBody,
+            authToken: sessionManagementToken
+        )
+    }
+
+    /// Removes the signed-in user's profile photo. Path: profile/photo/remove/.
+    func removeProfilePhoto(sessionManagementToken: String) async throws -> Data {
+        return try await performRequest(
+            pathSegments: [GVOAppConstants.pathSegmenProfile, GVOAppConstants.pathSegmentPhoto, GVOAppConstants.pathSegmentRemove],
+            method: .post,
             authToken: sessionManagementToken
         )
     }

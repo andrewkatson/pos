@@ -1,5 +1,8 @@
 package com.example.positiveonlysocial.ui.main
 
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.PickVisualMediaRequest
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
@@ -16,6 +19,7 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -32,6 +36,9 @@ import com.example.positiveonlysocial.ui.theme.PositiveOnlySocialTheme
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.navigation.compose.rememberNavController
 import com.example.positiveonlysocial.ui.preview.PreviewHelpers
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -99,10 +106,43 @@ fun ProfileBody(
     val isLoading by viewModel.isLoading.collectAsState()
     val isRefreshing by viewModel.isRefreshing.collectAsState()
     val isOwnProfile by viewModel.isOwnProfile.collectAsState()
+    val isPhotoBusy by viewModel.isPhotoBusy.collectAsState()
+    val photoErrorMessage by viewModel.photoErrorMessage.collectAsState()
     val reviewNotice by viewModel.reviewNotice.collectAsState()
 
     val postActions = viewModel.postActions
     val currentUsername by postActions.currentUsername.collectAsState()
+
+    // Own profile-photo controls (issue #7). Picking a photo reuses the same
+    // system picker as NewPostScreen; the bytes are read here (it needs a
+    // Context) and handed to the view model, which uploads them via the presigned
+    // post-image pipeline and calls setProfilePhoto.
+    val context = LocalContext.current
+    val photoScope = rememberCoroutineScope()
+    val photoPickerLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.PickVisualMedia(),
+        onResult = { uri ->
+            if (uri != null) {
+                photoScope.launch {
+                    val bytes = try {
+                        withContext(Dispatchers.IO) {
+                            context.contentResolver.openInputStream(uri)?.use { it.readBytes() }
+                        }
+                    } catch (e: Exception) {
+                        android.util.Log.e("ProfileScreen", "Failed to read picked profile photo $uri", e)
+                        null
+                    }
+                    if (bytes != null) {
+                        viewModel.setProfilePhoto(username, bytes)
+                    } else {
+                        // A null stream / SecurityException (e.g. a lapsed picker
+                        // grant) must not look like the button silently did nothing.
+                        viewModel.onProfilePhotoReadFailed()
+                    }
+                }
+            }
+        }
+    )
 
     // Surfaces the outcome when one of your posts' async review (#282) resolves
     // to a rejection while this grid is visible. Only your own posts carry a
@@ -138,6 +178,87 @@ fun ProfileBody(
                 .padding(16.dp),
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
+            // Large header avatar (issue #7). The owner previews their own
+            // not-yet-approved upload immediately; everyone else (and the owner
+            // once approved) sees the live photo.
+            val pendingAvatar = if (isOwnProfile) profileDetails?.pendingProfileImageUrl else null
+            ProfileAvatar(
+                imageUrl = pendingAvatar ?: profileDetails?.profileImageUrl,
+                // Fall back to the previously approved photo, not the pending URL,
+                // so a failed pending preview still shows the live avatar (which
+                // stays visible while a new upload is under review) instead of the
+                // placeholder.
+                originalImageUrl = profileDetails?.profileImageOriginalUrl,
+                // Decorative: the username is shown right here in the header, so a
+                // contentDescription would make TalkBack announce it twice (the
+                // website uses alt="" and iOS accessibilityHidden for the same).
+                contentDescription = null,
+                size = 96.dp
+            )
+
+            // Own-profile photo controls: add/change and remove, plus the
+            // pending/rejected review status.
+            if (isOwnProfile) {
+                Spacer(modifier = Modifier.height(12.dp))
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    OutlinedButton(
+                        onClick = {
+                            photoPickerLauncher.launch(
+                                PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)
+                            )
+                        },
+                        enabled = !isPhotoBusy,
+                        modifier = Modifier.testTag("setProfilePhotoButton")
+                    ) {
+                        // A pending first upload (no live photo yet) still counts
+                        // as "has a photo" so the label matches the Remove button.
+                        val hasPhoto = profileDetails?.profileImageUrl != null ||
+                            profileDetails?.pendingProfileImageUrl != null
+                        Text(if (hasPhoto) "Change photo" else "Add photo")
+                    }
+                    if (profileDetails?.profileImageUrl != null || profileDetails?.pendingProfileImageUrl != null) {
+                        OutlinedButton(
+                            onClick = { viewModel.removeProfilePhoto(username) },
+                            enabled = !isPhotoBusy,
+                            modifier = Modifier.testTag("removeProfilePhotoButton")
+                        ) {
+                            Text("Remove")
+                        }
+                    }
+                }
+                if (isPhotoBusy) {
+                    Spacer(modifier = Modifier.height(8.dp))
+                    CircularProgressIndicator(modifier = Modifier.size(24.dp))
+                } else if (photoErrorMessage != null) {
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Text(
+                        text = photoErrorMessage!!,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.error,
+                        modifier = Modifier.testTag("ProfilePhotoError")
+                    )
+                } else {
+                    val statusText = when (profileDetails?.profileImageStatus) {
+                        "pending" -> "Your new photo is being reviewed."
+                        "rejected" -> "Your last photo wasn't approved — try another."
+                        else -> null
+                    }
+                    statusText?.let {
+                        Spacer(modifier = Modifier.height(8.dp))
+                        Text(
+                            text = it,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = Color.Gray
+                        )
+                    }
+                }
+            }
+
+            Spacer(modifier = Modifier.height(16.dp))
+
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceEvenly

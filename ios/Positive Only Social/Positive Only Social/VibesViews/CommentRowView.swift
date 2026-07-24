@@ -137,10 +137,13 @@ struct CommentRowView: View {
 
     var body: some View {
         HStack(alignment: .top, spacing: 10) {
-            // Placeholder for profile picture
-            Image(systemName: "person.circle.fill")
-                .font(.title)
-                .foregroundColor(.secondary)
+            // The comment author's profile photo (issue #7), falling back to the
+            // neutral placeholder when they have none.
+            ProfileAvatarView(
+                imageUrl: comment.authorProfileImageURL,
+                originalImageUrl: comment.authorProfileImageOriginalURL,
+                size: 36
+            )
 
             VStack(alignment: .leading, spacing: 4) {
                 // Username + time header. Tap the author's name to open their
