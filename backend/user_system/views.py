@@ -2080,8 +2080,8 @@ def build_post_interaction_state(user, posts):
     report on, or delete in place (issue #267), and which show the author, the
     post time and a comment count (issue #249). So each row carries the same
     interaction state the post-details endpoint returns, plus a comment count.
-    Everything is fetched in four grouped queries rather than per post,
-    mirroring get_comments_for_thread.
+    Everything is fetched in a fixed set of grouped queries rather than per
+    post, mirroring get_comments_for_thread.
 
     Returns a callable taking a Post and returning the dict of state fields to
     merge into that post's payload.
@@ -2094,7 +2094,7 @@ def build_post_interaction_state(user, posts):
 
     # Paginating past the end is ordinary client behaviour, and the batch is
     # then empty. Every grouped query below would return nothing, so skip them
-    # rather than spend four round trips confirming it.
+    # rather than spend those round trips confirming it.
     if posts:
         liked_post_ids = set(
             user.postlike_set
