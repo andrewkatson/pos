@@ -53,6 +53,28 @@ test('registering with a minor date of birth verifies identity but is not adult'
   expect(profile.is_adult).toBe(false)
 })
 
+test('register assigns sequential membership numbers in join order (#198)', async () => {
+  const api = new StatefulStubbedAPI()
+
+  const first = await register(api, 'ada')
+  const second = await register(api, 'grace')
+  const third = await register(api, 'katherine')
+
+  expect(first.membership_number).toBe(1)
+  expect(second.membership_number).toBe(2)
+  expect(third.membership_number).toBe(3)
+})
+
+test('getProfile exposes the member join number to anyone (#198)', async () => {
+  const api = new StatefulStubbedAPI()
+  await register(api, 'ada')
+  await register(api, 'grace')
+
+  // A different signed-in user can still see grace's number.
+  const graceProfile = await api.getProfile('grace')
+  expect(graceProfile.membership_number).toBe(2)
+})
+
 test('register rejects duplicate usernames', async () => {
   const api = new StatefulStubbedAPI()
   await register(api, 'ada')

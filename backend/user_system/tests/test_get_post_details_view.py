@@ -6,6 +6,7 @@ from .test_parent_case import PositiveOnlySocialTestCase
 from .test_cloudfront import PRIVATE_KEY_PEM
 from .. import cloudfront
 from ..constants import Fields
+from ..utils import get_compressed_image_url
 
 invalid_post_identifier = '?'
 
@@ -75,7 +76,9 @@ class GetPostDetailsTests(PositiveOnlySocialTestCase):
 
         # Check that the data matches the post we created in setUp
         self.assertEqual(data[Fields.post_identifier], str(self.post_identifier))
-        self.assertEqual(data[Fields.image_url], self.post.image_url)
+        # Without CloudFront configured, image_url falls back to the compressed
+        # bucket swap of the stored source URL.
+        self.assertEqual(data[Fields.image_url], get_compressed_image_url(self.post.image_url))
         # The raw original is served alongside the compressed URL so clients can
         # fall back while the async-compressed copy is still missing (#252/#254).
         self.assertEqual(data[Fields.original_image_url], self.post.image_url)

@@ -19,6 +19,27 @@ def _redact(image_url):
         return '<unparseable url>'
 
 
+def _is_path_style_host(hostname):
+    """Whether an S3 URL host uses path-style addressing (bucket is the first
+    path segment, e.g. `s3.amazonaws.com/bucket/key`) rather than virtual-hosted
+    addressing (bucket is the first host label, e.g. `bucket.s3.../key`).
+
+    Path-style hosts (s3.amazonaws.com, s3.<region>.amazonaws.com,
+    s3-<region>.amazonaws.com) carry the bucket as the first path segment. A
+    virtual-hosted bucket whose own name starts with "s3-" is NOT path-style —
+    there the second label is the S3 service label (e.g. "s3" in
+    s3-my-bucket.s3.amazonaws.com, or "s3-accelerate" in
+    s3-my-bucket.s3-accelerate.amazonaws.com) and the path is already just the
+    key — so exclude any host whose second label starts with "s3". A genuine
+    path-style host's second label is a region or "amazonaws", neither of which
+    starts with "s3", so this is safe.
+    """
+    labels = hostname.split('.') if hostname else []
+    first_label = labels[0] if labels else ''
+    second_label = labels[1] if len(labels) > 1 else ''
+    return (first_label == 's3' or first_label.startswith('s3-')) and not second_label.startswith('s3')
+
+
 def strip_query_and_fragment(image_url):
     """The canonical object URL with any query and fragment removed.
 
@@ -47,20 +68,7 @@ def image_url_to_key(image_url):
         return ''
     parsed = urlparse(image_url)
     key = parsed.path.lstrip('/')
-    labels = parsed.hostname.split('.') if parsed.hostname else []
-    first_label = labels[0] if labels else ''
-    second_label = labels[1] if len(labels) > 1 else ''
-    # Path-style hosts (s3.amazonaws.com, s3.<region>.amazonaws.com,
-    # s3-<region>.amazonaws.com) carry the bucket as the first path segment, so
-    # strip it. A virtual-hosted bucket whose own name starts with "s3-" is NOT
-    # path-style — there the second label is the S3 service label (e.g. "s3" in
-    # s3-my-bucket.s3.amazonaws.com, or "s3-accelerate" in
-    # s3-my-bucket.s3-accelerate.amazonaws.com) and the path is already just the
-    # key — so exclude any host whose second label starts with "s3". A genuine
-    # path-style host's second label is a region or "amazonaws", neither of
-    # which starts with "s3", so this is safe.
-    is_path_style = (first_label == 's3' or first_label.startswith('s3-')) and not second_label.startswith('s3')
-    if is_path_style:
+    if _is_path_style_host(parsed.hostname):
         _, _, key = key.partition('/')
     return key
 
@@ -70,17 +78,19 @@ def image_url_bucket(image_url):
 
     Mirrors image_url_to_key's path-style vs virtual-hosted host detection: for a
     path-style host the bucket is the first path segment; for a virtual-hosted
-    host it is the host labels before the `s3`/`s3-...` service label.
+    host it is the host labels before the `s3`/`s3-...` service label. Only real
+    `*.amazonaws.com` S3 hosts resolve to a bucket, so a look-alike host such as
+    `bucket.evil.com` (or `bucket.s3.evil.com`) never masquerades as our bucket.
     """
     if not image_url:
         return ''
     parsed = urlparse(image_url)
-    labels = parsed.hostname.split('.') if parsed.hostname else []
-    first_label = labels[0] if labels else ''
-    second_label = labels[1] if len(labels) > 1 else ''
-    is_path_style = (first_label == 's3' or first_label.startswith('s3-')) and not second_label.startswith('s3')
-    if is_path_style:
+    hostname = parsed.hostname or ''
+    if not hostname.endswith('.amazonaws.com'):
+        return ''
+    if _is_path_style_host(hostname):
         return parsed.path.lstrip('/').split('/', 1)[0]
+    labels = hostname.split('.')
     for i, label in enumerate(labels):
         if label == 's3' or label.startswith('s3-'):
             return '.'.join(labels[:i])

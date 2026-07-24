@@ -17,6 +17,7 @@ vi.mock('../api/client', () => ({
       is_blocked: false,
       identity_is_verified: false,
       is_adult: true,
+      membership_number: 1,
     }),
     searchUsers: vi.fn().mockResolvedValue([]),
     getFeed: vi.fn().mockResolvedValue([
