@@ -144,6 +144,13 @@ function SettingsTab() {
         <button
           type="button"
           className="settings-row"
+          onClick={() => navigate('/saved')}
+        >
+          Saved Posts
+        </button>
+        <button
+          type="button"
+          className="settings-row"
           onClick={() => navigate('/appeals')}
         >
           Hidden Content &amp; Appeals

@@ -14,7 +14,7 @@ from django.contrib.auth import login, logout, get_user_model
 from django.contrib.auth.hashers import check_password, make_password
 from django.core.mail import send_mail
 from django.db import transaction, IntegrityError
-from django.db.models import Count
+from django.db.models import Count, Max, OuterRef, Subquery
 from django.http import JsonResponse
 from django.utils import timezone
 from django.views.decorators.csrf import csrf_exempt
@@ -45,7 +45,7 @@ from .constants import Patterns, Params, POST_BATCH_SIZE, MAX_BEFORE_HIDING_POST
 from .feed_algorithm import feed_algorithm
 from .input_validator import is_valid_pattern
 from .models import LoginCookie, Session, Post, CommentThread, PositiveOnlySocialUser, Comment, CommentLike, \
-    PostLike, UserBlock, UserBan, KnownDevice, Appeal, TwoFactorChallenge, RecoveryCode
+    PostLike, SavedPost, UserBlock, UserBan, KnownDevice, Appeal, TwoFactorChallenge, RecoveryCode
 from .utils import convert_to_bool, generate_login_cookie_token, generate_management_token, generate_series_identifier, \
     get_batch, get_queryset_batch
 from .cloudfront import sign_compressed_url, sign_original_url
@@ -436,6 +436,52 @@ def _record_device_and_maybe_notify(user, ip, request=None, notify=True):
             user.id,
         )
 
+def _assign_membership_number(user):
+    """Give ``user`` the next sequential "I'm #n on the app!" number (issue #198).
+
+    The number is one past the current maximum. membership_number is unique, so
+    two registrations racing for the same value make one of the saves raise
+    IntegrityError; that save's transaction is rolled back and retried against
+    the now-higher maximum. Assignment must never block registration, so after a
+    few failed attempts we give up and leave the number null — registration still
+    succeeds (the account is created just as it would be otherwise). A null number
+    is not self-healing (the 0022 data migration runs only once): the
+    ``backfill_membership_numbers`` management command assigns one afterward.
+
+    Idempotent and safe against a concurrent assignment (the 0022 backfill or the
+    repair command): the write is a conditional UPDATE guarded on the row still
+    being NULL in the database, so a number set by someone else after this
+    function started is returned unchanged rather than overwritten. The number is
+    assigned once and never overwritten.
+    """
+    if user.membership_number is not None:
+        return user.membership_number
+    UserModel = get_user_model()
+    for _ in range(10):
+        current_max = UserModel.objects.aggregate(m=Max('membership_number'))['m'] or 0
+        candidate = current_max + 1
+        try:
+            with transaction.atomic():
+                # WHERE id = ? AND membership_number IS NULL: if a concurrent
+                # backfill numbered this row first, 0 rows match and we never
+                # clobber the assigned value.
+                updated = UserModel.objects.filter(
+                    pk=user.pk, membership_number__isnull=True
+                ).update(membership_number=candidate)
+        except IntegrityError:
+            # ``candidate`` collided with another registration's number — retry
+            # against the now-higher maximum.
+            continue
+        if updated:
+            user.membership_number = candidate
+            return candidate
+        # Someone else assigned a number to this row; adopt theirs, don't fight.
+        user.refresh_from_db(fields=['membership_number'])
+        return user.membership_number
+    logger.warning("Could not assign a membership number for user_id %s", user.id)
+    return None
+
+
 def _issue_email_verification_token(user):
     """Generate and store a fresh email-verification token for ``user``.
 
@@ -670,7 +716,11 @@ def register(request):
     new_user.identity_is_verified = True if date_of_birth_str else False
     new_user.is_adult = is_adult
     new_user.save()
-   
+
+    # Stamp their join number now, in creation order, so the client can greet
+    # them with "You're member #n!" (issue #198).
+    _assign_membership_number(new_user)
+
     verification_token = _issue_email_verification_token(new_user)
     try:
         send_mail(
@@ -704,6 +754,7 @@ def register(request):
     response_data = {
         Fields.session_management_token: new_session.management_token,
         Fields.user_id: new_user.id,
+        Fields.membership_number: new_user.membership_number,
     }
     if remember_me and new_login_cookie:
         response_data[Fields.series_identifier] = new_login_cookie.series_identifier
@@ -1662,7 +1713,16 @@ def make_post(request):
         image_url = None
         invalid_fields.append(Params.image)
     else:
-        image_url = raw_image_url
+        # Strip any query/fragment first (e.g. a client that sends the presigned
+        # PUT URL by mistake) so the signing params (X-Amz-*) are never
+        # validated, stored, or later echoed back to clients — only the
+        # canonical object URL is. Mirrors set_profile_photo.
+        image_url = strip_query_and_fragment(raw_image_url)
+        if not image_url:
+            # A non-empty value that is nothing but a query/fragment is a
+            # provided-but-invalid image, not a text-only post — reject it.
+            image_url = None
+            invalid_fields.append(Params.image)
     
     caption = data.get(Fields.caption)
 
@@ -1672,6 +1732,12 @@ def make_post(request):
 
     if image_url:
         if not is_valid_pattern(image_url, Patterns.image_url):
+            invalid_fields.append(Params.image)
+        # The URL must target our own images bucket, not an attacker-controlled
+        # S3 host — otherwise the classifier fetch and the CloudFront/compressed
+        # URL minting below would run against objects we do not own (an
+        # SSRF-ish gap).
+        elif not is_source_bucket_url(image_url):
             invalid_fields.append(Params.image)
         # The key must be scoped to this user (clients upload to `{user_id}/...`).
         elif not image_url_to_key(image_url).startswith(f"{request.user.id}/"):
@@ -1929,6 +1995,119 @@ def unlike_post(request, post_identifier):
         return log_and_return_json("unlike_post", {'error': "No post with that identifier"}, status=400)
 
 
+@csrf_exempt
+@api_login_required
+@ratelimit(key='user', rate='60/m', block=True)
+@require_POST
+def save_post(request, post_identifier):
+    """Bookmark a post so the user can revisit it later (issue #193). Unlike a
+    like, a user may save their own post — the saved list is a personal
+    collection, not a public signal."""
+    logger.info("Endpoint save_post invoked by IP or User")
+    if not is_valid_pattern(post_identifier, Patterns.uuid4):
+        return log_and_return_json("save_post", {'error': f"Invalid fields {Fields.post_identifier}"}, status=400)
+
+    post = get_post_with_identifier(post_identifier)
+    if post is not None:
+        # Only posts the user can actually see are worth saving; a hidden or
+        # shadow-banned post would just be an empty row on the saved screen.
+        # A block on either side hides the author's posts too, matching the feed
+        # and the saved-posts listing filter, so saving across a block is refused.
+        blocked = (request.user.blocked.filter(pk=post.author_id).exists()
+                   or request.user.blocked_by.filter(pk=post.author_id).exists())
+        if blocked or not can_view_post(post, request.user):
+            logger.warning(f"Save post failed: Post {post_identifier} not visible to user_id: {request.user.id}")
+            return log_and_return_json("save_post", {'error': "No post with that identifier"}, status=400)
+
+        saved, created = post.savedpost_set.get_or_create(user=request.user)
+
+        if not created:
+            logger.warning(f"Save post failed: Already saved for user_id: {request.user.id} on post: {post_identifier}")
+            return log_and_return_json("save_post", {'error': "Already saved post"}, status=400)
+
+        logger.info(f"Post saved successful: post_id: {post_identifier} by user_id: {request.user.id}")
+        return log_and_return_json("save_post", {'message': 'Post saved'})
+    else:
+        logger.warning(f"Save post failed: Post {post_identifier} not found")
+        return log_and_return_json("save_post", {'error': "No post with that identifier"}, status=400)
+
+
+@csrf_exempt
+@api_login_required
+@ratelimit(key='user', rate='60/m', block=True)
+@require_POST
+def unsave_post(request, post_identifier):
+    """Remove a post from the user's saved collection (issue #193)."""
+    logger.info("Endpoint unsave_post invoked by IP or User")
+    if not is_valid_pattern(post_identifier, Patterns.uuid4):
+        return log_and_return_json("unsave_post", {'error': f"Invalid fields {Fields.post_identifier}"}, status=400)
+
+    post = get_post_with_identifier(post_identifier)
+    if post is not None:
+        deleted_count, _ = post.savedpost_set.filter(user=request.user).delete()
+
+        if deleted_count > 0:
+            logger.info(f"Post unsaved successful: post_id: {post_identifier} by user_id: {request.user.id}")
+            return log_and_return_json("unsave_post", {'message': 'Post unsaved'})
+        else:
+            logger.warning(f"Unsave post failed: Post not saved yet for user_id: {request.user.id} on post: {post_identifier}")
+            return log_and_return_json("unsave_post", {'error': "Post not saved yet"}, status=400)
+    else:
+        logger.warning(f"Unsave post failed: Post {post_identifier} not found")
+        return log_and_return_json("unsave_post", {'error': "No post with that identifier"}, status=400)
+
+
+@api_login_required
+@ratelimit(key='user', rate='60/m', block=True)
+@require_GET
+def get_saved_posts(request, batch):
+    """The requesting user's saved posts, newest save first (issue #193). Runs
+    through the same visibility filter as every other listing, so a post that
+    was hidden or whose author was shadow-banned after it was saved silently
+    drops off rather than rendering as an empty tile."""
+    logger.info("Endpoint get_saved_posts invoked by IP or User")
+    if batch < 0:
+        return log_and_return_json("get_saved_posts", {'error': "Invalid batch parameter"}, status=400)
+
+    # Order by when the post was saved, not when it was created, so the most
+    # recently bookmarked post is first. The save time is pulled onto each Post
+    # row via a correlated subquery rather than ordering on the savedpost join
+    # itself, which would let a future non-unique relation duplicate rows.
+    saved_time = SavedPost.objects.filter(
+        user=request.user, post=OuterRef('pk')
+    ).values('creation_time')[:1]
+    saved_posts = Post.objects.filter(savedpost__user=request.user).annotate(
+        saved_time=Subquery(saved_time))
+    # Drop posts by users on either side of a block, mirroring the feed, so a
+    # post saved before a block doesn't keep surfacing afterward.
+    saved_posts = saved_posts.exclude(author__in=request.user.blocked.all()).exclude(
+        author__in=request.user.blocked_by.all())
+    saved_posts = visible_posts(saved_posts, request.user).order_by('-saved_time')
+
+    if saved_posts.exists():
+        batched_posts = get_queryset_batch(saved_posts, batch, POST_BATCH_SIZE)
+        interaction_state = build_post_interaction_state(request.user, batched_posts)
+        posts_data = [
+            {
+                Fields.post_identifier: post.post_identifier,
+                Fields.image_url: sign_compressed_url(post.image_url),
+                # Full-res original, used as a client fallback while the async
+                # Lambda-generated compressed copy is still missing (#252/#254).
+                Fields.original_image_url: sign_original_url(post.image_url),
+                Fields.author_username: post.author.username,
+                **_author_avatar_fields(post.author),
+                Fields.caption: post.caption,
+                **_caption_style_fields(post),
+                **interaction_state(post),
+                **_author_status_fields(post, request.user),
+            }
+            for post in batched_posts
+        ]
+        return log_and_return_json("get_saved_posts", posts_data, safe=False)
+    else:
+        return log_and_return_json("get_saved_posts", [], safe=False)
+
+
 def _classification_message(post):
     """User-facing sentence describing a post's classification state, or None
     when there is nothing to explain (approved). Built exclusively from fixed
@@ -2030,23 +2209,31 @@ def build_post_interaction_state(user, posts):
     report on, or delete in place (issue #267), and which show the author, the
     post time and a comment count (issue #249). So each row carries the same
     interaction state the post-details endpoint returns, plus a comment count.
-    Everything is fetched in four grouped queries rather than per post,
-    mirroring get_comments_for_thread.
+    Everything is fetched in a fixed set of grouped queries rather than per
+    post, mirroring get_comments_for_thread.
 
     Returns a callable taking a Post and returning the dict of state fields to
     merge into that post's payload.
     """
     liked_post_ids = set()
+    saved_post_ids = set()
     my_report_reasons = {}
     like_counts = {}
     comment_counts = {}
 
     # Paginating past the end is ordinary client behaviour, and the batch is
     # then empty. Every grouped query below would return nothing, so skip them
-    # rather than spend four round trips confirming it.
+    # rather than spend those round trips confirming it.
     if posts:
         liked_post_ids = set(
             user.postlike_set
+            .filter(post__in=posts)
+            .values_list('post_id', flat=True)
+        )
+        # The posts the viewer has saved, so a row can show its bookmark filled
+        # without opening the post first (issue #193).
+        saved_post_ids = set(
+            user.savedpost_set
             .filter(post__in=posts)
             .values_list('post_id', flat=True)
         )
@@ -2077,6 +2264,7 @@ def build_post_interaction_state(user, posts):
         return {
             Fields.post_likes: like_counts.get(post.post_identifier, 0),
             Fields.is_liked: post.post_identifier in liked_post_ids,
+            Fields.is_saved: post.post_identifier in saved_post_ids,
             Fields.is_reported: post.post_identifier in my_report_reasons,
             Fields.report_reason: my_report_reasons.get(post.post_identifier),
             Fields.comment_count: comment_counts.get(post.post_identifier, 0),
@@ -2263,6 +2451,7 @@ def get_post_details(request, post_identifier):
             Fields.creation_time: post.creation_time,
             Fields.post_likes: total_likes,
             Fields.is_liked: post.postlike_set.filter(user=request.user).exists(),
+            Fields.is_saved: post.savedpost_set.filter(user=request.user).exists(),
             Fields.is_reported: my_report is not None,
             Fields.report_reason: my_report.reason if my_report is not None else None,
             Fields.author_username: post.author.username,
@@ -3177,6 +3366,8 @@ def get_profile_details(request, username):
         Fields.is_adult: profile_user.is_adult,
         Fields.profile_image_url: sign_compressed_url(live_avatar),
         Fields.profile_image_original_url: sign_original_url(live_avatar),
+        # Public join number — everyone can see "member #n" on any profile (#198).
+        Fields.membership_number: profile_user.membership_number,
     }
 
     # Owner-only: the moderation state of a photo still under async review (or

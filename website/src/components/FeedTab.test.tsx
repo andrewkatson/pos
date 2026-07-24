@@ -10,6 +10,8 @@ vi.mock('../api/client', () => ({
     getFollowedFeed: vi.fn(),
     likePost: vi.fn(),
     unlikePost: vi.fn(),
+    savePost: vi.fn(),
+    unsavePost: vi.fn(),
     reportPost: vi.fn(),
     retractReportPost: vi.fn(),
     deletePost: vi.fn(),
@@ -20,6 +22,7 @@ import { apiClient } from '../api/client'
 const mockGetFeed = vi.mocked(apiClient.getFeed)
 const mockGetFollowed = vi.mocked(apiClient.getFollowedFeed)
 const mockLikePost = vi.mocked(apiClient.likePost)
+const mockSavePost = vi.mocked(apiClient.savePost)
 const mockDeletePost = vi.mocked(apiClient.deletePost)
 
 function renderTab() {
@@ -41,6 +44,7 @@ beforeEach(() => {
   mockGetFeed.mockReset()
   mockGetFollowed.mockReset()
   mockLikePost.mockReset().mockResolvedValue({ message: 'ok' })
+  mockSavePost.mockReset().mockResolvedValue({ message: 'Post saved' })
   mockDeletePost.mockReset().mockResolvedValue({ message: 'ok' })
   // getCurrentUsername reads storage; 'ada' is another user in these feeds
   // unless a test says otherwise.
@@ -137,6 +141,25 @@ test('likes a post straight from the feed', async () => {
   await waitFor(() => expect(mockLikePost).toHaveBeenCalledWith('p1'))
   expect(await screen.findByRole('button', { name: 'Unlike post' })).toBeInTheDocument()
   expect(screen.getByText('2')).toBeInTheDocument()
+})
+
+test('saves a post straight from the feed (#193)', async () => {
+  mockGetFeed.mockResolvedValue([
+    {
+      post_identifier: 'p1',
+      image_url: 'http://img/1.jpg',
+      author_username: 'ada',
+      caption: 'hi',
+      is_saved: false,
+    },
+  ])
+  mockGetFollowed.mockResolvedValue([])
+  renderTab()
+
+  await userEvent.click(await screen.findByRole('button', { name: 'Save post' }))
+  await waitFor(() => expect(mockSavePost).toHaveBeenCalledWith('p1'))
+  // The control flips to offer unsaving, and the row stays on the feed.
+  expect(await screen.findByRole('button', { name: 'Unsave post' })).toBeInTheDocument()
 })
 
 test('deleting your own post removes it without reloading the feed', async () => {

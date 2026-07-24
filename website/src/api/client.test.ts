@@ -248,3 +248,38 @@ describe('two-factor authentication endpoints', () => {
   })
 })
 
+describe('saved posts endpoints (#193)', () => {
+  test('savePost posts to /posts/<id>/save/ with the bearer token', async () => {
+    const fetchFn = vi.fn().mockResolvedValue(jsonResponse(200, { message: 'Post saved' }))
+    const client = new ApiClient({ baseUrl: 'https://api.test', token: 'tok', fetchFn })
+
+    await client.savePost('p1')
+
+    const [url, init] = fetchFn.mock.calls[0]
+    expect(url).toBe('https://api.test/posts/p1/save/')
+    expect((init as RequestInit).method).toBe('POST')
+    expect((init as RequestInit).headers).toMatchObject({ Authorization: 'Bearer tok' })
+  })
+
+  test('unsavePost posts to /posts/<id>/unsave/', async () => {
+    const fetchFn = vi.fn().mockResolvedValue(jsonResponse(200, { message: 'Post unsaved' }))
+    const client = new ApiClient({ baseUrl: 'https://api.test', token: 'tok', fetchFn })
+
+    await client.unsavePost('p1')
+
+    const [url] = fetchFn.mock.calls[0]
+    expect(url).toBe('https://api.test/posts/p1/unsave/')
+  })
+
+  test('getSavedPosts gets /posts/saved/<batch>/', async () => {
+    const fetchFn = vi.fn().mockResolvedValue(jsonResponse(200, []))
+    const client = new ApiClient({ baseUrl: 'https://api.test', token: 'tok', fetchFn })
+
+    await client.getSavedPosts(2)
+
+    const [url, init] = fetchFn.mock.calls[0]
+    expect(url).toBe('https://api.test/posts/saved/2/')
+    expect((init as RequestInit).method).toBe('GET')
+  })
+})
+

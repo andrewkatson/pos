@@ -58,6 +58,10 @@ profile grid, and the Feed — without opening the post first:
 
 - **Like / unlike**, with the current like count. Hidden on your own posts,
   which the backend refuses to let you like.
+- **Save / unsave** (issue #193), a personal bookmark. Unlike a like it is
+  offered on every post, including your own, since the saved list is a private
+  collection rather than a public signal. Saved posts are collected on the
+  **Saved Posts** screen, reachable from the Settings tab.
 - **Report**, with a reason. A flag marks posts you have an active report on.
 - **Retract report**, which shows the reason you originally gave.
 - **Delete**, offered only on your own posts.
@@ -67,15 +71,21 @@ a comment count that opens the post when tapped. The square profile tiles omit
 those two — there is no room for them.
 
 The post listing endpoints (`get_posts_in_feed`, `get_posts_for_followed_users`,
-`get_posts_for_user`) therefore return `post_likes`, `is_liked`, `is_reported`,
-`report_reason`, `comment_count` and `creation_time` per post, matching what the
-post-details endpoint returns. The state is gathered in grouped queries per
+`get_posts_for_user`) therefore return `post_likes`, `is_liked`, `is_saved`,
+`is_reported`, `report_reason`, `comment_count` and `creation_time` per post,
+matching what the post-details endpoint returns. The state is gathered in grouped queries per
 batch rather than per post, so a larger batch does not add queries. The comment
 count respects the same visibility rule as the thread listing, so a row never
 advertises comments the viewer would not be shown.
 
 Deleting a post from a list removes just that row; the list is not reloaded,
 which would otherwise reshuffle the weighted feed ordering under the user.
+
+The **Saved Posts** screen (`get_saved_posts`) lists the posts you have saved,
+most recently saved first. It runs through the same visibility filter as every
+other listing, so a post that is hidden or whose author is shadow-banned after
+you saved it silently drops off rather than rendering as an empty tile.
+Unsaving a post from that screen removes its tile.
 
 ## Text formatting (issue #318)
 
@@ -275,6 +285,41 @@ Until the address is verified, the account is rejected with an
 login, and every authenticated endpoint (the session issued at registration
 is therefore unusable until verification). Accounts created before this
 feature existed are grandfathered in as verified by the migration.
+
+## Membership numbers
+
+Every account carries a permanent join number — its position in line since
+launch — so members can say "I'm #n on the app!" (issue #198). The number is a
+`PositiveIntegerField` (`membership_number`), unique and never reused, separate
+from the UUID primary key.
+
+Numbers are handed out in join order. New members are stamped at registration
+with one past the current highest number; because the field is unique, two
+simultaneous signups that race for the same value cause one save to fail and
+retry against the now-higher maximum. Assignment never blocks registration —
+if it can't get a number after a few attempts the account is still created with
+a null number. Accounts that predate the feature were numbered by a one-time
+data migration in `creation_time` order (rows with no `creation_time` sort
+first), so existing members keep their true join order.
+
+That migration runs only once, so a null left by the rare registration-time
+failure is not self-healing. The `backfill_membership_numbers` management
+command is the repair path: it numbers any still-null accounts (in the same
+join order, safe to re-run, `--dry-run` to preview), so every account ends up
+with a permanent number.
+
+Deploy ordering matters for join order: the one-time backfill must finish
+before the new registration path serves traffic (the normal migrate-then-release
+sequence). If a brand-new signup were numbered `max + 1` while older accounts
+were still awaiting their backfilled numbers, it could leapfrog them. Both the
+migration and the repair command write with a conditional UPDATE that only
+touches rows still null at write time, so an already-assigned number is never
+overwritten even if the windows do overlap; running migrate to completion first
+is what keeps the ordering itself correct.
+
+The number is public: it's returned on the profile endpoint and shown on every
+member's profile, and the registration response includes it so a new member is
+greeted with "You're member #n!" right after signing up.
 
 ## Two-factor authentication (TOTP)
 

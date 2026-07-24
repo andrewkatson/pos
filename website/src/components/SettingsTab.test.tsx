@@ -36,6 +36,7 @@ function renderTab() {
         <Route path="/" element={<div>Landing page</div>} />
         <Route path="/appeals" element={<div>Appeals page</div>} />
         <Route path="/blocked" element={<div>Blocked users page</div>} />
+        <Route path="/saved" element={<div>Saved posts page</div>} />
       </Routes>
     </MemoryRouter>,
   )
@@ -250,4 +251,10 @@ test('a rejected password change surfaces the error and stays open', async () =>
   expect(await screen.findByRole('alert')).toHaveTextContent('Invalid password')
   // Still on the form so the user can retry.
   expect(dialog.getByLabelText('Current password')).toBeInTheDocument()
+})
+
+test('opens the saved posts page', async () => {
+  renderTab()
+  await userEvent.click(screen.getByRole('button', { name: 'Saved Posts' }))
+  expect(await screen.findByText('Saved posts page')).toBeInTheDocument()
 })

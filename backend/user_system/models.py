@@ -172,6 +172,16 @@ class PositiveOnlySocialUser(AbstractUser):
 
     creation_time = models.DateTimeField(auto_now_add=True, null=True, blank=True)
     updated_time = models.DateTimeField(auto_now=True, null=True, blank=True)
+
+    # Sequential "I'm #n on the app!" join number (issue #198). Assigned once,
+    # in registration order, and never reused. Nullable because: the primary key
+    # is a UUID (so the number can't be derived from it), existing rows are
+    # backfilled by a data migration ordered on creation_time, and a rare
+    # assignment failure must not block registration. A null number is harmless
+    # but not self-healing — the `backfill_membership_numbers` management command
+    # assigns one to any account left null. unique so two members can never claim
+    # the same number.
+    membership_number = models.PositiveIntegerField(null=True, blank=True, unique=True, default=None)
     id = models.UUIDField(default=uuid.uuid4, primary_key=True, unique=True, editable=False)
     following = models.ManyToManyField('self', through=UserFollow, through_fields=('user_from', 'user_to'),
                                        symmetrical=False, related_name='followers')
@@ -397,6 +407,20 @@ class PostLike(models.Model):
     class Meta:
         constraints = [
             models.UniqueConstraint(fields=['user', 'post'], name='unique_post_like')
+        ]
+
+
+# A post the user has saved to look back on later (issue #193)
+class SavedPost(models.Model):
+    user = models.ForeignKey(settings.AUTH_USER_MODEL,
+                             on_delete=models.CASCADE)
+    post = models.ForeignKey(Post, on_delete=models.CASCADE)
+    creation_time = models.DateTimeField(auto_now_add=True, null=True,
+                                         blank=True)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(fields=['user', 'post'], name='unique_saved_post')
         ]
 
 
