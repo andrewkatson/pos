@@ -69,10 +69,10 @@ def is_source_bucket_url(image_url):
     passes the pattern and `{user_id}/` key-prefix checks — turning the backend
     into an SSRF fetcher and letting it mint URLs for objects it does not own.
 
-    Parses the bucket from both virtual-hosted (`bucket.s3....amazonaws.com/key`)
-    and path-style (`s3....amazonaws.com/bucket/key`) URLs and compares it to
-    our configured bucket. Returns False for anything unparseable, off-host, or
-    when no bucket is configured.
+    Matches the bucket from both virtual-hosted (`bucket.s3....amazonaws.com/key`)
+    and path-style (`s3....amazonaws.com/bucket/key`) URLs against our configured
+    bucket. Returns False for anything unparseable, off-host, or when no bucket
+    is configured.
     """
     bucket = settings.AWS_STORAGE_BUCKET_NAME
     if not image_url or not bucket:
@@ -84,10 +84,19 @@ def is_source_bucket_url(image_url):
     if not hostname.endswith('.amazonaws.com'):
         return False
     if _is_path_style_host(hostname):
-        url_bucket = parsed.path.lstrip('/').partition('/')[0]
-    else:
-        url_bucket = hostname.split('.')[0]
-    return url_bucket == bucket
+        # s3....amazonaws.com/{bucket}/{key}: the bucket is the first path
+        # segment and must match exactly.
+        return parsed.path.lstrip('/').partition('/')[0] == bucket
+    # Virtual-hosted: {bucket}.s3....amazonaws.com/{key}. Match the full bucket
+    # as a prefix (bucket names may contain dots) and require the label right
+    # after it to be the S3 service label ("s3" or "s3-..."). This rejects a
+    # foreign host like `{bucket}.evil.s3.amazonaws.com` whose real bucket is
+    # `{bucket}.evil` — splitting on the first dot would wrongly accept it.
+    prefix = bucket + '.'
+    if not hostname.startswith(prefix):
+        return False
+    service_label = hostname[len(prefix):].split('.')[0]
+    return service_label == 's3' or service_label.startswith('s3-')
 
 
 def _s3_client():

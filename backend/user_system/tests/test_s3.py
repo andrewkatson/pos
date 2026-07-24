@@ -91,6 +91,24 @@ class IsSourceBucketUrlTests(SimpleTestCase):
         url = "https://s3.amazonaws.com/attacker-bucket/123/abc.jpeg"
         self.assertFalse(is_source_bucket_url(url))
 
+    def test_foreign_bucket_with_our_name_as_dotted_prefix_rejected(self):
+        # `{our-bucket}.evil.s3.amazonaws.com` is really bucket
+        # `{our-bucket}.evil`. Deriving the bucket by splitting on the first dot
+        # would wrongly accept it; the label after our bucket must be the S3
+        # service label.
+        url = f"https://{SOURCE_BUCKET}.evil.s3.amazonaws.com/123/abc.jpeg"
+        self.assertFalse(is_source_bucket_url(url))
+
+    def test_path_style_foreign_bucket_with_our_name_as_dotted_prefix_rejected(self):
+        url = f"https://s3.amazonaws.com/{SOURCE_BUCKET}.evil/123/abc.jpeg"
+        self.assertFalse(is_source_bucket_url(url))
+
+    @override_settings(AWS_STORAGE_BUCKET_NAME="my.dotted.bucket")
+    def test_dotted_bucket_name_matches(self):
+        # Bucket names may legitimately contain dots.
+        url = "https://my.dotted.bucket.s3.us-east-2.amazonaws.com/123/abc.jpeg"
+        self.assertTrue(is_source_bucket_url(url))
+
     def test_non_s3_host_rejected(self):
         # A non-S3 host whose first label equals our bucket name must not pass —
         # only real *.amazonaws.com hosts count.
