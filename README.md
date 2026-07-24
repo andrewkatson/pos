@@ -281,6 +281,15 @@ command is the repair path: it numbers any still-null accounts (in the same
 join order, safe to re-run, `--dry-run` to preview), so every account ends up
 with a permanent number.
 
+Deploy ordering matters for join order: the one-time backfill must finish
+before the new registration path serves traffic (the normal migrate-then-release
+sequence). If a brand-new signup were numbered `max + 1` while older accounts
+were still awaiting their backfilled numbers, it could leapfrog them. Both the
+migration and the repair command write with a conditional UPDATE that only
+touches rows still null at write time, so an already-assigned number is never
+overwritten even if the windows do overlap; running migrate to completion first
+is what keeps the ordering itself correct.
+
 The number is public: it's returned on the profile endpoint and shown on every
 member's profile, and the registration response includes it so a new member is
 greeted with "You're member #n!" right after signing up.

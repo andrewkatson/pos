@@ -5,7 +5,7 @@
 # numbered first, before any timestamped account, so real join order is
 # preserved. New members are numbered at registration time (see views.register).
 from django.db import migrations, transaction, IntegrityError
-from django.db.models import F, Max
+from django.db.models import Case, F, IntegerField, Max, Value, When
 
 # Update in bounded chunks so a large user table isn't held entirely in memory
 # (or in one long-lived write transaction). Each chunk commits on its own.
@@ -34,23 +34,28 @@ def backfill_membership_numbers(apps, schema_editor):
         if not chunk:
             break
 
+        pks = [u.pk for u in chunk]
         for attempt in range(MAX_ATTEMPTS):
             # Number one past whatever's currently assigned, re-read every
             # attempt so a racing registration's number is accounted for. This
             # also makes a re-run of the whole migration safe.
             number = User.objects.aggregate(m=Max('membership_number'))['m'] or 0
-            for user in chunk:
+            whens = []
+            for pk in pks:
                 number += 1
-                user.membership_number = number
+                whens.append(When(pk=pk, then=Value(number)))
             try:
                 with transaction.atomic():
-                    User.objects.bulk_update(chunk, ['membership_number'])
+                    # Conditional UPDATE: only rows still NULL at write time are
+                    # touched, so a number a concurrent signup assigned to one of
+                    # these rows after we read the chunk is never overwritten.
+                    User.objects.filter(
+                        pk__in=pks, membership_number__isnull=True
+                    ).update(membership_number=Case(*whens, output_field=IntegerField()))
                 break
             except IntegrityError:
                 if attempt == MAX_ATTEMPTS - 1:
                     raise
-                for user in chunk:
-                    user.membership_number = None
 
 
 class Migration(migrations.Migration):
