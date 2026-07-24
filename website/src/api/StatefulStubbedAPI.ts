@@ -116,6 +116,8 @@ interface UserMock {
   pendingProfileImageUrl: string | null
   profileImageStatus: ProfileImageStatus
   profileImageReasonCode: string | null
+  /** Sequential join number (#198), assigned in registration order. */
+  membershipNumber: number
 }
 
 interface TwoFactorChallengeMock {
@@ -319,6 +321,8 @@ export class StatefulStubbedAPI implements PositiveOnlySocialAPI {
       pendingProfileImageUrl: null,
       profileImageStatus: 'none',
       profileImageReasonCode: null,
+      // Next join number, one past the current highest (#198).
+      membershipNumber: this.users.reduce((max, u) => Math.max(max, u.membershipNumber), 0) + 1,
     }
     this.users.push(user)
 
@@ -340,6 +344,7 @@ export class StatefulStubbedAPI implements PositiveOnlySocialAPI {
       username: user.username,
       series_identifier: seriesIdentifier,
       login_cookie_token: loginCookieToken,
+      membership_number: user.membershipNumber,
     }
   }
 
@@ -384,6 +389,7 @@ export class StatefulStubbedAPI implements PositiveOnlySocialAPI {
       username: user.username,
       series_identifier: seriesIdentifier,
       login_cookie_token: loginCookieToken,
+      membership_number: user.membershipNumber,
     }
   }
 
@@ -462,6 +468,7 @@ export class StatefulStubbedAPI implements PositiveOnlySocialAPI {
       username: user.username,
       series_identifier: seriesIdentifier,
       login_cookie_token: loginCookieToken,
+      membership_number: user.membershipNumber,
     }
   }
 
@@ -1241,6 +1248,7 @@ export class StatefulStubbedAPI implements PositiveOnlySocialAPI {
       is_adult: target.isAdult,
       profile_image_url: liveAvatar,
       profile_image_original_url: liveAvatar,
+      membership_number: target.membershipNumber,
     }
     // Owner-only moderation state, mirroring the backend.
     if (target.id === user.id) {

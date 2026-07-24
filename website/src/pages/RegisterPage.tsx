@@ -19,6 +19,10 @@ function RegisterPage() {
   const [isLoading, setIsLoading] = useState(false)
   const [errorMessage, setErrorMessage] = useState<string | null>(null)
   const [showPrivacyPolicy, setShowPrivacyPolicy] = useState(false)
+  // The "You're member #n!" greeting shown after a successful signup (#198).
+  // memberNumber is null in the rare case the backend couldn't assign one.
+  const [showWelcome, setShowWelcome] = useState(false)
+  const [memberNumber, setMemberNumber] = useState<number | null>(null)
 
   useEffect(() => {
     if (!showPrivacyPolicy) return
@@ -44,19 +48,17 @@ function RegisterPage() {
     setShowPrivacyPolicy(false)
     setIsLoading(true)
     try {
-      await apiClient.register({
+      const result = await apiClient.register({
         username: username.trim(),
         email: email.trim(),
         password,
         remember_me: false,
         date_of_birth: dateOfBirth,
       })
-      // The account can't do anything until the emailed verification link is
-      // used, so don't keep the registration session — and drop any persisted
-      // session/remember-me tokens from a previous login, which main.tsx would
-      // otherwise restore on reload. The user logs in after verifying.
-      clearSession()
-      navigate('/check-email', { state: { email: email.trim() } })
+      // Greet the new member with their join number before sending them off to
+      // verify their email (#198). Navigation happens when they dismiss it.
+      setMemberNumber(result.membership_number ?? null)
+      setShowWelcome(true)
     } catch (err) {
       const apiErr = err as ApiError
       setErrorMessage(apiErr.message ?? 'Registration failed. Username or email may be taken.')
@@ -65,8 +67,48 @@ function RegisterPage() {
     }
   }
 
+  function dismissWelcome() {
+    // The account can't do anything until the emailed verification link is
+    // used, so don't keep the registration session — and drop any persisted
+    // session/remember-me tokens from a previous login, which main.tsx would
+    // otherwise restore on reload. The user logs in after verifying.
+    clearSession()
+    navigate('/check-email', { state: { email: email.trim() } })
+  }
+
   return (
     <div className="auth-page">
+      {showWelcome && (
+        <div className="modal-overlay">
+          <div
+            className="modal"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="welcome-title"
+            aria-describedby="welcome-body"
+          >
+            <h2 className="modal__title" id="welcome-title">
+              Welcome to Good Vibes Only! 🎉
+            </h2>
+            <p className="modal__body" id="welcome-body">
+              {memberNumber != null
+                ? `You're member #${memberNumber.toLocaleString()}! Check your email to verify your account and start spreading good vibes.`
+                : `You're all set! Check your email to verify your account and start spreading good vibes.`}
+            </p>
+            <div className="modal__actions">
+              <button
+                type="button"
+                className="modal__confirm"
+                onClick={dismissWelcome}
+                autoFocus
+              >
+                Continue
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {showPrivacyPolicy && (
         <div className="modal-overlay">
           <div

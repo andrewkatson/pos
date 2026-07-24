@@ -18,6 +18,12 @@ export interface AuthResponse {
   // Only present when remember_me was requested.
   series_identifier?: string
   login_cookie_token?: string
+  /**
+   * Sequential join number (#198). Present on the /register/ response so the
+   * client can greet a new member with "You're member #n!". Null in the rare
+   * case the backend couldn't assign one at signup.
+   */
+  membership_number?: number | null
 }
 
 export interface LoginRequest {
@@ -386,6 +392,11 @@ export interface ProfileDetails {
   profile_image_status?: ProfileImageStatus
   profile_image_reason_code?: string | null
   pending_profile_image_url?: string | null
+  /**
+   * Public join number (#198) — the member's "I'm #n on the app!" position,
+   * shown on every profile. Null for accounts a backfill hasn't numbered yet.
+   */
+  membership_number: number | null
 }
 
 // ---------------------------------------------------------------------------

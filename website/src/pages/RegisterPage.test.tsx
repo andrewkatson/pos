@@ -197,16 +197,25 @@ test('shows error banner on failed registration', async () => {
   expect(await screen.findByRole('alert')).toHaveTextContent('Username already taken')
 })
 
-test('navigates to check-email on successful registration', async () => {
+test('greets the new member with their join number, then navigates to check-email', async () => {
   mockRegister.mockResolvedValueOnce({
     session_management_token: 'tok',
     user_id: 'uuid-abc',
     username: VALID_USERNAME,
+    membership_number: 42,
   })
   renderRegisterPage()
   await fillValidForm()
   await userEvent.click(screen.getByRole('button', { name: 'Register' }))
   await userEvent.click(screen.getByRole('button', { name: 'Ok' }))
+
+  // The "You're member #n!" welcome greets them before they leave the page (#198).
+  const welcome = await screen.findByRole('dialog', { name: /Welcome to Good Vibes Only/ })
+  expect(welcome).toHaveTextContent("You're member #42!")
+  // Nothing is torn down until they acknowledge the greeting.
+  expect(screen.queryByText('Check Email')).not.toBeInTheDocument()
+
+  await userEvent.click(screen.getByRole('button', { name: 'Continue' }))
   expect(await screen.findByText('Check Email')).toBeInTheDocument()
   // The registration session must not be kept: the account can't act until
   // the email is verified, so the user logs in afterwards instead. Any
@@ -217,4 +226,24 @@ test('navigates to check-email on successful registration', async () => {
   expect(sessionStorageMock.removeItem).toHaveBeenCalledWith('session_token')
   expect(localStorageMock.removeItem).toHaveBeenCalledWith('series_identifier')
   expect(localStorageMock.removeItem).toHaveBeenCalledWith('login_cookie_token')
+})
+
+test('welcome greeting still appears (without a number) when none was assigned', async () => {
+  mockRegister.mockResolvedValueOnce({
+    session_management_token: 'tok',
+    user_id: 'uuid-abc',
+    username: VALID_USERNAME,
+    membership_number: null,
+  })
+  renderRegisterPage()
+  await fillValidForm()
+  await userEvent.click(screen.getByRole('button', { name: 'Register' }))
+  await userEvent.click(screen.getByRole('button', { name: 'Ok' }))
+
+  const welcome = await screen.findByRole('dialog', { name: /Welcome to Good Vibes Only/ })
+  expect(welcome).toHaveTextContent("You're all set!")
+  expect(welcome).not.toHaveTextContent('member #')
+
+  await userEvent.click(screen.getByRole('button', { name: 'Continue' }))
+  expect(await screen.findByText('Check Email')).toBeInTheDocument()
 })

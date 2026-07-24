@@ -40,6 +40,7 @@ const baseProfile: ProfileDetails = {
   is_blocked: false,
   identity_is_verified: true,
   is_adult: true,
+  membership_number: 7,
 }
 
 function renderProfile() {
@@ -69,6 +70,11 @@ test('renders profile stats and follow button', async () => {
   expect(await screen.findByText('10')).toBeInTheDocument() // followers
   expect(screen.getByRole('button', { name: 'Follow' })).toBeInTheDocument()
   expect(screen.getByRole('button', { name: 'Block' })).toBeInTheDocument()
+})
+
+test("shows the other member's public join number (#198)", async () => {
+  renderProfile()
+  expect(await screen.findByText('🎉 Member #7')).toBeInTheDocument()
 })
 
 test('following a user calls the API and updates the button', async () => {

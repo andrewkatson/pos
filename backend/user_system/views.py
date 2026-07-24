@@ -14,7 +14,7 @@ from django.contrib.auth import login, logout, get_user_model
 from django.contrib.auth.hashers import check_password, make_password
 from django.core.mail import send_mail
 from django.db import transaction, IntegrityError
-from django.db.models import Count
+from django.db.models import Count, Max
 from django.http import JsonResponse
 from django.utils import timezone
 from django.views.decorators.csrf import csrf_exempt
@@ -436,6 +436,30 @@ def _record_device_and_maybe_notify(user, ip, request=None, notify=True):
             user.id,
         )
 
+def _assign_membership_number(user):
+    """Give ``user`` the next sequential "I'm #n on the app!" number (issue #198).
+
+    The number is one past the current maximum. membership_number is unique, so
+    two registrations racing for the same value make one of the saves raise
+    IntegrityError; that attempt is rolled back to a savepoint and retried
+    against the now-higher maximum. Assignment must never block registration, so
+    after a few failed attempts we give up and leave the number null — the
+    account is fully usable and the backfill migration will number it later.
+    """
+    UserModel = get_user_model()
+    for _ in range(10):
+        current_max = UserModel.objects.aggregate(m=Max('membership_number'))['m'] or 0
+        try:
+            with transaction.atomic():
+                user.membership_number = current_max + 1
+                user.save(update_fields=['membership_number'])
+            return user.membership_number
+        except IntegrityError:
+            user.membership_number = None
+    logger.warning("Could not assign a membership number for user_id %s", user.id)
+    return None
+
+
 def _issue_email_verification_token(user):
     """Generate and store a fresh email-verification token for ``user``.
 
@@ -670,7 +694,11 @@ def register(request):
     new_user.identity_is_verified = True if date_of_birth_str else False
     new_user.is_adult = is_adult
     new_user.save()
-   
+
+    # Stamp their join number now, in creation order, so the client can greet
+    # them with "You're member #n!" (issue #198).
+    _assign_membership_number(new_user)
+
     verification_token = _issue_email_verification_token(new_user)
     try:
         send_mail(
@@ -704,6 +732,7 @@ def register(request):
     response_data = {
         Fields.session_management_token: new_session.management_token,
         Fields.user_id: new_user.id,
+        Fields.membership_number: new_user.membership_number,
     }
     if remember_me and new_login_cookie:
         response_data[Fields.series_identifier] = new_login_cookie.series_identifier
@@ -3095,6 +3124,8 @@ def get_profile_details(request, username):
         Fields.is_adult: profile_user.is_adult,
         Fields.profile_image_url: sign_compressed_url(live_avatar),
         Fields.profile_image_original_url: sign_original_url(live_avatar),
+        # Public join number — everyone can see "member #n" on any profile (#198).
+        Fields.membership_number: profile_user.membership_number,
     }
 
     # Owner-only: the moderation state of a photo still under async review (or

@@ -259,6 +259,26 @@ login, and every authenticated endpoint (the session issued at registration
 is therefore unusable until verification). Accounts created before this
 feature existed are grandfathered in as verified by the migration.
 
+## Membership numbers
+
+Every account carries a permanent join number — its position in line since
+launch — so members can say "I'm #n on the app!" (issue #198). The number is a
+`PositiveIntegerField` (`membership_number`), unique and never reused, separate
+from the UUID primary key.
+
+Numbers are handed out in join order. New members are stamped at registration
+with one past the current highest number; because the field is unique, two
+simultaneous signups that race for the same value cause one save to fail and
+retry against the now-higher maximum. Assignment never blocks registration —
+if it can't get a number after a few attempts the account is still created with
+a null number, which the backfill will fill in later. Accounts that predate the
+feature were numbered by a data migration in `creation_time` order (rows with
+no `creation_time` sort first), so existing members keep their true join order.
+
+The number is public: it's returned on the profile endpoint and shown on every
+member's profile, and the registration response includes it so a new member is
+greeted with "You're member #n!" right after signing up.
+
 ## Two-factor authentication (TOTP)
 
 Users can opt in to two-factor authentication with a standard authenticator
