@@ -15,6 +15,7 @@ from django.utils import timezone
 
 from .test_parent_case import PositiveOnlySocialTestCase
 from ..constants import Fields
+from ..views import _assign_membership_number
 
 
 # The data migration's module name starts with a digit, so it can't be imported
@@ -112,6 +113,20 @@ class MembershipNumberTests(PositiveOnlySocialTestCase):
 
         numbered.refresh_from_db()
         self.assertEqual(numbered.membership_number, 500)
+
+    def test_assign_is_idempotent_and_never_overwrites(self):
+        """_assign_membership_number leaves an already-numbered account alone, so a
+        number assigned by a concurrent backfill/repair is never overwritten."""
+        UserModel = get_user_model()
+        user = UserModel.objects.create_user(username='already_has_one', email='ah@e.com')
+        UserModel.objects.filter(pk=user.pk).update(membership_number=42)
+        user.refresh_from_db()
+
+        result = _assign_membership_number(user)
+
+        self.assertEqual(result, 42)
+        user.refresh_from_db()
+        self.assertEqual(user.membership_number, 42)
 
     def test_repair_command_numbers_null_accounts_in_join_order(self):
         """The management command is the repair path for accounts left null by a

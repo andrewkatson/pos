@@ -447,7 +447,13 @@ def _assign_membership_number(user):
     succeeds (the account is created just as it would be otherwise). A null number
     is not self-healing (the 0022 data migration runs only once): the
     ``backfill_membership_numbers`` management command assigns one afterward.
+
+    Idempotent: if ``user`` already has a number (e.g. a concurrent backfill or
+    the repair command got there first) it's returned unchanged — the number is
+    assigned once and never overwritten.
     """
+    if user.membership_number is not None:
+        return user.membership_number
     UserModel = get_user_model()
     for _ in range(10):
         current_max = UserModel.objects.aggregate(m=Max('membership_number'))['m'] or 0
