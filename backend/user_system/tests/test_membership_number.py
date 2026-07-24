@@ -128,6 +128,24 @@ class MembershipNumberTests(PositiveOnlySocialTestCase):
         user.refresh_from_db()
         self.assertEqual(user.membership_number, 42)
 
+    def test_assign_does_not_overwrite_a_concurrently_assigned_number(self):
+        """If the DB row was numbered after this call started (e.g. a concurrent
+        backfill), the conditional UPDATE matches nothing and we adopt the
+        existing number instead of clobbering it — even though the in-memory
+        instance still looks null."""
+        UserModel = get_user_model()
+        user = UserModel.objects.create_user(username='raced_user', email='ru@e.com')
+        self.assertIsNone(user.membership_number)  # in-memory instance is null
+
+        # A concurrent process numbers the DB row; `user` doesn't see it yet.
+        UserModel.objects.filter(pk=user.pk).update(membership_number=99)
+
+        result = _assign_membership_number(user)
+
+        self.assertEqual(result, 99)
+        user.refresh_from_db()
+        self.assertEqual(user.membership_number, 99)
+
     def test_repair_command_numbers_null_accounts_in_join_order(self):
         """The management command is the repair path for accounts left null by a
         failed registration-time assignment (the data migration runs only once)."""

@@ -448,8 +448,10 @@ def _assign_membership_number(user):
     is not self-healing (the 0022 data migration runs only once): the
     ``backfill_membership_numbers`` management command assigns one afterward.
 
-    Idempotent: if ``user`` already has a number (e.g. a concurrent backfill or
-    the repair command got there first) it's returned unchanged — the number is
+    Idempotent and safe against a concurrent assignment (the 0022 backfill or the
+    repair command): the write is a conditional UPDATE guarded on the row still
+    being NULL in the database, so a number set by someone else after this
+    function started is returned unchanged rather than overwritten. The number is
     assigned once and never overwritten.
     """
     if user.membership_number is not None:
@@ -457,13 +459,25 @@ def _assign_membership_number(user):
     UserModel = get_user_model()
     for _ in range(10):
         current_max = UserModel.objects.aggregate(m=Max('membership_number'))['m'] or 0
+        candidate = current_max + 1
         try:
             with transaction.atomic():
-                user.membership_number = current_max + 1
-                user.save(update_fields=['membership_number'])
-            return user.membership_number
+                # WHERE id = ? AND membership_number IS NULL: if a concurrent
+                # backfill numbered this row first, 0 rows match and we never
+                # clobber the assigned value.
+                updated = UserModel.objects.filter(
+                    pk=user.pk, membership_number__isnull=True
+                ).update(membership_number=candidate)
         except IntegrityError:
-            user.membership_number = None
+            # ``candidate`` collided with another registration's number — retry
+            # against the now-higher maximum.
+            continue
+        if updated:
+            user.membership_number = candidate
+            return candidate
+        # Someone else assigned a number to this row; adopt theirs, don't fight.
+        user.refresh_from_db(fields=['membership_number'])
+        return user.membership_number
     logger.warning("Could not assign a membership number for user_id %s", user.id)
     return None
 
