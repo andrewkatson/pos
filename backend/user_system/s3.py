@@ -19,6 +19,22 @@ def _redact(image_url):
         return '<unparseable url>'
 
 
+def strip_query_and_fragment(image_url):
+    """The canonical object URL with any query and fragment removed.
+
+    A client should send back the canonical (unsigned) object URL, but if it
+    sends the presigned PUT URL instead, its signing parameters (X-Amz-*) must
+    never be validated, persisted, or echoed back to clients — so strip them.
+    Returns the input unchanged if it is falsy or cannot be parsed.
+    """
+    if not image_url:
+        return image_url
+    try:
+        return urlparse(image_url)._replace(query='', fragment='').geturl()
+    except Exception:
+        return image_url
+
+
 def image_url_to_key(image_url):
     """Extract the S3 object key from an uploaded image URL.
 

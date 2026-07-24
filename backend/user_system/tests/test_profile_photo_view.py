@@ -90,6 +90,17 @@ class ProfilePhotoViewTests(PositiveOnlySocialTestCase):
         self.assertEqual(user.profile_image_url, self.scoped_url)
         self.assertIsNone(user.pending_profile_image_url)
 
+    @patch(IMAGE, return_value=ALLOWED)
+    def test_set_strips_signing_query_before_storing(self, _image):
+        # A client that mistakenly sends the presigned PUT URL must not have its
+        # X-Amz-* signing params validated, stored, or echoed back — only the
+        # canonical object URL is kept.
+        signed = self.scoped_url + '?X-Amz-Signature=deadbeef&X-Amz-Credential=xyz'
+        response = self._set(signed)
+        self.assertEqual(response.status_code, 202)
+        user = self._reload()
+        self.assertEqual(user.profile_image_url, self.scoped_url)
+
     @patch('user_system.tasks.delete_image')
     @patch(IMAGE, return_value=REJECTED)
     def test_set_then_rejected_drops_photo(self, _image, mock_delete):

@@ -49,7 +49,8 @@ from .models import LoginCookie, Session, Post, CommentThread, PositiveOnlySocia
 from .utils import convert_to_bool, generate_login_cookie_token, generate_management_token, generate_series_identifier, \
     get_batch, get_queryset_batch
 from .cloudfront import sign_compressed_url, sign_original_url
-from .s3 import delete_image, generate_presigned_upload, image_url_to_key, is_source_bucket_url
+from .s3 import delete_image, generate_presigned_upload, image_url_to_key, is_source_bucket_url, \
+    strip_query_and_fragment
 from .visibility import can_view_post, in_same_age_band, searchable_users, visible_comment_threads, \
     visible_comments, visible_posts
 
@@ -2895,6 +2896,11 @@ def set_profile_photo(request):
         return log_and_return_json("set_profile_photo", {'error': "Invalid JSON data"}, status=400)
 
     raw_image_url = data.get(Fields.image_url)
+    # Strip any query/fragment first (e.g. a client that sends the presigned PUT
+    # URL by mistake) so the signing params (X-Amz-*) are never validated,
+    # stored, or later echoed back to clients — only the canonical object URL is.
+    if isinstance(raw_image_url, str):
+        raw_image_url = strip_query_and_fragment(raw_image_url)
     # The URL must be a well-formed S3 image URL in *our* source bucket whose key
     # is scoped to this user (clients upload to `{user_id}/...` via our presigned
     # flow). The bucket check — not just the key prefix — stops a client from
