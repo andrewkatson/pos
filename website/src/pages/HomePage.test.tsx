@@ -26,6 +26,8 @@ vi.mock('../api/client', () => ({
     logout: vi.fn().mockResolvedValue({ message: 'ok' }),
     deleteAccount: vi.fn().mockResolvedValue({ message: 'ok' }),
     verifyIdentity: vi.fn().mockResolvedValue({ message: 'ok' }),
+    getCurrentUser: vi.fn().mockResolvedValue({ username: 'ada', email: 'ada@example.com' }),
+    changePassword: vi.fn().mockResolvedValue({ message: 'ok' }),
     setToken: vi.fn(),
     likePost: vi.fn(),
     unlikePost: vi.fn(),

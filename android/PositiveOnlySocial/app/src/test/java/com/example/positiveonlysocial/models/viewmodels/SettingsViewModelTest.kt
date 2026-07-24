@@ -306,7 +306,9 @@ class SettingsViewModelTest {
 
         viewModel.changePassword("wrongpass", "Newpass1")
 
-        assertEquals("Invalid password", viewModel.errorMessage.value)
+        // ApiErrors.messageFor sanitizes the backend's "Invalid password" into
+        // the friendlier "Password is incorrect" (see ApiErrors.sanitizeErrorMessage).
+        assertEquals("Password is incorrect", viewModel.errorMessage.value)
         assertTrue(viewModel.showingErrorAlert.value)
         assertNull(viewModel.passwordChangeMessage.value)
         // A failed change must not leave the button stuck disabled on retry.
