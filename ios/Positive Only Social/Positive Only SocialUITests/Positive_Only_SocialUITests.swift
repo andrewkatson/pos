@@ -276,6 +276,12 @@ final class Positive_Only_SocialUITests: XCTestCase {
         XCTAssertTrue(privacyPolicyAlert.buttons["Ok"].waitForExistence(timeout: TestConstants.shortTimeout))
         privacyPolicyAlert.buttons["Ok"].tap()
 
+        // A brand new account is greeted with its membership number (issue
+        // #198). Dismiss the welcome alert before continuing.
+        let welcomeAlert = app.alerts["Welcome! 🎉"]
+        XCTAssertTrue(welcomeAlert.waitForExistence(timeout: TestConstants.shortTimeout), "Welcome membership alert not present")
+        welcomeAlert.buttons["OK"].tap()
+
         // Registration parks the user on the "check your email" screen
         // (issue #237). The stub API pre-verifies accounts, so continue to
         // Login and sign in to reach Home.

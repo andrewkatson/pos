@@ -63,7 +63,7 @@ struct WelcomeView: View {
                 }
             }
             .navigationDestination(for: CheckEmailRoute.self) { route in
-                CheckEmailView(api: api, email: route.email, path: $path)
+                CheckEmailView(api: api, email: route.email, membershipNumber: route.membershipNumber, path: $path)
             }
         }
         .onAppear(perform: checkRememberMeStatus)

@@ -71,6 +71,8 @@ class StatefulStubbedAPI : PositiveOnlySocialAPI {
         val followers: MutableList<String> = mutableListOf(),
         var isVerified: Boolean = false,
         var isAdult: Boolean = false,
+        // Sequential join number (issue #198), assigned in registration order.
+        var membershipNumber: Int? = null,
         val blocked: MutableList<String> = mutableListOf(),
         val blockedBy: MutableList<String> = mutableListOf(),
         // Two-factor authentication (issue #348). A secret without the enabled
@@ -178,11 +180,13 @@ class StatefulStubbedAPI : PositiveOnlySocialAPI {
             return errorGeneric(404, "User already exists")
         }
 
-        // Create User
+        // Create User. Assign the next sequential membership number (issue
+        // #198), mirroring the backend which numbers accounts in creation order.
         val newUser = UserMock(
             username = request.username,
             email = request.email,
-            passwordHash = request.password // Stub: Plain text
+            passwordHash = request.password, // Stub: Plain text
+            membershipNumber = users.size + 1
         )
         users.add(newUser)
 
@@ -199,7 +203,7 @@ class StatefulStubbedAPI : PositiveOnlySocialAPI {
             loginCookies.add(LoginCookieMock(seriesId, cookieToken, newUser.id))
         }
 
-        return Response.success(AuthResponse(sessionToken, newUser.username, newUser.id, seriesId, cookieToken))
+        return Response.success(AuthResponse(sessionToken, newUser.username, newUser.id, seriesId, cookieToken, newUser.membershipNumber))
     }
 
     override suspend fun loginUser(request: LoginRequest): Response<LoginResponse> {
@@ -1021,7 +1025,8 @@ class StatefulStubbedAPI : PositiveOnlySocialAPI {
                 0,
                 0,
                 false,
-                isBlocked = isBlocked
+                isBlocked = isBlocked,
+                membershipNumber = target.membershipNumber
             ))
         }
 
@@ -1031,7 +1036,8 @@ class StatefulStubbedAPI : PositiveOnlySocialAPI {
             target.followers.size,
             target.following.size,
             isFollowing,
-            isBlocked
+            isBlocked,
+            membershipNumber = target.membershipNumber
         ))
     }
 

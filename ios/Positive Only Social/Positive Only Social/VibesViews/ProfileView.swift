@@ -137,7 +137,17 @@ struct ProfileBodyView: View {
                 Spacer()
             }
             .padding(.top)
-            
+
+            // The user's join number (issue #198), shown on every profile —
+            // your own and everyone else's.
+            if let membershipNumber = viewModel.profileDetails?.membershipNumber {
+                Text("🎉 Member #\(membershipNumber)")
+                    .font(.subheadline)
+                    .foregroundColor(.secondary)
+                    .padding(.top, 4)
+                    .accessibilityIdentifier("MembershipNumberLabel")
+            }
+
             if !viewModel.isOwnProfile {
                 Button(action: viewModel.toggleFollow) {
                     Text(viewModel.isFollowing ? "Following" : "Follow")

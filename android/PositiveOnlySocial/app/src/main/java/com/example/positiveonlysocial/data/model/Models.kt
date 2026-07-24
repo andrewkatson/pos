@@ -23,7 +23,10 @@ data class AuthResponse(
     val username: String?,
     @SerializedName("user_id") val userId: String?,
     @SerializedName("series_identifier") val seriesIdentifier: String?,
-    @SerializedName("login_cookie_token") val loginCookieToken: String?
+    @SerializedName("login_cookie_token") val loginCookieToken: String?,
+    // The new member's sequential join number, returned by register (issue
+    // #198). Nullable/defaulted since only registration carries it.
+    @SerializedName("membership_number") val membershipNumber: Int? = null
 )
 
 data class LoginRequest(
@@ -281,7 +284,10 @@ data class ProfileDetailsResponse(
     @SerializedName("is_following") val isFollowing: Boolean,
     @SerializedName("is_blocked") val isBlocked: Boolean = false,
     @SerializedName("identity_is_verified") val identityIsVerified: Boolean = false,
-    @SerializedName("is_adult") val isAdult: Boolean = false
+    @SerializedName("is_adult") val isAdult: Boolean = false,
+    // The user's join number (issue #198), shown as "Member #N". Nullable so a
+    // profile from a server that predates the field still deserializes.
+    @SerializedName("membership_number") val membershipNumber: Int? = null
 )
 
 // Generic success/error response

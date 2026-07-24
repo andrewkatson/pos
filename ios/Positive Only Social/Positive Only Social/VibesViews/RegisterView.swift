@@ -184,10 +184,12 @@ struct RegisterView: View {
                 formatter.dateFormat = "yyyy-MM-dd"
                 let dateString = formatter.string(from: dateOfBirth)
                 
-                // The response body isn't decoded: the session it carries is
-                // deliberately not kept, and a decode failure would strand a
-                // successfully registered user on the form.
-                _ = try await api.register(
+                // The session the response carries is deliberately not kept
+                // (the account can't act until email verification). We only
+                // pull out the new member's join number (issue #198) to greet
+                // them — decoded with `try?` so a decode failure can never
+                // strand a successfully registered user on the form.
+                let data = try await api.register(
                     username: username,
                     email: email,
                     password: password,
@@ -195,13 +197,15 @@ struct RegisterView: View {
                     ip: "127.0.0.1",
                     dateOfBirth: dateString
                 )
+                let membershipNumber = (try? JSONDecoder().decode(RegisterResponse.self, from: data))?.membershipNumber
 
                 // The account can't do anything until the emailed verification
                 // link is used (issue #237), so don't keep the registration
-                // session — send the user to the "check your email" screen and
-                // have them log in after verifying.
+                // session — send the user to the "check your email" screen
+                // (which welcomes them with their number) and have them log in
+                // after verifying.
                 NSLog("%@", "✅ Registration successful. Awaiting email verification.")
-                path.append(CheckEmailRoute(email: email))
+                path.append(CheckEmailRoute(email: email, membershipNumber: membershipNumber))
 
             } catch let error as APIError {
                 if case .serverError(_, let message) = error {

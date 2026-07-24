@@ -149,6 +149,18 @@ fun ProfileBody(
                 StatItem(count = profileDetails?.followingCount ?: 0, label = "Following", modifier = Modifier.testTag("tag_Following"))
             }
 
+            // The user's join number (issue #198), shown on every profile —
+            // your own and everyone else's.
+            profileDetails?.membershipNumber?.let { number ->
+                Spacer(modifier = Modifier.height(8.dp))
+                Text(
+                    text = "🎉 Member #$number",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.testTag("MembershipNumber")
+                )
+            }
+
             Spacer(modifier = Modifier.height(16.dp))
 
             if (!isOwnProfile) {

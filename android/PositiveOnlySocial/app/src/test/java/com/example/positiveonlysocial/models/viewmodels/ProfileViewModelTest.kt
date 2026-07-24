@@ -70,6 +70,18 @@ class ProfileViewModelTest {
     }
 
     @Test
+    fun `fetchProfile surfaces the membership number (issue 198)`() = runTest {
+        val mockProfile = ProfileDetailsResponse("user1", 1, 1, 2, true, membershipNumber = 42)
+
+        whenever(api.getProfileDetails("token123", "user1")).thenReturn(Response.success(mockProfile))
+        whenever(api.getPostsForUser("token123", "user1", 0)).thenReturn(Response.success(emptyList()))
+
+        viewModel.fetchProfile("user1")
+
+        assertEquals(42, viewModel.profileDetails.value?.membershipNumber)
+    }
+
+    @Test
     fun `toggleFollow calls api and updates state optimistically`() = runTest {
         val mockProfile = ProfileDetailsResponse("user1", 1, 10, 3, false)
         whenever(api.getProfileDetails("token123", "user1")).thenReturn(Response.success(mockProfile))

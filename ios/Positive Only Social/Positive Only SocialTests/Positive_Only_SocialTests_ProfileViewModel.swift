@@ -147,7 +147,77 @@ struct Positive_Only_SocialTests_ProfileViewModel {
         #expect(sut.profileDetails?.followingCount == 0)
         #expect(sut.isFollowing == false, "Requesting user is not following yet")
     }
-    
+
+    @Test func testFetchProfileDetails_LoadsMembershipNumber() async throws {
+        // Given: the requesting user registers first (member #1) and the
+        // profile user second (member #2). The stub numbers accounts in
+        // registration order, mirroring the backend (issue #198).
+        let (requestingUserToken, requestingUser) = try await registerUser(username: "firstMember")
+        let (_, profileUser) = try await registerUser(username: "secondMember")
+
+        let account = "firstMember_account"
+        try await setupLoggedInUser(user: requestingUser, token: requestingUserToken, account: account)
+
+        let sut = ProfileViewModel(user: profileUser, api: stubAPI, keychainHelper: keychainHelper, account: account)
+
+        // When: we fetch the profile details
+        sut.fetchProfileDetails()
+        await yield()
+
+        // Then: the profile user's join number is surfaced
+        #expect(sut.profileDetails?.membershipNumber == 2)
+    }
+
+    // --- Membership Number Decoding (issue #198) ---
+
+    @Test func testProfileDetailsResponse_DecodesMembershipNumber() throws {
+        let json = """
+        {
+          "username": "ada",
+          "post_count": 3,
+          "follower_count": 5,
+          "following_count": 2,
+          "is_following": false,
+          "membership_number": 42
+        }
+        """.data(using: .utf8)!
+
+        let details = try JSONDecoder().decode(ProfileDetailsResponse.self, from: json)
+        #expect(details.membershipNumber == 42)
+    }
+
+    @Test func testProfileDetailsResponse_MissingMembershipNumber_DecodesToNil() throws {
+        // A server that predates the field omits it; the profile must still
+        // decode with membershipNumber == nil rather than failing.
+        let json = """
+        {
+          "username": "grace",
+          "post_count": 1,
+          "follower_count": 0,
+          "following_count": 0,
+          "is_following": true
+        }
+        """.data(using: .utf8)!
+
+        let details = try JSONDecoder().decode(ProfileDetailsResponse.self, from: json)
+        #expect(details.membershipNumber == nil)
+    }
+
+    @Test func testRegisterResponse_DecodesMembershipNumber() throws {
+        // The register response carries the session (ignored here) plus the new
+        // member's number, which is all RegisterResponse keeps.
+        let json = """
+        {
+          "session_management_token": "tok",
+          "user_id": "abc",
+          "membership_number": 7
+        }
+        """.data(using: .utf8)!
+
+        let response = try JSONDecoder().decode(RegisterResponse.self, from: json)
+        #expect(response.membershipNumber == 7)
+    }
+
     @Test func testToggleFollow_FollowAndUnfollow_Success() async throws {
         // Given: A logged-in user and a profile user
         let (requestingUserToken, requestingUser) = try await registerUser(username: "mainToggler")

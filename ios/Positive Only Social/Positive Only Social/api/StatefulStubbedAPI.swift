@@ -23,6 +23,8 @@ struct MockUser {
     var emailVerificationToken: String? = nil
     var identityIsVerified: Bool = false
     var isAdult: Bool = false
+    // Sequential join number (issue #198), assigned in registration order.
+    var membershipNumber: Int? = nil
     var blocked: [UUID] = []
     var blockedBy: [UUID] = []
     // Two-factor authentication (issue #348). A secret without the enabled
@@ -252,25 +254,30 @@ final class StatefulStubbedAPI: Networking {
         if findUser(byUsername: username) != nil || findUser(byEmail: email) != nil {
             throw APIError.badServerResponse(statusCode: 400) // "User already exists"
         }
-        let newUser = MockUser(username: username, email: email, passwordHash: password)
+        var newUser = MockUser(username: username, email: email, passwordHash: password)
+        // Assign the next sequential membership number (issue #198), mirroring
+        // the backend which numbers accounts in creation order.
+        newUser.membershipNumber = users.count + 1
+        let membershipNumber = newUser.membershipNumber
         users.append(newUser)
         let newSession = MockSession(managementToken: generateToken(), userId: newUser.id, ip: ip)
         sessions.append(newSession)
-        
+
         let wantsRememberMe = Bool(rememberMe.lowercased()) ?? false
         if wantsRememberMe {
             let cookie = MockLoginCookie(seriesIdentifier: UUID().uuidString, token: generateToken(), userId: newUser.id)
             loginCookies.append(cookie)
-            struct Fields: Codable { let series_identifier, login_cookie_token, session_management_token, user_id: String }
+            struct Fields: Codable { let series_identifier, login_cookie_token, session_management_token, user_id: String; let membership_number: Int? }
             return try createSerializedResponse(fields: Fields(
                 series_identifier: cookie.seriesIdentifier,
                 login_cookie_token: cookie.token,
                 session_management_token: newSession.managementToken,
-                user_id: newUser.id.uuidString
+                user_id: newUser.id.uuidString,
+                membership_number: membershipNumber
             ))
         } else {
-            struct Fields: Codable { let session_management_token, user_id: String }
-            return try createSerializedResponse(fields: Fields(session_management_token: newSession.managementToken, user_id: newUser.id.uuidString))
+            struct Fields: Codable { let session_management_token, user_id: String; let membership_number: Int? }
+            return try createSerializedResponse(fields: Fields(session_management_token: newSession.managementToken, user_id: newUser.id.uuidString, membership_number: membershipNumber))
         }
     }
 
@@ -1250,8 +1257,9 @@ final class StatefulStubbedAPI: Networking {
             let is_blocked: Bool
             let identity_is_verified: Bool
             let is_adult: Bool
+            let membership_number: Int?
         }
-        
+
         if isBlockedBy {
              let fields = Fields(
                 username: profileUser.username,
@@ -1261,11 +1269,12 @@ final class StatefulStubbedAPI: Networking {
                 is_following: false,
                 is_blocked: isBlocked,
                 identity_is_verified: false,
-                is_adult: false
+                is_adult: false,
+                membership_number: profileUser.membershipNumber
             )
             return try createSerializedResponse(fields: fields)
         }
-        
+
         let fields = Fields(
             username: profileUser.username,
             post_count: postCount,
@@ -1274,7 +1283,8 @@ final class StatefulStubbedAPI: Networking {
             is_following: isFollowing,
             is_blocked: isBlocked,
             identity_is_verified: profileUser.identityIsVerified,
-            is_adult: profileUser.isAdult
+            is_adult: profileUser.isAdult,
+            membership_number: profileUser.membershipNumber
         )
 
         // 6. Return the data using your existing helper

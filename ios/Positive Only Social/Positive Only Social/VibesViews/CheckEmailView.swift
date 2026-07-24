@@ -6,9 +6,11 @@
 import SwiftUI
 
 /// Navigation route to the post-registration "check your email" screen,
-/// carrying the address the verification link was sent to.
+/// carrying the address the verification link was sent to and — for a brand
+/// new account — the member's join number (issue #198), used to welcome them.
 struct CheckEmailRoute: Hashable {
     let email: String
+    var membershipNumber: Int? = nil
 }
 
 /// Shown right after registration: the account exists but cannot log in until
@@ -16,11 +18,15 @@ struct CheckEmailRoute: Hashable {
 struct CheckEmailView: View {
     let api: Networking
     let email: String
+    /// The new member's join number (issue #198). Non-nil right after
+    /// registration; nil when the screen is reached any other way.
+    var membershipNumber: Int? = nil
 
     @Binding var path: NavigationPath
 
     @State private var isResending = false
     @State private var resendMessage: String?
+    @State private var showingWelcome = false
 
     var body: some View {
         VStack(spacing: 20) {
@@ -72,6 +78,19 @@ struct CheckEmailView: View {
         // Registration is complete; going "back" to the form would only invite
         // a duplicate-account error.
         .navigationBarBackButtonHidden(true)
+        .onAppear {
+            // Greet a brand new member with their join number (issue #198).
+            if membershipNumber != nil {
+                showingWelcome = true
+            }
+        }
+        .alert("Welcome! 🎉", isPresented: $showingWelcome) {
+            Button("OK") { }
+        } message: {
+            if let membershipNumber {
+                Text("You're member #\(membershipNumber)!")
+            }
+        }
     }
 
     private func resend() {
