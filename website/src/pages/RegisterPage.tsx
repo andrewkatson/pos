@@ -1,4 +1,4 @@
-import { useCallback, useState, useEffect } from 'react'
+import { useCallback, useRef, useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import Logo from '../components/Logo'
 import { apiClient } from '../api/client'
@@ -23,6 +23,7 @@ function RegisterPage() {
   // memberNumber is null in the rare case the backend couldn't assign one.
   const [showWelcome, setShowWelcome] = useState(false)
   const [memberNumber, setMemberNumber] = useState<number | null>(null)
+  const continueButtonRef = useRef<HTMLButtonElement>(null)
 
   useEffect(() => {
     if (!showPrivacyPolicy) return
@@ -80,12 +81,20 @@ function RegisterPage() {
     navigate('/check-email', { state: { email: email.trim() } })
   }, [navigate, email])
 
-  // Escape dismisses the welcome modal too, matching the privacy-policy modal
-  // so keyboard users get consistent behavior.
+  // While the welcome modal is open, Escape dismisses it (matching the
+  // privacy-policy modal) and Tab is trapped on the modal's only control so
+  // keyboard/screen-reader users can't tab "behind" it into the page.
   useEffect(() => {
     if (!showWelcome) return
     function onKeyDown(e: KeyboardEvent) {
-      if (e.key === 'Escape') dismissWelcome()
+      if (e.key === 'Escape') {
+        dismissWelcome()
+      } else if (e.key === 'Tab') {
+        // Single-control dialog: keep focus on Continue rather than letting it
+        // escape to the still-mounted form/Back button underneath.
+        e.preventDefault()
+        continueButtonRef.current?.focus()
+      }
     }
     document.addEventListener('keydown', onKeyDown)
     return () => document.removeEventListener('keydown', onKeyDown)
@@ -112,6 +121,7 @@ function RegisterPage() {
             </p>
             <div className="modal__actions">
               <button
+                ref={continueButtonRef}
                 type="button"
                 className="modal__confirm"
                 onClick={dismissWelcome}

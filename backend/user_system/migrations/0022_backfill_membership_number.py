@@ -5,23 +5,24 @@
 # numbered first, before any timestamped account, so real join order is
 # preserved. New members are numbered at registration time (see views.register).
 from django.db import migrations
-from django.db.models import F
+from django.db.models import F, Max
 
 
 def backfill_membership_numbers(apps, schema_editor):
     User = apps.get_model('user_system', 'PositiveOnlySocialUser')
-    ordered = User.objects.order_by(F('creation_time').asc(nulls_first=True), 'id')
 
-    number = 0
+    # Start numbering one past whatever's already assigned, so a re-run (or a run
+    # after some accounts were numbered at registration) never clobbers or
+    # reuses an existing number. Only the still-null accounts are touched.
+    number = User.objects.aggregate(m=Max('membership_number'))['m'] or 0
+    unnumbered = (
+        User.objects
+        .filter(membership_number__isnull=True)
+        .order_by(F('creation_time').asc(nulls_first=True), 'id')
+    )
+
     to_update = []
-    for user in ordered.iterator():
-        # Never renumber a member who already has one (re-run safety, and so a
-        # future rerun after new signups doesn't clobber assigned numbers).
-        if user.membership_number is not None:
-            number = max(number, user.membership_number)
-    for user in ordered.iterator():
-        if user.membership_number is not None:
-            continue
+    for user in unnumbered.iterator():
         number += 1
         user.membership_number = number
         to_update.append(user)
