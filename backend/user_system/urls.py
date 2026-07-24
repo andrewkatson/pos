@@ -85,6 +85,15 @@ urlpatterns = [
     # POST /posts/<uuid:post_identifier>/unlike/ (Token in header)
     path('posts/<uuid:post_identifier>/unlike/', views.unlike_post, name='unlike_post'),
 
+    # POST /posts/<uuid:post_identifier>/save/ (Token in header)
+    path('posts/<uuid:post_identifier>/save/', views.save_post, name='save_post'),
+
+    # POST /posts/<uuid:post_identifier>/unsave/ (Token in header)
+    path('posts/<uuid:post_identifier>/unsave/', views.unsave_post, name='unsave_post'),
+
+    # GET /posts/saved/<int:batch>/ (Token in header)
+    path('posts/saved/<int:batch>/', views.get_saved_posts, name='get_saved_posts'),
+
     # =========================================================================
     # FEEDS & POST RETRIEVAL
     # =========================================================================

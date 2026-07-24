@@ -902,6 +902,16 @@
   color: #ff6b6b;
 }
 
+/* Bookmark / save toggle in the post action bar (issue #193). */
+.bookmark {
+  background: none;
+  border: none;
+  cursor: pointer;
+  font-size: 1.1rem;
+  padding: 0;
+  line-height: 1;
+}
+
 .detail-caption {
   margin: 0 0 1rem;
   line-height: 1.5;

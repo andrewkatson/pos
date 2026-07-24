@@ -84,11 +84,16 @@ export interface PositiveOnlySocialAPI {
   retractReportPost(postIdentifier: string): Promise<MessageResponse>
   likePost(postIdentifier: string): Promise<MessageResponse>
   unlikePost(postIdentifier: string): Promise<MessageResponse>
+  /** Bookmark a post so it appears on the Saved Posts screen (issue #193). */
+  savePost(postIdentifier: string): Promise<MessageResponse>
+  unsavePost(postIdentifier: string): Promise<MessageResponse>
 
   // Feeds & post retrieval
   getFeed(batch: number): Promise<FeedPost[]>
   getFollowedFeed(batch: number): Promise<FeedPost[]>
   getPostsForUser(username: string, batch: number): Promise<FeedPost[]>
+  /** The signed-in user's saved posts, newest save first (issue #193). */
+  getSavedPosts(batch: number): Promise<FeedPost[]>
   getPostDetails(postIdentifier: string): Promise<PostDetails>
   /** Classification status of one of the caller's own posts (issue #282). */
   getPostStatus(postIdentifier: string): Promise<PostStatusResponse>

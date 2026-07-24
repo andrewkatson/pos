@@ -400,6 +400,20 @@ class PostLike(models.Model):
         ]
 
 
+# A post the user has saved to look back on later (issue #193)
+class SavedPost(models.Model):
+    user = models.ForeignKey(settings.AUTH_USER_MODEL,
+                             on_delete=models.CASCADE)
+    post = models.ForeignKey(Post, on_delete=models.CASCADE)
+    creation_time = models.DateTimeField(auto_now_add=True, null=True,
+                                         blank=True)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(fields=['user', 'post'], name='unique_saved_post')
+        ]
+
+
 # A thread of comments on a post
 class CommentThread(models.Model):
     comment_thread_identifier = models.UUIDField(default=uuid.uuid4, primary_key=True, unique=True, editable=False)

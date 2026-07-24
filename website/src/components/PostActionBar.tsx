@@ -6,6 +6,7 @@ interface PostActionBarProps {
   post: FeedPost
   state: PostActionState
   onToggleLike: (post: FeedPost) => void
+  onToggleSave: (post: FeedPost) => void
   onOpenMenu: (post: FeedPost) => void
   /** Opens the post; used by the comment-count indicator (issue #249). */
   onOpenPost?: (post: FeedPost) => void
@@ -26,6 +27,7 @@ function PostActionBar({
   post,
   state,
   onToggleLike,
+  onToggleSave,
   onOpenMenu,
   onOpenPost,
   showDetails = false,
@@ -77,6 +79,17 @@ function PostActionBar({
           ⚑
         </span>
       )}
+      {/* Saving is a personal bookmark, so unlike the heart it's offered on
+          every post, including your own (issue #193). */}
+      <button
+        type="button"
+        className="bookmark"
+        aria-label={state.isSaved ? 'Unsave post' : 'Save post'}
+        aria-pressed={state.isSaved}
+        onClick={() => onToggleSave(post)}
+      >
+        {state.isSaved ? '🔖' : '🏷️'}
+      </button>
       <button
         type="button"
         className="post-actions__menu"

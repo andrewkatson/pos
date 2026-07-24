@@ -538,6 +538,72 @@ test('getPostStatus only answers for your own posts (#282)', async () => {
   )
 })
 
+// --- Saved posts (#193) ------------------------------------------------------
+
+test('saving a post lists it as saved, newest save first', async () => {
+  const api = new StatefulStubbedAPI()
+  await register(api, 'author')
+  const first = await api.createPost({ caption: 'one' })
+  const second = await api.createPost({ caption: 'two' })
+
+  await register(api, 'saver')
+  expect(await api.getSavedPosts(0)).toEqual([])
+
+  await api.savePost(first.post_identifier)
+  await api.savePost(second.post_identifier)
+
+  const saved = await api.getSavedPosts(0)
+  expect(saved.map((p) => p.post_identifier)).toEqual([
+    second.post_identifier,
+    first.post_identifier,
+  ])
+  expect(saved.every((p) => p.is_saved)).toBe(true)
+})
+
+test('a post cannot be saved twice', async () => {
+  const api = new StatefulStubbedAPI()
+  await register(api, 'author')
+  const post = await api.createPost({ caption: 'one' })
+
+  await register(api, 'saver')
+  await api.savePost(post.post_identifier)
+  await expect(api.savePost(post.post_identifier)).rejects.toThrow('Already saved post')
+})
+
+test('unsaving removes the post from the saved list', async () => {
+  const api = new StatefulStubbedAPI()
+  await register(api, 'author')
+  const post = await api.createPost({ caption: 'one' })
+
+  await register(api, 'saver')
+  await api.savePost(post.post_identifier)
+  await api.unsavePost(post.post_identifier)
+
+  expect(await api.getSavedPosts(0)).toEqual([])
+  await expect(api.unsavePost(post.post_identifier)).rejects.toThrow('Post not saved yet')
+})
+
+test('a since-hidden post drops off the saved list', async () => {
+  const api = new StatefulStubbedAPI()
+  await register(api, 'author')
+  const post = await api.createPost({ caption: 'one' })
+
+  // The saver bookmarks it while it is still visible.
+  await register(api, 'saver')
+  await api.savePost(post.post_identifier)
+  expect((await api.getSavedPosts(0)).length).toBe(1)
+
+  // Enough distinct users report it to push it over the stub's hide threshold.
+  for (let i = 0; i < 6; i += 1) {
+    await register(api, `reporter${i}`)
+    await api.reportPost(post.post_identifier, 'bad')
+  }
+
+  // Back as the saver: the now-hidden post no longer renders on the list.
+  await api.login({ username_or_email: 'saver', password: 'password123' })
+  expect(await api.getSavedPosts(0)).toEqual([])
+})
+
 test('setProfilePhoto reports pending then serializes the approved photo (#7)', async () => {
   const api = new StatefulStubbedAPI()
   await register(api, 'ada')

@@ -110,6 +110,9 @@ interface UserMock {
   totpEnabled: boolean
   /** Unused recovery codes; consumed codes are removed. */
   recoveryCodes: Set<string>
+  /** Post ids the user has saved, oldest first, so the saved listing can
+   * return them newest-first (issue #193). */
+  savedPostIds: string[]
   /** Approved profile photo shown to everyone (issue #7), or null. */
   profileImageUrl: string | null
   /** A photo still under async review, shown to nobody until approved. */
@@ -315,6 +318,7 @@ export class StatefulStubbedAPI implements PositiveOnlySocialAPI {
       totpSecret: null,
       totpEnabled: false,
       recoveryCodes: new Set(),
+      savedPostIds: [],
       profileImageUrl: null,
       pendingProfileImageUrl: null,
       profileImageStatus: 'none',
@@ -792,11 +796,35 @@ export class StatefulStubbedAPI implements PositiveOnlySocialAPI {
     return { message: 'Post unliked' }
   }
 
+  async savePost(postIdentifier: string): Promise<MessageResponse> {
+    const user = this.requireUser()
+    const post = this.findPost(postIdentifier)
+    // Only posts the user can see are worth saving, mirroring the backend.
+    if (!this.canViewPost(post, user)) {
+      throw new ApiError(400, 'No post with that identifier')
+    }
+    if (user.savedPostIds.includes(postIdentifier)) {
+      throw new ApiError(400, 'Already saved post')
+    }
+    user.savedPostIds.push(postIdentifier)
+    return { message: 'Post saved' }
+  }
+
+  async unsavePost(postIdentifier: string): Promise<MessageResponse> {
+    const user = this.requireUser()
+    this.findPost(postIdentifier)
+    if (!user.savedPostIds.includes(postIdentifier)) {
+      throw new ApiError(400, 'Post not saved yet')
+    }
+    user.savedPostIds = user.savedPostIds.filter((id) => id !== postIdentifier)
+    return { message: 'Post unsaved' }
+  }
+
   // ---------------------------------------------------------------------------
   // Feeds & retrieval
   // ---------------------------------------------------------------------------
 
-  private toFeedPost(post: PostMock, viewerId: string): FeedPost {
+  private toFeedPost(post: PostMock, viewer: UserMock): FeedPost {
     const author = this.users.find((u) => u.id === post.authorId)
     return {
       post_identifier: post.postIdentifier,
@@ -806,11 +834,22 @@ export class StatefulStubbedAPI implements PositiveOnlySocialAPI {
       original_image_url: post.imageUrl,
       author_username: author ? author.username : '',
       caption: post.caption,
+      is_saved: viewer.savedPostIds.includes(post.postIdentifier),
       ...this.authorAvatarFields(post.authorId),
       caption_font: post.captionFont,
       background_color: post.backgroundColor,
-      ...this.authorStatusFields(post, viewerId),
+      ...this.authorStatusFields(post, viewer.id),
     }
+  }
+
+  /** Whether a post is visible to a viewer, mirroring backend can_view_post:
+   * the author always sees their own posts; everyone else only sees live ones.
+   * Final-rejection tombstones are visible to nobody (#282). */
+  private canViewPost(post: PostMock, viewer: UserMock): boolean {
+    if (post.hiddenReason === 'classifier_final') return false
+    if (post.authorId === viewer.id) return true
+    if (post.hidden) return false
+    return !viewer.blocked.has(post.authorId) && !viewer.blockedBy.has(post.authorId)
   }
 
   async getFeed(batch: number): Promise<FeedPost[]> {
@@ -818,7 +857,7 @@ export class StatefulStubbedAPI implements PositiveOnlySocialAPI {
     const visible = this.posts
       .filter((p) => !p.hidden && !user.blocked.has(p.authorId) && !user.blockedBy.has(p.authorId))
       .sort((a, b) => b.creationTime - a.creationTime)
-    return this.batch(visible, batch, POST_BATCH_SIZE).map((p) => this.toFeedPost(p, user.id))
+    return this.batch(visible, batch, POST_BATCH_SIZE).map((p) => this.toFeedPost(p, user))
   }
 
   async getFollowedFeed(batch: number): Promise<FeedPost[]> {
@@ -832,7 +871,7 @@ export class StatefulStubbedAPI implements PositiveOnlySocialAPI {
           !user.blockedBy.has(p.authorId),
       )
       .sort((a, b) => b.creationTime - a.creationTime)
-    return this.batch(visible, batch, POST_BATCH_SIZE).map((p) => this.toFeedPost(p, user.id))
+    return this.batch(visible, batch, POST_BATCH_SIZE).map((p) => this.toFeedPost(p, user))
   }
 
   async getPostsForUser(username: string, batch: number): Promise<FeedPost[]> {
@@ -852,7 +891,18 @@ export class StatefulStubbedAPI implements PositiveOnlySocialAPI {
       .filter((p) => p.hiddenReason !== 'classifier_final')
       .filter((p) => (user.id === target.id ? true : !p.hidden))
       .sort((a, b) => b.creationTime - a.creationTime)
-    return this.batch(visible, batch, POST_BATCH_SIZE).map((p) => this.toFeedPost(p, user.id))
+    return this.batch(visible, batch, POST_BATCH_SIZE).map((p) => this.toFeedPost(p, user))
+  }
+
+  async getSavedPosts(batch: number): Promise<FeedPost[]> {
+    const user = this.requireUser()
+    // Newest save first (savedPostIds is oldest-first), and only posts that are
+    // still visible — a since-hidden post silently drops off (issue #193).
+    const saved = [...user.savedPostIds]
+      .reverse()
+      .map((id) => this.posts.find((p) => p.postIdentifier === id))
+      .filter((p): p is PostMock => p !== undefined && this.canViewPost(p, user))
+    return this.batch(saved, batch, POST_BATCH_SIZE).map((p) => this.toFeedPost(p, user))
   }
 
   async getPostDetails(postIdentifier: string): Promise<PostDetails> {
@@ -869,6 +919,7 @@ export class StatefulStubbedAPI implements PositiveOnlySocialAPI {
       creation_time: new Date(post.creationTime).toISOString(),
       post_likes: post.likes.size,
       is_liked: post.likes.has(user.id),
+      is_saved: user.savedPostIds.includes(post.postIdentifier),
       is_reported: post.reports.has(user.id),
       report_reason: post.reports.get(user.id) ?? null,
       author_username: author ? author.username : '',

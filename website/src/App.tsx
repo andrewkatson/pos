@@ -12,6 +12,7 @@ import PostDetailPage from './pages/PostDetailPage'
 import ProfilePage from './pages/ProfilePage'
 import AppealsPage from './pages/AppealsPage'
 import BlockedUsersPage from './pages/BlockedUsersPage'
+import SavedPostsPage from './pages/SavedPostsPage'
 import FollowListPage from './pages/FollowListPage'
 import PrivacyPolicyPage from './pages/PrivacyPolicyPage'
 
@@ -31,6 +32,7 @@ function App() {
       <Route path="/profile/:username" element={<ProfilePage />} />
       <Route path="/appeals" element={<AppealsPage />} />
       <Route path="/blocked" element={<BlockedUsersPage />} />
+      <Route path="/saved" element={<SavedPostsPage />} />
       <Route path="/followers" element={<FollowListPage mode="followers" />} />
       <Route path="/following" element={<FollowListPage mode="following" />} />
       <Route path="/privacy-policy" element={<PrivacyPolicyPage />} />

@@ -272,6 +272,10 @@ export interface FeedPost extends AuthorAvatarFields {
   post_likes?: number
   /** Whether the requesting user has liked this post (issue #267). */
   is_liked?: boolean
+  /** Whether the requesting user has saved this post, so a row can show its
+   * bookmark filled without opening the post first (issue #193). Older
+   * responses that predate the field omit it. */
+  is_saved?: boolean
   /** Whether the requesting user has an active report against this post,
    * so a grid tile can offer "retract report" instead of "report" (#267). */
   is_reported?: boolean
@@ -316,6 +320,8 @@ export interface PostDetails extends AuthorAvatarFields {
   post_likes: number
   /** Whether the requesting user has liked this post. */
   is_liked?: boolean
+  /** Whether the requesting user has saved this post (issue #193). */
+  is_saved?: boolean
   /** Whether the requesting user has an active report against this post. */
   is_reported?: boolean
   /** The requesting user's own report reason, so a retract dialog can show it
