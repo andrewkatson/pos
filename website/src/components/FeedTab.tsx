@@ -7,6 +7,7 @@ import { profilePathFor } from '../utils/profilePath'
 import PostThumbnail from './PostThumbnail'
 import PostActionBar from './PostActionBar'
 import { usePostActions } from './usePostActions'
+import Avatar from './Avatar'
 
 type FeedType = 'forYou' | 'following'
 
@@ -148,13 +149,21 @@ function FeedTab() {
         <div className="feed-list">
           {posts.map(post => (
             <article key={post.post_identifier}>
-              <button
-                type="button"
-                className="feed-post__author"
-                onClick={() => navigate(profilePathFor(post.author_username))}
-              >
-                {post.author_username}
-              </button>
+              <div className="author-line">
+                <Avatar
+                  src={post.author_profile_image_url}
+                  originalSrc={post.author_profile_image_original_url}
+                  username={post.author_username}
+                  size="sm"
+                />
+                <button
+                  type="button"
+                  className="feed-post__author"
+                  onClick={() => navigate(profilePathFor(post.author_username))}
+                >
+                  {post.author_username}
+                </button>
+              </div>
               <button
                 type="button"
                 className="feed-post__image"

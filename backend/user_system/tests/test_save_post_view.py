@@ -81,6 +81,18 @@ class SavePostTests(PositiveOnlySocialTestCase):
         self.assertEqual(response.json(), {'error': 'No post with that identifier'})
         self.assertEqual(SavedPost.objects.count(), 0)
 
+    def test_cannot_save_post_from_blocked_author(self):
+        """A block on either side hides the author's posts, so saving across a
+        block is refused (mirrors the feed and the saved-posts listing filter)."""
+        poster_username = self.users[UserFields.USERNAME][0]
+        block_url = reverse('toggle_block', kwargs={'username_to_toggle_block': poster_username})
+        self.client.post(block_url, **self.saver_header)
+
+        response = self.client.post(self.save_url, **self.saver_header)
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(response.json(), {'error': 'No post with that identifier'})
+        self.assertEqual(SavedPost.objects.count(), 0)
+
     def test_unsave_post_happy_path(self):
         self.client.post(self.save_url, **self.saver_header)
         self.post.refresh_from_db()

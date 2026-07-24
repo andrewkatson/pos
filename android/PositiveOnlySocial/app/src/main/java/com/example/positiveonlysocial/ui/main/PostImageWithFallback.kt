@@ -27,8 +27,14 @@ fun PostImageWithFallback(
     contentScale: ContentScale = ContentScale.Crop,
 ) {
     if (post.imageUrl == null) {
-        // A text-only post (#307) has no image; render its caption as the tile.
-        CaptionTile(caption = post.caption, modifier = modifier)
+        // A text-only post (#307) has no image; render its caption as the tile,
+        // styled with the author's chosen font/background color (issue #318).
+        CaptionTile(
+            caption = post.caption,
+            modifier = modifier,
+            captionFont = post.captionFont,
+            backgroundColor = post.backgroundColor
+        )
         return
     }
     // Once the compressed URL errors, switch to the original. Keyed to the post id

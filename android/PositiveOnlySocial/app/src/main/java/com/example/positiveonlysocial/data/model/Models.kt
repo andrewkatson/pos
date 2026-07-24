@@ -141,10 +141,29 @@ data class ResendVerificationEmailRequest(
 
 // --- Post DTOs ---
 
+/**
+ * One inline-formatting span over a comment's plain `body` (issue #318).
+ * Offsets are UTF-16 code-unit indices (matching Kotlin/JS string indexing and
+ * the backend contract): `0 <= start < end <= body.length`. Spans are sorted
+ * and non-overlapping. The plain `body` is never modified — formatting is
+ * separate metadata, so moderation still classifies plain text.
+ */
+data class CommentFormatSpan(
+    val start: Int,
+    val end: Int,
+    val bold: Boolean = false,
+    val italic: Boolean = false,
+    // One of "small", "normal", "large", "xlarge".
+    val size: String = "normal"
+)
+
 data class CreatePostRequest(
     // Null for a text-only post (#307); Gson omits null fields from the body.
     @SerializedName("image_url") val imageUrl: String? = null,
-    val caption: String
+    val caption: String,
+    // Whole-caption font + whole-tile background color keys (issue #318).
+    @SerializedName("caption_font") val captionFont: String = "default",
+    @SerializedName("background_color") val backgroundColor: String = "default"
 )
 
 data class CreatePostResponse(
@@ -232,13 +251,29 @@ data class Post(
     val status: String? = null,
     val hidden: Boolean? = null,
     @SerializedName("hidden_reason") val hiddenReason: String? = null,
-    val appealable: Boolean? = null
+    val appealable: Boolean? = null,
+    // The author's approved profile photo (issue #7), threaded next to
+    // author_username through every list/detail payload. Compressed variant with
+    // a full-resolution fallback, mirroring image_url/original_image_url; both
+    // null when the author has no approved photo, and absent (defaulting to null)
+    // on responses that predate the field.
+    @SerializedName("author_profile_image_url") val authorProfileImageUrl: String? = null,
+    @SerializedName("author_profile_image_original_url") val authorProfileImageOriginalUrl: String? = null,
+    // Whole-caption font + whole-tile background color keys (issue #318). At the
+    // end of the list so existing positional constructions are unaffected.
+    // Nullable because Gson does not apply Kotlin default values for absent JSON
+    // fields (an older response omitting them yields null); the render layer
+    // treats null as "default".
+    @SerializedName("caption_font") val captionFont: String? = null,
+    @SerializedName("background_color") val backgroundColor: String? = null
 )
 
 // --- Comment DTOs ---
 
 data class CommentRequest(
-    @SerializedName("comment_text") val commentText: String
+    @SerializedName("comment_text") val commentText: String,
+    // Inline formatting spans (issue #318); null omits the field from the body.
+    @SerializedName("body_formatting") val bodyFormatting: List<CommentFormatSpan>? = null
 )
 
 data class CommentResponse(
@@ -261,7 +296,14 @@ data class CommentDto(
     // Whether the current user has an active report against this comment, plus
     // their own report reason for the pre-populated retract dialog (issue #176).
     @SerializedName("is_reported") val isReported: Boolean = false,
-    @SerializedName("report_reason") val reportReason: String? = null
+    @SerializedName("report_reason") val reportReason: String? = null,
+    // The comment author's approved profile photo (issue #7), same
+    // compressed→original convention as posts; null when they have no photo.
+    @SerializedName("author_profile_image_url") val authorProfileImageUrl: String? = null,
+    @SerializedName("author_profile_image_original_url") val authorProfileImageOriginalUrl: String? = null,
+    // Inline formatting spans over `body` (issue #318); null = plain text. At
+    // the end with a default so existing positional constructions are unaffected.
+    @SerializedName("body_formatting") val bodyFormatting: List<CommentFormatSpan>? = null
 )
 
 // --- User/Profile DTOs ---
@@ -269,7 +311,12 @@ data class CommentDto(
 // Renamed from UserSearchDto to User to match Swift
 data class User(
     val username: String,
-    @SerializedName("identity_is_verified") val identityIsVerified: Boolean
+    @SerializedName("identity_is_verified") val identityIsVerified: Boolean,
+    // The user's approved profile photo (issue #7), returned by search and the
+    // blocked-users list so their avatar shows next to the name; null when they
+    // have no approved photo, and absent on responses that predate the field.
+    @SerializedName("author_profile_image_url") val authorProfileImageUrl: String? = null,
+    @SerializedName("author_profile_image_original_url") val authorProfileImageOriginalUrl: String? = null
 )
 
 // Renamed from ProfileDto to ProfileDetailsResponse to match Swift
@@ -281,7 +328,46 @@ data class ProfileDetailsResponse(
     @SerializedName("is_following") val isFollowing: Boolean,
     @SerializedName("is_blocked") val isBlocked: Boolean = false,
     @SerializedName("identity_is_verified") val identityIsVerified: Boolean = false,
-    @SerializedName("is_adult") val isAdult: Boolean = false
+    @SerializedName("is_adult") val isAdult: Boolean = false,
+    // The profile owner's approved photo (issue #7): compressed variant with a
+    // full-resolution fallback, shown as the large header avatar and (for
+    // others) everywhere their name appears. Null when there is no approved photo.
+    @SerializedName("profile_image_url") val profileImageUrl: String? = null,
+    @SerializedName("profile_image_original_url") val profileImageOriginalUrl: String? = null,
+    // Owner-only moderation state, present only when viewing your own profile
+    // (the backend omits these for everyone else). profileImageStatus is one of
+    // "none"|"pending"|"approved"|"rejected"; pendingProfileImageUrl is the
+    // not-yet-approved upload the owner previews immediately.
+    @SerializedName("profile_image_status") val profileImageStatus: String? = null,
+    @SerializedName("profile_image_reason_code") val profileImageReasonCode: String? = null,
+    @SerializedName("pending_profile_image_url") val pendingProfileImageUrl: String? = null
+)
+
+// --- Profile Photo DTOs (issue #7) ---
+
+/**
+ * Sets the signed-in user's profile photo. The JPEG bytes are uploaded first
+ * via the presigned post-image pipeline (createUploadUrl + ImageUploader), and
+ * this carries the canonical object URL that flow returns.
+ */
+data class SetProfilePhotoRequest(
+    @SerializedName("image_url") val imageUrl: String
+)
+
+/**
+ * Response of `POST profile/photo/` (HTTP 202). The photo is classified
+ * asynchronously, so this always reports the initial "pending" state; the
+ * approved/rejected outcome is read back from a subsequent getProfileDetails.
+ */
+data class SetProfilePhotoResponse(
+    @SerializedName("profile_image_status") val profileImageStatus: String,
+    val message: String? = null
+)
+
+/** Response of `POST profile/photo/remove/` (HTTP 200): status returns to "none". */
+data class RemoveProfilePhotoResponse(
+    @SerializedName("profile_image_status") val profileImageStatus: String,
+    val message: String? = null
 )
 
 // Generic success/error response
@@ -321,7 +407,10 @@ data class PostDisplayData(
     val imageURL: String?,
     val caption: String,
     val likeCount: Int,
-    val authorUsername: String
+    val authorUsername: String,
+    // Caption font + background color keys (issue #318); "default" is normal.
+    val captionFont: String = "default",
+    val backgroundColor: String = "default"
 )
 
 data class CommentViewData(
@@ -335,7 +424,14 @@ data class CommentViewData(
     // Whether the current user has an active report against this comment, and
     // their reason so the retract dialog can pre-populate it (issue #176).
     val isReported: Boolean = false,
-    val reportReason: String? = null
+    val reportReason: String? = null,
+    // The comment author's approved profile photo (issue #7), for the avatar in
+    // the comment row; null when they have no photo.
+    val authorProfileImageUrl: String? = null,
+    val authorProfileImageOriginalUrl: String? = null,
+    // Inline formatting spans over `body` (issue #318); null = plain text. At
+    // the end with a default so existing positional constructions are unaffected.
+    val formatting: List<CommentFormatSpan>? = null
 )
 
 data class CommentThreadViewData(
@@ -353,7 +449,12 @@ data class HiddenPost(
     @SerializedName("image_url") val imageUrl: String? = null,
     val caption: String,
     @SerializedName("hidden_reason") val hiddenReason: String = "",
-    @SerializedName("has_appeal") val hasAppeal: Boolean = false
+    @SerializedName("has_appeal") val hasAppeal: Boolean = false,
+    // Caption font + background color keys (issue #318); nullable because Gson
+    // does not apply Kotlin defaults for absent JSON fields. The render layer
+    // treats null as "default".
+    @SerializedName("caption_font") val captionFont: String? = null,
+    @SerializedName("background_color") val backgroundColor: String? = null
 )
 
 /** One of the signed-in user's hidden comments. */
@@ -361,7 +462,9 @@ data class HiddenComment(
     @SerializedName("comment_identifier") val commentIdentifier: String,
     val body: String,
     @SerializedName("hidden_reason") val hiddenReason: String = "",
-    @SerializedName("has_appeal") val hasAppeal: Boolean = false
+    @SerializedName("has_appeal") val hasAppeal: Boolean = false,
+    // Inline formatting spans over `body` (issue #318); null = plain text.
+    @SerializedName("body_formatting") val bodyFormatting: List<CommentFormatSpan>? = null
 )
 
 /** An appeal the signed-in user has filed, with its current status. */

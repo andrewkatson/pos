@@ -174,7 +174,8 @@ test('posting a comment opens the dialog, calls the API, and dismisses', async (
   await userEvent.click(screen.getByRole('button', { name: 'Add a comment...' }))
   await userEvent.type(screen.getByLabelText('Comment text'), 'nice!')
   await userEvent.click(screen.getByRole('button', { name: 'Post' }))
-  await waitFor(() => expect(mockCommentOnPost).toHaveBeenCalledWith('p1', 'nice!'))
+  // No formatting was applied, so the spans argument is undefined (#318).
+  await waitFor(() => expect(mockCommentOnPost).toHaveBeenCalledWith('p1', 'nice!', undefined))
   // The dialog closes immediately on submit so repeated taps can't double-post.
   expect(screen.queryByRole('dialog', { name: 'Add comment' })).not.toBeInTheDocument()
 })

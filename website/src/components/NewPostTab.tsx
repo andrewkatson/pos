@@ -1,10 +1,17 @@
 import { useEffect, useRef, useState, type FormEvent } from 'react'
 import { apiClient } from '../api/client'
 import type { ApiError } from '../api/client'
+import type { BackgroundColor, CaptionFont } from '../api/types'
 import { getCurrentUserId } from '../api/session'
 import { uploadImage } from '../api/s3Uploader'
 import { isWithinLimit, MAX_CAPTION_LENGTH } from '../auth/requirements'
 import CharacterCounter from './CharacterCounter'
+import {
+  BACKGROUND_COLOR_OPTIONS,
+  CAPTION_FONT_OPTIONS,
+  backgroundColorClass,
+  captionFontClass,
+} from './textFormatting'
 
 interface NewPostTabProps {
   /** Called after a successful post so the shell can switch back to the Home tab. */
@@ -23,6 +30,8 @@ function NewPostTab({ onPosted }: NewPostTabProps) {
   const [previewUrl, setPreviewUrl] = useState<string | null>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
   const [caption, setCaption] = useState('')
+  const [captionFont, setCaptionFont] = useState<CaptionFont>('default')
+  const [backgroundColor, setBackgroundColor] = useState<BackgroundColor>('default')
   const [isLoading, setIsLoading] = useState(false)
   const [errorMessage, setErrorMessage] = useState<string | null>(null)
   const [successMessage, setSuccessMessage] = useState<string | null>(null)
@@ -57,12 +66,19 @@ function NewPostTab({ onPosted }: NewPostTabProps) {
     setSuccessMessage(null)
     try {
       const imageUrl = file ? await uploadImage(file) : undefined
+      const base = {
+        caption: caption.trim(),
+        caption_font: captionFont,
+        background_color: backgroundColor,
+      }
       const result = await apiClient.createPost(
-        imageUrl ? { image_url: imageUrl, caption: caption.trim() } : { caption: caption.trim() },
+        imageUrl ? { ...base, image_url: imageUrl } : base,
       )
       setFile(null)
       setPreviewUrl(null)
       setCaption('')
+      setCaptionFont('default')
+      setBackgroundColor('default')
       // Classification is asynchronous (issue #282): the backend accepts the
       // post in a pending state and reviews it in the background, so tell the
       // user it's under review — the Home grid shows its progress and outcome.
@@ -155,6 +171,60 @@ function NewPostTab({ onPosted }: NewPostTabProps) {
           disabled={isLoading}
         />
         <CharacterCounter value={caption} max={MAX_CAPTION_LENGTH} />
+      </div>
+
+      {/* Text customization (issue #318): a whole-caption font and a whole-tile
+          background color, with a live preview. */}
+      <div className="auth-field">
+        <label className="auth-label" htmlFor="caption-font">
+          Font
+        </label>
+        <select
+          id="caption-font"
+          className="auth-input"
+          value={captionFont}
+          onChange={e => setCaptionFont(e.target.value as CaptionFont)}
+          disabled={isLoading}
+        >
+          {CAPTION_FONT_OPTIONS.map(option => (
+            <option key={option.key} value={option.key}>
+              {option.label}
+            </option>
+          ))}
+        </select>
+      </div>
+
+      <div className="auth-field">
+        <span className="auth-label" id="bg-color-label">
+          Background color
+        </span>
+        {/* Toggle buttons in a labeled group rather than an ARIA radiogroup:
+            a radiogroup implies roving-tabindex/arrow-key navigation we don't
+            implement, so aria-pressed toggles are the more honest semantics. */}
+        <div className="color-swatches" role="group" aria-labelledby="bg-color-label">
+          {BACKGROUND_COLOR_OPTIONS.map(option => (
+            <button
+              key={option.key}
+              type="button"
+              aria-pressed={option.key === backgroundColor}
+              aria-label={option.label}
+              className={`color-swatch post-bg--${option.key}${
+                option.key === backgroundColor ? ' color-swatch--selected' : ''
+              }`}
+              onClick={() => setBackgroundColor(option.key)}
+              disabled={isLoading}
+            />
+          ))}
+        </div>
+      </div>
+
+      <div className="auth-field">
+        <span className="auth-label">Preview</span>
+        <div className={`caption-preview post-bg ${backgroundColorClass(backgroundColor)}`}>
+          <p className={`caption-preview__text ${captionFontClass(captionFont)}`}>
+            {caption.trim() || 'Your caption will look like this.'}
+          </p>
+        </div>
       </div>
 
       {isLoading ? (

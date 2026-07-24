@@ -2,10 +2,20 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { Navigate, useNavigate, useParams } from 'react-router-dom'
 import { apiClient } from '../api/client'
 import { getCurrentUsername } from '../api/session'
-import type { Comment, PostDetails } from '../api/types'
+import type { Comment, CommentFormatSpan, PostDetails, TextSize } from '../api/types'
 import { isWithinLimit, MAX_COMMENT_LENGTH } from '../auth/requirements'
 import PostThumbnail from '../components/PostThumbnail'
 import CharacterCounter from '../components/CharacterCounter'
+import Avatar from '../components/Avatar'
+import FormattedText from '../components/FormattedText'
+import { captionFontClass, TEXT_SIZE_OPTIONS } from '../components/textFormatting'
+import {
+  applyStyleToRange,
+  reconcileAttrs,
+  spansForTrimmedComment,
+  toggleRange,
+  type CharAttrs,
+} from '../components/commentFormatting'
 import { formatRelativeTime } from '../utils/relativeTime'
 import { profilePathFor } from '../utils/profilePath'
 import './MainApp.css'
@@ -15,7 +25,13 @@ interface CommentView {
   id: string
   threadId: string
   authorUsername: string
+  /** The comment author's approved profile photo (compressed + original
+   * fallback), or null when they have none (issue #7). */
+  authorAvatarUrl: string | null
+  authorAvatarOriginalUrl: string | null
   body: string
+  /** Inline formatting spans over `body` (issue #318); null = plain text. */
+  formatting: CommentFormatSpan[] | null
   createdTime: string
   likeCount: number
   isLiked: boolean
@@ -96,6 +112,11 @@ function PostDetailView({ postId }: { postId: string }) {
   // field duplicated in every thread (issues #266, #289, #290).
   const [composer, setComposer] = useState<ComposerTarget | null>(null)
   const [composerText, setComposerText] = useState('')
+  // Inline formatting for the comment being composed (issue #318), tracked as
+  // a per-character attribute array aligned to composerText. The textarea ref
+  // lets the toolbar read the current selection to style.
+  const [composerAttrs, setComposerAttrs] = useState<CharAttrs>([])
+  const composerRef = useRef<HTMLTextAreaElement>(null)
   const [reportTarget, setReportTarget] = useState<ReportTarget | null>(null)
   const [reportReason, setReportReason] = useState('')
   const [deleteTarget, setDeleteTarget] = useState<DeleteTarget | null>(null)
@@ -151,7 +172,10 @@ function PostDetailView({ postId }: { postId: string }) {
         id: c.comment_identifier,
         threadId,
         authorUsername: c.author_username,
+        authorAvatarUrl: c.author_profile_image_url ?? null,
+        authorAvatarOriginalUrl: c.author_profile_image_original_url ?? null,
         body: c.body,
+        formatting: c.body_formatting ?? null,
         createdTime: c.creation_time,
         likeCount: c.comment_likes,
         isLiked: c.is_liked ?? likedCommentIds.current.has(c.comment_identifier),
@@ -307,7 +331,29 @@ function PostDetailView({ postId }: { postId: string }) {
 
   function openComposer(target: ComposerTarget) {
     setComposerText('')
+    setComposerAttrs([])
     setComposer(target)
+  }
+
+  // Keep the formatting attributes aligned with the text as the user edits.
+  function handleComposerTextChange(next: string) {
+    setComposerAttrs(prev => reconcileAttrs(prev, composerText, next))
+    setComposerText(next)
+  }
+
+  // Apply a formatting change to the textarea's current selection, then restore
+  // focus and the selection so the user can keep styling the same range.
+  function styleSelection(mutate: (attrs: CharAttrs, start: number, end: number) => CharAttrs) {
+    const textarea = composerRef.current
+    if (!textarea) return
+    const start = textarea.selectionStart
+    const end = textarea.selectionEnd
+    if (start === end) return
+    setComposerAttrs(prev => mutate(prev, start, end))
+    requestAnimationFrame(() => {
+      textarea.focus()
+      textarea.setSelectionRange(start, end)
+    })
   }
 
   // Submitting closes the dialog immediately and clears the text before the
@@ -317,13 +363,17 @@ function PostDetailView({ postId }: { postId: string }) {
     const text = composerText.trim()
     const target = composer
     if (!text || !target) return
+    // Compress the per-character attributes into API spans, aligned to the
+    // trimmed text we actually send (issue #318).
+    const formatting = spansForTrimmedComment(composerText, composerAttrs)
     setComposer(null)
     setComposerText('')
+    setComposerAttrs([])
     try {
       if (target.type === 'reply') {
-        await apiClient.replyToCommentThread(postId, target.thread.threadId, text)
+        await apiClient.replyToCommentThread(postId, target.thread.threadId, text, formatting)
       } else {
-        await apiClient.commentOnPost(postId, text)
+        await apiClient.commentOnPost(postId, text, formatting)
       }
       await loadAll()
     } catch (err) {
@@ -519,16 +569,23 @@ function PostDetailView({ postId }: { postId: string }) {
           </button>
         </div>
 
-        <p className="detail-caption">
+        <div className="author-line">
+          <Avatar
+            src={post.author_profile_image_url}
+            originalSrc={post.author_profile_image_original_url}
+            username={post.author_username}
+            size="sm"
+          />
           <button
             type="button"
             className="feed-post__author"
-            style={{ display: 'inline', padding: 0 }}
             onClick={() => navigate(profilePathFor(post.author_username))}
           >
             {post.author_username}
-          </button>{' '}
-          {post.caption}
+          </button>
+        </div>
+        <p className="detail-caption">
+          <span className={captionFontClass(post.caption_font)}>{post.caption}</span>
         </p>
 
         {/* When the post was made, at the same coarse granularity as comment
@@ -623,14 +680,74 @@ function PostDetailView({ postId }: { postId: string }) {
                 ? `Replying to ${composer.thread.comments[0]?.authorUsername ?? 'comment'}`
                 : 'Add a comment'}
             </h2>
+            {/* Inline formatting toolbar (issue #318): styles the current
+                selection in the textarea below. */}
+            <div className="format-toolbar" role="group" aria-label="Text formatting">
+              <button
+                type="button"
+                className="format-toolbar__btn"
+                aria-label="Bold selection"
+                onMouseDown={e => e.preventDefault()}
+                onClick={() => styleSelection((a, s, e) => toggleRange(a, s, e, 'bold'))}
+              >
+                <strong>B</strong>
+              </button>
+              <button
+                type="button"
+                className="format-toolbar__btn"
+                aria-label="Italic selection"
+                onMouseDown={e => e.preventDefault()}
+                onClick={() => styleSelection((a, s, e) => toggleRange(a, s, e, 'italic'))}
+              >
+                <em>I</em>
+              </button>
+              <label className="format-toolbar__size">
+                Size
+                {/* No onMouseDown preventDefault here: on a native <select> it
+                    can stop the dropdown from opening. A blurred textarea still
+                    retains its selection offsets, so styleSelection() reads the
+                    correct range on change. The value is pinned to "" (the
+                    placeholder) so re-picking the same size still fires onChange
+                    and can be applied to a new selection. */}
+                <select
+                  className="format-toolbar__select"
+                  aria-label="Text size for selection"
+                  value=""
+                  onChange={e => {
+                    const size = e.target.value as TextSize | ''
+                    if (!size) return
+                    styleSelection((a, s, en) => applyStyleToRange(a, s, en, { size }))
+                  }}
+                >
+                  <option value="">Size</option>
+                  {TEXT_SIZE_OPTIONS.map(size => (
+                    <option key={size} value={size}>
+                      {size}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            </div>
             <textarea
+              ref={composerRef}
               className="text-area"
               rows={4}
               aria-label="Comment text"
               autoFocus
               value={composerText}
-              onChange={e => setComposerText(e.target.value)}
+              onChange={e => handleComposerTextChange(e.target.value)}
             />
+            <p className="format-toolbar__hint muted">
+              Select text, then tap B, I, or Size to format it.
+            </p>
+            {composerText.trim() && (
+              <p className="comment-preview">
+                <FormattedText
+                  text={composerText.trim()}
+                  spans={spansForTrimmedComment(composerText, composerAttrs)}
+                />
+              </p>
+            )}
             <CharacterCounter value={composerText} max={MAX_COMMENT_LENGTH} />
             <div className="modal__actions">
               <button
@@ -831,9 +948,12 @@ function CommentRow({
 }: CommentRowProps) {
   return (
     <div className="comment-row">
-      <span className="comment-row__avatar" aria-hidden="true">
-        ◍
-      </span>
+      <Avatar
+        src={comment.authorAvatarUrl}
+        originalSrc={comment.authorAvatarOriginalUrl}
+        username={comment.authorUsername}
+        size="sm"
+      />
       <div className="comment-row__main">
         {/* The username + time form a header band. The chevron is the real,
             keyboard-accessible collapse control; the surrounding band also
@@ -883,7 +1003,9 @@ function CommentRow({
           </button>
         </div>
         {/* The comment body sits below the username/time header line. */}
-        <p className="comment-row__body">{comment.body}</p>
+        <p className="comment-row__body">
+          <FormattedText text={comment.body} spans={comment.formatting} />
+        </p>
         <div className="comment-row__info">
           {!comment.isOwn && (
             <button

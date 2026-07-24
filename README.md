@@ -32,11 +32,26 @@ hosts the user-search bar; while a search is active the results list replaces
 the profile body. Follow and Block are hidden on your own profile, since
 neither applies to yourself.
 
+Your **Followers** and **Following** counts are tappable on your own profile
+only: each opens a list of those users, and tapping a name opens that user's
+profile. These lists are private — you can only see your own. The endpoints
+(`GET /users/followers/`, `GET /users/following/`) take no username and always
+return the signed-in user's own lists, so another user's followers/following
+can't be requested. On anyone else's profile the counts are shown but are not
+tappable.
+
 Tapping another user's name anywhere (a post author, a search result, a comment
 author) opens that same profile view for them, with Follow and Block shown.
 Tapping **your own** name goes to the Profile tab instead of pushing a separate
 copy of the profile screen, so you always land on the same profile, with the
 bottom bar and search still in place.
+
+Each user may set a **profile photo**, shown next to their name everywhere it
+appears — post authors in the feed and on post details, comment authors, search
+results, the follower/following and blocked-user lists, and as a large avatar in
+the profile header. A user sets or replaces their own photo from their Profile
+tab (see **Profile photos** below); a user with no photo falls back to a neutral
+placeholder.
 
 Posts can be acted on directly from any list — the Profile grid, another user's
 profile grid, and the Feed — without opening the post first:
@@ -71,6 +86,34 @@ most recently saved first. It runs through the same visibility filter as every
 other listing, so a post that is hidden or whose author is shadow-banned after
 you saved it silently drops off rather than rendering as an empty tile.
 Unsaving a post from that screen removes its tile.
+
+## Text formatting (issue #318)
+
+Authors can style their text. The two surfaces work differently because the
+styling means different things:
+
+- **Post captions** carry a **whole-caption font** (`caption_font`) and a
+  **whole-tile background color** (`background_color`). Both are single
+  curated **keys**, not free-form values: fonts are `default`, `serif`,
+  `monospace`, `rounded`, `handwriting`; colors are `default`, `sky`, `mint`,
+  `blush`, `lemon`, `lavender`. Each client maps a key to a concrete,
+  contrast-checked font/color, so rendering stays consistent and legible across
+  web, iOS, and Android. Unknown keys are rejected; `default` reproduces the
+  original rendering, so legacy posts and older clients are unaffected.
+- **Comments** carry **inline** formatting (`body_formatting`): a list of range
+  **spans** over the plain comment text, each `{start, end, bold, italic,
+  size}`, where `size` is one of `small`/`normal`/`large`/`xlarge` and offsets
+  are **UTF-16 code-unit** indices (so JS/Kotlin/Swift index the string
+  identically). Spans must stay within bounds, be sorted and non-overlapping,
+  carry at least one active style, and number at most 100.
+
+The key invariant: **formatting never changes the text itself.** The caption
+and comment body are stored and moderated exactly as before — the AI
+classifiers and every input-validation rule run on the untouched plain text,
+and the formatting is separate metadata. There is no markup to parse, sanitize,
+or classify, and clients render styles by applying attributes to plain-text
+spans rather than interpreting embedded markup.
+
 ## Post classification (async)
 
 Every new post is checked against the guidelines by an AI classifier — a text
@@ -124,6 +167,45 @@ final-rejection tombstones (default 7 days, `--tombstone-days`; preview with
 
 Comments are still classified inline in the request (text-only, much smaller
 worst case); moving them to the same async flow is a tracked follow-up.
+
+## Age and identity
+
+The service is closed to under-16s, and adults and permitted minors are kept
+apart. Age comes from a date of birth supplied at registration or later via
+identity verification (`verify_identity`); the model keeps two derived flags
+rather than the raw date — `identity_is_verified` (an age was given) and
+`is_adult` (that age was 18 or older). The age thresholds live in
+`backend/user_system/constants.py` (`MINIMUM_AGE = 16`, `ADULT_AGE = 18`).
+
+Three rules follow from this:
+
+1. **No under-16s (issue #337).** Registration and `verify_identity` refuse
+   anyone who supplies a date of birth showing an age below `MINIMUM_AGE`:
+   register returns `403` with `reason_code: "age_restricted"` and creates no
+   account; `verify_identity` returns the same and leaves the account
+   unverified. Because under-16s are turned away here, any account that *is*
+   identity-verified but not an adult is necessarily 16 or 17 — a "permitted
+   minor". A date of birth is still optional at registration; an account
+   created without one is simply left unverified (and treated as an adult for
+   the segregation below, since its age is unknown).
+
+2. **Adults and minors are mutually invisible (issue #329).** Permitted minors
+   (16-17) form one visibility band and everyone else — adults plus
+   unverified accounts — forms the other. The two bands never see each other's
+   posts, comments, profiles, or search results, and cannot follow across the
+   divide. This is enforced centrally in
+   `backend/user_system/visibility.py` (`is_minor` / `in_same_age_band` and the
+   `visible_posts` / `visible_comments` / `searchable_users` / `can_view_post`
+   helpers), so every content path inherits it; cross-band profile and follow
+   attempts return the same "not found" / "does not exist" response as a
+   genuinely missing user so neither side can confirm the other by name. An
+   account always sees its own content.
+
+3. **No photos of babies or children (issue #336).** Even a permitted adult may
+   not post images of minors. This is content rule 9
+   (`backend/user_system/classifiers/classifier_constants.py`): the image
+   classifier rejects photos or images of babies, children, or anyone under 18,
+   reported to the author with `reason_code: "minors"`.
 
 ## Banning
 
@@ -248,11 +330,100 @@ real login from the device they signed up on is not flagged. Both the
 password login and the remember-me login paths perform the check. Sending the
 email is best-effort — a mail failure is logged but never blocks the login.
 
-## Post image cleanup
+## Serving post images
 
 Post images live in two S3 buckets: clients upload the original to the source
 bucket (`AWS_STORAGE_BUCKET_NAME`) and a Lambda mirrors a compressed copy to
 `AWS_COMPRESSED_STORAGE_BUCKET_NAME` under the same key.
+
+Both buckets are **private** (S3 Block Public Access + an Origin Access Control
+bucket policy). Reads happen only through CloudFront, and the backend signs every
+image URL it hands to a client, so an image is fetchable only with a valid,
+time-limited signature — a bare object URL returns 403 (issues #332, #341).
+Uploads are likewise never anonymous: clients PUT via short-lived presigned URLs
+minted by `POST /posts/upload-url/` (issue #310), so no client ever holds AWS
+credentials for either direction.
+
+Because the two buckets hold the same object key, two CloudFront domains front
+them (no URI rewriting needed):
+
+- `CLOUDFRONT_IMAGES_DOMAIN` → distribution → compressed bucket. The serialized
+  `image_url` is signed on this domain.
+- `CLOUDFRONT_ORIGINALS_DOMAIN` → distribution → source bucket. The serialized
+  `original_image_url` (the full-res fallback used while the async-compressed copy
+  is still missing, #252/#254) is signed on this domain.
+
+Signing lives in `backend/user_system/cloudfront.py` (`sign_compressed_url` /
+`sign_original_url`), invoked from every post-serialization site in `views.py`. A
+signed URL carries the object key as its path but **no bucket name**, and stays
+valid for `CLOUDFRONT_SIGNED_URL_EXPIRY_SECONDS` (default 24h — comfortably longer
+than a session, since clients embed these URLs in payloads they refetch on
+mount/refresh, while still bounding a leaked URL). Server-side image access (the
+classifier, `delete_image`, the orphan sweeper, `strip_image_metadata`) goes
+through credentialed boto3 and is unaffected by the buckets being private.
+
+If the CloudFront settings are unset — local dev, tests, or a not-yet-provisioned
+deploy — signing degrades gracefully to the legacy unsigned URLs, so nothing
+breaks; the read hole only actually closes once the infra below exists.
+
+**Backend env vars:** `CLOUDFRONT_IMAGES_DOMAIN`, `CLOUDFRONT_ORIGINALS_DOMAIN`,
+`CLOUDFRONT_KEY_PAIR_ID`, and the signing private key as either
+`CLOUDFRONT_PRIVATE_KEY` (inline PEM) or `CLOUDFRONT_PRIVATE_KEY_PATH` (a mounted
+file); optionally `CLOUDFRONT_SIGNED_URL_EXPIRY_SECONDS`.
+
+**One-time AWS setup (not automated):**
+
+1. Two CloudFront distributions with Origin Access Control to the compressed and
+   source buckets, each on a custom domain (`images.smiling.social` /
+   `originals.smiling.social`)
+   with an ACM cert and DNS.
+2. Turn on Block Public Access for both buckets and set a bucket policy allowing
+   only the two OAC principals (removing any legacy public-read).
+3. Create a CloudFront public key + key group (trusted signer) and attach it to
+   both distributions; deliver the matching private key to the backend as
+   `CLOUDFRONT_PRIVATE_KEY[_PATH]` and its id as `CLOUDFRONT_KEY_PAIR_ID`.
+
+## Profile photos
+
+A user's profile photo is stored on the user (`profile_image_url`) and served
+next to their name in every list and detail payload as `author_profile_image_url`
+with `author_profile_image_original_url` as the full-resolution fallback — the
+same CloudFront-signed compressed-plus-original pairing post images use (see
+**Serving post images** above), for the same reason (the compressed copy can
+briefly lag; #252/#254). Only an **approved** photo is ever shown to anyone else.
+
+Setting a photo reuses the post upload path: the client uploads a re-encoded,
+EXIF-stripped JPEG through the presigned-PUT flow (`POST /posts/upload-url/`,
+which scopes the key to the uploading user), then calls `POST /profile/photo/`
+with the returned URL. Because a profile photo is an image broadcast next to the
+user's name across the whole network, it is **moderated exactly like a post
+image** and off the request path (issue #282's async pipeline): the upload is
+stored on the user as `pending_profile_image_url` with
+`profile_image_status = "pending"` and classified by the same image cascade in a
+worker (`classify_profile_photo`). On approval it becomes the live
+`profile_image_url` and the previously approved photo is cleaned from S3; on
+rejection it is dropped (its S3 object deleted) and the owner is told in-app via
+`profile_image_status = "rejected"` and `profile_image_reason_code`, so they can
+pick a different picture. A previously approved photo stays live and visible
+while a new upload is under review, and a rejected upload never replaces it.
+Profile photos are **not appealable** — unlike a post, the remedy is simply to
+choose another image — so there is no appealable/final split or tombstone. The
+owner's own profile-details response carries the pending/rejected state
+(`profile_image_status`, `profile_image_reason_code`,
+`pending_profile_image_url`); no one else ever sees it. `POST /profile/photo/remove/`
+clears the photo entirely.
+
+Reconciliation mirrors posts: `sweep_classifications` re-enqueues a photo stuck
+in `pending` past the threshold, or — once its retry budget is spent — leaves it
+pending (fail closed, never shown) and alerts an operator exactly once.
+
+## Post image cleanup
+
+Post images live in two S3 buckets: clients upload the original to the source
+bucket (`AWS_STORAGE_BUCKET_NAME`) and a Lambda mirrors a compressed copy to
+`AWS_COMPRESSED_STORAGE_BUCKET_NAME` under the same key. Profile photos live in
+the same buckets under the same `{user_id}/` prefix and are cleaned up the same
+way.
 
 Every client strips image metadata before uploading. Each uploader (web
 `s3Uploader.ts`, iOS `AWSManager.swift`, Android `ImageUploader.kt`) always
@@ -284,12 +455,16 @@ denied. Cleanup happens at two levels (see `backend/user_system/s3.py`):
   classification worker. It is best-effort: failures are logged and never
   block the request (or the worker).
 - **Sweeper** — the `cleanup_orphan_images` management command lists both
-  buckets and deletes any object no live `Post` references. A grace window
-  (default 24h, `--grace-hours`) protects objects too new to have become a post
-  yet and the brief window where the Lambda writes a compressed copy just after
-  a rejection cleaned up the original. Run it with `--dry-run` to preview. It is
-  scheduled as a daily systemd timer on the app host (`setup-django.sh`), not in
-  CI, because it needs both the database and AWS credentials.
+  buckets and deletes any object no live `Post` **and no user profile photo**
+  references. Both a user's approved `profile_image_url` and any
+  `pending_profile_image_url` still under review are treated as live, so the
+  sweep never reclaims an avatar out from under a user or deletes an upload
+  mid-review. A grace window (default 24h, `--grace-hours`) protects objects too
+  new to have become a post yet and the brief window where the Lambda writes a
+  compressed copy just after a rejection cleaned up the original. Run it with
+  `--dry-run` to preview. It is scheduled as a daily systemd timer on the app
+  host (`setup-django.sh`), not in CI, because it needs both the database and
+  AWS credentials.
 
 The backend's IAM credentials need `s3:DeleteObject` on both buckets for either
 path to take effect, plus `s3:ListBucket` on both buckets for the sweeper to
