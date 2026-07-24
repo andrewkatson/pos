@@ -38,6 +38,8 @@ from .constants import Patterns, Params, POST_BATCH_SIZE, MAX_BEFORE_HIDING_POST
     MAX_APPEAL_REASON_LENGTH, \
     TWO_FACTOR_CHALLENGE_MINUTES, TWO_FACTOR_MAX_ATTEMPTS, NUM_RECOVERY_CODES, \
     LEN_RECOVERY_CODE_HEX, TOTP_ISSUER, INVALID_TWO_FACTOR_CHALLENGE, \
+    DEFAULT_STYLE_KEY, ALLOWED_CAPTION_FONTS, ALLOWED_BACKGROUND_COLORS, \
+    ALLOWED_TEXT_SIZES, MAX_COMMENT_FORMAT_SPANS, \
     MINIMUM_AGE, ADULT_AGE, AGE_RESTRICTED
 from .feed_algorithm import feed_algorithm
 from .input_validator import is_valid_pattern
@@ -177,6 +179,123 @@ def _get_json_body(request):
         return json.loads(request.body)
     except json.JSONDecodeError:
         return None
+
+
+# =============================================================================
+# TEXT-FORMATTING VALIDATION (issue #318)
+# =============================================================================
+
+def _normalize_caption_style(data):
+    """Read and validate the optional caption font + background color from a
+    make_post payload. Returns (font, color, invalid_fields): the values are
+    always usable (they fall back to DEFAULT_STYLE_KEY), and invalid_fields
+    names any field whose provided value was not an allowed key so the caller
+    can reject the request. Absent/None fields are treated as the default and
+    are not errors, keeping the fields optional and back-compatible."""
+    invalid_fields = []
+
+    raw_font = data.get(Fields.caption_font)
+    if raw_font in (None, ""):
+        font = DEFAULT_STYLE_KEY
+    elif isinstance(raw_font, str) and raw_font in ALLOWED_CAPTION_FONTS:
+        font = raw_font
+    else:
+        font = DEFAULT_STYLE_KEY
+        invalid_fields.append(Params.caption_font)
+
+    raw_color = data.get(Fields.background_color)
+    if raw_color in (None, ""):
+        color = DEFAULT_STYLE_KEY
+    elif isinstance(raw_color, str) and raw_color in ALLOWED_BACKGROUND_COLORS:
+        color = raw_color
+    else:
+        color = DEFAULT_STYLE_KEY
+        invalid_fields.append(Params.background_color)
+
+    return font, color, invalid_fields
+
+
+def _utf16_length(text):
+    """Length of `text` in UTF-16 code units. Comment formatting offsets are
+    expressed in UTF-16 units so JS/Kotlin/Swift clients (all UTF-16 or with a
+    native .utf16 view) can index the string identically; Python strings are
+    code-point based, so we measure the UTF-16 length explicitly for bounds
+    checks. `surrogatepass` is used so a payload containing a lone surrogate
+    (which the JSON decoder can produce, e.g. "\\ud800") is measured rather than
+    raising UnicodeEncodeError and turning a malformed request into a 500."""
+    return len(text.encode("utf-16-le", "surrogatepass")) // 2
+
+
+def validate_comment_formatting(raw, body):
+    """Validate an inline comment-formatting payload against `body`.
+
+    Returns (formatting, error): on success `formatting` is the normalized list
+    of spans to store (or None when absent/empty) and `error` is None; on
+    failure `formatting` is None and `error` is a short message.
+
+    Rules (see issue #318): the payload is optional (None/absent/[] -> no
+    formatting). Otherwise it must be a list of at most MAX_COMMENT_FORMAT_SPANS
+    spans, each a dict with integer start/end satisfying
+    0 <= start < end <= utf16_len(body), an optional size in ALLOWED_TEXT_SIZES,
+    optional boolean bold/italic, and at least one active style (so empty spans
+    can't accumulate). Spans must be sorted by start and non-overlapping, which
+    makes client rendering a deterministic slice of the plain text."""
+    if raw in (None, []):
+        return None, None
+    if not isinstance(raw, list):
+        return None, "formatting must be a list"
+    if len(raw) > MAX_COMMENT_FORMAT_SPANS:
+        return None, "too many formatting spans"
+
+    max_offset = _utf16_length(body)
+    normalized = []
+    prev_end = 0
+    for span in raw:
+        if not isinstance(span, dict):
+            return None, "each formatting span must be an object"
+        start = span.get("start")
+        end = span.get("end")
+        # bool is a subclass of int; reject it explicitly so True/False can't be
+        # smuggled in as offsets.
+        if (not isinstance(start, int) or isinstance(start, bool)
+                or not isinstance(end, int) or isinstance(end, bool)):
+            return None, "span start/end must be integers"
+        if not (0 <= start < end <= max_offset):
+            return None, "span out of bounds"
+        if start < prev_end:
+            return None, "spans must be sorted and non-overlapping"
+
+        bold = span.get("bold", False)
+        italic = span.get("italic", False)
+        if not isinstance(bold, bool) or not isinstance(italic, bool):
+            return None, "span bold/italic must be booleans"
+
+        size = span.get("size", "normal")
+        if size is None:
+            size = "normal"
+        if size not in ALLOWED_TEXT_SIZES:
+            return None, "invalid span size"
+
+        if not bold and not italic and size == "normal":
+            return None, "span has no formatting"
+
+        normalized.append({
+            "start": start, "end": end,
+            "bold": bold, "italic": italic, "size": size,
+        })
+        prev_end = end
+
+    return normalized, None
+
+
+def _caption_style_fields(post):
+    """The caption font + background color fields for a serialized post (#318).
+    Falls back to the default key so legacy rows with NULL values still render
+    consistently."""
+    return {
+        Fields.caption_font: post.caption_font or DEFAULT_STYLE_KEY,
+        Fields.background_color: post.background_color or DEFAULT_STYLE_KEY,
+    }
 
 
 def api_login_required(view_func):
@@ -1482,7 +1601,11 @@ def make_post(request):
         image_url = raw_image_url
     
     caption = data.get(Fields.caption)
-    
+
+    # Optional whole-caption font + whole-tile background color (issue #318).
+    caption_font, background_color, style_invalid = _normalize_caption_style(data)
+    invalid_fields.extend(style_invalid)
+
     if image_url:
         if not is_valid_pattern(image_url, Patterns.image_url):
             invalid_fields.append(Params.image)
@@ -1526,8 +1649,9 @@ def make_post(request):
     # to its author with no extra wiring; the worker later flips it to visible,
     # or to hidden + appealable, or to a final-rejection tombstone.
     new_post = request.user.post_set.create(
-        image_url=image_url, caption=caption, hidden=True,
-        hidden_reason=HIDDEN_REASON_PENDING_CLASSIFICATION)
+        image_url=image_url, caption=caption,
+        caption_font=caption_font, background_color=background_color,
+        hidden=True, hidden_reason=HIDDEN_REASON_PENDING_CLASSIFICATION)
     tasks.enqueue_classification(new_post.post_identifier)
 
     logger.info(f"Post created pending classification: post_id: {new_post.post_identifier} for user_id: {request.user.id}")
@@ -1913,6 +2037,7 @@ def get_posts_in_feed(request, batch):
                 Fields.original_image_url: sign_original_url(post.image_url),
                 Fields.author_username: post.author.username,
                 Fields.caption: post.caption,
+                **_caption_style_fields(post),
                 **interaction_state(post),
                 # Authors see their own pending/hidden posts in feeds, so their
                 # payloads carry the classification state for the client to
@@ -1960,6 +2085,7 @@ def get_posts_for_followed_users(request, batch):
             Fields.original_image_url: sign_original_url(post.image_url),
             Fields.author_username: post.author.username,
             Fields.caption: post.caption,
+            **_caption_style_fields(post),
             **interaction_state(post),
             **_author_status_fields(post, request.user),
         }
@@ -2015,6 +2141,7 @@ def get_posts_for_user(request, username, batch):
                 # user re-logs in. See issues #252 and #254.
                 Fields.original_image_url: sign_original_url(post.image_url),
                 Fields.caption: post.caption,
+                **_caption_style_fields(post),
                 Fields.author_username: target_user.username,
                 **interaction_state(post),
                 # The author's own profile grid includes pending/hidden posts;
@@ -2049,6 +2176,7 @@ def get_post_details(request, post_identifier):
             # Lambda-generated compressed copy is still missing (#252/#254).
             Fields.original_image_url: sign_original_url(post.image_url),
             Fields.caption: post.caption,
+            **_caption_style_fields(post),
             Fields.creation_time: post.creation_time,
             Fields.post_likes: total_likes,
             Fields.is_liked: post.postlike_set.filter(user=request.user).exists(),
@@ -2090,6 +2218,12 @@ def comment_on_post(request, post_identifier):
     if len(comment_text) > MAX_COMMENT_LENGTH:
         return log_and_return_json("comment_on_post", {'error': f"Comment exceeds maximum length of {MAX_COMMENT_LENGTH} characters"}, status=400)
 
+    # Optional inline formatting (issue #318) over the plain comment text.
+    body_formatting, formatting_error = validate_comment_formatting(
+        data.get(Fields.body_formatting), comment_text)
+    if formatting_error is not None:
+        return log_and_return_json("comment_on_post", {'error': f"Invalid formatting: {formatting_error}"}, status=400)
+
     # Resolve and visibility-check the post before running the (expensive) AI
     # classifier, so a leaked/guessed UUID for a missing or hidden post cannot
     # trigger classifier calls (avoidable cost / billing amplification). Treat a
@@ -2116,7 +2250,8 @@ def comment_on_post(request, post_identifier):
     # Create a new thread for this top-level comment
     comment_thread = post.commentthread_set.create()
     new_comment = comment_thread.comment_set.create(
-        author=request.user, body=comment_text, hidden=hidden,
+        author=request.user, body=comment_text, body_formatting=body_formatting,
+        hidden=hidden,
         hidden_reason=HIDDEN_REASON_CLASSIFIER if hidden else HIDDEN_REASON_NONE)
 
     response_data = {
@@ -2164,6 +2299,12 @@ def reply_to_comment_thread(request, post_identifier, comment_thread_identifier)
     if len(comment_text) > MAX_COMMENT_LENGTH:
         return log_and_return_json("reply_to_comment_thread", {'error': f"Comment exceeds maximum length of {MAX_COMMENT_LENGTH} characters"}, status=400)
 
+    # Optional inline formatting (issue #318) over the plain reply text.
+    body_formatting, formatting_error = validate_comment_formatting(
+        data.get(Fields.body_formatting), comment_text)
+    if formatting_error is not None:
+        return log_and_return_json("reply_to_comment_thread", {'error': f"Invalid formatting: {formatting_error}"}, status=400)
+
     # Resolve and visibility-check the thread/parent post before running the
     # (expensive) AI classifier, so a leaked/guessed UUID for a missing or
     # hidden thread cannot trigger classifier calls (avoidable cost / billing
@@ -2193,7 +2334,8 @@ def reply_to_comment_thread(request, post_identifier, comment_thread_identifier)
 
     hidden = not text_result
     new_comment = comment_thread.comment_set.create(
-        author=request.user, body=comment_text, hidden=hidden,
+        author=request.user, body=comment_text, body_formatting=body_formatting,
+        hidden=hidden,
         hidden_reason=HIDDEN_REASON_CLASSIFIER if hidden else HIDDEN_REASON_NONE)
 
     response_data = {Fields.comment_identifier: new_comment.comment_identifier}
@@ -2542,6 +2684,7 @@ def get_comments_for_thread(request, comment_thread_identifier, batch):
         {
             Fields.comment_identifier: comment.comment_identifier,
             Fields.body: comment.body,
+            Fields.body_formatting: comment.body_formatting,
             Fields.author_username: comment.author.username,
             Fields.creation_time: comment.creation_time,
             Fields.updated_time: comment.updated_time,
@@ -2864,6 +3007,7 @@ def get_hidden_posts(request, batch):
             Fields.post_identifier: post.post_identifier,
             Fields.image_url: sign_compressed_url(post.image_url),
             Fields.caption: post.caption,
+            **_caption_style_fields(post),
             Fields.hidden_reason: post.hidden_reason,
             Fields.creation_time: post.creation_time,
             Fields.has_appeal: post.post_identifier in appealed_ids,
@@ -2891,6 +3035,7 @@ def get_hidden_comments(request, batch):
         {
             Fields.comment_identifier: comment.comment_identifier,
             Fields.body: comment.body,
+            Fields.body_formatting: comment.body_formatting,
             Fields.hidden_reason: comment.hidden_reason,
             Fields.creation_time: comment.creation_time,
             Fields.has_appeal: comment.comment_identifier in appealed_ids,

@@ -135,10 +135,46 @@ export interface CreateUploadUrlResponse {
   image_url: string
 }
 
+// ---------------------------------------------------------------------------
+// Text formatting (issue #318)
+// ---------------------------------------------------------------------------
+
+/** Curated whole-caption font keys. `default` is the normal UI font. */
+export type CaptionFont = 'default' | 'serif' | 'monospace' | 'rounded' | 'handwriting'
+
+/** Curated whole-tile background color keys. `default` is the normal tile. */
+export type BackgroundColor =
+  | 'default'
+  | 'sky'
+  | 'mint'
+  | 'blush'
+  | 'lemon'
+  | 'lavender'
+
+/** Inline text-size keys for a comment span. */
+export type TextSize = 'small' | 'normal' | 'large' | 'xlarge'
+
+/**
+ * One inline-formatting span over a comment's plain `body` (issue #318).
+ * Offsets are UTF-16 code-unit indices (matching JS string indexing);
+ * `0 <= start < end <= body.length`. Spans are sorted and non-overlapping.
+ */
+export interface CommentFormatSpan {
+  start: number
+  end: number
+  bold: boolean
+  italic: boolean
+  size: TextSize
+}
+
 export interface CreatePostRequest {
   /** Omitted for a text-only post (#307). */
   image_url?: string
   caption: string
+  /** Whole-caption font (issue #318); omitted/`default` renders normally. */
+  caption_font?: CaptionFont
+  /** Whole-tile background color (issue #318); omitted/`default` is normal. */
+  background_color?: BackgroundColor
 }
 
 /**
@@ -191,6 +227,10 @@ export interface FeedPost {
   original_image_url?: string | null
   author_username: string
   caption: string
+  /** Whole-caption font key (issue #318); absent/`default` renders normally. */
+  caption_font?: CaptionFont
+  /** Whole-tile background color key (issue #318); absent/`default` is normal. */
+  background_color?: BackgroundColor
   /** Total likes on the post. Present so a grid tile can show a like control
    * without opening the post first (issue #267). Older responses that predate
    * the field omit it. */
@@ -234,6 +274,10 @@ export interface PostDetails {
    * nullable, so this can be null; older responses that predate the field
    * omit it entirely. */
   creation_time?: string | null
+  /** Whole-caption font key (issue #318); absent/`default` renders normally. */
+  caption_font?: CaptionFont
+  /** Whole-tile background color key (issue #318); absent/`default` is normal. */
+  background_color?: BackgroundColor
   post_likes: number
   /** Whether the requesting user has liked this post. */
   is_liked?: boolean
@@ -267,6 +311,8 @@ export interface CommentThreadRef {
 export interface Comment {
   comment_identifier: string
   body: string
+  /** Inline formatting spans over `body` (issue #318). Absent/null = plain. */
+  body_formatting?: CommentFormatSpan[] | null
   author_username: string
   creation_time: string
   updated_time: string
@@ -309,6 +355,10 @@ export interface HiddenPost {
   /** Null for a text-only post (#307). */
   image_url: string | null
   caption: string
+  /** Whole-caption font key (issue #318); absent/`default` renders normally. */
+  caption_font?: CaptionFont
+  /** Whole-tile background color key (issue #318); absent/`default` is normal. */
+  background_color?: BackgroundColor
   /** Why it was hidden: 'classifier', 'reports', or '' (unspecified). */
   hidden_reason: string
   creation_time: string
@@ -320,6 +370,8 @@ export interface HiddenPost {
 export interface HiddenComment {
   comment_identifier: string
   body: string
+  /** Inline formatting spans over `body` (issue #318). Absent/null = plain. */
+  body_formatting?: CommentFormatSpan[] | null
   hidden_reason: string
   creation_time: string
   has_appeal: boolean

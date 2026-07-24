@@ -141,10 +141,29 @@ data class ResendVerificationEmailRequest(
 
 // --- Post DTOs ---
 
+/**
+ * One inline-formatting span over a comment's plain `body` (issue #318).
+ * Offsets are UTF-16 code-unit indices (matching Kotlin/JS string indexing and
+ * the backend contract): `0 <= start < end <= body.length`. Spans are sorted
+ * and non-overlapping. The plain `body` is never modified — formatting is
+ * separate metadata, so moderation still classifies plain text.
+ */
+data class CommentFormatSpan(
+    val start: Int,
+    val end: Int,
+    val bold: Boolean = false,
+    val italic: Boolean = false,
+    // One of "small", "normal", "large", "xlarge".
+    val size: String = "normal"
+)
+
 data class CreatePostRequest(
     // Null for a text-only post (#307); Gson omits null fields from the body.
     @SerializedName("image_url") val imageUrl: String? = null,
-    val caption: String
+    val caption: String,
+    // Whole-caption font + whole-tile background color keys (issue #318).
+    @SerializedName("caption_font") val captionFont: String = "default",
+    @SerializedName("background_color") val backgroundColor: String = "default"
 )
 
 data class CreatePostResponse(
@@ -232,13 +251,22 @@ data class Post(
     val status: String? = null,
     val hidden: Boolean? = null,
     @SerializedName("hidden_reason") val hiddenReason: String? = null,
-    val appealable: Boolean? = null
+    val appealable: Boolean? = null,
+    // Whole-caption font + whole-tile background color keys (issue #318). At the
+    // end of the list so existing positional constructions are unaffected.
+    // Nullable because Gson does not apply Kotlin default values for absent JSON
+    // fields (an older response omitting them yields null); the render layer
+    // treats null as "default".
+    @SerializedName("caption_font") val captionFont: String? = null,
+    @SerializedName("background_color") val backgroundColor: String? = null
 )
 
 // --- Comment DTOs ---
 
 data class CommentRequest(
-    @SerializedName("comment_text") val commentText: String
+    @SerializedName("comment_text") val commentText: String,
+    // Inline formatting spans (issue #318); null omits the field from the body.
+    @SerializedName("body_formatting") val bodyFormatting: List<CommentFormatSpan>? = null
 )
 
 data class CommentResponse(
@@ -261,7 +289,10 @@ data class CommentDto(
     // Whether the current user has an active report against this comment, plus
     // their own report reason for the pre-populated retract dialog (issue #176).
     @SerializedName("is_reported") val isReported: Boolean = false,
-    @SerializedName("report_reason") val reportReason: String? = null
+    @SerializedName("report_reason") val reportReason: String? = null,
+    // Inline formatting spans over `body` (issue #318); null = plain text. At
+    // the end with a default so existing positional constructions are unaffected.
+    @SerializedName("body_formatting") val bodyFormatting: List<CommentFormatSpan>? = null
 )
 
 // --- User/Profile DTOs ---
@@ -321,7 +352,10 @@ data class PostDisplayData(
     val imageURL: String?,
     val caption: String,
     val likeCount: Int,
-    val authorUsername: String
+    val authorUsername: String,
+    // Caption font + background color keys (issue #318); "default" is normal.
+    val captionFont: String = "default",
+    val backgroundColor: String = "default"
 )
 
 data class CommentViewData(
@@ -335,7 +369,10 @@ data class CommentViewData(
     // Whether the current user has an active report against this comment, and
     // their reason so the retract dialog can pre-populate it (issue #176).
     val isReported: Boolean = false,
-    val reportReason: String? = null
+    val reportReason: String? = null,
+    // Inline formatting spans over `body` (issue #318); null = plain text. At
+    // the end with a default so existing positional constructions are unaffected.
+    val formatting: List<CommentFormatSpan>? = null
 )
 
 data class CommentThreadViewData(
@@ -353,7 +390,12 @@ data class HiddenPost(
     @SerializedName("image_url") val imageUrl: String? = null,
     val caption: String,
     @SerializedName("hidden_reason") val hiddenReason: String = "",
-    @SerializedName("has_appeal") val hasAppeal: Boolean = false
+    @SerializedName("has_appeal") val hasAppeal: Boolean = false,
+    // Caption font + background color keys (issue #318); nullable because Gson
+    // does not apply Kotlin defaults for absent JSON fields. The render layer
+    // treats null as "default".
+    @SerializedName("caption_font") val captionFont: String? = null,
+    @SerializedName("background_color") val backgroundColor: String? = null
 )
 
 /** One of the signed-in user's hidden comments. */
@@ -361,7 +403,9 @@ data class HiddenComment(
     @SerializedName("comment_identifier") val commentIdentifier: String,
     val body: String,
     @SerializedName("hidden_reason") val hiddenReason: String = "",
-    @SerializedName("has_appeal") val hasAppeal: Boolean = false
+    @SerializedName("has_appeal") val hasAppeal: Boolean = false,
+    // Inline formatting spans over `body` (issue #318); null = plain text.
+    @SerializedName("body_formatting") val bodyFormatting: List<CommentFormatSpan>? = null
 )
 
 /** An appeal the signed-in user has filed, with its current status. */

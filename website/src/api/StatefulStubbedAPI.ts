@@ -7,7 +7,10 @@ import { ApiError, INVALID_TWO_FACTOR_CHALLENGE } from './client'
 import type { PositiveOnlySocialAPI } from './PositiveOnlySocialAPI'
 import type {
   AuthResponse,
+  BackgroundColor,
+  CaptionFont,
   Comment,
+  CommentFormatSpan,
   CommentOnPostResponse,
   CommentThreadRef,
   ConfirmTotpRequest,
@@ -127,6 +130,9 @@ interface PostMock {
   /** Null for a text-only post (#307). */
   imageUrl: string | null
   caption: string
+  /** Whole-caption font + whole-tile background color keys (issue #318). */
+  captionFont: CaptionFont
+  backgroundColor: BackgroundColor
   creationTime: number
   hidden: boolean
   hiddenReason: string
@@ -141,6 +147,8 @@ interface CommentMock {
   commentIdentifier: string
   authorId: string
   body: string
+  /** Inline formatting spans over `body` (issue #318); null = plain. */
+  bodyFormatting: CommentFormatSpan[] | null
   creationTime: number
   hidden: boolean
   hiddenReason: string
@@ -622,6 +630,8 @@ export class StatefulStubbedAPI implements PositiveOnlySocialAPI {
       authorId: user.id,
       imageUrl: body.image_url ?? null,
       caption: body.caption,
+      captionFont: body.caption_font ?? 'default',
+      backgroundColor: body.background_color ?? 'default',
       creationTime: Date.now(),
       hidden: true,
       hiddenReason: 'pending_classification',
@@ -768,6 +778,8 @@ export class StatefulStubbedAPI implements PositiveOnlySocialAPI {
       original_image_url: post.imageUrl,
       author_username: author ? author.username : '',
       caption: post.caption,
+      caption_font: post.captionFont,
+      background_color: post.backgroundColor,
       ...this.authorStatusFields(post, viewerId),
     }
   }
@@ -823,6 +835,8 @@ export class StatefulStubbedAPI implements PositiveOnlySocialAPI {
       image_url: post.imageUrl,
       original_image_url: post.imageUrl,
       caption: post.caption,
+      caption_font: post.captionFont,
+      background_color: post.backgroundColor,
       creation_time: new Date(post.creationTime).toISOString(),
       post_likes: post.likes.size,
       is_liked: post.likes.has(user.id),
@@ -869,6 +883,7 @@ export class StatefulStubbedAPI implements PositiveOnlySocialAPI {
   async commentOnPost(
     postIdentifier: string,
     commentText: string,
+    formatting?: CommentFormatSpan[],
   ): Promise<CommentOnPostResponse> {
     const user = this.requireUser()
     this.findPost(postIdentifier)
@@ -882,6 +897,7 @@ export class StatefulStubbedAPI implements PositiveOnlySocialAPI {
       commentIdentifier: newId(),
       authorId: user.id,
       body: commentText,
+      bodyFormatting: formatting && formatting.length > 0 ? formatting : null,
       creationTime: Date.now(),
       hidden: false,
       hiddenReason: '',
@@ -899,6 +915,7 @@ export class StatefulStubbedAPI implements PositiveOnlySocialAPI {
     postIdentifier: string,
     commentThreadIdentifier: string,
     commentText: string,
+    formatting?: CommentFormatSpan[],
   ): Promise<ReplyResponse> {
     const user = this.requireUser()
     const thread = this.commentThreads.find(
@@ -911,6 +928,7 @@ export class StatefulStubbedAPI implements PositiveOnlySocialAPI {
       commentIdentifier: newId(),
       authorId: user.id,
       body: commentText,
+      bodyFormatting: formatting && formatting.length > 0 ? formatting : null,
       creationTime: Date.now(),
       hidden: false,
       hiddenReason: '',
@@ -952,6 +970,7 @@ export class StatefulStubbedAPI implements PositiveOnlySocialAPI {
       return {
         comment_identifier: c.commentIdentifier,
         body: c.body,
+        body_formatting: c.bodyFormatting,
         author_username: author ? author.username : '',
         creation_time: time,
         updated_time: time,
@@ -1194,6 +1213,8 @@ export class StatefulStubbedAPI implements PositiveOnlySocialAPI {
       post_identifier: p.postIdentifier,
       image_url: p.imageUrl,
       caption: p.caption,
+      caption_font: p.captionFont,
+      background_color: p.backgroundColor,
       hidden_reason: p.hiddenReason,
       creation_time: new Date(p.creationTime).toISOString(),
       has_appeal: this.hasAppeal(p.postIdentifier),
@@ -1209,6 +1230,7 @@ export class StatefulStubbedAPI implements PositiveOnlySocialAPI {
     return this.batch(hidden, batch, COMMENT_BATCH_SIZE).map((c) => ({
       comment_identifier: c.commentIdentifier,
       body: c.body,
+      body_formatting: c.bodyFormatting,
       hidden_reason: c.hiddenReason,
       creation_time: new Date(c.creationTime).toISOString(),
       has_appeal: this.hasAppeal(c.commentIdentifier),

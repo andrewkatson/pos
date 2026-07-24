@@ -1111,3 +1111,154 @@
 .twofa-toggle-kind:hover {
   opacity: 0.75;
 }
+
+/* =========================================================================
+   Text formatting for posts & comments (issue #318)
+   ========================================================================= */
+
+/* ---- Caption fonts (whole-caption font choice) ---- */
+.caption-font--serif {
+  font-family: Georgia, 'Times New Roman', serif;
+}
+.caption-font--monospace {
+  font-family: 'SFMono-Regular', Menlo, Consolas, 'Liberation Mono', monospace;
+}
+.caption-font--rounded {
+  font-family: ui-rounded, 'Hiragino Maru Gothic ProN', Quicksand, 'Segoe UI', system-ui,
+    sans-serif;
+}
+.caption-font--handwriting {
+  font-family: 'Segoe Script', 'Bradley Hand', 'Comic Sans MS', cursive;
+}
+
+/* ---- Post background colors (whole-tile background) ----
+   `.post-bg` is the default (the same gradient the caption tile uses); each
+   `.post-bg--x` overrides it with a pastel + a legible dark text color. These
+   sit after `.caption-tile` so, at equal specificity, they win by source order
+   when both classes are on the same element. */
+.post-bg {
+  background: linear-gradient(135deg, #2b5876, #5ba4dc);
+  color: #ffffff;
+}
+.post-bg--default {
+  background: linear-gradient(135deg, #2b5876, #5ba4dc);
+  color: #ffffff;
+}
+.post-bg--sky {
+  background: #dff1ff;
+  color: #10334a;
+}
+.post-bg--mint {
+  background: #dcf7e8;
+  color: #14432b;
+}
+.post-bg--blush {
+  background: #ffe4ec;
+  color: #4a1327;
+}
+.post-bg--lemon {
+  background: #fff6cc;
+  color: #4a3d0a;
+}
+.post-bg--lavender {
+  background: #ece3ff;
+  color: #2f1a4a;
+}
+
+/* ---- Inline comment styles ---- */
+.fmt-bold {
+  font-weight: 700;
+}
+.fmt-italic {
+  font-style: italic;
+}
+.fmt-size--small {
+  font-size: 0.85em;
+}
+.fmt-size--large {
+  font-size: 1.25em;
+}
+.fmt-size--xlarge {
+  font-size: 1.5em;
+}
+
+/* ---- New-post caption preview ---- */
+.caption-preview {
+  border-radius: 12px;
+  padding: 1rem;
+  min-height: 64px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+}
+.caption-preview__text {
+  margin: 0;
+  font-weight: 600;
+  line-height: 1.3;
+  overflow-wrap: anywhere;
+}
+
+/* ---- Background color swatch picker ---- */
+.color-swatches {
+  display: flex;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+.color-swatch {
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  border: 2px solid rgba(255, 255, 255, 0.35);
+  cursor: pointer;
+  padding: 0;
+}
+.color-swatch--selected {
+  border-color: #5ba4dc;
+  box-shadow: 0 0 0 2px #5ba4dc;
+}
+.color-swatch:disabled {
+  cursor: not-allowed;
+  opacity: 0.6;
+}
+
+/* ---- Comment formatting toolbar ---- */
+.format-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin-bottom: 0.5rem;
+}
+.format-toolbar__btn {
+  min-width: 2rem;
+  height: 2rem;
+  border-radius: 6px;
+  border: 1px solid rgba(255, 255, 255, 0.25);
+  background: none;
+  color: inherit;
+  cursor: pointer;
+}
+.format-toolbar__btn:hover {
+  opacity: 0.8;
+}
+.format-toolbar__size {
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
+  font-size: 0.85rem;
+}
+.format-toolbar__select {
+  border-radius: 6px;
+  padding: 0.15rem 0.35rem;
+}
+.format-toolbar__hint {
+  font-size: 0.75rem;
+  margin: 0.25rem 0;
+}
+.comment-preview {
+  margin: 0.5rem 0;
+  padding: 0.5rem 0.75rem;
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.06);
+  overflow-wrap: anywhere;
+}

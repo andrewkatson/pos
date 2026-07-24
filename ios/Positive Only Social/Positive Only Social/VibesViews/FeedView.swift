@@ -119,6 +119,8 @@ struct ForYouFeedView: View {
                                         imageUrl: post.imageUrl,
                                         originalImageUrl: post.originalImageUrl,
                                         caption: post.caption,
+                                        captionFont: post.captionFont,
+                                        backgroundColor: post.backgroundColor,
                                         placeholderColor: Color(.systemGray5)
                                     )
                                 }
@@ -198,6 +200,8 @@ struct FollowingFeedView: View {
                                         imageUrl: post.imageUrl,
                                         originalImageUrl: post.originalImageUrl,
                                         caption: post.caption,
+                                        captionFont: post.captionFont,
+                                        backgroundColor: post.backgroundColor,
                                         placeholderColor: Color(.systemGray5)
                                     )
                                 }

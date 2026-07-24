@@ -89,6 +89,11 @@ struct Post: Codable, Identifiable, Hashable {
     /// Optional for backward compatibility with responses that predate the field.
     let originalImageUrl: String?
     let caption: String
+    /// Whole-caption font + whole-tile background color keys (issue #318).
+    /// "default" reproduces the original rendering. Defaulted on decode so
+    /// responses that predate the fields still decode.
+    var captionFont: String = "default"
+    var backgroundColor: String = "default"
     let authorUsername: String
     /// Author-only classification state (issue #282): present on the viewer's
     /// own posts so grids can render pending/rejected states. Other users'
@@ -130,6 +135,8 @@ struct Post: Codable, Identifiable, Hashable {
         case imageUrl = "image_url"
         case originalImageUrl = "original_image_url"
         case caption = "caption"
+        case captionFont = "caption_font"
+        case backgroundColor = "background_color"
         case authorUsername = "author_username"
         case postLikes = "post_likes"
         case isLiked = "is_liked"
@@ -148,6 +155,8 @@ struct Post: Codable, Identifiable, Hashable {
         imageUrl: String?,
         originalImageUrl: String? = nil,
         caption: String,
+        captionFont: String = "default",
+        backgroundColor: String = "default",
         authorUsername: String,
         postLikes: Int = 0,
         isLiked: Bool = false,
@@ -164,6 +173,8 @@ struct Post: Codable, Identifiable, Hashable {
         self.imageUrl = imageUrl
         self.originalImageUrl = originalImageUrl
         self.caption = caption
+        self.captionFont = captionFont
+        self.backgroundColor = backgroundColor
         self.authorUsername = authorUsername
         self.postLikes = postLikes
         self.isLiked = isLiked
@@ -185,6 +196,8 @@ struct Post: Codable, Identifiable, Hashable {
         imageUrl = try container.decodeIfPresent(String.self, forKey: .imageUrl)
         originalImageUrl = try container.decodeIfPresent(String.self, forKey: .originalImageUrl)
         caption = try container.decode(String.self, forKey: .caption)
+        captionFont = try container.decodeIfPresent(String.self, forKey: .captionFont) ?? "default"
+        backgroundColor = try container.decodeIfPresent(String.self, forKey: .backgroundColor) ?? "default"
         authorUsername = try container.decode(String.self, forKey: .authorUsername)
         postLikes = try container.decodeIfPresent(Int.self, forKey: .postLikes) ?? 0
         isLiked = try container.decodeIfPresent(Bool.self, forKey: .isLiked) ?? false
@@ -270,6 +283,10 @@ struct HiddenPost: Codable, Identifiable, Hashable {
     /// Nil for a text-only post (#307).
     let imageUrl: String?
     let caption: String
+    /// Caption font + background color keys (issue #318); nil on older
+    /// responses that predate the fields.
+    let captionFont: String?
+    let backgroundColor: String?
     let hiddenReason: String
     let hasAppeal: Bool
 
@@ -277,6 +294,8 @@ struct HiddenPost: Codable, Identifiable, Hashable {
         case postIdentifier = "post_identifier"
         case imageUrl = "image_url"
         case caption
+        case captionFont = "caption_font"
+        case backgroundColor = "background_color"
         case hiddenReason = "hidden_reason"
         case hasAppeal = "has_appeal"
     }
@@ -287,12 +306,15 @@ struct HiddenComment: Codable, Identifiable, Hashable {
     var id: String { commentIdentifier }
     let commentIdentifier: String
     let body: String
+    /// Inline formatting spans over `body` (issue #318); nil = plain text.
+    let bodyFormatting: [CommentFormatSpan]?
     let hiddenReason: String
     let hasAppeal: Bool
 
     enum CodingKeys: String, CodingKey {
         case commentIdentifier = "comment_identifier"
         case body
+        case bodyFormatting = "body_formatting"
         case hiddenReason = "hidden_reason"
         case hasAppeal = "has_appeal"
     }
@@ -388,6 +410,9 @@ struct PostDisplayData: Identifiable, Equatable {
     /// Optional for backward compatibility with responses that predate the field.
     let originalImageURL: String?
     let caption: String
+    /// Caption font + background color keys (issue #318); "default" is normal.
+    var captionFont: String = "default"
+    var backgroundColor: String = "default"
     let likeCount: Int
     let isLiked: Bool // Whether the current user has liked this post
     let authorUsername: String // Added for context
@@ -407,6 +432,8 @@ struct CommentViewData: Identifiable, Equatable {
     let threadId: String // commentThreadIdentifier
     let authorUsername: String
     let body: String
+    /// Inline formatting spans over `body` (issue #318); nil = plain text.
+    var formatting: [CommentFormatSpan]? = nil
     let likeCount: Int
     let isLiked: Bool // Whether the current user has liked this comment
     let createdDate: Date
@@ -421,4 +448,39 @@ struct CommentViewData: Identifiable, Equatable {
 struct CommentThreadViewData: Identifiable, Equatable {
     var id: String { comments.first?.threadId ?? UUID().uuidString }
     var comments: [CommentViewData]
+}
+
+// MARK: - Text formatting (issue #318)
+
+/// One inline-formatting span over a comment's plain `body` (issue #318).
+/// Offsets are UTF-16 code-unit indices (matching the web/Android clients and
+/// the backend contract): `0 <= start < end <= body.utf16.count`. The plain
+/// `body` text is never modified — formatting is separate metadata, so
+/// moderation still classifies plain text.
+struct CommentFormatSpan: Codable, Equatable, Hashable {
+    let start: Int
+    let end: Int
+    let bold: Bool
+    let italic: Bool
+    /// One of "small", "normal", "large", "xlarge".
+    let size: String
+
+    init(start: Int, end: Int, bold: Bool = false, italic: Bool = false, size: String = "normal") {
+        self.start = start
+        self.end = end
+        self.bold = bold
+        self.italic = italic
+        self.size = size
+    }
+
+    // Decode leniently: the backend always sends bold/italic/size, but default
+    // them so a hand-written or partial payload still decodes.
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        start = try c.decode(Int.self, forKey: .start)
+        end = try c.decode(Int.self, forKey: .end)
+        bold = try c.decodeIfPresent(Bool.self, forKey: .bold) ?? false
+        italic = try c.decodeIfPresent(Bool.self, forKey: .italic) ?? false
+        size = try c.decodeIfPresent(String.self, forKey: .size) ?? "normal"
+    }
 }

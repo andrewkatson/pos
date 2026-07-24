@@ -222,7 +222,9 @@ struct ProfileBodyView: View {
                                     GridPostImage(
                                         imageUrl: post.imageUrl,
                                         originalImageUrl: post.originalImageUrl,
-                                        caption: post.caption
+                                        caption: post.caption,
+                                        captionFont: post.captionFont,
+                                        backgroundColor: post.backgroundColor
                                     )
                                 }
                                 .overlay(alignment: .bottom) {
