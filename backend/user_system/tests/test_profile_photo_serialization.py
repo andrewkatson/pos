@@ -75,6 +75,21 @@ class ProfilePhotoSerializationTests(PositiveOnlySocialTestCase):
         row = next(r for r in data if r[Fields.username] == target_user.username)
         self.assertEqual(row[Fields.author_profile_image_original_url], avatar)
 
+    def test_followers_list_includes_avatar(self):
+        self.register_user_and_setup_local_fields()
+        viewer = get_user_with_username(self.local_username)
+        follower = self.make_user_with_prefix(prefix='follower')
+        follower_user = get_user_with_username(follower['username'])
+        avatar = _approved_avatar_for(follower_user)
+        # follower_user follows the viewer, so it appears in the viewer's followers.
+        follower_user.following.add(viewer)
+
+        header = {'HTTP_AUTHORIZATION': f'Bearer {self.session_management_token}'}
+        data = self.client.get(reverse('get_followers'), **header).json()
+
+        row = next(r for r in data if r[Fields.username] == follower_user.username)
+        self.assertEqual(row[Fields.author_profile_image_original_url], avatar)
+
     def test_author_without_photo_serializes_null(self):
         self.make_post_and_login_user()
         author = get_user_with_username(self.local_username)

@@ -1217,8 +1217,17 @@ final class StatefulStubbedAPI: Networking {
             .filter { followerIds.contains($0.id) }
             .sorted { $0.username < $1.username }
 
-        struct Fields: Codable { let username: String; let identity_is_verified: Bool }
-        let fieldObjects = followers.map { Fields(username: $0.username, identity_is_verified: $0.identityIsVerified) }
+        struct Fields: Codable {
+            let username: String
+            let identity_is_verified: Bool
+            let author_profile_image_url: String?
+            let author_profile_image_original_url: String?
+        }
+        let fieldObjects = followers.map { user -> Fields in
+            let avatar = user.profileImageStatus == "approved" ? user.profileImageUrl : nil
+            return Fields(username: user.username, identity_is_verified: user.identityIsVerified,
+                          author_profile_image_url: avatar, author_profile_image_original_url: avatar)
+        }
         return try createSerializedListResponse(fieldsList: fieldObjects)
     }
 
@@ -1233,8 +1242,17 @@ final class StatefulStubbedAPI: Networking {
             .filter { followingIds.contains($0.id) }
             .sorted { $0.username < $1.username }
 
-        struct Fields: Codable { let username: String; let identity_is_verified: Bool }
-        let fieldObjects = following.map { Fields(username: $0.username, identity_is_verified: $0.identityIsVerified) }
+        struct Fields: Codable {
+            let username: String
+            let identity_is_verified: Bool
+            let author_profile_image_url: String?
+            let author_profile_image_original_url: String?
+        }
+        let fieldObjects = following.map { user -> Fields in
+            let avatar = user.profileImageStatus == "approved" ? user.profileImageUrl : nil
+            return Fields(username: user.username, identity_is_verified: user.identityIsVerified,
+                          author_profile_image_url: avatar, author_profile_image_original_url: avatar)
+        }
         return try createSerializedListResponse(fieldsList: fieldObjects)
     }
 

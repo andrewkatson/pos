@@ -1202,7 +1202,11 @@ export class StatefulStubbedAPI implements PositiveOnlySocialAPI {
     return this.users
       .filter((u) => user.followers.has(u.id))
       .sort((a, b) => a.username.localeCompare(b.username))
-      .map((u) => ({ username: u.username, identity_is_verified: u.isVerified }))
+      .map((u) => ({
+        username: u.username,
+        identity_is_verified: u.isVerified,
+        ...this.authorAvatarFields(u.id),
+      }))
   }
 
   async getFollowing(): Promise<UserSearchResult[]> {
@@ -1210,7 +1214,11 @@ export class StatefulStubbedAPI implements PositiveOnlySocialAPI {
     return this.users
       .filter((u) => user.following.has(u.id))
       .sort((a, b) => a.username.localeCompare(b.username))
-      .map((u) => ({ username: u.username, identity_is_verified: u.isVerified }))
+      .map((u) => ({
+        username: u.username,
+        identity_is_verified: u.isVerified,
+        ...this.authorAvatarFields(u.id),
+      }))
   }
 
   async getProfile(username: string): Promise<ProfileDetails> {

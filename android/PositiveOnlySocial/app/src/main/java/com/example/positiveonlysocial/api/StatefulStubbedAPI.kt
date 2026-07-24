@@ -1049,7 +1049,7 @@ class StatefulStubbedAPI : PositiveOnlySocialAPI {
         val followers = users
             .filter { user.followers.contains(it.id) }
             .sortedBy { it.username }
-            .map { User(it.username, it.isVerified) }
+            .map { User(it.username, it.isVerified, approvedAvatarFor(it.id), approvedAvatarFor(it.id)) }
         return Response.success(followers)
     }
 
@@ -1059,7 +1059,7 @@ class StatefulStubbedAPI : PositiveOnlySocialAPI {
         val following = users
             .filter { user.following.contains(it.id) }
             .sortedBy { it.username }
-            .map { User(it.username, it.isVerified) }
+            .map { User(it.username, it.isVerified, approvedAvatarFor(it.id), approvedAvatarFor(it.id)) }
         return Response.success(following)
     }
 

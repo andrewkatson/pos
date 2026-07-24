@@ -2995,7 +2995,8 @@ def get_followers(request):
     users_data = [
         {
             Fields.username: user.username,
-            Fields.identity_is_verified: user.identity_is_verified
+            Fields.identity_is_verified: user.identity_is_verified,
+            **_author_avatar_fields(user),
         }
         for user in followers
     ]
@@ -3018,7 +3019,8 @@ def get_following(request):
     users_data = [
         {
             Fields.username: user.username,
-            Fields.identity_is_verified: user.identity_is_verified
+            Fields.identity_is_verified: user.identity_is_verified,
+            **_author_avatar_fields(user),
         }
         for user in following
     ]

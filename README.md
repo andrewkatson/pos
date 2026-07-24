@@ -48,9 +48,10 @@ bottom bar and search still in place.
 
 Each user may set a **profile photo**, shown next to their name everywhere it
 appears — post authors in the feed and on post details, comment authors, search
-results, and as a large avatar in the profile header. A user sets or replaces
-their own photo from their Profile tab (see **Profile photos** below); a user
-with no photo falls back to a neutral placeholder.
+results, the follower/following and blocked-user lists, and as a large avatar in
+the profile header. A user sets or replaces their own photo from their Profile
+tab (see **Profile photos** below); a user with no photo falls back to a neutral
+placeholder.
 
 Posts can be acted on directly from any list — the Profile grid, another user's
 profile grid, and the Feed — without opening the post first:

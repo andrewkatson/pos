@@ -94,7 +94,14 @@ fun FollowListScreen(
                             .testTag("followListRow"),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        Icon(Icons.Filled.Person, contentDescription = null, tint = Color.Gray)
+                        // Decorative — the row already opens the profile and the
+                        // username is right next to it.
+                        ProfileAvatar(
+                            imageUrl = user.authorProfileImageUrl,
+                            originalImageUrl = user.authorProfileImageOriginalUrl,
+                            contentDescription = null,
+                            size = 32.dp
+                        )
                         Spacer(Modifier.width(8.dp))
                         Text(user.username)
                         if (user.identityIsVerified) {
