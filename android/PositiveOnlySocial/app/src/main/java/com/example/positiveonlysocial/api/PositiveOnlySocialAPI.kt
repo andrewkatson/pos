@@ -266,11 +266,38 @@ interface PositiveOnlySocialAPI {
         @Header("Authorization") token: String
     ): Response<List<User>>
 
+    // Own lists only — the endpoints take no username, so another user's
+    // followers/following can't be requested (issue #8).
+    @GET("users/followers/")
+    suspend fun getFollowers(
+        @Header("Authorization") token: String
+    ): Response<List<User>>
+
+    @GET("users/following/")
+    suspend fun getFollowing(
+        @Header("Authorization") token: String
+    ): Response<List<User>>
+
     @GET("users/{username}/profile/")
     suspend fun getProfileDetails(
         @Header("Authorization") token: String,
         @Path("username") username: String
     ): Response<ProfileDetailsResponse>
+
+    // Sets the signed-in user's profile photo (issue #7). The JPEG bytes are
+    // uploaded via the presigned post-image pipeline first; this hands over the
+    // canonical object URL. Returns HTTP 202 with a "pending" status — the photo
+    // is classified asynchronously.
+    @POST("profile/photo/")
+    suspend fun setProfilePhoto(
+        @Header("Authorization") token: String,
+        @Body request: SetProfilePhotoRequest
+    ): Response<SetProfilePhotoResponse>
+
+    @POST("profile/photo/remove/")
+    suspend fun removeProfilePhoto(
+        @Header("Authorization") token: String
+    ): Response<RemoveProfilePhotoResponse>
 
     // ============================================================================================
     // APPEALS

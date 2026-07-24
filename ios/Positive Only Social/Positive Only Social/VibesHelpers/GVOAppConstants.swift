@@ -60,12 +60,19 @@ import Foundation
     static let pathSegmentDetails = "details"
     static let pathSegmentFollow = "follow"
     static let pathSegmentFollowed = "followed"
+    static let pathSegmentFollowers = "followers"
+    static let pathSegmentFollowing = "following"
     static let pathSegmentLike = "like"
     static let pathSegmentLogin = "login"
     static let pathSegmentLogout = "logout"
     static let pathSegmentNotification = "notification"
     static let pathSegmentNotifications = "notifications"
     static let pathSegmentPassword = "password"
+    // Profile photo endpoints (issue #7): POST profile/photo/ sets the photo,
+    // POST profile/photo/remove/ clears it. `pathSegmenProfile` supplies the
+    // shared leading "profile" segment.
+    static let pathSegmentPhoto = "photo"
+    static let pathSegmentRemove = "remove"
     static let pathSegmentPost = "post"
     static let pathSegmentPosts = "posts"
     static let pathSegmentRegister = "register"

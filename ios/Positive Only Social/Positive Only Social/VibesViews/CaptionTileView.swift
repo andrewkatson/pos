@@ -12,17 +12,27 @@ import SwiftUI
 struct CaptionTileView: View {
     let caption: String
     var lineLimit: Int? = 4
+    /// Curated caption font + background color keys (issue #318). "default"
+    /// keeps the original themed gradient and system font.
+    var captionFont: String = "default"
+    var backgroundColor: String = "default"
+
+    private let baseCaptionSize = UIFont.preferredFont(forTextStyle: .headline).pointSize
 
     var body: some View {
         ZStack {
-            LinearGradient(
-                colors: [Color.accentColor, Color.accentColor.opacity(0.55)],
-                startPoint: .topLeading,
-                endPoint: .bottomTrailing
-            )
+            if let color = TextFormatting.backgroundColor(backgroundColor) {
+                color
+            } else {
+                LinearGradient(
+                    colors: [Color.accentColor, Color.accentColor.opacity(0.55)],
+                    startPoint: .topLeading,
+                    endPoint: .bottomTrailing
+                )
+            }
             Text(caption)
-                .font(.headline)
-                .foregroundColor(.white)
+                .font(TextFormatting.captionFont(captionFont, size: baseCaptionSize))
+                .foregroundColor(TextFormatting.foregroundColor(backgroundColor) ?? .white)
                 .multilineTextAlignment(.center)
                 .lineLimit(lineLimit)
                 .padding(12)

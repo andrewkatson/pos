@@ -100,7 +100,7 @@ def parse_probability_and_rule(text):
     only a bare score, so a model that ignores the rule instruction still yields
     a usable probability.
     """
-    pairs = re.findall(r'(\d+(?:\.\d+)?|\.\d+)\s*,\s*([0-8])(?!\d)', str(text))
+    pairs = re.findall(r'(\d+(?:\.\d+)?|\.\d+)\s*,\s*(\d+)', str(text))
     for prob_str, rule_str in reversed(pairs):
         prob = float(prob_str)
         if prob <= 1.0:

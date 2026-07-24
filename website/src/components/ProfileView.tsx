@@ -1,7 +1,10 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState, type ChangeEvent } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { apiClient } from '../api/client'
+import { uploadImage } from '../api/s3Uploader'
 import type { FeedPost, PostStatusResponse, ProfileDetails } from '../api/types'
 import PostGrid from './PostGrid'
+import Avatar from './Avatar'
 
 /** How often the bounded post-classification poll checks pending posts (#282). */
 const STATUS_POLL_INTERVAL_MS = 3000
@@ -31,6 +34,7 @@ interface ProfileViewProps {
  * identical profile and the same in-place post actions.
  */
 function ProfileView({ username, isOwnProfile, currentUsername }: ProfileViewProps) {
+  const navigate = useNavigate()
   // Track mount state so async loads that resolve after navigating away don't
   // set state on an unmounted view.
   const isMounted = useRef(true)
@@ -47,6 +51,13 @@ function ProfileView({ username, isOwnProfile, currentUsername }: ProfileViewPro
   const [isBlocked, setIsBlocked] = useState(false)
   const [isBusy, setIsBusy] = useState(false)
   const [errorMessage, setErrorMessage] = useState<string | null>(null)
+
+  // Own profile-photo controls (issue #7). Uploading reuses the post image
+  // pipeline (compress + EXIF-strip + presigned PUT) then hands the URL to
+  // setProfilePhoto; the photo is classified asynchronously, so we reload the
+  // profile afterwards to reflect the new pending/approved state.
+  const [photoBusy, setPhotoBusy] = useState(false)
+  const fileInputRef = useRef<HTMLInputElement>(null)
 
   const [posts, setPosts] = useState<FeedPost[]>([])
   const [page, setPage] = useState(0)
@@ -189,6 +200,47 @@ function ProfileView({ username, isOwnProfile, currentUsername }: ProfileViewPro
     setProfile(p => (p ? { ...p, post_count: Math.max(0, p.post_count - 1) } : p))
   }
 
+  async function handlePhotoSelected(event: ChangeEvent<HTMLInputElement>) {
+    const file = event.target.files?.[0]
+    // Clear the input so picking the same file again still fires onChange.
+    event.target.value = ''
+    if (!file || photoBusy) return
+    setPhotoBusy(true)
+    setErrorMessage(null)
+    try {
+      const imageUrl = await uploadImage(file)
+      await apiClient.setProfilePhoto({ image_url: imageUrl })
+      if (!isMounted.current) return
+      // Reload so the header shows the new photo / review state. On async
+      // backends it reads back as 'pending'; the eager (no-Redis) path and the
+      // stub have already approved it.
+      await loadProfile()
+    } catch {
+      if (isMounted.current) {
+        setErrorMessage('Could not update your profile photo. Please try again.')
+      }
+    } finally {
+      if (isMounted.current) setPhotoBusy(false)
+    }
+  }
+
+  async function handleRemovePhoto() {
+    if (photoBusy) return
+    setPhotoBusy(true)
+    setErrorMessage(null)
+    try {
+      await apiClient.removeProfilePhoto()
+      if (!isMounted.current) return
+      await loadProfile()
+    } catch {
+      if (isMounted.current) {
+        setErrorMessage('Could not remove your profile photo. Please try again.')
+      }
+    } finally {
+      if (isMounted.current) setPhotoBusy(false)
+    }
+  }
+
   async function toggleFollow() {
     if (isBusy) return
     setIsBusy(true)
@@ -268,19 +320,107 @@ function ProfileView({ username, isOwnProfile, currentUsername }: ProfileViewPro
       )}
 
       <div className="profile-header">
+        <div className="profile-identity">
+          <Avatar
+            // The owner previews their own not-yet-approved upload immediately;
+            // everyone else (and the owner once approved) sees the live photo.
+            src={
+              (isOwnProfile && profile?.pending_profile_image_url) ||
+              profile?.profile_image_url
+            }
+            // Fall back to the previously approved photo, not the pending URL, so
+            // if a pending preview fails to load the owner still sees their live
+            // avatar (the approved photo stays visible while a new one is under
+            // review) rather than dropping to the placeholder.
+            originalSrc={profile?.profile_image_original_url}
+            username={username}
+            size="lg"
+          />
+          <div>
+            <div className="profile-identity__name">{username}</div>
+            {isOwnProfile && (
+              <div className="profile-photo-actions">
+                <button
+                  type="button"
+                  className="btn btn-outline"
+                  disabled={photoBusy}
+                  onClick={() => fileInputRef.current?.click()}
+                >
+                  {profile?.profile_image_url || profile?.pending_profile_image_url
+                    ? 'Change photo'
+                    : 'Add photo'}
+                </button>
+                {(profile?.profile_image_url || profile?.pending_profile_image_url) && (
+                  <button
+                    type="button"
+                    className="btn btn-danger"
+                    disabled={photoBusy}
+                    onClick={() => void handleRemovePhoto()}
+                  >
+                    Remove
+                  </button>
+                )}
+                {photoBusy && <span className="spinner" aria-label="Working" />}
+                {!photoBusy && profile?.profile_image_status === 'pending' && (
+                  <span className="profile-photo-status">
+                    Your new photo is being reviewed.
+                  </span>
+                )}
+                {!photoBusy && profile?.profile_image_status === 'rejected' && (
+                  <span className="profile-photo-status">
+                    Your last photo wasn't approved — try another.
+                  </span>
+                )}
+                <input
+                  ref={fileInputRef}
+                  type="file"
+                  accept="image/*"
+                  hidden
+                  onChange={handlePhotoSelected}
+                />
+              </div>
+            )}
+          </div>
+        </div>
+
         <div className="profile-stats">
           <div>
             <span className="profile-stat__count">{profile?.post_count ?? posts.length}</span>
             <span className="profile-stat__label">Posts</span>
           </div>
-          <div>
-            <span className="profile-stat__count">{profile?.follower_count ?? 0}</span>
-            <span className="profile-stat__label">Followers</span>
-          </div>
-          <div>
-            <span className="profile-stat__count">{profile?.following_count ?? 0}</span>
-            <span className="profile-stat__label">Following</span>
-          </div>
+          {/* Only your own follow lists are viewable, so the counts are a
+              tap-through on your own profile and plain stats on anyone else's
+              (issue #8). */}
+          {isOwnProfile ? (
+            <button
+              type="button"
+              className="profile-stat profile-stat--action"
+              onClick={() => navigate('/followers')}
+            >
+              <span className="profile-stat__count">{profile?.follower_count ?? 0}</span>
+              <span className="profile-stat__label">Followers</span>
+            </button>
+          ) : (
+            <div>
+              <span className="profile-stat__count">{profile?.follower_count ?? 0}</span>
+              <span className="profile-stat__label">Followers</span>
+            </div>
+          )}
+          {isOwnProfile ? (
+            <button
+              type="button"
+              className="profile-stat profile-stat--action"
+              onClick={() => navigate('/following')}
+            >
+              <span className="profile-stat__count">{profile?.following_count ?? 0}</span>
+              <span className="profile-stat__label">Following</span>
+            </button>
+          ) : (
+            <div>
+              <span className="profile-stat__count">{profile?.following_count ?? 0}</span>
+              <span className="profile-stat__label">Following</span>
+            </div>
+          )}
         </div>
 
         {!isOwnProfile && (
