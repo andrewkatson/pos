@@ -104,6 +104,17 @@ export function usePostActions({
     }))
   }
 
+  /** Drops a post's local override once its row leaves the caller's list (a
+   * delete, or an unsave on the Saved Posts screen), so entries don't
+   * accumulate for the life of the session as the user pages through. */
+  function dropOverride(postIdentifier: string) {
+    setOverrides(prev => {
+      if (!(postIdentifier in prev)) return prev
+      const { [postIdentifier]: _removed, ...rest } = prev
+      return rest
+    })
+  }
+
   async function toggleLikeAsync(post: FeedPost) {
     const { isOwn, isLiked, likeCount } = stateFor(post)
     // The control isn't rendered for your own post; guard anyway so a stray call
@@ -133,7 +144,12 @@ export function usePostActions({
       else await apiClient.unsavePost(post.post_identifier)
       // Only after the server confirms the unsave does the caller drop the row,
       // so a failed request leaves the post on the Saved screen to retry.
-      if (!saving) onPostUnsaved?.(post.post_identifier)
+      if (!saving && onPostUnsaved) {
+        // The row is about to leave the caller's list, so clear its override
+        // too rather than let the entry linger (mirrors the delete cleanup).
+        dropOverride(post.post_identifier)
+        onPostUnsaved(post.post_identifier)
+      }
     } catch (err) {
       setOverride(post.post_identifier, { isSaved })
       onError(messageFrom(err, saving ? 'Failed to save.' : 'Failed to unsave.'))
@@ -172,14 +188,8 @@ export function usePostActions({
     setDialog(null)
     try {
       await apiClient.deletePost(post.post_identifier)
-      // Drop any override for the deleted post: the row is gone from the
-      // caller's list, so the entry would just accumulate for the life of the
-      // session as the user pages through and acts on more posts.
-      setOverrides(prev => {
-        if (!(post.post_identifier in prev)) return prev
-        const { [post.post_identifier]: _removed, ...rest } = prev
-        return rest
-      })
+      // The row is gone from the caller's list, so drop its override too.
+      dropOverride(post.post_identifier)
       onPostDeleted(post.post_identifier)
     } catch (err) {
       onError(messageFrom(err, 'Failed to delete.'))
