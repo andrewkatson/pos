@@ -23,6 +23,15 @@ class GetCurrentUserTests(PositiveOnlySocialTestCase):
         self.assertEqual(data[Fields.username], self.local_username)
         self.assertEqual(data[Fields.email], self.local_email)
 
+    def test_response_is_not_cacheable(self):
+        # The body carries the account's email, so it must not be cached by
+        # intermediary proxies or browsers.
+        url = reverse('get_current_user')
+        response = self.client.get(url, **self.valid_header)
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response['Cache-Control'], 'no-store')
+
     def test_missing_token_is_rejected(self):
         url = reverse('get_current_user')
         response = self.client.get(url)

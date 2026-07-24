@@ -3103,7 +3103,11 @@ def get_current_user(request):
         Fields.email: request.user.email,
     }
     logger.info(f"Get current user successful for user_id: {request.user.id}")
-    return log_and_return_json("get_current_user", data, status=200)
+    response = log_and_return_json("get_current_user", data, status=200)
+    # The body is personal data (email address), so keep intermediary proxies
+    # and browsers from caching it, matching the auth/token responses.
+    response['Cache-Control'] = 'no-store'
+    return response
 
 
 @api_login_required
