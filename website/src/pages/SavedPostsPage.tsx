@@ -92,7 +92,9 @@ function SavedPostsView() {
           </div>
         )}
 
-        {posts.length === 0 && !isLoading ? (
+        {posts.length === 0 && !isLoading && !errorMessage ? (
+          // Only a genuine empty collection shows this; on a load error the
+          // banner above tells the real story instead.
           <p className="muted">You haven't saved any posts yet.</p>
         ) : (
           <PostGrid

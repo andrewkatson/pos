@@ -118,8 +118,10 @@ test('a failed unsave surfaces an error and keeps the tile', async () => {
   expect(screen.getByRole('button', { name: 'Post by ada' })).toBeInTheDocument()
 })
 
-test('surfaces a load error', async () => {
+test('surfaces a load error without the misleading empty state', async () => {
   mockGetSavedPosts.mockRejectedValue(new Error('boom'))
   renderPage()
   expect(await screen.findByText('Failed to load your saved posts.')).toBeInTheDocument()
+  // The empty-state copy would wrongly claim the collection is empty on an error.
+  expect(screen.queryByText("You haven't saved any posts yet.")).not.toBeInTheDocument()
 })
