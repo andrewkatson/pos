@@ -288,15 +288,16 @@ fun PostDetailScreen(
                             Row(verticalAlignment = Alignment.CenterVertically) {
                                 // Author avatar (issue #7) + name, both opening
                                 // the author's profile, same as in the feed.
+                                // Decorative and NOT clickable: the adjacent author
+                                // name (below) is the tap target that opens the
+                                // profile. A clickable avatar with a null
+                                // contentDescription would be an unlabeled button to
+                                // TalkBack.
                                 ProfileAvatar(
                                     imageUrl = post.authorProfileImageUrl,
                                     originalImageUrl = post.authorProfileImageOriginalUrl,
-                                    // Decorative — the author username is next to it.
                                     contentDescription = null,
-                                    size = 28.dp,
-                                    modifier = Modifier.clickable {
-                                        navController.openProfileFor(post.authorUsername, currentUsername)
-                                    }
+                                    size = 28.dp
                                 )
                                 Spacer(modifier = Modifier.width(8.dp))
                                 // Tap the author's name to open their profile,
@@ -469,14 +470,14 @@ fun CommentRow(
             ),
         verticalAlignment = Alignment.Top
     ) {
-        // Comment author's avatar (issue #7), tapping opens their profile.
+        // Comment author's avatar (issue #7). Decorative and NOT clickable: the
+        // adjacent author name (below) opens their profile. A clickable avatar
+        // with a null contentDescription would be an unlabeled button to TalkBack.
         ProfileAvatar(
             imageUrl = comment.authorProfileImageUrl,
             originalImageUrl = comment.authorProfileImageOriginalUrl,
-            // Decorative — the comment author username is rendered next to it.
             contentDescription = null,
-            size = 32.dp,
-            modifier = Modifier.clickable { onAuthorClick(comment.authorUsername) }
+            size = 32.dp
         )
 
         Spacer(modifier = Modifier.width(8.dp))
