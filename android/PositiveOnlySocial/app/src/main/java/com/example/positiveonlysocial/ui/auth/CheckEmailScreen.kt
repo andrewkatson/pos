@@ -3,6 +3,7 @@ package com.example.positiveonlysocial.ui.auth
 import androidx.compose.foundation.layout.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
@@ -37,7 +38,9 @@ fun CheckEmailScreen(
         var isResending by remember { mutableStateOf(false) }
         var resendMessage by remember { mutableStateOf<String?>(null) }
         // Greet a brand new member with their join number (issue #198).
-        var showingWelcome by remember { mutableStateOf(membershipNumber != null) }
+        // rememberSaveable so a dismissal survives configuration changes (e.g.
+        // rotation) and the greeting isn't shown again.
+        var showingWelcome by rememberSaveable { mutableStateOf(membershipNumber != null) }
 
         val scope = rememberCoroutineScope()
 
