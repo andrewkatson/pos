@@ -42,6 +42,11 @@ class StatefulStubbedAPI : PositiveOnlySocialAPI {
     private val commentThreads = mutableListOf<CommentThreadMock>()
     private val appeals = mutableListOf<AppealMock>()
 
+    // Monotonic source for membership numbers (issue #198). A dedicated counter
+    // rather than users.size so a delete + re-register never reuses a number,
+    // matching the backend's "creation order, never reused" behavior.
+    private var membershipCounter = 0
+
     // Simulates the "Authorization: Bearer <token>" header.
     // Set this variable before making authenticated calls.
     var simulatedAuthToken: String? = null
@@ -71,6 +76,8 @@ class StatefulStubbedAPI : PositiveOnlySocialAPI {
         val followers: MutableList<String> = mutableListOf(),
         var isVerified: Boolean = false,
         var isAdult: Boolean = false,
+        // Sequential join number (issue #198), assigned in registration order.
+        var membershipNumber: Int? = null,
         val blocked: MutableList<String> = mutableListOf(),
         val blockedBy: MutableList<String> = mutableListOf(),
         // Two-factor authentication (issue #348). A secret without the enabled
@@ -190,11 +197,14 @@ class StatefulStubbedAPI : PositiveOnlySocialAPI {
             return errorGeneric(404, "User already exists")
         }
 
-        // Create User
+        // Create User. Assign the next sequential membership number (issue
+        // #198), mirroring the backend which numbers accounts in creation order
+        // and never reuses a number even after a delete.
         val newUser = UserMock(
             username = request.username,
             email = request.email,
-            passwordHash = request.password // Stub: Plain text
+            passwordHash = request.password, // Stub: Plain text
+            membershipNumber = ++membershipCounter
         )
         users.add(newUser)
 
@@ -211,7 +221,7 @@ class StatefulStubbedAPI : PositiveOnlySocialAPI {
             loginCookies.add(LoginCookieMock(seriesId, cookieToken, newUser.id))
         }
 
-        return Response.success(AuthResponse(sessionToken, newUser.username, newUser.id, seriesId, cookieToken))
+        return Response.success(AuthResponse(sessionToken, newUser.username, newUser.id, seriesId, cookieToken, newUser.membershipNumber))
     }
 
     override suspend fun loginUser(request: LoginRequest): Response<LoginResponse> {
@@ -1079,7 +1089,8 @@ class StatefulStubbedAPI : PositiveOnlySocialAPI {
                 0,
                 0,
                 false,
-                isBlocked = isBlocked
+                isBlocked = isBlocked,
+                membershipNumber = target.membershipNumber
             ))
         }
 
@@ -1094,6 +1105,7 @@ class StatefulStubbedAPI : PositiveOnlySocialAPI {
             target.following.size,
             isFollowing,
             isBlocked,
+            membershipNumber = target.membershipNumber,
             profileImageUrl = liveAvatar,
             profileImageOriginalUrl = liveAvatar,
             // Owner-only moderation state, mirroring the backend: present only

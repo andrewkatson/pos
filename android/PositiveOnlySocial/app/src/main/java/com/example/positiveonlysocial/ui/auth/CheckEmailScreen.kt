@@ -3,6 +3,7 @@ package com.example.positiveonlysocial.ui.auth
 import androidx.compose.foundation.layout.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
@@ -28,13 +29,33 @@ import kotlinx.coroutines.launch
 fun CheckEmailScreen(
     navController: NavController,
     api: PositiveOnlySocialAPI,
-    email: String
+    email: String,
+    // The new member's join number (issue #198). Non-null right after
+    // registration; null when the screen is reached any other way.
+    membershipNumber: Int? = null
 ) {
     PositiveOnlySocialTheme {
         var isResending by remember { mutableStateOf(false) }
         var resendMessage by remember { mutableStateOf<String?>(null) }
+        // Greet a brand new member with their join number (issue #198).
+        // rememberSaveable so a dismissal survives configuration changes (e.g.
+        // rotation) and the greeting isn't shown again.
+        var showingWelcome by rememberSaveable { mutableStateOf(membershipNumber != null) }
 
         val scope = rememberCoroutineScope()
+
+        if (showingWelcome && membershipNumber != null) {
+            AlertDialog(
+                onDismissRequest = { showingWelcome = false },
+                title = { Text("Welcome! 🎉") },
+                text = { Text("You're member #$membershipNumber!") },
+                confirmButton = {
+                    Button(onClick = { showingWelcome = false }) {
+                        Text("OK")
+                    }
+                }
+            )
+        }
 
         Column(
             modifier = Modifier

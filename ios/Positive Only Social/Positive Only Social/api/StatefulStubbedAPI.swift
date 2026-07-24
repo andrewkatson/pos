@@ -23,6 +23,8 @@ struct MockUser {
     var emailVerificationToken: String? = nil
     var identityIsVerified: Bool = false
     var isAdult: Bool = false
+    // Sequential join number (issue #198), assigned in registration order.
+    var membershipNumber: Int? = nil
     var blocked: [UUID] = []
     var blockedBy: [UUID] = []
     // Two-factor authentication (issue #348). A secret without the enabled
@@ -177,6 +179,11 @@ final class StatefulStubbedAPI: Networking {
     private var appeals: [MockAppeal] = []
     private var userFollows: [MockUserFollow] = []
 
+    // Monotonic source for membership numbers (issue #198). A dedicated counter
+    // rather than users.count so a delete + re-register never reuses a number,
+    // matching the backend's "creation order, never reused" behavior.
+    private var membershipCounter = 0
+
     // MARK: - Configuration
     public var simulatedLatency: TimeInterval = 0.1
     private let maxReportsBeforeHiding = 5
@@ -291,25 +298,32 @@ final class StatefulStubbedAPI: Networking {
         if findUser(byUsername: username) != nil || findUser(byEmail: email) != nil {
             throw APIError.badServerResponse(statusCode: 400) // "User already exists"
         }
-        let newUser = MockUser(username: username, email: email, passwordHash: password)
+        var newUser = MockUser(username: username, email: email, passwordHash: password)
+        // Assign the next sequential membership number (issue #198), mirroring
+        // the backend which numbers accounts in creation order and never reuses
+        // a number even after a delete.
+        membershipCounter += 1
+        newUser.membershipNumber = membershipCounter
+        let membershipNumber = newUser.membershipNumber
         users.append(newUser)
         let newSession = MockSession(managementToken: generateToken(), userId: newUser.id, ip: ip)
         sessions.append(newSession)
-        
+
         let wantsRememberMe = Bool(rememberMe.lowercased()) ?? false
         if wantsRememberMe {
             let cookie = MockLoginCookie(seriesIdentifier: UUID().uuidString, token: generateToken(), userId: newUser.id)
             loginCookies.append(cookie)
-            struct Fields: Codable { let series_identifier, login_cookie_token, session_management_token, user_id: String }
+            struct Fields: Codable { let series_identifier, login_cookie_token, session_management_token, user_id: String; let membership_number: Int? }
             return try createSerializedResponse(fields: Fields(
                 series_identifier: cookie.seriesIdentifier,
                 login_cookie_token: cookie.token,
                 session_management_token: newSession.managementToken,
-                user_id: newUser.id.uuidString
+                user_id: newUser.id.uuidString,
+                membership_number: membershipNumber
             ))
         } else {
-            struct Fields: Codable { let session_management_token, user_id: String }
-            return try createSerializedResponse(fields: Fields(session_management_token: newSession.managementToken, user_id: newUser.id.uuidString))
+            struct Fields: Codable { let session_management_token, user_id: String; let membership_number: Int? }
+            return try createSerializedResponse(fields: Fields(session_management_token: newSession.managementToken, user_id: newUser.id.uuidString, membership_number: membershipNumber))
         }
     }
 
@@ -1385,6 +1399,7 @@ final class StatefulStubbedAPI: Networking {
             let is_blocked: Bool
             let identity_is_verified: Bool
             let is_adult: Bool
+            let membership_number: Int?
             let profile_image_url: String?
             let profile_image_original_url: String?
             // Owner-only (issue #7).
@@ -1403,6 +1418,7 @@ final class StatefulStubbedAPI: Networking {
                 is_blocked: isBlocked,
                 identity_is_verified: false,
                 is_adult: false,
+                membership_number: profileUser.membershipNumber,
                 profile_image_url: nil,
                 profile_image_original_url: nil,
                 profile_image_status: nil,
@@ -1421,6 +1437,7 @@ final class StatefulStubbedAPI: Networking {
             is_blocked: isBlocked,
             identity_is_verified: profileUser.identityIsVerified,
             is_adult: profileUser.isAdult,
+            membership_number: profileUser.membershipNumber,
             profile_image_url: liveAvatar,
             profile_image_original_url: liveAvatar,
             profile_image_status: isOwnProfile ? profileUser.profileImageStatus : nil,

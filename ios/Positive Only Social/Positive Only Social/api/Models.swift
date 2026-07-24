@@ -417,6 +417,9 @@ struct ProfileDetailsResponse: Codable, Identifiable, Hashable {
     var isBlocked: Bool = false
     var identityIsVerified: Bool = false
     var isAdult: Bool = false
+    // The user's sequential join number (issue #198), shown as "Member #N".
+    // Optional so profiles from a server that predates the field still decode.
+    var membershipNumber: Int? = nil
     /// The user's approved profile photo (issue #7), shown to everyone as the
     /// large header avatar. Compressed variant with a full-resolution fallback;
     /// both nil when they have no approved photo.
@@ -439,11 +442,26 @@ struct ProfileDetailsResponse: Codable, Identifiable, Hashable {
         case isBlocked = "is_blocked"
         case identityIsVerified = "identity_is_verified"
         case isAdult = "is_adult"
+        case membershipNumber = "membership_number"
         case profileImageUrl = "profile_image_url"
         case profileImageOriginalUrl = "profile_image_original_url"
         case profileImageStatus = "profile_image_status"
         case profileImageReasonCode = "profile_image_reason_code"
         case pendingProfileImageUrl = "pending_profile_image_url"
+    }
+}
+
+/// The part of the register response the client keeps: the new member's
+/// sequential membership number (issue #198), shown in a welcome message. The
+/// session the response also carries is deliberately discarded — the account
+/// can't act until the emailed verification link is used (issue #237). The
+/// field is optional so a missing/absent value never fails the decode and
+/// strands a successfully registered user.
+struct RegisterResponse: Codable {
+    let membershipNumber: Int?
+
+    enum CodingKeys: String, CodingKey {
+        case membershipNumber = "membership_number"
     }
 }
 
