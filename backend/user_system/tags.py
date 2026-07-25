@@ -44,7 +44,12 @@ def set_post_tags(post, caption):
     """Replace `post`'s tags with the ones parsed from `caption`.
 
     Idempotent, so it is safe to call on an edit as well as on create. Reuses
-    existing Tag rows via get_or_create so the table stays normalized.
+    existing Tag rows so the table stays normalized.
+
+    Runs in a constant number of queries rather than one get_or_create per tag:
+    fetch the existing rows in bulk, bulk-create the missing ones, then set the
+    M2M. This keeps post creation (a hot path) cheap even with the full
+    MAX_TAGS_PER_POST tags.
     """
     # Imported here rather than at module load to avoid a models<->tags import
     # cycle (models imports nothing from here, but keep the dependency one-way).
@@ -55,5 +60,15 @@ def set_post_tags(post, caption):
         post.tags.clear()
         return
 
-    tags = [Tag.objects.get_or_create(name=name)[0] for name in names]
-    post.tags.set(tags)
+    existing = {t.name: t for t in Tag.objects.filter(name__in=names)}
+    missing = [name for name in names if name not in existing]
+    if missing:
+        # ignore_conflicts covers a race where a concurrent post created the same
+        # tag between the fetch above and this insert; the unique constraint on
+        # `name` makes it a no-op rather than an error. Re-fetch afterwards
+        # because bulk_create(ignore_conflicts=True) does not reliably populate
+        # primary keys on the passed objects.
+        Tag.objects.bulk_create([Tag(name=name) for name in missing], ignore_conflicts=True)
+        existing = {t.name: t for t in Tag.objects.filter(name__in=names)}
+
+    post.tags.set([existing[name] for name in names])
