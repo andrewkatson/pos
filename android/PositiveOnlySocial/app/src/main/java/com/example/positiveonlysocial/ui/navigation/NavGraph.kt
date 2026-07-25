@@ -62,13 +62,23 @@ fun NavGraph(
         }
         composable(
             route = Screen.CheckEmail.route,
-            arguments = listOf(navArgument("email") { type = NavType.StringType })
+            arguments = listOf(
+                navArgument("email") { type = NavType.StringType },
+                navArgument("membershipNumber") {
+                    type = NavType.StringType
+                    nullable = true
+                    defaultValue = null
+                }
+            )
         ) { backStackEntry ->
             // The route arg is Uri-encoded by Screen.CheckEmail.createRoute and
             // decoded by the navigation library when it parses the route, so
             // this is already the plain address.
             val email = backStackEntry.arguments?.getString("email") ?: ""
-            CheckEmailScreen(navController, api, email)
+            // Present only right after registration (issue #198); used to greet
+            // the new member.
+            val membershipNumber = backStackEntry.arguments?.getString("membershipNumber")?.toIntOrNull()
+            CheckEmailScreen(navController, api, email, membershipNumber)
         }
         composable(Screen.RequestReset.route) {
             RequestResetScreen(navController, api, keychainHelper)

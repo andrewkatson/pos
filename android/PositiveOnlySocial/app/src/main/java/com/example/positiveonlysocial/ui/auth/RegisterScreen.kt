@@ -87,9 +87,11 @@ fun RegisterScreen(
                                     // The account can't do anything until the emailed
                                     // verification link is used (issue #237), so don't
                                     // keep the registration session — park the user on
-                                    // the "check your email" screen and have them log
-                                    // in after verifying.
-                                    navController.navigate(Screen.CheckEmail.createRoute(email)) {
+                                    // the "check your email" screen (which welcomes the
+                                    // new member with their join number, issue #198) and
+                                    // have them log in after verifying.
+                                    val membershipNumber = response.body()?.membershipNumber
+                                    navController.navigate(Screen.CheckEmail.createRoute(email, membershipNumber)) {
                                         popUpTo(Screen.Welcome.route)
                                     }
                                 } else {
