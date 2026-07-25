@@ -178,6 +178,9 @@ struct Positive_Only_SocialTests_ProfileViewModel {
           "follower_count": 5,
           "following_count": 2,
           "is_following": false,
+          "is_blocked": false,
+          "identity_is_verified": false,
+          "is_adult": false,
           "membership_number": 42
         }
         """.data(using: .utf8)!
@@ -187,15 +190,18 @@ struct Positive_Only_SocialTests_ProfileViewModel {
     }
 
     @Test func testProfileDetailsResponse_MissingMembershipNumber_DecodesToNil() throws {
-        // A server that predates the field omits it; the profile must still
-        // decode with membershipNumber == nil rather than failing.
+        // A server that predates the field omits membership_number; the profile
+        // must still decode with membershipNumber == nil rather than failing.
         let json = """
         {
           "username": "grace",
           "post_count": 1,
           "follower_count": 0,
           "following_count": 0,
-          "is_following": true
+          "is_following": true,
+          "is_blocked": false,
+          "identity_is_verified": false,
+          "is_adult": false
         }
         """.data(using: .utf8)!
 
