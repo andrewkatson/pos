@@ -453,12 +453,13 @@ class ProfileViewModel(
 
     /**
      * Sets (or clears, with a blank string) the signed-in user's bio (issue
-     * #380), then reloads the profile so the header reflects it. A non-positive
-     * bio is rejected by the server and surfaced through [bioErrorMessage]
-     * without changing the stored bio. [onSuccess] runs only on a successful
-     * save, so the caller can dismiss the editor.
+     * #380). On success the new bio (returned by the endpoint) is written
+     * straight into [profileDetails] so the header updates without a reload. A
+     * non-positive bio is rejected by the server and surfaced through
+     * [bioErrorMessage] without changing the stored bio. [onSuccess] runs only
+     * on a successful save, so the caller can dismiss the editor.
      */
-    fun updateBio(username: String, newBio: String, onSuccess: () -> Unit = {}) {
+    fun updateBio(newBio: String, onSuccess: () -> Unit = {}) {
         if (_isBioBusy.value) return
         _isBioBusy.value = true
         _bioErrorMessage.value = null

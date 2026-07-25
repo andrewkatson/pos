@@ -326,7 +326,7 @@ class ProfileViewModelTest {
             .thenReturn(Response.success(SetBioResponse("Kind and curious.", "Your bio has been updated.")))
 
         var succeeded = false
-        viewModel.updateBio("user1", "Kind and curious.") { succeeded = true }
+        viewModel.updateBio("Kind and curious.") { succeeded = true }
         advanceUntilIdle()
 
         verify(api).setBio(eq("token123"), any())
@@ -349,7 +349,7 @@ class ProfileViewModelTest {
             .thenReturn(Response.error(400, "{\"error\":\"Text is not positive\"}".toResponseBody()))
 
         var succeeded = false
-        viewModel.updateBio("user1", "a negative bio") { succeeded = true }
+        viewModel.updateBio("a negative bio") { succeeded = true }
         advanceUntilIdle()
 
         assertNotNull(viewModel.bioErrorMessage.value)

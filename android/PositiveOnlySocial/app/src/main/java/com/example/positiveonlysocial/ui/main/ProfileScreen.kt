@@ -213,7 +213,7 @@ fun ProfileBody(
             confirmButton = {
                 TextButton(
                     onClick = {
-                        viewModel.updateBio(username, bioDraft) { showBioEditor = false }
+                        viewModel.updateBio(bioDraft) { showBioEditor = false }
                     },
                     enabled = !isBioBusy && isWithinLength(bioDraft, Constants.MAX_BIO_LENGTH),
                     modifier = Modifier.testTag("SaveBioButton")
