@@ -34,7 +34,9 @@ import com.example.positiveonlysocial.data.constants.Constants
 import com.example.positiveonlysocial.data.model.CommentThreadViewData
 import com.example.positiveonlysocial.ui.components.CaptionTile
 import com.example.positiveonlysocial.ui.components.CharacterCounter
+import com.example.positiveonlysocial.ui.components.TaggedCaptionText
 import com.example.positiveonlysocial.ui.components.isWithinLength
+import com.example.positiveonlysocial.ui.navigation.Screen
 import com.example.positiveonlysocial.data.model.CommentViewData
 import com.example.positiveonlysocial.data.security.KeychainHelperProtocol
 import com.example.positiveonlysocial.models.viewmodels.PostDetailViewModel
@@ -313,10 +315,17 @@ fun PostDetailScreen(
                                     }
                                 )
                                 Spacer(modifier = Modifier.width(4.dp))
-                                Text(
-                                    text = post.caption,
-                                    style = MaterialTheme.typography.bodyMedium,
-                                    fontFamily = TextFormatting.fontFamily(post.captionFont)
+                                // #hashtags in the caption are tappable and open
+                                // the tag feed (issue #379); the author's chosen
+                                // caption font (issue #318) still applies.
+                                TaggedCaptionText(
+                                    caption = post.caption,
+                                    style = MaterialTheme.typography.bodyMedium.copy(
+                                        fontFamily = TextFormatting.fontFamily(post.captionFont)
+                                    ),
+                                    onTagClick = { tag ->
+                                        navController.navigate(Screen.TagFeed.createRoute(tag))
+                                    }
                                 )
                             }
 

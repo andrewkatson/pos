@@ -136,6 +136,12 @@ class Patterns:
     totp_code = r"^\d{6}$"
     recovery_code = r"^[0-9a-f]{10}$"
     hex_token = r"^[0-9a-f]{64}$"
+    # A single hashtag, without the leading '#'. Word characters only (unicode
+    # letters, digits, underscore), matching what extract_tag_names harvests
+    # from a caption. The upper bound is MAX_TAG_LENGTH (defined below): it is
+    # inlined as 100 because that constant is declared after this class — keep
+    # the two in sync if MAX_TAG_LENGTH ever changes.
+    tag = r"^\w{1,100}$"
 
 class Params:
     username = "USERNAME"
@@ -164,6 +170,7 @@ class Params:
     comment_thread_identifier = "COMMENT_THREAD_IDENTIFIER"
     comment_identifier = "COMMENT_IDENTIFIER"
     username_fragment = "USERNAME_FRAGMENT"
+    tag = "TAG"
     challenge_token = "CHALLENGE_TOKEN"
     totp_code = "TOTP_CODE"
     recovery_code = "RECOVERY_CODE"
@@ -244,6 +251,7 @@ class Fields:
     otpauth_uri = "otpauth_uri"
     recovery_codes = "recovery_codes"
     totp_enabled = "totp_enabled"
+    tags = "tags"
 
 # Lengths of things
 LEN_LOGIN_COOKIE_TOKEN = 32
@@ -264,6 +272,13 @@ COMMENT_THREAD_BATCH_SIZE = 10
 MAX_CAPTION_LENGTH = 125
 MAX_COMMENT_LENGTH = 500
 MAX_APPEAL_REASON_LENGTH = 1000
+
+# Hashtags (#tag) harvested from a caption. A tag is at most MAX_TAG_LENGTH
+# code points (matching Patterns.tag) and a single post keeps at most
+# MAX_TAGS_PER_POST of them — a caption is already capped at
+# MAX_CAPTION_LENGTH, so this is a belt-and-suspenders bound on abuse.
+MAX_TAG_LENGTH = 100
+MAX_TAGS_PER_POST = 30
 
 # Number of reports before hiding
 MAX_BEFORE_HIDING_POST = 10

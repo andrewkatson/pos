@@ -16,6 +16,7 @@ from .constants import (
     POST_STATUS_REJECTED_FINAL,
     APPEAL_STATUS_PENDING, APPEAL_STATUS_APPROVED, APPEAL_STATUS_DENIED,
     APPEAL_TARGET_POST, APPEAL_TARGET_COMMENT, APPEAL_TARGET_BAN,
+    MAX_TAG_LENGTH,
     PROFILE_IMAGE_STATUS_NONE,
     DEFAULT_STYLE_KEY,
 )
@@ -353,6 +354,12 @@ class Post(models.Model):
     author = models.ForeignKey(PositiveOnlySocialUser, on_delete=models.CASCADE)
     hidden = models.BooleanField(default=False)
     hidden_reason = models.TextField(choices=HIDDEN_REASON_CHOICES, default=HIDDEN_REASON_NONE, blank=True)
+    # Hashtags parsed from the caption at creation time (issue #379). Stored
+    # normalized (lowercased) in a shared Tag table so #Sunset and #sunset are
+    # the same tag and browsing by tag is a simple join. Visibility of a tagged
+    # post is still governed entirely by visible_posts / the block filters, so
+    # a pending or hidden post's tags never leak into another user's tag feed.
+    tags = models.ManyToManyField('Tag', related_name='posts', blank=True)
 
     # Async classification bookkeeping (issue #282). classification_attempts
     # counts worker runs so retries stay bounded and the sweep can alert on a
@@ -408,6 +415,18 @@ class PostLike(models.Model):
         constraints = [
             models.UniqueConstraint(fields=['user', 'post'], name='unique_post_like')
         ]
+
+
+# A hashtag harvested from post captions (issue #379). `name` is the tag text
+# without the leading '#', stored lowercased so lookups are case-insensitive by
+# construction. Tags are shared across posts via Post.tags (M2M), so a tag row
+# outlives the posts that reference it; that is harmless — an unused tag is just
+# a label nobody is currently pointing at.
+class Tag(models.Model):
+    name = models.CharField(max_length=MAX_TAG_LENGTH, unique=True)
+
+    def __str__(self):
+        return self.name
 
 
 # A post the user has saved to look back on later (issue #193)

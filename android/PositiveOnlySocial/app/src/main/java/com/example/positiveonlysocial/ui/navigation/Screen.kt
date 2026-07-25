@@ -32,6 +32,11 @@ sealed class Screen(val route: String) {
     object Profile : Screen("profile/{username}") {
         fun createRoute(username: String) = "profile/$username"
     }
+    // The tag feed opened by tapping a #hashtag in a caption (issue #379). The
+    // tag is URI-encoded because it may contain non-ASCII characters.
+    object TagFeed : Screen("tag_feed/{tag}") {
+        fun createRoute(tag: String) = "tag_feed/${Uri.encode(tag)}"
+    }
     object Settings : Screen("settings")
     object Appeals : Screen("appeals")
     object BlockedUsers : Screen("blocked_users")

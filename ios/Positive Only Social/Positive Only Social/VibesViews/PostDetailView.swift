@@ -20,6 +20,9 @@ struct PostDetailView: View {
     // gestures aren't swallowed by a Button in the row.
     @State private var profileUser: User? = nil
 
+    // Set when a #hashtag in the caption is tapped, to push its tag feed (#379).
+    @State private var selectedTag: TagRoute? = nil
+
     // Selects the Profile tab when the tapped name is the signed-in user's own,
     // instead of pushing a second copy of their profile (issue #347).
     @Environment(\.selectTab) private var selectTab
@@ -123,9 +126,13 @@ struct PostDetailView: View {
                                     .fontWeight(.bold)
                             }
                             .accessibilityIdentifier("PostAuthor")
-                            // Apply the author's chosen caption font (issue #318).
-                            Text(post.caption)
-                                .font(TextFormatting.captionFont(post.captionFont, size: UIFont.preferredFont(forTextStyle: .body).pointSize))
+                            // #hashtags in the caption are tappable and open the
+                            // tag feed (issue #379); the author's chosen caption
+                            // font (issue #318) still applies to the whole caption.
+                            TaggedCaptionText(caption: post.caption) { name in
+                                selectedTag = TagRoute(name: name)
+                            }
+                            .font(TextFormatting.captionFont(post.captionFont, size: UIFont.preferredFont(forTextStyle: .body).pointSize))
                         }
                         // When the post was made, at the same coarse granularity
                         // as comment times (issue #174). Older backend responses
@@ -194,6 +201,16 @@ struct PostDetailView: View {
         )) {
             if let user = profileUser {
                 ProfileView(user: user, api: api, keychainHelper: keychainHelper)
+            }
+        }
+        // Pushes the tag feed when a #hashtag in the caption is tapped (#379),
+        // state-driven like the profile push above.
+        .navigationDestination(isPresented: Binding(
+            get: { selectedTag != nil },
+            set: { if !$0 { selectedTag = nil } }
+        )) {
+            if let route = selectedTag {
+                TagFeedView(tag: route.name, api: api, keychainHelper: keychainHelper)
             }
         }
         .scrollDismissesKeyboard(.immediately)

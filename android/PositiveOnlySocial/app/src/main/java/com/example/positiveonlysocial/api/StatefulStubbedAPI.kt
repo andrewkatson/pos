@@ -131,7 +131,9 @@ class StatefulStubbedAPI : PositiveOnlySocialAPI {
         var reasonCode: String? = null,
         val likes: MutableSet<String> = mutableSetOf(), // Set of User IDs
         // Reporting user id -> their reason, so retract flows can show the reason.
-        val reports: MutableMap<String, String> = mutableMapOf()
+        val reports: MutableMap<String, String> = mutableMapOf(),
+        // Hashtags parsed from the caption (issue #379), normalized and sorted.
+        val tags: List<String> = emptyList()
     )
 
     private data class AppealMock(
@@ -621,6 +623,7 @@ class StatefulStubbedAPI : PositiveOnlySocialAPI {
             authorId = user.id,
             imageUrl = request.imageUrl,
             caption = request.caption,
+            tags = extractTags(request.caption),
             captionFont = request.captionFont,
             backgroundColor = request.backgroundColor
         )
@@ -838,7 +841,8 @@ class StatefulStubbedAPI : PositiveOnlySocialAPI {
             hiddenReason = if (isOwnGrid) post.hiddenReason else null,
             appealable = if (isOwnGrid) isAppealable(post) else null,
             authorProfileImageUrl = avatar,
-            authorProfileImageOriginalUrl = avatar
+            authorProfileImageOriginalUrl = avatar,
+            tags = post.tags
         )
     }
 
@@ -873,9 +877,51 @@ class StatefulStubbedAPI : PositiveOnlySocialAPI {
             isReported = post.reports.contains(user.id),
             reportReason = post.reports[user.id],
             authorProfileImageUrl = avatar,
-            authorProfileImageOriginalUrl = avatar
+            authorProfileImageOriginalUrl = avatar,
+            tags = post.tags
         ))
     }
+
+    override suspend fun getPostsByTag(token: String, tag: String, batch: Int): Response<List<Post>> {
+        val user = getAuthorizedUser(token) ?: return errorGeneric(401, "Unauthorized")
+        val normalized = tag.lowercase()
+        // Same visibility + block rules as the other feeds: a non-hidden post
+        // (or the viewer's own), from an author neither party blocked, that
+        // carries this tag. Newest first (#379).
+        val taggedPosts = posts
+            .filter { it.tags.contains(normalized) }
+            .filter { it.hiddenReason != "classifier_final" }
+            .filter { it.authorId == user.id || !it.hidden }
+            .filter { !user.blocked.contains(it.authorId) && !user.blockedBy.contains(it.authorId) }
+            .sortedByDescending { it.creationTime }
+
+        val batched = getBatch(taggedPosts, batch, POST_BATCH_SIZE)
+        val dtos = batched.map { post ->
+            val author = users.find { it.id == post.authorId }!!
+            listingDto(post, author.username, user.id, isOwnGrid = post.authorId == user.id)
+        }
+        return Response.success(dtos)
+    }
+
+    /**
+     * Parses #hashtags from a caption the same way the backend does (issue
+     * #379): a '#' followed by unicode word characters, lowercased, de-duped,
+     * and returned sorted to match the backend's serialization.
+     */
+    // '#' + unicode letters/numbers/underscore (\p{L}\p{N}_) — equivalent to the
+    // backend's Python `\w` on a str. lowercase() uses the invariant (root)
+    // locale, so normalization is locale-independent and matches str.lower().
+    private fun extractTags(caption: String): List<String> =
+        Regex("#([\\p{L}\\p{N}_]+)")
+            .findAll(caption)
+            .map { it.groupValues[1].lowercase() }
+            .filter { it.length <= 100 }
+            .distinct()
+            // Cap at the backend's MAX_TAGS_PER_POST, taken in first-seen order
+            // before the sort, so the stub stores the same tags the backend would.
+            .take(30)
+            .sorted()
+            .toList()
 
     // ============================================================================================
     // comments
