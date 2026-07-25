@@ -7,10 +7,12 @@
  * stubbed API agree on what a tag is.
  */
 
-// A '#' followed by one or more "word" characters, defined explicitly as
-// unicode letters, numbers, or underscore (\p{L}\p{N}_) with the `u` flag —
-// JS's `\w` is ASCII-only even under `u`, so this spells the class out to
-// tokenize #café the same way Python's unicode-aware `\w` does on the backend.
+// A '#' followed by one or more unicode letters, numbers, or underscore
+// (\p{L}\p{N}_) with the `u` flag. This is deliberately explicit: JS's `\w` is
+// ASCII-only even under `u`, and this class is exactly equivalent to the
+// backend's Python `\w` on a `str` — both are "alphanumerics plus underscore"
+// and both exclude combining marks and (non-underscore) connector punctuation,
+// so client and server tokenize a caption into the same tags.
 const TAG_RE = /#([\p{L}\p{N}_]+)/gu
 
 /** Longest tag we store, matching the backend's MAX_TAG_LENGTH. */

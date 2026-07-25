@@ -15,8 +15,13 @@ private const val MAX_TAGS_PER_POST = 30
 
 /**
  * Splits a caption into text and #hashtag segments, mirroring the backend's
- * extraction (`backend/user_system/tags.py`): a '#' followed by unicode word
- * characters. The tag `name` is lowercased; `text` keeps the original casing.
+ * extraction (`backend/user_system/tags.py`): a '#' followed by unicode
+ * letters, numbers, or underscore (\p{L}\p{N}_). That class is exactly
+ * equivalent to the backend's Python `\w` on a `str` (both are alphanumerics
+ * plus underscore and exclude combining marks / connector punctuation), so the
+ * two tokenize a caption identically. Kotlin's `lowercase()` uses the invariant
+ * (root) locale — locale-independent, matching the backend's str.lower() — so
+ * casing never diverges. The tag `name` is lowercased; `text` keeps its casing.
  * Only tags the backend would store are emitted as [CaptionSegment.Tag] —
  * overlong tags and anything past the first [MAX_TAGS_PER_POST] unique names
  * stay as plain text, so a tapped tag always resolves and the caption still

@@ -270,7 +270,9 @@ final class StatefulStubbedAPI: Networking {
     }
 
     /// Parses #hashtags from a caption the same way the backend does (issue
-    /// #379): a '#' followed by unicode word characters, lowercased, de-duped,
+    /// #379): a '#' followed by unicode letters, numbers, or underscore
+    /// (\p{L}\p{N}_) — exactly equivalent to the backend's Python `\w` on a
+    /// `str`. Lowercased (locale-independent, like str.lower()), de-duped,
     /// length- and count-capped (matching MAX_TAG_LENGTH / MAX_TAGS_PER_POST),
     /// and returned sorted to match the backend's serialization.
     fileprivate static func extractTags(from caption: String) -> [String] {

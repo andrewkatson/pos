@@ -908,6 +908,9 @@ class StatefulStubbedAPI : PositiveOnlySocialAPI {
      * #379): a '#' followed by unicode word characters, lowercased, de-duped,
      * and returned sorted to match the backend's serialization.
      */
+    // '#' + unicode letters/numbers/underscore (\p{L}\p{N}_) — equivalent to the
+    // backend's Python `\w` on a str. lowercase() uses the invariant (root)
+    // locale, so normalization is locale-independent and matches str.lower().
     private fun extractTags(caption: String): List<String> =
         Regex("#([\\p{L}\\p{N}_]+)")
             .findAll(caption)
