@@ -2087,7 +2087,7 @@ def get_saved_posts(request, batch):
     # post saved before a block doesn't keep surfacing afterward.
     saved_posts = saved_posts.exclude(author__in=request.user.blocked.all()).exclude(
         author__in=request.user.blocked_by.all())
-    saved_posts = visible_posts(saved_posts, request.user).order_by('-saved_time').prefetch_related('tags')
+    saved_posts = visible_posts(saved_posts, request.user).order_by('-saved_time').select_related('author').prefetch_related('tags')
 
     if saved_posts.exists():
         batched_posts = get_queryset_batch(saved_posts, batch, POST_BATCH_SIZE)
@@ -2305,7 +2305,7 @@ def get_posts_in_feed(request, batch):
     blocking_users = request.user.blocked_by.all()
     relevant_posts = relevant_posts.exclude(author__in=blocked_users).exclude(author__in=blocking_users)
 
-    relevant_posts = visible_posts(relevant_posts, request.user).prefetch_related('tags')
+    relevant_posts = visible_posts(relevant_posts, request.user).select_related('author').prefetch_related('tags')
 
     # .exists() rather than .count() > 0 to skip the extra COUNT(*) before the
     # batch query, consistent with get_saved_posts / get_posts_for_tag.
@@ -2358,7 +2358,7 @@ def get_posts_for_followed_users(request, batch):
 
     posts_queryset = visible_posts(
         Post.objects.filter(author__in=followed_users), request.user
-    ).order_by('-creation_time').prefetch_related('tags')
+    ).order_by('-creation_time').select_related('author').prefetch_related('tags')
     posts_batch = get_queryset_batch(posts_queryset, batch, POST_BATCH_SIZE)
     interaction_state = build_post_interaction_state(request.user, posts_batch)
 
