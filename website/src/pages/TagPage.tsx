@@ -112,7 +112,7 @@ function TagFeed({ tag, currentUsername }: TagFeedProps) {
         </div>
       )}
 
-      {posts.length === 0 && !isLoading ? (
+      {posts.length === 0 && !isLoading && !errorMessage ? (
         <p className="muted">No posts with #{tag} yet.</p>
       ) : (
         <PostGrid

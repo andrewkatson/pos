@@ -138,7 +138,9 @@ class Patterns:
     hex_token = r"^[0-9a-f]{64}$"
     # A single hashtag, without the leading '#'. Word characters only (unicode
     # letters, digits, underscore), matching what extract_tag_names harvests
-    # from a caption. Length is capped at MAX_TAG_LENGTH.
+    # from a caption. The upper bound is MAX_TAG_LENGTH (defined below): it is
+    # inlined as 100 because that constant is declared after this class — keep
+    # the two in sync if MAX_TAG_LENGTH ever changes.
     tag = r"^\w{1,100}$"
 
 class Params:
