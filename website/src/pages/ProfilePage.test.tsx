@@ -18,6 +18,15 @@ vi.mock('../api/client', () => ({
     reportPost: vi.fn(),
     retractReportPost: vi.fn(),
     deletePost: vi.fn(),
+    setBio: vi.fn(),
+  },
+  ApiError: class ApiError extends Error {
+    status: number
+    constructor(status: number, message: string) {
+      super(message)
+      this.name = 'ApiError'
+      this.status = status
+    }
   },
 }))
 
@@ -41,6 +50,7 @@ const baseProfile: ProfileDetails = {
   identity_is_verified: true,
   is_adult: true,
   membership_number: 7,
+  bio: 'Explorer of small joys.',
 }
 
 function renderProfile() {
@@ -75,6 +85,14 @@ test('renders profile stats and follow button', async () => {
 test("shows the other member's public join number (#198)", async () => {
   renderProfile()
   expect(await screen.findByText('🎉 Member #7')).toBeInTheDocument()
+})
+
+test("shows another member's bio but no edit control (#380)", async () => {
+  renderProfile()
+  expect(await screen.findByText('Explorer of small joys.')).toBeInTheDocument()
+  // Bio editing is only offered on your own profile.
+  expect(screen.queryByRole('button', { name: 'Edit bio' })).not.toBeInTheDocument()
+  expect(screen.queryByRole('button', { name: 'Add bio' })).not.toBeInTheDocument()
 })
 
 test('following a user calls the API and updates the button', async () => {

@@ -4,6 +4,7 @@
 // modes. Errors are surfaced by throwing ApiError, matching the real ApiClient.
 
 import { ApiError, INVALID_TWO_FACTOR_CHALLENGE } from './client'
+import { characterCount, MAX_BIO_LENGTH } from '../auth/requirements'
 import type { PositiveOnlySocialAPI } from './PositiveOnlySocialAPI'
 import type {
   AuthResponse,
@@ -44,6 +45,8 @@ import type {
   ResetPasswordRequest,
   SetProfilePhotoRequest,
   SetProfilePhotoResponse,
+  SetBioRequest,
+  SetBioResponse,
   SubmitAppealRequest,
   SubmitAppealResponse,
   TwoFactorSetupResponse,
@@ -130,6 +133,8 @@ interface UserMock {
   profileImageReasonCode: string | null
   /** Sequential join number (#198), assigned in registration order. */
   membershipNumber: number
+  /** Free-text bio shown on the profile (issue #380); '' when unset. */
+  bio: string
 }
 
 interface TwoFactorChallengeMock {
@@ -336,6 +341,7 @@ export class StatefulStubbedAPI implements PositiveOnlySocialAPI {
       profileImageReasonCode: null,
       // Next join number, one past the current highest (#198).
       membershipNumber: this.users.reduce((max, u) => Math.max(max, u.membershipNumber), 0) + 1,
+      bio: '',
     }
     this.users.push(user)
 
@@ -1336,6 +1342,7 @@ export class StatefulStubbedAPI implements PositiveOnlySocialAPI {
       profile_image_url: liveAvatar,
       profile_image_original_url: liveAvatar,
       membership_number: target.membershipNumber,
+      bio: target.bio,
     }
     // Owner-only moderation state, mirroring the backend.
     if (target.id === user.id) {
@@ -1369,6 +1376,26 @@ export class StatefulStubbedAPI implements PositiveOnlySocialAPI {
     user.profileImageStatus = 'none'
     user.profileImageReasonCode = null
     return { profile_image_status: 'none', message: 'Your profile photo has been removed.' }
+  }
+
+  async setBio(body: SetBioRequest): Promise<SetBioResponse> {
+    const user = this.requireUser()
+    // A blank bio just clears it — nothing to moderate.
+    if (!body.bio.trim()) {
+      user.bio = ''
+      return { bio: '', message: 'Your bio has been cleared.' }
+    }
+    if (characterCount(body.bio) > MAX_BIO_LENGTH) {
+      throw new ApiError(400, `Bio exceeds maximum length of ${MAX_BIO_LENGTH} characters`)
+    }
+    // The stub has no classifier; like the backend's TESTING text classifier it
+    // rejects anything containing "negative" and accepts the rest, so tests can
+    // drive the reject path. A rejected bio is never stored.
+    if (body.bio.toLowerCase().includes('negative')) {
+      throw new ApiError(400, 'Text is not positive because your bio did not meet our positivity guidelines.')
+    }
+    user.bio = body.bio
+    return { bio: user.bio, message: 'Your bio has been updated.' }
   }
 
   // ---------------------------------------------------------------------------

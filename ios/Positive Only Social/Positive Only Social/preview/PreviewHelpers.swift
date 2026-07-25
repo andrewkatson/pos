@@ -401,6 +401,11 @@ struct MockedAPI: Networking {
         return try encode(response)
     }
 
+    func setBio(sessionManagementToken: String, bio: String) async throws -> Data {
+        struct BioResponse: Codable { let bio: String; let message: String }
+        return try encode(BioResponse(bio: bio, message: "Your bio has been updated."))
+    }
+
     // MARK: - Appeals
 
     func getHiddenPosts(sessionManagementToken: String, batch: Int) async throws -> Data {

@@ -91,7 +91,9 @@ class StatefulStubbedAPI : PositiveOnlySocialAPI {
         var profileImageUrl: String? = null,
         var pendingProfileImageUrl: String? = null,
         var profileImageStatus: String = "none",
-        var profileImageReasonCode: String? = null
+        var profileImageReasonCode: String? = null,
+        // Free-text bio (issue #380); "" when unset.
+        var bio: String = ""
     )
 
     // A pending two-factor login, issued by loginUser when the account has
@@ -1125,7 +1127,8 @@ class StatefulStubbedAPI : PositiveOnlySocialAPI {
                 0,
                 false,
                 isBlocked = isBlocked,
-                membershipNumber = target.membershipNumber
+                membershipNumber = target.membershipNumber,
+                bio = target.bio
             ))
         }
 
@@ -1147,7 +1150,8 @@ class StatefulStubbedAPI : PositiveOnlySocialAPI {
             // when viewing your own profile.
             profileImageStatus = if (isOwnProfile) target.profileImageStatus else null,
             profileImageReasonCode = if (isOwnProfile) target.profileImageReasonCode else null,
-            pendingProfileImageUrl = if (isOwnProfile) target.pendingProfileImageUrl else null
+            pendingProfileImageUrl = if (isOwnProfile) target.pendingProfileImageUrl else null,
+            bio = target.bio
         ))
     }
 
@@ -1181,6 +1185,27 @@ class StatefulStubbedAPI : PositiveOnlySocialAPI {
                 message = "Your profile photo has been removed."
             )
         )
+    }
+
+    override suspend fun setBio(token: String, request: SetBioRequest): Response<SetBioResponse> {
+        val user = getAuthorizedUser(token) ?: return errorGeneric(401, "Unauthorized")
+        val bio = request.bio
+        // A blank bio just clears it — nothing to moderate.
+        if (bio.isBlank()) {
+            user.bio = ""
+            return Response.success(SetBioResponse(bio = "", message = "Your bio has been cleared."))
+        }
+        if (bio.length > Constants.MAX_BIO_LENGTH) {
+            return errorGeneric(400, "Bio exceeds maximum length of ${Constants.MAX_BIO_LENGTH} characters")
+        }
+        // The stub has no classifier; like the backend's TESTING text classifier
+        // it rejects anything containing "negative" and accepts the rest, so tests
+        // can drive the reject path. A rejected bio is never stored.
+        if (bio.lowercase().contains("negative")) {
+            return errorGeneric(400, "Text is not positive because your bio did not meet our guidelines.")
+        }
+        user.bio = bio
+        return Response.success(SetBioResponse(bio = bio, message = "Your bio has been updated."))
     }
 
     // ============================================================================================

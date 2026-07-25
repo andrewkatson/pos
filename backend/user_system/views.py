@@ -27,7 +27,7 @@ from .classifiers import image_classifier, text_classifier
 from .classifiers.classifier_constants import REASON_PHRASES, GENERIC_REASON_CODE
 from .classifiers.prefilter import prefilter_text
 from .constants import Patterns, Params, POST_BATCH_SIZE, MAX_BEFORE_HIDING_POST, MAX_BEFORE_HIDING_COMMENT, \
-    MAX_CAPTION_LENGTH, MAX_COMMENT_LENGTH, \
+    MAX_CAPTION_LENGTH, MAX_COMMENT_LENGTH, MAX_BIO_LENGTH, \
     COMMENT_BATCH_SIZE, Fields, COMMENT_THREAD_BATCH_SIZE, \
     VERIFY_RESET_MAX_ATTEMPTS, VERIFY_RESET_LOCKOUT_MINUTES, \
     ACCOUNT_BANNED, EMAIL_NOT_VERIFIED, EMAIL_VERIFICATION_TOKEN_HOURS, BAN_TYPE_OUTRIGHT, \
@@ -3229,6 +3229,70 @@ def remove_profile_photo(request):
     })
 
 
+@csrf_exempt
+@api_login_required
+@ratelimit(key='user', rate='20/h', block=True)
+@require_POST
+def set_bio(request):
+    """Set (or clear) the caller's profile bio (issue #380).
+
+    A bio is short free text shown on the user's profile. Because it is plain
+    text it is moderated synchronously by the text classifier, exactly like a
+    username or a comment — a bio that is not positive is rejected outright and
+    never stored, so there is no pending/approved lifecycle. The user simply
+    edits it and tries again, so a rejection is not appealable. A blank (or
+    whitespace-only) bio clears any existing one and skips the classifier. Rate
+    limited per user since each non-empty save runs a billable classification.
+    """
+    logger.info("Endpoint set_bio invoked by IP or User")
+    data = _get_json_body(request)
+    if data is None:
+        return log_and_return_json("set_bio", {'error': "Invalid JSON data"}, status=400)
+
+    bio = data.get(Fields.bio)
+    if not isinstance(bio, str):
+        return log_and_return_json("set_bio", {'error': f"Invalid fields ['{Params.bio}']"}, status=400)
+
+    user = request.user
+
+    # A blank bio just clears it — nothing to classify.
+    if not bio.strip():
+        user.bio = ""
+        user.save(update_fields=['bio'])
+        logger.info(f"Bio cleared for user_id: {user.id}")
+        return log_and_return_json("set_bio", {
+            Fields.bio: "",
+            'message': "Your bio has been cleared.",
+        })
+
+    if len(bio) > MAX_BIO_LENGTH:
+        logger.warning(f"Set bio failed: bio too long ({len(bio)} chars) for user_id: {user.id}")
+        return log_and_return_json("set_bio", {
+            'error': f"Bio exceeds maximum length of {MAX_BIO_LENGTH} characters"}, status=400)
+
+    if ";" in bio or not is_valid_pattern(bio, Patterns.alphanumeric_with_special_chars):
+        return log_and_return_json("set_bio", {'error': f"Invalid fields ['{Params.bio}']"}, status=400)
+
+    # Synchronous positivity check, like a username. A bio that is not positive is
+    # never stored; the user can simply edit it, so the rejection is not appealable.
+    text_result = text_classifier_class.is_text_positive(bio)
+    if not text_result:
+        logger.warning(f"Set bio failed: bio not positive for user_id: {user.id}")
+        return log_and_return_json("set_bio", {
+            'error': f"Text is not positive because your bio {text_result.public_reason()}.",
+            Fields.reason_code: text_result.public_reason_code(),
+            Fields.appealable: False,
+        }, status=400)
+
+    user.bio = bio
+    user.save(update_fields=['bio'])
+    logger.info(f"Bio updated for user_id: {user.id}")
+    return log_and_return_json("set_bio", {
+        Fields.bio: user.bio,
+        'message': "Your bio has been updated.",
+    })
+
+
 @api_login_required
 @ratelimit(key='user', rate='30/m', block=True)
 @require_GET
@@ -3368,6 +3432,9 @@ def get_profile_details(request, username):
         Fields.profile_image_original_url: sign_original_url(live_avatar),
         # Public join number — everyone can see "member #n" on any profile (#198).
         Fields.membership_number: profile_user.membership_number,
+        # Public bio (issue #380). Already moderated on write, so it is safe to
+        # show to everyone; empty string means the user has not set one.
+        Fields.bio: profile_user.bio,
     }
 
     # Owner-only: the moderation state of a photo still under async review (or

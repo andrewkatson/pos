@@ -221,6 +221,17 @@ export interface RemoveProfilePhotoResponse {
   message?: string
 }
 
+export interface SetBioRequest {
+  /** The new bio text. An empty (or whitespace-only) string clears it. */
+  bio: string
+}
+
+export interface SetBioResponse {
+  /** The stored bio after the update (empty string when cleared). */
+  bio: string
+  message?: string
+}
+
 /** The approved profile photo of an author, threaded next to author_username
  * through every list/detail payload. Compressed variant with a full-resolution
  * fallback, mirroring a post's image_url/original_image_url (and null when the
@@ -416,6 +427,9 @@ export interface ProfileDetails {
    * shown on every profile. Null for accounts a backfill hasn't numbered yet.
    */
   membership_number: number | null
+  /** The user's free-text bio (#380), already moderated on write and shown to
+   * everyone. Empty string when they have not set one. */
+  bio: string
 }
 
 // ---------------------------------------------------------------------------

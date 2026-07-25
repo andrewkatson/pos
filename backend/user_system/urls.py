@@ -183,6 +183,9 @@ urlpatterns = [
     # POST /profile/photo/remove/ (Token in header)
     path('profile/photo/remove/', views.remove_profile_photo, name='remove_profile_photo'),
 
+    # POST /profile/bio/ (Token in header) — set or clear the caller's bio
+    path('profile/bio/', views.set_bio, name='set_bio'),
+
     # GET /users/followers/ (Token in header) — the requester's own followers
     path('users/followers/', views.get_followers, name='get_followers'),
 

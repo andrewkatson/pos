@@ -15,14 +15,24 @@ vi.mock('../api/client', () => ({
     retractReportPost: vi.fn(),
     deletePost: vi.fn(),
     getPostStatus: vi.fn(),
+    setBio: vi.fn(),
+  },
+  ApiError: class ApiError extends Error {
+    status: number
+    constructor(status: number, message: string) {
+      super(message)
+      this.name = 'ApiError'
+      this.status = status
+    }
   },
 }))
 
-import { apiClient } from '../api/client'
+import { apiClient, ApiError } from '../api/client'
 const mockGetPosts = vi.mocked(apiClient.getPostsForUser)
 const mockGetProfile = vi.mocked(apiClient.getProfile)
 const mockSearch = vi.mocked(apiClient.searchUsers)
 const mockDeletePost = vi.mocked(apiClient.deletePost)
+const mockSetBio = vi.mocked(apiClient.setBio)
 
 const profile = {
   username: 'ada',
@@ -34,6 +44,7 @@ const profile = {
   identity_is_verified: false,
   is_adult: true,
   membership_number: 3,
+  bio: '',
 }
 const mockGetPostStatus = vi.mocked(apiClient.getPostStatus)
 
@@ -55,6 +66,7 @@ beforeEach(() => {
   mockSearch.mockReset()
   mockDeletePost.mockReset()
   mockGetProfile.mockResolvedValue(profile)
+  mockSetBio.mockReset()
   mockGetPostStatus.mockReset()
   vi.stubGlobal('localStorage', {
     getItem: vi.fn(() => 'ada'),
@@ -342,4 +354,39 @@ test('finding yourself in search clears the query instead of navigating', async 
   // Back to the profile body behind the search.
   expect(await screen.findByText('Followers')).toBeInTheDocument()
   expect(screen.queryByText('Profile page')).not.toBeInTheDocument()
+})
+
+test('lets the signed-in user add a bio and shows it after saving (#380)', async () => {
+  mockGetPosts.mockResolvedValue([])
+  // Starts with no bio, so the tab offers "Add bio".
+  mockSetBio.mockResolvedValue({ bio: 'Aspiring gardener.', message: 'Your bio has been updated.' })
+  renderTab()
+
+  const addButton = await screen.findByRole('button', { name: 'Add bio' })
+  await userEvent.click(addButton)
+
+  const textarea = screen.getByLabelText('Your bio')
+  await userEvent.type(textarea, 'Aspiring gardener.')
+  await userEvent.click(screen.getByRole('button', { name: 'Save' }))
+
+  expect(mockSetBio).toHaveBeenCalledWith({ bio: 'Aspiring gardener.' })
+  // The saved bio replaces the editor.
+  expect(await screen.findByText('Aspiring gardener.')).toBeInTheDocument()
+  expect(screen.getByRole('button', { name: 'Edit bio' })).toBeInTheDocument()
+})
+
+test('shows a moderation rejection inline and keeps the editor open (#380)', async () => {
+  mockGetPosts.mockResolvedValue([])
+  mockSetBio.mockRejectedValue(
+    new ApiError(400, 'Text is not positive because your bio did not meet our guidelines.'),
+  )
+  renderTab()
+
+  await userEvent.click(await screen.findByRole('button', { name: 'Add bio' }))
+  await userEvent.type(screen.getByLabelText('Your bio'), 'a negative bio')
+  await userEvent.click(screen.getByRole('button', { name: 'Save' }))
+
+  expect(await screen.findByText(/not positive/i)).toBeInTheDocument()
+  // Still editing so the user can fix it.
+  expect(screen.getByLabelText('Your bio')).toBeInTheDocument()
 })

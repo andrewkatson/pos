@@ -167,6 +167,7 @@ class Params:
     challenge_token = "CHALLENGE_TOKEN"
     totp_code = "TOTP_CODE"
     recovery_code = "RECOVERY_CODE"
+    bio = "BIO"
 
 class Fields:
     is_adult = 'is_adult'
@@ -222,6 +223,7 @@ class Fields:
     comment_likes = "comment_likes"
     identity_is_verified = "identity_is_verified"
     membership_number = "membership_number"
+    bio = "bio"
     reset_token = "reset_token"
     verification_token = "verification_token"
     hidden = "hidden"
@@ -264,6 +266,7 @@ COMMENT_THREAD_BATCH_SIZE = 10
 MAX_CAPTION_LENGTH = 125
 MAX_COMMENT_LENGTH = 500
 MAX_APPEAL_REASON_LENGTH = 1000
+MAX_BIO_LENGTH = 500
 
 # Number of reports before hiding
 MAX_BEFORE_HIDING_POST = 10

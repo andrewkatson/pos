@@ -317,6 +317,15 @@ interface PositiveOnlySocialAPI {
         @Header("Authorization") token: String
     ): Response<RemoveProfilePhotoResponse>
 
+    // Sets (or clears, with an empty string) the signed-in user's bio (issue
+    // #380). Unlike a photo, a bio is plain text moderated synchronously, so a
+    // non-positive bio comes back as a 4xx and is never stored.
+    @POST("profile/bio/")
+    suspend fun setBio(
+        @Header("Authorization") token: String,
+        @Body request: SetBioRequest
+    ): Response<SetBioResponse>
+
     // ============================================================================================
     // APPEALS
     // ============================================================================================

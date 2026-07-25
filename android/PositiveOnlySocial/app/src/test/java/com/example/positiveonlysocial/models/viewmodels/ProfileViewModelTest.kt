@@ -6,6 +6,7 @@ import com.example.positiveonlysocial.data.model.GenericResponse
 import com.example.positiveonlysocial.data.model.Post
 import com.example.positiveonlysocial.data.model.PostStatusResponse
 import com.example.positiveonlysocial.data.model.ProfileDetailsResponse
+import com.example.positiveonlysocial.data.model.SetBioResponse
 import com.example.positiveonlysocial.data.model.UserSession
 import com.example.positiveonlysocial.data.security.KeychainHelperProtocol
 import kotlinx.coroutines.CompletableDeferred
@@ -17,6 +18,7 @@ import okhttp3.ResponseBody.Companion.toResponseBody
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Rule
@@ -309,5 +311,49 @@ class ProfileViewModelTest {
         advanceUntilIdle()
 
         verify(api, never()).getPostStatus(any(), any())
+    }
+
+    // --- Bio (issue #380) ---
+
+    @Test
+    fun `updateBio saves the bio and reloads the profile`() = runTest {
+        // The reload after a successful save reads back the new bio.
+        whenever(api.getProfileDetails("token123", "user1"))
+            .thenReturn(Response.success(ProfileDetailsResponse("user1", 0, 0, 0, false, bio = "")))
+            .thenReturn(Response.success(ProfileDetailsResponse("user1", 0, 0, 0, false, bio = "Kind and curious.")))
+        whenever(api.getPostsForUser("token123", "user1", 0)).thenReturn(Response.success(emptyList()))
+        viewModel.fetchProfile("user1")
+
+        whenever(api.setBio(eq("token123"), any()))
+            .thenReturn(Response.success(SetBioResponse("Kind and curious.", "Your bio has been updated.")))
+
+        var succeeded = false
+        viewModel.updateBio("user1", "Kind and curious.") { succeeded = true }
+        advanceUntilIdle()
+
+        verify(api).setBio(eq("token123"), any())
+        assertEquals("Kind and curious.", viewModel.profileDetails.value!!.bio)
+        assertNull(viewModel.bioErrorMessage.value)
+        assertTrue(succeeded)
+    }
+
+    @Test
+    fun `updateBio surfaces a rejection inline and does not call onSuccess`() = runTest {
+        whenever(api.getProfileDetails("token123", "user1"))
+            .thenReturn(Response.success(ProfileDetailsResponse("user1", 0, 0, 0, false, bio = "Kindness matters.")))
+        whenever(api.getPostsForUser("token123", "user1", 0)).thenReturn(Response.success(emptyList()))
+        viewModel.fetchProfile("user1")
+
+        whenever(api.setBio(eq("token123"), any()))
+            .thenReturn(Response.error(400, "{\"error\":\"Text is not positive\"}".toResponseBody()))
+
+        var succeeded = false
+        viewModel.updateBio("user1", "a negative bio") { succeeded = true }
+        advanceUntilIdle()
+
+        assertNotNull(viewModel.bioErrorMessage.value)
+        assertFalse(succeeded)
+        // The rejected edit never overwrote the loaded bio.
+        assertEquals("Kindness matters.", viewModel.profileDetails.value!!.bio)
     }
 }

@@ -130,4 +130,16 @@ struct Positive_Only_SocialTests_RealAPI {
         // `URL.path` strips the trailing slash `RealAPI` appends.
         #expect(CapturingURLProtocol.lastRequestURL?.path == "/user_index/profile/photo/remove")
     }
+
+    // Setting a bio (issue #380) must POST to profile/bio/.
+    @Test func testSetBioUsesProfileBioPath() async throws {
+        CapturingURLProtocol.lastRequestURL = nil
+        URLProtocol.registerClass(CapturingURLProtocol.self)
+        defer { URLProtocol.unregisterClass(CapturingURLProtocol.self) }
+
+        _ = try await RealAPI().setBio(sessionManagementToken: "token", bio: "Hello there")
+
+        // `URL.path` strips the trailing slash `RealAPI` appends.
+        #expect(CapturingURLProtocol.lastRequestURL?.path == "/user_index/profile/bio")
+    }
 }

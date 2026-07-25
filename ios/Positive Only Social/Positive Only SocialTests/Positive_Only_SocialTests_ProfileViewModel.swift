@@ -503,4 +503,59 @@ struct Positive_Only_SocialTests_ProfileViewModel {
         await yield()
         #expect(stubAPI.getPostsForUserCallCount == 1)
     }
+
+    // --- Bio (issue #380) ---
+
+    @Test func testUpdateBio_Success_StoresAndReflects() async throws {
+        let (token, user) = try await registerUser(username: "bioOwner")
+        let account = "bioOwner_account"
+        try await setupLoggedInUser(user: user, token: token, account: account)
+
+        let sut = ProfileViewModel(user: user, api: stubAPI, keychainHelper: keychainHelper, account: account)
+
+        let ok = await sut.updateBio("Kind and curious.")
+
+        #expect(ok == true)
+        #expect(sut.bioErrorMessage == nil)
+        // updateBio reloads the profile, so the stored bio is reflected.
+        #expect(sut.profileDetails?.bio == "Kind and curious.")
+        #expect(sut.bio == "Kind and curious.")
+    }
+
+    @Test func testUpdateBio_NonPositive_Rejected_LeavesBioUnchanged() async throws {
+        let (token, user) = try await registerUser(username: "bioReject")
+        let account = "bioReject_account"
+        try await setupLoggedInUser(user: user, token: token, account: account)
+
+        let sut = ProfileViewModel(user: user, api: stubAPI, keychainHelper: keychainHelper, account: account)
+
+        // Seed an approved bio first.
+        _ = await sut.updateBio("Kindness matters.")
+        #expect(sut.bio == "Kindness matters.")
+
+        // The stub rejects anything containing "negative", mirroring the backend
+        // TESTING classifier.
+        let ok = await sut.updateBio("a negative bio")
+
+        #expect(ok == false)
+        #expect(sut.bioErrorMessage != nil)
+        // The rejected edit never overwrote the approved bio.
+        #expect(sut.bio == "Kindness matters.")
+    }
+
+    @Test func testUpdateBio_Empty_Clears() async throws {
+        let (token, user) = try await registerUser(username: "bioClear")
+        let account = "bioClear_account"
+        try await setupLoggedInUser(user: user, token: token, account: account)
+
+        let sut = ProfileViewModel(user: user, api: stubAPI, keychainHelper: keychainHelper, account: account)
+
+        _ = await sut.updateBio("Something nice.")
+        #expect(sut.bio == "Something nice.")
+
+        let ok = await sut.updateBio("")
+
+        #expect(ok == true)
+        #expect(sut.bio == "")
+    }
 }

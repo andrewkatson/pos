@@ -439,6 +439,10 @@ struct ProfileDetailsResponse: Codable, Identifiable, Hashable {
     var profileImageStatus: String? = nil
     var profileImageReasonCode: String? = nil
     var pendingProfileImageUrl: String? = nil
+    /// The user's free-text bio (issue #380), shown to everyone. Already
+    /// moderated on write, so it is safe to display. Empty string when unset;
+    /// defaulted so profiles from a server that predates the field still decode.
+    var bio: String = ""
 
     enum CodingKeys: String, CodingKey {
         case username
@@ -455,6 +459,7 @@ struct ProfileDetailsResponse: Codable, Identifiable, Hashable {
         case profileImageStatus = "profile_image_status"
         case profileImageReasonCode = "profile_image_reason_code"
         case pendingProfileImageUrl = "pending_profile_image_url"
+        case bio
     }
 }
 

@@ -45,6 +45,8 @@ import type {
   ResetPasswordRequest,
   SetProfilePhotoRequest,
   SetProfilePhotoResponse,
+  SetBioRequest,
+  SetBioResponse,
   SubmitAppealRequest,
   SubmitAppealResponse,
   TwoFactorSetupResponse,
@@ -678,6 +680,10 @@ export class ApiClient implements PositiveOnlySocialAPI {
 
   removeProfilePhoto(): Promise<RemoveProfilePhotoResponse> {
     return this.request<RemoveProfilePhotoResponse>('POST', '/profile/photo/remove/', { auth: true })
+  }
+
+  setBio(body: SetBioRequest): Promise<SetBioResponse> {
+    return this.request<SetBioResponse>('POST', '/profile/bio/', { auth: true, body })
   }
 
   // ===========================================================================

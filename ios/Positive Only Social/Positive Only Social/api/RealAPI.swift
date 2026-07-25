@@ -163,6 +163,10 @@ final class RealAPI: Networking {
         let image_url: String
     }
 
+    private struct SetBioBody: Encodable {
+        let bio: String
+    }
+
     // MARK: - Private Helpers
     
     /// Encodes an `Encodable` value into `Data`.
@@ -803,6 +807,20 @@ final class RealAPI: Networking {
         return try await performRequest(
             pathSegments: [GVOAppConstants.pathSegmenProfile, GVOAppConstants.pathSegmentPhoto, GVOAppConstants.pathSegmentRemove],
             method: .post,
+            authToken: sessionManagementToken
+        )
+    }
+
+    // MARK: - Bio (issue #380)
+
+    /// Sets (or clears) the signed-in user's bio. Path: profile/bio/.
+    func setBio(sessionManagementToken: String, bio: String) async throws -> Data {
+        let body = SetBioBody(bio: bio)
+        let requestBody = try encode(body)
+        return try await performRequest(
+            pathSegments: [GVOAppConstants.pathSegmenProfile, GVOAppConstants.pathSegmentBio],
+            method: .post,
+            body: requestBody,
             authToken: sessionManagementToken
         )
     }

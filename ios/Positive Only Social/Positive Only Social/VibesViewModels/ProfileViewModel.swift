@@ -29,6 +29,15 @@ class ProfileViewModel: ObservableObject {
     @Published var photoErrorMessage: String?
     private let s3Uploader = S3Uploader()
 
+    // Own bio editing (issue #380). Unlike the photo, a bio is plain text
+    // moderated synchronously, so a rejection comes back inline (there is no
+    // pending/approved state to poll).
+    @Published var isUpdatingBio = false
+    @Published var bioErrorMessage: String?
+
+    /// The user's bio, or "" when unset.
+    var bio: String { profileDetails?.bio ?? "" }
+
     // Private state for pagination and API
     private var batch = 0
     private let api: Networking
@@ -478,6 +487,39 @@ class ProfileViewModel: ObservableObject {
         } catch {
             NSLog("%@", "Error removing profile photo: \(error)")
             photoErrorMessage = "Could not remove your profile photo. Please try again."
+        }
+    }
+
+    /// Sets (or clears, with an empty string) the signed-in user's bio, then
+    /// reloads the profile so the header reflects it. A non-positive bio is
+    /// rejected by the server (400) and surfaced inline without changing the
+    /// stored bio. Returns whether the update succeeded, so the caller can
+    /// dismiss the editor only on success.
+    @discardableResult
+    func updateBio(_ newBio: String) async -> Bool {
+        guard !isUpdatingBio else { return false }
+        isUpdatingBio = true
+        bioErrorMessage = nil
+        defer { isUpdatingBio = false }
+
+        do {
+            guard let userSession = try keychainHelper.load(UserSession.self, from: keychainService, account: account) else {
+                NSLog("%@", "No active session — cannot update bio")
+                bioErrorMessage = "You must be logged in to edit your bio."
+                return false
+            }
+            _ = try await api.setBio(sessionManagementToken: userSession.sessionToken, bio: newBio)
+            await refreshProfileDetails()
+            return true
+        } catch APIError.badServerResponse(let statusCode) where statusCode == 400 {
+            // The bio failed moderation or the length cap; the specific reason is
+            // not carried past the API layer, so show an actionable hint.
+            bioErrorMessage = "Your bio wasn't accepted. Please keep it positive and within \(GVOAppConstants.maxBioLength) characters."
+            return false
+        } catch {
+            NSLog("%@", "Error updating bio: \(error)")
+            bioErrorMessage = "Could not update your bio. Please try again."
+            return false
         }
     }
 }

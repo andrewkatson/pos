@@ -42,6 +42,8 @@ struct MockUser {
     var pendingProfileImageUrl: String? = nil
     var profileImageStatus: String = "none"
     var profileImageReasonCode: String? = nil
+    // Free-text bio (issue #380); "" when unset.
+    var bio: String = ""
 
     init(username: String, email: String, passwordHash: String) {
         self.username = username
@@ -1444,6 +1446,8 @@ final class StatefulStubbedAPI: Networking {
             let profile_image_status: String?
             let profile_image_reason_code: String?
             let pending_profile_image_url: String?
+            // Public bio (issue #380).
+            let bio: String
         }
 
         if isBlockedBy {
@@ -1461,7 +1465,8 @@ final class StatefulStubbedAPI: Networking {
                 profile_image_original_url: nil,
                 profile_image_status: nil,
                 profile_image_reason_code: nil,
-                pending_profile_image_url: nil
+                pending_profile_image_url: nil,
+                bio: profileUser.bio
             )
             return try createSerializedResponse(fields: fields)
         }
@@ -1480,7 +1485,8 @@ final class StatefulStubbedAPI: Networking {
             profile_image_original_url: liveAvatar,
             profile_image_status: isOwnProfile ? profileUser.profileImageStatus : nil,
             profile_image_reason_code: isOwnProfile ? profileUser.profileImageReasonCode : nil,
-            pending_profile_image_url: isOwnProfile ? profileUser.pendingProfileImageUrl : nil
+            pending_profile_image_url: isOwnProfile ? profileUser.pendingProfileImageUrl : nil,
+            bio: profileUser.bio
         )
 
         // 6. Return the data using your existing helper
@@ -1524,6 +1530,32 @@ final class StatefulStubbedAPI: Networking {
             profile_image_status: "none",
             message: "Your profile photo has been removed."
         ))
+    }
+
+    // MARK: - Bio (issue #380)
+
+    func setBio(sessionManagementToken: String, bio: String) async throws -> Data {
+        await simulateNetwork()
+        guard let user = findUser(bySessionToken: sessionManagementToken),
+              let userIndex = users.firstIndex(where: { $0.id == user.id })
+        else { throw APIError.badServerResponse(statusCode: 401) }
+        struct Fields: Codable { let bio: String; let message: String }
+        // A blank bio just clears it — nothing to moderate.
+        if bio.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            users[userIndex].bio = ""
+            return try createSerializedResponse(fields: Fields(bio: "", message: "Your bio has been cleared."))
+        }
+        if bio.count > GVOAppConstants.maxBioLength {
+            throw APIError.badServerResponse(statusCode: 400)
+        }
+        // The stub has no classifier; like the backend's TESTING text classifier
+        // it rejects anything containing "negative" and accepts the rest, so
+        // tests can drive the reject path. A rejected bio is never stored.
+        if bio.lowercased().contains("negative") {
+            throw APIError.badServerResponse(statusCode: 400)
+        }
+        users[userIndex].bio = bio
+        return try createSerializedResponse(fields: Fields(bio: bio, message: "Your bio has been updated."))
     }
 
     // MARK: - Appeals

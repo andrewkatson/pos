@@ -362,7 +362,13 @@ data class ProfileDetailsResponse(
     // not-yet-approved upload the owner previews immediately.
     @SerializedName("profile_image_status") val profileImageStatus: String? = null,
     @SerializedName("profile_image_reason_code") val profileImageReasonCode: String? = null,
-    @SerializedName("pending_profile_image_url") val pendingProfileImageUrl: String? = null
+    @SerializedName("pending_profile_image_url") val pendingProfileImageUrl: String? = null,
+    // The user's free-text bio (issue #380), shown to everyone. Already moderated
+    // on write, so it is safe to display. Nullable (like membershipNumber) so a
+    // profile from a server that predates the field still deserializes — Gson
+    // leaves a missing field null rather than applying a default; callers treat
+    // null and "" the same ("no bio set").
+    @SerializedName("bio") val bio: String? = null
 )
 
 // --- Profile Photo DTOs (issue #7) ---
@@ -389,6 +395,23 @@ data class SetProfilePhotoResponse(
 /** Response of `POST profile/photo/remove/` (HTTP 200): status returns to "none". */
 data class RemoveProfilePhotoResponse(
     @SerializedName("profile_image_status") val profileImageStatus: String,
+    val message: String? = null
+)
+
+// --- Bio DTOs (issue #380) ---
+
+/** Sets (or clears, with an empty string) the signed-in user's bio. */
+data class SetBioRequest(
+    @SerializedName("bio") val bio: String
+)
+
+/**
+ * Response of `POST profile/bio/` (HTTP 200). The bio is moderated synchronously,
+ * so this carries the stored bio directly (a non-positive bio is a 4xx and is
+ * never stored); "" when cleared.
+ */
+data class SetBioResponse(
+    @SerializedName("bio") val bio: String,
     val message: String? = null
 )
 
