@@ -1195,7 +1195,10 @@ class StatefulStubbedAPI : PositiveOnlySocialAPI {
             user.bio = ""
             return Response.success(SetBioResponse(bio = "", message = "Your bio has been cleared."))
         }
-        if (bio.length > Constants.MAX_BIO_LENGTH) {
+        // Count Unicode code points (like the backend's Python len() and the
+        // CharacterCounter), not UTF-16 units, so emoji/non-BMP bios are judged
+        // the same way here as in production.
+        if (bio.codePointCount(0, bio.length) > Constants.MAX_BIO_LENGTH) {
             return errorGeneric(400, "Bio exceeds maximum length of ${Constants.MAX_BIO_LENGTH} characters")
         }
         // The stub has no classifier; like the backend's TESTING text classifier

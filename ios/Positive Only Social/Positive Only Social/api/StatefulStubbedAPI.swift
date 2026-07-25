@@ -1545,7 +1545,10 @@ final class StatefulStubbedAPI: Networking {
             users[userIndex].bio = ""
             return try createSerializedResponse(fields: Fields(bio: "", message: "Your bio has been cleared."))
         }
-        if bio.count > GVOAppConstants.maxBioLength {
+        // Count Unicode code points (like the backend's Python len() and the
+        // CharacterCounter helper), not grapheme clusters, so emoji/combined-
+        // character bios are judged the same way here as in production.
+        if bio.unicodeScalars.count > GVOAppConstants.maxBioLength {
             throw APIError.badServerResponse(statusCode: 400)
         }
         // The stub has no classifier; like the backend's TESTING text classifier
