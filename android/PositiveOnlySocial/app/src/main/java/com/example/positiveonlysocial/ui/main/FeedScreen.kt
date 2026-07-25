@@ -10,6 +10,7 @@ import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -221,7 +222,7 @@ fun PostItem(
         // already render their caption as the tile above, so it isn't repeated
         // for them.
         if (post.imageUrl != null) {
-            Text(text = post.caption)
+            Text(text = post.caption, modifier = Modifier.testTag("PostCaption"))
         }
 
         // Like / comment count / report / retract / delete without leaving the
