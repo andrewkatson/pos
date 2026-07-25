@@ -544,7 +544,9 @@ struct Positive_Only_SocialTests_ProfileViewModel {
         let ok = await sut.updateBio("a negative bio")
 
         #expect(ok == false)
-        #expect(sut.bioErrorMessage != nil)
+        // The backend's actionable reason is surfaced (RealAPI/stub throw
+        // serverError carrying the message), not a generic fallback.
+        #expect(sut.bioErrorMessage?.contains("not positive") == true)
         // The rejected edit never overwrote the approved bio.
         #expect(sut.bio == "Kindness matters.")
     }

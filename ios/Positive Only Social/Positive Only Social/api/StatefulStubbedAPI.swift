@@ -1545,21 +1545,26 @@ final class StatefulStubbedAPI: Networking {
             users[userIndex].bio = ""
             return try createSerializedResponse(fields: Fields(bio: "", message: "Your bio has been cleared."))
         }
+        // Rejections throw serverError with the backend's message (not
+        // badServerResponse), mirroring how RealAPI surfaces a 4xx that carries a
+        // JSON {"error": ...} body — which every set_bio rejection does — so the
+        // view model's actionable-message path is exercised as in production.
+        //
         // Count Unicode code points (like the backend's Python len() and the
         // CharacterCounter helper), not grapheme clusters, so emoji/combined-
         // character bios are judged the same way here as in production.
         if bio.unicodeScalars.count > GVOAppConstants.maxBioLength {
-            throw APIError.badServerResponse(statusCode: 400)
+            throw APIError.serverError(statusCode: 400, serverMessage: "Bio exceeds maximum length of \(GVOAppConstants.maxBioLength) characters")
         }
         // The backend disallows the semicolon in user text; mirror that here.
         if bio.contains(";") {
-            throw APIError.badServerResponse(statusCode: 400)
+            throw APIError.serverError(statusCode: 400, serverMessage: "Your bio cannot contain a semicolon (;).")
         }
         // The stub has no classifier; like the backend's TESTING text classifier
         // it rejects anything containing "negative" and accepts the rest, so
         // tests can drive the reject path. A rejected bio is never stored.
         if bio.lowercased().contains("negative") {
-            throw APIError.badServerResponse(statusCode: 400)
+            throw APIError.serverError(statusCode: 400, serverMessage: "Text is not positive because your bio did not meet our guidelines.")
         }
         users[userIndex].bio = bio
         return try createSerializedResponse(fields: Fields(bio: bio, message: "Your bio has been updated."))

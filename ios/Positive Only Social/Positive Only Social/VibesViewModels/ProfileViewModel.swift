@@ -518,9 +518,16 @@ class ProfileViewModel: ObservableObject {
             let storedBio = (try? JSONDecoder().decode(BioResponse.self, from: data))?.bio ?? newBio
             profileDetails?.bio = storedBio
             return true
+        } catch let APIError.serverError(_, serverMessage) {
+            // A rejection (semicolon, length, or the positivity reason) comes back
+            // as a serverError carrying the backend's own message — show it
+            // directly, since RealAPI throws this (not badServerResponse) whenever
+            // the 4xx response has a JSON error body.
+            bioErrorMessage = serverMessage
+            return false
         } catch APIError.badServerResponse(let statusCode) where statusCode == 400 {
-            // The bio failed moderation or the length cap; the specific reason is
-            // not carried past the API layer, so show an actionable hint.
+            // A 400 with no parseable error body (e.g. the stub): fall back to an
+            // actionable hint since there is no server message to show.
             bioErrorMessage = "Your bio wasn't accepted. Please keep it positive and within \(GVOAppConstants.maxBioLength) characters."
             return false
         } catch {
