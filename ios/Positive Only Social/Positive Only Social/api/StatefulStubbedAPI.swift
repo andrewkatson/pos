@@ -1551,6 +1551,10 @@ final class StatefulStubbedAPI: Networking {
         if bio.unicodeScalars.count > GVOAppConstants.maxBioLength {
             throw APIError.badServerResponse(statusCode: 400)
         }
+        // The backend disallows the semicolon in user text; mirror that here.
+        if bio.contains(";") {
+            throw APIError.badServerResponse(statusCode: 400)
+        }
         // The stub has no classifier; like the backend's TESTING text classifier
         // it rejects anything containing "negative" and accepts the rest, so
         // tests can drive the reject path. A rejected bio is never stored.

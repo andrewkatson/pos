@@ -1388,6 +1388,10 @@ export class StatefulStubbedAPI implements PositiveOnlySocialAPI {
     if (characterCount(body.bio) > MAX_BIO_LENGTH) {
       throw new ApiError(400, `Bio exceeds maximum length of ${MAX_BIO_LENGTH} characters`)
     }
+    // The backend disallows the semicolon in user text; mirror that here.
+    if (body.bio.includes(';')) {
+      throw new ApiError(400, 'Your bio cannot contain a semicolon (;).')
+    }
     // The stub has no classifier; like the backend's TESTING text classifier it
     // rejects anything containing "negative" and accepts the rest, so tests can
     // drive the reject path. A rejected bio is never stored.
