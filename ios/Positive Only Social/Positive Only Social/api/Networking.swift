@@ -45,6 +45,19 @@ protocol Networking {
     /// exactly one of `totpCode` / `recoveryCode`.
     func disableTotp(sessionManagementToken: String, password: String, totpCode: String?, recoveryCode: String?) async throws -> Data
 
+    // MARK: - Account (issues #194 / #197)
+
+    /// Fetches the signed-in account's own username and email for the Settings
+    /// "Contact Information" section. Scoped to the caller on the backend, so it
+    /// can only ever reveal the requester's own address.
+    func getCurrentUser(sessionManagementToken: String) async throws -> Data
+
+    /// Changes the signed-in account's password. Requires the current password
+    /// as well as the session, so a stolen session alone cannot change it. On
+    /// success the backend evicts every *other* session and all remember-me
+    /// cookies, keeping only the caller's current session.
+    func changePassword(sessionManagementToken: String, currentPassword: String, newPassword: String) async throws -> Data
+
     /// Resets the user's password. Requires a reset token issued by verifyPasswordReset.
     func resetPassword(username: String, email: String, newPassword: String, resetToken: String) async throws -> Data
 
@@ -86,7 +99,8 @@ protocol Networking {
     func createUploadUrl(sessionManagementToken: String) async throws -> Data
 
     /// Creates and stores a new post. A nil `imageURL` creates a text-only post (#307).
-    func makePost(sessionManagementToken: String, imageURL: String?, caption: String) async throws -> Data
+    /// `captionFont` / `backgroundColor` are curated style keys (issue #318).
+    func makePost(sessionManagementToken: String, imageURL: String?, caption: String, captionFont: String, backgroundColor: String) async throws -> Data
 
     /// Deletes a post.
     func deletePost(sessionManagementToken: String, postIdentifier: String) async throws -> Data
@@ -122,8 +136,9 @@ protocol Networking {
     
     // MARK: - Comment Management
 
-    /// Adds a direct comment to a post.
-    func commentOnPost(sessionManagementToken: String, postIdentifier: String, commentText: String) async throws -> Data
+    /// Adds a direct comment to a post. `formatting` carries optional inline
+    /// styling spans (issue #318).
+    func commentOnPost(sessionManagementToken: String, postIdentifier: String, commentText: String, formatting: [CommentFormatSpan]?) async throws -> Data
 
     /// Likes a specific comment within a post.
     func likeComment(sessionManagementToken: String, postIdentifier: String, commentThreadIdentifier: String, commentIdentifier: String) async throws -> Data
@@ -148,8 +163,9 @@ protocol Networking {
     /// Requires auth so each comment can include whether the current user has liked it.
     func getCommentsForThread(sessionManagementToken: String, commentThreadIdentifier: String, batch: Int) async throws -> Data
 
-    /// Replies to a comment thread.
-    func replyToCommentThread(sessionManagementToken: String, postIdentifier: String, commentThreadIdentifier: String, commentText: String) async throws -> Data
+    /// Replies to a comment thread. `formatting` carries optional inline
+    /// styling spans (issue #318).
+    func replyToCommentThread(sessionManagementToken: String, postIdentifier: String, commentThreadIdentifier: String, commentText: String, formatting: [CommentFormatSpan]?) async throws -> Data
 
     // MARK: - User Discovery
 
@@ -159,8 +175,29 @@ protocol Networking {
     /// Gets every user the signed-in user has blocked.
     func getBlockedUsers(sessionManagementToken: String) async throws -> Data
 
+    /// Gets the signed-in user's own followers. There is no username parameter,
+    /// so another user's follower list can't be requested (issue #8).
+    func getFollowers(sessionManagementToken: String) async throws -> Data
+
+    /// Gets the users the signed-in user follows. There is no username
+    /// parameter, so another user's following list can't be requested (issue #8).
+    func getFollowing(sessionManagementToken: String) async throws -> Data
+
     /// Gets the details of a profile
     func getProfileDetails(sessionManagementToken: String, username: String) async throws -> Data
+
+    // MARK: - Profile Photo (issue #7)
+
+    /// Sets the signed-in user's profile photo. The JPEG bytes are uploaded
+    /// first to a presigned S3 URL (reusing `createUploadUrl` + `S3Uploader`,
+    /// exactly like a post image); `imageURL` is the canonical object URL that
+    /// upload returned. The photo is classified asynchronously, so the response
+    /// reports a "pending" status until review approves it.
+    func setProfilePhoto(sessionManagementToken: String, imageURL: String) async throws -> Data
+
+    /// Removes the signed-in user's profile photo, reverting them to the
+    /// neutral placeholder everywhere.
+    func removeProfilePhoto(sessionManagementToken: String) async throws -> Data
 
     // MARK: - Appeals
 

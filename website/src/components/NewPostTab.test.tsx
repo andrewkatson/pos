@@ -59,7 +59,11 @@ test('creates a text-only post without uploading to S3 (#307)', async () => {
   await userEvent.click(screen.getByRole('button', { name: 'Share Post' }))
 
   await waitFor(() =>
-    expect(mockCreatePost).toHaveBeenCalledWith({ caption: 'words only today' }),
+    expect(mockCreatePost).toHaveBeenCalledWith({
+      caption: 'words only today',
+      caption_font: 'default',
+      background_color: 'default',
+    }),
   )
   expect(mockUploadImage).not.toHaveBeenCalled()
   expect(await screen.findByText('Your post was shared successfully!')).toBeInTheDocument()
@@ -95,9 +99,29 @@ test('uploads the photo to S3 and creates the post on success', async () => {
   expect(mockCreatePost).toHaveBeenCalledWith({
     image_url: 'https://goodvibesonly-images.s3.us-east-2.amazonaws.com/user-123/abc.jpeg',
     caption: 'great day',
+    caption_font: 'default',
+    background_color: 'default',
   })
   expect(await screen.findByText('Your post was shared successfully!')).toBeInTheDocument()
   expect(onPosted).toHaveBeenCalled()
+})
+
+test('sends the chosen caption font and background color (#318)', async () => {
+  mockCreatePost.mockResolvedValue({ post_identifier: 'p1' })
+  render(<NewPostTab onPosted={() => {}} />)
+
+  await userEvent.type(screen.getByLabelText('Caption'), 'styled words')
+  await userEvent.selectOptions(screen.getByLabelText('Font'), 'serif')
+  await userEvent.click(screen.getByRole('button', { name: 'Mint' }))
+  await userEvent.click(screen.getByRole('button', { name: 'Share Post' }))
+
+  await waitFor(() =>
+    expect(mockCreatePost).toHaveBeenCalledWith({
+      caption: 'styled words',
+      caption_font: 'serif',
+      background_color: 'mint',
+    }),
+  )
 })
 
 test('shows the review-in-progress message for a pending post (#282)', async () => {

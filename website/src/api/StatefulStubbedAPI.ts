@@ -7,14 +7,19 @@ import { ApiError, INVALID_TWO_FACTOR_CHALLENGE } from './client'
 import type { PositiveOnlySocialAPI } from './PositiveOnlySocialAPI'
 import type {
   AuthResponse,
+  BackgroundColor,
+  CaptionFont,
   Comment,
+  CommentFormatSpan,
   CommentOnPostResponse,
   CommentThreadRef,
+  ChangePasswordRequest,
   ConfirmTotpRequest,
   ConfirmTotpResponse,
   CreatePostRequest,
   CreatePostResponse,
   CreateUploadUrlResponse,
+  CurrentUser,
   DisableTotpRequest,
   DisableTotpResponse,
   FeedPost,
@@ -30,14 +35,19 @@ import type {
   PostDetails,
   PostStatusResponse,
   ProfileDetails,
+  ProfileImageStatus,
   RegisterRequest,
+  RemoveProfilePhotoResponse,
   ReplyResponse,
   RequestResetRequest,
   ResendVerificationEmailRequest,
   ResetPasswordRequest,
+  SetProfilePhotoRequest,
+  SetProfilePhotoResponse,
   SubmitAppealRequest,
   SubmitAppealResponse,
   TwoFactorSetupResponse,
+  AuthorAvatarFields,
   UserSearchResult,
   VerifyEmailRequest,
   VerifyResetRequest,
@@ -57,6 +67,13 @@ const MAX_BEFORE_HIDING_COMMENT = 5
 // accepts, mirroring the fixed codes in the iOS/Android stubs.
 export const STUB_TOTP_CODE = '123456'
 const STUB_RECOVERY_CODE_COUNT = 10
+
+// The registration strength policy the real backend enforces (Patterns.password
+// in backend/user_system/constants.py): at least eight non-whitespace characters
+// with a lower- and upper-case letter and a digit. The stub applies it to
+// changePassword too, so a weak new password fails here exactly as it would in
+// production rather than silently succeeding against the stub.
+const STRONG_PASSWORD = /^(?=.*[0-9])(?=.*[a-z])(?=.*[A-Z])(?=\S+$).{8,}$/
 
 /** Cryptographically secure random bytes. These feed credential-shaped values
  * (TOTP secret, recovery codes), so Math.random() is not appropriate even in a
@@ -102,6 +119,17 @@ interface UserMock {
   totpEnabled: boolean
   /** Unused recovery codes; consumed codes are removed. */
   recoveryCodes: Set<string>
+  /** Post ids the user has saved, oldest first, so the saved listing can
+   * return them newest-first (issue #193). */
+  savedPostIds: string[]
+  /** Approved profile photo shown to everyone (issue #7), or null. */
+  profileImageUrl: string | null
+  /** A photo still under async review, shown to nobody until approved. */
+  pendingProfileImageUrl: string | null
+  profileImageStatus: ProfileImageStatus
+  profileImageReasonCode: string | null
+  /** Sequential join number (#198), assigned in registration order. */
+  membershipNumber: number
 }
 
 interface TwoFactorChallengeMock {
@@ -127,6 +155,9 @@ interface PostMock {
   /** Null for a text-only post (#307). */
   imageUrl: string | null
   caption: string
+  /** Whole-caption font + whole-tile background color keys (issue #318). */
+  captionFont: CaptionFont
+  backgroundColor: BackgroundColor
   creationTime: number
   hidden: boolean
   hiddenReason: string
@@ -141,6 +172,8 @@ interface CommentMock {
   commentIdentifier: string
   authorId: string
   body: string
+  /** Inline formatting spans over `body` (issue #318); null = plain. */
+  bodyFormatting: CommentFormatSpan[] | null
   creationTime: number
   hidden: boolean
   hiddenReason: string
@@ -296,6 +329,13 @@ export class StatefulStubbedAPI implements PositiveOnlySocialAPI {
       totpSecret: null,
       totpEnabled: false,
       recoveryCodes: new Set(),
+      savedPostIds: [],
+      profileImageUrl: null,
+      pendingProfileImageUrl: null,
+      profileImageStatus: 'none',
+      profileImageReasonCode: null,
+      // Next join number, one past the current highest (#198).
+      membershipNumber: this.users.reduce((max, u) => Math.max(max, u.membershipNumber), 0) + 1,
     }
     this.users.push(user)
 
@@ -317,6 +357,7 @@ export class StatefulStubbedAPI implements PositiveOnlySocialAPI {
       username: user.username,
       series_identifier: seriesIdentifier,
       login_cookie_token: loginCookieToken,
+      membership_number: user.membershipNumber,
     }
   }
 
@@ -361,6 +402,7 @@ export class StatefulStubbedAPI implements PositiveOnlySocialAPI {
       username: user.username,
       series_identifier: seriesIdentifier,
       login_cookie_token: loginCookieToken,
+      membership_number: user.membershipNumber,
     }
   }
 
@@ -439,6 +481,7 @@ export class StatefulStubbedAPI implements PositiveOnlySocialAPI {
       username: user.username,
       series_identifier: seriesIdentifier,
       login_cookie_token: loginCookieToken,
+      membership_number: user.membershipNumber,
     }
   }
 
@@ -530,6 +573,11 @@ export class StatefulStubbedAPI implements PositiveOnlySocialAPI {
     return { message: 'User deleted successfully' }
   }
 
+  async getCurrentUser(): Promise<CurrentUser> {
+    const user = this.requireUser()
+    return { username: user.username, email: user.email }
+  }
+
   // ---------------------------------------------------------------------------
   // Password reset
   // ---------------------------------------------------------------------------
@@ -598,6 +646,28 @@ export class StatefulStubbedAPI implements PositiveOnlySocialAPI {
     throw new ApiError(400, 'Invalid reset token')
   }
 
+  async changePassword(body: ChangePasswordRequest): Promise<MessageResponse> {
+    const user = this.requireUser()
+    // Field validation first, mirroring the backend: the new password must meet
+    // the registration strength policy before the current password is checked.
+    if (!STRONG_PASSWORD.test(body.new_password)) {
+      throw new ApiError(400, "Invalid fields ['NEW_PASSWORD']")
+    }
+    if (user.passwordHash !== body.password) {
+      throw new ApiError(400, 'Invalid password')
+    }
+    if (user.passwordHash === body.new_password) {
+      throw new ApiError(400, 'New password must be different from the current password')
+    }
+    user.passwordHash = body.new_password
+    // Evict other devices but keep the current session (mirrors the backend).
+    this.sessions = this.sessions.filter(
+      (s) => s.userId !== user.id || s.managementToken === this.token,
+    )
+    this.loginCookies = this.loginCookies.filter((c) => c.userId !== user.id)
+    return { message: 'Password changed successfully' }
+  }
+
   // ---------------------------------------------------------------------------
   // Posts
   // ---------------------------------------------------------------------------
@@ -622,6 +692,8 @@ export class StatefulStubbedAPI implements PositiveOnlySocialAPI {
       authorId: user.id,
       imageUrl: body.image_url ?? null,
       caption: body.caption,
+      captionFont: body.caption_font ?? 'default',
+      backgroundColor: body.background_color ?? 'default',
       creationTime: Date.now(),
       hidden: true,
       hiddenReason: 'pending_classification',
@@ -671,6 +743,19 @@ export class StatefulStubbedAPI implements PositiveOnlySocialAPI {
       post.hiddenReason !== 'pending_classification' &&
       post.hiddenReason !== 'classifier_final'
     )
+  }
+
+  /** An author's approved profile photo, merged next to author_username in
+   * every list/detail payload (issue #7). Mirrors the backend: only the
+   * approved photo is exposed, compressed variant plus original fallback (the
+   * stub has no separate compressed bucket, so both are the same URL). */
+  private authorAvatarFields(authorId: string): AuthorAvatarFields {
+    const author = this.users.find((u) => u.id === authorId)
+    const url = author ? author.profileImageUrl : null
+    return {
+      author_profile_image_url: url,
+      author_profile_image_original_url: url,
+    }
   }
 
   /** The author-only classification fields merged into post payloads. */
@@ -754,11 +839,35 @@ export class StatefulStubbedAPI implements PositiveOnlySocialAPI {
     return { message: 'Post unliked' }
   }
 
+  async savePost(postIdentifier: string): Promise<MessageResponse> {
+    const user = this.requireUser()
+    const post = this.findPost(postIdentifier)
+    // Only posts the user can see are worth saving, mirroring the backend.
+    if (!this.canViewPost(post, user)) {
+      throw new ApiError(400, 'No post with that identifier')
+    }
+    if (user.savedPostIds.includes(postIdentifier)) {
+      throw new ApiError(400, 'Already saved post')
+    }
+    user.savedPostIds.push(postIdentifier)
+    return { message: 'Post saved' }
+  }
+
+  async unsavePost(postIdentifier: string): Promise<MessageResponse> {
+    const user = this.requireUser()
+    this.findPost(postIdentifier)
+    if (!user.savedPostIds.includes(postIdentifier)) {
+      throw new ApiError(400, 'Post not saved yet')
+    }
+    user.savedPostIds = user.savedPostIds.filter((id) => id !== postIdentifier)
+    return { message: 'Post unsaved' }
+  }
+
   // ---------------------------------------------------------------------------
   // Feeds & retrieval
   // ---------------------------------------------------------------------------
 
-  private toFeedPost(post: PostMock, viewerId: string): FeedPost {
+  private toFeedPost(post: PostMock, viewer: UserMock): FeedPost {
     const author = this.users.find((u) => u.id === post.authorId)
     return {
       post_identifier: post.postIdentifier,
@@ -768,8 +877,22 @@ export class StatefulStubbedAPI implements PositiveOnlySocialAPI {
       original_image_url: post.imageUrl,
       author_username: author ? author.username : '',
       caption: post.caption,
-      ...this.authorStatusFields(post, viewerId),
+      is_saved: viewer.savedPostIds.includes(post.postIdentifier),
+      ...this.authorAvatarFields(post.authorId),
+      caption_font: post.captionFont,
+      background_color: post.backgroundColor,
+      ...this.authorStatusFields(post, viewer.id),
     }
+  }
+
+  /** Whether a post is visible to a viewer, mirroring backend can_view_post:
+   * the author always sees their own posts; everyone else only sees live ones.
+   * Final-rejection tombstones are visible to nobody (#282). */
+  private canViewPost(post: PostMock, viewer: UserMock): boolean {
+    if (post.hiddenReason === 'classifier_final') return false
+    if (post.authorId === viewer.id) return true
+    if (post.hidden) return false
+    return !viewer.blocked.has(post.authorId) && !viewer.blockedBy.has(post.authorId)
   }
 
   async getFeed(batch: number): Promise<FeedPost[]> {
@@ -777,7 +900,7 @@ export class StatefulStubbedAPI implements PositiveOnlySocialAPI {
     const visible = this.posts
       .filter((p) => !p.hidden && !user.blocked.has(p.authorId) && !user.blockedBy.has(p.authorId))
       .sort((a, b) => b.creationTime - a.creationTime)
-    return this.batch(visible, batch, POST_BATCH_SIZE).map((p) => this.toFeedPost(p, user.id))
+    return this.batch(visible, batch, POST_BATCH_SIZE).map((p) => this.toFeedPost(p, user))
   }
 
   async getFollowedFeed(batch: number): Promise<FeedPost[]> {
@@ -791,7 +914,7 @@ export class StatefulStubbedAPI implements PositiveOnlySocialAPI {
           !user.blockedBy.has(p.authorId),
       )
       .sort((a, b) => b.creationTime - a.creationTime)
-    return this.batch(visible, batch, POST_BATCH_SIZE).map((p) => this.toFeedPost(p, user.id))
+    return this.batch(visible, batch, POST_BATCH_SIZE).map((p) => this.toFeedPost(p, user))
   }
 
   async getPostsForUser(username: string, batch: number): Promise<FeedPost[]> {
@@ -811,7 +934,18 @@ export class StatefulStubbedAPI implements PositiveOnlySocialAPI {
       .filter((p) => p.hiddenReason !== 'classifier_final')
       .filter((p) => (user.id === target.id ? true : !p.hidden))
       .sort((a, b) => b.creationTime - a.creationTime)
-    return this.batch(visible, batch, POST_BATCH_SIZE).map((p) => this.toFeedPost(p, user.id))
+    return this.batch(visible, batch, POST_BATCH_SIZE).map((p) => this.toFeedPost(p, user))
+  }
+
+  async getSavedPosts(batch: number): Promise<FeedPost[]> {
+    const user = this.requireUser()
+    // Newest save first (savedPostIds is oldest-first), and only posts that are
+    // still visible — a since-hidden post silently drops off (issue #193).
+    const saved = [...user.savedPostIds]
+      .reverse()
+      .map((id) => this.posts.find((p) => p.postIdentifier === id))
+      .filter((p): p is PostMock => p !== undefined && this.canViewPost(p, user))
+    return this.batch(saved, batch, POST_BATCH_SIZE).map((p) => this.toFeedPost(p, user))
   }
 
   async getPostDetails(postIdentifier: string): Promise<PostDetails> {
@@ -823,12 +957,16 @@ export class StatefulStubbedAPI implements PositiveOnlySocialAPI {
       image_url: post.imageUrl,
       original_image_url: post.imageUrl,
       caption: post.caption,
+      caption_font: post.captionFont,
+      background_color: post.backgroundColor,
       creation_time: new Date(post.creationTime).toISOString(),
       post_likes: post.likes.size,
       is_liked: post.likes.has(user.id),
+      is_saved: user.savedPostIds.includes(post.postIdentifier),
       is_reported: post.reports.has(user.id),
       report_reason: post.reports.get(user.id) ?? null,
       author_username: author ? author.username : '',
+      ...this.authorAvatarFields(post.authorId),
       ...this.authorStatusFields(post, user.id),
     }
   }
@@ -869,6 +1007,7 @@ export class StatefulStubbedAPI implements PositiveOnlySocialAPI {
   async commentOnPost(
     postIdentifier: string,
     commentText: string,
+    formatting?: CommentFormatSpan[],
   ): Promise<CommentOnPostResponse> {
     const user = this.requireUser()
     this.findPost(postIdentifier)
@@ -882,6 +1021,7 @@ export class StatefulStubbedAPI implements PositiveOnlySocialAPI {
       commentIdentifier: newId(),
       authorId: user.id,
       body: commentText,
+      bodyFormatting: formatting && formatting.length > 0 ? formatting : null,
       creationTime: Date.now(),
       hidden: false,
       hiddenReason: '',
@@ -899,6 +1039,7 @@ export class StatefulStubbedAPI implements PositiveOnlySocialAPI {
     postIdentifier: string,
     commentThreadIdentifier: string,
     commentText: string,
+    formatting?: CommentFormatSpan[],
   ): Promise<ReplyResponse> {
     const user = this.requireUser()
     const thread = this.commentThreads.find(
@@ -911,6 +1052,7 @@ export class StatefulStubbedAPI implements PositiveOnlySocialAPI {
       commentIdentifier: newId(),
       authorId: user.id,
       body: commentText,
+      bodyFormatting: formatting && formatting.length > 0 ? formatting : null,
       creationTime: Date.now(),
       hidden: false,
       hiddenReason: '',
@@ -952,7 +1094,9 @@ export class StatefulStubbedAPI implements PositiveOnlySocialAPI {
       return {
         comment_identifier: c.commentIdentifier,
         body: c.body,
+        body_formatting: c.bodyFormatting,
         author_username: author ? author.username : '',
+        ...this.authorAvatarFields(c.authorId),
         creation_time: time,
         updated_time: time,
         comment_likes: c.likes.size,
@@ -1073,7 +1217,11 @@ export class StatefulStubbedAPI implements PositiveOnlySocialAPI {
           !current.blockedBy.has(u.id),
       )
       .slice(0, 10)
-      .map((u) => ({ username: u.username, identity_is_verified: u.isVerified }))
+      .map((u) => ({
+        username: u.username,
+        identity_is_verified: u.isVerified,
+        ...this.authorAvatarFields(u.id),
+      }))
   }
 
   async followUser(username: string): Promise<MessageResponse> {
@@ -1136,7 +1284,35 @@ export class StatefulStubbedAPI implements PositiveOnlySocialAPI {
     return this.users
       .filter((u) => user.blocked.has(u.id))
       .sort((a, b) => a.username.localeCompare(b.username))
-      .map((u) => ({ username: u.username, identity_is_verified: u.isVerified }))
+      .map((u) => ({
+        username: u.username,
+        identity_is_verified: u.isVerified,
+        ...this.authorAvatarFields(u.id),
+      }))
+  }
+
+  async getFollowers(): Promise<UserSearchResult[]> {
+    const user = this.requireUser()
+    return this.users
+      .filter((u) => user.followers.has(u.id))
+      .sort((a, b) => a.username.localeCompare(b.username))
+      .map((u) => ({
+        username: u.username,
+        identity_is_verified: u.isVerified,
+        ...this.authorAvatarFields(u.id),
+      }))
+  }
+
+  async getFollowing(): Promise<UserSearchResult[]> {
+    const user = this.requireUser()
+    return this.users
+      .filter((u) => user.following.has(u.id))
+      .sort((a, b) => a.username.localeCompare(b.username))
+      .map((u) => ({
+        username: u.username,
+        identity_is_verified: u.isVerified,
+        ...this.authorAvatarFields(u.id),
+      }))
   }
 
   async getProfile(username: string): Promise<ProfileDetails> {
@@ -1147,7 +1323,8 @@ export class StatefulStubbedAPI implements PositiveOnlySocialAPI {
     }
     const isBlockedBy = user.blockedBy.has(target.id)
     const postCount = isBlockedBy ? 0 : this.posts.filter((p) => p.authorId === target.id).length
-    return {
+    const liveAvatar = isBlockedBy ? null : target.profileImageUrl
+    const details: ProfileDetails = {
       username: target.username,
       post_count: postCount,
       follower_count: isBlockedBy ? 0 : target.followers.size,
@@ -1156,7 +1333,42 @@ export class StatefulStubbedAPI implements PositiveOnlySocialAPI {
       is_blocked: user.blocked.has(target.id),
       identity_is_verified: target.isVerified,
       is_adult: target.isAdult,
+      profile_image_url: liveAvatar,
+      profile_image_original_url: liveAvatar,
+      membership_number: target.membershipNumber,
     }
+    // Owner-only moderation state, mirroring the backend.
+    if (target.id === user.id) {
+      details.profile_image_status = target.profileImageStatus
+      details.profile_image_reason_code = target.profileImageReasonCode
+      details.pending_profile_image_url = target.pendingProfileImageUrl
+    }
+    return details
+  }
+
+  async setProfilePhoto(body: SetProfilePhotoRequest): Promise<SetProfilePhotoResponse> {
+    const user = this.requireUser()
+    // The real backend stores the photo pending and classifies it off the
+    // request path; the stub has no classifier, so — like the backend's eager
+    // (no-Redis) mode — it approves immediately, while the response still
+    // reports the initial 'pending' state.
+    user.profileImageUrl = body.image_url
+    user.pendingProfileImageUrl = null
+    user.profileImageStatus = 'approved'
+    user.profileImageReasonCode = null
+    return {
+      profile_image_status: 'pending',
+      message: 'Your photo is being reviewed and will be shown once it is approved.',
+    }
+  }
+
+  async removeProfilePhoto(): Promise<RemoveProfilePhotoResponse> {
+    const user = this.requireUser()
+    user.profileImageUrl = null
+    user.pendingProfileImageUrl = null
+    user.profileImageStatus = 'none'
+    user.profileImageReasonCode = null
+    return { profile_image_status: 'none', message: 'Your profile photo has been removed.' }
   }
 
   // ---------------------------------------------------------------------------
@@ -1178,6 +1390,8 @@ export class StatefulStubbedAPI implements PositiveOnlySocialAPI {
       post_identifier: p.postIdentifier,
       image_url: p.imageUrl,
       caption: p.caption,
+      caption_font: p.captionFont,
+      background_color: p.backgroundColor,
       hidden_reason: p.hiddenReason,
       creation_time: new Date(p.creationTime).toISOString(),
       has_appeal: this.hasAppeal(p.postIdentifier),
@@ -1193,6 +1407,7 @@ export class StatefulStubbedAPI implements PositiveOnlySocialAPI {
     return this.batch(hidden, batch, COMMENT_BATCH_SIZE).map((c) => ({
       comment_identifier: c.commentIdentifier,
       body: c.body,
+      body_formatting: c.bodyFormatting,
       hidden_reason: c.hiddenReason,
       creation_time: new Date(c.creationTime).toISOString(),
       has_appeal: this.hasAppeal(c.commentIdentifier),

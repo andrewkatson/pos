@@ -129,6 +129,11 @@ class PositiveOnlySocialIntegrationTests {
         composeTestRule.onNodeWithText("Privacy Policy").assertExists()
         composeTestRule.onNodeWithText("Ok").performClick()
 
+        // A brand new account is greeted with its membership number (issue
+        // #198). Dismiss the welcome dialog before continuing.
+        composeTestRule.onNodeWithText("Welcome! 🎉").assertExists()
+        composeTestRule.onNodeWithText("OK").performClick()
+
         // Registration parks the user on the "check your email" screen
         // (issue #237). The stub API pre-verifies accounts, so continue to
         // Login and sign in to reach Home.
@@ -167,7 +172,8 @@ class PositiveOnlySocialIntegrationTests {
         composeTestRule.onNodeWithText("Settings").performClick()
         assertOnSettingsView()
         
-        composeTestRule.onNodeWithText("Logout").performClick()
+        // The Settings list scrolls, so bring Logout into view before tapping.
+        composeTestRule.onNodeWithText("Logout").performScrollTo().performClick()
         composeTestRule.onNodeWithText("Confirm").performClick() // Assuming confirm dialog
         
         assertOnLoginView()
@@ -232,8 +238,8 @@ class PositiveOnlySocialIntegrationTests {
         // Navigate to Settings
         composeTestRule.onNodeWithText("Settings").performClick()
 
-        // Click Delete Account
-        composeTestRule.onNodeWithText("Delete Account").performClick()
+        // Click Delete Account (scroll it into view — the Settings list scrolls)
+        composeTestRule.onNodeWithText("Delete Account").performScrollTo().performClick()
 
         // Confirm Delete
         composeTestRule.onNodeWithText("Delete").performClick()

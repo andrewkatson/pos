@@ -13,34 +13,47 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import com.example.positiveonlysocial.ui.main.TextFormatting
 
 /**
  * The visual stand-in for a text-only post's image (#307): the caption rendered
  * centered on a themed gradient background. Used wherever posts render as image
  * tiles — grid cells clamp the text via [maxLines], the detail view passes
  * [Int.MAX_VALUE] to show the full caption.
+ *
+ * The author's chosen caption font and background color (issue #318) are
+ * applied here; "default" keeps the original themed gradient and system font.
  */
 @Composable
 fun CaptionTile(
     caption: String,
     modifier: Modifier = Modifier,
     maxLines: Int = 4,
+    captionFont: String? = null,
+    backgroundColor: String? = null,
 ) {
-    Box(
-        modifier = modifier.background(
+    val paletteColor = TextFormatting.backgroundColor(backgroundColor)
+    val backgroundModifier = if (paletteColor != null) {
+        modifier.background(paletteColor)
+    } else {
+        modifier.background(
             Brush.linearGradient(
                 colors = listOf(
                     MaterialTheme.colorScheme.primary,
                     MaterialTheme.colorScheme.tertiary
                 )
             )
-        ),
+        )
+    }
+    Box(
+        modifier = backgroundModifier,
         contentAlignment = Alignment.Center
     ) {
         Text(
             text = caption,
             modifier = Modifier.padding(12.dp),
-            color = MaterialTheme.colorScheme.onPrimary,
+            color = TextFormatting.foregroundColor(backgroundColor) ?: MaterialTheme.colorScheme.onPrimary,
+            fontFamily = TextFormatting.fontFamily(captionFont),
             fontWeight = FontWeight.SemiBold,
             textAlign = TextAlign.Center,
             maxLines = maxLines,
