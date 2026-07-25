@@ -163,6 +163,12 @@ function FeedTab() {
               >
                 <PostThumbnail post={post} />
               </button>
+              {/* The caption under the photo (issue #378). Text-only posts (#307)
+                  already render their caption as the tile above, so it isn't
+                  repeated for them. */}
+              {post.image_url !== null && (
+                <p className="feed-post__caption">{post.caption}</p>
+              )}
               {/* Comment count and post time only appear here: feed rows have
                   the width for them, the square profile tiles don't (#249). */}
               <PostActionBar

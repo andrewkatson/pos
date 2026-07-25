@@ -217,6 +217,13 @@ fun PostItem(
                 }
         )
 
+        // The caption under the photo (issue #378). Text-only posts (#307)
+        // already render their caption as the tile above, so it isn't repeated
+        // for them.
+        if (post.imageUrl != null) {
+            Text(text = post.caption)
+        }
+
         // Like / comment count / report / retract / delete without leaving the
         // feed (issues #267, #249). A sibling of the image, so it can't swallow
         // the tap that opens the post.

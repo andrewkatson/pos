@@ -135,6 +135,15 @@ struct ForYouFeedView: View {
                         }
                         .accessibilityIdentifier("ForYouPostImage")
 
+                        // The caption under the photo (issue #378). Text-only
+                        // posts (#307) already render their caption as the tile
+                        // above, so it isn't repeated for them.
+                        if post.imageUrl != nil {
+                            Text(post.caption)
+                                .padding(.horizontal)
+                                .accessibilityIdentifier("PostCaption")
+                        }
+
                         // Like / report / delete, the comment count and the
                         // post's age (issues #267 and #249).
                         PostActionBar(post: post, postActions: postActions, showsPostDetails: true)
@@ -212,6 +221,15 @@ struct FollowingFeedView: View {
                             }
                         }
                         .accessibilityIdentifier("FollowingPostImage")
+
+                        // The caption under the photo (issue #378). Text-only
+                        // posts (#307) already render their caption as the tile
+                        // above, so it isn't repeated for them.
+                        if post.imageUrl != nil {
+                            Text(post.caption)
+                                .padding(.horizontal)
+                                .accessibilityIdentifier("PostCaption")
+                        }
 
                         // Like / report / delete, the comment count and the
                         // post's age (issues #267 and #249).

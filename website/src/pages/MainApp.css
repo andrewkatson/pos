@@ -387,6 +387,14 @@
   display: block;
 }
 
+/* The caption shown under the feed photo (issue #378). */
+.feed-post__caption {
+  margin: 0.5rem 0 0;
+  line-height: 1.4;
+  color: #ffffff;
+  word-break: break-word;
+}
+
 /* ---- Generic helpers ---- */
 
 .muted {

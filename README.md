@@ -47,9 +47,11 @@ profile grid, and the Feed — without opening the post first:
 - **Retract report**, which shows the reason you originally gave.
 - **Delete**, offered only on your own posts.
 
-Each feed row additionally shows the author, how long ago the post was made, and
-a comment count that opens the post when tapped. The square profile tiles omit
-those two — there is no room for them.
+Each feed row additionally shows the author, the caption under the photo, how
+long ago the post was made, and a comment count that opens the post when tapped.
+The square profile tiles omit these — there is no room for them. A text-only
+post already renders its caption as the tile in place of a photo, so the caption
+is not repeated beneath it.
 
 The post listing endpoints (`get_posts_in_feed`, `get_posts_for_followed_users`,
 `get_posts_for_user`) therefore return `post_likes`, `is_liked`, `is_reported`,
