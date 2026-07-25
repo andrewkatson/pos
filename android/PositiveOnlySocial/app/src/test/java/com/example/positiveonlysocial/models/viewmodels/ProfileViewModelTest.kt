@@ -316,11 +316,9 @@ class ProfileViewModelTest {
     // --- Bio (issue #380) ---
 
     @Test
-    fun `updateBio saves the bio and reloads the profile`() = runTest {
-        // The reload after a successful save reads back the new bio.
+    fun `updateBio saves the bio and updates it from the response without reloading`() = runTest {
         whenever(api.getProfileDetails("token123", "user1"))
             .thenReturn(Response.success(ProfileDetailsResponse("user1", 0, 0, 0, false, bio = "")))
-            .thenReturn(Response.success(ProfileDetailsResponse("user1", 0, 0, 0, false, bio = "Kind and curious.")))
         whenever(api.getPostsForUser("token123", "user1", 0)).thenReturn(Response.success(emptyList()))
         viewModel.fetchProfile("user1")
 
@@ -332,6 +330,9 @@ class ProfileViewModelTest {
         advanceUntilIdle()
 
         verify(api).setBio(eq("token123"), any())
+        // The new bio comes straight from the setBio response — the profile is not
+        // reloaded (a reload failure would otherwise surface as a photo error).
+        verify(api, times(1)).getProfileDetails(any(), any())
         assertEquals("Kind and curious.", viewModel.profileDetails.value!!.bio)
         assertNull(viewModel.bioErrorMessage.value)
         assertTrue(succeeded)

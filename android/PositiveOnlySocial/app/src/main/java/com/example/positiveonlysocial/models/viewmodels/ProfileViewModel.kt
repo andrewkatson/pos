@@ -475,7 +475,12 @@ class ProfileViewModel(
 
                 val response = api.setBio(token, SetBioRequest(newBio))
                 if (response.isSuccessful) {
-                    reloadProfileDetails(username, token)
+                    // setBio returns the stored bio, so update it directly rather
+                    // than reloading the whole profile — reloadProfileDetails
+                    // reports refresh failures as a *photo* error, which would be
+                    // misleading right after a successful bio save.
+                    val storedBio = response.body()?.bio ?: newBio
+                    _profileDetails.value = _profileDetails.value?.copy(bio = storedBio)
                     onSuccess()
                 } else {
                     _bioErrorMessage.value = ApiErrors.messageFor(

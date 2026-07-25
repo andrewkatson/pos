@@ -3271,12 +3271,12 @@ def set_bio(request):
             'error': f"Bio exceeds maximum length of {MAX_BIO_LENGTH} characters"}, status=400)
 
     # The semicolon is disallowed in user text; call it out specifically since the
-    # clients surface this 400 inline while the user is editing their bio.
+    # clients surface this 400 inline while the user is editing their bio. (Any
+    # other content is left to the positivity classifier below — there is no
+    # catch-all character pattern to enforce, since a bio is free-form text.)
     if ";" in bio:
         return log_and_return_json("set_bio", {
             'error': "Your bio cannot contain a semicolon (;)."}, status=400)
-    if not is_valid_pattern(bio, Patterns.alphanumeric_with_special_chars):
-        return log_and_return_json("set_bio", {'error': f"Invalid fields ['{Params.bio}']"}, status=400)
 
     # Synchronous positivity check, like a username. A bio that is not positive is
     # never stored; the user can simply edit it, so the rejection is not appealable.
