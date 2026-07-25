@@ -2512,6 +2512,9 @@ def get_posts_for_tag(request, tag, batch):
     relevant_posts = (
         visible_posts(tagged_posts, request.user)
         .order_by('-creation_time')
+        # select_related('author') so the per-row author reads (username, avatar,
+        # status) don't each issue a query; prefetch_related('tags') for the M2M.
+        .select_related('author')
         .prefetch_related('tags')
     )
 
