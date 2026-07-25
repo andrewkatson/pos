@@ -481,6 +481,11 @@ export class ApiClient implements PositiveOnlySocialAPI {
     return this.request<FeedPost[]>('GET', `/users/${username}/posts/${batch}/`, { auth: true })
   }
 
+  /** Posts carrying a given #hashtag, newest first, batched (issue #379). */
+  getPostsByTag(tag: string, batch: number): Promise<FeedPost[]> {
+    return this.request<FeedPost[]>('GET', `/tags/${encodeURIComponent(tag)}/posts/${batch}/`, { auth: true })
+  }
+
   getPostDetails(postIdentifier: string): Promise<PostDetails> {
     return this.request<PostDetails>('GET', `/posts/${postIdentifier}/details/`, { auth: true })
   }

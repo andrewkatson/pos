@@ -66,6 +66,7 @@
 				VibesViewModels/PostDetailViewModel.swift,
 				VibesViewModels/ProfileViewModel.swift,
 				VibesViewModels/SettingsViewModel.swift,
+				VibesViewModels/TagFeedViewModel.swift,
 				VibesViews/AppealsView.swift,
 				VibesViews/BlockedUsersView.swift,
 				VibesViews/CaptionTileView.swift,
@@ -83,6 +84,7 @@
 				VibesViews/RequestResetView.swift,
 				VibesViews/ResetPasswordView.swift,
 				VibesViews/SettingsView.swift,
+				VibesViews/TagFeedView.swift,
 				VibesViews/VerifyResetView.swift,
 			);
 			target = 248836DF2E6282C5002D47F1 /* Positive Only SocialTests */;
@@ -115,6 +117,7 @@
 				VibesViewModels/PostDetailViewModel.swift,
 				VibesViewModels/ProfileViewModel.swift,
 				VibesViewModels/SettingsViewModel.swift,
+				VibesViewModels/TagFeedViewModel.swift,
 				VibesViews/AppealsView.swift,
 				VibesViews/BlockedUsersView.swift,
 				VibesViews/CaptionTileView.swift,
@@ -132,6 +135,7 @@
 				VibesViews/RequestResetView.swift,
 				VibesViews/ResetPasswordView.swift,
 				VibesViews/SettingsView.swift,
+				VibesViews/TagFeedView.swift,
 				VibesViews/VerifyResetView.swift,
 			);
 			target = 248836E92E6282C5002D47F1 /* Positive Only SocialUITests */;

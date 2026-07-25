@@ -6,6 +6,7 @@ import type { Comment, PostDetails } from '../api/types'
 import { isWithinLimit, MAX_COMMENT_LENGTH } from '../auth/requirements'
 import PostThumbnail from '../components/PostThumbnail'
 import CharacterCounter from '../components/CharacterCounter'
+import { CaptionText } from '../components/CaptionText'
 import { formatRelativeTime } from '../utils/relativeTime'
 import { profilePathFor } from '../utils/profilePath'
 import './MainApp.css'
@@ -528,7 +529,7 @@ function PostDetailView({ postId }: { postId: string }) {
           >
             {post.author_username}
           </button>{' '}
-          {post.caption}
+          <CaptionText caption={post.caption} />
         </p>
 
         {/* When the post was made, at the same coarse granularity as comment

@@ -191,6 +191,10 @@ export interface FeedPost {
   original_image_url?: string | null
   author_username: string
   caption: string
+  /** Hashtags parsed from the caption (issue #379), normalized to lowercase and
+   * sorted. Rendered as links to the tag feed. Older responses that predate the
+   * field omit it. */
+  tags?: string[]
   /** Total likes on the post. Present so a grid tile can show a like control
    * without opening the post first (issue #267). Older responses that predate
    * the field omit it. */
@@ -243,6 +247,9 @@ export interface PostDetails {
    * pre-populated (issue #176). Null/absent when they haven't reported it. */
   report_reason?: string | null
   author_username: string
+  /** Hashtags parsed from the caption (issue #379), normalized to lowercase and
+   * sorted. Older responses that predate the field omit it. */
+  tags?: string[]
   /** Author-only (issue #282): present when viewing one's own post. */
   status?: PostClassificationStatus
   hidden?: boolean

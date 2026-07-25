@@ -99,6 +99,14 @@ interface PositiveOnlySocialAPI {
         @Path("batch") batch: Int
     ): Response<List<Post>>
 
+    // Posts carrying a given #hashtag, newest first, batched (issue #379).
+    @GET("tags/{tag}/posts/{batch}/")
+    suspend fun getPostsByTag(
+        @Header("Authorization") token: String,
+        @Path("tag") tag: String,
+        @Path("batch") batch: Int
+    ): Response<List<Post>>
+
     @GET("posts/{post_id}/details/")
     suspend fun getPostDetails(
         @Header("Authorization") token: String,

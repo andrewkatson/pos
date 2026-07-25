@@ -4,6 +4,7 @@
 // modes. Errors are surfaced by throwing ApiError, matching the real ApiClient.
 
 import { ApiError, INVALID_TWO_FACTOR_CHALLENGE } from './client'
+import { extractTags } from '../utils/tags'
 import type { PositiveOnlySocialAPI } from './PositiveOnlySocialAPI'
 import type {
   AuthResponse,
@@ -127,6 +128,8 @@ interface PostMock {
   /** Null for a text-only post (#307). */
   imageUrl: string | null
   caption: string
+  /** Hashtags parsed from the caption (issue #379), normalized and sorted. */
+  tags: string[]
   creationTime: number
   hidden: boolean
   hiddenReason: string
@@ -622,6 +625,7 @@ export class StatefulStubbedAPI implements PositiveOnlySocialAPI {
       authorId: user.id,
       imageUrl: body.image_url ?? null,
       caption: body.caption,
+      tags: extractTags(body.caption).sort(),
       creationTime: Date.now(),
       hidden: true,
       hiddenReason: 'pending_classification',
@@ -768,6 +772,7 @@ export class StatefulStubbedAPI implements PositiveOnlySocialAPI {
       original_image_url: post.imageUrl,
       author_username: author ? author.username : '',
       caption: post.caption,
+      tags: post.tags,
       ...this.authorStatusFields(post, viewerId),
     }
   }
@@ -814,6 +819,20 @@ export class StatefulStubbedAPI implements PositiveOnlySocialAPI {
     return this.batch(visible, batch, POST_BATCH_SIZE).map((p) => this.toFeedPost(p, user.id))
   }
 
+  async getPostsByTag(tag: string, batch: number): Promise<FeedPost[]> {
+    const user = this.requireUser()
+    const normalized = tag.toLowerCase()
+    // Same visibility + block rules as the other feeds: not hidden (unless the
+    // viewer is the author), author not blocked either way, carrying the tag.
+    const visible = this.posts
+      .filter((p) => p.tags.includes(normalized))
+      .filter((p) => p.hiddenReason !== 'classifier_final')
+      .filter((p) => (p.authorId === user.id ? true : !p.hidden))
+      .filter((p) => !user.blocked.has(p.authorId) && !user.blockedBy.has(p.authorId))
+      .sort((a, b) => b.creationTime - a.creationTime)
+    return this.batch(visible, batch, POST_BATCH_SIZE).map((p) => this.toFeedPost(p, user.id))
+  }
+
   async getPostDetails(postIdentifier: string): Promise<PostDetails> {
     const user = this.requireUser()
     const post = this.findPost(postIdentifier)
@@ -829,6 +848,7 @@ export class StatefulStubbedAPI implements PositiveOnlySocialAPI {
       is_reported: post.reports.has(user.id),
       report_reason: post.reports.get(user.id) ?? null,
       author_username: author ? author.username : '',
+      tags: post.tags,
       ...this.authorStatusFields(post, user.id),
     }
   }

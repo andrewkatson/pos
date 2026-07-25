@@ -85,6 +85,8 @@ export interface PositiveOnlySocialAPI {
   getFeed(batch: number): Promise<FeedPost[]>
   getFollowedFeed(batch: number): Promise<FeedPost[]>
   getPostsForUser(username: string, batch: number): Promise<FeedPost[]>
+  /** Posts carrying a given #hashtag, newest first, batched (issue #379). */
+  getPostsByTag(tag: string, batch: number): Promise<FeedPost[]>
   getPostDetails(postIdentifier: string): Promise<PostDetails>
   /** Classification status of one of the caller's own posts (issue #282). */
   getPostStatus(postIdentifier: string): Promise<PostStatusResponse>

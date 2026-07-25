@@ -232,7 +232,12 @@ data class Post(
     val status: String? = null,
     val hidden: Boolean? = null,
     @SerializedName("hidden_reason") val hiddenReason: String? = null,
-    val appealable: Boolean? = null
+    val appealable: Boolean? = null,
+    // Hashtags parsed from the caption (issue #379), normalized to lowercase and
+    // sorted. Rendered as tappable links to the tag feed. Defaults to empty so a
+    // response from an older backend (which omits the field) still parses, and so
+    // the positional constructor used across tests keeps compiling.
+    @SerializedName("tags") val tags: List<String> = emptyList()
 )
 
 // --- Comment DTOs ---

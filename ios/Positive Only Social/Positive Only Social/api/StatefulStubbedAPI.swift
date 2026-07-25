@@ -78,6 +78,8 @@ fileprivate struct MockPost {
     var hiddenReason: String = GVOAppConstants.emptyString
     /// Public reason code recorded by the (stubbed) async classifier (#282).
     var reasonCode: String? = nil
+    /// Hashtags parsed from the caption (issue #379), normalized and sorted.
+    var tags: [String] = []
     let createdDate = Date()
 }
 
@@ -105,6 +107,8 @@ fileprivate struct PostListingFields: Codable {
     let hidden: Bool?
     let hidden_reason: String?
     let appealable: Bool?
+    /// Hashtags parsed from the caption (issue #379).
+    let tags: [String]
 }
 
 fileprivate struct MockCommentThread {
@@ -227,8 +231,28 @@ final class StatefulStubbedAPI: Networking {
             status: isOwnGrid ? classificationStatus(post) : nil,
             hidden: isOwnGrid ? post.isHidden : nil,
             hidden_reason: isOwnGrid ? post.hiddenReason : nil,
-            appealable: isOwnGrid ? isAppealable(post) : nil
+            appealable: isOwnGrid ? isAppealable(post) : nil,
+            tags: post.tags
         )
+    }
+
+    /// Parses #hashtags from a caption the same way the backend does (issue
+    /// #379): a '#' followed by unicode word characters, lowercased, de-duped,
+    /// and returned sorted to match the backend's serialization.
+    fileprivate static func extractTags(from caption: String) -> [String] {
+        guard let regex = try? NSRegularExpression(pattern: "#([\\p{L}\\p{N}_]+)") else { return [] }
+        let range = NSRange(caption.startIndex..., in: caption)
+        var seen = Set<String>()
+        var names: [String] = []
+        regex.enumerateMatches(in: caption, range: range) { match, _, _ in
+            guard let match, let r = Range(match.range(at: 1), in: caption) else { return }
+            let name = caption[r].lowercased()
+            if name.count <= 100 && !seen.contains(name) {
+                seen.insert(name)
+                names.append(name)
+            }
+        }
+        return names.sorted()
     }
 
     /// The number of visible comments on a post, across all of its threads.
@@ -633,6 +657,7 @@ final class StatefulStubbedAPI: Networking {
         var newPost = MockPost(authorId: user.id, imageURL: imageURL, caption: caption)
         newPost.isHidden = true
         newPost.hiddenReason = "pending_classification"
+        newPost.tags = Self.extractTags(from: caption)
         // The real backend classifies asynchronously in a worker; the stub
         // resolves instantly (like the backend's eager dev mode) but still
         // returns the pending response, so clients exercise the reconcile
@@ -933,6 +958,7 @@ final class StatefulStubbedAPI: Networking {
             let is_reported: Bool
             let report_reason: String?
             let author_username: String
+            let tags: [String]
         }
         let userReport = post.reports.first(where: { $0.username == user.username })
         let fields = Fields(
@@ -951,9 +977,38 @@ final class StatefulStubbedAPI: Networking {
             is_liked: post.likes.contains(user.username),
             is_reported: userReport != nil,
             report_reason: userReport?.reason,
-            author_username: users.first(where: {$0.id == post.authorId})?.username ?? "Unknown User"
+            author_username: users.first(where: {$0.id == post.authorId})?.username ?? "Unknown User",
+            tags: post.tags
         )
         return try createSerializedResponse(fields: fields)
+    }
+
+    func getPostsForTag(sessionManagementToken: String, tag: String, batch: Int) async throws -> Data {
+        await simulateNetwork()
+        guard let user = findUser(bySessionToken: sessionManagementToken) else {
+            throw APIError.badServerResponse(statusCode: 401)
+        }
+        let normalized = tag.lowercased()
+        // Same visibility + block rules as the other feeds: the viewer sees a
+        // non-hidden post (or their own), from an author neither party blocked,
+        // that carries this tag. Newest first (#379).
+        let relevantPosts = posts
+            .filter { $0.tags.contains(normalized) }
+            .filter { $0.hiddenReason != "classifier_final" }
+            .filter { $0.authorId == user.id || !$0.isHidden }
+            .filter { !user.blocked.contains($0.authorId) && !user.blockedBy.contains($0.authorId) }
+            .sorted { $0.createdDate > $1.createdDate }
+
+        let startIndex = batch * pageSize
+        guard startIndex < relevantPosts.count else {
+            return try createSerializedListResponse(fieldsList: [PostListingFields]())
+        }
+        let endIndex = min(startIndex + pageSize, relevantPosts.count)
+        let paginatedPosts = Array(relevantPosts[startIndex..<endIndex])
+        let fieldObjects = paginatedPosts.map {
+            postListingFields(for: $0, viewer: user, isOwnGrid: $0.authorId == user.id)
+        }
+        return try createSerializedListResponse(fieldsList: fieldObjects)
     }
 
     func commentOnPost(sessionManagementToken: String, postIdentifier: String, commentText: String) async throws -> Data {

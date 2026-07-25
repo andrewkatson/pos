@@ -365,6 +365,22 @@
   color: #5ba4dc;
 }
 
+/* Clickable #hashtag inside a caption (issue #379). Styled as an inline link
+   so it reads as part of the sentence, not a separate control. */
+.caption-tag {
+  background: none;
+  border: none;
+  padding: 0;
+  margin: 0;
+  font: inherit;
+  color: #5ba4dc;
+  cursor: pointer;
+}
+
+.caption-tag:hover {
+  text-decoration: underline;
+}
+
 .feed-post__image {
   width: 100%;
   /* Keep the 1px border inside the 100% width so it can't cause overflow. */

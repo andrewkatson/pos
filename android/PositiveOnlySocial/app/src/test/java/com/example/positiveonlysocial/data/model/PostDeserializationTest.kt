@@ -114,6 +114,40 @@ class PostDeserializationTest {
     }
 
     @Test
+    fun `json tags array maps to the tags field`() {
+        // Hashtags (issue #379) arrive as a JSON string array.
+        val json = """
+            {
+              "post_identifier": "p5",
+              "image_url": "https://example.com/e.jpg",
+              "caption": "a #sunset",
+              "author_username": "bob",
+              "tags": ["beach", "sunset"]
+            }
+        """.trimIndent()
+
+        val post = gson.fromJson(json, Post::class.java)
+
+        assertEquals(listOf("beach", "sunset"), post.tags)
+    }
+
+    @Test
+    fun `json without tags defaults to an empty list`() {
+        val json = """
+            {
+              "post_identifier": "p6",
+              "image_url": "https://example.com/f.jpg",
+              "caption": "no tags",
+              "author_username": "bob"
+            }
+        """.trimIndent()
+
+        val post = gson.fromJson(json, Post::class.java)
+
+        assertTrue(post.tags.isEmpty())
+    }
+
+    @Test
     fun `text-only create request omits image_url from the body`() {
         // The wire convention for #307: clients omit image_url rather than
         // sending null (Gson drops null fields by default).

@@ -100,6 +100,11 @@ struct Post: Codable, Identifiable, Hashable {
     var hiddenReason: String? = nil
     var appealable: Bool? = nil
 
+    /// Hashtags parsed from the caption (issue #379), normalized to lowercase
+    /// and sorted. Rendered as tappable links to the tag feed. Defaulted so a
+    /// response from an older backend (which omits the field) still decodes.
+    var tags: [String] = []
+
     /// The interaction state the post lists need to offer like / report /
     /// retract-report / delete in place, without opening the post (issue #267).
     /// These carry exactly what `get_post_details` returns, and the three
@@ -141,6 +146,7 @@ struct Post: Codable, Identifiable, Hashable {
         case hidden
         case hiddenReason = "hidden_reason"
         case appealable
+        case tags
     }
 
     init(
@@ -158,7 +164,8 @@ struct Post: Codable, Identifiable, Hashable {
         status: String? = nil,
         hidden: Bool? = nil,
         hiddenReason: String? = nil,
-        appealable: Bool? = nil
+        appealable: Bool? = nil,
+        tags: [String] = []
     ) {
         self.postIdentifier = postIdentifier
         self.imageUrl = imageUrl
@@ -175,6 +182,7 @@ struct Post: Codable, Identifiable, Hashable {
         self.hidden = hidden
         self.hiddenReason = hiddenReason
         self.appealable = appealable
+        self.tags = tags
     }
 
     // Decodes the interaction fields leniently so a response that predates them
@@ -197,6 +205,8 @@ struct Post: Codable, Identifiable, Hashable {
         hidden = try container.decodeIfPresent(Bool.self, forKey: .hidden)
         hiddenReason = try container.decodeIfPresent(String.self, forKey: .hiddenReason)
         appealable = try container.decodeIfPresent(Bool.self, forKey: .appealable)
+        // Hashtags (#379); absent on older backends, so default to none.
+        tags = try container.decodeIfPresent([String].self, forKey: .tags) ?? []
     }
 }
 

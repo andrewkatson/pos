@@ -10,6 +10,7 @@ import ResetPasswordPage from './pages/ResetPasswordPage'
 import HomePage from './pages/HomePage'
 import PostDetailPage from './pages/PostDetailPage'
 import ProfilePage from './pages/ProfilePage'
+import TagPage from './pages/TagPage'
 import AppealsPage from './pages/AppealsPage'
 import BlockedUsersPage from './pages/BlockedUsersPage'
 import PrivacyPolicyPage from './pages/PrivacyPolicyPage'
@@ -28,6 +29,7 @@ function App() {
       <Route path="/home" element={<HomePage />} />
       <Route path="/post/:postId" element={<PostDetailPage />} />
       <Route path="/profile/:username" element={<ProfilePage />} />
+      <Route path="/tags/:tag" element={<TagPage />} />
       <Route path="/appeals" element={<AppealsPage />} />
       <Route path="/blocked" element={<BlockedUsersPage />} />
       <Route path="/privacy-policy" element={<PrivacyPolicyPage />} />
