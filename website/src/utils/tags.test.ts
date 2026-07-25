@@ -1,5 +1,5 @@
 import { describe, test, expect } from 'vitest'
-import { extractTags, splitCaptionByTags, tagPathFor } from './tags'
+import { extractTags, MAX_TAG_LENGTH, MAX_TAGS_PER_POST, splitCaptionByTags, tagPathFor } from './tags'
 
 describe('extractTags', () => {
   test('returns empty for a caption with no tags', () => {
@@ -29,6 +29,16 @@ describe('extractTags', () => {
   test('a bare # is not a tag', () => {
     expect(extractTags('a # b #real')).toEqual(['real'])
   })
+
+  test('skips overlong tags but keeps valid ones', () => {
+    const long = 'a'.repeat(MAX_TAG_LENGTH + 1)
+    expect(extractTags(`#${long} #ok`)).toEqual(['ok'])
+  })
+
+  test('caps the number of tags at MAX_TAGS_PER_POST', () => {
+    const caption = Array.from({ length: MAX_TAGS_PER_POST + 5 }, (_, i) => `#t${i}`).join(' ')
+    expect(extractTags(caption)).toHaveLength(MAX_TAGS_PER_POST)
+  })
 })
 
 describe('splitCaptionByTags', () => {
@@ -50,6 +60,21 @@ describe('splitCaptionByTags', () => {
     expect(splitCaptionByTags('no tags here')).toEqual([
       { type: 'text', text: 'no tags here' },
     ])
+  })
+
+  test('leaves an overlong #token as plain text (never links a non-storable tag)', () => {
+    const long = 'a'.repeat(MAX_TAG_LENGTH + 1)
+    const segments = splitCaptionByTags(`#${long} #ok`)
+    // The overlong token stays in a text run; only #ok becomes a tag.
+    expect(segments.some(s => s.type === 'tag' && s.tag === 'ok')).toBe(true)
+    expect(segments.some(s => s.type === 'tag' && s.tag === long)).toBe(false)
+    expect(segments.map(s => s.text).join('')).toContain(`#${long}`)
+  })
+
+  test('does not linkify unique tags past the cap', () => {
+    const caption = Array.from({ length: MAX_TAGS_PER_POST + 1 }, (_, i) => `#t${i}`).join(' ')
+    const tagSegments = splitCaptionByTags(caption).filter(s => s.type === 'tag')
+    expect(tagSegments).toHaveLength(MAX_TAGS_PER_POST)
   })
 })
 

@@ -8,21 +8,36 @@ sealed interface CaptionSegment {
 
 private val TAG_REGEX = Regex("#([\\p{L}\\p{N}_]+)")
 
+// Caps mirroring the backend (backend/user_system/constants.py), so a #token is
+// only linkified when the backend would actually store it as a tag.
+private const val MAX_TAG_LENGTH = 100
+private const val MAX_TAGS_PER_POST = 30
+
 /**
  * Splits a caption into text and #hashtag segments, mirroring the backend's
  * extraction (`backend/user_system/tags.py`): a '#' followed by unicode word
  * characters. The tag `name` is lowercased; `text` keeps the original casing.
+ * Only tags the backend would store are emitted as [CaptionSegment.Tag] —
+ * overlong tags and anything past the first [MAX_TAGS_PER_POST] unique names
+ * stay as plain text, so a tapped tag always resolves and the caption still
+ * reads verbatim.
  */
 fun captionSegments(caption: String): List<CaptionSegment> {
     if (caption.isEmpty()) return emptyList()
     val segments = mutableListOf<CaptionSegment>()
+    val linkable = mutableSetOf<String>()
     var lastEnd = 0
     for (match in TAG_REGEX.findAll(caption)) {
+        val name = match.groupValues[1].lowercase()
+        val canLink = name.length <= MAX_TAG_LENGTH &&
+            (name in linkable || linkable.size < MAX_TAGS_PER_POST)
+        if (!canLink) continue
+        linkable.add(name)
         val range = match.range
         if (range.first > lastEnd) {
             segments.add(CaptionSegment.Text(caption.substring(lastEnd, range.first)))
         }
-        segments.add(CaptionSegment.Tag(text = match.value, name = match.groupValues[1].lowercase()))
+        segments.add(CaptionSegment.Tag(text = match.value, name = name))
         lastEnd = range.last + 1
     }
     if (lastEnd < caption.length) {

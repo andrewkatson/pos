@@ -914,6 +914,9 @@ class StatefulStubbedAPI : PositiveOnlySocialAPI {
             .map { it.groupValues[1].lowercase() }
             .filter { it.length <= 100 }
             .distinct()
+            // Cap at the backend's MAX_TAGS_PER_POST, taken in first-seen order
+            // before the sort, so the stub stores the same tags the backend would.
+            .take(30)
             .sorted()
             .toList()
 

@@ -75,7 +75,10 @@ function TagFeed({ tag, currentUsername }: TagFeedProps) {
           setPage(prev => prev + 1)
         }
       } catch {
-        if (isMounted.current) setCanLoadMore(false)
+        if (isMounted.current) {
+          setCanLoadMore(false)
+          setErrorMessage(`Could not load posts for #${tag}.`)
+        }
       } finally {
         if (isMounted.current) setIsLoading(false)
       }

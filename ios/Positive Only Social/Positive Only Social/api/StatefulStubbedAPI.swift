@@ -271,6 +271,7 @@ final class StatefulStubbedAPI: Networking {
 
     /// Parses #hashtags from a caption the same way the backend does (issue
     /// #379): a '#' followed by unicode word characters, lowercased, de-duped,
+    /// length- and count-capped (matching MAX_TAG_LENGTH / MAX_TAGS_PER_POST),
     /// and returned sorted to match the backend's serialization.
     fileprivate static func extractTags(from caption: String) -> [String] {
         guard let regex = try? NSRegularExpression(pattern: "#([\\p{L}\\p{N}_]+)") else { return [] }
@@ -280,7 +281,7 @@ final class StatefulStubbedAPI: Networking {
         regex.enumerateMatches(in: caption, range: range) { match, _, _ in
             guard let match, let r = Range(match.range(at: 1), in: caption) else { return }
             let name = caption[r].lowercased()
-            if name.count <= 100 && !seen.contains(name) {
+            if name.count <= 100 && names.count < 30 && !seen.contains(name) {
                 seen.insert(name)
                 names.append(name)
             }

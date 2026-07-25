@@ -20,9 +20,17 @@ enum CaptionSegment: Equatable {
     case tag(text: String, name: String)
 }
 
+/// Caps mirroring the backend (`backend/user_system/constants.py`), so a #token
+/// is only linkified when the backend would actually store it as a tag.
+private let maxTagLength = 100
+private let maxTagsPerPost = 30
+
 /// Splits a caption into text and #hashtag segments, mirroring the backend's
 /// extraction (`backend/user_system/tags.py`): a '#' followed by unicode word
 /// characters. The tag `name` is lowercased; `text` keeps the original casing.
+/// Only tags the backend would store are emitted as `.tag` — overlong tags and
+/// anything past the first `maxTagsPerPost` unique names stay as plain text, so
+/// a tapped tag always resolves and the caption still reads verbatim.
 func captionSegments(_ caption: String) -> [CaptionSegment] {
     if caption.isEmpty { return [] }
     guard let regex = try? NSRegularExpression(pattern: "#([\\p{L}\\p{N}_]+)") else {
@@ -30,15 +38,21 @@ func captionSegments(_ caption: String) -> [CaptionSegment] {
     }
     let nsRange = NSRange(caption.startIndex..., in: caption)
     var segments: [CaptionSegment] = []
+    var linkable = Set<String>()
     var lastEnd = caption.startIndex
     regex.enumerateMatches(in: caption, range: nsRange) { match, _, _ in
         guard let match,
               let full = Range(match.range, in: caption),
               let nameRange = Range(match.range(at: 1), in: caption) else { return }
+        let name = caption[nameRange].lowercased()
+        let canLink = name.count <= maxTagLength
+            && (linkable.contains(name) || linkable.count < maxTagsPerPost)
+        guard canLink else { return }  // leave as plain text
+        linkable.insert(name)
         if full.lowerBound > lastEnd {
             segments.append(.text(String(caption[lastEnd..<full.lowerBound])))
         }
-        segments.append(.tag(text: String(caption[full]), name: caption[nameRange].lowercased()))
+        segments.append(.tag(text: String(caption[full]), name: name))
         lastEnd = full.upperBound
     }
     if lastEnd < caption.endIndex {

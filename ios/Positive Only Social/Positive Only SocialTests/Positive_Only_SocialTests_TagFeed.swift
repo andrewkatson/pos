@@ -34,6 +34,20 @@ struct Positive_Only_SocialTests_CaptionSegments {
     @Test func testPunctuationTerminatesATag() {
         #expect(captionSegments("#day!") == [.tag(text: "#day", name: "day"), .text("!")])
     }
+
+    @Test func testOverlongTokenStaysAsPlainText() {
+        let long = String(repeating: "a", count: 101)
+        let segments = captionSegments("#\(long) #ok")
+        // The overlong token never links; only #ok becomes a tag.
+        #expect(segments.contains(.tag(text: "#ok", name: "ok")))
+        #expect(!segments.contains { if case .tag(_, let name) = $0 { return name == long } else { return false } })
+    }
+
+    @Test func testDoesNotLinkifyTagsPastTheCap() {
+        let caption = (0...30).map { "#t\($0)" }.joined(separator: " ")
+        let tagCount = captionSegments(caption).filter { if case .tag = $0 { return true } else { return false } }.count
+        #expect(tagCount == 30)
+    }
 }
 
 @MainActor

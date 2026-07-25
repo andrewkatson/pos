@@ -44,4 +44,21 @@ class CaptionSegmentsTest {
             captionSegments("#day!"),
         )
     }
+
+    @Test
+    fun `overlong token stays as plain text`() {
+        val long = "a".repeat(101)
+        val segments = captionSegments("#$long #ok")
+        // The overlong token never links; only #ok becomes a tag.
+        assertTrue(segments.any { it is CaptionSegment.Tag && it.name == "ok" })
+        assertTrue(segments.none { it is CaptionSegment.Tag && it.name == long })
+        assertTrue(segments.filterIsInstance<CaptionSegment.Text>().joinToString("") { it.text }.contains("#$long"))
+    }
+
+    @Test
+    fun `does not linkify unique tags past the cap`() {
+        val caption = (0..30).joinToString(" ") { "#t$it" }
+        val tags = captionSegments(caption).filterIsInstance<CaptionSegment.Tag>()
+        assertEquals(30, tags.size)
+    }
 }
