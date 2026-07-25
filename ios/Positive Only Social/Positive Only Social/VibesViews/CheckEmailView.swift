@@ -6,9 +6,18 @@
 import SwiftUI
 
 /// Navigation route to the post-registration "check your email" screen,
-/// carrying the address the verification link was sent to.
+/// carrying the address the verification link was sent to and — for a brand
+/// new account — the member's join number (issue #198), used to welcome them.
 struct CheckEmailRoute: Hashable {
     let email: String
+    let membershipNumber: Int?
+
+    // Explicit init so the number stays a `let` (immutable, safe as a
+    // NavigationPath hash key) while callers can still omit it.
+    init(email: String, membershipNumber: Int? = nil) {
+        self.email = email
+        self.membershipNumber = membershipNumber
+    }
 }
 
 /// Shown right after registration: the account exists but cannot log in until
@@ -16,11 +25,27 @@ struct CheckEmailRoute: Hashable {
 struct CheckEmailView: View {
     let api: Networking
     let email: String
+    /// The new member's join number (issue #198). Non-nil right after
+    /// registration; nil when the screen is reached any other way.
+    let membershipNumber: Int?
 
     @Binding var path: NavigationPath
 
     @State private var isResending = false
     @State private var resendMessage: String?
+    @State private var showingWelcome = false
+    // One-shot guard so the greeting shows exactly once: a re-appear
+    // (backgrounding, back-nav) won't resurrect it after dismissal (issue #198).
+    @State private var hasShownWelcome = false
+
+    // Explicit init so `membershipNumber` stays an immutable `let` while
+    // callers that don't have a number (e.g. previews) can still omit it.
+    init(api: Networking, email: String, membershipNumber: Int? = nil, path: Binding<NavigationPath>) {
+        self.api = api
+        self.email = email
+        self.membershipNumber = membershipNumber
+        self._path = path
+    }
 
     var body: some View {
         VStack(spacing: 20) {
@@ -72,6 +97,23 @@ struct CheckEmailView: View {
         // Registration is complete; going "back" to the form would only invite
         // a duplicate-account error.
         .navigationBarBackButtonHidden(true)
+        .onAppear {
+            // Greet a brand new member with their join number (issue #198).
+            // Presenting from onAppear (rather than seeding at init) lets the
+            // alert appear reliably once the navigation push has settled; the
+            // guard keeps it a one-time greeting a re-appear won't resurrect.
+            if membershipNumber != nil && !hasShownWelcome {
+                hasShownWelcome = true
+                showingWelcome = true
+            }
+        }
+        .alert("Welcome! 🎉", isPresented: $showingWelcome) {
+            Button("OK") { }
+        } message: {
+            if let membershipNumber {
+                Text("You're member #\(membershipNumber)!")
+            }
+        }
     }
 
     private func resend() {

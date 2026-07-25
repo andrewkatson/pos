@@ -5,6 +5,7 @@ import { getCurrentUsername } from '../api/session'
 import type { UserSearchResult } from '../api/types'
 import { profilePathFor } from '../utils/profilePath'
 import ProfileView from './ProfileView'
+import Avatar from './Avatar'
 
 /**
  * The "Profile" tab: the signed-in user's own profile — stats and their post
@@ -88,9 +89,12 @@ function ProfileTab() {
               className="user-list__item"
               onClick={() => openSearchResult(user.username)}
             >
-              <span className="user-list__avatar" aria-hidden="true">
-                ◍
-              </span>
+              <Avatar
+                src={user.author_profile_image_url}
+                originalSrc={user.author_profile_image_original_url}
+                username={user.username}
+                size="sm"
+              />
               <span className="user-list__name">{user.username}</span>
               {user.identity_is_verified && (
                 <span className="verified-badge" aria-label="Verified">

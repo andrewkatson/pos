@@ -18,6 +18,12 @@ export interface AuthResponse {
   // Only present when remember_me was requested.
   series_identifier?: string
   login_cookie_token?: string
+  /**
+   * Sequential join number (#198). Present on the /register/ response so the
+   * client can greet a new member with "You're member #n!". Null in the rare
+   * case the backend couldn't assign one at signup.
+   */
+  membership_number?: number | null
 }
 
 export interface LoginRequest {
@@ -128,6 +134,19 @@ export interface ResetPasswordRequest {
   reset_token: string
 }
 
+/** The signed-in account's own contact details, from `GET /me/`. */
+export interface CurrentUser {
+  username: string
+  email: string
+}
+
+export interface ChangePasswordRequest {
+  /** The account's current password, re-confirmed for the change. */
+  password: string
+  /** The new password; must satisfy the registration strength policy. */
+  new_password: string
+}
+
 export interface CreateUploadUrlResponse {
   /** Short-lived presigned S3 PUT URL to send the JPEG bytes to. */
   upload_url: string
@@ -135,10 +154,81 @@ export interface CreateUploadUrlResponse {
   image_url: string
 }
 
+// ---------------------------------------------------------------------------
+// Text formatting (issue #318)
+// ---------------------------------------------------------------------------
+
+/** Curated whole-caption font keys. `default` is the normal UI font. */
+export type CaptionFont = 'default' | 'serif' | 'monospace' | 'rounded' | 'handwriting'
+
+/** Curated whole-tile background color keys. `default` is the normal tile. */
+export type BackgroundColor =
+  | 'default'
+  | 'sky'
+  | 'mint'
+  | 'blush'
+  | 'lemon'
+  | 'lavender'
+
+/** Inline text-size keys for a comment span. */
+export type TextSize = 'small' | 'normal' | 'large' | 'xlarge'
+
+/**
+ * One inline-formatting span over a comment's plain `body` (issue #318).
+ * Offsets are UTF-16 code-unit indices (matching JS string indexing);
+ * `0 <= start < end <= body.length`. Spans are sorted and non-overlapping.
+ */
+export interface CommentFormatSpan {
+  start: number
+  end: number
+  bold: boolean
+  italic: boolean
+  size: TextSize
+}
+
 export interface CreatePostRequest {
   /** Omitted for a text-only post (#307). */
   image_url?: string
   caption: string
+  /** Whole-caption font (issue #318); omitted/`default` renders normally. */
+  caption_font?: CaptionFont
+  /** Whole-tile background color (issue #318); omitted/`default` is normal. */
+  background_color?: BackgroundColor
+}
+
+/**
+ * Moderation lifecycle of a user's own profile photo (issue #7). A newly
+ * uploaded photo is 'pending' (classified asynchronously, shown to nobody else
+ * until approved), then resolves to 'approved' (live) or 'rejected' (dropped,
+ * with a reason so the owner can pick another). 'none' means no photo set.
+ */
+export type ProfileImageStatus = 'none' | 'pending' | 'approved' | 'rejected'
+
+export interface SetProfilePhotoRequest {
+  /** Canonical S3 object URL from createUploadUrl (the client uploads the JPEG
+   * via the presigned PUT first, exactly like a post image). */
+  image_url: string
+}
+
+export interface SetProfilePhotoResponse {
+  /** 'pending' — the photo is under async review and not yet shown to others. */
+  profile_image_status: ProfileImageStatus
+  message?: string
+}
+
+export interface RemoveProfilePhotoResponse {
+  profile_image_status: ProfileImageStatus
+  message?: string
+}
+
+/** The approved profile photo of an author, threaded next to author_username
+ * through every list/detail payload. Compressed variant with a full-resolution
+ * fallback, mirroring a post's image_url/original_image_url (and null when the
+ * author has no approved photo). Older responses that predate the field omit
+ * it. */
+export interface AuthorAvatarFields {
+  author_profile_image_url?: string | null
+  author_profile_image_original_url?: string | null
 }
 
 /**
@@ -178,7 +268,7 @@ export interface PostStatusResponse {
 }
 
 /** A post as returned by the feed/listing endpoints. */
-export interface FeedPost {
+export interface FeedPost extends AuthorAvatarFields {
   post_identifier: string
   /** Null for a text-only post (#307), which renders as a caption tile. */
   image_url: string | null
@@ -195,12 +285,20 @@ export interface FeedPost {
    * sorted. Rendered as links to the tag feed. Older responses that predate the
    * field omit it. */
   tags?: string[]
+  /** Whole-caption font key (issue #318); absent/`default` renders normally. */
+  caption_font?: CaptionFont
+  /** Whole-tile background color key (issue #318); absent/`default` is normal. */
+  background_color?: BackgroundColor
   /** Total likes on the post. Present so a grid tile can show a like control
    * without opening the post first (issue #267). Older responses that predate
    * the field omit it. */
   post_likes?: number
   /** Whether the requesting user has liked this post (issue #267). */
   is_liked?: boolean
+  /** Whether the requesting user has saved this post, so a row can show its
+   * bookmark filled without opening the post first (issue #193). Older
+   * responses that predate the field omit it. */
+  is_saved?: boolean
   /** Whether the requesting user has an active report against this post,
    * so a grid tile can offer "retract report" instead of "report" (#267). */
   is_reported?: boolean
@@ -225,7 +323,7 @@ export interface FeedPost {
 }
 
 /** A post as returned by the post-details endpoint. */
-export interface PostDetails {
+export interface PostDetails extends AuthorAvatarFields {
   post_identifier: string
   /** Null for a text-only post (#307), which renders as a caption tile. */
   image_url: string | null
@@ -238,9 +336,15 @@ export interface PostDetails {
    * nullable, so this can be null; older responses that predate the field
    * omit it entirely. */
   creation_time?: string | null
+  /** Whole-caption font key (issue #318); absent/`default` renders normally. */
+  caption_font?: CaptionFont
+  /** Whole-tile background color key (issue #318); absent/`default` is normal. */
+  background_color?: BackgroundColor
   post_likes: number
   /** Whether the requesting user has liked this post. */
   is_liked?: boolean
+  /** Whether the requesting user has saved this post (issue #193). */
+  is_saved?: boolean
   /** Whether the requesting user has an active report against this post. */
   is_reported?: boolean
   /** The requesting user's own report reason, so a retract dialog can show it
@@ -271,9 +375,11 @@ export interface CommentThreadRef {
   comment_thread_identifier: string
 }
 
-export interface Comment {
+export interface Comment extends AuthorAvatarFields {
   comment_identifier: string
   body: string
+  /** Inline formatting spans over `body` (issue #318). Absent/null = plain. */
+  body_formatting?: CommentFormatSpan[] | null
   author_username: string
   creation_time: string
   updated_time: string
@@ -287,7 +393,7 @@ export interface Comment {
   report_reason?: string | null
 }
 
-export interface UserSearchResult {
+export interface UserSearchResult extends AuthorAvatarFields {
   username: string
   identity_is_verified: boolean
 }
@@ -301,6 +407,22 @@ export interface ProfileDetails {
   is_blocked: boolean
   identity_is_verified: boolean
   is_adult: boolean
+  /** The user's approved profile photo (compressed) with a full-resolution
+   * fallback, or null when they have none. Shown to everyone. */
+  profile_image_url?: string | null
+  profile_image_original_url?: string | null
+  /** Owner-only: the moderation state of a photo still under review (or the
+   * last rejected upload). Present only when viewing your own profile, so your
+   * client can show a "reviewing" / "not approved" affordance; never returned
+   * for other users. */
+  profile_image_status?: ProfileImageStatus
+  profile_image_reason_code?: string | null
+  pending_profile_image_url?: string | null
+  /**
+   * Public join number (#198) — the member's "I'm #n on the app!" position,
+   * shown on every profile. Null for accounts a backfill hasn't numbered yet.
+   */
+  membership_number: number | null
 }
 
 // ---------------------------------------------------------------------------
@@ -316,6 +438,10 @@ export interface HiddenPost {
   /** Null for a text-only post (#307). */
   image_url: string | null
   caption: string
+  /** Whole-caption font key (issue #318); absent/`default` renders normally. */
+  caption_font?: CaptionFont
+  /** Whole-tile background color key (issue #318); absent/`default` is normal. */
+  background_color?: BackgroundColor
   /** Why it was hidden: 'classifier', 'reports', or '' (unspecified). */
   hidden_reason: string
   creation_time: string
@@ -327,6 +453,8 @@ export interface HiddenPost {
 export interface HiddenComment {
   comment_identifier: string
   body: string
+  /** Inline formatting spans over `body` (issue #318). Absent/null = plain. */
+  body_formatting?: CommentFormatSpan[] | null
   hidden_reason: string
   creation_time: string
   has_appeal: boolean

@@ -128,6 +128,11 @@ class RememberMeLoginTest {
         composeTestRule.onNodeWithText("Privacy Policy").assertExists()
         composeTestRule.onNodeWithText("Ok").performClick()
 
+        // A brand new account is greeted with its membership number (issue
+        // #198). Dismiss the welcome dialog before continuing.
+        composeTestRule.onNodeWithText("Welcome! 🎉").assertExists()
+        composeTestRule.onNodeWithText("OK").performClick()
+
         // Registration parks the user on the "check your email" screen
         // (issue #237). The stub API pre-verifies accounts, so continue to
         // Login and sign in to reach Home.
@@ -146,7 +151,8 @@ class RememberMeLoginTest {
         composeTestRule.onNodeWithText("Settings").performClick()
         assertOnSettingsView()
 
-        composeTestRule.onNodeWithText("Logout").performClick()
+        // The Settings list scrolls, so bring Logout into view before tapping.
+        composeTestRule.onNodeWithText("Logout").performScrollTo().performClick()
         composeTestRule.onNodeWithText("Confirm").performClick()
 
         assertOnLoginView()

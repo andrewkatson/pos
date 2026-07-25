@@ -21,6 +21,14 @@ class ProfileViewModel: ObservableObject {
     @Published var isFollowing = false
     @Published var isBlocked = false
 
+    // Own profile-photo controls (issue #7). Uploading reuses the post-image
+    // presigned flow (createUploadUrl + S3Uploader), then calls setProfilePhoto;
+    // the photo is classified asynchronously, so we reload the profile afterward
+    // to reflect the new pending/approved state.
+    @Published var isUpdatingPhoto = false
+    @Published var photoErrorMessage: String?
+    private let s3Uploader = S3Uploader()
+
     // Private state for pagination and API
     private var batch = 0
     private let api: Networking
@@ -68,6 +76,34 @@ class ProfileViewModel: ObservableObject {
     var isOwnProfile: Bool {
         guard let currentLoggedInUsername, !currentLoggedInUsername.isEmpty else { return false }
         return user.username == currentLoggedInUsername
+    }
+
+    /// The compressed URL for the large header avatar (issue #7). The owner
+    /// previews their own not-yet-approved upload immediately; everyone else
+    /// (and the owner once approved) sees the live approved photo.
+    var headerAvatarUrl: String? {
+        if isOwnProfile, let pending = profileDetails?.pendingProfileImageUrl { return pending }
+        return profileDetails?.profileImageUrl
+    }
+
+    /// The full-resolution fallback for the header avatar. Deliberately the
+    /// previously approved photo's original — NOT the pending URL — so if a
+    /// pending preview fails to load the owner still sees their live avatar
+    /// (which stays visible while a new upload is under review) rather than the
+    /// placeholder.
+    var headerAvatarOriginalUrl: String? {
+        profileDetails?.profileImageOriginalUrl
+    }
+
+    /// The owner-only moderation status of the profile photo ("pending",
+    /// "rejected", ...), used to show a review/try-again hint. Nil on someone
+    /// else's profile.
+    var profileImageStatus: String? { profileDetails?.profileImageStatus }
+
+    /// Whether the owner currently has any photo (live or pending), so the
+    /// Remove button is offered.
+    var hasProfilePhoto: Bool {
+        (profileDetails?.profileImageUrl != nil) || (profileDetails?.pendingProfileImageUrl != nil)
     }
 
     convenience init(user: User, api: Networking, keychainHelper: KeychainHelperProtocol) {
@@ -376,6 +412,72 @@ class ProfileViewModel: ObservableObject {
         if !previousBlockState && previousFollowState {
             isFollowing = previousFollowState
             adjustFollowerCount(by: 1)
+        }
+    }
+
+    // MARK: - Profile Photo (issue #7)
+
+    /// Uploads the picked JPEG to a presigned S3 URL (reusing the post-image
+    /// flow) and sets it as the signed-in user's profile photo, then reloads the
+    /// profile so the header reflects the new pending/approved state. The bytes
+    /// are compressed and EXIF-stripped by `S3Uploader`, exactly like a post
+    /// image.
+    func updateProfilePhoto(imageData: Data) async {
+        guard !isUpdatingPhoto else { return }
+        isUpdatingPhoto = true
+        photoErrorMessage = nil
+        defer { isUpdatingPhoto = false }
+
+        do {
+            guard let userSession = try keychainHelper.load(UserSession.self, from: keychainService, account: account) else {
+                NSLog("%@", "No active session — cannot update profile photo")
+                photoErrorMessage = "You must be logged in to update your photo."
+                return
+            }
+            let token = userSession.sessionToken
+
+            // Reuse the backend-issued presigned S3 URL flow (#310) for the
+            // bytes. Under test the real S3 PUT is skipped (there's no live
+            // bucket), mirroring NewPostView.
+            var imageURLString = "https://picsum.photos/400/400"
+            if !isTesting() {
+                let uploadUrlData = try await api.createUploadUrl(sessionManagementToken: token)
+                let uploadUrlResponse = try JSONDecoder().decode(UploadUrlResponse.self, from: uploadUrlData)
+                guard let uploadURL = URL(string: uploadUrlResponse.uploadUrl) else {
+                    throw ImageUploadError.invalidUploadURL
+                }
+                try await s3Uploader.upload(data: imageData, to: uploadURL)
+                imageURLString = uploadUrlResponse.imageUrl
+            }
+
+            _ = try await api.setProfilePhoto(sessionManagementToken: token, imageURL: imageURLString)
+            // Reload so the header shows the new photo / review state.
+            await refreshProfileDetails()
+        } catch {
+            NSLog("%@", "Error updating profile photo: \(error)")
+            photoErrorMessage = "Could not update your profile photo. Please try again."
+        }
+    }
+
+    /// Removes the signed-in user's profile photo, then reloads the profile so
+    /// the header reverts to the placeholder.
+    func removeProfilePhoto() async {
+        guard !isUpdatingPhoto else { return }
+        isUpdatingPhoto = true
+        photoErrorMessage = nil
+        defer { isUpdatingPhoto = false }
+
+        do {
+            guard let userSession = try keychainHelper.load(UserSession.self, from: keychainService, account: account) else {
+                NSLog("%@", "No active session — cannot remove profile photo")
+                photoErrorMessage = "You must be logged in to remove your photo."
+                return
+            }
+            _ = try await api.removeProfilePhoto(sessionManagementToken: userSession.sessionToken)
+            await refreshProfileDetails()
+        } catch {
+            NSLog("%@", "Error removing profile photo: \(error)")
+            photoErrorMessage = "Could not remove your profile photo. Please try again."
         }
     }
 }

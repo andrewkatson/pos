@@ -22,8 +22,13 @@ struct BlockedUsersView: View {
             }
             ForEach(viewModel.blockedUsers) { user in
                 HStack {
-                    Image(systemName: "person.circle.fill")
-                        .foregroundColor(.gray)
+                    // The blocked user's profile photo (issue #7), with the
+                    // neutral placeholder as the fallback.
+                    ProfileAvatarView(
+                        imageUrl: user.authorProfileImageUrl,
+                        originalImageUrl: user.authorProfileImageOriginalUrl,
+                        size: 32
+                    )
                     Text(user.username)
                     if user.identityIsVerified {
                         Image(systemName: "checkmark.seal.fill")
