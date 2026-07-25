@@ -292,6 +292,10 @@ export interface FeedPost extends AuthorAvatarFields {
   original_image_url?: string | null
   author_username: string
   caption: string
+  /** Hashtags parsed from the caption (issue #379), normalized to lowercase and
+   * sorted. Rendered as links to the tag feed. Older responses that predate the
+   * field omit it. */
+  tags?: string[]
   /** Whole-caption font key (issue #318); absent/`default` renders normally. */
   caption_font?: CaptionFont
   /** Whole-tile background color key (issue #318); absent/`default` is normal. */
@@ -358,6 +362,9 @@ export interface PostDetails extends AuthorAvatarFields {
    * pre-populated (issue #176). Null/absent when they haven't reported it. */
   report_reason?: string | null
   author_username: string
+  /** Hashtags parsed from the caption (issue #379), normalized to lowercase and
+   * sorted. Older responses that predate the field omit it. */
+  tags?: string[]
   /** Author-only (issue #282): present when viewing one's own post. */
   status?: PostClassificationStatus
   hidden?: boolean

@@ -617,6 +617,16 @@ final class RealAPI: Networking {
         )
     }
     
+    /// Gets a batch of posts carrying a given #hashtag (issue #379).
+    func getPostsForTag(sessionManagementToken: String, tag: String, batch: Int) async throws -> Data {
+        // GET tags/<tag>/posts/<batch>/, authenticated. Tag/batch are in the path.
+        return try await performRequest(
+            pathSegments: [GVOAppConstants.pathSegmentTags, tag, GVOAppConstants.pathSegmentPosts, String(batch)],
+            method: .get,
+            authToken: sessionManagementToken
+        )
+    }
+
     /// Gets the details for a single post.
     func getPostDetails(sessionManagementToken: String, postIdentifier: String) async throws -> Data {
         // Authenticated GET so the response can include the current user's like state. ID is in path.

@@ -6,6 +6,7 @@ import type { Comment, CommentFormatSpan, PostDetails, TextSize } from '../api/t
 import { isWithinLimit, MAX_COMMENT_LENGTH } from '../auth/requirements'
 import PostThumbnail from '../components/PostThumbnail'
 import CharacterCounter from '../components/CharacterCounter'
+import { CaptionText } from '../components/CaptionText'
 import Avatar from '../components/Avatar'
 import FormattedText from '../components/FormattedText'
 import { captionFontClass, TEXT_SIZE_OPTIONS } from '../components/textFormatting'
@@ -585,7 +586,11 @@ function PostDetailView({ postId }: { postId: string }) {
           </button>
         </div>
         <p className="detail-caption">
-          <span className={captionFontClass(post.caption_font)}>{post.caption}</span>
+          {/* #hashtags stay tappable (issue #379); the font class still styles
+              the whole caption (issue #318). */}
+          <span className={captionFontClass(post.caption_font)}>
+            <CaptionText caption={post.caption} />
+          </span>
         </p>
 
         {/* When the post was made, at the same coarse granularity as comment

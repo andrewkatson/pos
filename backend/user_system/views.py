@@ -51,6 +51,7 @@ from .utils import convert_to_bool, generate_login_cookie_token, generate_manage
 from .cloudfront import sign_compressed_url, sign_original_url
 from .s3 import delete_image, generate_presigned_upload, image_url_to_key, is_source_bucket_url, \
     strip_query_and_fragment
+from .tags import set_post_tags
 from .visibility import can_view_post, in_same_age_band, searchable_users, visible_comment_threads, \
     visible_comments, visible_posts
 
@@ -1782,6 +1783,10 @@ def make_post(request):
         image_url=image_url, caption=caption,
         caption_font=caption_font, background_color=background_color,
         hidden=True, hidden_reason=HIDDEN_REASON_PENDING_CLASSIFICATION)
+    # Harvest #hashtags now (issue #379). Tagging a pending post is safe: the
+    # post stays author-only until classification clears it, and visible_posts
+    # keeps a hidden/rejected post out of everyone else's tag feed regardless.
+    set_post_tags(new_post, caption)
     tasks.enqueue_classification(new_post.post_identifier)
 
     logger.info(f"Post created pending classification: post_id: {new_post.post_identifier} for user_id: {request.user.id}")
@@ -2082,7 +2087,7 @@ def get_saved_posts(request, batch):
     # post saved before a block doesn't keep surfacing afterward.
     saved_posts = saved_posts.exclude(author__in=request.user.blocked.all()).exclude(
         author__in=request.user.blocked_by.all())
-    saved_posts = visible_posts(saved_posts, request.user).order_by('-saved_time')
+    saved_posts = visible_posts(saved_posts, request.user).order_by('-saved_time').select_related('author').prefetch_related('tags')
 
     if saved_posts.exists():
         batched_posts = get_queryset_batch(saved_posts, batch, POST_BATCH_SIZE)
@@ -2098,6 +2103,7 @@ def get_saved_posts(request, batch):
                 **_author_avatar_fields(post.author),
                 Fields.caption: post.caption,
                 **_caption_style_fields(post),
+                **_post_tags(post),
                 **interaction_state(post),
                 **_author_status_fields(post, request.user),
             }
@@ -2159,6 +2165,14 @@ def _author_status_fields(post, viewer):
         Fields.reason_code: post.classification_reason_code,
         Fields.appealable: post.appealable,
     }
+
+
+def _post_tags(post):
+    """The post's hashtags (issue #379) as a sorted list of names, merged into
+    every post payload so clients can render them as links to the tag feed.
+    Reads post.tags.all(); callers should prefetch_related('tags') on batched
+    listings so this stays one query for the whole batch."""
+    return {Fields.tags: sorted(tag.name for tag in post.tags.all())}
 
 
 @api_login_required
@@ -2291,9 +2305,11 @@ def get_posts_in_feed(request, batch):
     blocking_users = request.user.blocked_by.all()
     relevant_posts = relevant_posts.exclude(author__in=blocked_users).exclude(author__in=blocking_users)
 
-    relevant_posts = visible_posts(relevant_posts, request.user)
+    relevant_posts = visible_posts(relevant_posts, request.user).select_related('author').prefetch_related('tags')
 
-    if relevant_posts.count() > 0:
+    # .exists() rather than .count() > 0 to skip the extra COUNT(*) before the
+    # batch query, consistent with get_saved_posts / get_posts_for_tag.
+    if relevant_posts.exists():
         batched_posts = get_queryset_batch(relevant_posts, batch, POST_BATCH_SIZE)
         interaction_state = build_post_interaction_state(request.user, batched_posts)
         posts_data = [
@@ -2307,6 +2323,7 @@ def get_posts_in_feed(request, batch):
                 **_author_avatar_fields(post.author),
                 Fields.caption: post.caption,
                 **_caption_style_fields(post),
+                **_post_tags(post),
                 **interaction_state(post),
                 # Authors see their own pending/hidden posts in feeds, so their
                 # payloads carry the classification state for the client to
@@ -2341,7 +2358,7 @@ def get_posts_for_followed_users(request, batch):
 
     posts_queryset = visible_posts(
         Post.objects.filter(author__in=followed_users), request.user
-    ).order_by('-creation_time')
+    ).order_by('-creation_time').select_related('author').prefetch_related('tags')
     posts_batch = get_queryset_batch(posts_queryset, batch, POST_BATCH_SIZE)
     interaction_state = build_post_interaction_state(request.user, posts_batch)
 
@@ -2356,6 +2373,7 @@ def get_posts_for_followed_users(request, batch):
             **_author_avatar_fields(post.author),
             Fields.caption: post.caption,
             **_caption_style_fields(post),
+            **_post_tags(post),
             **interaction_state(post),
             **_author_status_fields(post, request.user),
         }
@@ -2394,9 +2412,11 @@ def get_posts_for_user(request, username, batch):
 
     relevant_posts = visible_posts(
         feed_algorithm_class.get_posts_weighted_for_user(target_user, Post), request.user
-    )
+    ).prefetch_related('tags')
 
-    if relevant_posts.count() > 0:
+    # .exists() rather than .count() > 0 to skip the extra COUNT(*) before the
+    # batch query, consistent with get_saved_posts / get_posts_for_tag.
+    if relevant_posts.exists():
         batched_posts = get_queryset_batch(relevant_posts, batch, POST_BATCH_SIZE)
         interaction_state = build_post_interaction_state(request.user, batched_posts)
         posts_data = [
@@ -2414,6 +2434,7 @@ def get_posts_for_user(request, username, batch):
                 **_caption_style_fields(post),
                 Fields.author_username: target_user.username,
                 **_author_avatar_fields(target_user),
+                **_post_tags(post),
                 **interaction_state(post),
                 # The author's own profile grid includes pending/hidden posts;
                 # these fields let the client render their state.
@@ -2456,12 +2477,76 @@ def get_post_details(request, post_identifier):
             Fields.report_reason: my_report.reason if my_report is not None else None,
             Fields.author_username: post.author.username,
             **_author_avatar_fields(post.author),
+            **_post_tags(post),
             **_author_status_fields(post, request.user),
         }
         return log_and_return_json("get_post_details", post_data)
     else:
         logger.warning(f"Get post details failed: Post {post_identifier} not found")
         return log_and_return_json("get_post_details", {'error': "No post with that identifier"}, status=400)
+
+
+@api_login_required
+@ratelimit(key='user', rate='60/m', block=True)
+@require_GET
+def get_posts_for_tag(request, tag, batch):
+    """Posts carrying a given #hashtag, newest first (issue #379).
+
+    The tag feed a client opens when a user taps a #tag in a caption. Uses the
+    same visibility and block rules as the other listing endpoints, so a hidden,
+    pending, shadow-banned or blocked author's post never surfaces here — the
+    tag is just an extra filter layered on top of visible_posts."""
+    logger.info("Endpoint get_posts_for_tag invoked by IP or User")
+    if not is_valid_pattern(tag, Patterns.tag):
+        return log_and_return_json("get_posts_for_tag", {'error': "Invalid tag"}, status=400)
+    if batch < 0:
+        return log_and_return_json("get_posts_for_tag", {'error': "Invalid batch parameter"}, status=400)
+
+    # Tags are stored lowercased, so match case-insensitively by normalizing the
+    # request the same way extract_tag_names does.
+    normalized_tag = tag.lower()
+
+    blocked_users = request.user.blocked.all()
+    blocking_users = request.user.blocked_by.all()
+    tagged_posts = (
+        Post.objects.filter(tags__name=normalized_tag)
+        .exclude(author__in=blocked_users)
+        .exclude(author__in=blocking_users)
+    )
+    relevant_posts = (
+        visible_posts(tagged_posts, request.user)
+        .order_by('-creation_time')
+        # select_related('author') so the per-row author reads (username, avatar,
+        # status) don't each issue a query; prefetch_related('tags') for the M2M.
+        .select_related('author')
+        .prefetch_related('tags')
+    )
+
+    # .exists() rather than .count() > 0: it avoids the extra COUNT(*) before the
+    # batch query, matching get_saved_posts.
+    if relevant_posts.exists():
+        batched_posts = get_queryset_batch(relevant_posts, batch, POST_BATCH_SIZE)
+        interaction_state = build_post_interaction_state(request.user, batched_posts)
+        posts_data = [
+            {
+                Fields.post_identifier: post.post_identifier,
+                Fields.image_url: sign_compressed_url(post.image_url),
+                # Full-res original, used as a client fallback while the async
+                # Lambda-generated compressed copy is still missing (#252/#254).
+                Fields.original_image_url: sign_original_url(post.image_url),
+                Fields.author_username: post.author.username,
+                **_author_avatar_fields(post.author),
+                Fields.caption: post.caption,
+                **_caption_style_fields(post),
+                **_post_tags(post),
+                **interaction_state(post),
+                **_author_status_fields(post, request.user),
+            }
+            for post in batched_posts
+        ]
+        return log_and_return_json("get_posts_for_tag", posts_data, safe=False)
+    else:
+        return log_and_return_json("get_posts_for_tag", [], safe=False)
 
 
 # =============================================================================

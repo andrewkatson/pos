@@ -90,6 +90,7 @@ import Foundation
     static let pathSegmentReset = "reset"
     static let pathSegmentRetract = "retract"
     static let pathSegmentStatus = "status"
+    static let pathSegmentTags = "tags"
     static let pathSegmentThreads = "threads"
     static let pathSegmentUnblock = "unblock"
     static let pathSegmentUploadUrl = "upload-url"

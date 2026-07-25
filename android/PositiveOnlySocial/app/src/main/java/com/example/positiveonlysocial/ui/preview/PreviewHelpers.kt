@@ -249,6 +249,25 @@ class MockPositiveOnlySocialAPI : PositiveOnlySocialAPI {
         )
     }
 
+    override suspend fun getPostsByTag(
+        token: String,
+        tag: String,
+        batch: Int
+    ): Response<List<Post>> {
+        return Response.success(
+            listOf(
+                Post(
+                    postIdentifier = "6",
+                    imageUrl = "https://example.com/tagged.jpg",
+                    caption = "Tagged #$tag",
+                    authorUsername = "tag_fan",
+                    likeCount = 7,
+                    tags = listOf(tag)
+                )
+            )
+        )
+    }
+
     override suspend fun getPostDetails(token: String, postId: String): Response<Post> {
         return Response.success(
             Post(

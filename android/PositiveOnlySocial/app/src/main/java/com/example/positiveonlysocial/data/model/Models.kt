@@ -284,7 +284,14 @@ data class Post(
     // fields (an older response omitting them yields null); the render layer
     // treats null as "default".
     @SerializedName("caption_font") val captionFont: String? = null,
-    @SerializedName("background_color") val backgroundColor: String? = null
+    @SerializedName("background_color") val backgroundColor: String? = null,
+    // Hashtags parsed from the caption (issue #379), normalized to lowercase and
+    // sorted. Nullable because Gson does not apply Kotlin default values for
+    // absent JSON fields (an older response omitting them yields null, not an
+    // empty list) — same as captionFont/backgroundColor above. Read via
+    // `tags.orEmpty()`. At the end of the list so positional constructions in
+    // tests keep compiling.
+    @SerializedName("tags") val tags: List<String>? = null
 )
 
 // --- Comment DTOs ---

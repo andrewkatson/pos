@@ -112,6 +112,9 @@ urlpatterns = [
     # GET /posts/<uuid:post_identifier>/details/
     path('posts/<uuid:post_identifier>/details/', views.get_post_details, name='get_post_details'),
 
+    # GET /tags/<str:tag>/posts/<int:batch>/ (Token in header)
+    path('tags/<str:tag>/posts/<int:batch>/', views.get_posts_for_tag, name='get_posts_for_tag'),
+
     # =========================================================================
     # COMMENTS
     # =========================================================================

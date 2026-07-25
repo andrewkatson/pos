@@ -100,6 +100,8 @@ export interface PositiveOnlySocialAPI {
   getFeed(batch: number): Promise<FeedPost[]>
   getFollowedFeed(batch: number): Promise<FeedPost[]>
   getPostsForUser(username: string, batch: number): Promise<FeedPost[]>
+  /** Posts carrying a given #hashtag, newest first, batched (issue #379). */
+  getPostsByTag(tag: string, batch: number): Promise<FeedPost[]>
   /** The signed-in user's saved posts, newest save first (issue #193). */
   getSavedPosts(batch: number): Promise<FeedPost[]>
   getPostDetails(postIdentifier: string): Promise<PostDetails>
