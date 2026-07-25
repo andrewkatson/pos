@@ -512,12 +512,16 @@ struct Positive_Only_SocialTests_ProfileViewModel {
         try await setupLoggedInUser(user: user, token: token, account: account)
 
         let sut = ProfileViewModel(user: user, api: stubAPI, keychainHelper: keychainHelper, account: account)
+        // The bio editor is only reachable once the profile has loaded, so seed
+        // profileDetails first (updateBio writes the new bio into it directly).
+        sut.fetchProfileDetails()
+        await yield()
 
         let ok = await sut.updateBio("Kind and curious.")
 
         #expect(ok == true)
         #expect(sut.bioErrorMessage == nil)
-        // updateBio reloads the profile, so the stored bio is reflected.
+        // The stored bio (from the setBio response) is written into profileDetails.
         #expect(sut.profileDetails?.bio == "Kind and curious.")
         #expect(sut.bio == "Kind and curious.")
     }
@@ -528,6 +532,8 @@ struct Positive_Only_SocialTests_ProfileViewModel {
         try await setupLoggedInUser(user: user, token: token, account: account)
 
         let sut = ProfileViewModel(user: user, api: stubAPI, keychainHelper: keychainHelper, account: account)
+        sut.fetchProfileDetails()
+        await yield()
 
         // Seed an approved bio first.
         _ = await sut.updateBio("Kindness matters.")
@@ -549,6 +555,8 @@ struct Positive_Only_SocialTests_ProfileViewModel {
         try await setupLoggedInUser(user: user, token: token, account: account)
 
         let sut = ProfileViewModel(user: user, api: stubAPI, keychainHelper: keychainHelper, account: account)
+        sut.fetchProfileDetails()
+        await yield()
 
         _ = await sut.updateBio("Something nice.")
         #expect(sut.bio == "Something nice.")

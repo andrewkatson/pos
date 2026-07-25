@@ -491,7 +491,9 @@ class ProfileViewModel: ObservableObject {
     }
 
     /// Sets (or clears, with an empty string) the signed-in user's bio, then
-    /// reloads the profile so the header reflects it. A non-positive bio is
+    /// writes the returned bio straight into `profileDetails` so the header
+    /// reflects it (no reload — a silent refresh failure could otherwise leave
+    /// the old bio on screen after a successful save). A non-positive bio is
     /// rejected by the server (400) and surfaced inline without changing the
     /// stored bio. Returns whether the update succeeded, so the caller can
     /// dismiss the editor only on success.
@@ -508,8 +510,13 @@ class ProfileViewModel: ObservableObject {
                 bioErrorMessage = "You must be logged in to edit your bio."
                 return false
             }
-            _ = try await api.setBio(sessionManagementToken: userSession.sessionToken, bio: newBio)
-            await refreshProfileDetails()
+            let data = try await api.setBio(sessionManagementToken: userSession.sessionToken, bio: newBio)
+            // setBio returns the stored bio; apply it directly rather than
+            // reloading (refreshProfileDetails swallows failures, which would
+            // leave the header stale after a successful save).
+            struct BioResponse: Decodable { let bio: String }
+            let storedBio = (try? JSONDecoder().decode(BioResponse.self, from: data))?.bio ?? newBio
+            profileDetails?.bio = storedBio
             return true
         } catch APIError.badServerResponse(let statusCode) where statusCode == 400 {
             // The bio failed moderation or the length cap; the specific reason is
