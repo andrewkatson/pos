@@ -33,10 +33,10 @@ struct CheckEmailView: View {
 
     @State private var isResending = false
     @State private var resendMessage: String?
-    // Seeded once from membershipNumber (below) so the greeting shows a single
-    // time — a re-appear (backgrounding, navigating back) won't resurrect it,
-    // and a dismissal sticks.
-    @State private var showingWelcome: Bool
+    @State private var showingWelcome = false
+    // One-shot guard so the greeting shows exactly once: a re-appear
+    // (backgrounding, back-nav) won't resurrect it after dismissal (issue #198).
+    @State private var hasShownWelcome = false
 
     // Explicit init so `membershipNumber` stays an immutable `let` while
     // callers that don't have a number (e.g. previews) can still omit it.
@@ -45,7 +45,6 @@ struct CheckEmailView: View {
         self.email = email
         self.membershipNumber = membershipNumber
         self._path = path
-        _showingWelcome = State(initialValue: membershipNumber != nil)
     }
 
     var body: some View {
@@ -98,8 +97,16 @@ struct CheckEmailView: View {
         // Registration is complete; going "back" to the form would only invite
         // a duplicate-account error.
         .navigationBarBackButtonHidden(true)
-        // Greet a brand new member with their join number (issue #198). The
-        // flag is seeded once in init, so this fires a single time.
+        .onAppear {
+            // Greet a brand new member with their join number (issue #198).
+            // Presenting from onAppear (rather than seeding at init) lets the
+            // alert appear reliably once the navigation push has settled; the
+            // guard keeps it a one-time greeting a re-appear won't resurrect.
+            if membershipNumber != nil && !hasShownWelcome {
+                hasShownWelcome = true
+                showingWelcome = true
+            }
+        }
         .alert("Welcome! 🎉", isPresented: $showingWelcome) {
             Button("OK") { }
         } message: {
