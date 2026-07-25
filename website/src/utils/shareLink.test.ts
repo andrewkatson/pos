@@ -35,6 +35,18 @@ describe('shareLink', () => {
     await expect(shareLink('https://x/post/1')).resolves.toBe('shared')
   })
 
+  test('treats a non-DOMException cancel (name "AbortError") as a no-op too', async () => {
+    // A cross-realm or non-DOM rejection won't pass `instanceof DOMException`,
+    // so the check reads `name` directly — a plain object still counts as a
+    // dismissal rather than falling through to the clipboard.
+    const share = vi.fn().mockRejectedValue({ name: 'AbortError' })
+    const writeText = vi.fn().mockResolvedValue(undefined)
+    vi.stubGlobal('navigator', { share, clipboard: { writeText } })
+
+    await expect(shareLink('https://x/post/1')).resolves.toBe('shared')
+    expect(writeText).not.toHaveBeenCalled()
+  })
+
   test('falls back to the clipboard when there is no share API and reports "copied"', async () => {
     const writeText = vi.fn().mockResolvedValue(undefined)
     vi.stubGlobal('navigator', { clipboard: { writeText } })

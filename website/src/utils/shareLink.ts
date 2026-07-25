@@ -45,7 +45,18 @@ export async function shareLink(url: string): Promise<ShareResult> {
       return 'shared'
     } catch (err) {
       // The user dismissing the share sheet is not an error worth surfacing.
-      if (err instanceof DOMException && err.name === 'AbortError') return 'shared'
+      // Read `name` off the thrown value directly rather than testing
+      // `instanceof DOMException`: the rejection isn't guaranteed to be a
+      // same-realm DOMException (cross-realm, or a non-DOM throw), so an
+      // `instanceof` check can miss a genuine cancel and wrongly fall through
+      // to the clipboard.
+      if (
+        typeof err === 'object' &&
+        err !== null &&
+        (err as { name?: unknown }).name === 'AbortError'
+      ) {
+        return 'shared'
+      }
       // Otherwise fall through and try the clipboard as a backstop.
     }
   }
