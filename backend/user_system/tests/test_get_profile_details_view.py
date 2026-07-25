@@ -140,16 +140,20 @@ class GetProfileDetailsTests(PositiveOnlySocialTestCase):
         """
         Tests that the details of a profile are hidden when a user is blocked by other user.
         """
-        # 1. Profile user blocks requesting user
+        # 1. Profile user blocks requesting user (and has a bio set)
+        self.profile_user.bio = "Hello from the blocker"
+        self.profile_user.save(update_fields=['bio'])
         self.profile_user.blocked.add(self.requesting_user)
 
         # 2. Get profile
         url = reverse('get_profile_details', kwargs={'username': self.profile_username})
         response = self.client.get(url, **self.valid_header)
 
-        # 3. Verify stats are hidden (0 or false)
+        # 3. Verify stats and bio are hidden (0 / empty)
         self.assertEqual(response.status_code, 200)
         data = response.json()
         self.assertEqual(data[Fields.post_count], 0)
         self.assertEqual(data[Fields.follower_count], 0)
         self.assertEqual(data[Fields.following_count], 0)
+        # A blocked requester cannot read the blocker's bio either (#380).
+        self.assertEqual(data[Fields.bio], "")

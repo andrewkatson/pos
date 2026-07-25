@@ -3424,6 +3424,11 @@ def get_profile_details(request, username):
     # requester, so a blocked user cannot even see their avatar.
     live_avatar = None if is_blocked_by else profile_user.profile_image_url
 
+    # The bio (issue #380), moderated on write so safe to show to everyone —
+    # except a requester the profile has blocked, who is redacted the same way as
+    # the stats and avatar above so they cannot read the blocker's bio by name.
+    visible_bio = "" if is_blocked_by else profile_user.bio
+
     data = {
         Fields.username: profile_user.username,
         Fields.post_count: post_count,
@@ -3437,9 +3442,9 @@ def get_profile_details(request, username):
         Fields.profile_image_original_url: sign_original_url(live_avatar),
         # Public join number — everyone can see "member #n" on any profile (#198).
         Fields.membership_number: profile_user.membership_number,
-        # Public bio (issue #380). Already moderated on write, so it is safe to
-        # show to everyone; empty string means the user has not set one.
-        Fields.bio: profile_user.bio,
+        # Empty string means the user has not set a bio (or the requester is
+        # blocked; see visible_bio above).
+        Fields.bio: visible_bio,
     }
 
     # Owner-only: the moderation state of a photo still under async review (or

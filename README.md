@@ -472,9 +472,11 @@ pending (fail closed, never shown) and alerts an operator exactly once.
 ## Bios
 
 A user can write a short free-text **bio** shown on their profile (issue #380).
-It is stored on the user (`bio`, empty string when unset) and returned to
-everyone in the profile-details payload (`GET /users/<username>/profile/`) —
-already moderated on write, so it is safe to show. `POST /profile/bio/` with
+It is stored on the user (`bio`, empty string when unset) and returned in the
+profile-details payload (`GET /users/<username>/profile/`) — already moderated
+on write, so it is safe to show. It is redacted (returned empty) for a
+requester the profile has blocked, exactly like the stats and avatar there, so
+a blocked user cannot read the blocker's bio by name. `POST /profile/bio/` with
 `{"bio": "..."}` sets it; an empty or whitespace-only value clears it.
 
 Unlike a profile photo, a bio is **plain text**, so it is moderated

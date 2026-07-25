@@ -1342,7 +1342,8 @@ export class StatefulStubbedAPI implements PositiveOnlySocialAPI {
       profile_image_url: liveAvatar,
       profile_image_original_url: liveAvatar,
       membership_number: target.membershipNumber,
-      bio: target.bio,
+      // Redacted for a blocked requester, like the stats/avatar above.
+      bio: isBlockedBy ? '' : target.bio,
     }
     // Owner-only moderation state, mirroring the backend.
     if (target.id === user.id) {

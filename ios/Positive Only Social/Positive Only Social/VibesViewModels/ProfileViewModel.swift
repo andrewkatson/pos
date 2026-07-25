@@ -516,7 +516,13 @@ class ProfileViewModel: ObservableObject {
             // leave the header stale after a successful save).
             struct BioResponse: Decodable { let bio: String }
             let storedBio = (try? JSONDecoder().decode(BioResponse.self, from: data))?.bio ?? newBio
-            profileDetails?.bio = storedBio
+            // Copy-and-reassign rather than mutating profileDetails?.bio in place,
+            // matching adjustFollowerCount — avoids a read+write of profileDetails
+            // in one expression (an exclusive-access violation on the struct).
+            if var details = profileDetails {
+                details.bio = storedBio
+                profileDetails = details
+            }
             return true
         } catch let APIError.serverError(_, serverMessage) {
             // A rejection (semicolon, length, or the positivity reason) comes back

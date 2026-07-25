@@ -1466,7 +1466,8 @@ final class StatefulStubbedAPI: Networking {
                 profile_image_status: nil,
                 profile_image_reason_code: nil,
                 pending_profile_image_url: nil,
-                bio: profileUser.bio
+                // Redacted for a blocked requester, like the stats/avatar above.
+                bio: ""
             )
             return try createSerializedResponse(fields: fields)
         }

@@ -1128,7 +1128,8 @@ class StatefulStubbedAPI : PositiveOnlySocialAPI {
                 false,
                 isBlocked = isBlocked,
                 membershipNumber = target.membershipNumber,
-                bio = target.bio
+                // Redacted for a blocked requester, like the stats/avatar above.
+                bio = ""
             ))
         }
 
