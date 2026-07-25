@@ -400,22 +400,21 @@ export function ChangePasswordModal({ onClose, onChanged }: ChangePasswordModalP
         disabled={isBusy}
       />
 
-      {/* Inline guidance so the disabled Change button isn't a dead end. */}
-      {newPassword.length > 0 && !isNewStrong && (
-        <p className="modal__body" role="alert">
-          New password doesn't meet the requirements.
-        </p>
-      )}
-      {confirmPassword.length > 0 && !doPasswordsMatch && (
-        <p className="modal__body" role="alert">
-          Passwords don't match.
-        </p>
-      )}
-      {isNewStrong && !isNewDifferent && (
-        <p className="modal__body" role="alert">
-          New password must be different from your current one.
-        </p>
-      )}
+      {/* Inline guidance so the disabled Change button isn't a dead end. A
+          polite live region (not role="alert") so it isn't announced
+          assertively on every keystroke; the backend error above keeps
+          role="alert". */}
+      <div aria-live="polite">
+        {newPassword.length > 0 && !isNewStrong && (
+          <p className="modal__body">New password doesn't meet the requirements.</p>
+        )}
+        {confirmPassword.length > 0 && !doPasswordsMatch && (
+          <p className="modal__body">Passwords don't match.</p>
+        )}
+        {isNewStrong && !isNewDifferent && (
+          <p className="modal__body">New password must be different from your current one.</p>
+        )}
+      </div>
 
       <div className="modal__actions">
         <button type="button" className="modal__cancel" onClick={onClose} disabled={isBusy}>

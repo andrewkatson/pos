@@ -751,7 +751,15 @@ private fun ChangePasswordDialog(
         doPasswordsMatch && isNewDifferent && !isChanging
 
     AlertDialog(
-        onDismissRequest = onCancel,
+        // While a change is in flight the dialog can't be dismissed by a back
+        // press or an outside tap, matching the disabled Cancel button: the
+        // request may still succeed or fail and raise an alert, so dismissing
+        // would wrongly read as "cancelled".
+        properties = DialogProperties(
+            dismissOnBackPress = !isChanging,
+            dismissOnClickOutside = !isChanging,
+        ),
+        onDismissRequest = { if (!isChanging) onCancel() },
         title = { Text("Change Password") },
         text = {
             Column(modifier = Modifier.verticalScroll(rememberScrollState())) {
