@@ -23,6 +23,25 @@ final class SettingsViewModel: ObservableObject {
     @Published var verificationMessage = ""
     @Published var showingVerificationInput = false
 
+    // Contact Information (issues #194/#197). The signed-in account's own
+    // username + email, loaded on mount for the Settings header. Nil until the
+    // fetch resolves; the view shows a placeholder in the meantime and simply
+    // keeps it if the (non-fatal) request fails.
+    @Published var currentUsername: String?
+    @Published var currentEmail: String?
+
+    // Change-password state (issue #197). Errors raised while the sheet is open
+    // surface inline via `passwordChangeErrorMessage` (not the shared
+    // showingErrorAlert — two `.alert`s on one flag are undefined in SwiftUI),
+    // and `passwordChangeSucceeded` signals the view to dismiss the sheet, after
+    // which the confirmation alert is raised. `isChangingPassword` blocks a
+    // double-submit while a request is in flight.
+    @Published var passwordChangeErrorMessage: String?
+    @Published var passwordChangeSucceeded = false
+    @Published var passwordChangeStatusMessage = ""
+    @Published var showingPasswordChangeStatusAlert = false
+    @Published var isChangingPassword = false
+
     // Two-factor authentication state (issue #348). `totpSetup` drives the
     // scan/confirm steps of the enrollment sheet; `recoveryCodes` (set once
     // confirm succeeds) drives the final save-your-codes step.
@@ -109,6 +128,74 @@ final class SettingsViewModel: ObservableObject {
         }
     }
     
+    // MARK: - Contact Information & Change Password (issues #194 / #197)
+
+    /// Loads the signed-in account's own username + email for the Contact
+    /// Information section (load-on-mount, matching the rest of the app). A
+    /// failure here is non-fatal: the section just keeps its placeholder.
+    func loadCurrentUser() {
+        Task {
+            do {
+                guard let userSession = try keychainHelper.load(UserSession.self, from: keychainService, account: account) else {
+                    return
+                }
+                let data = try await api.getCurrentUser(sessionManagementToken: userSession.sessionToken)
+                let fields = try JSONDecoder().decode(CurrentUserFields.self, from: data)
+                currentUsername = fields.username
+                currentEmail = fields.email
+            } catch {
+                // Non-fatal: leave the placeholder in place.
+                NSLog("%@", "🔴 Could not load current user: \(error.localizedDescription)")
+            }
+        }
+    }
+
+    /// Changes the account password. The current password is required as well as
+    /// the session, mirroring the backend, so a stolen session alone cannot
+    /// change it; on success the backend evicts every other session and all
+    /// remember-me cookies (a password change should evict other devices), while
+    /// the caller's current session is preserved so they stay signed in here.
+    func changePassword(currentPassword: String, newPassword: String) {
+        passwordChangeErrorMessage = nil
+        isChangingPassword = true
+        Task {
+            defer { isChangingPassword = false }
+            do {
+                guard let userSession = try keychainHelper.load(UserSession.self, from: keychainService, account: account) else {
+                    passwordChangeErrorMessage = "Session not found."
+                    return
+                }
+                _ = try await api.changePassword(sessionManagementToken: userSession.sessionToken,
+                                                 currentPassword: currentPassword,
+                                                 newPassword: newPassword)
+                // Clear any error from a previous failed attempt on success and
+                // signal the sheet to close; the confirmation alert is raised
+                // once it dismisses (see finishPasswordChange).
+                passwordChangeErrorMessage = nil
+                passwordChangeSucceeded = true
+            } catch {
+                passwordChangeErrorMessage = error.userFacingMessage
+            }
+        }
+    }
+
+    /// Called after the change-password sheet has closed on success: raises the
+    /// confirmation alert and resets the success flag.
+    func finishPasswordChange() {
+        passwordChangeSucceeded = false
+        passwordChangeErrorMessage = nil
+        passwordChangeStatusMessage = "Your password has been changed."
+        showingPasswordChangeStatusAlert = true
+    }
+
+    /// Called when the change-password sheet closes without succeeding (Cancel
+    /// or swipe-down): clears any inline error so it doesn't linger.
+    func cancelPasswordChange() {
+        passwordChangeSucceeded = false
+        passwordChangeErrorMessage = nil
+        isChangingPassword = false
+    }
+
     // MARK: - Two-Factor Authentication (issue #348)
 
     // Monotonic id for the current enrollment request. Every start/confirm bumps

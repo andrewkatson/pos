@@ -120,6 +120,14 @@ struct MockedAPI: Networking {
         return try encode(DisableTotpFields(totpEnabled: false))
     }
 
+    func getCurrentUser(sessionManagementToken: String) async throws -> Data {
+        return try encode(CurrentUserFields(username: "preview_user", email: "preview@example.com"))
+    }
+
+    func changePassword(sessionManagementToken: String, currentPassword: String, newPassword: String) async throws -> Data {
+        return try encode(["message": "Password changed successfully"])
+    }
+
     func resetPassword(username: String, email: String, newPassword: String, resetToken: String) async throws -> Data {
         return try encodeGenericSuccess()
     }

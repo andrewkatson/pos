@@ -25,6 +25,11 @@ object Constants {
     // on backend wording. Mirrors login_user_2fa in the backend.
     const val INVALID_TWO_FACTOR_CHALLENGE = "invalid_two_factor_challenge"
 
+    // Support address shown under "Contact Us" in Settings for feedback and help
+    // (issue #194). Distinct from the user's own contact info, which is loaded
+    // from GET /me/.
+    const val SUPPORT_EMAIL = "katsonsoftware@gmail.com"
+
     const val PRIVACY_POLICY_TEXT =
         "We collect your username, email address, and password for authentication; your password is stored as a salted hash, never in plain text. We do not store your date of birth itself, only whether you are an adult and whether your identity has been verified, derived from it at signup. We store your posts, comments, and related metadata such as like counts and reports. We also track follower/following relationships and blocked users to maintain the social environment, and the IP address of your login sessions and known devices so we can alert you to logins from a new device."
 }

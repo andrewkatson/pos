@@ -167,7 +167,8 @@ class PositiveOnlySocialIntegrationTests {
         composeTestRule.onNodeWithText("Settings").performClick()
         assertOnSettingsView()
         
-        composeTestRule.onNodeWithText("Logout").performClick()
+        // The Settings list scrolls, so bring Logout into view before tapping.
+        composeTestRule.onNodeWithText("Logout").performScrollTo().performClick()
         composeTestRule.onNodeWithText("Confirm").performClick() // Assuming confirm dialog
         
         assertOnLoginView()
@@ -232,8 +233,8 @@ class PositiveOnlySocialIntegrationTests {
         // Navigate to Settings
         composeTestRule.onNodeWithText("Settings").performClick()
 
-        // Click Delete Account
-        composeTestRule.onNodeWithText("Delete Account").performClick()
+        // Click Delete Account (scroll it into view — the Settings list scrolls)
+        composeTestRule.onNodeWithText("Delete Account").performScrollTo().performClick()
 
         // Confirm Delete
         composeTestRule.onNodeWithText("Delete").performClick()

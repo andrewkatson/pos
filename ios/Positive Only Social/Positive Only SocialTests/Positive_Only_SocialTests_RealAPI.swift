@@ -77,6 +77,32 @@ struct Positive_Only_SocialTests_RealAPI {
                 == "/user_index/posts/11111111-1111-1111-1111-111111111111/comment")
     }
 
+    /// GET /me/ backs the Settings "Contact Information" section (#194/#197).
+    @Test func testGetCurrentUserUsesMePath() async throws {
+        CapturingURLProtocol.lastRequestURL = nil
+        URLProtocol.registerClass(CapturingURLProtocol.self)
+        defer { URLProtocol.unregisterClass(CapturingURLProtocol.self) }
+
+        _ = try await RealAPI().getCurrentUser(sessionManagementToken: "token")
+
+        #expect(CapturingURLProtocol.lastRequestURL?.path == "/user_index/me")
+    }
+
+    /// POST /password/change/ changes the signed-in account's password (#197).
+    @Test func testChangePasswordUsesPasswordChangePath() async throws {
+        CapturingURLProtocol.lastRequestURL = nil
+        URLProtocol.registerClass(CapturingURLProtocol.self)
+        defer { URLProtocol.unregisterClass(CapturingURLProtocol.self) }
+
+        _ = try await RealAPI().changePassword(
+            sessionManagementToken: "token",
+            currentPassword: "OldPassword123",
+            newPassword: "NewPassword456"
+        )
+
+        #expect(CapturingURLProtocol.lastRequestURL?.path == "/user_index/password/change")
+    }
+
     // Setting a profile photo (issue #7) must POST to profile/photo/.
     @Test func testSetProfilePhotoUsesProfilePhotoPath() async throws {
         CapturingURLProtocol.lastRequestURL = nil

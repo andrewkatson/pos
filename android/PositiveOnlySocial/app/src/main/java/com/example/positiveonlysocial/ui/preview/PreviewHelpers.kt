@@ -122,6 +122,26 @@ class MockPositiveOnlySocialAPI : PositiveOnlySocialAPI {
         )
     }
 
+    // --- Account / Contact (issue #197/#194) ---
+
+    override suspend fun getCurrentUser(token: String): Response<CurrentUserResponse> {
+        return Response.success(
+            CurrentUserResponse(username = "mock_user", email = "mock_user@example.com")
+        )
+    }
+
+    override suspend fun changePassword(
+        token: String,
+        request: ChangePasswordRequest
+    ): Response<GenericResponse> {
+        return Response.success(
+            GenericResponse(
+                message = "Password changed successfully",
+                error = null
+            )
+        )
+    }
+
     override suspend fun requestReset(request: ResetRequest): Response<GenericResponse> {
         return Response.success(
             GenericResponse(
