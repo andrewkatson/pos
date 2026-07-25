@@ -2515,7 +2515,9 @@ def get_posts_for_tag(request, tag, batch):
         .prefetch_related('tags')
     )
 
-    if relevant_posts.count() > 0:
+    # .exists() rather than .count() > 0: it avoids the extra COUNT(*) before the
+    # batch query, matching get_saved_posts.
+    if relevant_posts.exists():
         batched_posts = get_queryset_batch(relevant_posts, batch, POST_BATCH_SIZE)
         interaction_state = build_post_interaction_state(request.user, batched_posts)
         posts_data = [
