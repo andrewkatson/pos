@@ -72,6 +72,9 @@ class SetBioTests(PositiveOnlySocialTestCase):
     def test_bio_with_semicolon_returns_400(self):
         response = self._post({Fields.bio: "Hello; world"})
         self.assertEqual(response.status_code, 400)
+        # The message names the offending character so the inline client error is
+        # actionable, rather than a generic "Invalid fields".
+        self.assertIn("semicolon", response.json()["error"].lower())
         self.assertEqual(self._reload().bio, "")
 
     # -- moderation ------------------------------------------------------------
