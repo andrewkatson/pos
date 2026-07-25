@@ -9,18 +9,29 @@ import Testing
 import Foundation
 @testable import Positive_Only_Social
 
+// `captionSegments` and `CaptionSegment` are compiled into both the app module
+// (reachable via @testable import) and this test target — TagFeedView.swift is a
+// test-target member because PostDetailView, which uses its symbols, is compiled
+// here too. That makes the free function / enum ambiguous when referenced
+// directly (unlike a type such as TagFeedViewModel, which Swift resolves fine).
+// Route through a module-qualified wrapper; the enum's leading-dot cases below
+// then infer their type from this return value.
+private func parseSegments(_ caption: String) -> [Positive_Only_Social.CaptionSegment] {
+    Positive_Only_Social.captionSegments(caption)
+}
+
 struct Positive_Only_SocialTests_CaptionSegments {
 
     @Test func testNoTagsIsASingleTextSegment() {
-        #expect(captionSegments("just a caption") == [.text("just a caption")])
+        #expect(parseSegments("just a caption") == [.text("just a caption")])
     }
 
     @Test func testEmptyCaptionHasNoSegments() {
-        #expect(captionSegments("").isEmpty)
+        #expect(parseSegments("").isEmpty)
     }
 
     @Test func testSplitsTextAndTag() {
-        #expect(captionSegments("a #sun b") == [
+        #expect(parseSegments("a #sun b") == [
             .text("a "),
             .tag(text: "#sun", name: "sun"),
             .text(" b"),
@@ -28,16 +39,16 @@ struct Positive_Only_SocialTests_CaptionSegments {
     }
 
     @Test func testTagNameIsLowercasedButTextKeepsCasing() {
-        #expect(captionSegments("#SunSet") == [.tag(text: "#SunSet", name: "sunset")])
+        #expect(parseSegments("#SunSet") == [.tag(text: "#SunSet", name: "sunset")])
     }
 
     @Test func testPunctuationTerminatesATag() {
-        #expect(captionSegments("#day!") == [.tag(text: "#day", name: "day"), .text("!")])
+        #expect(parseSegments("#day!") == [.tag(text: "#day", name: "day"), .text("!")])
     }
 
     @Test func testOverlongTokenStaysAsPlainText() {
         let long = String(repeating: "a", count: 101)
-        let segments = captionSegments("#\(long) #ok")
+        let segments = parseSegments("#\(long) #ok")
         // The overlong token never links; only #ok becomes a tag.
         #expect(segments.contains(.tag(text: "#ok", name: "ok")))
         #expect(!segments.contains { if case .tag(_, let name) = $0 { return name == long } else { return false } })
@@ -45,7 +56,7 @@ struct Positive_Only_SocialTests_CaptionSegments {
 
     @Test func testDoesNotLinkifyTagsPastTheCap() {
         let caption = (0...30).map { "#t\($0)" }.joined(separator: " ")
-        let tagCount = captionSegments(caption).filter { if case .tag = $0 { return true } else { return false } }.count
+        let tagCount = parseSegments(caption).filter { if case .tag = $0 { return true } else { return false } }.count
         #expect(tagCount == 30)
     }
 }
