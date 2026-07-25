@@ -2307,7 +2307,9 @@ def get_posts_in_feed(request, batch):
 
     relevant_posts = visible_posts(relevant_posts, request.user).prefetch_related('tags')
 
-    if relevant_posts.count() > 0:
+    # .exists() rather than .count() > 0 to skip the extra COUNT(*) before the
+    # batch query, consistent with get_saved_posts / get_posts_for_tag.
+    if relevant_posts.exists():
         batched_posts = get_queryset_batch(relevant_posts, batch, POST_BATCH_SIZE)
         interaction_state = build_post_interaction_state(request.user, batched_posts)
         posts_data = [
@@ -2412,7 +2414,9 @@ def get_posts_for_user(request, username, batch):
         feed_algorithm_class.get_posts_weighted_for_user(target_user, Post), request.user
     ).prefetch_related('tags')
 
-    if relevant_posts.count() > 0:
+    # .exists() rather than .count() > 0 to skip the extra COUNT(*) before the
+    # batch query, consistent with get_saved_posts / get_posts_for_tag.
+    if relevant_posts.exists():
         batched_posts = get_queryset_batch(relevant_posts, batch, POST_BATCH_SIZE)
         interaction_state = build_post_interaction_state(request.user, batched_posts)
         posts_data = [
