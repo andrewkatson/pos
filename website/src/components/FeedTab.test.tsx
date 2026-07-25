@@ -83,6 +83,30 @@ test('renders a text-only post as a caption tile instead of an image (#307)', as
   expect(tile).toHaveTextContent('words only')
 })
 
+test('shows the caption under the photo for an image post (#378)', async () => {
+  mockGetFeed.mockResolvedValue([
+    { post_identifier: 'p1', image_url: 'http://img/1.jpg', author_username: 'ada', caption: 'a lovely day' },
+  ])
+  mockGetFollowed.mockResolvedValue([])
+  const { container } = renderTab()
+
+  await screen.findByRole('button', { name: 'Open post by ada' })
+  const caption = container.querySelector('.feed-post__caption')
+  expect(caption).toHaveTextContent('a lovely day')
+})
+
+test('does not repeat the caption below a text-only post (#378)', async () => {
+  // The tile above already shows it; a second copy underneath would be redundant.
+  mockGetFeed.mockResolvedValue([
+    { post_identifier: 'p1', image_url: null, author_username: 'ada', caption: 'words only' },
+  ])
+  mockGetFollowed.mockResolvedValue([])
+  const { container } = renderTab()
+
+  await screen.findByRole('img', { name: 'words only' })
+  expect(container.querySelector('.feed-post__caption')).toBeNull()
+})
+
 test('switches to the Following feed', async () => {
   mockGetFeed.mockResolvedValue([])
   mockGetFollowed.mockResolvedValue([

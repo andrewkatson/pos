@@ -136,6 +136,16 @@ fun NavGraph(
             PostDetailScreen(navController, api, keychainHelper, postId)
         }
 
+        composable(
+            route = Screen.TagFeed.route,
+            arguments = listOf(navArgument("tag") { type = NavType.StringType })
+        ) { backStackEntry ->
+            // Uri-encoded by Screen.TagFeed.createRoute and decoded by the
+            // navigation library, so this is already the plain tag (issue #379).
+            val tag = backStackEntry.arguments?.getString("tag") ?: ""
+            TagFeedScreen(navController, api, keychainHelper, tag)
+        }
+
         composable(Screen.Appeals.route) {
             AppealsScreen(navController, api, keychainHelper)
         }

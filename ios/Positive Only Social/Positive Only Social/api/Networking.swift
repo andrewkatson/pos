@@ -126,6 +126,9 @@ protocol Networking {
     /// Gets a batch of posts for another user.
     func getPostsForUser(sessionManagementToken: String, username: String, batch: Int) async throws -> Data
 
+    /// Gets a batch of posts carrying a given #hashtag, newest first (issue #379).
+    func getPostsForTag(sessionManagementToken: String, tag: String, batch: Int) async throws -> Data
+
     /// Gets the details for a single post. Requires auth so the response can
     /// include whether the current user has liked the post.
     func getPostDetails(sessionManagementToken: String, postIdentifier: String) async throws -> Data

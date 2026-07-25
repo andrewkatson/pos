@@ -67,9 +67,11 @@ profile grid, and the Feed — without opening the post first:
 - **Delete**, offered only on your own posts.
 - **Share**, offered on every post (see [Sharing](#sharing)).
 
-Each feed row additionally shows the author, how long ago the post was made, and
-a comment count that opens the post when tapped. The square profile tiles omit
-those two — there is no room for them.
+Each feed row additionally shows the author, the caption under the photo, how
+long ago the post was made, and a comment count that opens the post when tapped.
+The square profile tiles omit these — there is no room for them. A text-only
+post already renders its caption as the tile in place of a photo, so the caption
+is not repeated beneath it.
 
 The post listing endpoints (`get_posts_in_feed`, `get_posts_for_followed_users`,
 `get_posts_for_user`) therefore return `post_likes`, `is_liked`, `is_saved`,
@@ -81,6 +83,31 @@ advertises comments the viewer would not be shown.
 
 Deleting a post from a list removes just that row; the list is not reloaded,
 which would otherwise reshuffle the weighted feed ordering under the user.
+## Hashtags (#tags)
+
+Captions can carry `#hashtags` (issue #379). When a post is created, the
+backend parses every `#word` token out of the caption and stores the tags,
+normalized to lowercase, in a shared `Tag` table linked to the post
+(`backend/user_system/tags.py`, `Post.tags`). Normalization means `#Sunset`,
+`#SUNSET` and `#sunset` are the same tag, and a tag row is shared across every
+post that uses it. Parsing is forgiving — a caption is free text that already
+passed the pre-filter/classifier, so extraction never rejects a post; it just
+harvests what it finds. A tag is at most `MAX_TAG_LENGTH` characters and a post
+keeps at most `MAX_TAGS_PER_POST` of them.
+
+Every full post payload the API returns — the feed, followed-feed, profile,
+saved-posts, tag-feed, and post-details endpoints — carries a `tags` array
+(sorted tag names), so clients render the caption's `#tags` as links. (The
+appeals/hidden-content listings return a reduced post shape and omit it.) Tapping a tag opens a **tag
+feed**: `GET /tags/<tag>/posts/<batch>/` lists the visible posts carrying that
+tag, newest first, batched like the other feeds. The tag feed applies exactly
+the same visibility and block rules as every other listing endpoint
+(`visible_posts` plus the per-viewer block filters), so a hidden, pending,
+shadow-banned, or blocked author's post never surfaces there — the tag is only
+an extra filter layered on top of the normal visibility query. Tags are
+extracted even for a post still pending classification, but that post stays
+author-only until it is approved, so its tags cannot leak into anyone else's
+tag feed.
 
 The **Saved Posts** screen (`get_saved_posts`) lists the posts you have saved,
 most recently saved first. It runs through the same visibility filter as every

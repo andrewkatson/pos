@@ -77,6 +77,18 @@ struct Positive_Only_SocialTests_RealAPI {
                 == "/user_index/posts/11111111-1111-1111-1111-111111111111/comment")
     }
 
+    @Test func testGetPostsForTagBuildsTagPath() async throws {
+        // Browse-by-tag hits tags/<tag>/posts/<batch>/ (issue #379).
+        CapturingURLProtocol.lastRequestURL = nil
+        URLProtocol.registerClass(CapturingURLProtocol.self)
+        defer { URLProtocol.unregisterClass(CapturingURLProtocol.self) }
+
+        _ = try await RealAPI().getPostsForTag(
+            sessionManagementToken: "token", tag: "sunset", batch: 0)
+
+        #expect(CapturingURLProtocol.lastRequestURL?.path == "/user_index/tags/sunset/posts/0")
+    }
+
     /// GET /me/ backs the Settings "Contact Information" section (#194/#197).
     @Test func testGetCurrentUserUsesMePath() async throws {
         CapturingURLProtocol.lastRequestURL = nil

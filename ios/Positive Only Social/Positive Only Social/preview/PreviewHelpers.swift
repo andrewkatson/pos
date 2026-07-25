@@ -234,6 +234,13 @@ struct MockedAPI: Networking {
         return try encode(posts)
     }
 
+    func getPostsForTag(sessionManagementToken: String, tag: String, batch: Int) async throws -> Data {
+        let posts = [
+            Post(postIdentifier: "6", imageUrl: "https://picsum.photos/400/304", originalImageUrl: nil, caption: "Tagged #\(tag)", authorUsername: "tag_fan", tags: [tag])
+        ]
+        return try encode(posts)
+    }
+
     func getPostsForUser(sessionManagementToken: String, username: String, batch: Int) async throws -> Data {
         let posts = [
             Post(postIdentifier: "4", imageUrl: "https://picsum.photos/400/303", originalImageUrl: nil, caption: "Just me", authorUsername: username)
