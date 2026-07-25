@@ -209,6 +209,48 @@ struct Positive_Only_SocialTests_ProfileViewModel {
         #expect(details.membershipNumber == nil)
     }
 
+    // --- Bio decoding (issue #380) ---
+
+    @Test func testProfileDetailsResponse_DecodesBio() throws {
+        let json = """
+        {
+          "username": "ada",
+          "post_count": 3,
+          "follower_count": 5,
+          "following_count": 2,
+          "is_following": false,
+          "is_blocked": false,
+          "identity_is_verified": false,
+          "is_adult": false,
+          "bio": "Aspiring gardener."
+        }
+        """.data(using: .utf8)!
+
+        let details = try JSONDecoder().decode(ProfileDetailsResponse.self, from: json)
+        #expect(details.bio == "Aspiring gardener.")
+    }
+
+    @Test func testProfileDetailsResponse_MissingBio_DecodesToNil() throws {
+        // A server that predates the field omits "bio"; the profile must still
+        // decode (bio is optional so the synthesized decoder tolerates its
+        // absence) rather than failing. nil and "" are treated alike.
+        let json = """
+        {
+          "username": "grace",
+          "post_count": 1,
+          "follower_count": 0,
+          "following_count": 0,
+          "is_following": true,
+          "is_blocked": false,
+          "identity_is_verified": false,
+          "is_adult": false
+        }
+        """.data(using: .utf8)!
+
+        let details = try JSONDecoder().decode(ProfileDetailsResponse.self, from: json)
+        #expect(details.bio == nil)
+    }
+
     @Test func testRegisterResponse_DecodesMembershipNumber() throws {
         // The register response carries the session (ignored here) plus the new
         // member's number, which is all RegisterResponse keeps.

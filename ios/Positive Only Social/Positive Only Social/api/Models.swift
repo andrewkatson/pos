@@ -440,9 +440,12 @@ struct ProfileDetailsResponse: Codable, Identifiable, Hashable {
     var profileImageReasonCode: String? = nil
     var pendingProfileImageUrl: String? = nil
     /// The user's free-text bio (issue #380), shown to everyone. Already
-    /// moderated on write, so it is safe to display. Empty string when unset;
-    /// defaulted so profiles from a server that predates the field still decode.
-    var bio: String = ""
+    /// moderated on write, so it is safe to display. Optional (like
+    /// `membershipNumber`/`profileImageUrl`) so a profile from a server that
+    /// predates the field still decodes — a non-optional property with a default
+    /// would still make the synthesized decoder *require* the key. nil and "" are
+    /// treated alike ("no bio set"); read it via the view model's `bio` accessor.
+    var bio: String? = nil
 
     enum CodingKeys: String, CodingKey {
         case username
