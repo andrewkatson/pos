@@ -1,7 +1,10 @@
 package com.example.positiveonlysocial.util
 
+import android.content.ActivityNotFoundException
 import android.content.Context
 import android.content.Intent
+import android.util.Log
+import android.widget.Toast
 
 /**
  * Builds the website links shared from a post's or comment's options menu, and
@@ -37,6 +40,19 @@ object ShareLinks {
             type = "text/plain"
             putExtra(Intent.EXTRA_TEXT, text)
         }
-        context.startActivity(Intent.createChooser(sendIntent, null))
+        // FLAG_ACTIVITY_NEW_TASK is required when the caller's Context isn't an
+        // Activity (a Compose LocalContext can be a plain ContextWrapper), or
+        // startActivity throws AndroidRuntimeException.
+        val chooser = Intent.createChooser(sendIntent, null).apply {
+            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        }
+        try {
+            context.startActivity(chooser)
+        } catch (e: ActivityNotFoundException) {
+            // No app can handle the share (rare, but possible on stripped-down
+            // devices). Fail softly rather than crash.
+            Log.w("ShareLinks", "No activity to handle share intent", e)
+            Toast.makeText(context, "No app available to share.", Toast.LENGTH_SHORT).show()
+        }
     }
 }
