@@ -132,7 +132,10 @@ class PostDeserializationTest {
     }
 
     @Test
-    fun `json without tags defaults to an empty list`() {
+    fun `json without tags yields null tags (older backend)`() {
+        // Gson does not apply Kotlin default values for absent fields, so an
+        // older response that omits "tags" deserializes to null; callers read it
+        // via tags.orEmpty().
         val json = """
             {
               "post_identifier": "p6",
@@ -144,7 +147,8 @@ class PostDeserializationTest {
 
         val post = gson.fromJson(json, Post::class.java)
 
-        assertTrue(post.tags.isEmpty())
+        assertNull(post.tags)
+        assertTrue(post.tags.orEmpty().isEmpty())
     }
 
     @Test

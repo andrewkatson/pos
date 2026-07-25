@@ -2087,7 +2087,7 @@ def get_saved_posts(request, batch):
     # post saved before a block doesn't keep surfacing afterward.
     saved_posts = saved_posts.exclude(author__in=request.user.blocked.all()).exclude(
         author__in=request.user.blocked_by.all())
-    saved_posts = visible_posts(saved_posts, request.user).order_by('-saved_time')
+    saved_posts = visible_posts(saved_posts, request.user).order_by('-saved_time').prefetch_related('tags')
 
     if saved_posts.exists():
         batched_posts = get_queryset_batch(saved_posts, batch, POST_BATCH_SIZE)
@@ -2103,6 +2103,7 @@ def get_saved_posts(request, batch):
                 **_author_avatar_fields(post.author),
                 Fields.caption: post.caption,
                 **_caption_style_fields(post),
+                **_post_tags(post),
                 **interaction_state(post),
                 **_author_status_fields(post, request.user),
             }

@@ -92,8 +92,10 @@ passed the pre-filter/classifier, so extraction never rejects a post; it just
 harvests what it finds. A tag is at most `MAX_TAG_LENGTH` characters and a post
 keeps at most `MAX_TAGS_PER_POST` of them.
 
-Every post payload the API returns carries a `tags` array (sorted tag names),
-so clients render the caption's `#tags` as links. Tapping a tag opens a **tag
+Every full post payload the API returns — the feed, followed-feed, profile,
+saved-posts, tag-feed, and post-details endpoints — carries a `tags` array
+(sorted tag names), so clients render the caption's `#tags` as links. (The
+appeals/hidden-content listings return a reduced post shape and omit it.) Tapping a tag opens a **tag
 feed**: `GET /tags/<tag>/posts/<batch>/` lists the visible posts carrying that
 tag, newest first, batched like the other feeds. The tag feed applies exactly
 the same visibility and block rules as every other listing endpoint
