@@ -119,8 +119,8 @@ fun TagFeedScreen(
 fun TagFeedScreenPreview() {
     TagFeedScreen(
         navController = rememberNavController(),
-        api = PreviewHelpers.api,
-        keychainHelper = PreviewHelpers.keychainHelper,
+        api = PreviewHelpers.mockApi,
+        keychainHelper = PreviewHelpers.mockKeychainHelper,
         tag = "sunset"
     )
 }
