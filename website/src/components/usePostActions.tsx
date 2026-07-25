@@ -1,6 +1,7 @@
 import { useState, type ReactNode } from 'react'
 import { apiClient } from '../api/client'
 import type { FeedPost } from '../api/types'
+import { postShareUrl, shareLink } from '../utils/shareLink'
 
 /** Anything can be thrown in JS, so never assume the caught value is an Error:
  * reading `.message` off a string or null would lose the text or throw again.
@@ -36,6 +37,9 @@ type Dialog =
   | { kind: 'report'; post: FeedPost }
   | { kind: 'retract'; post: FeedPost }
   | { kind: 'delete'; post: FeedPost }
+  // Shown only when Share fell back to copying the link (no OS share sheet), so
+  // the user gets confirmation the link is now on their clipboard (issue #34).
+  | { kind: 'shareCopied' }
 
 interface UsePostActionsOptions {
   /** The signed-in user, used to tell your own posts from everyone else's. */
@@ -115,6 +119,13 @@ export function usePostActions({
     }
   }
 
+  async function sharePost(post: FeedPost) {
+    setDialog(null)
+    const result = await shareLink(postShareUrl(post.post_identifier))
+    if (result === 'copied') setDialog({ kind: 'shareCopied' })
+    else if (result === 'failed') onError('Could not share this post.')
+  }
+
   async function submitReport() {
     const reason = reportReason.trim()
     if (!reason || dialog?.kind !== 'report') return
@@ -171,6 +182,14 @@ export function usePostActions({
               <button type="button" className="modal__cancel" onClick={() => setDialog(null)}>
                 Cancel
               </button>
+              {/* Share is offered on every post, yours and everyone else's. */}
+              <button
+                type="button"
+                className="modal__confirm"
+                onClick={() => void sharePost(dialog.post)}
+              >
+                Share
+              </button>
               {stateFor(dialog.post).isOwn ? (
                 <button
                   type="button"
@@ -199,6 +218,20 @@ export function usePostActions({
                   Report
                 </button>
               )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {dialog?.kind === 'shareCopied' && (
+        <div className="modal-overlay">
+          <div className="modal" role="dialog" aria-modal="true" aria-label="Link copied">
+            <h2 className="modal__title">Link copied</h2>
+            <p className="muted">The link to this post is on your clipboard.</p>
+            <div className="modal__actions">
+              <button type="button" className="modal__confirm" onClick={() => setDialog(null)}>
+                OK
+              </button>
             </div>
           </div>
         </div>

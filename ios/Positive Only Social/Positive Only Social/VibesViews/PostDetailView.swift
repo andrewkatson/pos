@@ -198,6 +198,11 @@ struct PostDetailView: View {
         // everyone else's — or Retract Report when the user already has an
         // active report against it (issues #304, #176).
         .confirmationDialog("Post", isPresented: $viewModel.showActionSheetForPost, titleVisibility: .hidden) {
+            // Share is offered for any post — your own and others' (issue #34).
+            Button("Share Post") {
+                viewModel.sharePost()
+            }
+            .accessibilityIdentifier("SharePostActionButton")
             if viewModel.isOwnPost {
                 Button("Delete Post", role: .destructive) {
                     viewModel.deletePost()
@@ -226,6 +231,11 @@ struct PostDetailView: View {
             titleVisibility: .hidden,
             presenting: viewModel.commentForAction
         ) { comment in
+            // Share is offered for any comment — your own and others' (issue #34).
+            Button("Share Comment") {
+                viewModel.shareComment(comment)
+            }
+            .accessibilityIdentifier("ShareCommentActionButton")
             if viewModel.isOwnComment(comment) {
                 Button("Delete Comment", role: .destructive) {
                     viewModel.deleteComment(comment)
@@ -279,6 +289,14 @@ struct PostDetailView: View {
             ReportView { reason in
                 viewModel.reportComment(comment, reason: reason)
             }
+        }
+        // Native share sheets for the post / a comment (issue #34). Driven by
+        // the item the menu's Share button set, like the report sheet above.
+        .sheet(item: $viewModel.postShareItem) { item in
+            ShareActivityView(url: item.url)
+        }
+        .sheet(item: $viewModel.commentShareItem) { item in
+            ShareActivityView(url: item.url)
         }
         // The "Add a comment" composer for a brand new comment on the post.
         .sheet(isPresented: $viewModel.showAddCommentSheet) {

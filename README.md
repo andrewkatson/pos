@@ -46,6 +46,7 @@ profile grid, and the Feed — without opening the post first:
 - **Report**, with a reason. A flag marks posts you have an active report on.
 - **Retract report**, which shows the reason you originally gave.
 - **Delete**, offered only on your own posts.
+- **Share**, offered on every post (see [Sharing](#sharing)).
 
 Each feed row additionally shows the author, how long ago the post was made, and
 a comment count that opens the post when tapped. The square profile tiles omit
@@ -61,6 +62,27 @@ advertises comments the viewer would not be shown.
 
 Deleting a post from a list removes just that row; the list is not reloaded,
 which would otherwise reshuffle the weighted feed ordering under the user.
+
+## Sharing
+
+Every post's options menu offers **Share**, and every comment's options menu on
+the post-detail screen does too (issue #34). Sharing hands off a link to the
+item — the website's post page, `https://smiling.social/post/<post_identifier>`,
+with a comment additionally carrying a `#comment-<comment_identifier>` fragment.
+Share is available on any post or comment, your own and everyone else's; unlike
+Like or Delete it has no ownership condition.
+
+Each client uses its native mechanism: iOS presents the system share sheet,
+Android fires an `ACTION_SEND` chooser, and the website uses the Web Share API
+when the browser offers it (typically mobile), otherwise copying the link to the
+clipboard and confirming with a "Link copied" prompt.
+
+This is deliberately the client-only first step. A shared link today opens the
+website and, because the single-post view is still behind auth, prompts a
+signed-out recipient to log in; on mobile it opens the browser rather than the
+app. Making a single post (and comment) publicly viewable with link-preview
+metadata, and adding iOS Universal Links / Android App Links so a shared link
+opens the app, are tracked follow-ups.
 ## Post classification (async)
 
 Every new post is checked against the guidelines by an AI classifier — a text

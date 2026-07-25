@@ -1,0 +1,67 @@
+import { afterEach, describe, expect, test, vi } from 'vitest'
+import { commentShareUrl, postShareUrl, shareLink } from './shareLink'
+
+// jsdom serves window.location.origin as http://localhost:3000 by default.
+const ORIGIN = window.location.origin
+
+afterEach(() => {
+  vi.unstubAllGlobals()
+  vi.restoreAllMocks()
+})
+
+describe('postShareUrl / commentShareUrl', () => {
+  test('post URL is the origin-rooted /post/:id route', () => {
+    expect(postShareUrl('abc-123')).toBe(`${ORIGIN}/post/abc-123`)
+  })
+
+  test('comment URL appends a #comment-<id> fragment to the post URL', () => {
+    expect(commentShareUrl('abc-123', 'def-456')).toBe(`${ORIGIN}/post/abc-123#comment-def-456`)
+  })
+})
+
+describe('shareLink', () => {
+  test('uses the Web Share API when available and reports "shared"', async () => {
+    const share = vi.fn().mockResolvedValue(undefined)
+    vi.stubGlobal('navigator', { share })
+
+    await expect(shareLink('https://x/post/1')).resolves.toBe('shared')
+    expect(share).toHaveBeenCalledWith({ url: 'https://x/post/1' })
+  })
+
+  test('treats the user dismissing the share sheet as a no-op, not a failure', async () => {
+    const share = vi.fn().mockRejectedValue(new DOMException('cancelled', 'AbortError'))
+    vi.stubGlobal('navigator', { share })
+
+    await expect(shareLink('https://x/post/1')).resolves.toBe('shared')
+  })
+
+  test('falls back to the clipboard when there is no share API and reports "copied"', async () => {
+    const writeText = vi.fn().mockResolvedValue(undefined)
+    vi.stubGlobal('navigator', { clipboard: { writeText } })
+
+    await expect(shareLink('https://x/post/1')).resolves.toBe('copied')
+    expect(writeText).toHaveBeenCalledWith('https://x/post/1')
+  })
+
+  test('falls back to the clipboard when the share sheet errors for a real reason', async () => {
+    const share = vi.fn().mockRejectedValue(new DOMException('boom', 'NotAllowedError'))
+    const writeText = vi.fn().mockResolvedValue(undefined)
+    vi.stubGlobal('navigator', { share, clipboard: { writeText } })
+
+    await expect(shareLink('https://x/post/1')).resolves.toBe('copied')
+    expect(writeText).toHaveBeenCalledWith('https://x/post/1')
+  })
+
+  test('reports "failed" when neither sharing nor copying works', async () => {
+    const writeText = vi.fn().mockRejectedValue(new Error('blocked'))
+    vi.stubGlobal('navigator', { clipboard: { writeText } })
+
+    await expect(shareLink('https://x/post/1')).resolves.toBe('failed')
+  })
+
+  test('reports "failed" when the browser exposes neither capability', async () => {
+    vi.stubGlobal('navigator', {})
+
+    await expect(shareLink('https://x/post/1')).resolves.toBe('failed')
+  })
+})

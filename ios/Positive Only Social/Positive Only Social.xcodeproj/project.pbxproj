@@ -55,6 +55,7 @@
 				VibesHelpers/GVOAppConstants.swift,
 				VibesHelpers/HomeView.swift,
 				VibesHelpers/KeyboardDismiss.swift,
+				VibesHelpers/ShareURL.swift,
 				VibesHelpers/VibesRelativeTime.swift,
 				VibesNetworkManager/AWSManager.swift,
 				VibesViewModels/AppealsViewModel.swift,
@@ -83,6 +84,7 @@
 				VibesViews/RequestResetView.swift,
 				VibesViews/ResetPasswordView.swift,
 				VibesViews/SettingsView.swift,
+				VibesViews/ShareActivityView.swift,
 				VibesViews/VerifyResetView.swift,
 			);
 			target = 248836DF2E6282C5002D47F1 /* Positive Only SocialTests */;
@@ -104,6 +106,7 @@
 				VibesHelpers/GVOAppConstants.swift,
 				VibesHelpers/HomeView.swift,
 				VibesHelpers/KeyboardDismiss.swift,
+				VibesHelpers/ShareURL.swift,
 				VibesHelpers/VibesRelativeTime.swift,
 				VibesNetworkManager/AWSManager.swift,
 				VibesViewModels/AppealsViewModel.swift,
@@ -132,6 +135,7 @@
 				VibesViews/RequestResetView.swift,
 				VibesViews/ResetPasswordView.swift,
 				VibesViews/SettingsView.swift,
+				VibesViews/ShareActivityView.swift,
 				VibesViews/VerifyResetView.swift,
 			);
 			target = 248836E92E6282C5002D47F1 /* Positive Only SocialUITests */;
