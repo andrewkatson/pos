@@ -15,7 +15,9 @@ type FeedGroup = 'all' | FollowCategory
 
 const GROUP_OPTIONS: { value: FeedGroup; label: string }[] = [
   { value: 'all', label: 'Everyone' },
-  { value: 'following', label: 'People I follow' },
+  // "Following" is the default bucket (not friend/family), matching the profile
+  // relationship-category label; "Everyone" already covers the whole feed.
+  { value: 'following', label: 'Following' },
   { value: 'friend', label: 'Friends' },
   { value: 'family', label: 'Family' },
 ]
