@@ -3167,8 +3167,15 @@ def follow_user(request, username_to_follow):
         return log_and_return_json("follow_user", {'error': "Already following user"}, status=400)
 
     # Create the through row directly so the category is set; .add() cannot pass
-    # extra through-model fields.
-    UserFollow.objects.create(user_from=request.user, user_to=user_to_follow_obj, category=category)
+    # extra through-model fields. The pre-check above handles the common case, but
+    # two concurrent follow requests can still race past it, so the unique
+    # (user_from, user_to) constraint is the real guard: translate the resulting
+    # IntegrityError into the same clean "Already following" 400 rather than a 500.
+    try:
+        with transaction.atomic():
+            UserFollow.objects.create(user_from=request.user, user_to=user_to_follow_obj, category=category)
+    except IntegrityError:
+        return log_and_return_json("follow_user", {'error': "Already following user"}, status=400)
     logger.info(f"Follow user successful: target_user_id: {user_to_follow_obj.id} by user_id: {request.user.id}")
     return log_and_return_json("follow_user", {'message': 'User followed', Fields.follow_category: category})
 
