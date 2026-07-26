@@ -38,6 +38,13 @@ final class PostDetailViewModel: ObservableObject {
     @Published var showRetractDialogForPost = false
     @Published var commentToRetract: CommentViewData?
 
+    /// Drives the native share sheet for the post / a comment (issue #34). Set
+    /// by the action menu's "Share" button and presented as a `.sheet(item:)`;
+    /// `nil` when no share sheet is showing. Sharing is offered for any post or
+    /// comment — your own and others'.
+    @Published var postShareItem: ShareURLItem?
+    @Published var commentShareItem: ShareURLItem?
+
     /// Set once the post has been deleted so the view can pop back — the post no
     /// longer exists to display.
     @Published var postWasDeleted = false
@@ -655,6 +662,24 @@ final class PostDetailViewModel: ObservableObject {
         }
     }
     
+    // MARK: - Sharing (issue #34)
+
+    /// Builds the website link for this post and shows the native share sheet.
+    /// Available for any post — the backend/website links currently require
+    /// login (Scope A), which is expected.
+    func sharePost() {
+        guard let url = ShareURL.post(postIdentifier) else { return }
+        postShareItem = ShareURLItem(url: url)
+    }
+
+    /// Builds the website link for the given comment (a post URL with a
+    /// `#comment-<id>` fragment) and shows the native share sheet. Available for
+    /// any comment.
+    func shareComment(_ comment: CommentViewData) {
+        guard let url = ShareURL.comment(postIdentifier: postIdentifier, commentIdentifier: comment.id) else { return }
+        commentShareItem = ShareURLItem(url: url)
+    }
+
     // MARK: - Private Decoding Helpers
     
     // These match the 'Fields' structs in your stub API

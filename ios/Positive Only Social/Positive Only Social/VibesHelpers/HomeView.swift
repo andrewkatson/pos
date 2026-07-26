@@ -274,6 +274,11 @@ struct PostActionDialogs: ViewModifier {
                 titleVisibility: .hidden,
                 presenting: postActions.postForMenu
             ) { post in
+                // Share is offered for any post — your own and others' (issue #34).
+                Button("Share Post") {
+                    postActions.share(post)
+                }
+                .accessibilityIdentifier("SharePostListActionButton")
                 if postActions.state(for: post).isOwn {
                     Button("Delete Post", role: .destructive) {
                         postActions.delete(post)
@@ -313,6 +318,11 @@ struct PostActionDialogs: ViewModifier {
                 ReportView { reason in
                     postActions.report(post, reason: reason)
                 }
+            }
+            // Native share sheet for a post in a list (issue #34), driven by the
+            // item the menu's Share button set — same pattern as the report sheet.
+            .sheet(item: $postActions.postShareItem) { item in
+                ShareActivityView(url: item.url)
             }
             .alert(isPresented: .constant(postActions.alertMessage != nil)) {
                 Alert(

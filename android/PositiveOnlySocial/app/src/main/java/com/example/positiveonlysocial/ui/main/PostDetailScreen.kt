@@ -21,6 +21,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
@@ -43,6 +44,7 @@ import com.example.positiveonlysocial.models.viewmodels.PostDetailViewModel
 import com.example.positiveonlysocial.models.viewmodels.PostDetailViewModelFactory
 import com.example.positiveonlysocial.ui.navigation.openProfileFor
 import com.example.positiveonlysocial.util.RelativeTime
+import com.example.positiveonlysocial.util.ShareLinks
 import com.example.positiveonlysocial.util.parseBackendDate
 import androidx.compose.runtime.collectAsState
 import androidx.compose.ui.tooling.preview.Preview
@@ -63,6 +65,9 @@ fun PostDetailScreen(
         val viewModel: PostDetailViewModel = viewModel(
             factory = PostDetailViewModelFactory(postId, api, keychainHelper)
         )
+
+        // Used to launch the system share sheet from the action menus (issue #34).
+        val context = LocalContext.current
 
         val postDetail by viewModel.postDetail.collectAsState()
         val commentThreads by viewModel.commentThreads.collectAsState()
@@ -113,6 +118,7 @@ fun PostDetailScreen(
                 isReported = postDetail?.isReported == true,
                 itemLabel = "Post",
                 onDismiss = { viewModel.setShowActionSheetForPost(false) },
+                onShare = { ShareLinks.shareText(context, ShareLinks.postUrl(postId)) },
                 onReport = { viewModel.setShowReportSheetForPost(true) },
                 onRetract = { viewModel.setShowRetractDialogForPost(true) },
                 onDelete = { viewModel.deletePost() }
@@ -128,6 +134,9 @@ fun PostDetailScreen(
                 isReported = comment.isReported || reportedCommentIds.contains(comment.id),
                 itemLabel = "Comment",
                 onDismiss = { viewModel.setCommentForAction(null) },
+                onShare = {
+                    ShareLinks.shareText(context, ShareLinks.commentUrl(postId, comment.id))
+                },
                 onReport = { viewModel.setCommentToReport(comment) },
                 onRetract = { viewModel.setCommentToRetract(comment) },
                 onDelete = { viewModel.deleteComment(comment, comment.threadId) }
@@ -571,9 +580,10 @@ fun CommentRow(
 
 /**
  * The mini action menu shown by the three-dots button or a long-press. Offers a
- * single action — Delete for the user's own content, Report for everyone
+ * moderation action — Delete for the user's own content, Report for everyone
  * else's, or Retract Report when they already have an active report against it
- * (issues #304, #176) — so you can never report your own post or comment.
+ * (issues #304, #176) — so you can never report your own post or comment, plus a
+ * Share action available for any post or comment (issue #34).
  */
 @Composable
 fun ActionSheetDialog(
@@ -581,6 +591,7 @@ fun ActionSheetDialog(
     isReported: Boolean,
     itemLabel: String,
     onDismiss: () -> Unit,
+    onShare: () -> Unit,
     onReport: () -> Unit,
     onRetract: () -> Unit,
     onDelete: () -> Unit
@@ -588,6 +599,17 @@ fun ActionSheetDialog(
     AlertDialog(
         onDismissRequest = onDismiss,
         title = { Text(itemLabel) },
+        // Share isn't a confirm/dismiss action and AlertDialog only exposes those
+        // two button slots, so it lives in the body content as a full-width
+        // button. It's offered for any post or comment, own or not (issue #34).
+        text = {
+            TextButton(
+                onClick = { onShare(); onDismiss() },
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Text("Share $itemLabel")
+            }
+        },
         // The primary action lives in the confirmButton slot so it's laid out and
         // announced as the dialog's main action; more options can be added later.
         confirmButton = {
