@@ -515,12 +515,15 @@ class ProfileViewModel(
         // follow button and the follower count never drift apart.
         _profileDetails.value = currentProfile.copy(
             isFollowing = !isFollowing,
-            // A fresh follow starts in the default "following" bucket (#392).
-            followCategory = if (isFollowing) currentProfile.followCategory else FollowCategory.FOLLOWING.value,
+            // A fresh follow starts in the default "following" bucket; unfollowing
+            // clears the category to null to match the API contract (#392).
+            followCategory = if (isFollowing) null else FollowCategory.FOLLOWING.value,
             followerCount = if (isFollowing) currentProfile.followerCount - 1 else currentProfile.followerCount + 1
         )
         _isFollowing.value = !isFollowing
-        if (!isFollowing) _followCategory.value = FollowCategory.FOLLOWING
+        // Reset the category state either way: it's the default for a fresh
+        // follow and meaningless (null on the wire) once unfollowed.
+        _followCategory.value = FollowCategory.FOLLOWING
 
         viewModelScope.launch {
             try {
