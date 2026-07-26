@@ -6,11 +6,15 @@ sealed class Screen(val route: String) {
     object Login : Screen("login")
     object Welcome : Screen("welcome")
     object Register : Screen("register")
-    object CheckEmail : Screen("check_email/{email}") {
+    object CheckEmail : Screen("check_email/{email}?membershipNumber={membershipNumber}") {
         // Encoded because an email may contain reserved URI characters; the
         // navigation library decodes route arguments before handing them to
-        // the destination.
-        fun createRoute(email: String) = "check_email/${Uri.encode(email)}"
+        // the destination. The membership number (issue #198) is an optional
+        // query argument — present only right after registration.
+        fun createRoute(email: String, membershipNumber: Int? = null): String {
+            val base = "check_email/${Uri.encode(email)}"
+            return if (membershipNumber != null) "$base?membershipNumber=$membershipNumber" else base
+        }
     }
     object RequestReset : Screen("request_reset")
     object VerifyReset : Screen("verify_reset/{usernameOrEmail}") {
@@ -28,7 +32,18 @@ sealed class Screen(val route: String) {
     object Profile : Screen("profile/{username}") {
         fun createRoute(username: String) = "profile/$username"
     }
+    // The tag feed opened by tapping a #hashtag in a caption (issue #379). The
+    // tag is URI-encoded because it may contain non-ASCII characters.
+    object TagFeed : Screen("tag_feed/{tag}") {
+        fun createRoute(tag: String) = "tag_feed/${Uri.encode(tag)}"
+    }
     object Settings : Screen("settings")
     object Appeals : Screen("appeals")
     object BlockedUsers : Screen("blocked_users")
+
+    // The signed-in user's own followers/following list — mode is "followers"
+    // or "following". Only your own lists are viewable (issue #8).
+    object FollowList : Screen("follow_list/{mode}") {
+        fun createRoute(mode: String) = "follow_list/$mode"
+    }
 }

@@ -4,6 +4,7 @@ import android.util.Log
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.example.positiveonlysocial.api.PositiveOnlySocialAPI
+import com.example.positiveonlysocial.data.model.FollowCategory
 import com.example.positiveonlysocial.data.model.Post
 import com.example.positiveonlysocial.data.model.UserSession
 import com.example.positiveonlysocial.data.security.KeychainHelperProtocol
@@ -29,6 +30,10 @@ class FollowingFeedViewModel(
     private val _isRefreshing = MutableStateFlow(false)
     val isRefreshing: StateFlow<Boolean> = _isRefreshing.asStateFlow()
 
+    // Optional group filter (issue #392): null is the whole following feed.
+    private val _selectedCategory = MutableStateFlow<FollowCategory?>(null)
+    val selectedCategory: StateFlow<FollowCategory?> = _selectedCategory.asStateFlow()
+
     /**
      * Like / report / retract-report / delete for the posts in this feed, so they
      * can be acted on without opening each one (issue #267).
@@ -44,6 +49,16 @@ class FollowingFeedViewModel(
      * Pull-to-refresh: resets pagination and reloads the following feed from the
      * first page, replacing the existing posts with the newest ones from the backend.
      */
+    /**
+     * Switches the group filter and reloads from the first page (issue #392). A
+     * no-op when the category is unchanged so re-selecting doesn't refetch.
+     */
+    fun selectCategory(category: FollowCategory?) {
+        if (category == _selectedCategory.value) return
+        _selectedCategory.value = category
+        refreshFollowingFeed()
+    }
+
     fun refreshFollowingFeed() {
         if (_isRefreshing.value || _isLoadingNextPage.value) return
 
@@ -57,7 +72,7 @@ class FollowingFeedViewModel(
                     return@launch
                 }
 
-                val response = api.getFollowedPosts(userSession.sessionToken, 0)
+                val response = api.getFollowedPosts(userSession.sessionToken, 0, _selectedCategory.value?.value)
                 if (response.isSuccessful) {
                     val newPosts = response.body() ?: emptyList()
                     _followingPosts.value = newPosts
@@ -89,7 +104,7 @@ class FollowingFeedViewModel(
                     return@launch
                 }
 
-                val response = api.getFollowedPosts(userSession.sessionToken, currentPage)
+                val response = api.getFollowedPosts(userSession.sessionToken, currentPage, _selectedCategory.value?.value)
                 if (response.isSuccessful) {
                     val newPosts = response.body() ?: emptyList()
                     if (newPosts.isEmpty()) {

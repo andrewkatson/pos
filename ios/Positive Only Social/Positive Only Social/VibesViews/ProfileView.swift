@@ -5,6 +5,7 @@
 //  Created by Andrew Katson on 10/20/25.
 //
 
+import PhotosUI
 import SwiftUI
 
 // A helper view for displaying stats
@@ -71,6 +72,13 @@ struct ProfileBodyView: View {
     @ObservedObject var viewModel: ProfileViewModel
     @ObservedObject var postActions: PostActionsViewModel
 
+    /// The photo the owner picked from their library, uploaded and set as their
+    /// profile photo when it changes (issue #7).
+    @State private var selectedPhotoItem: PhotosPickerItem?
+
+    /// Whether the owner's bio editor sheet is open (issue #380).
+    @State private var isEditingBio = false
+
     /// The accessibility identifier for each grid tile. The Profile tab keeps
     /// "MyPostImage" so your own grid stays distinguishable from someone else's.
     var postAccessibilityIdentifier: String = "ProfilePostImage"
@@ -126,18 +134,63 @@ struct ProfileBodyView: View {
     @ViewBuilder
     private var profileHeader: some View {
         VStack {
+            // The large header avatar (issue #7). The owner previews a
+            // not-yet-approved upload immediately; everyone else sees the live
+            // approved photo (or the placeholder).
+            ProfileAvatarView(
+                imageUrl: viewModel.headerAvatarUrl,
+                originalImageUrl: viewModel.headerAvatarOriginalUrl,
+                size: 96
+            )
+            .padding(.top)
+            .accessibilityIdentifier("ProfileHeaderAvatar")
+
+            // The owner's own set / remove controls.
+            if viewModel.isOwnProfile {
+                ownPhotoControls
+            }
+
             // Placeholder for profile stats (you can build this out)
             HStack {
                 Spacer()
                 StatItem(count: viewModel.userPosts.count, label: "Posts")
                 Spacer()
-                StatItem(count: viewModel.profileDetails?.followerCount ?? 0, label: "Followers")
-                Spacer()
-                StatItem(count: viewModel.profileDetails?.followingCount ?? 0, label: "Following")
+                // Only your own follow lists are viewable, so the counts tap
+                // through on your own profile and are plain stats on anyone
+                // else's (issue #8). The container registers the destination.
+                if viewModel.isOwnProfile {
+                    NavigationLink(value: FollowListMode.followers) {
+                        StatItem(count: viewModel.profileDetails?.followerCount ?? 0, label: "Followers")
+                    }
+                    .buttonStyle(.plain)
+                    Spacer()
+                    NavigationLink(value: FollowListMode.following) {
+                        StatItem(count: viewModel.profileDetails?.followingCount ?? 0, label: "Following")
+                    }
+                    .buttonStyle(.plain)
+                } else {
+                    StatItem(count: viewModel.profileDetails?.followerCount ?? 0, label: "Followers")
+                    Spacer()
+                    StatItem(count: viewModel.profileDetails?.followingCount ?? 0, label: "Following")
+                }
                 Spacer()
             }
             .padding(.top)
-            
+
+            // The user's join number (issue #198), shown on every profile —
+            // your own and everyone else's.
+            if let membershipNumber = viewModel.profileDetails?.membershipNumber {
+                Text("🎉 Member #\(membershipNumber)")
+                    .font(.subheadline)
+                    .foregroundColor(.secondary)
+                    .padding(.top, 4)
+                    .accessibilityIdentifier("MembershipNumberLabel")
+            }
+
+            // The user's bio (issue #380), shown to everyone when set; the owner
+            // gets an edit affordance below it.
+            bioSection
+
             if !viewModel.isOwnProfile {
                 Button(action: viewModel.toggleFollow) {
                     Text(viewModel.isFollowing ? "Following" : "Follow")
@@ -155,6 +208,22 @@ struct ProfileBodyView: View {
                 .disabled(viewModel.isLoadingProfile || viewModel.isBusy)
                 .padding(.vertical)
                 .accessibilityIdentifier("FollowButton")
+
+                // Relationship category, shown once you follow (issue #392).
+                if viewModel.isFollowing {
+                    Picker("Relationship", selection: Binding(
+                        get: { viewModel.followCategory },
+                        set: { viewModel.changeCategory(to: $0) }
+                    )) {
+                        ForEach(FollowCategory.allCases) { category in
+                            Text(category.displayName).tag(category)
+                        }
+                    }
+                    .pickerStyle(.segmented)
+                    .disabled(viewModel.isLoadingProfile || viewModel.isBusy)
+                    .padding(.bottom, 8)
+                    .accessibilityIdentifier("RelationshipCategoryPicker")
+                }
 
                 Button(action: viewModel.toggleBlock) {
                     Text(viewModel.isBlocked ? "Unblock" : "Block")
@@ -175,6 +244,124 @@ struct ProfileBodyView: View {
         }
     }
     
+    /// The owner's profile-photo controls (issue #7): pick a photo to upload and
+    /// set, remove the current one, plus the async review status. Only shown on
+    /// your own profile.
+    @ViewBuilder
+    private var ownPhotoControls: some View {
+        VStack(spacing: 8) {
+            HStack(spacing: 12) {
+                let pickerLabel = Label(
+                    viewModel.hasProfilePhoto ? "Change Photo" : "Add Photo",
+                    systemImage: "photo.on.rectangle.angled"
+                )
+                if isUITesting() {
+                    // UI-test mode: a plain button that loads a bundled system
+                    // image, since the PhotosPicker can't be driven by XCUITest.
+                    Button {
+                        if let testImage = UIImage(systemName: "person.fill"),
+                           let data = testImage.jpegData(compressionQuality: 0.8) {
+                            Task { await viewModel.updateProfilePhoto(imageData: data) }
+                        }
+                    } label: {
+                        pickerLabel
+                    }
+                    .accessibilityIdentifier("ProfilePhotoPicker")
+                } else {
+                    PhotosPicker(
+                        selection: $selectedPhotoItem,
+                        matching: .images,
+                        photoLibrary: .shared()
+                    ) {
+                        pickerLabel
+                    }
+                    .accessibilityIdentifier("ProfilePhotoPicker")
+                }
+
+                if viewModel.hasProfilePhoto {
+                    Button(role: .destructive) {
+                        Task { await viewModel.removeProfilePhoto() }
+                    } label: {
+                        Text("Remove")
+                    }
+                    .accessibilityIdentifier("RemoveProfilePhotoButton")
+                }
+            }
+            .disabled(viewModel.isUpdatingPhoto)
+            .font(.subheadline)
+
+            if viewModel.isUpdatingPhoto {
+                ProgressView()
+            } else if viewModel.profileImageStatus == "pending" {
+                Text("Your new photo is being reviewed.")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+                    .accessibilityIdentifier("ProfilePhotoStatus")
+            } else if viewModel.profileImageStatus == "rejected" {
+                Text("Your last photo wasn't approved — try another.")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+                    .accessibilityIdentifier("ProfilePhotoStatus")
+            }
+
+            if let photoError = viewModel.photoErrorMessage {
+                Text(photoError)
+                    .font(.caption)
+                    .foregroundColor(.red)
+                    .accessibilityIdentifier("ProfilePhotoError")
+            }
+        }
+        .padding(.top, 4)
+        // Upload and set the picked photo. The picked item is captured and the
+        // selection cleared *synchronously* (on the main actor, before the async
+        // work) so an in-flight upload can never nil out a newer selection — and
+        // clearing lets re-picking the same photo fire onChange again. The
+        // guard makes the resulting change-to-nil a no-op.
+        .onChange(of: selectedPhotoItem) {
+            guard let item = selectedPhotoItem else { return }
+            selectedPhotoItem = nil
+            Task {
+                if let data = try? await item.loadTransferable(type: Data.self) {
+                    await viewModel.updateProfilePhoto(imageData: data)
+                }
+            }
+        }
+    }
+
+    /// The bio (issue #380): the text when set, plus an owner-only Edit/Add
+    /// button that opens the composer sheet. Editing is only ever offered on
+    /// your own profile, mirroring the photo controls.
+    @ViewBuilder
+    private var bioSection: some View {
+        VStack(spacing: 6) {
+            if !viewModel.bio.isEmpty {
+                Text(viewModel.bio)
+                    .font(.body)
+                    .multilineTextAlignment(.center)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .accessibilityIdentifier("ProfileBio")
+            } else if viewModel.isOwnProfile {
+                Text("You haven't added a bio yet.")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+            }
+
+            if viewModel.isOwnProfile {
+                Button {
+                    isEditingBio = true
+                } label: {
+                    Text(viewModel.bio.isEmpty ? "Add Bio" : "Edit Bio")
+                        .font(.subheadline)
+                }
+                .accessibilityIdentifier("EditBioButton")
+            }
+        }
+        .padding(.top, 4)
+        .sheet(isPresented: $isEditingBio) {
+            BioComposerView(viewModel: viewModel)
+        }
+    }
+
     /// The view for displaying the user's posts
     @ViewBuilder
     private var postGrid: some View {
@@ -207,7 +394,9 @@ struct ProfileBodyView: View {
                                     GridPostImage(
                                         imageUrl: post.imageUrl,
                                         originalImageUrl: post.originalImageUrl,
-                                        caption: post.caption
+                                        caption: post.caption,
+                                        captionFont: post.captionFont,
+                                        backgroundColor: post.backgroundColor
                                     )
                                 }
                                 .overlay(alignment: .bottom) {
@@ -251,6 +440,72 @@ struct ProfileBodyView: View {
 
 #Preview {
     ProfileView(user: User(username: "test", identityIsVerified: true), api: PreviewHelpers.api, keychainHelper: PreviewHelpers.keychainHelper)
+}
+
+/// The composer sheet for editing your own bio (issue #380). A plain multi-line
+/// editor with a character counter, gated by the same length limit the backend
+/// enforces. Submitting is synchronous: a non-positive bio is rejected inline
+/// (shown from the view model) and the sheet stays open so the user can revise;
+/// a clear (empty text) is allowed. Kept in this file so no new source file has
+/// to be registered with the test targets.
+struct BioComposerView: View {
+    @Environment(\.dismiss) private var dismiss
+    @ObservedObject var viewModel: ProfileViewModel
+
+    @State private var text: String = ""
+
+    private var isWithinLimit: Bool {
+        isWithinLength(text, max: GVOAppConstants.maxBioLength)
+    }
+
+    var body: some View {
+        NavigationView {
+            Form {
+                Section {
+                    ZStack(alignment: .topLeading) {
+                        if text.isEmpty {
+                            Text("Tell people a little about yourself")
+                                .foregroundColor(.secondary)
+                                .padding(.top, 8)
+                                .padding(.leading, 4)
+                                .allowsHitTesting(false)
+                        }
+                        TextEditor(text: $text)
+                            .frame(minHeight: 120)
+                            .accessibilityIdentifier("BioTextEditor")
+                    }
+                    CharacterCounter(text: text, max: GVOAppConstants.maxBioLength)
+                    if let error = viewModel.bioErrorMessage {
+                        Text(error)
+                            .font(.caption)
+                            .foregroundColor(.red)
+                            .accessibilityIdentifier("BioError")
+                    }
+                }
+            }
+            .navigationTitle("Your Bio")
+            .navigationBarTitleDisplayMode(.inline)
+            .scrollDismissesKeyboard(.immediately)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Cancel") { dismiss() }
+                }
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Save") {
+                        Task {
+                            if await viewModel.updateBio(text) { dismiss() }
+                        }
+                    }
+                    .disabled(viewModel.isUpdatingBio || !isWithinLimit)
+                    .accessibilityIdentifier("SaveBioButton")
+                }
+            }
+            .onAppear {
+                text = viewModel.bio
+                viewModel.bioErrorMessage = nil
+            }
+        }
+    }
 }
 
 /// Overlay label for the author's own pending/rejected grid tiles (#282).

@@ -14,7 +14,9 @@ from ..constants import Fields
 from ..models import Post, CommentThread, Comment, Session
 
 
-@override_settings(RATELIMIT_ENABLE=False)
+# Pin the images bucket to 'test-bucket' so the `https://test-bucket.s3...`
+# URLs these tests build satisfy make_post's is_source_bucket_url check.
+@override_settings(RATELIMIT_ENABLE=False, AWS_STORAGE_BUCKET_NAME='test-bucket')
 class PositiveOnlySocialTestCase(TestCase):
     """
     A parent test case for the PositiveOnlySocial app that uses the

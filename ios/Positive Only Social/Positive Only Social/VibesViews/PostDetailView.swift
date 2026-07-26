@@ -20,6 +20,9 @@ struct PostDetailView: View {
     // gestures aren't swallowed by a Button in the row.
     @State private var profileUser: User? = nil
 
+    // Set when a #hashtag in the caption is tapped, to push its tag feed (#379).
+    @State private var selectedTag: TagRoute? = nil
+
     // Selects the Profile tab when the tapped name is the signed-in user's own,
     // instead of pushing a second copy of their profile (issue #347).
     @Environment(\.selectTab) private var selectTab
@@ -41,7 +44,9 @@ struct PostDetailView: View {
                     PostDetailImage(
                         imageUrl: post.imageURL,
                         originalImageUrl: post.originalImageURL,
-                        caption: post.caption
+                        caption: post.caption,
+                        captionFont: post.captionFont,
+                        backgroundColor: post.backgroundColor
                     )
                     .accessibilityElement(children: .ignore)  // Treat as single element
                     .accessibilityIdentifier("PostImage")
@@ -101,7 +106,14 @@ struct PostDetailView: View {
                             .accessibilityLabel("Post options")
                             .accessibilityIdentifier("PostOptionsButton")
                         }
-                        HStack(alignment: .firstTextBaseline, spacing: 4) {
+                        HStack(alignment: .center, spacing: 6) {
+                            // The author's profile photo (issue #7) next to their
+                            // name.
+                            ProfileAvatarView(
+                                imageUrl: post.authorProfileImageURL,
+                                originalImageUrl: post.authorProfileImageOriginalURL,
+                                size: 28
+                            )
                             // Tap the author's name to open their profile, same
                             // as in the feed. The User destination is registered
                             // on the parent NavigationStack; your own name goes
@@ -114,7 +126,13 @@ struct PostDetailView: View {
                                     .fontWeight(.bold)
                             }
                             .accessibilityIdentifier("PostAuthor")
-                            Text(post.caption)
+                            // #hashtags in the caption are tappable and open the
+                            // tag feed (issue #379); the author's chosen caption
+                            // font (issue #318) still applies to the whole caption.
+                            TaggedCaptionText(caption: post.caption) { name in
+                                selectedTag = TagRoute(name: name)
+                            }
+                            .font(TextFormatting.captionFont(post.captionFont, size: UIFont.preferredFont(forTextStyle: .body).pointSize))
                         }
                         // When the post was made, at the same coarse granularity
                         // as comment times (issue #174). Older backend responses
@@ -185,6 +203,16 @@ struct PostDetailView: View {
                 ProfileView(user: user, api: api, keychainHelper: keychainHelper)
             }
         }
+        // Pushes the tag feed when a #hashtag in the caption is tapped (#379),
+        // state-driven like the profile push above.
+        .navigationDestination(isPresented: Binding(
+            get: { selectedTag != nil },
+            set: { if !$0 { selectedTag = nil } }
+        )) {
+            if let route = selectedTag {
+                TagFeedView(tag: route.name, api: api, keychainHelper: keychainHelper)
+            }
+        }
         .scrollDismissesKeyboard(.immediately)
         .refreshable {
             // Pull-to-refresh: reload the post details and comments from the backend.
@@ -198,6 +226,11 @@ struct PostDetailView: View {
         // everyone else's — or Retract Report when the user already has an
         // active report against it (issues #304, #176).
         .confirmationDialog("Post", isPresented: $viewModel.showActionSheetForPost, titleVisibility: .hidden) {
+            // Share is offered for any post — your own and others' (issue #34).
+            Button("Share Post") {
+                viewModel.sharePost()
+            }
+            .accessibilityIdentifier("SharePostActionButton")
             if viewModel.isOwnPost {
                 Button("Delete Post", role: .destructive) {
                     viewModel.deletePost()
@@ -226,6 +259,11 @@ struct PostDetailView: View {
             titleVisibility: .hidden,
             presenting: viewModel.commentForAction
         ) { comment in
+            // Share is offered for any comment — your own and others' (issue #34).
+            Button("Share Comment") {
+                viewModel.shareComment(comment)
+            }
+            .accessibilityIdentifier("ShareCommentActionButton")
             if viewModel.isOwnComment(comment) {
                 Button("Delete Comment", role: .destructive) {
                     viewModel.deleteComment(comment)
@@ -280,16 +318,24 @@ struct PostDetailView: View {
                 viewModel.reportComment(comment, reason: reason)
             }
         }
+        // Native share sheets for the post / a comment (issue #34). Driven by
+        // the item the menu's Share button set, like the report sheet above.
+        .sheet(item: $viewModel.postShareItem) { item in
+            ShareActivityView(url: item.url)
+        }
+        .sheet(item: $viewModel.commentShareItem) { item in
+            ShareActivityView(url: item.url)
+        }
         // The "Add a comment" composer for a brand new comment on the post.
         .sheet(isPresented: $viewModel.showAddCommentSheet) {
-            CommentComposerView(title: "Add Comment") { commentText in
-                viewModel.commentOnPost(commentText: commentText)
+            CommentComposerView(title: "Add Comment") { commentText, formatting in
+                viewModel.commentOnPost(commentText: commentText, formatting: formatting)
             }
         }
         // The same composer, reused for replying to an existing thread.
         .sheet(item: $viewModel.threadToReplyTo) { thread in
-            CommentComposerView(title: "Post Reply") { commentText in
-                viewModel.replyToCommentThread(thread: thread, commentText: commentText)
+            CommentComposerView(title: "Post Reply") { commentText, formatting in
+                viewModel.replyToCommentThread(thread: thread, commentText: commentText, formatting: formatting)
             }
         }
         .alert(isPresented: .constant(viewModel.alertMessage != nil), content: {
@@ -321,6 +367,9 @@ struct PostDetailImage: View {
     let imageUrl: String?
     let originalImageUrl: String?
     let caption: String
+    /// Caption font + background color keys for a text-only tile (issue #318).
+    var captionFont: String = "default"
+    var backgroundColor: String = "default"
 
     // Once the compressed URL genuinely fails, switch to the original and let
     // Kingfisher load the new URL.
@@ -353,8 +402,9 @@ struct PostDetailImage: View {
                 .aspectRatio(1, contentMode: .fit)
         } else {
             // A text-only post (#307): the caption is the tile,
-            // with the same square footprint and gestures.
-            CaptionTileView(caption: caption, lineLimit: nil)
+            // with the same square footprint and gestures, styled with the
+            // author's chosen font/background color (issue #318).
+            CaptionTileView(caption: caption, lineLimit: nil, captionFont: captionFont, backgroundColor: backgroundColor)
                 .aspectRatio(1, contentMode: .fit)
         }
     }

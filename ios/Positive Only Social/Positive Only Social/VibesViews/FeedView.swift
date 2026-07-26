@@ -96,17 +96,26 @@ struct ForYouFeedView: View {
                     VStack(alignment: .leading, spacing: 10) {
 
                         // Tapping the author opens their profile — or the
-                        // Profile tab when it's you (issue #347).
-                        AuthorNameLink(
-                            username: post.authorUsername,
-                            isCurrentUser: postActions.state(for: post).isOwn
-                        ) {
-                            Text(post.authorUsername)
-                                .font(.headline)
-                                .fontWeight(.bold)
-                                .padding(.horizontal)
+                        // Profile tab when it's you (issue #347). Their profile
+                        // photo sits next to the name (issue #7).
+                        HStack(spacing: 8) {
+                            ProfileAvatarView(
+                                imageUrl: post.authorProfileImageUrl,
+                                originalImageUrl: post.authorProfileImageOriginalUrl,
+                                size: 32
+                            )
+                            AuthorNameLink(
+                                username: post.authorUsername,
+                                isCurrentUser: postActions.state(for: post).isOwn
+                            ) {
+                                Text(post.authorUsername)
+                                    .font(.headline)
+                                    .fontWeight(.bold)
+                            }
+                            .accessibilityIdentifier("PostAuthor")
+                            Spacer()
                         }
-                        .accessibilityIdentifier("PostAuthor")
+                        .padding(.horizontal)
 
                         // Wrap image in a NavigationLink to go to post details.
                         // Force every post into an identical square, cropping to
@@ -119,6 +128,8 @@ struct ForYouFeedView: View {
                                         imageUrl: post.imageUrl,
                                         originalImageUrl: post.originalImageUrl,
                                         caption: post.caption,
+                                        captionFont: post.captionFont,
+                                        backgroundColor: post.backgroundColor,
                                         placeholderColor: Color(.systemGray5)
                                     )
                                 }
@@ -134,6 +145,15 @@ struct ForYouFeedView: View {
                             }
                         }
                         .accessibilityIdentifier("ForYouPostImage")
+
+                        // The caption under the photo (issue #378). Text-only
+                        // posts (#307) already render their caption as the tile
+                        // above, so it isn't repeated for them.
+                        if post.imageUrl != nil {
+                            Text(post.caption)
+                                .padding(.horizontal)
+                                .accessibilityIdentifier("PostCaption")
+                        }
 
                         // Like / report / delete, the comment count and the
                         // post's age (issues #267 and #249).
@@ -168,6 +188,28 @@ struct FollowingFeedView: View {
     @ObservedObject var postActions: PostActionsViewModel
 
     var body: some View {
+        VStack(spacing: 0) {
+            // Group filter (issue #392): narrow the following feed to a
+            // relationship category, or show everyone.
+            Picker("Group", selection: Binding(
+                get: { viewModel.selectedCategory },
+                set: { viewModel.selectCategory($0) }
+            )) {
+                Text("Everyone").tag(FollowCategory?.none)
+                ForEach(FollowCategory.allCases) { category in
+                    Text(category.displayName).tag(FollowCategory?.some(category))
+                }
+            }
+            .pickerStyle(.segmented)
+            .padding(.horizontal)
+            .padding(.top, 8)
+            .accessibilityIdentifier("FollowingGroupPicker")
+
+            feedScroll
+        }
+    }
+
+    private var feedScroll: some View {
         // We use the same UI structure as ForYouFeedView
         ScrollView {
             LazyVStack(spacing: 25) {
@@ -176,16 +218,25 @@ struct FollowingFeedView: View {
                     VStack(alignment: .leading, spacing: 10) {
 
                         // Tapping the author opens their profile — or the
-                        // Profile tab when it's you (issue #347).
-                        AuthorNameLink(
-                            username: post.authorUsername,
-                            isCurrentUser: postActions.state(for: post).isOwn
-                        ) {
-                            Text(post.authorUsername)
-                                .font(.headline)
-                                .fontWeight(.bold)
-                                .padding(.horizontal)
+                        // Profile tab when it's you (issue #347). Their profile
+                        // photo sits next to the name (issue #7).
+                        HStack(spacing: 8) {
+                            ProfileAvatarView(
+                                imageUrl: post.authorProfileImageUrl,
+                                originalImageUrl: post.authorProfileImageOriginalUrl,
+                                size: 32
+                            )
+                            AuthorNameLink(
+                                username: post.authorUsername,
+                                isCurrentUser: postActions.state(for: post).isOwn
+                            ) {
+                                Text(post.authorUsername)
+                                    .font(.headline)
+                                    .fontWeight(.bold)
+                            }
+                            Spacer()
                         }
+                        .padding(.horizontal)
 
                         // Wrap image in a NavigationLink to go to post details.
                         // Force every post into an identical square, cropping to
@@ -198,6 +249,8 @@ struct FollowingFeedView: View {
                                         imageUrl: post.imageUrl,
                                         originalImageUrl: post.originalImageUrl,
                                         caption: post.caption,
+                                        captionFont: post.captionFont,
+                                        backgroundColor: post.backgroundColor,
                                         placeholderColor: Color(.systemGray5)
                                     )
                                 }
@@ -212,6 +265,15 @@ struct FollowingFeedView: View {
                             }
                         }
                         .accessibilityIdentifier("FollowingPostImage")
+
+                        // The caption under the photo (issue #378). Text-only
+                        // posts (#307) already render their caption as the tile
+                        // above, so it isn't repeated for them.
+                        if post.imageUrl != nil {
+                            Text(post.caption)
+                                .padding(.horizontal)
+                                .accessibilityIdentifier("PostCaption")
+                        }
 
                         // Like / report / delete, the comment count and the
                         // post's age (issues #267 and #249).

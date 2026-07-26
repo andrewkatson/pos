@@ -162,6 +162,11 @@ struct MyProfileTabView: View {
             .navigationDestination(for: User.self) { user in
                 ProfileView(user: user, api: api, keychainHelper: keychainHelper)
             }
+            // Tapping your own Followers / Following count opens that list —
+            // only your own, since the endpoints take no username (issue #8).
+            .navigationDestination(for: FollowListMode.self) { mode in
+                FollowListView(mode: mode, api: api, keychainHelper: keychainHelper)
+            }
             .postActionDialogs(postActions)
         }
     }
@@ -269,6 +274,11 @@ struct PostActionDialogs: ViewModifier {
                 titleVisibility: .hidden,
                 presenting: postActions.postForMenu
             ) { post in
+                // Share is offered for any post — your own and others' (issue #34).
+                Button("Share Post") {
+                    postActions.share(post)
+                }
+                .accessibilityIdentifier("SharePostListActionButton")
                 if postActions.state(for: post).isOwn {
                     Button("Delete Post", role: .destructive) {
                         postActions.delete(post)
@@ -308,6 +318,11 @@ struct PostActionDialogs: ViewModifier {
                 ReportView { reason in
                     postActions.report(post, reason: reason)
                 }
+            }
+            // Native share sheet for a post in a list (issue #34), driven by the
+            // item the menu's Share button set — same pattern as the report sheet.
+            .sheet(item: $postActions.postShareItem) { item in
+                ShareActivityView(url: item.url)
             }
             .alert(isPresented: .constant(postActions.alertMessage != nil)) {
                 Alert(
@@ -349,6 +364,9 @@ struct GridPostImage: View {
     let originalImageUrl: String?
     /// The post caption, rendered as the tile for a text-only post.
     var caption: String = ""
+    /// Caption font + background color keys for a text-only tile (issue #318).
+    var captionFont: String = "default"
+    var backgroundColor: String = "default"
     /// Shown while loading and when both the compressed and original images fail.
     /// Defaults to the grid's grey backing; callers (e.g. the feed) override it to
     /// match their own placeholder shade.
@@ -378,7 +396,7 @@ struct GridPostImage: View {
                 .resizable()
                 .scaledToFill()
         } else {
-            CaptionTileView(caption: caption)
+            CaptionTileView(caption: caption, captionFont: captionFont, backgroundColor: backgroundColor)
         }
     }
 }
@@ -414,9 +432,13 @@ struct UserSearchResultsView: View {
 
     private func userRow(for user: User) -> some View {
         HStack(spacing: 15) {
-            Image(systemName: "person.circle.fill")
-                .font(.largeTitle)
-                .foregroundColor(.gray)
+            // The user's profile photo (issue #7), with the neutral placeholder
+            // as the fallback.
+            ProfileAvatarView(
+                imageUrl: user.authorProfileImageUrl,
+                originalImageUrl: user.authorProfileImageOriginalUrl,
+                size: 40
+            )
 
             Text(user.username)
                 .fontWeight(.bold)

@@ -32,6 +32,7 @@ _CONTENT_RULES = (
     "6. No harassment\n"
     "7. No bullying\n"
     "8. No misinformation\n"
+    "9. No photographs or images of babies, children, or anyone under 18\n"
 )
 
 # User-facing explanations for blocked content, keyed by the rule numbers in
@@ -48,6 +49,7 @@ RULE_REASON_CODES = {
     6: 'harassment',
     7: 'bullying',
     8: 'misinformation',
+    9: 'minors',
 }
 
 GENERIC_REASON_CODE = 'guidelines'
@@ -62,6 +64,7 @@ REASON_PHRASES = {
     'harassment': 'may contain harassment',
     'bullying': 'may contain bullying',
     'misinformation': 'may contain misinformation',
+    'minors': 'may contain images of babies, children, or anyone under 18',
     GENERIC_REASON_CODE: 'did not meet our positivity guidelines',
 }
 

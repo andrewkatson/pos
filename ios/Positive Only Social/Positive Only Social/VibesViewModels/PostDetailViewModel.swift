@@ -38,6 +38,13 @@ final class PostDetailViewModel: ObservableObject {
     @Published var showRetractDialogForPost = false
     @Published var commentToRetract: CommentViewData?
 
+    /// Drives the native share sheet for the post / a comment (issue #34). Set
+    /// by the action menu's "Share" button and presented as a `.sheet(item:)`;
+    /// `nil` when no share sheet is showing. Sharing is offered for any post or
+    /// comment — your own and others'.
+    @Published var postShareItem: ShareURLItem?
+    @Published var commentShareItem: ShareURLItem?
+
     /// Set once the post has been deleted so the view can pop back — the post no
     /// longer exists to display.
     @Published var postWasDeleted = false
@@ -161,9 +168,13 @@ final class PostDetailViewModel: ObservableObject {
                     imageURL: postFields.image_url,
                     originalImageURL: postFields.original_image_url,
                     caption: postFields.caption,
+                    captionFont: postFields.caption_font ?? "default",
+                    backgroundColor: postFields.background_color ?? "default",
                     likeCount: postFields.post_likes,
                     isLiked: postFields.is_liked,
                     authorUsername: postFields.author_username,
+                    authorProfileImageURL: postFields.author_profile_image_url,
+                    authorProfileImageOriginalURL: postFields.author_profile_image_original_url,
                     createdDate: postFields.creation_time.flatMap { Self.parseOptionalDate($0) },
                     isReported: postFields.is_reported ?? false,
                     reportReason: postFields.report_reason
@@ -193,7 +204,10 @@ final class PostDetailViewModel: ObservableObject {
                                     id: field.comment_identifier,
                                     threadId: threadId,
                                     authorUsername: field.author_username,
+                                    authorProfileImageURL: field.author_profile_image_url,
+                                    authorProfileImageOriginalURL: field.author_profile_image_original_url,
                                     body: field.body,
+                                    formatting: field.body_formatting,
                                     likeCount: field.comment_likes,
                                     isLiked: field.is_liked,
                                     createdDate: Self.parseDate(field.creation_time),
@@ -247,16 +261,20 @@ final class PostDetailViewModel: ObservableObject {
                 imageURL: post.imageURL,
                 originalImageURL: post.originalImageURL,
                 caption: post.caption,
+                captionFont: post.captionFont,
+                backgroundColor: post.backgroundColor,
                 likeCount: post.likeCount + 1, // Optimistic update
                 isLiked: true,
                 authorUsername: post.authorUsername,
+                authorProfileImageURL: post.authorProfileImageURL,
+                authorProfileImageOriginalURL: post.authorProfileImageOriginalURL,
                 createdDate: post.createdDate,
                 isReported: post.isReported,
                 reportReason: post.reportReason
             )
             self.postDetail = post
         }
-        
+
         Task {
             do {
                 guard let userSession = try keychainHelper.load(UserSession.self, from: keychainService, account: account) else {
@@ -284,9 +302,13 @@ final class PostDetailViewModel: ObservableObject {
                 imageURL: post.imageURL,
                 originalImageURL: post.originalImageURL,
                 caption: post.caption,
+                captionFont: post.captionFont,
+                backgroundColor: post.backgroundColor,
                 likeCount: max(0, post.likeCount - 1), // Optimistic update
                 isLiked: false,
                 authorUsername: post.authorUsername,
+                authorProfileImageURL: post.authorProfileImageURL,
+                authorProfileImageOriginalURL: post.authorProfileImageOriginalURL,
                 createdDate: post.createdDate,
                 isReported: post.isReported,
                 reportReason: post.reportReason
@@ -440,7 +462,10 @@ final class PostDetailViewModel: ObservableObject {
             id: oldComment.id,
             threadId: oldComment.threadId,
             authorUsername: oldComment.authorUsername,
+            authorProfileImageURL: oldComment.authorProfileImageURL,
+            authorProfileImageOriginalURL: oldComment.authorProfileImageOriginalURL,
             body: oldComment.body,
+            formatting: oldComment.formatting,
             likeCount: oldComment.likeCount + 1, // The update
             isLiked: true,
             createdDate: oldComment.createdDate,
@@ -490,7 +515,10 @@ final class PostDetailViewModel: ObservableObject {
             id: oldComment.id,
             threadId: oldComment.threadId,
             authorUsername: oldComment.authorUsername,
+            authorProfileImageURL: oldComment.authorProfileImageURL,
+            authorProfileImageOriginalURL: oldComment.authorProfileImageOriginalURL,
             body: oldComment.body,
+            formatting: oldComment.formatting,
             likeCount: newLikeCount, // The update
             isLiked: false,
             createdDate: oldComment.createdDate,
@@ -571,9 +599,10 @@ final class PostDetailViewModel: ObservableObject {
     }
 
     /// Creates a new comment (and thus a new thread) on the post.
-    func commentOnPost(commentText: String) {
+    /// `formatting` carries optional inline styling spans (issue #318).
+    func commentOnPost(commentText: String, formatting: [CommentFormatSpan]? = nil) {
         guard !commentText.isEmpty else { return }
-        
+
         NSLog("%@", "ACTION: Commenting on post \(postIdentifier)")
         Task {
             do {
@@ -587,7 +616,8 @@ final class PostDetailViewModel: ObservableObject {
                 _ = try await api.commentOnPost(
                     sessionManagementToken: token,
                     postIdentifier: postIdentifier,
-                    commentText: commentText
+                    commentText: commentText,
+                    formatting: formatting
                 )
                 
                 // Success! Clear the text field and reload all data to show the new comment.
@@ -601,9 +631,10 @@ final class PostDetailViewModel: ObservableObject {
     }
     
     /// Replies to an existing comment thread.
-    func replyToCommentThread(thread: CommentThreadViewData, commentText: String) {
+    /// `formatting` carries optional inline styling spans (issue #318).
+    func replyToCommentThread(thread: CommentThreadViewData, commentText: String, formatting: [CommentFormatSpan]? = nil) {
         guard !commentText.isEmpty else { return }
-        
+
         NSLog("%@", "ACTION: Replying to thread \(thread.id)")
         Task {
             do {
@@ -618,7 +649,8 @@ final class PostDetailViewModel: ObservableObject {
                     sessionManagementToken: token,
                     postIdentifier: postIdentifier,
                     commentThreadIdentifier: thread.id,
-                    commentText: commentText
+                    commentText: commentText,
+                    formatting: formatting
                 )
                 
                 // Success! Reload all data to show the new reply.
@@ -630,6 +662,24 @@ final class PostDetailViewModel: ObservableObject {
         }
     }
     
+    // MARK: - Sharing (issue #34)
+
+    /// Builds the website link for this post and shows the native share sheet.
+    /// Available for any post — the backend/website links currently require
+    /// login (Scope A), which is expected.
+    func sharePost() {
+        guard let url = ShareURL.post(postIdentifier) else { return }
+        postShareItem = ShareURLItem(url: url)
+    }
+
+    /// Builds the website link for the given comment (a post URL with a
+    /// `#comment-<id>` fragment) and shows the native share sheet. Available for
+    /// any comment.
+    func shareComment(_ comment: CommentViewData) {
+        guard let url = ShareURL.comment(postIdentifier: postIdentifier, commentIdentifier: comment.id) else { return }
+        commentShareItem = ShareURLItem(url: url)
+    }
+
     // MARK: - Private Decoding Helpers
     
     // These match the 'Fields' structs in your stub API
@@ -641,6 +691,10 @@ final class PostDetailViewModel: ObservableObject {
         /// Optional so responses that predate the field still decode.
         let original_image_url: String?
         let caption: String
+        /// Caption font + background color keys (issue #318); optional so
+        /// responses that predate the fields still decode.
+        let caption_font: String?
+        let background_color: String?
         /// When the post was created. Optional so responses that predate the
         /// field still decode.
         //TODO: eBlender rename to camelCase creationTime (via CodingKeys).
@@ -652,16 +706,26 @@ final class PostDetailViewModel: ObservableObject {
         let is_reported: Bool?
         let report_reason: String?
         let author_username: String
+        /// The author's approved profile photo (issue #7); nil when they have
+        /// none or on older responses.
+        let author_profile_image_url: String?
+        let author_profile_image_original_url: String?
     }
-    
+
     private struct ThreadIDFields: Decodable {
         let comment_thread_identifier: String
     }
-    
+
     private struct CommentFields: Decodable {
         let comment_identifier: String
         let body: String
+        /// Inline formatting spans over `body` (issue #318); nil = plain text.
+        let body_formatting: [CommentFormatSpan]?
         let author_username: String
+        /// The comment author's approved profile photo (issue #7); nil when they
+        /// have none or on older responses.
+        let author_profile_image_url: String?
+        let author_profile_image_original_url: String?
         let creation_time: String
         let updated_time: String
         let comment_likes: Int

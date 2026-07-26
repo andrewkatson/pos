@@ -16,9 +16,10 @@ import Foundation
     static let authHeaderField = "Authorization"
     static let badServerResponse = "The server returned an unsuccessful status code: "
     // Maximum lengths for user-authored text, mirroring MAX_CAPTION_LENGTH /
-    // MAX_COMMENT_LENGTH in backend/user_system/constants.py.
+    // MAX_COMMENT_LENGTH / MAX_BIO_LENGTH in backend/user_system/constants.py.
     static let maxCaptionLength = 125
     static let maxCommentLength = 500
+    static let maxBioLength = 500
     static let baseURL = "https://api.smiling.social/user_index/"
     static let bearer = "Bearer"
     static let decodingError = "Failed to decode the server response: "
@@ -41,8 +42,11 @@ import Foundation
     static let pathSegmenProfile = "profile"
     static let pathSegmenSearch = "search"
     static let pathSegmentAppeals = "appeals"
+    static let pathSegmentBio = "bio"
     static let pathSegmentBlock = "block"
     static let pathSegmentBlocked = "blocked"
+    // POST /password/change/ — change the signed-in account's password (#197).
+    static let pathSegmentChange = "change"
     static let pathSegmentConfirm = "confirm"
     static let pathSegmentDisable = "disable"
     static let pathSegmentSetup = "setup"
@@ -60,12 +64,24 @@ import Foundation
     static let pathSegmentDetails = "details"
     static let pathSegmentFollow = "follow"
     static let pathSegmentFollowed = "followed"
+    // Relationship-category endpoint and query key (issue #392).
+    static let pathSegmentCategory = "category"
+    static let queryKeyCategory = "category"
+    static let pathSegmentFollowers = "followers"
+    static let pathSegmentFollowing = "following"
     static let pathSegmentLike = "like"
     static let pathSegmentLogin = "login"
     static let pathSegmentLogout = "logout"
+    // GET /me/ — the signed-in account's own username + email (#194/#197).
+    static let pathSegmentMe = "me"
     static let pathSegmentNotification = "notification"
     static let pathSegmentNotifications = "notifications"
     static let pathSegmentPassword = "password"
+    // Profile photo endpoints (issue #7): POST profile/photo/ sets the photo,
+    // POST profile/photo/remove/ clears it. `pathSegmenProfile` supplies the
+    // shared leading "profile" segment.
+    static let pathSegmentPhoto = "photo"
+    static let pathSegmentRemove = "remove"
     static let pathSegmentPost = "post"
     static let pathSegmentPosts = "posts"
     static let pathSegmentRegister = "register"
@@ -77,6 +93,7 @@ import Foundation
     static let pathSegmentReset = "reset"
     static let pathSegmentRetract = "retract"
     static let pathSegmentStatus = "status"
+    static let pathSegmentTags = "tags"
     static let pathSegmentThreads = "threads"
     static let pathSegmentUnblock = "unblock"
     static let pathSegmentUploadUrl = "upload-url"

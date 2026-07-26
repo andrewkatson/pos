@@ -1,7 +1,19 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
-import { apiClient } from '../api/client'
-import type { FeedPost, PostStatusResponse, ProfileDetails } from '../api/types'
+import { useCallback, useEffect, useRef, useState, type ChangeEvent } from 'react'
+import { useNavigate } from 'react-router-dom'
+import { apiClient, ApiError } from '../api/client'
+import { uploadImage } from '../api/s3Uploader'
+import { isWithinLimit, MAX_BIO_LENGTH } from '../auth/requirements'
+import type { FeedPost, FollowCategory, PostStatusResponse, ProfileDetails } from '../api/types'
 import PostGrid from './PostGrid'
+import Avatar from './Avatar'
+import CharacterCounter from './CharacterCounter'
+
+/** Relationship-category options shown once you follow someone (issue #392). */
+const CATEGORY_OPTIONS: { value: FollowCategory; label: string }[] = [
+  { value: 'following', label: 'Following' },
+  { value: 'friend', label: 'Friend' },
+  { value: 'family', label: 'Family' },
+]
 
 /** How often the bounded post-classification poll checks pending posts (#282). */
 const STATUS_POLL_INTERVAL_MS = 3000
@@ -31,6 +43,7 @@ interface ProfileViewProps {
  * identical profile and the same in-place post actions.
  */
 function ProfileView({ username, isOwnProfile, currentUsername }: ProfileViewProps) {
+  const navigate = useNavigate()
   // Track mount state so async loads that resolve after navigating away don't
   // set state on an unmounted view.
   const isMounted = useRef(true)
@@ -44,9 +57,25 @@ function ProfileView({ username, isOwnProfile, currentUsername }: ProfileViewPro
   const [profile, setProfile] = useState<ProfileDetails | null>(null)
   const [loadFailed, setLoadFailed] = useState(false)
   const [isFollowing, setIsFollowing] = useState(false)
+  const [followCategory, setFollowCategory] = useState<FollowCategory>('following')
   const [isBlocked, setIsBlocked] = useState(false)
   const [isBusy, setIsBusy] = useState(false)
   const [errorMessage, setErrorMessage] = useState<string | null>(null)
+
+  // Own profile-photo controls (issue #7). Uploading reuses the post image
+  // pipeline (compress + EXIF-strip + presigned PUT) then hands the URL to
+  // setProfilePhoto; the photo is classified asynchronously, so we reload the
+  // profile afterwards to reflect the new pending/approved state.
+  const [photoBusy, setPhotoBusy] = useState(false)
+  const fileInputRef = useRef<HTMLInputElement>(null)
+
+  // Own bio editing (issue #380). Unlike the photo, a bio is plain text
+  // moderated synchronously on the server, so a rejection comes back inline as
+  // an error and there is no pending/approved state to poll.
+  const [bioEditing, setBioEditing] = useState(false)
+  const [bioDraft, setBioDraft] = useState('')
+  const [bioBusy, setBioBusy] = useState(false)
+  const [bioError, setBioError] = useState<string | null>(null)
 
   const [posts, setPosts] = useState<FeedPost[]>([])
   const [page, setPage] = useState(0)
@@ -69,6 +98,7 @@ function ProfileView({ username, isOwnProfile, currentUsername }: ProfileViewPro
       if (!isMounted.current) return
       setProfile(details)
       setIsFollowing(details.is_following)
+      setFollowCategory(details.follow_category ?? 'following')
       setIsBlocked(details.is_blocked)
       setLoadFailed(false)
     } catch {
@@ -172,6 +202,7 @@ function ProfileView({ username, isOwnProfile, currentUsername }: ProfileViewPro
         if (!isMounted.current) return
         setProfile(details)
         setIsFollowing(details.is_following)
+        setFollowCategory(details.follow_category ?? 'following')
         setIsBlocked(details.is_blocked)
       })
       .catch(() => {
@@ -189,6 +220,84 @@ function ProfileView({ username, isOwnProfile, currentUsername }: ProfileViewPro
     setProfile(p => (p ? { ...p, post_count: Math.max(0, p.post_count - 1) } : p))
   }
 
+  async function handlePhotoSelected(event: ChangeEvent<HTMLInputElement>) {
+    const file = event.target.files?.[0]
+    // Clear the input so picking the same file again still fires onChange.
+    event.target.value = ''
+    if (!file || photoBusy) return
+    setPhotoBusy(true)
+    setErrorMessage(null)
+    try {
+      const imageUrl = await uploadImage(file)
+      await apiClient.setProfilePhoto({ image_url: imageUrl })
+      if (!isMounted.current) return
+      // Reload so the header shows the new photo / review state. On async
+      // backends it reads back as 'pending'; the eager (no-Redis) path and the
+      // stub have already approved it.
+      await loadProfile()
+    } catch {
+      if (isMounted.current) {
+        setErrorMessage('Could not update your profile photo. Please try again.')
+      }
+    } finally {
+      if (isMounted.current) setPhotoBusy(false)
+    }
+  }
+
+  async function handleRemovePhoto() {
+    if (photoBusy) return
+    setPhotoBusy(true)
+    setErrorMessage(null)
+    try {
+      await apiClient.removeProfilePhoto()
+      if (!isMounted.current) return
+      await loadProfile()
+    } catch {
+      if (isMounted.current) {
+        setErrorMessage('Could not remove your profile photo. Please try again.')
+      }
+    } finally {
+      if (isMounted.current) setPhotoBusy(false)
+    }
+  }
+
+  function startEditingBio() {
+    setBioDraft(profile?.bio ?? '')
+    setBioError(null)
+    setBioEditing(true)
+  }
+
+  function cancelEditingBio() {
+    setBioEditing(false)
+    setBioError(null)
+  }
+
+  async function handleSaveBio() {
+    if (bioBusy) return
+    // Guard on the same code-point limit the counter shows and the server
+    // enforces; an empty draft is allowed and clears the bio.
+    if (!isWithinLimit(bioDraft, MAX_BIO_LENGTH)) return
+    setBioBusy(true)
+    setBioError(null)
+    try {
+      const { bio } = await apiClient.setBio({ bio: bioDraft })
+      if (!isMounted.current) return
+      setProfile(p => (p ? { ...p, bio } : p))
+      setBioEditing(false)
+    } catch (err) {
+      if (!isMounted.current) return
+      // A moderation rejection (or length error) comes back as a 400 with a
+      // human-readable message; show it inline so the user can edit and retry.
+      setBioError(
+        err instanceof ApiError && err.status === 400
+          ? err.message
+          : 'Could not update your bio. Please try again.',
+      )
+    } finally {
+      if (isMounted.current) setBioBusy(false)
+    }
+  }
+
   async function toggleFollow() {
     if (isBusy) return
     setIsBusy(true)
@@ -197,14 +306,37 @@ function ProfileView({ username, isOwnProfile, currentUsername }: ProfileViewPro
       if (wasFollowing) {
         await apiClient.unfollowUser(username)
         setIsFollowing(false)
-        setProfile(p => (p ? { ...p, follower_count: Math.max(0, p.follower_count - 1) } : p))
+        // Clear the relationship category so in-memory state matches the API
+        // contract (follow_category is null when not following) and doesn't go
+        // stale for any later UI that reads it.
+        setFollowCategory('following')
+        setProfile(p =>
+          p ? { ...p, follow_category: null, follower_count: Math.max(0, p.follower_count - 1) } : p,
+        )
       } else {
         await apiClient.followUser(username)
         setIsFollowing(true)
-        setProfile(p => (p ? { ...p, follower_count: p.follower_count + 1 } : p))
+        setFollowCategory('following')
+        setProfile(p => (p ? { ...p, follow_category: 'following', follower_count: p.follower_count + 1 } : p))
       }
     } catch {
       /* state is only updated after a successful call, so nothing to revert */
+    } finally {
+      setIsBusy(false)
+    }
+  }
+
+  async function changeCategory(next: FollowCategory) {
+    if (isBusy || next === followCategory) return
+    setIsBusy(true)
+    const previous = followCategory
+    // Optimistic: reflect the choice immediately, revert if the call fails.
+    setFollowCategory(next)
+    try {
+      await apiClient.setFollowCategory(username, next)
+      setProfile(p => (p ? { ...p, follow_category: next } : p))
+    } catch {
+      setFollowCategory(previous)
     } finally {
       setIsBusy(false)
     }
@@ -222,7 +354,12 @@ function ProfileView({ username, isOwnProfile, currentUsername }: ProfileViewPro
       // the follow button and the follower count so the stats stay consistent.
       if (nowBlocked && wasFollowing) {
         setIsFollowing(false)
-        setProfile(p => (p ? { ...p, follower_count: Math.max(0, p.follower_count - 1) } : p))
+        // Blocking severs the follow, so clear the category too (matches the
+        // API contract: follow_category is null when not following).
+        setFollowCategory('following')
+        setProfile(p =>
+          p ? { ...p, follow_category: null, follower_count: Math.max(0, p.follower_count - 1) } : p,
+        )
       }
     } catch {
       /* state is only updated after a successful call, so nothing to revert */
@@ -268,19 +405,172 @@ function ProfileView({ username, isOwnProfile, currentUsername }: ProfileViewPro
       )}
 
       <div className="profile-header">
+        <div className="profile-identity">
+          <Avatar
+            // The owner previews their own not-yet-approved upload immediately;
+            // everyone else (and the owner once approved) sees the live photo.
+            src={
+              (isOwnProfile && profile?.pending_profile_image_url) ||
+              profile?.profile_image_url
+            }
+            // Fall back to the previously approved photo, not the pending URL, so
+            // if a pending preview fails to load the owner still sees their live
+            // avatar (the approved photo stays visible while a new one is under
+            // review) rather than dropping to the placeholder.
+            originalSrc={profile?.profile_image_original_url}
+            username={username}
+            size="lg"
+          />
+          <div>
+            <div className="profile-identity__name">{username}</div>
+            {isOwnProfile && (
+              <div className="profile-photo-actions">
+                <button
+                  type="button"
+                  className="btn btn-outline"
+                  disabled={photoBusy}
+                  onClick={() => fileInputRef.current?.click()}
+                >
+                  {profile?.profile_image_url || profile?.pending_profile_image_url
+                    ? 'Change photo'
+                    : 'Add photo'}
+                </button>
+                {(profile?.profile_image_url || profile?.pending_profile_image_url) && (
+                  <button
+                    type="button"
+                    className="btn btn-danger"
+                    disabled={photoBusy}
+                    onClick={() => void handleRemovePhoto()}
+                  >
+                    Remove
+                  </button>
+                )}
+                {photoBusy && <span className="spinner" aria-label="Working" />}
+                {!photoBusy && profile?.profile_image_status === 'pending' && (
+                  <span className="profile-photo-status">
+                    Your new photo is being reviewed.
+                  </span>
+                )}
+                {!photoBusy && profile?.profile_image_status === 'rejected' && (
+                  <span className="profile-photo-status">
+                    Your last photo wasn't approved — try another.
+                  </span>
+                )}
+                <input
+                  ref={fileInputRef}
+                  type="file"
+                  accept="image/*"
+                  hidden
+                  onChange={handlePhotoSelected}
+                />
+              </div>
+            )}
+          </div>
+        </div>
+
         <div className="profile-stats">
           <div>
             <span className="profile-stat__count">{profile?.post_count ?? posts.length}</span>
             <span className="profile-stat__label">Posts</span>
           </div>
-          <div>
-            <span className="profile-stat__count">{profile?.follower_count ?? 0}</span>
-            <span className="profile-stat__label">Followers</span>
-          </div>
-          <div>
-            <span className="profile-stat__count">{profile?.following_count ?? 0}</span>
-            <span className="profile-stat__label">Following</span>
-          </div>
+          {/* Only your own follow lists are viewable, so the counts are a
+              tap-through on your own profile and plain stats on anyone else's
+              (issue #8). */}
+          {isOwnProfile ? (
+            <button
+              type="button"
+              className="profile-stat profile-stat--action"
+              onClick={() => navigate('/followers')}
+            >
+              <span className="profile-stat__count">{profile?.follower_count ?? 0}</span>
+              <span className="profile-stat__label">Followers</span>
+            </button>
+          ) : (
+            <div>
+              <span className="profile-stat__count">{profile?.follower_count ?? 0}</span>
+              <span className="profile-stat__label">Followers</span>
+            </div>
+          )}
+          {isOwnProfile ? (
+            <button
+              type="button"
+              className="profile-stat profile-stat--action"
+              onClick={() => navigate('/following')}
+            >
+              <span className="profile-stat__count">{profile?.following_count ?? 0}</span>
+              <span className="profile-stat__label">Following</span>
+            </button>
+          ) : (
+            <div>
+              <span className="profile-stat__count">{profile?.following_count ?? 0}</span>
+              <span className="profile-stat__label">Following</span>
+            </div>
+          )}
+        </div>
+
+        {profile?.membership_number != null && (
+          <p className="profile-membership" title="Join number — position in line since launch">
+            🎉 Member #{profile.membership_number.toLocaleString()}
+          </p>
+        )}
+
+        {/* Bio (issue #380): shown to everyone when set; the owner can edit it
+            inline. Editing state is only ever offered on your own profile. */}
+        <div className="profile-bio">
+          {bioEditing ? (
+            <div className="profile-bio__edit">
+              <label className="auth-label" htmlFor="profile-bio-input">
+                Your bio
+              </label>
+              <textarea
+                id="profile-bio-input"
+                className="text-area"
+                rows={4}
+                value={bioDraft}
+                placeholder="Tell people a little about yourself"
+                disabled={bioBusy}
+                onChange={e => setBioDraft(e.target.value)}
+              />
+              <CharacterCounter value={bioDraft} max={MAX_BIO_LENGTH} />
+              {bioError && (
+                <p className="auth-error" role="alert">
+                  {bioError}
+                </p>
+              )}
+              <div className="profile-bio__actions">
+                <button
+                  type="button"
+                  className="btn btn-primary"
+                  disabled={bioBusy || !isWithinLimit(bioDraft, MAX_BIO_LENGTH)}
+                  onClick={() => void handleSaveBio()}
+                >
+                  Save
+                </button>
+                <button
+                  type="button"
+                  className="btn btn-outline"
+                  disabled={bioBusy}
+                  onClick={cancelEditingBio}
+                >
+                  Cancel
+                </button>
+                {bioBusy && <span className="spinner" aria-label="Saving" />}
+              </div>
+            </div>
+          ) : (
+            <>
+              {profile?.bio ? (
+                <p className="profile-bio__text">{profile.bio}</p>
+              ) : (
+                isOwnProfile && <p className="profile-bio__empty muted">You haven't added a bio yet.</p>
+              )}
+              {isOwnProfile && profile && (
+                <button type="button" className="btn btn-outline" onClick={startEditingBio}>
+                  {profile.bio ? 'Edit bio' : 'Add bio'}
+                </button>
+              )}
+            </>
+          )}
         </div>
 
         {!isOwnProfile && (
@@ -293,6 +583,24 @@ function ProfileView({ username, isOwnProfile, currentUsername }: ProfileViewPro
             >
               {isFollowing ? 'Following' : 'Follow'}
             </button>
+            {isFollowing && (
+              <label className="profile-category">
+                <span className="visually-hidden">Relationship category</span>
+                <select
+                  className="select-input"
+                  aria-label={`Relationship with ${username}`}
+                  value={followCategory}
+                  disabled={isBusy}
+                  onChange={e => void changeCategory(e.target.value as FollowCategory)}
+                >
+                  {CATEGORY_OPTIONS.map(opt => (
+                    <option key={opt.value} value={opt.value}>
+                      {opt.label}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            )}
             <button
               type="button"
               className={`btn ${isBlocked ? 'btn-danger--filled' : 'btn-danger'}`}

@@ -1,7 +1,12 @@
 from django.db.models import Q
 
-from .constants import BAN_TYPE_SHADOW, HIDDEN_REASON_CLASSIFIER_FINAL
-from .models import Comment, UserBan
+from .constants import (
+    AUDIENCE_ALLOWED_CATEGORIES,
+    BAN_TYPE_SHADOW,
+    HIDDEN_REASON_CLASSIFIER_FINAL,
+    POST_AUDIENCE_PUBLIC,
+)
+from .models import Comment, UserBan, UserFollow
 
 
 def _shadow_banned_user_ids():
@@ -9,25 +14,96 @@ def _shadow_banned_user_ids():
     return UserBan.objects.active().filter(ban_type=BAN_TYPE_SHADOW).values_list('user_id', flat=True)
 
 
+def _audience_q(viewer):
+    """
+    A Q over Post matching those whose audience admits `viewer`, ignoring the
+    author-owns-it rule (handled separately, so the author always sees their
+    own posts whatever the audience). Public posts admit everyone. A restricted
+    post admits the viewer only when its author has a follow edge to the viewer
+    whose category is close enough for that audience tier — a "friends" post
+    reaches people the author labeled friend or family, a "family" post only
+    family (issue #392).
+    """
+    admits = Q(audience=POST_AUDIENCE_PUBLIC)
+    if viewer is not None and getattr(viewer, 'is_authenticated', False):
+        for audience, categories in AUDIENCE_ALLOWED_CATEGORIES.items():
+            # Join the author's outgoing follow edges to this viewer. The
+            # UserFollow unique constraint on (user_from, user_to) means at most
+            # one such edge exists, so this join never duplicates a post row —
+            # and a plain Q join keeps the whole filter combinable with the other
+            # Q terms in visible_posts.
+            admits |= Q(
+                audience=audience,
+                author__following_set__user_to=viewer,
+                author__following_set__category__in=categories,
+            )
+    return admits
+
+
+def is_minor(user):
+    """Whether an account is a verified minor (16 or 17).
+
+    Under-16s are refused at registration and identity verification (issue
+    #337), so any identity-verified non-adult is necessarily 16 or 17. An
+    account that never verified an age is *not* treated as a minor here: its age
+    is unknown and it stays in the general (adult) pool. The segregation exists
+    to keep adults away from *known* minors.
+    """
+    return bool(getattr(user, 'identity_is_verified', False) and not getattr(user, 'is_adult', False))
+
+
+def in_same_age_band(user_a, user_b):
+    """Whether two accounts may see and interact with each other on age grounds.
+
+    Verified minors form one band and everyone else (adults plus unverified
+    accounts) forms the other; the two bands are mutually invisible so an adult
+    never sees an underage account and vice versa (issue #329).
+    """
+    return is_minor(user_a) == is_minor(user_b)
+
+
+def _same_age_band_q(viewer, prefix):
+    """Q keeping only rows whose related account is in the viewer's age band.
+
+    `prefix` is the relation to the account being filtered — '' for a queryset
+    of users, or e.g. 'author' for posts/comments. When the viewer is a minor
+    only minors' rows survive; otherwise minors' rows are excluded.
+    """
+    field = f'{prefix}__' if prefix else ''
+    minor_q = Q(**{f'{field}identity_is_verified': True, f'{field}is_adult': False})
+    return minor_q if is_minor(viewer) else ~minor_q
+
+
 def visible_posts(posts, viewer):
     """
     Posts the viewer is allowed to see. A viewer always sees their own posts,
     so a shadow ban (and report-hiding) stays invisible to the author;
-    everyone else only sees posts that are not hidden and whose author is not
-    shadow banned. The author rule covers posts pending classification
-    (hidden, author-only) without extra wiring. Final-rejection tombstones are
-    excluded even for the author: the content is gone for good and clients
-    learn the outcome via the status endpoint, not by rendering the post.
+    everyone else only sees posts that are not hidden, whose author is not
+    shadow banned, whose audience admits them (issue #392), and whose author is
+    in the viewer's age band (so adults and underage accounts never see each
+    other's posts). The author rule covers posts pending classification (hidden,
+    author-only) without extra wiring. Final-rejection tombstones are excluded
+    even for the author: the content is gone for good and clients learn the
+    outcome via the status endpoint, not by rendering the post.
     """
     return posts.exclude(hidden_reason=HIDDEN_REASON_CLASSIFIER_FINAL).filter(
-        Q(author=viewer) | (Q(hidden=False) & ~Q(author__in=_shadow_banned_user_ids()))
+        Q(author=viewer) | (
+            Q(hidden=False)
+            & ~Q(author__in=_shadow_banned_user_ids())
+            & _audience_q(viewer)
+            & _same_age_band_q(viewer, 'author')
+        )
     )
 
 
 def visible_comments(comments, viewer):
     """Same visibility rule as visible_posts, for comments."""
     return comments.filter(
-        Q(author=viewer) | (Q(hidden=False) & ~Q(author__in=_shadow_banned_user_ids()))
+        Q(author=viewer) | (
+            Q(hidden=False)
+            & ~Q(author__in=_shadow_banned_user_ids())
+            & _same_age_band_q(viewer, 'author')
+        )
     )
 
 
@@ -43,6 +119,18 @@ def visible_comment_threads(threads, viewer):
     return threads.filter(pk__in=visible_thread_ids)
 
 
+def _audience_allows(post, viewer):
+    """Single-object mirror of _audience_q: whether this post's audience admits
+    the viewer (the author-owns-it rule is checked separately)."""
+    if post.audience == POST_AUDIENCE_PUBLIC:
+        return True
+    categories = AUDIENCE_ALLOWED_CATEGORIES.get(post.audience, [])
+    if not categories or viewer is None or not getattr(viewer, 'is_authenticated', False):
+        return False
+    return UserFollow.objects.filter(
+        user_from=post.author, user_to=viewer, category__in=categories).exists()
+
+
 def can_view_post(post, viewer):
     """Visibility check for a single already-fetched post."""
     # A final-rejection tombstone is viewable by nobody, its author included
@@ -54,9 +142,16 @@ def can_view_post(post, viewer):
         return True
     if post.hidden:
         return False
-    return not UserBan.objects.active().filter(user=post.author, ban_type=BAN_TYPE_SHADOW).exists()
+    if UserBan.objects.active().filter(user=post.author, ban_type=BAN_TYPE_SHADOW).exists():
+        return False
+    # Adults and underage accounts never see each other's posts (issue #329).
+    if not in_same_age_band(post.author, viewer):
+        return False
+    return _audience_allows(post, viewer)
 
 
-def searchable_users(users):
-    """Excludes shadow-banned users from user search results."""
-    return users.exclude(pk__in=_shadow_banned_user_ids())
+def searchable_users(users, viewer):
+    """Excludes shadow-banned users, and users outside the viewer's age band,
+    from user search results (so adults cannot find underage accounts and vice
+    versa)."""
+    return users.exclude(pk__in=_shadow_banned_user_ids()).filter(_same_age_band_q(viewer, ''))

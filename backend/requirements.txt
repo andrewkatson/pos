@@ -1,5 +1,6 @@
 anthropic
 boto3
+cryptography
 google-genai
 openai
 Pillow

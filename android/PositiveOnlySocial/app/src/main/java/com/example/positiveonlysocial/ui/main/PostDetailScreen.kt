@@ -21,7 +21,9 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.unit.dp
@@ -33,13 +35,16 @@ import com.example.positiveonlysocial.data.constants.Constants
 import com.example.positiveonlysocial.data.model.CommentThreadViewData
 import com.example.positiveonlysocial.ui.components.CaptionTile
 import com.example.positiveonlysocial.ui.components.CharacterCounter
+import com.example.positiveonlysocial.ui.components.TaggedCaptionText
 import com.example.positiveonlysocial.ui.components.isWithinLength
+import com.example.positiveonlysocial.ui.navigation.Screen
 import com.example.positiveonlysocial.data.model.CommentViewData
 import com.example.positiveonlysocial.data.security.KeychainHelperProtocol
 import com.example.positiveonlysocial.models.viewmodels.PostDetailViewModel
 import com.example.positiveonlysocial.models.viewmodels.PostDetailViewModelFactory
 import com.example.positiveonlysocial.ui.navigation.openProfileFor
 import com.example.positiveonlysocial.util.RelativeTime
+import com.example.positiveonlysocial.util.ShareLinks
 import com.example.positiveonlysocial.util.parseBackendDate
 import androidx.compose.runtime.collectAsState
 import androidx.compose.ui.tooling.preview.Preview
@@ -60,6 +65,9 @@ fun PostDetailScreen(
         val viewModel: PostDetailViewModel = viewModel(
             factory = PostDetailViewModelFactory(postId, api, keychainHelper)
         )
+
+        // Used to launch the system share sheet from the action menus (issue #34).
+        val context = LocalContext.current
 
         val postDetail by viewModel.postDetail.collectAsState()
         val commentThreads by viewModel.commentThreads.collectAsState()
@@ -110,6 +118,7 @@ fun PostDetailScreen(
                 isReported = postDetail?.isReported == true,
                 itemLabel = "Post",
                 onDismiss = { viewModel.setShowActionSheetForPost(false) },
+                onShare = { ShareLinks.shareText(context, ShareLinks.postUrl(postId)) },
                 onReport = { viewModel.setShowReportSheetForPost(true) },
                 onRetract = { viewModel.setShowRetractDialogForPost(true) },
                 onDelete = { viewModel.deletePost() }
@@ -125,6 +134,9 @@ fun PostDetailScreen(
                 isReported = comment.isReported || reportedCommentIds.contains(comment.id),
                 itemLabel = "Comment",
                 onDismiss = { viewModel.setCommentForAction(null) },
+                onShare = {
+                    ShareLinks.shareText(context, ShareLinks.commentUrl(postId, comment.id))
+                },
                 onReport = { viewModel.setCommentToReport(comment) },
                 onRetract = { viewModel.setCommentToRetract(comment) },
                 onDelete = { viewModel.deleteComment(comment, comment.threadId) }
@@ -173,7 +185,7 @@ fun PostDetailScreen(
             CommentComposerDialog(
                 title = "Add a comment",
                 onDismiss = { viewModel.setShowAddCommentDialog(false) },
-                onSubmit = { text -> viewModel.commentOnPost(text) }
+                onSubmit = { text, formatting -> viewModel.commentOnPost(text, formatting) }
             )
         }
 
@@ -181,7 +193,7 @@ fun PostDetailScreen(
             CommentComposerDialog(
                 title = "Reply to ${thread.comments.firstOrNull()?.authorUsername ?: "Comment"}",
                 onDismiss = { viewModel.setThreadToReplyTo(null) },
-                onSubmit = { text -> viewModel.replyToCommentThread(thread, text) }
+                onSubmit = { text, formatting -> viewModel.replyToCommentThread(thread, text, formatting) }
             )
         }
 
@@ -242,7 +254,9 @@ fun PostDetailScreen(
                             CaptionTile(
                                 caption = post.caption,
                                 modifier = mediaModifier,
-                                maxLines = Int.MAX_VALUE
+                                maxLines = Int.MAX_VALUE,
+                                captionFont = post.captionFont,
+                                backgroundColor = post.backgroundColor
                             )
                         } else {
                             // Falls back to the full-res original while the async
@@ -282,7 +296,21 @@ fun PostDetailScreen(
                             
                             Spacer(modifier = Modifier.height(8.dp))
                             
-                            Row {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                // Author avatar (issue #7) + name, both opening
+                                // the author's profile, same as in the feed.
+                                // Decorative and NOT clickable: the adjacent author
+                                // name (below) is the tap target that opens the
+                                // profile. A clickable avatar with a null
+                                // contentDescription would be an unlabeled button to
+                                // TalkBack.
+                                ProfileAvatar(
+                                    imageUrl = post.authorProfileImageUrl,
+                                    originalImageUrl = post.authorProfileImageOriginalUrl,
+                                    contentDescription = null,
+                                    size = 28.dp
+                                )
+                                Spacer(modifier = Modifier.width(8.dp))
                                 // Tap the author's name to open their profile,
                                 // same as in the feed.
                                 Text(
@@ -296,9 +324,17 @@ fun PostDetailScreen(
                                     }
                                 )
                                 Spacer(modifier = Modifier.width(4.dp))
-                                Text(
-                                    text = post.caption,
-                                    style = MaterialTheme.typography.bodyMedium
+                                // #hashtags in the caption are tappable and open
+                                // the tag feed (issue #379); the author's chosen
+                                // caption font (issue #318) still applies.
+                                TaggedCaptionText(
+                                    caption = post.caption,
+                                    style = MaterialTheme.typography.bodyMedium.copy(
+                                        fontFamily = TextFormatting.fontFamily(post.captionFont)
+                                    ),
+                                    onTagClick = { tag ->
+                                        navController.navigate(Screen.TagFeed.createRoute(tag))
+                                    }
                                 )
                             }
 
@@ -452,12 +488,15 @@ fun CommentRow(
             ),
         verticalAlignment = Alignment.Top
     ) {
-        // Avatar Placeholder
-        Surface(
-            shape = MaterialTheme.shapes.small,
-            color = Color.Gray,
-            modifier = Modifier.size(32.dp)
-        ) {}
+        // Comment author's avatar (issue #7). Decorative and NOT clickable: the
+        // adjacent author name (below) opens their profile. A clickable avatar
+        // with a null contentDescription would be an unlabeled button to TalkBack.
+        ProfileAvatar(
+            imageUrl = comment.authorProfileImageUrl,
+            originalImageUrl = comment.authorProfileImageOriginalUrl,
+            contentDescription = null,
+            size = 32.dp
+        )
 
         Spacer(modifier = Modifier.width(8.dp))
 
@@ -509,8 +548,9 @@ fun CommentRow(
                 // Chevron hint for the collapse state of the thread below.
                 Text(if (isCollapsed) "▸" else "▾", fontSize = 12.sp, color = Color.Gray)
             }
-            // The comment body sits below the username/time header line.
-            Text(comment.body, fontSize = 14.sp)
+            // The comment body sits below the username/time header line, with
+            // any inline bold/italic/size formatting applied (issue #318).
+            Text(TextFormatting.annotatedComment(comment.body, comment.formatting), fontSize = 14.sp)
             Row(verticalAlignment = Alignment.CenterVertically) {
                 if (!isOwn) {
                     IconButton(
@@ -540,9 +580,10 @@ fun CommentRow(
 
 /**
  * The mini action menu shown by the three-dots button or a long-press. Offers a
- * single action — Delete for the user's own content, Report for everyone
+ * moderation action — Delete for the user's own content, Report for everyone
  * else's, or Retract Report when they already have an active report against it
- * (issues #304, #176) — so you can never report your own post or comment.
+ * (issues #304, #176) — so you can never report your own post or comment, plus a
+ * Share action available for any post or comment (issue #34).
  */
 @Composable
 fun ActionSheetDialog(
@@ -550,6 +591,7 @@ fun ActionSheetDialog(
     isReported: Boolean,
     itemLabel: String,
     onDismiss: () -> Unit,
+    onShare: () -> Unit,
     onReport: () -> Unit,
     onRetract: () -> Unit,
     onDelete: () -> Unit
@@ -557,6 +599,17 @@ fun ActionSheetDialog(
     AlertDialog(
         onDismissRequest = onDismiss,
         title = { Text(itemLabel) },
+        // Share isn't a confirm/dismiss action and AlertDialog only exposes those
+        // two button slots, so it lives in the body content as a full-width
+        // button. It's offered for any post or comment, own or not (issue #34).
+        text = {
+            TextButton(
+                onClick = { onShare(); onDismiss() },
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Text("Share $itemLabel")
+            }
+        },
         // The primary action lives in the confirmButton slot so it's laid out and
         // announced as the dialog's main action; more options can be added later.
         confirmButton = {
@@ -663,8 +716,24 @@ fun ReportDialog(onDismiss: () -> Unit, onSubmit: (String) -> Unit) {
  * confirm button repeatedly can't post the same comment twice (issue #291).
  */
 @Composable
-fun CommentComposerDialog(title: String, onDismiss: () -> Unit, onSubmit: (String) -> Unit) {
-    var text by remember { mutableStateOf("") }
+fun CommentComposerDialog(
+    title: String,
+    onDismiss: () -> Unit,
+    onSubmit: (String, List<com.example.positiveonlysocial.data.model.CommentFormatSpan>?) -> Unit
+) {
+    // TextFieldValue exposes the selection, so the toolbar can style the
+    // selected range (issue #318). `styles` is the per-character attribute
+    // model, kept in sync with the text and compressed into spans on submit.
+    var value by remember { mutableStateOf(androidx.compose.ui.text.input.TextFieldValue("")) }
+    var styles by remember { mutableStateOf(emptyList<CharStyle>()) }
+    var sizeMenuExpanded by remember { mutableStateOf(false) }
+
+    fun selectionRange(): Pair<Int, Int>? {
+        val start = minOf(value.selection.start, value.selection.end)
+        val end = maxOf(value.selection.start, value.selection.end)
+        return if (start < end) start to end else null
+    }
+
     AlertDialog(
         onDismissRequest = onDismiss,
         title = { Text(title) },
@@ -673,23 +742,56 @@ fun CommentComposerDialog(title: String, onDismiss: () -> Unit, onSubmit: (Strin
             // inserts a newline). The dialog's confirm/Cancel buttons remain
             // reachable above the keyboard, so no Done-to-dismiss is needed.
             Column {
+                // Formatting toolbar: styles the current text selection.
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    TextButton(onClick = {
+                        selectionRange()?.let { (s, e) -> styles = CommentFormatting.toggleBold(styles, s, e) }
+                    }) { Text("B", fontWeight = FontWeight.Bold) }
+                    TextButton(onClick = {
+                        selectionRange()?.let { (s, e) -> styles = CommentFormatting.toggleItalic(styles, s, e) }
+                    }) { Text("I", fontStyle = FontStyle.Italic) }
+                    Box {
+                        TextButton(onClick = { sizeMenuExpanded = true }) { Text("Size") }
+                        DropdownMenu(expanded = sizeMenuExpanded, onDismissRequest = { sizeMenuExpanded = false }) {
+                            TextFormatting.sizeOptions.forEach { size ->
+                                DropdownMenuItem(
+                                    text = { Text(size.replaceFirstChar { it.uppercase() }) },
+                                    onClick = {
+                                        selectionRange()?.let { (s, e) -> styles = CommentFormatting.setSize(styles, s, e, size) }
+                                        sizeMenuExpanded = false
+                                    }
+                                )
+                            }
+                        }
+                    }
+                }
                 TextField(
-                    value = text,
-                    onValueChange = { text = it },
+                    value = value,
+                    onValueChange = { newValue ->
+                        styles = CommentFormatting.reconcile(styles, value.text, newValue.text)
+                        value = newValue
+                    },
                     placeholder = { Text("Write a comment...") }
                 )
-                CharacterCounter(text = text, max = Constants.MAX_COMMENT_LENGTH)
+                Text(
+                    "Select text, then tap B, I, or Size to format it.",
+                    style = MaterialTheme.typography.labelSmall
+                )
+                if (value.text.isNotBlank()) {
+                    Text(TextFormatting.annotatedComment(value.text, CommentFormatting.toSpans(styles)))
+                }
+                CharacterCounter(text = value.text, max = Constants.MAX_COMMENT_LENGTH)
             }
         },
         confirmButton = {
             Button(
                 onClick = {
-                    if (text.isNotEmpty()) {
-                        onSubmit(text)
+                    if (value.text.isNotEmpty()) {
+                        onSubmit(value.text, CommentFormatting.toSpans(styles))
                         onDismiss()
                     }
                 },
-                enabled = text.isNotEmpty() && isWithinLength(text, Constants.MAX_COMMENT_LENGTH)
+                enabled = value.text.isNotEmpty() && isWithinLength(value.text, Constants.MAX_COMMENT_LENGTH)
             ) {
                 Text("Post")
             }

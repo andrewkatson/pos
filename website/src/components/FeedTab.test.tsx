@@ -10,6 +10,8 @@ vi.mock('../api/client', () => ({
     getFollowedFeed: vi.fn(),
     likePost: vi.fn(),
     unlikePost: vi.fn(),
+    savePost: vi.fn(),
+    unsavePost: vi.fn(),
     reportPost: vi.fn(),
     retractReportPost: vi.fn(),
     deletePost: vi.fn(),
@@ -20,6 +22,7 @@ import { apiClient } from '../api/client'
 const mockGetFeed = vi.mocked(apiClient.getFeed)
 const mockGetFollowed = vi.mocked(apiClient.getFollowedFeed)
 const mockLikePost = vi.mocked(apiClient.likePost)
+const mockSavePost = vi.mocked(apiClient.savePost)
 const mockDeletePost = vi.mocked(apiClient.deletePost)
 
 function renderTab() {
@@ -41,6 +44,7 @@ beforeEach(() => {
   mockGetFeed.mockReset()
   mockGetFollowed.mockReset()
   mockLikePost.mockReset().mockResolvedValue({ message: 'ok' })
+  mockSavePost.mockReset().mockResolvedValue({ message: 'Post saved' })
   mockDeletePost.mockReset().mockResolvedValue({ message: 'ok' })
   // getCurrentUsername reads storage; 'ada' is another user in these feeds
   // unless a test says otherwise.
@@ -79,6 +83,30 @@ test('renders a text-only post as a caption tile instead of an image (#307)', as
   expect(tile).toHaveTextContent('words only')
 })
 
+test('shows the caption under the photo for an image post (#378)', async () => {
+  mockGetFeed.mockResolvedValue([
+    { post_identifier: 'p1', image_url: 'http://img/1.jpg', author_username: 'ada', caption: 'a lovely day' },
+  ])
+  mockGetFollowed.mockResolvedValue([])
+  const { container } = renderTab()
+
+  await screen.findByRole('button', { name: 'Open post by ada' })
+  const caption = container.querySelector('.feed-post__caption')
+  expect(caption).toHaveTextContent('a lovely day')
+})
+
+test('does not repeat the caption below a text-only post (#378)', async () => {
+  // The tile above already shows it; a second copy underneath would be redundant.
+  mockGetFeed.mockResolvedValue([
+    { post_identifier: 'p1', image_url: null, author_username: 'ada', caption: 'words only' },
+  ])
+  mockGetFollowed.mockResolvedValue([])
+  const { container } = renderTab()
+
+  await screen.findByRole('img', { name: 'words only' })
+  expect(container.querySelector('.feed-post__caption')).toBeNull()
+})
+
 test('switches to the Following feed', async () => {
   mockGetFeed.mockResolvedValue([])
   mockGetFollowed.mockResolvedValue([
@@ -87,8 +115,35 @@ test('switches to the Following feed', async () => {
   renderTab()
 
   await userEvent.click(screen.getByRole('tab', { name: 'Following' }))
-  await waitFor(() => expect(mockGetFollowed).toHaveBeenCalledWith(0))
+  await waitFor(() => expect(mockGetFollowed).toHaveBeenCalledWith(0, undefined))
   expect(await screen.findByRole('button', { name: 'Open post by bob' })).toBeInTheDocument()
+})
+
+test('filters the Following feed by relationship group (#392)', async () => {
+  mockGetFeed.mockResolvedValue([])
+  mockGetFollowed.mockResolvedValue([
+    { post_identifier: 'p2', image_url: 'http://img/2.jpg', author_username: 'bob', caption: 'yo' },
+  ])
+  renderTab()
+
+  await userEvent.click(screen.getByRole('tab', { name: 'Following' }))
+  await waitFor(() => expect(mockGetFollowed).toHaveBeenCalledWith(0, undefined))
+
+  await userEvent.selectOptions(
+    screen.getByLabelText('Filter following feed by group'),
+    'family',
+  )
+  await waitFor(() => expect(mockGetFollowed).toHaveBeenLastCalledWith(0, 'family'))
+})
+
+test('the group filter is hidden on the For You feed (#392)', () => {
+  mockGetFeed.mockResolvedValue([])
+  mockGetFollowed.mockResolvedValue([])
+  renderTab()
+
+  expect(
+    screen.queryByLabelText('Filter following feed by group'),
+  ).not.toBeInTheDocument()
 })
 
 test('navigates to an author profile from the feed', async () => {
@@ -137,6 +192,25 @@ test('likes a post straight from the feed', async () => {
   await waitFor(() => expect(mockLikePost).toHaveBeenCalledWith('p1'))
   expect(await screen.findByRole('button', { name: 'Unlike post' })).toBeInTheDocument()
   expect(screen.getByText('2')).toBeInTheDocument()
+})
+
+test('saves a post straight from the feed (#193)', async () => {
+  mockGetFeed.mockResolvedValue([
+    {
+      post_identifier: 'p1',
+      image_url: 'http://img/1.jpg',
+      author_username: 'ada',
+      caption: 'hi',
+      is_saved: false,
+    },
+  ])
+  mockGetFollowed.mockResolvedValue([])
+  renderTab()
+
+  await userEvent.click(await screen.findByRole('button', { name: 'Save post' }))
+  await waitFor(() => expect(mockSavePost).toHaveBeenCalledWith('p1'))
+  // The control flips to offer unsaving, and the row stays on the feed.
+  expect(await screen.findByRole('button', { name: 'Unsave post' })).toBeInTheDocument()
 })
 
 test('deleting your own post removes it without reloading the feed', async () => {

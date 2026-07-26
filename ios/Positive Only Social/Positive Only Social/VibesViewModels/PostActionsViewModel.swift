@@ -36,6 +36,10 @@ final class PostActionsViewModel: ObservableObject {
     @Published var postToReport: Post?
     /// The post whose retract-report confirmation is showing.
     @Published var postToRetract: Post?
+    /// Drives the native share sheet for a post in a list (issue #34). Set by
+    /// the action menu's "Share" button and presented as a `.sheet(item:)`;
+    /// sharing is offered for any post, your own and others'.
+    @Published var postShareItem: ShareURLItem?
     /// Surfaced by the container view as an error alert.
     @Published var alertMessage: String?
 
@@ -167,6 +171,14 @@ final class PostActionsViewModel: ObservableObject {
                 alertMessage = "Failed to delete post: \(error.userFacingMessage)"
             }
         }
+    }
+
+    /// Builds the website link for a post in a list and shows the native share
+    /// sheet (issue #34). Offered for any post; the website link currently
+    /// requires login (Scope A), which is expected.
+    func share(_ post: Post) {
+        guard let url = ShareURL.post(post.id) else { return }
+        postShareItem = ShareURLItem(url: url)
     }
 
     // MARK: - Helpers

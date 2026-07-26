@@ -53,6 +53,24 @@ interface PositiveOnlySocialAPI {
         @Body request: IdentityVerificationRequest
     ): Response<GenericResponse>
 
+    // =============================================================================
+    // ACCOUNT / CONTACT (issue #197/#194)
+    // =============================================================================
+
+    // The signed-in account's own username + email, for the Settings "Contact
+    // Information" section.
+    @GET("me/")
+    suspend fun getCurrentUser(@Header("Authorization") token: String): Response<CurrentUserResponse>
+
+    // Change the account password. Requires the current password as well as the
+    // session, so a stolen session alone can't change it; the backend evicts the
+    // account's other sessions on success.
+    @POST("password/change/")
+    suspend fun changePassword(
+        @Header("Authorization") token: String,
+        @Body request: ChangePasswordRequest
+    ): Response<GenericResponse>
+
     // ============================================================================================
     // EMAIL VERIFICATION
     // ============================================================================================
@@ -89,13 +107,24 @@ interface PositiveOnlySocialAPI {
     @GET("feed/followed/{batch}/")
     suspend fun getFollowedPosts(
         @Header("Authorization") token: String,
-        @Path("batch") batch: Int
+        @Path("batch") batch: Int,
+        // Optional group filter (issue #392). Retrofit omits the query when null,
+        // so the whole following feed is returned by default.
+        @Query("category") category: String? = null
     ): Response<List<Post>>
 
     @GET("users/{username}/posts/{batch}/")
     suspend fun getPostsForUser(
         @Header("Authorization") token: String,
         @Path("username") username: String,
+        @Path("batch") batch: Int
+    ): Response<List<Post>>
+
+    // Posts carrying a given #hashtag, newest first, batched (issue #379).
+    @GET("tags/{tag}/posts/{batch}/")
+    suspend fun getPostsByTag(
+        @Header("Authorization") token: String,
+        @Path("tag") tag: String,
         @Path("batch") batch: Int
     ): Response<List<Post>>
 
@@ -255,6 +284,14 @@ interface PositiveOnlySocialAPI {
         @Path("username") username: String
     ): Response<GenericResponse>
 
+    // Re-categorize an existing follow relationship (issue #392).
+    @POST("users/{username}/category/")
+    suspend fun setFollowCategory(
+        @Header("Authorization") token: String,
+        @Path("username") username: String,
+        @Body request: SetCategoryRequest
+    ): Response<GenericResponse>
+
     @POST("users/{username}/block/")
     suspend fun toggleBlock(
         @Header("Authorization") token: String,
@@ -266,11 +303,47 @@ interface PositiveOnlySocialAPI {
         @Header("Authorization") token: String
     ): Response<List<User>>
 
+    // Own lists only — the endpoints take no username, so another user's
+    // followers/following can't be requested (issue #8).
+    @GET("users/followers/")
+    suspend fun getFollowers(
+        @Header("Authorization") token: String
+    ): Response<List<User>>
+
+    @GET("users/following/")
+    suspend fun getFollowing(
+        @Header("Authorization") token: String
+    ): Response<List<User>>
+
     @GET("users/{username}/profile/")
     suspend fun getProfileDetails(
         @Header("Authorization") token: String,
         @Path("username") username: String
     ): Response<ProfileDetailsResponse>
+
+    // Sets the signed-in user's profile photo (issue #7). The JPEG bytes are
+    // uploaded via the presigned post-image pipeline first; this hands over the
+    // canonical object URL. Returns HTTP 202 with a "pending" status — the photo
+    // is classified asynchronously.
+    @POST("profile/photo/")
+    suspend fun setProfilePhoto(
+        @Header("Authorization") token: String,
+        @Body request: SetProfilePhotoRequest
+    ): Response<SetProfilePhotoResponse>
+
+    @POST("profile/photo/remove/")
+    suspend fun removeProfilePhoto(
+        @Header("Authorization") token: String
+    ): Response<RemoveProfilePhotoResponse>
+
+    // Sets (or clears, with an empty string) the signed-in user's bio (issue
+    // #380). Unlike a photo, a bio is plain text moderated synchronously, so a
+    // non-positive bio comes back as a 4xx and is never stored.
+    @POST("profile/bio/")
+    suspend fun setBio(
+        @Header("Authorization") token: String,
+        @Body request: SetBioRequest
+    ): Response<SetBioResponse>
 
     // ============================================================================================
     // APPEALS

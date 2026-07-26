@@ -1,6 +1,7 @@
 import { useState, type ReactNode } from 'react'
 import { apiClient } from '../api/client'
 import type { FeedPost } from '../api/types'
+import { postShareUrl, shareLink } from '../utils/shareLink'
 
 /** Anything can be thrown in JS, so never assume the caught value is an Error:
  * reading `.message` off a string or null would lose the text or throw again.
@@ -16,6 +17,7 @@ function messageFrom(err: unknown, fallback: string): string {
 interface PostOverride {
   isLiked?: boolean
   likeCount?: number
+  isSaved?: boolean
   isReported?: boolean
   reportReason?: string | null
 }
@@ -27,6 +29,8 @@ export interface PostActionState {
   isOwn: boolean
   isLiked: boolean
   likeCount: number
+  /** Whether the post is in the user's saved collection (issue #193). */
+  isSaved: boolean
   isReported: boolean
   reportReason: string | null
 }
@@ -36,12 +40,18 @@ type Dialog =
   | { kind: 'report'; post: FeedPost }
   | { kind: 'retract'; post: FeedPost }
   | { kind: 'delete'; post: FeedPost }
+  // Shown only when Share fell back to copying the link (no OS share sheet), so
+  // the user gets confirmation the link is now on their clipboard (issue #34).
+  | { kind: 'shareCopied' }
 
 interface UsePostActionsOptions {
   /** The signed-in user, used to tell your own posts from everyone else's. */
   currentUsername: string | null
   /** Called after a post is deleted so the caller can drop it from its list. */
   onPostDeleted: (postIdentifier: string) => void
+  /** Called after a post is unsaved. The Saved Posts screen uses this to drop
+   * the row; feed and profile grids leave it in place (issue #193). */
+  onPostUnsaved?: (postIdentifier: string) => void
   /** Surfaces a failed action to the caller's error banner. */
   onError: (message: string) => void
 }
@@ -61,10 +71,12 @@ interface UsePostActionsOptions {
 export function usePostActions({
   currentUsername,
   onPostDeleted,
+  onPostUnsaved,
   onError,
 }: UsePostActionsOptions): {
   stateFor: (post: FeedPost) => PostActionState
   toggleLike: (post: FeedPost) => void
+  toggleSave: (post: FeedPost) => void
   openMenu: (post: FeedPost) => void
   dialogs: ReactNode
 } {
@@ -78,6 +90,7 @@ export function usePostActions({
       isOwn: post.author_username === currentUsername,
       isLiked: override.isLiked ?? post.is_liked ?? false,
       likeCount: override.likeCount ?? post.post_likes ?? 0,
+      isSaved: override.isSaved ?? post.is_saved ?? false,
       isReported: override.isReported ?? post.is_reported ?? false,
       // Retracting sets the override to null, which ?? would treat as absent and
       // fall back to the stale server reason — so test for the key instead.
@@ -93,6 +106,17 @@ export function usePostActions({
       ...prev,
       [postIdentifier]: { ...prev[postIdentifier], ...patch },
     }))
+  }
+
+  /** Drops a post's local override once its row leaves the caller's list (a
+   * delete, or an unsave on the Saved Posts screen), so entries don't
+   * accumulate for the life of the session as the user pages through. */
+  function dropOverride(postIdentifier: string) {
+    setOverrides(prev => {
+      if (!(postIdentifier in prev)) return prev
+      const { [postIdentifier]: _removed, ...rest } = prev
+      return rest
+    })
   }
 
   async function toggleLikeAsync(post: FeedPost) {
@@ -112,6 +136,34 @@ export function usePostActions({
       // Revert to the pre-click values.
       setOverride(post.post_identifier, { isLiked, likeCount })
       onError(messageFrom(err, 'Action failed.'))
+    }
+  }
+
+  async function sharePost(post: FeedPost) {
+    setDialog(null)
+    const result = await shareLink(postShareUrl(post.post_identifier))
+    if (result === 'copied') setDialog({ kind: 'shareCopied' })
+    else if (result === 'failed') onError('Could not share this post.')
+  }
+
+  async function toggleSaveAsync(post: FeedPost) {
+    const { isSaved } = stateFor(post)
+    const saving = !isSaved
+    setOverride(post.post_identifier, { isSaved: saving })
+    try {
+      if (saving) await apiClient.savePost(post.post_identifier)
+      else await apiClient.unsavePost(post.post_identifier)
+      // Only after the server confirms the unsave does the caller drop the row,
+      // so a failed request leaves the post on the Saved screen to retry.
+      if (!saving && onPostUnsaved) {
+        // The row is about to leave the caller's list, so clear its override
+        // too rather than let the entry linger (mirrors the delete cleanup).
+        dropOverride(post.post_identifier)
+        onPostUnsaved(post.post_identifier)
+      }
+    } catch (err) {
+      setOverride(post.post_identifier, { isSaved })
+      onError(messageFrom(err, saving ? 'Failed to save.' : 'Failed to unsave.'))
     }
   }
 
@@ -147,14 +199,8 @@ export function usePostActions({
     setDialog(null)
     try {
       await apiClient.deletePost(post.post_identifier)
-      // Drop any override for the deleted post: the row is gone from the
-      // caller's list, so the entry would just accumulate for the life of the
-      // session as the user pages through and acts on more posts.
-      setOverrides(prev => {
-        if (!(post.post_identifier in prev)) return prev
-        const { [post.post_identifier]: _removed, ...rest } = prev
-        return rest
-      })
+      // The row is gone from the caller's list, so drop its override too.
+      dropOverride(post.post_identifier)
       onPostDeleted(post.post_identifier)
     } catch (err) {
       onError(messageFrom(err, 'Failed to delete.'))
@@ -170,6 +216,14 @@ export function usePostActions({
             <div className="modal__actions">
               <button type="button" className="modal__cancel" onClick={() => setDialog(null)}>
                 Cancel
+              </button>
+              {/* Share is offered on every post, yours and everyone else's. */}
+              <button
+                type="button"
+                className="modal__confirm"
+                onClick={() => void sharePost(dialog.post)}
+              >
+                Share
               </button>
               {stateFor(dialog.post).isOwn ? (
                 <button
@@ -199,6 +253,20 @@ export function usePostActions({
                   Report
                 </button>
               )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {dialog?.kind === 'shareCopied' && (
+        <div className="modal-overlay">
+          <div className="modal" role="dialog" aria-modal="true" aria-label="Link copied">
+            <h2 className="modal__title">Link copied</h2>
+            <p className="muted">The link to this post is on your clipboard.</p>
+            <div className="modal__actions">
+              <button type="button" className="modal__confirm" onClick={() => setDialog(null)}>
+                OK
+              </button>
             </div>
           </div>
         </div>
@@ -288,6 +356,7 @@ export function usePostActions({
   return {
     stateFor,
     toggleLike: post => void toggleLikeAsync(post),
+    toggleSave: post => void toggleSaveAsync(post),
     openMenu: post => setDialog({ kind: 'menu', post }),
     dialogs,
   }

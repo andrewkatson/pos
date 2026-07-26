@@ -1,5 +1,8 @@
 package com.example.positiveonlysocial.ui.main
 
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.PickVisualMediaRequest
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
@@ -13,9 +16,11 @@ import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material3.*
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.runtime.*
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -23,7 +28,12 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.NavController
 import com.example.positiveonlysocial.api.PositiveOnlySocialAPI
+import com.example.positiveonlysocial.data.model.FollowCategory
+import com.example.positiveonlysocial.data.constants.Constants
 import com.example.positiveonlysocial.data.security.KeychainHelperProtocol
+import com.example.positiveonlysocial.ui.components.CharacterCounter
+import com.example.positiveonlysocial.ui.components.isWithinLength
+import com.example.positiveonlysocial.models.viewmodels.FollowListMode
 import com.example.positiveonlysocial.models.viewmodels.ProfileViewModel
 import com.example.positiveonlysocial.models.viewmodels.ProfileViewModelFactory
 import com.example.positiveonlysocial.ui.navigation.Screen
@@ -31,6 +41,9 @@ import com.example.positiveonlysocial.ui.theme.PositiveOnlySocialTheme
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.navigation.compose.rememberNavController
 import com.example.positiveonlysocial.ui.preview.PreviewHelpers
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -98,10 +111,48 @@ fun ProfileBody(
     val isLoading by viewModel.isLoading.collectAsState()
     val isRefreshing by viewModel.isRefreshing.collectAsState()
     val isOwnProfile by viewModel.isOwnProfile.collectAsState()
+    val isPhotoBusy by viewModel.isPhotoBusy.collectAsState()
+    val photoErrorMessage by viewModel.photoErrorMessage.collectAsState()
     val reviewNotice by viewModel.reviewNotice.collectAsState()
+    val isBioBusy by viewModel.isBioBusy.collectAsState()
+    val bioErrorMessage by viewModel.bioErrorMessage.collectAsState()
+
+    // Whether the owner's bio editor dialog is open (issue #380).
+    var showBioEditor by rememberSaveable { mutableStateOf(false) }
 
     val postActions = viewModel.postActions
     val currentUsername by postActions.currentUsername.collectAsState()
+
+    // Own profile-photo controls (issue #7). Picking a photo reuses the same
+    // system picker as NewPostScreen; the bytes are read here (it needs a
+    // Context) and handed to the view model, which uploads them via the presigned
+    // post-image pipeline and calls setProfilePhoto.
+    val context = LocalContext.current
+    val photoScope = rememberCoroutineScope()
+    val photoPickerLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.PickVisualMedia(),
+        onResult = { uri ->
+            if (uri != null) {
+                photoScope.launch {
+                    val bytes = try {
+                        withContext(Dispatchers.IO) {
+                            context.contentResolver.openInputStream(uri)?.use { it.readBytes() }
+                        }
+                    } catch (e: Exception) {
+                        android.util.Log.e("ProfileScreen", "Failed to read picked profile photo $uri", e)
+                        null
+                    }
+                    if (bytes != null) {
+                        viewModel.setProfilePhoto(username, bytes)
+                    } else {
+                        // A null stream / SecurityException (e.g. a lapsed picker
+                        // grant) must not look like the button silently did nothing.
+                        viewModel.onProfilePhotoReadFailed()
+                    }
+                }
+            }
+        }
+    )
 
     // Surfaces the outcome when one of your posts' async review (#282) resolves
     // to a rejection while this grid is visible. Only your own posts carry a
@@ -116,6 +167,67 @@ fun ProfileBody(
                     onClick = { viewModel.dismissReviewNotice() },
                     modifier = Modifier.testTag("OkButtonReviewNotice")
                 ) { Text("OK") }
+            }
+        )
+    }
+
+    // The owner's bio editor (issue #380). A plain multi-line field with the
+    // shared character counter, gated by the same length cap the backend
+    // enforces. Saving is synchronous: a non-positive bio is rejected inline
+    // (bioErrorMessage) and the dialog stays open so the user can revise; a
+    // blank value clears the bio.
+    if (showBioEditor) {
+        var bioDraft by rememberSaveable(showBioEditor) {
+            mutableStateOf(profileDetails?.bio ?: "")
+        }
+        AlertDialog(
+            onDismissRequest = {
+                if (!isBioBusy) {
+                    showBioEditor = false
+                    viewModel.clearBioError()
+                }
+            },
+            title = { Text("Your Bio") },
+            text = {
+                Column {
+                    OutlinedTextField(
+                        value = bioDraft,
+                        onValueChange = { bioDraft = it },
+                        placeholder = { Text("Tell people a little about yourself") },
+                        enabled = !isBioBusy,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .heightIn(min = 100.dp)
+                            .testTag("BioTextField")
+                    )
+                    CharacterCounter(text = bioDraft, max = Constants.MAX_BIO_LENGTH)
+                    bioErrorMessage?.let { error ->
+                        Text(
+                            text = error,
+                            color = MaterialTheme.colorScheme.error,
+                            style = MaterialTheme.typography.bodySmall,
+                            modifier = Modifier.testTag("BioError")
+                        )
+                    }
+                }
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        viewModel.updateBio(bioDraft) { showBioEditor = false }
+                    },
+                    enabled = !isBioBusy && isWithinLength(bioDraft, Constants.MAX_BIO_LENGTH),
+                    modifier = Modifier.testTag("SaveBioButton")
+                ) { Text("Save") }
+            },
+            dismissButton = {
+                TextButton(
+                    onClick = {
+                        showBioEditor = false
+                        viewModel.clearBioError()
+                    },
+                    enabled = !isBioBusy
+                ) { Text("Cancel") }
             }
         )
     }
@@ -137,16 +249,158 @@ fun ProfileBody(
                 .padding(16.dp),
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
+            // Large header avatar (issue #7). The owner previews their own
+            // not-yet-approved upload immediately; everyone else (and the owner
+            // once approved) sees the live photo.
+            val pendingAvatar = if (isOwnProfile) profileDetails?.pendingProfileImageUrl else null
+            ProfileAvatar(
+                imageUrl = pendingAvatar ?: profileDetails?.profileImageUrl,
+                // Fall back to the previously approved photo, not the pending URL,
+                // so a failed pending preview still shows the live avatar (which
+                // stays visible while a new upload is under review) instead of the
+                // placeholder.
+                originalImageUrl = profileDetails?.profileImageOriginalUrl,
+                // Decorative: the username is shown right here in the header, so a
+                // contentDescription would make TalkBack announce it twice (the
+                // website uses alt="" and iOS accessibilityHidden for the same).
+                contentDescription = null,
+                size = 96.dp
+            )
+
+            // Own-profile photo controls: add/change and remove, plus the
+            // pending/rejected review status.
+            if (isOwnProfile) {
+                Spacer(modifier = Modifier.height(12.dp))
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    OutlinedButton(
+                        onClick = {
+                            photoPickerLauncher.launch(
+                                PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)
+                            )
+                        },
+                        enabled = !isPhotoBusy,
+                        modifier = Modifier.testTag("setProfilePhotoButton")
+                    ) {
+                        // A pending first upload (no live photo yet) still counts
+                        // as "has a photo" so the label matches the Remove button.
+                        val hasPhoto = profileDetails?.profileImageUrl != null ||
+                            profileDetails?.pendingProfileImageUrl != null
+                        Text(if (hasPhoto) "Change photo" else "Add photo")
+                    }
+                    if (profileDetails?.profileImageUrl != null || profileDetails?.pendingProfileImageUrl != null) {
+                        OutlinedButton(
+                            onClick = { viewModel.removeProfilePhoto(username) },
+                            enabled = !isPhotoBusy,
+                            modifier = Modifier.testTag("removeProfilePhotoButton")
+                        ) {
+                            Text("Remove")
+                        }
+                    }
+                }
+                if (isPhotoBusy) {
+                    Spacer(modifier = Modifier.height(8.dp))
+                    CircularProgressIndicator(modifier = Modifier.size(24.dp))
+                } else if (photoErrorMessage != null) {
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Text(
+                        text = photoErrorMessage!!,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.error,
+                        modifier = Modifier.testTag("ProfilePhotoError")
+                    )
+                } else {
+                    val statusText = when (profileDetails?.profileImageStatus) {
+                        "pending" -> "Your new photo is being reviewed."
+                        "rejected" -> "Your last photo wasn't approved — try another."
+                        else -> null
+                    }
+                    statusText?.let {
+                        Spacer(modifier = Modifier.height(8.dp))
+                        Text(
+                            text = it,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = Color.Gray
+                        )
+                    }
+                }
+            }
+
+            Spacer(modifier = Modifier.height(16.dp))
+
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceEvenly
             ) {
                 StatItem(count = userPosts.size, label = "Posts", modifier = Modifier.testTag("tag_Posts"))
+                // Only your own follow lists are viewable, so the counts tap
+                // through on your own profile and are plain stats on anyone
+                // else's (issue #8).
                 StatItem(
                     count = profileDetails?.followerCount ?: 0, label = "Followers",
-                    modifier = Modifier.testTag("tag_Followers"),
+                    modifier = Modifier
+                        .testTag("tag_Followers")
+                        .then(
+                            if (isOwnProfile) Modifier.clickable {
+                                navController.navigate(Screen.FollowList.createRoute(FollowListMode.FOLLOWERS.route))
+                            } else Modifier
+                        ),
                 )
-                StatItem(count = profileDetails?.followingCount ?: 0, label = "Following", modifier = Modifier.testTag("tag_Following"))
+                StatItem(
+                    count = profileDetails?.followingCount ?: 0, label = "Following",
+                    modifier = Modifier
+                        .testTag("tag_Following")
+                        .then(
+                            if (isOwnProfile) Modifier.clickable {
+                                navController.navigate(Screen.FollowList.createRoute(FollowListMode.FOLLOWING.route))
+                            } else Modifier
+                        ),
+                )
+            }
+
+            // The user's join number (issue #198), shown on every profile —
+            // your own and everyone else's.
+            profileDetails?.membershipNumber?.let { number ->
+                Spacer(modifier = Modifier.height(8.dp))
+                Text(
+                    text = "🎉 Member #$number",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.testTag("MembershipNumber")
+                )
+            }
+
+            // The user's bio (issue #380): the text when set, shown to everyone,
+            // plus an owner-only Add/Edit button that opens the editor dialog.
+            val bio = profileDetails?.bio ?: ""
+            if (bio.isNotEmpty()) {
+                Spacer(modifier = Modifier.height(8.dp))
+                Text(
+                    text = bio,
+                    style = MaterialTheme.typography.bodyMedium,
+                    textAlign = TextAlign.Center,
+                    modifier = Modifier.testTag("ProfileBio")
+                )
+            } else if (isOwnProfile) {
+                Spacer(modifier = Modifier.height(8.dp))
+                Text(
+                    text = "You haven't added a bio yet.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+            if (isOwnProfile && profileDetails != null) {
+                TextButton(
+                    onClick = {
+                        viewModel.clearBioError()
+                        showBioEditor = true
+                    },
+                    modifier = Modifier.testTag("EditBioButton")
+                ) {
+                    Text(if (bio.isEmpty()) "Add Bio" else "Edit Bio")
+                }
             }
 
             Spacer(modifier = Modifier.height(16.dp))
@@ -160,6 +414,37 @@ fun ProfileBody(
                     )
                 ) {
                     Text(if (isFollowing) "Following" else "Follow")
+                }
+
+                // Relationship category, shown once you follow (issue #392).
+                if (isFollowing) {
+                    val followCategory by viewModel.followCategory.collectAsState()
+                    var categoryMenuExpanded by remember { mutableStateOf(false) }
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Box(modifier = Modifier.fillMaxWidth()) {
+                        OutlinedButton(
+                            onClick = { categoryMenuExpanded = true },
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .testTag("RelationshipCategoryPicker")
+                        ) {
+                            Text("Relationship: ${followCategory.displayName}")
+                        }
+                        DropdownMenu(
+                            expanded = categoryMenuExpanded,
+                            onDismissRequest = { categoryMenuExpanded = false }
+                        ) {
+                            FollowCategory.entries.forEach { category ->
+                                DropdownMenuItem(
+                                    text = { Text(category.displayName) },
+                                    onClick = {
+                                        viewModel.changeCategory(username, category)
+                                        categoryMenuExpanded = false
+                                    }
+                                )
+                            }
+                        }
+                    }
                 }
 
                 Spacer(modifier = Modifier.height(8.dp))

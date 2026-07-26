@@ -10,8 +10,11 @@ import ResetPasswordPage from './pages/ResetPasswordPage'
 import HomePage from './pages/HomePage'
 import PostDetailPage from './pages/PostDetailPage'
 import ProfilePage from './pages/ProfilePage'
+import TagPage from './pages/TagPage'
 import AppealsPage from './pages/AppealsPage'
 import BlockedUsersPage from './pages/BlockedUsersPage'
+import SavedPostsPage from './pages/SavedPostsPage'
+import FollowListPage from './pages/FollowListPage'
 import PrivacyPolicyPage from './pages/PrivacyPolicyPage'
 
 function App() {
@@ -28,8 +31,12 @@ function App() {
       <Route path="/home" element={<HomePage />} />
       <Route path="/post/:postId" element={<PostDetailPage />} />
       <Route path="/profile/:username" element={<ProfilePage />} />
+      <Route path="/tags/:tag" element={<TagPage />} />
       <Route path="/appeals" element={<AppealsPage />} />
       <Route path="/blocked" element={<BlockedUsersPage />} />
+      <Route path="/saved" element={<SavedPostsPage />} />
+      <Route path="/followers" element={<FollowListPage mode="followers" />} />
+      <Route path="/following" element={<FollowListPage mode="following" />} />
       <Route path="/privacy-policy" element={<PrivacyPolicyPage />} />
     </Routes>
   )

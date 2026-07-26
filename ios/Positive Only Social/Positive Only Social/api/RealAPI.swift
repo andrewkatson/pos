@@ -100,6 +100,13 @@ final class RealAPI: Networking {
         let recovery_code: String?
     }
     
+    // The current password is `password` and the replacement is `new_password`,
+    // matching the backend's change_password fields.
+    private struct ChangePasswordBody: Encodable {
+        let password: String
+        let new_password: String
+    }
+
     private struct ResetPasswordBody: Encodable {
         let username: String
         let email: String
@@ -131,20 +138,44 @@ final class RealAPI: Networking {
         // Nil for a text-only post (#307); JSONEncoder omits nil fields.
         let image_url: String?
         let caption: String
+        // Nil defaults to public on the backend (issue #392); omitted when nil.
+        let audience: String?
+        // Whole-caption font + whole-tile background color keys (issue #318).
+        let caption_font: String
+        let background_color: String
     }
-    
+
+    private struct FollowBody: Encodable {
+        // Nil uses the backend's default "following" bucket (issue #392).
+        let category: String?
+    }
+
+    private struct CategoryBody: Encodable {
+        let category: String
+    }
+
     private struct ReportBody: Encodable { // Re-used for posts and comments
         let reason: String
     }
-    
+
     private struct CommentBody: Encodable {
         let comment_text: String
+        // Inline formatting spans (issue #318); nil omits the field.
+        let body_formatting: [CommentFormatSpan]?
     }
 
     private struct SubmitAppealBody: Codable {
         let target_type: String
         let target_identifier: String
         let reason: String
+    }
+
+    private struct SetProfilePhotoBody: Encodable {
+        let image_url: String
+    }
+
+    private struct SetBioBody: Encodable {
+        let bio: String
     }
 
     // MARK: - Private Helpers
@@ -172,9 +203,10 @@ final class RealAPI: Networking {
         pathSegments: [String],
         method: HTTPMethod,
         body: Data? = nil,
-        authToken: String? = nil
+        authToken: String? = nil,
+        queryItems: [URLQueryItem]? = nil
     ) async throws -> Data {
-        
+
         // 1. Construct a safe URL from the path segments
         var urlComponents = URLComponents(string: baseURL)
         let basePath = urlComponents?.path ?? ""
@@ -182,10 +214,13 @@ final class RealAPI: Networking {
             // Ensure each path component is properly encoded
             $0.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? ""
         }.joined(separator: "/")
-        
+
         let fullPath = basePath + path + "/"
         urlComponents?.path = fullPath.replacingOccurrences(of: "//", with: "/")
-        
+        if let queryItems, !queryItems.isEmpty {
+            urlComponents?.queryItems = queryItems
+        }
+
         guard let url = urlComponents?.url else {
             throw APIError.invalidURL
         }
@@ -338,6 +373,31 @@ final class RealAPI: Networking {
         )
     }
 
+    // MARK: - Account (issues #194 / #197)
+
+    /// Fetches the signed-in account's own username and email.
+    func getCurrentUser(sessionManagementToken: String) async throws -> Data {
+        // Authenticated GET, no body; scoped to the caller on the backend.
+        return try await performRequest(
+            pathSegments: [GVOAppConstants.pathSegmentMe],
+            method: .get,
+            authToken: sessionManagementToken
+        )
+    }
+
+    /// Changes the signed-in account's password.
+    func changePassword(sessionManagementToken: String, currentPassword: String, newPassword: String) async throws -> Data {
+        let body = ChangePasswordBody(password: currentPassword, new_password: newPassword)
+        let requestBody = try encode(body)
+
+        return try await performRequest(
+            pathSegments: [GVOAppConstants.pathSegmentPassword, GVOAppConstants.pathSegmentChange],
+            method: .post,
+            body: requestBody,
+            authToken: sessionManagementToken
+        )
+    }
+
     /// Resets the user's password.
     func resetPassword(username: String, email: String, newPassword: String, resetToken: String) async throws -> Data {
         let body = ResetPasswordBody(username: username, email: email, password: newPassword, reset_token: resetToken)
@@ -430,21 +490,35 @@ final class RealAPI: Networking {
     }
     
     /// Follow a user
-    func followUser(sessionManagementToken: String, username: String) async throws -> Data {
-        // This is a POST request, no body, with auth. Username is in path.
+    func followUser(sessionManagementToken: String, username: String, category: String? = nil) async throws -> Data {
+        // POST with auth. Username is in path; an optional category rides in the
+        // body (issue #392). A nil category sends no body, matching older clients.
+        let requestBody = category == nil ? nil : try encode(FollowBody(category: category))
         return try await performRequest(
             pathSegments: [GVOAppConstants.pathSegmentUsers, username, GVOAppConstants.pathSegmentFollow],
             method: .post,
+            body: requestBody,
             authToken: sessionManagementToken
         )
     }
-    
+
     /// Unfollow a user
     func unfollowUser(sessionManagementToken: String, username: String) async throws -> Data {
         // This is a POST request, no body, with auth. Username is in path.
         return try await performRequest(
             pathSegments: [GVOAppConstants.pathSegmentUsers, username, GVOAppConstants.pathSegmentUnfollow],
             method: .post,
+            authToken: sessionManagementToken
+        )
+    }
+
+    /// Re-categorize an existing follow relationship (issue #392).
+    func setFollowCategory(sessionManagementToken: String, username: String, category: String) async throws -> Data {
+        let requestBody = try encode(CategoryBody(category: category))
+        return try await performRequest(
+            pathSegments: [GVOAppConstants.pathSegmentUsers, username, GVOAppConstants.pathSegmentCategory],
+            method: .post,
+            body: requestBody,
             authToken: sessionManagementToken
         )
     }
@@ -477,8 +551,8 @@ final class RealAPI: Networking {
     }
 
     /// Creates and stores a new post. A nil `imageURL` creates a text-only post (#307).
-    func makePost(sessionManagementToken: String, imageURL: String?, caption: String) async throws -> Data {
-        let body = MakePostBody(image_url: imageURL, caption: caption)
+    func makePost(sessionManagementToken: String, imageURL: String?, caption: String, audience: String? = nil, captionFont: String = "default", backgroundColor: String = "default") async throws -> Data {
+        let body = MakePostBody(image_url: imageURL, caption: caption, audience: audience, caption_font: captionFont, background_color: backgroundColor)
         let requestBody = try encode(body)
         
         return try await performRequest(
@@ -551,13 +625,17 @@ final class RealAPI: Networking {
         )
     }
     
-    /// Get all posts for a user's feed in batches for anyone they follow.
-    func getPostsForFollowedUsers(sessionManagementToken: String, batch: Int) async throws -> Data {
-        // This is a GET request, no body, with auth. Batch is in path.
+    /// Get all posts for a user's feed in batches for anyone they follow,
+    /// optionally narrowed to one relationship category (issue #392).
+    func getPostsForFollowedUsers(sessionManagementToken: String, batch: Int, category: String? = nil) async throws -> Data {
+        // This is a GET request, no body, with auth. Batch is in path; an
+        // optional category rides in the query string.
+        let query = category.map { [URLQueryItem(name: GVOAppConstants.queryKeyCategory, value: $0)] }
         return try await performRequest(
             pathSegments: [ GVOAppConstants.pathSregmenFeed, GVOAppConstants.pathSegmentFollowed, String(batch)],
             method: .get,
-            authToken: sessionManagementToken
+            authToken: sessionManagementToken,
+            queryItems: query
         )
     }
     
@@ -572,6 +650,16 @@ final class RealAPI: Networking {
         )
     }
     
+    /// Gets a batch of posts carrying a given #hashtag (issue #379).
+    func getPostsForTag(sessionManagementToken: String, tag: String, batch: Int) async throws -> Data {
+        // GET tags/<tag>/posts/<batch>/, authenticated. Tag/batch are in the path.
+        return try await performRequest(
+            pathSegments: [GVOAppConstants.pathSegmentTags, tag, GVOAppConstants.pathSegmentPosts, String(batch)],
+            method: .get,
+            authToken: sessionManagementToken
+        )
+    }
+
     /// Gets the details for a single post.
     func getPostDetails(sessionManagementToken: String, postIdentifier: String) async throws -> Data {
         // Authenticated GET so the response can include the current user's like state. ID is in path.
@@ -595,8 +683,8 @@ final class RealAPI: Networking {
     // MARK: - Comment Management
     
     /// Adds a direct comment to a post.
-    func commentOnPost(sessionManagementToken: String, postIdentifier: String, commentText: String) async throws -> Data {
-        let body = CommentBody(comment_text: commentText)
+    func commentOnPost(sessionManagementToken: String, postIdentifier: String, commentText: String, formatting: [CommentFormatSpan]? = nil) async throws -> Data {
+        let body = CommentBody(comment_text: commentText, body_formatting: formatting)
         let requestBody = try encode(body)
         
         return try await performRequest(
@@ -680,8 +768,8 @@ final class RealAPI: Networking {
     }
     
     /// Replies to a comment thread.
-    func replyToCommentThread(sessionManagementToken: String, postIdentifier: String, commentThreadIdentifier: String, commentText: String) async throws -> Data {
-        let body = CommentBody(comment_text: commentText)
+    func replyToCommentThread(sessionManagementToken: String, postIdentifier: String, commentThreadIdentifier: String, commentText: String, formatting: [CommentFormatSpan]? = nil) async throws -> Data {
+        let body = CommentBody(comment_text: commentText, body_formatting: formatting)
         let requestBody = try encode(body)
         
         return try await performRequest(
@@ -715,12 +803,67 @@ final class RealAPI: Networking {
         )
     }
 
+    func getFollowers(sessionManagementToken: String) async throws -> Data {
+        // GET users/followers/ with auth — the signed-in user's own followers.
+        return try await performRequest(
+            pathSegments: [GVOAppConstants.pathSegmentUsers, GVOAppConstants.pathSegmentFollowers],
+            method: .get,
+            authToken: sessionManagementToken
+        )
+    }
+
+    func getFollowing(sessionManagementToken: String) async throws -> Data {
+        // GET users/following/ with auth — the users the signed-in user follows.
+        return try await performRequest(
+            pathSegments: [GVOAppConstants.pathSegmentUsers, GVOAppConstants.pathSegmentFollowing],
+            method: .get,
+            authToken: sessionManagementToken
+        )
+    }
+
     /// Gets the profile details for a user
     func getProfileDetails(sessionManagementToken: String, username: String) async throws -> Data {
         // This is a GET request, no body, with auth. Username is in path.
         return try await performRequest(
             pathSegments: [GVOAppConstants.pathSegmentUsers, username, GVOAppConstants.pathSegmenProfile],
             method: .get,
+            authToken: sessionManagementToken
+        )
+    }
+
+    // MARK: - Profile Photo (issue #7)
+
+    /// Sets the signed-in user's profile photo. Path: profile/photo/.
+    func setProfilePhoto(sessionManagementToken: String, imageURL: String) async throws -> Data {
+        let body = SetProfilePhotoBody(image_url: imageURL)
+        let requestBody = try encode(body)
+        return try await performRequest(
+            pathSegments: [GVOAppConstants.pathSegmenProfile, GVOAppConstants.pathSegmentPhoto],
+            method: .post,
+            body: requestBody,
+            authToken: sessionManagementToken
+        )
+    }
+
+    /// Removes the signed-in user's profile photo. Path: profile/photo/remove/.
+    func removeProfilePhoto(sessionManagementToken: String) async throws -> Data {
+        return try await performRequest(
+            pathSegments: [GVOAppConstants.pathSegmenProfile, GVOAppConstants.pathSegmentPhoto, GVOAppConstants.pathSegmentRemove],
+            method: .post,
+            authToken: sessionManagementToken
+        )
+    }
+
+    // MARK: - Bio (issue #380)
+
+    /// Sets (or clears) the signed-in user's bio. Path: profile/bio/.
+    func setBio(sessionManagementToken: String, bio: String) async throws -> Data {
+        let body = SetBioBody(bio: bio)
+        let requestBody = try encode(body)
+        return try await performRequest(
+            pathSegments: [GVOAppConstants.pathSegmenProfile, GVOAppConstants.pathSegmentBio],
+            method: .post,
+            body: requestBody,
             authToken: sessionManagementToken
         )
     }

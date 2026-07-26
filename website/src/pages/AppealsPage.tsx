@@ -145,7 +145,12 @@ function AppealsView() {
               {hiddenPosts.map(post => (
                 <div key={post.post_identifier} className="appeal-item">
                   {post.image_url === null ? (
-                    <CaptionTile caption={post.caption} variant="thumb" />
+                    <CaptionTile
+                      caption={post.caption}
+                      captionFont={post.caption_font}
+                      backgroundColor={post.background_color}
+                      variant="thumb"
+                    />
                   ) : (
                     <img className="appeal-item__thumb" src={post.image_url} alt={post.caption} />
                   )}

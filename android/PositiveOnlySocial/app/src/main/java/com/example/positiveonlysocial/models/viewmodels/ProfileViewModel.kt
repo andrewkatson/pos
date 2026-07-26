@@ -5,10 +5,15 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.example.positiveonlysocial.api.ApiErrors
 import com.example.positiveonlysocial.api.PositiveOnlySocialAPI
+import com.example.positiveonlysocial.data.model.FollowCategory
 import com.example.positiveonlysocial.data.model.Post
 import com.example.positiveonlysocial.data.model.ProfileDetailsResponse
+import com.example.positiveonlysocial.data.model.SetBioRequest
+import com.example.positiveonlysocial.data.model.SetCategoryRequest
+import com.example.positiveonlysocial.data.model.SetProfilePhotoRequest
 import com.example.positiveonlysocial.data.model.UserSession
 import com.example.positiveonlysocial.data.security.KeychainHelperProtocol
+import com.example.positiveonlysocial.data.uploader.ImageUploader
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -21,7 +26,14 @@ private const val TAG = "ProfileViewModel"
 class ProfileViewModel(
     private val api: PositiveOnlySocialAPI,
     private val keychainHelper: KeychainHelperProtocol,
-    private val account: String = "userSessionToken"
+    private val account: String = "userSessionToken",
+    // Uploads the JPEG bytes to the presigned S3 URL. Defaulted to the real
+    // ImageUploader (compress + EXIF-strip + PUT), and injectable so unit tests
+    // can substitute a no-op — the real one decodes a Bitmap, which needs the
+    // Android framework (issue #7).
+    private val uploadBytes: suspend (ByteArray, String) -> Unit = { data, url ->
+        ImageUploader().upload(data, url)
+    }
 ) : ViewModel() {
 
     // Published properties
@@ -37,6 +49,11 @@ class ProfileViewModel(
     private val _isFollowing = MutableStateFlow(false)
     val isFollowing: StateFlow<Boolean> = _isFollowing.asStateFlow()
 
+    // The viewer's relationship category for this profile (issue #392); only
+    // meaningful while following.
+    private val _followCategory = MutableStateFlow(FollowCategory.FOLLOWING)
+    val followCategory: StateFlow<FollowCategory> = _followCategory.asStateFlow()
+
     private val _isBlocked = MutableStateFlow(false)
     val isBlocked: StateFlow<Boolean> = _isBlocked.asStateFlow()
 
@@ -48,6 +65,27 @@ class ProfileViewModel(
 
     private val _isOwnProfile = MutableStateFlow(false)
     val isOwnProfile: StateFlow<Boolean> = _isOwnProfile.asStateFlow()
+
+    // True while the owner's profile-photo set/remove is in flight (issue #7), so
+    // the header can disable the controls and show a spinner.
+    private val _isPhotoBusy = MutableStateFlow(false)
+    val isPhotoBusy: StateFlow<Boolean> = _isPhotoBusy.asStateFlow()
+
+    // Photo-specific error (issue #7), shown next to the photo controls in the
+    // header rather than via the shared errorMessage (which the profile screen
+    // uses for load failures). Covers the whole flow: reading the picked bytes,
+    // the presigned upload, and the set/remove calls.
+    private val _photoErrorMessage = MutableStateFlow<String?>(null)
+    val photoErrorMessage: StateFlow<String?> = _photoErrorMessage.asStateFlow()
+
+    // Bio editing (issue #380). Unlike the photo, a bio is plain text moderated
+    // synchronously, so a rejection comes back inline (no pending/approved state
+    // to poll) — surfaced through _bioErrorMessage so the editor can show it.
+    private val _isBioBusy = MutableStateFlow(false)
+    val isBioBusy: StateFlow<Boolean> = _isBioBusy.asStateFlow()
+
+    private val _bioErrorMessage = MutableStateFlow<String?>(null)
+    val bioErrorMessage: StateFlow<String?> = _bioErrorMessage.asStateFlow()
 
     /**
      * Like / report / retract-report / delete for the posts in this profile's
@@ -117,6 +155,7 @@ class ProfileViewModel(
                     val profile = profileResponse.body()
                     _profileDetails.value = profile
                     _isFollowing.value = profile?.isFollowing ?: false
+                    _followCategory.value = FollowCategory.from(profile?.followCategory)
                     _isBlocked.value = profile?.isBlocked ?: false
                 } else {
                     _errorMessage.value = ApiErrors.messageFor(profileResponse, fallback = "Failed to load this profile. Please try again.")
@@ -174,6 +213,7 @@ class ProfileViewModel(
                     val profile = profileResponse.body()
                     _profileDetails.value = profile
                     _isFollowing.value = profile?.isFollowing ?: false
+                    _followCategory.value = FollowCategory.from(profile?.followCategory)
                     _isBlocked.value = profile?.isBlocked ?: false
                 } else {
                     // Surface the failure instead of silently leaving follow/block
@@ -299,6 +339,174 @@ class ProfileViewModel(
         }
     }
 
+    /**
+     * Sets the signed-in user's profile photo (issue #7): uploads the JPEG bytes
+     * via the same presigned pipeline post images use (createUploadUrl +
+     * ImageUploader), hands the canonical URL to setProfilePhoto, then reloads
+     * the profile so the header reflects the new pending/approved state. The
+     * caller reads the picked photo's bytes (it needs a Context); the byte-free
+     * upload + set + reload live here.
+     */
+    fun setProfilePhoto(username: String, imageBytes: ByteArray) {
+        if (_isPhotoBusy.value) return
+        _isPhotoBusy.value = true
+        _photoErrorMessage.value = null
+
+        viewModelScope.launch {
+            try {
+                val userSession = keychainHelper.load(UserSession::class.java, service, account)
+                if (userSession == null) {
+                    Log.e(TAG, "No active session found — cannot set profile photo")
+                    _photoErrorMessage.value = "Not logged in."
+                    return@launch
+                }
+                val token = userSession.sessionToken
+
+                val uploadUrlResponse = api.createUploadUrl(token)
+                val uploadUrlBody = uploadUrlResponse.body()
+                if (!uploadUrlResponse.isSuccessful || uploadUrlBody == null) {
+                    _photoErrorMessage.value = "Could not update your profile photo. Please try again."
+                    return@launch
+                }
+
+                uploadBytes(imageBytes, uploadUrlBody.uploadUrl)
+
+                val setResponse = api.setProfilePhoto(token, SetProfilePhotoRequest(uploadUrlBody.imageUrl))
+                if (!setResponse.isSuccessful) {
+                    _photoErrorMessage.value = ApiErrors.messageFor(setResponse, fallback = "Could not update your profile photo. Please try again.")
+                    return@launch
+                }
+
+                // Reload so the header shows the new photo / review state. On
+                // async backends it reads back as pending; the eager path and the
+                // stub have already approved it.
+                reloadProfileDetails(username, token)
+            } catch (e: Exception) {
+                Log.e(TAG, "Error setting profile photo", e)
+                _photoErrorMessage.value = ApiErrors.messageFor(e, fallback = "Could not update your profile photo. Please try again.")
+            } finally {
+                _isPhotoBusy.value = false
+            }
+        }
+    }
+
+    /**
+     * Surface an error when the picked profile photo can't be read from the
+     * content resolver — e.g. a lapsed picker grant throwing SecurityException,
+     * or a null input stream — so the "Add/Change photo" action doesn't appear
+     * to silently do nothing. Mirrors NewPostScreen's read-failure handling.
+     */
+    fun onProfilePhotoReadFailed() {
+        _photoErrorMessage.value = "Could not read the selected image. Please try again."
+    }
+
+    /** Removes the signed-in user's profile photo (issue #7), then reloads. */
+    fun removeProfilePhoto(username: String) {
+        if (_isPhotoBusy.value) return
+        _isPhotoBusy.value = true
+        _photoErrorMessage.value = null
+
+        viewModelScope.launch {
+            try {
+                val userSession = keychainHelper.load(UserSession::class.java, service, account)
+                if (userSession == null) {
+                    Log.e(TAG, "No active session found — cannot remove profile photo")
+                    _photoErrorMessage.value = "Not logged in."
+                    return@launch
+                }
+                val token = userSession.sessionToken
+
+                val response = api.removeProfilePhoto(token)
+                if (response.isSuccessful) {
+                    reloadProfileDetails(username, token)
+                } else {
+                    _photoErrorMessage.value = ApiErrors.messageFor(response, fallback = "Could not remove your profile photo. Please try again.")
+                }
+            } catch (e: Exception) {
+                Log.e(TAG, "Error removing profile photo", e)
+                _photoErrorMessage.value = ApiErrors.messageFor(e, fallback = "Could not remove your profile photo. Please try again.")
+            } finally {
+                _isPhotoBusy.value = false
+            }
+        }
+    }
+
+    /**
+     * Reloads just the profile details (not the post grid), used after a
+     * photo set/remove so the header avatar and owner-only status refresh
+     * without disturbing pagination.
+     */
+    private suspend fun reloadProfileDetails(username: String, token: String) {
+        val profileResponse = api.getProfileDetails(token, username)
+        if (profileResponse.isSuccessful) {
+            val profile = profileResponse.body()
+            _profileDetails.value = profile
+            _isFollowing.value = profile?.isFollowing ?: false
+            _isBlocked.value = profile?.isBlocked ?: false
+        } else {
+            // The set/remove itself succeeded but this refresh didn't, so the
+            // header would keep showing the old avatar/state. Surface it as a
+            // photo error (a thrown network failure is already caught by the
+            // calling set/remove) so the action doesn't look like it failed.
+            _photoErrorMessage.value = ApiErrors.messageFor(
+                profileResponse,
+                fallback = "Your change was saved, but the profile couldn't refresh — pull to refresh."
+            )
+        }
+    }
+
+    /** Clears any inline bio error, e.g. when the editor is dismissed or reopened. */
+    fun clearBioError() {
+        _bioErrorMessage.value = null
+    }
+
+    /**
+     * Sets (or clears, with a blank string) the signed-in user's bio (issue
+     * #380). On success the new bio (returned by the endpoint) is written
+     * straight into [profileDetails] so the header updates without a reload. A
+     * non-positive bio is rejected by the server and surfaced through
+     * [bioErrorMessage] without changing the stored bio. [onSuccess] runs only
+     * on a successful save, so the caller can dismiss the editor.
+     */
+    fun updateBio(newBio: String, onSuccess: () -> Unit = {}) {
+        if (_isBioBusy.value) return
+        _isBioBusy.value = true
+        _bioErrorMessage.value = null
+
+        viewModelScope.launch {
+            try {
+                val userSession = keychainHelper.load(UserSession::class.java, service, account)
+                if (userSession == null) {
+                    Log.e(TAG, "No active session found — cannot update bio")
+                    _bioErrorMessage.value = "Not logged in."
+                    return@launch
+                }
+                val token = userSession.sessionToken
+
+                val response = api.setBio(token, SetBioRequest(newBio))
+                if (response.isSuccessful) {
+                    // setBio returns the stored bio, so update it directly rather
+                    // than reloading the whole profile — reloadProfileDetails
+                    // reports refresh failures as a *photo* error, which would be
+                    // misleading right after a successful bio save.
+                    val storedBio = response.body()?.bio ?: newBio
+                    _profileDetails.value = _profileDetails.value?.copy(bio = storedBio)
+                    onSuccess()
+                } else {
+                    _bioErrorMessage.value = ApiErrors.messageFor(
+                        response,
+                        fallback = "Could not update your bio. Please try again."
+                    )
+                }
+            } catch (e: Exception) {
+                Log.e(TAG, "Error updating bio", e)
+                _bioErrorMessage.value = ApiErrors.messageFor(e, fallback = "Could not update your bio. Please try again.")
+            } finally {
+                _isBioBusy.value = false
+            }
+        }
+    }
+
     fun toggleFollow(username: String) {
         val currentProfile = _profileDetails.value ?: return
         val isFollowing = currentProfile.isFollowing
@@ -307,9 +515,15 @@ class ProfileViewModel(
         // follow button and the follower count never drift apart.
         _profileDetails.value = currentProfile.copy(
             isFollowing = !isFollowing,
+            // A fresh follow starts in the default "following" bucket; unfollowing
+            // clears the category to null to match the API contract (#392).
+            followCategory = if (isFollowing) null else FollowCategory.FOLLOWING.value,
             followerCount = if (isFollowing) currentProfile.followerCount - 1 else currentProfile.followerCount + 1
         )
         _isFollowing.value = !isFollowing
+        // Reset the category state either way: it's the default for a fresh
+        // follow and meaningless (null on the wire) once unfollowed.
+        _followCategory.value = FollowCategory.FOLLOWING
 
         viewModelScope.launch {
             try {
@@ -330,12 +544,57 @@ class ProfileViewModel(
                     // Revert on failure
                     _profileDetails.value = currentProfile
                     _isFollowing.value = isFollowing
+                    _followCategory.value = FollowCategory.from(currentProfile.followCategory)
                     _errorMessage.value = "Failed to update follow status"
                 }
             } catch (e: Exception) {
                 // Revert on error
                 _profileDetails.value = currentProfile
                 _isFollowing.value = isFollowing
+                _followCategory.value = FollowCategory.from(currentProfile.followCategory)
+                _errorMessage.value = ApiErrors.messageFor(e, fallback = "Something went wrong. Please try again.")
+            }
+        }
+    }
+
+    /**
+     * Re-categorizes the relationship (issue #392). Optimistic: updates the
+     * selection immediately and reverts if the call fails.
+     */
+    fun changeCategory(username: String, newCategory: FollowCategory) {
+        val currentProfile = _profileDetails.value ?: return
+        if (!_isFollowing.value || newCategory == _followCategory.value) return
+
+        val previous = _followCategory.value
+        _followCategory.value = newCategory
+        _profileDetails.value = currentProfile.copy(followCategory = newCategory.value)
+
+        // Only undo this request's optimistic update if a newer changeCategory
+        // hasn't since moved the selection elsewhere — otherwise a slow failure
+        // would clobber the user's newer choice.
+        fun revertIfStillCurrent() {
+            if (_followCategory.value == newCategory) {
+                _followCategory.value = previous
+                _profileDetails.value = currentProfile
+            }
+        }
+
+        viewModelScope.launch {
+            try {
+                val userSession = keychainHelper.load(UserSession::class.java, service, account)
+                if (userSession == null) {
+                    revertIfStillCurrent()
+                    _errorMessage.value = "Not logged in."
+                    return@launch
+                }
+                val response = api.setFollowCategory(
+                    userSession.sessionToken, username, SetCategoryRequest(newCategory.value))
+                if (!response.isSuccessful) {
+                    revertIfStillCurrent()
+                    _errorMessage.value = "Failed to update relationship"
+                }
+            } catch (e: Exception) {
+                revertIfStillCurrent()
                 _errorMessage.value = ApiErrors.messageFor(e, fallback = "Something went wrong. Please try again.")
             }
         }

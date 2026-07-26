@@ -27,17 +27,23 @@ function PostThumbnail({
   variant,
   onDoubleClick,
 }: {
-  post: Pick<FeedPost, 'image_url' | 'original_image_url' | 'caption'>
+  post: Pick<
+    FeedPost,
+    'image_url' | 'original_image_url' | 'caption' | 'caption_font' | 'background_color'
+  >
   className?: string
   variant?: 'detail' | 'thumb'
   onDoubleClick?: MouseEventHandler<HTMLElement>
 }) {
   const [useOriginal, setUseOriginal] = useState(false)
   if (post.image_url === null) {
-    // A text-only post (#307) has no image; render its caption as the tile.
+    // A text-only post (#307) has no image; render its caption as the tile,
+    // styled with the author's chosen font/background color (issue #318).
     return (
       <CaptionTile
         caption={post.caption}
+        captionFont={post.caption_font}
+        backgroundColor={post.background_color}
         variant={variant}
         className={className}
         onDoubleClick={onDoubleClick ? (e) => onDoubleClick(e) : undefined}

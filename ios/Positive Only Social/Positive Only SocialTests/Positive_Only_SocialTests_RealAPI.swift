@@ -76,4 +76,82 @@ struct Positive_Only_SocialTests_RealAPI {
             CapturingURLProtocol.lastRequestURL?.path
                 == "/user_index/posts/11111111-1111-1111-1111-111111111111/comment")
     }
+
+    @Test func testGetPostsForTagBuildsTagPath() async throws {
+        // Browse-by-tag hits tags/<tag>/posts/<batch>/ (issue #379).
+        CapturingURLProtocol.lastRequestURL = nil
+        URLProtocol.registerClass(CapturingURLProtocol.self)
+        defer { URLProtocol.unregisterClass(CapturingURLProtocol.self) }
+
+        _ = try await RealAPI().getPostsForTag(
+            sessionManagementToken: "token", tag: "sunset", batch: 0)
+
+        #expect(CapturingURLProtocol.lastRequestURL?.path == "/user_index/tags/sunset/posts/0")
+    }
+
+    /// GET /me/ backs the Settings "Contact Information" section (#194/#197).
+    @Test func testGetCurrentUserUsesMePath() async throws {
+        CapturingURLProtocol.lastRequestURL = nil
+        URLProtocol.registerClass(CapturingURLProtocol.self)
+        defer { URLProtocol.unregisterClass(CapturingURLProtocol.self) }
+
+        _ = try await RealAPI().getCurrentUser(sessionManagementToken: "token")
+
+        #expect(CapturingURLProtocol.lastRequestURL?.path == "/user_index/me")
+    }
+
+    /// POST /password/change/ changes the signed-in account's password (#197).
+    @Test func testChangePasswordUsesPasswordChangePath() async throws {
+        CapturingURLProtocol.lastRequestURL = nil
+        URLProtocol.registerClass(CapturingURLProtocol.self)
+        defer { URLProtocol.unregisterClass(CapturingURLProtocol.self) }
+
+        _ = try await RealAPI().changePassword(
+            sessionManagementToken: "token",
+            currentPassword: "OldPassword123",
+            newPassword: "NewPassword456"
+        )
+
+        #expect(CapturingURLProtocol.lastRequestURL?.path == "/user_index/password/change")
+    }
+
+    // Setting a profile photo (issue #7) must POST to profile/photo/.
+    @Test func testSetProfilePhotoUsesProfilePhotoPath() async throws {
+        CapturingURLProtocol.lastRequestURL = nil
+        URLProtocol.registerClass(CapturingURLProtocol.self)
+        defer { URLProtocol.unregisterClass(CapturingURLProtocol.self) }
+
+        _ = try await RealAPI().setProfilePhoto(
+            sessionManagementToken: "token",
+            imageURL: "https://example.com/avatar.jpeg"
+        )
+
+        // `URL.path` strips the trailing slash that `RealAPI` appends (see the
+        // comment endpoint test above), so the expected value omits it.
+        #expect(CapturingURLProtocol.lastRequestURL?.path == "/user_index/profile/photo")
+    }
+
+    // Removing a profile photo (issue #7) must POST to profile/photo/remove/.
+    @Test func testRemoveProfilePhotoUsesProfilePhotoRemovePath() async throws {
+        CapturingURLProtocol.lastRequestURL = nil
+        URLProtocol.registerClass(CapturingURLProtocol.self)
+        defer { URLProtocol.unregisterClass(CapturingURLProtocol.self) }
+
+        _ = try await RealAPI().removeProfilePhoto(sessionManagementToken: "token")
+
+        // `URL.path` strips the trailing slash `RealAPI` appends.
+        #expect(CapturingURLProtocol.lastRequestURL?.path == "/user_index/profile/photo/remove")
+    }
+
+    // Setting a bio (issue #380) must POST to profile/bio/.
+    @Test func testSetBioUsesProfileBioPath() async throws {
+        CapturingURLProtocol.lastRequestURL = nil
+        URLProtocol.registerClass(CapturingURLProtocol.self)
+        defer { URLProtocol.unregisterClass(CapturingURLProtocol.self) }
+
+        _ = try await RealAPI().setBio(sessionManagementToken: "token", bio: "Hello there")
+
+        // `URL.path` strips the trailing slash `RealAPI` appends.
+        #expect(CapturingURLProtocol.lastRequestURL?.path == "/user_index/profile/bio")
+    }
 }

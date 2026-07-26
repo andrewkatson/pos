@@ -174,7 +174,8 @@ test('posting a comment opens the dialog, calls the API, and dismisses', async (
   await userEvent.click(screen.getByRole('button', { name: 'Add a comment...' }))
   await userEvent.type(screen.getByLabelText('Comment text'), 'nice!')
   await userEvent.click(screen.getByRole('button', { name: 'Post' }))
-  await waitFor(() => expect(mockCommentOnPost).toHaveBeenCalledWith('p1', 'nice!'))
+  // No formatting was applied, so the spans argument is undefined (#318).
+  await waitFor(() => expect(mockCommentOnPost).toHaveBeenCalledWith('p1', 'nice!', undefined))
   // The dialog closes immediately on submit so repeated taps can't double-post.
   expect(screen.queryByRole('dialog', { name: 'Add comment' })).not.toBeInTheDocument()
 })
@@ -369,6 +370,43 @@ test('already-reported comment: the menu offers Retract Report with the reason p
   await userEvent.click(within(retractDialog).getByRole('button', { name: 'Retract Report' }))
   await waitFor(() =>
     expect(mockRetractReportComment).toHaveBeenCalledWith('p1', 't1', 'c1'),
+  )
+})
+
+test('sharing a post copies its link when there is no OS share sheet (issue #34)', async () => {
+  localStorage.setItem('username', 'someone-else')
+  const writeText = vi.fn().mockResolvedValue(undefined)
+  // No navigator.share in jsdom, so shareLink() falls back to the clipboard.
+  vi.stubGlobal('navigator', { clipboard: { writeText } })
+  renderDetail()
+  await screen.findByText('sunshine')
+
+  await userEvent.click(screen.getByRole('button', { name: 'Post options' }))
+  const menu = screen.getByRole('dialog', { name: 'Post options' })
+  await userEvent.click(within(menu).getByRole('button', { name: 'Share' }))
+
+  await waitFor(() =>
+    expect(writeText).toHaveBeenCalledWith(`${window.location.origin}/post/p1`),
+  )
+  // The fallback tells the user the link is now on their clipboard.
+  expect(await screen.findByRole('dialog', { name: 'Link copied' })).toBeInTheDocument()
+})
+
+test('sharing a comment copies a #comment-<id> deep link (issue #34)', async () => {
+  localStorage.setItem('username', 'someone-else')
+  mockGetThreadRefs.mockResolvedValue([{ comment_thread_identifier: 't1' }])
+  mockGetThreadComments.mockResolvedValue([comment])
+  const writeText = vi.fn().mockResolvedValue(undefined)
+  vi.stubGlobal('navigator', { clipboard: { writeText } })
+  renderDetail()
+  await screen.findByText('love this')
+
+  await userEvent.click(screen.getByRole('button', { name: 'Options for comment by bob' }))
+  const menu = screen.getByRole('dialog', { name: 'Comment options' })
+  await userEvent.click(within(menu).getByRole('button', { name: 'Share' }))
+
+  await waitFor(() =>
+    expect(writeText).toHaveBeenCalledWith(`${window.location.origin}/post/p1#comment-c1`),
   )
 })
 

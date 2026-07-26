@@ -2,13 +2,25 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { apiClient } from '../api/client'
 import { getCurrentUsername } from '../api/session'
-import type { FeedPost } from '../api/types'
+import type { FeedPost, FollowCategory } from '../api/types'
 import { profilePathFor } from '../utils/profilePath'
 import PostThumbnail from './PostThumbnail'
 import PostActionBar from './PostActionBar'
 import { usePostActions } from './usePostActions'
+import Avatar from './Avatar'
 
 type FeedType = 'forYou' | 'following'
+/** 'all' is the whole following feed; the others narrow it by group (#392). */
+type FeedGroup = 'all' | FollowCategory
+
+const GROUP_OPTIONS: { value: FeedGroup; label: string }[] = [
+  { value: 'all', label: 'Everyone' },
+  // "Following" is the default bucket (not friend/family), matching the profile
+  // relationship-category label; "Everyone" already covers the whole feed.
+  { value: 'following', label: 'Following' },
+  { value: 'friend', label: 'Friends' },
+  { value: 'family', label: 'Family' },
+]
 
 /**
  * The "Feed" tab with a For You / Following segmented control. Each feed loads
@@ -21,6 +33,7 @@ type FeedType = 'forYou' | 'following'
 function FeedTab() {
   const navigate = useNavigate()
   const [selected, setSelected] = useState<FeedType>('forYou')
+  const [group, setGroup] = useState<FeedGroup>('all')
 
   // Track mount state so async loads that resolve after the tab is switched
   // away (HomePage unmounts inactive tabs) don't set state on an unmounted view.
@@ -40,7 +53,7 @@ function FeedTab() {
   const [isLoading, setIsLoading] = useState(true)
   const [errorMessage, setErrorMessage] = useState<string | null>(null)
 
-  const { stateFor, toggleLike, openMenu, dialogs } = usePostActions({
+  const { stateFor, toggleLike, toggleSave, openMenu, dialogs } = usePostActions({
     currentUsername: getCurrentUsername(),
     // Deleting from the feed drops the row rather than reloading the whole feed,
     // which would reshuffle the weighted ordering under the user (issue #267).
@@ -51,8 +64,10 @@ function FeedTab() {
 
   const fetcher = useCallback(
     (batch: number) =>
-      selected === 'forYou' ? apiClient.getFeed(batch) : apiClient.getFollowedFeed(batch),
-    [selected],
+      selected === 'forYou'
+        ? apiClient.getFeed(batch)
+        : apiClient.getFollowedFeed(batch, group === 'all' ? undefined : group),
+    [selected, group],
   )
 
   const loadFeed = useCallback(
@@ -129,6 +144,31 @@ function FeedTab() {
         </button>
       </div>
 
+      {selected === 'following' && (
+        <label className="feed-group-filter">
+          <span className="visually-hidden">Filter by group</span>
+          <select
+            className="select-input"
+            aria-label="Filter following feed by group"
+            value={group}
+            onChange={e => {
+              const next = e.target.value as FeedGroup
+              // Re-selecting the current group wouldn't change `group`, so the
+              // reload effect wouldn't fire — guard against a stuck spinner.
+              if (next === group) return
+              setIsLoading(true)
+              setGroup(next)
+            }}
+          >
+            {GROUP_OPTIONS.map(opt => (
+              <option key={opt.value} value={opt.value}>
+                {opt.label}
+              </option>
+            ))}
+          </select>
+        </label>
+      )}
+
       <button
         type="button"
         className="refresh-button"
@@ -148,13 +188,21 @@ function FeedTab() {
         <div className="feed-list">
           {posts.map(post => (
             <article key={post.post_identifier}>
-              <button
-                type="button"
-                className="feed-post__author"
-                onClick={() => navigate(profilePathFor(post.author_username))}
-              >
-                {post.author_username}
-              </button>
+              <div className="author-line">
+                <Avatar
+                  src={post.author_profile_image_url}
+                  originalSrc={post.author_profile_image_original_url}
+                  username={post.author_username}
+                  size="sm"
+                />
+                <button
+                  type="button"
+                  className="feed-post__author"
+                  onClick={() => navigate(profilePathFor(post.author_username))}
+                >
+                  {post.author_username}
+                </button>
+              </div>
               <button
                 type="button"
                 className="feed-post__image"
@@ -163,12 +211,19 @@ function FeedTab() {
               >
                 <PostThumbnail post={post} />
               </button>
+              {/* The caption under the photo (issue #378). Text-only posts (#307)
+                  already render their caption as the tile above, so it isn't
+                  repeated for them. */}
+              {post.image_url !== null && (
+                <p className="feed-post__caption">{post.caption}</p>
+              )}
               {/* Comment count and post time only appear here: feed rows have
                   the width for them, the square profile tiles don't (#249). */}
               <PostActionBar
                 post={post}
                 state={stateFor(post)}
                 onToggleLike={toggleLike}
+                onToggleSave={toggleSave}
                 onOpenMenu={openMenu}
                 onOpenPost={p => navigate(`/post/${p.post_identifier}`)}
                 showDetails

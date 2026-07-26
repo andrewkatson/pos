@@ -122,6 +122,26 @@ class MockPositiveOnlySocialAPI : PositiveOnlySocialAPI {
         )
     }
 
+    // --- Account / Contact (issue #197/#194) ---
+
+    override suspend fun getCurrentUser(token: String): Response<CurrentUserResponse> {
+        return Response.success(
+            CurrentUserResponse(username = "mock_user", email = "mock_user@example.com")
+        )
+    }
+
+    override suspend fun changePassword(
+        token: String,
+        request: ChangePasswordRequest
+    ): Response<GenericResponse> {
+        return Response.success(
+            GenericResponse(
+                message = "Password changed successfully",
+                error = null
+            )
+        )
+    }
+
     override suspend fun requestReset(request: ResetRequest): Response<GenericResponse> {
         return Response.success(
             GenericResponse(
@@ -197,7 +217,7 @@ class MockPositiveOnlySocialAPI : PositiveOnlySocialAPI {
         )
     }
 
-    override suspend fun getFollowedPosts(token: String, batch: Int): Response<List<Post>> {
+    override suspend fun getFollowedPosts(token: String, batch: Int, category: String?): Response<List<Post>> {
         return Response.success(
             listOf(
                 Post(
@@ -224,6 +244,25 @@ class MockPositiveOnlySocialAPI : PositiveOnlySocialAPI {
                     caption = "Just me",
                     authorUsername = username,
                     likeCount = 10
+                )
+            )
+        )
+    }
+
+    override suspend fun getPostsByTag(
+        token: String,
+        tag: String,
+        batch: Int
+    ): Response<List<Post>> {
+        return Response.success(
+            listOf(
+                Post(
+                    postIdentifier = "6",
+                    imageUrl = "https://example.com/tagged.jpg",
+                    caption = "Tagged #$tag",
+                    authorUsername = "tag_fan",
+                    likeCount = 7,
+                    tags = listOf(tag)
                 )
             )
         )
@@ -488,6 +527,20 @@ class MockPositiveOnlySocialAPI : PositiveOnlySocialAPI {
         )
     }
 
+    override suspend fun setFollowCategory(
+        token: String,
+        username: String,
+        request: SetCategoryRequest
+    ): Response<GenericResponse> {
+        return Response.success(
+            GenericResponse(
+                message = "Category updated",
+                error = null,
+                followCategory = request.category
+            )
+        )
+    }
+
     override suspend fun unfollowUser(
         token: String,
         username: String
@@ -523,6 +576,28 @@ class MockPositiveOnlySocialAPI : PositiveOnlySocialAPI {
         )
     }
 
+    override suspend fun getFollowers(
+        token: String
+    ): Response<List<User>> {
+        return Response.success(
+            listOf(
+                User(username = "follower_1", identityIsVerified = true),
+                User(username = "follower_2", identityIsVerified = false)
+            )
+        )
+    }
+
+    override suspend fun getFollowing(
+        token: String
+    ): Response<List<User>> {
+        return Response.success(
+            listOf(
+                User(username = "following_1", identityIsVerified = true),
+                User(username = "following_2", identityIsVerified = false)
+            )
+        )
+    }
+
     override suspend fun getProfileDetails(
         token: String,
         username: String
@@ -536,6 +611,31 @@ class MockPositiveOnlySocialAPI : PositiveOnlySocialAPI {
                 isFollowing = false
             )
         )
+    }
+
+    override suspend fun setProfilePhoto(
+        token: String,
+        request: SetProfilePhotoRequest
+    ): Response<SetProfilePhotoResponse> {
+        return Response.success(
+            SetProfilePhotoResponse(
+                profileImageStatus = "pending",
+                message = "Your photo is being reviewed and will be shown once it is approved."
+            )
+        )
+    }
+
+    override suspend fun removeProfilePhoto(token: String): Response<RemoveProfilePhotoResponse> {
+        return Response.success(
+            RemoveProfilePhotoResponse(
+                profileImageStatus = "none",
+                message = "Your profile photo has been removed."
+            )
+        )
+    }
+
+    override suspend fun setBio(token: String, request: SetBioRequest): Response<SetBioResponse> {
+        return Response.success(SetBioResponse(bio = request.bio, message = "Your bio has been updated."))
     }
 
     override suspend fun getHiddenPosts(token: String, batch: Int): Response<List<HiddenPost>> =

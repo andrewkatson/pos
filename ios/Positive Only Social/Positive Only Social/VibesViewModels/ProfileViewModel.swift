@@ -19,7 +19,27 @@ class ProfileViewModel: ObservableObject {
     @Published var isLoadingProfile = false
     @Published var isBusy = false // For follow/block button actions
     @Published var isFollowing = false
+    // The viewer's relationship category for this profile (issue #392); only
+    // meaningful while `isFollowing`.
+    @Published var followCategory: FollowCategory = .following
     @Published var isBlocked = false
+
+    // Own profile-photo controls (issue #7). Uploading reuses the post-image
+    // presigned flow (createUploadUrl + S3Uploader), then calls setProfilePhoto;
+    // the photo is classified asynchronously, so we reload the profile afterward
+    // to reflect the new pending/approved state.
+    @Published var isUpdatingPhoto = false
+    @Published var photoErrorMessage: String?
+    private let s3Uploader = S3Uploader()
+
+    // Own bio editing (issue #380). Unlike the photo, a bio is plain text
+    // moderated synchronously, so a rejection comes back inline (there is no
+    // pending/approved state to poll).
+    @Published var isUpdatingBio = false
+    @Published var bioErrorMessage: String?
+
+    /// The user's bio, or "" when unset.
+    var bio: String { profileDetails?.bio ?? "" }
 
     // Private state for pagination and API
     private var batch = 0
@@ -68,6 +88,34 @@ class ProfileViewModel: ObservableObject {
     var isOwnProfile: Bool {
         guard let currentLoggedInUsername, !currentLoggedInUsername.isEmpty else { return false }
         return user.username == currentLoggedInUsername
+    }
+
+    /// The compressed URL for the large header avatar (issue #7). The owner
+    /// previews their own not-yet-approved upload immediately; everyone else
+    /// (and the owner once approved) sees the live approved photo.
+    var headerAvatarUrl: String? {
+        if isOwnProfile, let pending = profileDetails?.pendingProfileImageUrl { return pending }
+        return profileDetails?.profileImageUrl
+    }
+
+    /// The full-resolution fallback for the header avatar. Deliberately the
+    /// previously approved photo's original — NOT the pending URL — so if a
+    /// pending preview fails to load the owner still sees their live avatar
+    /// (which stays visible while a new upload is under review) rather than the
+    /// placeholder.
+    var headerAvatarOriginalUrl: String? {
+        profileDetails?.profileImageOriginalUrl
+    }
+
+    /// The owner-only moderation status of the profile photo ("pending",
+    /// "rejected", ...), used to show a review/try-again hint. Nil on someone
+    /// else's profile.
+    var profileImageStatus: String? { profileDetails?.profileImageStatus }
+
+    /// Whether the owner currently has any photo (live or pending), so the
+    /// Remove button is offered.
+    var hasProfilePhoto: Bool {
+        (profileDetails?.profileImageUrl != nil) || (profileDetails?.pendingProfileImageUrl != nil)
     }
 
     convenience init(user: User, api: Networking, keychainHelper: KeychainHelperProtocol) {
@@ -257,6 +305,7 @@ class ProfileViewModel: ObservableObject {
 
             self.profileDetails = details
             self.isFollowing = details.isFollowing
+            self.followCategory = details.followCategory.flatMap(FollowCategory.init(rawValue:)) ?? .following
             self.isBlocked = details.isBlocked
         } catch {
             NSLog("%@", "Error refreshing profile details for \(user.username): \(error)")
@@ -281,6 +330,7 @@ class ProfileViewModel: ObservableObject {
                 
                 self.profileDetails = details
                 self.isFollowing = details.isFollowing // Set initial follow state
+                self.followCategory = details.followCategory.flatMap(FollowCategory.init(rawValue:)) ?? .following
                 self.isBlocked = details.isBlocked // Set initial block state
             } catch {
                 NSLog("%@", "Error fetching profile details: \(error)")
@@ -307,6 +357,8 @@ class ProfileViewModel: ObservableObject {
         // Optimistic update: change UI immediately, revert on error.
         let wasFollowing = isFollowing
         isFollowing = !wasFollowing
+        // A fresh follow starts in the default "following" bucket (issue #392).
+        if !wasFollowing { followCategory = .following }
         adjustFollowerCount(by: wasFollowing ? -1 : 1)
 
         Task {
@@ -322,7 +374,7 @@ class ProfileViewModel: ObservableObject {
                 if wasFollowing {
                     let _ = try await api.unfollowUser(sessionManagementToken: token, username: user.username)
                 } else {
-                    let _ = try await api.followUser(sessionManagementToken: token, username: user.username)
+                    let _ = try await api.followUser(sessionManagementToken: token, username: user.username, category: nil)
                 }
             } catch {
                 NSLog("%@", "Error toggling follow: \(error)")
@@ -335,6 +387,34 @@ class ProfileViewModel: ObservableObject {
     private func revertFollow(wasFollowing: Bool) {
         isFollowing = wasFollowing
         adjustFollowerCount(by: wasFollowing ? 1 : -1)
+    }
+
+    /// Re-categorizes the relationship (issue #392). Optimistic: updates the
+    /// selection immediately and reverts if the call fails.
+    func changeCategory(to newCategory: FollowCategory) {
+        guard !isBusy, isFollowing, newCategory != followCategory else { return }
+        isBusy = true
+        let previous = followCategory
+        followCategory = newCategory
+
+        Task {
+            do {
+                guard let userSession = try keychainHelper.load(UserSession.self, from: keychainService, account: account) else {
+                    NSLog("%@", "No active session — cannot change category")
+                    followCategory = previous
+                    isBusy = false
+                    return
+                }
+                let _ = try await api.setFollowCategory(
+                    sessionManagementToken: userSession.sessionToken,
+                    username: user.username,
+                    category: newCategory.rawValue)
+            } catch {
+                NSLog("%@", "Error changing follow category: \(error)")
+                followCategory = previous
+            }
+            isBusy = false
+        }
     }
 
     func toggleBlock() {
@@ -376,6 +456,125 @@ class ProfileViewModel: ObservableObject {
         if !previousBlockState && previousFollowState {
             isFollowing = previousFollowState
             adjustFollowerCount(by: 1)
+        }
+    }
+
+    // MARK: - Profile Photo (issue #7)
+
+    /// Uploads the picked JPEG to a presigned S3 URL (reusing the post-image
+    /// flow) and sets it as the signed-in user's profile photo, then reloads the
+    /// profile so the header reflects the new pending/approved state. The bytes
+    /// are compressed and EXIF-stripped by `S3Uploader`, exactly like a post
+    /// image.
+    func updateProfilePhoto(imageData: Data) async {
+        guard !isUpdatingPhoto else { return }
+        isUpdatingPhoto = true
+        photoErrorMessage = nil
+        defer { isUpdatingPhoto = false }
+
+        do {
+            guard let userSession = try keychainHelper.load(UserSession.self, from: keychainService, account: account) else {
+                NSLog("%@", "No active session — cannot update profile photo")
+                photoErrorMessage = "You must be logged in to update your photo."
+                return
+            }
+            let token = userSession.sessionToken
+
+            // Reuse the backend-issued presigned S3 URL flow (#310) for the
+            // bytes. Under test the real S3 PUT is skipped (there's no live
+            // bucket), mirroring NewPostView.
+            var imageURLString = "https://picsum.photos/400/400"
+            if !isTesting() {
+                let uploadUrlData = try await api.createUploadUrl(sessionManagementToken: token)
+                let uploadUrlResponse = try JSONDecoder().decode(UploadUrlResponse.self, from: uploadUrlData)
+                guard let uploadURL = URL(string: uploadUrlResponse.uploadUrl) else {
+                    throw ImageUploadError.invalidUploadURL
+                }
+                try await s3Uploader.upload(data: imageData, to: uploadURL)
+                imageURLString = uploadUrlResponse.imageUrl
+            }
+
+            _ = try await api.setProfilePhoto(sessionManagementToken: token, imageURL: imageURLString)
+            // Reload so the header shows the new photo / review state.
+            await refreshProfileDetails()
+        } catch {
+            NSLog("%@", "Error updating profile photo: \(error)")
+            photoErrorMessage = "Could not update your profile photo. Please try again."
+        }
+    }
+
+    /// Removes the signed-in user's profile photo, then reloads the profile so
+    /// the header reverts to the placeholder.
+    func removeProfilePhoto() async {
+        guard !isUpdatingPhoto else { return }
+        isUpdatingPhoto = true
+        photoErrorMessage = nil
+        defer { isUpdatingPhoto = false }
+
+        do {
+            guard let userSession = try keychainHelper.load(UserSession.self, from: keychainService, account: account) else {
+                NSLog("%@", "No active session — cannot remove profile photo")
+                photoErrorMessage = "You must be logged in to remove your photo."
+                return
+            }
+            _ = try await api.removeProfilePhoto(sessionManagementToken: userSession.sessionToken)
+            await refreshProfileDetails()
+        } catch {
+            NSLog("%@", "Error removing profile photo: \(error)")
+            photoErrorMessage = "Could not remove your profile photo. Please try again."
+        }
+    }
+
+    /// Sets (or clears, with an empty string) the signed-in user's bio, then
+    /// writes the returned bio straight into `profileDetails` so the header
+    /// reflects it (no reload — a silent refresh failure could otherwise leave
+    /// the old bio on screen after a successful save). A non-positive bio is
+    /// rejected by the server (400) and surfaced inline without changing the
+    /// stored bio. Returns whether the update succeeded, so the caller can
+    /// dismiss the editor only on success.
+    @discardableResult
+    func updateBio(_ newBio: String) async -> Bool {
+        guard !isUpdatingBio else { return false }
+        isUpdatingBio = true
+        bioErrorMessage = nil
+        defer { isUpdatingBio = false }
+
+        do {
+            guard let userSession = try keychainHelper.load(UserSession.self, from: keychainService, account: account) else {
+                NSLog("%@", "No active session — cannot update bio")
+                bioErrorMessage = "You must be logged in to edit your bio."
+                return false
+            }
+            let data = try await api.setBio(sessionManagementToken: userSession.sessionToken, bio: newBio)
+            // setBio returns the stored bio; apply it directly rather than
+            // reloading (refreshProfileDetails swallows failures, which would
+            // leave the header stale after a successful save).
+            struct BioResponse: Decodable { let bio: String }
+            let storedBio = (try? JSONDecoder().decode(BioResponse.self, from: data))?.bio ?? newBio
+            // Copy-and-reassign rather than mutating profileDetails?.bio in place,
+            // matching adjustFollowerCount — avoids a read+write of profileDetails
+            // in one expression (an exclusive-access violation on the struct).
+            if var details = profileDetails {
+                details.bio = storedBio
+                profileDetails = details
+            }
+            return true
+        } catch let APIError.serverError(_, serverMessage) {
+            // A rejection (semicolon, length, or the positivity reason) comes back
+            // as a serverError carrying the backend's own message — show it
+            // directly, since RealAPI throws this (not badServerResponse) whenever
+            // the 4xx response has a JSON error body.
+            bioErrorMessage = serverMessage
+            return false
+        } catch APIError.badServerResponse(let statusCode) where statusCode == 400 {
+            // A 400 with no parseable error body (e.g. the stub): fall back to an
+            // actionable hint since there is no server message to show.
+            bioErrorMessage = "Your bio wasn't accepted. Please keep it positive and within \(GVOAppConstants.maxBioLength) characters."
+            return false
+        } catch {
+            NSLog("%@", "Error updating bio: \(error)")
+            bioErrorMessage = "Could not update your bio. Please try again."
+            return false
         }
     }
 }

@@ -248,3 +248,65 @@ describe('two-factor authentication endpoints', () => {
   })
 })
 
+describe('saved posts endpoints (#193)', () => {
+  test('savePost posts to /posts/<id>/save/ with the bearer token', async () => {
+    const fetchFn = vi.fn().mockResolvedValue(jsonResponse(200, { message: 'Post saved' }))
+    const client = new ApiClient({ baseUrl: 'https://api.test', token: 'tok', fetchFn })
+
+    await client.savePost('p1')
+
+    const [url, init] = fetchFn.mock.calls[0]
+    expect(url).toBe('https://api.test/posts/p1/save/')
+    expect((init as RequestInit).method).toBe('POST')
+    expect((init as RequestInit).headers).toMatchObject({ Authorization: 'Bearer tok' })
+  })
+
+  test('unsavePost posts to /posts/<id>/unsave/', async () => {
+    const fetchFn = vi.fn().mockResolvedValue(jsonResponse(200, { message: 'Post unsaved' }))
+    const client = new ApiClient({ baseUrl: 'https://api.test', token: 'tok', fetchFn })
+
+    await client.unsavePost('p1')
+
+    const [url] = fetchFn.mock.calls[0]
+    expect(url).toBe('https://api.test/posts/p1/unsave/')
+  })
+
+  test('getSavedPosts gets /posts/saved/<batch>/', async () => {
+    const fetchFn = vi.fn().mockResolvedValue(jsonResponse(200, []))
+    const client = new ApiClient({ baseUrl: 'https://api.test', token: 'tok', fetchFn })
+
+    await client.getSavedPosts(2)
+
+    const [url, init] = fetchFn.mock.calls[0]
+    expect(url).toBe('https://api.test/posts/saved/2/')
+    expect((init as RequestInit).method).toBe('GET')
+  })
+})
+
+describe('setBio (#380)', () => {
+  test('posts the bio to /profile/bio/ with the bearer token and returns the stored bio', async () => {
+    const fetchFn = vi
+      .fn()
+      .mockResolvedValue(jsonResponse(200, { bio: 'Hello world', message: 'Your bio has been updated.' }))
+    const client = new ApiClient({ baseUrl: 'https://api.test', token: 'tok', fetchFn })
+
+    const result = await client.setBio({ bio: 'Hello world' })
+
+    const [url, init] = fetchFn.mock.calls[0]
+    expect(url).toBe('https://api.test/profile/bio/')
+    expect((init as RequestInit).method).toBe('POST')
+    expect((init as RequestInit).headers).toMatchObject({ Authorization: 'Bearer tok' })
+    expect(JSON.parse((init as RequestInit).body as string)).toEqual({ bio: 'Hello world' })
+    expect(result.bio).toBe('Hello world')
+  })
+
+  test('surfaces a moderation rejection as a 400 ApiError', async () => {
+    const fetchFn = vi
+      .fn()
+      .mockResolvedValue(jsonResponse(400, { error: 'Text is not positive because your bio ...' }))
+    const client = new ApiClient({ baseUrl: 'https://api.test', token: 'tok', fetchFn })
+
+    await expect(client.setBio({ bio: 'a negative bio' })).rejects.toThrow(ApiError)
+  })
+})
+

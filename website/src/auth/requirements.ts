@@ -53,9 +53,10 @@ export function allMet(requirements: Requirement[]): boolean {
 }
 
 // Maximum lengths for user-authored text, mirroring MAX_CAPTION_LENGTH /
-// MAX_COMMENT_LENGTH in backend/user_system/constants.py.
+// MAX_COMMENT_LENGTH / MAX_BIO_LENGTH in backend/user_system/constants.py.
 export const MAX_CAPTION_LENGTH = 125
 export const MAX_COMMENT_LENGTH = 500
+export const MAX_BIO_LENGTH = 500
 
 // The fraction of the limit at which the counter starts warning the user that
 // they are getting close (mirrored across iOS and Android).

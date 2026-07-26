@@ -12,12 +12,22 @@ vi.mock('../api/client', () => ({
     getPostsForUser: vi.fn(),
     followUser: vi.fn(),
     unfollowUser: vi.fn(),
+    setFollowCategory: vi.fn(),
     toggleBlock: vi.fn(),
     likePost: vi.fn(),
     unlikePost: vi.fn(),
     reportPost: vi.fn(),
     retractReportPost: vi.fn(),
     deletePost: vi.fn(),
+    setBio: vi.fn(),
+  },
+  ApiError: class ApiError extends Error {
+    status: number
+    constructor(status: number, message: string) {
+      super(message)
+      this.name = 'ApiError'
+      this.status = status
+    }
   },
 }))
 
@@ -26,6 +36,7 @@ const mockGetProfile = vi.mocked(apiClient.getProfile)
 const mockGetPosts = vi.mocked(apiClient.getPostsForUser)
 const mockFollow = vi.mocked(apiClient.followUser)
 const mockUnfollow = vi.mocked(apiClient.unfollowUser)
+const mockSetCategory = vi.mocked(apiClient.setFollowCategory)
 const mockLikePost = vi.mocked(apiClient.likePost)
 const mockUnlikePost = vi.mocked(apiClient.unlikePost)
 const mockReportPost = vi.mocked(apiClient.reportPost)
@@ -40,6 +51,8 @@ const baseProfile: ProfileDetails = {
   is_blocked: false,
   identity_is_verified: true,
   is_adult: true,
+  membership_number: 7,
+  bio: 'Explorer of small joys.',
 }
 
 function renderProfile() {
@@ -58,6 +71,7 @@ beforeEach(() => {
   mockGetPosts.mockReset().mockResolvedValue([])
   mockFollow.mockReset().mockResolvedValue({ message: 'ok' })
   mockUnfollow.mockReset().mockResolvedValue({ message: 'ok' })
+  mockSetCategory.mockReset().mockResolvedValue({ message: 'ok' })
   mockLikePost.mockReset().mockResolvedValue({ message: 'ok' })
   mockUnlikePost.mockReset().mockResolvedValue({ message: 'ok' })
   mockReportPost.mockReset().mockResolvedValue({ message: 'ok' })
@@ -71,12 +85,46 @@ test('renders profile stats and follow button', async () => {
   expect(screen.getByRole('button', { name: 'Block' })).toBeInTheDocument()
 })
 
+test("shows the other member's public join number (#198)", async () => {
+  renderProfile()
+  expect(await screen.findByText('🎉 Member #7')).toBeInTheDocument()
+})
+
+test("shows another member's bio but no edit control (#380)", async () => {
+  renderProfile()
+  expect(await screen.findByText('Explorer of small joys.')).toBeInTheDocument()
+  // Bio editing is only offered on your own profile.
+  expect(screen.queryByRole('button', { name: 'Edit bio' })).not.toBeInTheDocument()
+  expect(screen.queryByRole('button', { name: 'Add bio' })).not.toBeInTheDocument()
+})
+
 test('following a user calls the API and updates the button', async () => {
   renderProfile()
   const followBtn = await screen.findByRole('button', { name: 'Follow' })
   await userEvent.click(followBtn)
   await waitFor(() => expect(mockFollow).toHaveBeenCalledWith('bob'))
   expect(screen.getByRole('button', { name: 'Following' })).toBeInTheDocument()
+})
+
+test('the relationship-category control appears only once following (#392)', async () => {
+  renderProfile()
+  await screen.findByRole('button', { name: 'Follow' })
+  // Not following yet: no category control.
+  expect(screen.queryByLabelText('Relationship with bob')).not.toBeInTheDocument()
+
+  await userEvent.click(screen.getByRole('button', { name: 'Follow' }))
+  const categorySelect = await screen.findByLabelText('Relationship with bob')
+  await userEvent.selectOptions(categorySelect, 'family')
+
+  await waitFor(() => expect(mockSetCategory).toHaveBeenCalledWith('bob', 'family'))
+})
+
+test('a followed profile pre-selects its saved category (#392)', async () => {
+  mockGetProfile.mockResolvedValue({ ...baseProfile, is_following: true, follow_category: 'friend' })
+  renderProfile()
+
+  const categorySelect = await screen.findByLabelText('Relationship with bob')
+  expect(categorySelect).toHaveValue('friend')
 })
 
 test('shows empty state when the user has no posts', async () => {

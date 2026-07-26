@@ -24,9 +24,11 @@ import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import com.example.positiveonlysocial.data.model.Post
 import com.example.positiveonlysocial.models.viewmodels.PostListActions
+import com.example.positiveonlysocial.util.ShareLinks
 
 /**
  * The like / reported-flag / options row shown with a post in a list, so posts
@@ -141,6 +143,9 @@ fun PostActionBar(
  */
 @Composable
 fun PostActionDialogs(actions: PostListActions) {
+    // Used to launch the system share sheet from the action menu (issue #34).
+    val context = LocalContext.current
+
     val currentUsername by actions.currentUsername.collectAsState()
     val postForAction by actions.postForAction.collectAsState()
     val postToReport by actions.postToReport.collectAsState()
@@ -153,6 +158,7 @@ fun PostActionDialogs(actions: PostListActions) {
             isReported = post.isReported,
             itemLabel = "Post",
             onDismiss = { actions.setPostForAction(null) },
+            onShare = { ShareLinks.shareText(context, ShareLinks.postUrl(post.postIdentifier)) },
             onReport = { actions.setPostToReport(post) },
             onRetract = { actions.setPostToRetract(post) },
             onDelete = { actions.deletePost(post) }

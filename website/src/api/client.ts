@@ -12,16 +12,20 @@ import type { PositiveOnlySocialAPI } from './PositiveOnlySocialAPI'
 import type {
   AuthResponse,
   Comment,
+  CommentFormatSpan,
   CommentOnPostResponse,
   CommentThreadRef,
+  ChangePasswordRequest,
   ConfirmTotpRequest,
   ConfirmTotpResponse,
   CreatePostRequest,
+  CurrentUser,
   CreatePostResponse,
   CreateUploadUrlResponse,
   DisableTotpRequest,
   DisableTotpResponse,
   FeedPost,
+  FollowCategory,
   HiddenComment,
   HiddenPost,
   LoginRequest,
@@ -35,10 +39,15 @@ import type {
   PostStatusResponse,
   ProfileDetails,
   RegisterRequest,
+  RemoveProfilePhotoResponse,
   ReplyResponse,
   RequestResetRequest,
   ResendVerificationEmailRequest,
   ResetPasswordRequest,
+  SetProfilePhotoRequest,
+  SetProfilePhotoResponse,
+  SetBioRequest,
+  SetBioResponse,
   SubmitAppealRequest,
   SubmitAppealResponse,
   TwoFactorSetupResponse,
@@ -50,6 +59,12 @@ import type {
 import { isTwoFactorRequired } from './types'
 
 const DEFAULT_BASE_URL = 'https://api.smiling.social/user_index'
+
+/** Only send `body_formatting` when there are spans, so unformatted comments
+ * keep sending exactly the old payload (issue #318). */
+function formattingBody(formatting?: CommentFormatSpan[]): { body_formatting?: CommentFormatSpan[] } {
+  return formatting && formatting.length > 0 ? { body_formatting: formatting } : {}
+}
 
 /** Error code the backend returns when the account has an active outright ban. */
 export const ACCOUNT_BANNED = 'account_banned'
@@ -424,6 +439,16 @@ export class ApiClient implements PositiveOnlySocialAPI {
     return this.request<MessageResponse>('POST', '/password/reset/', { body })
   }
 
+  /** Change the signed-in account's password (requires the current one). */
+  changePassword(body: ChangePasswordRequest): Promise<MessageResponse> {
+    return this.request<MessageResponse>('POST', '/password/change/', { body, auth: true })
+  }
+
+  /** The signed-in account's own username and registered email (Settings). */
+  getCurrentUser(): Promise<CurrentUser> {
+    return this.request<CurrentUser>('GET', '/me/', { auth: true })
+  }
+
   // ===========================================================================
   // POSTS
   // ===========================================================================
@@ -465,6 +490,16 @@ export class ApiClient implements PositiveOnlySocialAPI {
     })
   }
 
+  savePost(postIdentifier: string): Promise<MessageResponse> {
+    return this.request<MessageResponse>('POST', `/posts/${postIdentifier}/save/`, { auth: true })
+  }
+
+  unsavePost(postIdentifier: string): Promise<MessageResponse> {
+    return this.request<MessageResponse>('POST', `/posts/${postIdentifier}/unsave/`, {
+      auth: true,
+    })
+  }
+
   // ===========================================================================
   // FEEDS & POST RETRIEVAL
   // ===========================================================================
@@ -473,12 +508,22 @@ export class ApiClient implements PositiveOnlySocialAPI {
     return this.request<FeedPost[]>('GET', `/feed/${batch}/`, { auth: true })
   }
 
-  getFollowedFeed(batch: number): Promise<FeedPost[]> {
-    return this.request<FeedPost[]>('GET', `/feed/followed/${batch}/`, { auth: true })
+  getFollowedFeed(batch: number, category?: FollowCategory): Promise<FeedPost[]> {
+    const query = category ? `?category=${encodeURIComponent(category)}` : ''
+    return this.request<FeedPost[]>('GET', `/feed/followed/${batch}/${query}`, { auth: true })
   }
 
   getPostsForUser(username: string, batch: number): Promise<FeedPost[]> {
     return this.request<FeedPost[]>('GET', `/users/${username}/posts/${batch}/`, { auth: true })
+  }
+
+  /** Posts carrying a given #hashtag, newest first, batched (issue #379). */
+  getPostsByTag(tag: string, batch: number): Promise<FeedPost[]> {
+    return this.request<FeedPost[]>('GET', `/tags/${encodeURIComponent(tag)}/posts/${batch}/`, { auth: true })
+  }
+
+  getSavedPosts(batch: number): Promise<FeedPost[]> {
+    return this.request<FeedPost[]>('GET', `/posts/saved/${batch}/`, { auth: true })
   }
 
   getPostDetails(postIdentifier: string): Promise<PostDetails> {
@@ -495,10 +540,14 @@ export class ApiClient implements PositiveOnlySocialAPI {
   // COMMENTS
   // ===========================================================================
 
-  commentOnPost(postIdentifier: string, commentText: string): Promise<CommentOnPostResponse> {
+  commentOnPost(
+    postIdentifier: string,
+    commentText: string,
+    formatting?: CommentFormatSpan[],
+  ): Promise<CommentOnPostResponse> {
     return this.request<CommentOnPostResponse>('POST', `/posts/${postIdentifier}/comment/`, {
       auth: true,
-      body: { comment_text: commentText },
+      body: { comment_text: commentText, ...formattingBody(formatting) },
     })
   }
 
@@ -506,11 +555,12 @@ export class ApiClient implements PositiveOnlySocialAPI {
     postIdentifier: string,
     commentThreadIdentifier: string,
     commentText: string,
+    formatting?: CommentFormatSpan[],
   ): Promise<ReplyResponse> {
     return this.request<ReplyResponse>(
       'POST',
       `/posts/${postIdentifier}/threads/${commentThreadIdentifier}/reply/`,
-      { auth: true, body: { comment_text: commentText } },
+      { auth: true, body: { comment_text: commentText, ...formattingBody(formatting) } },
     )
   }
 
@@ -601,12 +651,22 @@ export class ApiClient implements PositiveOnlySocialAPI {
     })
   }
 
-  followUser(username: string): Promise<MessageResponse> {
-    return this.request<MessageResponse>('POST', `/users/${username}/follow/`, { auth: true })
+  followUser(username: string, category?: FollowCategory): Promise<MessageResponse> {
+    return this.request<MessageResponse>('POST', `/users/${username}/follow/`, {
+      auth: true,
+      ...(category ? { body: { category } } : {}),
+    })
   }
 
   unfollowUser(username: string): Promise<MessageResponse> {
     return this.request<MessageResponse>('POST', `/users/${username}/unfollow/`, { auth: true })
+  }
+
+  setFollowCategory(username: string, category: FollowCategory): Promise<MessageResponse> {
+    return this.request<MessageResponse>('POST', `/users/${username}/category/`, {
+      auth: true,
+      body: { category },
+    })
   }
 
   toggleBlock(username: string): Promise<MessageResponse> {
@@ -617,8 +677,30 @@ export class ApiClient implements PositiveOnlySocialAPI {
     return this.request<UserSearchResult[]>('GET', '/users/blocked/', { auth: true })
   }
 
+  // Own lists only — the endpoints take no username, so another user's
+  // followers/following can't be requested (issue #8).
+  getFollowers(): Promise<UserSearchResult[]> {
+    return this.request<UserSearchResult[]>('GET', '/users/followers/', { auth: true })
+  }
+
+  getFollowing(): Promise<UserSearchResult[]> {
+    return this.request<UserSearchResult[]>('GET', '/users/following/', { auth: true })
+  }
+
   getProfile(username: string): Promise<ProfileDetails> {
     return this.request<ProfileDetails>('GET', `/users/${username}/profile/`, { auth: true })
+  }
+
+  setProfilePhoto(body: SetProfilePhotoRequest): Promise<SetProfilePhotoResponse> {
+    return this.request<SetProfilePhotoResponse>('POST', '/profile/photo/', { auth: true, body })
+  }
+
+  removeProfilePhoto(): Promise<RemoveProfilePhotoResponse> {
+    return this.request<RemoveProfilePhotoResponse>('POST', '/profile/photo/remove/', { auth: true })
+  }
+
+  setBio(body: SetBioRequest): Promise<SetBioResponse> {
+    return this.request<SetBioResponse>('POST', '/profile/bio/', { auth: true, body })
   }
 
   // ===========================================================================

@@ -2,20 +2,24 @@ package com.example.positiveonlysocial.ui.main
 
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.material3.*
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.NavController
 import com.example.positiveonlysocial.api.PositiveOnlySocialAPI
+import com.example.positiveonlysocial.data.model.FollowCategory
 import com.example.positiveonlysocial.data.security.KeychainHelperProtocol
 import com.example.positiveonlysocial.models.viewmodels.FeedViewModel
 import com.example.positiveonlysocial.models.viewmodels.FeedViewModelFactory
@@ -135,6 +139,7 @@ fun FollowingFeed(
     val posts by viewModel.followingPosts.collectAsState()
     val isLoadingNextPage by viewModel.isLoadingNextPage.collectAsState()
     val isRefreshing by viewModel.isRefreshing.collectAsState()
+    val selectedCategory by viewModel.selectedCategory.collectAsState()
 
     val postActions = viewModel.postActions
     val currentUsername by postActions.currentUsername.collectAsState()
@@ -145,11 +150,35 @@ fun FollowingFeed(
         }
     }
 
-    PullToRefreshBox(
-        isRefreshing = isRefreshing,
-        onRefresh = { viewModel.refreshFollowingFeed() },
-        modifier = Modifier.fillMaxSize()
-    ) {
+    Column(modifier = Modifier.fillMaxSize()) {
+        // Group filter (issue #392): narrow the following feed to a relationship
+        // category, or show everyone.
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .horizontalScroll(rememberScrollState())
+                .padding(horizontal = 12.dp, vertical = 8.dp),
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            FilterChip(
+                selected = selectedCategory == null,
+                onClick = { viewModel.selectCategory(null) },
+                label = { Text("Everyone") }
+            )
+            FollowCategory.entries.forEach { category ->
+                FilterChip(
+                    selected = selectedCategory == category,
+                    onClick = { viewModel.selectCategory(category) },
+                    label = { Text(category.displayName) }
+                )
+            }
+        }
+
+        PullToRefreshBox(
+            isRefreshing = isRefreshing,
+            onRefresh = { viewModel.refreshFollowingFeed() },
+            modifier = Modifier.fillMaxSize()
+        ) {
         LazyColumn(
             modifier = Modifier.fillMaxSize(),
             contentPadding = PaddingValues(16.dp),
@@ -181,6 +210,7 @@ fun FollowingFeed(
 
         // One set of confirmations for every post in the feed.
         PostActionDialogs(postActions)
+        }
     }
 }
 
@@ -195,14 +225,27 @@ fun PostItem(
         modifier = Modifier.fillMaxWidth(),
         verticalArrangement = Arrangement.spacedBy(8.dp)
     ) {
-        Text(
-            text = post.authorUsername,
-            fontWeight = FontWeight.Bold,
+        // Author avatar + name, both opening the author's profile.
+        Row(
+            verticalAlignment = androidx.compose.ui.Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
             modifier = Modifier.clickable {
                 // Your own name goes to the Profile tab, not a pushed copy of it.
                 navController.openProfileFor(post.authorUsername, currentUsername)
             }
-        )
+        ) {
+            ProfileAvatar(
+                imageUrl = post.authorProfileImageUrl,
+                originalImageUrl = post.authorProfileImageOriginalUrl,
+                // Decorative — the author username is rendered right next to it.
+                contentDescription = null,
+                size = 32.dp
+            )
+            Text(
+                text = post.authorUsername,
+                fontWeight = FontWeight.Bold
+            )
+        }
 
         // Square, cropped to fill so images keep a standard size, with a thin
         // black border to match the grid views.
@@ -216,6 +259,13 @@ fun PostItem(
                     navController.navigate(Screen.PostDetail.createRoute(post.postIdentifier))
                 }
         )
+
+        // The caption under the photo (issue #378). Text-only posts (#307)
+        // already render their caption as the tile above, so it isn't repeated
+        // for them.
+        if (post.imageUrl != null) {
+            Text(text = post.caption, modifier = Modifier.testTag("PostCaption"))
+        }
 
         // Like / comment count / report / retract / delete without leaving the
         // feed (issues #267, #249). A sibling of the image, so it can't swallow
