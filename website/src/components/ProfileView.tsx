@@ -306,7 +306,13 @@ function ProfileView({ username, isOwnProfile, currentUsername }: ProfileViewPro
       if (wasFollowing) {
         await apiClient.unfollowUser(username)
         setIsFollowing(false)
-        setProfile(p => (p ? { ...p, follower_count: Math.max(0, p.follower_count - 1) } : p))
+        // Clear the relationship category so in-memory state matches the API
+        // contract (follow_category is null when not following) and doesn't go
+        // stale for any later UI that reads it.
+        setFollowCategory('following')
+        setProfile(p =>
+          p ? { ...p, follow_category: null, follower_count: Math.max(0, p.follower_count - 1) } : p,
+        )
       } else {
         await apiClient.followUser(username)
         setIsFollowing(true)
@@ -348,7 +354,12 @@ function ProfileView({ username, isOwnProfile, currentUsername }: ProfileViewPro
       // the follow button and the follower count so the stats stay consistent.
       if (nowBlocked && wasFollowing) {
         setIsFollowing(false)
-        setProfile(p => (p ? { ...p, follower_count: Math.max(0, p.follower_count - 1) } : p))
+        // Blocking severs the follow, so clear the category too (matches the
+        // API contract: follow_category is null when not following).
+        setFollowCategory('following')
+        setProfile(p =>
+          p ? { ...p, follow_category: null, follower_count: Math.max(0, p.follower_count - 1) } : p,
+        )
       }
     } catch {
       /* state is only updated after a successful call, so nothing to revert */
