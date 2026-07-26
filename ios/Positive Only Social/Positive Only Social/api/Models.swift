@@ -74,6 +74,13 @@ struct DisableTotpFields: Codable {
     }
 }
 
+/// The signed-in account's own username and registered email, from GET /me/
+/// (issues #194/#197). Shown in the Settings "Contact Information" section.
+struct CurrentUserFields: Codable {
+    let username: String
+    let email: String
+}
+
 // Represents a single post in the user's grid.
 // Conforms to Identifiable and Hashable to be used in grids and lists.
 struct Post: Codable, Identifiable, Hashable {
@@ -89,7 +96,18 @@ struct Post: Codable, Identifiable, Hashable {
     /// Optional for backward compatibility with responses that predate the field.
     let originalImageUrl: String?
     let caption: String
+    /// Whole-caption font + whole-tile background color keys (issue #318).
+    /// "default" reproduces the original rendering. Defaulted on decode so
+    /// responses that predate the fields still decode.
+    var captionFont: String = "default"
+    var backgroundColor: String = "default"
     let authorUsername: String
+    /// The post author's approved profile photo (issue #7), rendered as a
+    /// circular avatar next to their name in the feed rows. Compressed variant
+    /// with a full-resolution fallback, mirroring `imageUrl`/`originalImageUrl`;
+    /// both nil when the author has no approved photo or on older responses.
+    let authorProfileImageUrl: String?
+    let authorProfileImageOriginalUrl: String?
     /// Author-only classification state (issue #282): present on the viewer's
     /// own posts so grids can render pending/rejected states. Other users'
     /// posts never carry these (their pending/hidden posts are filtered out
@@ -103,6 +121,11 @@ struct Post: Codable, Identifiable, Hashable {
     /// Who may see the post (issue #392): one of "public", "following",
     /// "friends", "family". Optional/nil on older backends, treated as public.
     var audience: String? = nil
+
+    /// Hashtags parsed from the caption (issue #379), normalized to lowercase
+    /// and sorted. Rendered as tappable links to the tag feed. Defaulted so a
+    /// response from an older backend (which omits the field) still decodes.
+    var tags: [String] = []
 
     /// The interaction state the post lists need to offer like / report /
     /// retract-report / delete in place, without opening the post (issue #267).
@@ -134,7 +157,11 @@ struct Post: Codable, Identifiable, Hashable {
         case imageUrl = "image_url"
         case originalImageUrl = "original_image_url"
         case caption = "caption"
+        case captionFont = "caption_font"
+        case backgroundColor = "background_color"
         case authorUsername = "author_username"
+        case authorProfileImageUrl = "author_profile_image_url"
+        case authorProfileImageOriginalUrl = "author_profile_image_original_url"
         case postLikes = "post_likes"
         case isLiked = "is_liked"
         case isReported = "is_reported"
@@ -146,6 +173,7 @@ struct Post: Codable, Identifiable, Hashable {
         case hiddenReason = "hidden_reason"
         case appealable
         case audience
+        case tags
     }
 
     init(
@@ -153,7 +181,11 @@ struct Post: Codable, Identifiable, Hashable {
         imageUrl: String?,
         originalImageUrl: String? = nil,
         caption: String,
+        captionFont: String = "default",
+        backgroundColor: String = "default",
         authorUsername: String,
+        authorProfileImageUrl: String? = nil,
+        authorProfileImageOriginalUrl: String? = nil,
         postLikes: Int = 0,
         isLiked: Bool = false,
         isReported: Bool = false,
@@ -164,13 +196,18 @@ struct Post: Codable, Identifiable, Hashable {
         hidden: Bool? = nil,
         hiddenReason: String? = nil,
         appealable: Bool? = nil,
-        audience: String? = nil
+        audience: String? = nil,
+        tags: [String] = []
     ) {
         self.postIdentifier = postIdentifier
         self.imageUrl = imageUrl
         self.originalImageUrl = originalImageUrl
         self.caption = caption
+        self.captionFont = captionFont
+        self.backgroundColor = backgroundColor
         self.authorUsername = authorUsername
+        self.authorProfileImageUrl = authorProfileImageUrl
+        self.authorProfileImageOriginalUrl = authorProfileImageOriginalUrl
         self.postLikes = postLikes
         self.isLiked = isLiked
         self.isReported = isReported
@@ -182,6 +219,7 @@ struct Post: Codable, Identifiable, Hashable {
         self.hiddenReason = hiddenReason
         self.appealable = appealable
         self.audience = audience
+        self.tags = tags
     }
 
     // Decodes the interaction fields leniently so a response that predates them
@@ -192,7 +230,13 @@ struct Post: Codable, Identifiable, Hashable {
         imageUrl = try container.decodeIfPresent(String.self, forKey: .imageUrl)
         originalImageUrl = try container.decodeIfPresent(String.self, forKey: .originalImageUrl)
         caption = try container.decode(String.self, forKey: .caption)
+        captionFont = try container.decodeIfPresent(String.self, forKey: .captionFont) ?? "default"
+        backgroundColor = try container.decodeIfPresent(String.self, forKey: .backgroundColor) ?? "default"
         authorUsername = try container.decode(String.self, forKey: .authorUsername)
+        // Author avatar (issue #7); absent when the author has no approved photo
+        // or on older backends.
+        authorProfileImageUrl = try container.decodeIfPresent(String.self, forKey: .authorProfileImageUrl)
+        authorProfileImageOriginalUrl = try container.decodeIfPresent(String.self, forKey: .authorProfileImageOriginalUrl)
         postLikes = try container.decodeIfPresent(Int.self, forKey: .postLikes) ?? 0
         isLiked = try container.decodeIfPresent(Bool.self, forKey: .isLiked) ?? false
         isReported = try container.decodeIfPresent(Bool.self, forKey: .isReported) ?? false
@@ -205,6 +249,8 @@ struct Post: Codable, Identifiable, Hashable {
         hiddenReason = try container.decodeIfPresent(String.self, forKey: .hiddenReason)
         appealable = try container.decodeIfPresent(Bool.self, forKey: .appealable)
         audience = try container.decodeIfPresent(String.self, forKey: .audience)
+        // Hashtags (#379); absent on older backends, so default to none.
+        tags = try container.decodeIfPresent([String].self, forKey: .tags) ?? []
     }
 }
 
@@ -220,6 +266,19 @@ struct UploadUrlResponse: Codable {
     enum CodingKeys: String, CodingKey {
         case uploadUrl = "upload_url"
         case imageUrl = "image_url"
+    }
+}
+
+/// The response from setProfilePhoto / removeProfilePhoto (issue #7). Setting a
+/// photo reports "pending" (async review), removing reports "none".
+struct ProfilePhotoResponse: Codable {
+    /// One of "none"/"pending"/"approved"/"rejected".
+    let profileImageStatus: String
+    let message: String?
+
+    enum CodingKeys: String, CodingKey {
+        case profileImageStatus = "profile_image_status"
+        case message
     }
 }
 
@@ -278,6 +337,10 @@ struct HiddenPost: Codable, Identifiable, Hashable {
     /// Nil for a text-only post (#307).
     let imageUrl: String?
     let caption: String
+    /// Caption font + background color keys (issue #318); nil on older
+    /// responses that predate the fields.
+    let captionFont: String?
+    let backgroundColor: String?
     let hiddenReason: String
     let hasAppeal: Bool
 
@@ -285,6 +348,8 @@ struct HiddenPost: Codable, Identifiable, Hashable {
         case postIdentifier = "post_identifier"
         case imageUrl = "image_url"
         case caption
+        case captionFont = "caption_font"
+        case backgroundColor = "background_color"
         case hiddenReason = "hidden_reason"
         case hasAppeal = "has_appeal"
     }
@@ -295,12 +360,15 @@ struct HiddenComment: Codable, Identifiable, Hashable {
     var id: String { commentIdentifier }
     let commentIdentifier: String
     let body: String
+    /// Inline formatting spans over `body` (issue #318); nil = plain text.
+    let bodyFormatting: [CommentFormatSpan]?
     let hiddenReason: String
     let hasAppeal: Bool
 
     enum CodingKeys: String, CodingKey {
         case commentIdentifier = "comment_identifier"
         case body
+        case bodyFormatting = "body_formatting"
         case hiddenReason = "hidden_reason"
         case hasAppeal = "has_appeal"
     }
@@ -331,10 +399,35 @@ struct User: Codable, Identifiable, Hashable {
     var id: String { username }
     let username: String
     let identityIsVerified: Bool
-    
+    /// The user's approved profile photo (issue #7), shown as a circular avatar
+    /// in search results and the blocked-users list. Compressed variant with a
+    /// full-resolution fallback; both nil when the user has no approved photo or
+    /// on older responses. Optional, so a `User` built client-side (e.g. from a
+    /// tapped username) needs no avatar.
+    var authorProfileImageUrl: String? = nil
+    var authorProfileImageOriginalUrl: String? = nil
+
+    init(username: String, identityIsVerified: Bool,
+         authorProfileImageUrl: String? = nil, authorProfileImageOriginalUrl: String? = nil) {
+        self.username = username
+        self.identityIsVerified = identityIsVerified
+        self.authorProfileImageUrl = authorProfileImageUrl
+        self.authorProfileImageOriginalUrl = authorProfileImageOriginalUrl
+    }
+
     enum CodingKeys: String, CodingKey {
         case username
         case identityIsVerified = "identity_is_verified"
+        case authorProfileImageUrl = "author_profile_image_url"
+        case authorProfileImageOriginalUrl = "author_profile_image_original_url"
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        username = try container.decode(String.self, forKey: .username)
+        identityIsVerified = try container.decodeIfPresent(Bool.self, forKey: .identityIsVerified) ?? false
+        authorProfileImageUrl = try container.decodeIfPresent(String.self, forKey: .authorProfileImageUrl)
+        authorProfileImageOriginalUrl = try container.decodeIfPresent(String.self, forKey: .authorProfileImageOriginalUrl)
     }
 }
 
@@ -353,6 +446,21 @@ struct ProfileDetailsResponse: Codable, Identifiable, Hashable {
     var isBlocked: Bool = false
     var identityIsVerified: Bool = false
     var isAdult: Bool = false
+    // The user's sequential join number (issue #198), shown as "Member #N".
+    // Optional so profiles from a server that predates the field still decode.
+    var membershipNumber: Int? = nil
+    /// The user's approved profile photo (issue #7), shown to everyone as the
+    /// large header avatar. Compressed variant with a full-resolution fallback;
+    /// both nil when they have no approved photo.
+    var profileImageUrl: String? = nil
+    var profileImageOriginalUrl: String? = nil
+    /// Owner-only moderation state, present only when viewing your own profile
+    /// (absent for anyone else). `profileImageStatus` is one of
+    /// "none"/"pending"/"approved"/"rejected"; `pendingProfileImageUrl` lets the
+    /// owner preview a not-yet-approved upload before it goes live for others.
+    var profileImageStatus: String? = nil
+    var profileImageReasonCode: String? = nil
+    var pendingProfileImageUrl: String? = nil
 
     enum CodingKeys: String, CodingKey {
         case username
@@ -364,6 +472,26 @@ struct ProfileDetailsResponse: Codable, Identifiable, Hashable {
         case isBlocked = "is_blocked"
         case identityIsVerified = "identity_is_verified"
         case isAdult = "is_adult"
+        case membershipNumber = "membership_number"
+        case profileImageUrl = "profile_image_url"
+        case profileImageOriginalUrl = "profile_image_original_url"
+        case profileImageStatus = "profile_image_status"
+        case profileImageReasonCode = "profile_image_reason_code"
+        case pendingProfileImageUrl = "pending_profile_image_url"
+    }
+}
+
+/// The part of the register response the client keeps: the new member's
+/// sequential membership number (issue #198), shown in a welcome message. The
+/// session the response also carries is deliberately discarded — the account
+/// can't act until the emailed verification link is used (issue #237). The
+/// field is optional so a missing/absent value never fails the decode and
+/// strands a successfully registered user.
+struct RegisterResponse: Codable {
+    let membershipNumber: Int?
+
+    enum CodingKeys: String, CodingKey {
+        case membershipNumber = "membership_number"
     }
 }
 
@@ -449,9 +577,17 @@ struct PostDisplayData: Identifiable, Equatable {
     /// Optional for backward compatibility with responses that predate the field.
     let originalImageURL: String?
     let caption: String
+    /// Caption font + background color keys (issue #318); "default" is normal.
+    var captionFont: String = "default"
+    var backgroundColor: String = "default"
     let likeCount: Int
     let isLiked: Bool // Whether the current user has liked this post
     let authorUsername: String // Added for context
+    /// The post author's approved profile photo (issue #7), shown next to their
+    /// name. Compressed variant with a full-resolution fallback; both nil when
+    /// the author has no approved photo.
+    var authorProfileImageURL: String? = nil
+    var authorProfileImageOriginalURL: String? = nil
     /// When the post was created. Optional for backward compatibility with
     /// backend responses that predate the field.
     let createdDate: Date?
@@ -467,7 +603,14 @@ struct CommentViewData: Identifiable, Equatable {
     let id: String // commentIdentifier
     let threadId: String // commentThreadIdentifier
     let authorUsername: String
+    /// The comment author's approved profile photo (issue #7), shown as a
+    /// circular avatar to the left of the comment. Compressed variant with a
+    /// full-resolution fallback; both nil when the author has no approved photo.
+    var authorProfileImageURL: String? = nil
+    var authorProfileImageOriginalURL: String? = nil
     let body: String
+    /// Inline formatting spans over `body` (issue #318); nil = plain text.
+    var formatting: [CommentFormatSpan]? = nil
     let likeCount: Int
     let isLiked: Bool // Whether the current user has liked this comment
     let createdDate: Date
@@ -482,4 +625,39 @@ struct CommentViewData: Identifiable, Equatable {
 struct CommentThreadViewData: Identifiable, Equatable {
     var id: String { comments.first?.threadId ?? UUID().uuidString }
     var comments: [CommentViewData]
+}
+
+// MARK: - Text formatting (issue #318)
+
+/// One inline-formatting span over a comment's plain `body` (issue #318).
+/// Offsets are UTF-16 code-unit indices (matching the web/Android clients and
+/// the backend contract): `0 <= start < end <= body.utf16.count`. The plain
+/// `body` text is never modified — formatting is separate metadata, so
+/// moderation still classifies plain text.
+struct CommentFormatSpan: Codable, Equatable, Hashable {
+    let start: Int
+    let end: Int
+    let bold: Bool
+    let italic: Bool
+    /// One of "small", "normal", "large", "xlarge".
+    let size: String
+
+    init(start: Int, end: Int, bold: Bool = false, italic: Bool = false, size: String = "normal") {
+        self.start = start
+        self.end = end
+        self.bold = bold
+        self.italic = italic
+        self.size = size
+    }
+
+    // Decode leniently: the backend always sends bold/italic/size, but default
+    // them so a hand-written or partial payload still decodes.
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        start = try c.decode(Int.self, forKey: .start)
+        end = try c.decode(Int.self, forKey: .end)
+        bold = try c.decodeIfPresent(Bool.self, forKey: .bold) ?? false
+        italic = try c.decodeIfPresent(Bool.self, forKey: .italic) ?? false
+        size = try c.decodeIfPresent(String.self, forKey: .size) ?? "normal"
+    }
 }

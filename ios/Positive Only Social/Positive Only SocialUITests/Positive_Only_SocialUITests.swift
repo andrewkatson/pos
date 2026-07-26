@@ -276,6 +276,12 @@ final class Positive_Only_SocialUITests: XCTestCase {
         XCTAssertTrue(privacyPolicyAlert.buttons["Ok"].waitForExistence(timeout: TestConstants.shortTimeout))
         privacyPolicyAlert.buttons["Ok"].tap()
 
+        // A brand new account is greeted with its membership number (issue
+        // #198). Dismiss the welcome alert before continuing.
+        let welcomeAlert = app.alerts["Welcome! 🎉"]
+        XCTAssertTrue(welcomeAlert.waitForExistence(timeout: TestConstants.shortTimeout), "Welcome membership alert not present")
+        welcomeAlert.buttons["OK"].tap()
+
         // Registration parks the user on the "check your email" screen
         // (issue #237). The stub API pre-verifies accounts, so continue to
         // Login and sign in to reach Home.
@@ -1328,6 +1334,55 @@ final class Positive_Only_SocialUITests: XCTestCase {
 
         let statusAlert = app.alerts["Two-Factor Authentication"]
         XCTAssertTrue(statusAlert.waitForExistence(timeout: TestConstants.shortTimeout), "Enabled confirmation alert should appear")
+        statusAlert.buttons["OK"].tap()
+    }
+
+    @MainActor
+    func testChangePassword() throws {
+
+        try ifOnHomeDeleteAccount(app: app)
+
+        try loginUser(app: app, username: testUsername, password: strongPassword, rememberMe: false)
+
+        let settingsTab = app.buttons["Settings"]
+        XCTAssertTrue(settingsTab.waitForExistence(timeout: TestConstants.shortTimeout))
+        settingsTab.tap()
+
+        assertOnSettingsView(app: app)
+
+        // The signed-in user's own email now shows in the Contact Information
+        // section (issue #194/#197), replacing the old hardcoded support address.
+        XCTAssertTrue(app.staticTexts["\(testUsername)@test.com"].waitForExistence(timeout: TestConstants.shortTimeout),
+                      "Contact Information should show the signed-in user's own email")
+
+        // Change Password lives in the Security section near the bottom, so
+        // scroll before asserting: the row may not be materialized until then.
+        let changePasswordButton = app.buttons["ChangePasswordButton"]
+        scrollIntoView(app: app, element: changePasswordButton)
+        XCTAssertTrue(changePasswordButton.waitForExistence(timeout: TestConstants.shortTimeout), "Change Password button should be present")
+        changePasswordButton.tap()
+
+        let currentField = app.secureTextFields["ChangePasswordCurrentField"]
+        XCTAssertTrue(currentField.waitForExistence(timeout: TestConstants.shortTimeout), "Current-password field should appear on the change-password sheet")
+        typeText(element: currentField, text: strongPassword)
+
+        let newField = app.secureTextFields["ChangePasswordNewField"]
+        XCTAssertTrue(newField.waitForExistence(timeout: TestConstants.shortTimeout), "New-password field should appear")
+        typeText(element: newField, text: newStrongPassword)
+
+        let confirmField = app.secureTextFields["ChangePasswordConfirmField"]
+        XCTAssertTrue(confirmField.waitForExistence(timeout: TestConstants.shortTimeout), "Confirm-password field should appear")
+        typeText(element: confirmField, text: newStrongPassword)
+
+        dismissKeyboardIfPresent(app)
+
+        let confirmButton = app.buttons["ConfirmChangePasswordButton"]
+        XCTAssertTrue(confirmButton.waitForExistence(timeout: TestConstants.shortTimeout))
+        confirmButton.tap()
+
+        // A successful change closes the sheet and raises the confirmation alert.
+        let statusAlert = app.alerts["Change Password"]
+        XCTAssertTrue(statusAlert.waitForExistence(timeout: TestConstants.shortTimeout), "Password-changed confirmation alert should appear")
         statusAlert.buttons["OK"].tap()
     }
 

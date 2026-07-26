@@ -18,6 +18,9 @@ from .constants import (
     APPEAL_TARGET_POST, APPEAL_TARGET_COMMENT, APPEAL_TARGET_BAN,
     FOLLOW_CATEGORY_CHOICES, FOLLOW_CATEGORY_FOLLOWING,
     POST_AUDIENCE_CHOICES, POST_AUDIENCE_PUBLIC,
+    MAX_TAG_LENGTH,
+    PROFILE_IMAGE_STATUS_NONE,
+    DEFAULT_STYLE_KEY,
 )
 
 logger = logging.getLogger(__name__)
@@ -154,8 +157,40 @@ class PositiveOnlySocialUser(AbstractUser):
     totp_enabled = models.BooleanField(default=False)
     totp_last_used_step = models.BigIntegerField(null=True, blank=True, default=None)
 
+    # Profile photo (issue #7). profile_image_url is the approved, live photo
+    # shown to everyone next to this user's name; it is only ever set once the
+    # async image classifier approves it. pending_profile_image_url is a freshly
+    # uploaded photo still under review — visible only to its owner as a
+    # "reviewing" state — which the worker either promotes into
+    # profile_image_url (approving) or drops (rejecting), never showing an
+    # unclassified image to others. profile_image_status mirrors the post
+    # classification lifecycle (none/pending/approved/rejected) and
+    # profile_image_reason_code carries a rejected photo's public reason so the
+    # owner is told why. attempts/alerted/classification_time back the
+    # sweep_classifications reconciliation exactly like their Post counterparts
+    # (classification_time is bumped on every worker attempt so "stuck" means
+    # "no recent activity", not merely "old"). See constants
+    # PROFILE_IMAGE_STATUS_*.
+    profile_image_url = models.TextField(null=True, blank=True, default=None)
+    pending_profile_image_url = models.TextField(null=True, blank=True, default=None)
+    profile_image_status = models.TextField(default=PROFILE_IMAGE_STATUS_NONE)
+    profile_image_reason_code = models.TextField(null=True, blank=True, default=None)
+    profile_image_classification_attempts = models.IntegerField(default=0)
+    profile_image_classification_alerted = models.BooleanField(default=False)
+    profile_image_classification_time = models.DateTimeField(null=True, blank=True, default=None)
+
     creation_time = models.DateTimeField(auto_now_add=True, null=True, blank=True)
     updated_time = models.DateTimeField(auto_now=True, null=True, blank=True)
+
+    # Sequential "I'm #n on the app!" join number (issue #198). Assigned once,
+    # in registration order, and never reused. Nullable because: the primary key
+    # is a UUID (so the number can't be derived from it), existing rows are
+    # backfilled by a data migration ordered on creation_time, and a rare
+    # assignment failure must not block registration. A null number is harmless
+    # but not self-healing — the `backfill_membership_numbers` management command
+    # assigns one to any account left null. unique so two members can never claim
+    # the same number.
+    membership_number = models.PositiveIntegerField(null=True, blank=True, unique=True, default=None)
     id = models.UUIDField(default=uuid.uuid4, primary_key=True, unique=True, editable=False)
     following = models.ManyToManyField('self', through=UserFollow, through_fields=('user_from', 'user_to'),
                                        symmetrical=False, related_name='followers')
@@ -316,6 +351,11 @@ class Post(models.Model):
     post_identifier = models.UUIDField(default=uuid.uuid4, primary_key=True, unique=True, editable=False)
     image_url = models.TextField(null=True)
     caption = models.TextField(null=True)
+    # Whole-caption font choice and whole-tile background color (issue #318),
+    # stored as curated allow-list keys (see ALLOWED_CAPTION_FONTS /
+    # ALLOWED_BACKGROUND_COLORS). "default" reproduces the pre-#318 rendering.
+    caption_font = models.TextField(default=DEFAULT_STYLE_KEY)
+    background_color = models.TextField(default=DEFAULT_STYLE_KEY)
     creation_time = models.DateTimeField(auto_now_add=True, null=True,
                                          blank=True)
     updated_time = models.DateTimeField(auto_now=True, null=True, blank=True)
@@ -327,6 +367,12 @@ class Post(models.Model):
                                 default=POST_AUDIENCE_PUBLIC)
     hidden = models.BooleanField(default=False)
     hidden_reason = models.TextField(choices=HIDDEN_REASON_CHOICES, default=HIDDEN_REASON_NONE, blank=True)
+    # Hashtags parsed from the caption at creation time (issue #379). Stored
+    # normalized (lowercased) in a shared Tag table so #Sunset and #sunset are
+    # the same tag and browsing by tag is a simple join. Visibility of a tagged
+    # post is still governed entirely by visible_posts / the block filters, so
+    # a pending or hidden post's tags never leak into another user's tag feed.
+    tags = models.ManyToManyField('Tag', related_name='posts', blank=True)
 
     # Async classification bookkeeping (issue #282). classification_attempts
     # counts worker runs so retries stay bounded and the sweep can alert on a
@@ -384,6 +430,32 @@ class PostLike(models.Model):
         ]
 
 
+# A hashtag harvested from post captions (issue #379). `name` is the tag text
+# without the leading '#', stored lowercased so lookups are case-insensitive by
+# construction. Tags are shared across posts via Post.tags (M2M), so a tag row
+# outlives the posts that reference it; that is harmless — an unused tag is just
+# a label nobody is currently pointing at.
+class Tag(models.Model):
+    name = models.CharField(max_length=MAX_TAG_LENGTH, unique=True)
+
+    def __str__(self):
+        return self.name
+
+
+# A post the user has saved to look back on later (issue #193)
+class SavedPost(models.Model):
+    user = models.ForeignKey(settings.AUTH_USER_MODEL,
+                             on_delete=models.CASCADE)
+    post = models.ForeignKey(Post, on_delete=models.CASCADE)
+    creation_time = models.DateTimeField(auto_now_add=True, null=True,
+                                         blank=True)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(fields=['user', 'post'], name='unique_saved_post')
+        ]
+
+
 # A thread of comments on a post
 class CommentThread(models.Model):
     comment_thread_identifier = models.UUIDField(default=uuid.uuid4, primary_key=True, unique=True, editable=False)
@@ -398,6 +470,12 @@ class Comment(models.Model):
     comment_identifier = models.UUIDField(default=uuid.uuid4, primary_key=True, unique=True, editable=False)
     comment_thread = models.ForeignKey(CommentThread, on_delete=models.CASCADE)
     body = models.TextField(null=True)
+    # Inline rich-text formatting (issue #318): a list of range spans over the
+    # plain `body`, e.g. [{"start": 0, "end": 4, "bold": true, "size": "large"}].
+    # The `body` text itself is left untouched so moderation/classification and
+    # all existing validation keep operating on plain text. Null means no
+    # formatting (the common case).
+    body_formatting = models.JSONField(null=True, blank=True, default=None)
     author = models.ForeignKey(settings.AUTH_USER_MODEL,
                                on_delete=models.CASCADE)
     creation_time = models.DateTimeField(auto_now_add=True, null=True,

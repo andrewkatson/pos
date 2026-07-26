@@ -42,6 +42,11 @@ class StatefulStubbedAPI : PositiveOnlySocialAPI {
     private val commentThreads = mutableListOf<CommentThreadMock>()
     private val appeals = mutableListOf<AppealMock>()
 
+    // Monotonic source for membership numbers (issue #198). A dedicated counter
+    // rather than users.size so a delete + re-register never reuses a number,
+    // matching the backend's "creation order, never reused" behavior.
+    private var membershipCounter = 0
+
     // Simulates the "Authorization: Bearer <token>" header.
     // Set this variable before making authenticated calls.
     var simulatedAuthToken: String? = null
@@ -74,13 +79,22 @@ class StatefulStubbedAPI : PositiveOnlySocialAPI {
         val followers: MutableList<String> = mutableListOf(),
         var isVerified: Boolean = false,
         var isAdult: Boolean = false,
+        // Sequential join number (issue #198), assigned in registration order.
+        var membershipNumber: Int? = null,
         val blocked: MutableList<String> = mutableListOf(),
         val blockedBy: MutableList<String> = mutableListOf(),
         // Two-factor authentication (issue #348). A secret without the enabled
         // flag is a pending enrollment; recovery codes are removed as used.
         var totpSecret: String? = null,
         var totpEnabled: Boolean = false,
-        val recoveryCodes: MutableList<String> = mutableListOf()
+        val recoveryCodes: MutableList<String> = mutableListOf(),
+        // Profile photo (issue #7). Only the approved photo is ever exposed to
+        // others; the pending upload is the owner's immediate preview. Status is
+        // one of "none"|"pending"|"approved"|"rejected".
+        var profileImageUrl: String? = null,
+        var pendingProfileImageUrl: String? = null,
+        var profileImageStatus: String = "none",
+        var profileImageReasonCode: String? = null
     )
 
     // A pending two-factor login, issued by loginUser when the account has
@@ -110,6 +124,9 @@ class StatefulStubbedAPI : PositiveOnlySocialAPI {
         // Null for a text-only post (#307).
         val imageUrl: String?,
         val caption: String,
+        // Whole-caption font + whole-tile background color keys (issue #318).
+        val captionFont: String = "default",
+        val backgroundColor: String = "default",
         val creationTime: Long = System.currentTimeMillis(),
         var hidden: Boolean = false,
         var hiddenReason: String = "",
@@ -119,7 +136,9 @@ class StatefulStubbedAPI : PositiveOnlySocialAPI {
         var audience: String = "public",
         val likes: MutableSet<String> = mutableSetOf(), // Set of User IDs
         // Reporting user id -> their reason, so retract flows can show the reason.
-        val reports: MutableMap<String, String> = mutableMapOf()
+        val reports: MutableMap<String, String> = mutableMapOf(),
+        // Hashtags parsed from the caption (issue #379), normalized and sorted.
+        val tags: List<String> = emptyList()
     )
 
     private data class AppealMock(
@@ -142,6 +161,8 @@ class StatefulStubbedAPI : PositiveOnlySocialAPI {
         val commentIdentifier: String = UUID.randomUUID().toString(),
         val authorId: String,
         val body: String,
+        // Inline formatting spans over `body` (issue #318); null = plain.
+        val bodyFormatting: List<CommentFormatSpan>? = null,
         val creationTime: Long = System.currentTimeMillis(),
         var hidden: Boolean = false,
         var hiddenReason: String = "",
@@ -183,11 +204,14 @@ class StatefulStubbedAPI : PositiveOnlySocialAPI {
             return errorGeneric(404, "User already exists")
         }
 
-        // Create User
+        // Create User. Assign the next sequential membership number (issue
+        // #198), mirroring the backend which numbers accounts in creation order
+        // and never reuses a number even after a delete.
         val newUser = UserMock(
             username = request.username,
             email = request.email,
-            passwordHash = request.password // Stub: Plain text
+            passwordHash = request.password, // Stub: Plain text
+            membershipNumber = ++membershipCounter
         )
         users.add(newUser)
 
@@ -204,7 +228,7 @@ class StatefulStubbedAPI : PositiveOnlySocialAPI {
             loginCookies.add(LoginCookieMock(seriesId, cookieToken, newUser.id))
         }
 
-        return Response.success(AuthResponse(sessionToken, newUser.username, newUser.id, seriesId, cookieToken))
+        return Response.success(AuthResponse(sessionToken, newUser.username, newUser.id, seriesId, cookieToken, newUser.membershipNumber))
     }
 
     override suspend fun loginUser(request: LoginRequest): Response<LoginResponse> {
@@ -445,6 +469,41 @@ class StatefulStubbedAPI : PositiveOnlySocialAPI {
     }
 
     // ============================================================================================
+    // ACCOUNT / CONTACT (issue #197/#194)
+    // ============================================================================================
+
+    override suspend fun getCurrentUser(token: String): Response<CurrentUserResponse> {
+        val user = getAuthorizedUser(token) ?: return errorGeneric(401, "Invalid session")
+        return Response.success(CurrentUserResponse(username = user.username, email = user.email))
+    }
+
+    override suspend fun changePassword(token: String, request: ChangePasswordRequest): Response<GenericResponse> {
+        val user = getAuthorizedUser(token) ?: return error(401, "Invalid session")
+        // Field validation first, mirroring the backend: the new password must
+        // meet the registration strength policy (Patterns.password) before the
+        // current password is checked, so a weak password fails here exactly as
+        // it would in production rather than silently succeeding against the stub.
+        val strongPassword = Regex("^(?=.*[0-9])(?=.*[a-z])(?=.*[A-Z])(?=\\S+\$).{8,}\$")
+        if (!strongPassword.matches(request.newPassword)) {
+            return error(400, "Invalid fields ['NEW_PASSWORD']")
+        }
+        // The current password is required as well as the session, mirroring the
+        // backend: a stolen session alone must not be able to change it.
+        if (user.passwordHash != request.password) {
+            return error(400, "Invalid password")
+        }
+        if (user.passwordHash == request.newPassword) {
+            return error(400, "New password must be different from the current password")
+        }
+        user.passwordHash = request.newPassword
+        // Evict the account's other sessions (and any remember-me cookies) but
+        // keep the current one, so a leaked session can't outlive the change.
+        sessions.removeIf { it.userId == user.id && it.managementToken != token }
+        loginCookies.removeIf { it.userId == user.id }
+        return Response.success(GenericResponse("Password changed successfully", null))
+    }
+
+    // ============================================================================================
     // PASSWORD RESET
 
     override suspend fun requestReset(request: ResetRequest): Response<GenericResponse> {
@@ -584,7 +643,10 @@ class StatefulStubbedAPI : PositiveOnlySocialAPI {
         val newPost = PostMock(
             authorId = user.id,
             imageUrl = request.imageUrl,
-            caption = request.caption
+            caption = request.caption,
+            tags = extractTags(request.caption),
+            captionFont = request.captionFont,
+            backgroundColor = request.backgroundColor
         )
         newPost.hidden = true
         newPost.hiddenReason = "pending_classification"
@@ -782,11 +844,17 @@ class StatefulStubbedAPI : PositiveOnlySocialAPI {
         authorUsername: String,
         viewerId: String,
         isOwnGrid: Boolean = false
-    ): Post =
-        Post(
+    ): Post {
+        // The author's approved profile photo (issue #7): only an approved photo
+        // is exposed, and the stub has no separate compressed bucket, so the
+        // compressed and original URLs are the same.
+        val avatar = approvedAvatarFor(post.authorId)
+        return Post(
             post.postIdentifier,
             post.imageUrl,
             post.caption,
+            captionFont = post.captionFont,
+            backgroundColor = post.backgroundColor,
             authorUsername = authorUsername,
             likeCount = post.likes.count(),
             isLiked = post.likes.contains(viewerId),
@@ -801,8 +869,18 @@ class StatefulStubbedAPI : PositiveOnlySocialAPI {
             hidden = if (isOwnGrid) post.hidden else null,
             hiddenReason = if (isOwnGrid) post.hiddenReason else null,
             appealable = if (isOwnGrid) isAppealable(post) else null,
+            authorProfileImageUrl = avatar,
+            authorProfileImageOriginalUrl = avatar,
+            tags = post.tags,
             audience = post.audience
         )
+    }
+
+    /** The author's approved profile photo URL, or null when they have none (#7). */
+    private fun approvedAvatarFor(authorId: String): String? =
+        users.find { it.id == authorId }
+            ?.takeIf { it.profileImageStatus == "approved" }
+            ?.profileImageUrl
 
     private fun visibleCommentCount(postIdentifier: String): Int =
         commentThreads
@@ -819,20 +897,67 @@ class StatefulStubbedAPI : PositiveOnlySocialAPI {
             return errorGeneric(400, "No post with that identifier")
         }
         val author = users.find { it.id == post.authorId }!!
+        val avatar = approvedAvatarFor(post.authorId)
 
         return Response.success(Post(
             post.postIdentifier,
             post.imageUrl,
             post.caption,
+            captionFont = post.captionFont,
+            backgroundColor = post.backgroundColor,
             authorUsername = author.username,
             likeCount = post.likes.count(),
             isLiked = post.likes.contains(user.id),
             creationTime = post.creationTime.toString(),
             isReported = post.reports.contains(user.id),
             reportReason = post.reports[user.id],
+            authorProfileImageUrl = avatar,
+            authorProfileImageOriginalUrl = avatar,
+            tags = post.tags,
             audience = post.audience
         ))
     }
+
+    override suspend fun getPostsByTag(token: String, tag: String, batch: Int): Response<List<Post>> {
+        val user = getAuthorizedUser(token) ?: return errorGeneric(401, "Unauthorized")
+        val normalized = tag.lowercase()
+        // Same visibility + block rules as the other feeds: a non-hidden post
+        // (or the viewer's own), from an author neither party blocked, that
+        // carries this tag. Newest first (#379).
+        val taggedPosts = posts
+            .filter { it.tags.contains(normalized) }
+            .filter { it.hiddenReason != "classifier_final" }
+            .filter { it.authorId == user.id || !it.hidden }
+            .filter { !user.blocked.contains(it.authorId) && !user.blockedBy.contains(it.authorId) }
+            .sortedByDescending { it.creationTime }
+
+        val batched = getBatch(taggedPosts, batch, POST_BATCH_SIZE)
+        val dtos = batched.map { post ->
+            val author = users.find { it.id == post.authorId }!!
+            listingDto(post, author.username, user.id, isOwnGrid = post.authorId == user.id)
+        }
+        return Response.success(dtos)
+    }
+
+    /**
+     * Parses #hashtags from a caption the same way the backend does (issue
+     * #379): a '#' followed by unicode word characters, lowercased, de-duped,
+     * and returned sorted to match the backend's serialization.
+     */
+    // '#' + unicode letters/numbers/underscore (\p{L}\p{N}_) — equivalent to the
+    // backend's Python `\w` on a str. lowercase() uses the invariant (root)
+    // locale, so normalization is locale-independent and matches str.lower().
+    private fun extractTags(caption: String): List<String> =
+        Regex("#([\\p{L}\\p{N}_]+)")
+            .findAll(caption)
+            .map { it.groupValues[1].lowercase() }
+            .filter { it.length <= 100 }
+            .distinct()
+            // Cap at the backend's MAX_TAGS_PER_POST, taken in first-seen order
+            // before the sort, so the stub stores the same tags the backend would.
+            .take(30)
+            .sorted()
+            .toList()
 
     // ============================================================================================
     // comments
@@ -847,7 +972,7 @@ class StatefulStubbedAPI : PositiveOnlySocialAPI {
         commentThreads.add(thread)
 
         // Create Comment
-        val comment = CommentMock(authorId = user.id, body = request.commentText)
+        val comment = CommentMock(authorId = user.id, body = request.commentText, bodyFormatting = request.bodyFormatting)
         thread.comments.add(comment)
 
         return Response.success(CommentResponse(thread.threadIdentifier, comment.commentIdentifier))
@@ -858,7 +983,7 @@ class StatefulStubbedAPI : PositiveOnlySocialAPI {
         val thread = commentThreads.find { it.threadIdentifier == threadId && it.postId == postId }
             ?: return errorGeneric(404, "Thread not found")
 
-        val comment = CommentMock(authorId = user.id, body = request.commentText)
+        val comment = CommentMock(authorId = user.id, body = request.commentText, bodyFormatting = request.bodyFormatting)
         thread.comments.add(comment)
 
         return Response.success(CommentResponse(null, comment.commentIdentifier))
@@ -945,6 +1070,7 @@ class StatefulStubbedAPI : PositiveOnlySocialAPI {
 
         val dtos = batched.map { c ->
             val author = users.find { it.id == c.authorId }!!
+            val avatar = approvedAvatarFor(c.authorId)
             CommentDto(
                 c.commentIdentifier,
                 c.body,
@@ -954,7 +1080,10 @@ class StatefulStubbedAPI : PositiveOnlySocialAPI {
                 c.likes.size,
                 isLiked = c.likes.contains(user.id),
                 isReported = c.reports.contains(user.id),
-                reportReason = c.reports[user.id]
+                reportReason = c.reports[user.id],
+                authorProfileImageUrl = avatar,
+                authorProfileImageOriginalUrl = avatar,
+                bodyFormatting = c.bodyFormatting
             )
         }
         return Response.success(dtos)
@@ -973,7 +1102,7 @@ class StatefulStubbedAPI : PositiveOnlySocialAPI {
                 (currentUser == null || !currentUser.blockedBy.contains(it.id))
             }
             .take(10)
-            .map { User(it.username, it.isVerified) }
+            .map { User(it.username, it.isVerified, approvedAvatarFor(it.id), approvedAvatarFor(it.id)) }
         return Response.success(matches)
     }
 
@@ -1057,8 +1186,28 @@ class StatefulStubbedAPI : PositiveOnlySocialAPI {
         val blockedUsers = users
             .filter { user.blocked.contains(it.id) }
             .sortedBy { it.username }
-            .map { User(it.username, it.isVerified) }
+            .map { User(it.username, it.isVerified, approvedAvatarFor(it.id), approvedAvatarFor(it.id)) }
         return Response.success(blockedUsers)
+    }
+
+    override suspend fun getFollowers(token: String): Response<List<User>> {
+        val user = getAuthorizedUser(token) ?: return errorGeneric(401, "Unauthorized")
+        // The current user's followers are the users whose ids are in followers.
+        val followers = users
+            .filter { user.followers.contains(it.id) }
+            .sortedBy { it.username }
+            .map { User(it.username, it.isVerified, approvedAvatarFor(it.id), approvedAvatarFor(it.id)) }
+        return Response.success(followers)
+    }
+
+    override suspend fun getFollowing(token: String): Response<List<User>> {
+        val user = getAuthorizedUser(token) ?: return errorGeneric(401, "Unauthorized")
+        // The users the current user follows are the ids in following.
+        val following = users
+            .filter { user.following.contains(it.id) }
+            .sortedBy { it.username }
+            .map { User(it.username, it.isVerified, approvedAvatarFor(it.id), approvedAvatarFor(it.id)) }
+        return Response.success(following)
     }
 
     override suspend fun getProfileDetails(token: String, username: String): Response<ProfileDetailsResponse> {
@@ -1079,10 +1228,15 @@ class StatefulStubbedAPI : PositiveOnlySocialAPI {
                 followingCount = 0,
                 isFollowing = false,
                 followCategory = null,
-                isBlocked = isBlocked
+                isBlocked = isBlocked,
+                membershipNumber = target.membershipNumber
             ))
         }
 
+        // Only the approved photo is exposed; the stub has no separate compressed
+        // bucket, so the compressed and original URLs are the same (issue #7).
+        val liveAvatar = approvedAvatarFor(target.id)
+        val isOwnProfile = user != null && user.id == target.id
         return Response.success(ProfileDetailsResponse(
             username = target.username,
             postCount = postCount,
@@ -1090,8 +1244,48 @@ class StatefulStubbedAPI : PositiveOnlySocialAPI {
             followingCount = target.following.size,
             isFollowing = isFollowing,
             followCategory = followCategory,
-            isBlocked = isBlocked
+            isBlocked = isBlocked,
+            membershipNumber = target.membershipNumber,
+            profileImageUrl = liveAvatar,
+            profileImageOriginalUrl = liveAvatar,
+            // Owner-only moderation state, mirroring the backend: present only
+            // when viewing your own profile.
+            profileImageStatus = if (isOwnProfile) target.profileImageStatus else null,
+            profileImageReasonCode = if (isOwnProfile) target.profileImageReasonCode else null,
+            pendingProfileImageUrl = if (isOwnProfile) target.pendingProfileImageUrl else null
         ))
+    }
+
+    override suspend fun setProfilePhoto(token: String, request: SetProfilePhotoRequest): Response<SetProfilePhotoResponse> {
+        val user = getAuthorizedUser(token) ?: return errorGeneric(401, "Unauthorized")
+        // The real backend stores the photo pending and classifies it off the
+        // request path; the stub has no classifier, so — like the backend's
+        // eager (no-Redis) mode — it approves immediately, while the response
+        // still reports the initial "pending" state so clients exercise that path.
+        user.profileImageUrl = request.imageUrl
+        user.pendingProfileImageUrl = null
+        user.profileImageStatus = "approved"
+        user.profileImageReasonCode = null
+        return Response.success(
+            SetProfilePhotoResponse(
+                profileImageStatus = "pending",
+                message = "Your photo is being reviewed and will be shown once it is approved."
+            )
+        )
+    }
+
+    override suspend fun removeProfilePhoto(token: String): Response<RemoveProfilePhotoResponse> {
+        val user = getAuthorizedUser(token) ?: return errorGeneric(401, "Unauthorized")
+        user.profileImageUrl = null
+        user.pendingProfileImageUrl = null
+        user.profileImageStatus = "none"
+        user.profileImageReasonCode = null
+        return Response.success(
+            RemoveProfilePhotoResponse(
+                profileImageStatus = "none",
+                message = "Your profile photo has been removed."
+            )
+        )
     }
 
     // ============================================================================================
@@ -1107,7 +1301,15 @@ class StatefulStubbedAPI : PositiveOnlySocialAPI {
         val hidden = posts.filter { it.authorId == user.id && it.hidden && isAppealable(it) }
             .sortedByDescending { it.creationTime }
         val dtos = getBatch(hidden, batch, POST_BATCH_SIZE).map {
-            HiddenPost(it.postIdentifier, it.imageUrl, it.caption, it.hiddenReason, hasAppeal(it.postIdentifier))
+            HiddenPost(
+                it.postIdentifier,
+                it.imageUrl,
+                it.caption,
+                captionFont = it.captionFont,
+                backgroundColor = it.backgroundColor,
+                hiddenReason = it.hiddenReason,
+                hasAppeal = hasAppeal(it.postIdentifier)
+            )
         }
         return Response.success(dtos)
     }
@@ -1118,7 +1320,13 @@ class StatefulStubbedAPI : PositiveOnlySocialAPI {
             .filter { it.authorId == user.id && it.hidden }
             .sortedByDescending { it.creationTime }
         val dtos = getBatch(hidden, batch, COMMENT_BATCH_SIZE).map {
-            HiddenComment(it.commentIdentifier, it.body, it.hiddenReason, hasAppeal(it.commentIdentifier))
+            HiddenComment(
+                it.commentIdentifier,
+                it.body,
+                bodyFormatting = it.bodyFormatting,
+                hiddenReason = it.hiddenReason,
+                hasAppeal = hasAppeal(it.commentIdentifier)
+            )
         }
         return Response.success(dtos)
     }

@@ -5,6 +5,9 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AddAPhoto
 import androidx.compose.material3.*
@@ -48,6 +51,9 @@ fun NewPostScreen(
         var caption by remember { mutableStateOf("") }
         var selectedAudience by remember { mutableStateOf(PostAudience.PUBLIC) }
         var audienceMenuExpanded by remember { mutableStateOf(false) }
+        // Whole-caption font + whole-tile background color keys (issue #318).
+        var captionFont by remember { mutableStateOf("default") }
+        var backgroundColor by remember { mutableStateOf("default") }
         var selectedImageUri by remember { mutableStateOf<Uri?>(null) }
         var isLoading by remember { mutableStateOf(false) }
         var showSuccessAlert by remember { mutableStateOf(false) }
@@ -74,6 +80,8 @@ fun NewPostScreen(
                         // Reset form
                         caption = ""
                         selectedAudience = PostAudience.PUBLIC
+                        captionFont = "default"
+                        backgroundColor = "default"
                         selectedImageUri = null
                         // Navigate back to Home tab
                         navController.navigate(com.example.positiveonlysocial.ui.navigation.Screen.Home.route) {
@@ -182,6 +190,26 @@ fun NewPostScreen(
                 }
             }
 
+            // Text customization (issue #318): a whole-caption font, a
+            // whole-tile background color, and a live preview.
+            StyleKeyDropdown(
+                label = "Font",
+                options = TextFormatting.fontOptions,
+                selected = captionFont,
+                onSelected = { captionFont = it }
+            )
+            StyleKeyDropdown(
+                label = "Background",
+                options = TextFormatting.backgroundOptions,
+                selected = backgroundColor,
+                onSelected = { backgroundColor = it }
+            )
+            CaptionPreview(
+                caption = caption.ifBlank { "Your caption will look like this." },
+                captionFont = captionFont,
+                backgroundColor = backgroundColor
+            )
+
             Spacer(modifier = Modifier.weight(1f))
 
             if (isLoading) {
@@ -275,7 +303,9 @@ fun NewPostScreen(
                                 val request = CreatePostRequest(
                                     imageUrl = imageUrl,
                                     caption = caption,
-                                    audience = selectedAudience.value
+                                    audience = selectedAudience.value,
+                                    captionFont = captionFont,
+                                    backgroundColor = backgroundColor
                                 )
                                 val response = api.makePost(
                                     token = session.sessionToken,
@@ -325,6 +355,59 @@ fun NewPostScreen(
                     Text("Share Post")
                 }
             }
+        }
+    }
+}
+
+/** A labeled dropdown for picking a curated style key (issue #318). */
+@Composable
+private fun StyleKeyDropdown(
+    label: String,
+    options: List<String>,
+    selected: String,
+    onSelected: (String) -> Unit
+) {
+    var expanded by remember { mutableStateOf(false) }
+    Column(modifier = Modifier.fillMaxWidth()) {
+        Text(label, style = MaterialTheme.typography.labelMedium)
+        Box {
+            OutlinedButton(onClick = { expanded = true }, modifier = Modifier.fillMaxWidth()) {
+                Text(selected.replaceFirstChar { it.uppercase() })
+            }
+            DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
+                options.forEach { option ->
+                    DropdownMenuItem(
+                        text = { Text(option.replaceFirstChar { it.uppercase() }) },
+                        onClick = {
+                            onSelected(option)
+                            expanded = false
+                        }
+                    )
+                }
+            }
+        }
+    }
+}
+
+/** A live preview of the caption with the chosen font + background (issue #318). */
+@Composable
+private fun CaptionPreview(caption: String, captionFont: String, backgroundColor: String) {
+    val background = TextFormatting.backgroundColor(backgroundColor)
+    val foreground = TextFormatting.foregroundColor(backgroundColor)
+    Surface(
+        color = background ?: MaterialTheme.colorScheme.primary,
+        shape = RoundedCornerShape(12.dp),
+        modifier = Modifier
+            .fillMaxWidth()
+            .height(120.dp)
+    ) {
+        Box(contentAlignment = Alignment.Center, modifier = Modifier.padding(12.dp)) {
+            Text(
+                text = caption,
+                fontFamily = TextFormatting.fontFamily(captionFont),
+                color = foreground ?: Color.White,
+                textAlign = TextAlign.Center
+            )
         }
     }
 }

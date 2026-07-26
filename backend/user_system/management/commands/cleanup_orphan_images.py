@@ -6,7 +6,7 @@ from django.core.management.base import BaseCommand, CommandError
 from django.utils import timezone
 
 from user_system import s3
-from user_system.models import Post
+from user_system.models import Post, PositiveOnlySocialUser
 
 logger = logging.getLogger(__name__)
 
@@ -46,11 +46,21 @@ class Command(BaseCommand):
         grace_period = timedelta(hours=grace_hours)
         cutoff = timezone.now() - grace_period
 
-        # Keys that a live Post still points at must never be deleted.
+        # Keys that a live Post still points at must never be deleted. Profile
+        # photos (issue #7) live in the same buckets under the same `{user_id}/`
+        # prefix, so both a user's approved photo and any photo still pending
+        # async review must be protected too — otherwise the sweep would reclaim
+        # an avatar out from under a live user or delete an upload mid-review.
         live_keys = {
             s3.image_url_to_key(url)
             for url in Post.objects.exclude(image_url__isnull=True).values_list('image_url', flat=True)
         }
+        for field in ('profile_image_url', 'pending_profile_image_url'):
+            live_keys |= {
+                s3.image_url_to_key(url)
+                for url in PositiveOnlySocialUser.objects.exclude(
+                    **{f'{field}__isnull': True}).values_list(field, flat=True)
+            }
         live_keys.discard('')
 
         # Collect candidate keys from both buckets, tracking the newest

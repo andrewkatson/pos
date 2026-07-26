@@ -9,8 +9,9 @@ from user_system.constants import (
     CLASSIFICATION_MAX_ATTEMPTS,
     HIDDEN_REASON_CLASSIFIER_FINAL,
     HIDDEN_REASON_PENDING_CLASSIFICATION,
+    PROFILE_IMAGE_STATUS_PENDING,
 )
-from user_system.models import Post
+from user_system.models import Post, PositiveOnlySocialUser
 
 logger = logging.getLogger(__name__)
 
@@ -100,6 +101,44 @@ class Command(BaseCommand):
             else:
                 tasks.enqueue_classification(post.post_identifier)
 
+        # --- Stuck pending profile photos: re-enqueue or alert (issue #7). ---
+        # The same reconciliation as posts, for the avatar classification
+        # pipeline: a photo whose classification has had no activity for the
+        # window has fallen out of the queue, so re-enqueue it — unless its
+        # retry budget is spent, in which case it stays pending (fail closed,
+        # never shown) and the error log alerts an operator exactly once.
+        # Require an actual pending URL: a row left in the pending status with no
+        # pending_profile_image_url (a data fix, partial update, or bug) would
+        # otherwise be re-enqueued forever into jobs that always no-op, adding
+        # pointless queue traffic.
+        stuck_photos = PositiveOnlySocialUser.objects.filter(
+            profile_image_status=PROFILE_IMAGE_STATUS_PENDING,
+            profile_image_classification_time__lte=stuck_cutoff,
+            pending_profile_image_url__isnull=False,
+        ).only('id', 'profile_image_classification_attempts', 'profile_image_classification_alerted')
+        photos_requeued = photos_exhausted = photos_newly_alerted = 0
+        for user in stuck_photos.iterator():
+            if user.profile_image_classification_attempts >= CLASSIFICATION_MAX_ATTEMPTS:
+                photos_exhausted += 1
+                if not user.profile_image_classification_alerted:
+                    photos_newly_alerted += 1
+                    if dry_run:
+                        self.stdout.write(f"[dry-run] would alert on exhausted profile photo for user {user.id}")
+                    else:
+                        logger.error(
+                            "sweep_classifications: user %s profile photo has exhausted its %d "
+                            "classification attempts and needs operator attention.",
+                            user.id, user.profile_image_classification_attempts)
+                        PositiveOnlySocialUser.objects.filter(pk=user.pk).update(
+                            profile_image_classification_alerted=True)
+                continue
+            photos_requeued += 1
+            if dry_run:
+                self.stdout.write(f"[dry-run] would re-enqueue profile photo for user {user.id} "
+                                  f"(attempts={user.profile_image_classification_attempts})")
+            else:
+                tasks.enqueue_profile_photo_classification(user.id)
+
         # --- Old final-rejection tombstones: purge. ---
         tombstone_cutoff = now - timedelta(days=tombstone_days)
         tombstones = Post.objects.filter(
@@ -119,7 +158,9 @@ class Command(BaseCommand):
         verb = "Would re-enqueue" if dry_run else "Re-enqueued"
         purge_verb = "would purge" if dry_run else "purged"
         summary = (f"{verb} {requeued} stuck pending post(s); {exhausted} exhausted "
-                   f"(fail-closed, {newly_alerted} newly alerted); {purge_verb} {purged} "
-                   f"tombstone(s) older than {tombstone_days}d.")
+                   f"(fail-closed, {newly_alerted} newly alerted); "
+                   f"{photos_requeued} stuck pending profile photo(s); {photos_exhausted} "
+                   f"photo(s) exhausted (fail-closed, {photos_newly_alerted} newly alerted); "
+                   f"{purge_verb} {purged} tombstone(s) older than {tombstone_days}d.")
         self.stdout.write(summary)
         logger.info("sweep_classifications: %s", summary)

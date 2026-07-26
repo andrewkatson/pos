@@ -4,7 +4,7 @@ from django.db import migrations, models
 class Migration(migrations.Migration):
 
     dependencies = [
-        ('user_system', '0018_alter_twofactorchallenge_expires_and_more'),
+        ('user_system', '0024_tag_post_tags'),
     ]
 
     operations = [

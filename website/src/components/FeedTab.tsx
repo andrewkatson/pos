@@ -7,6 +7,7 @@ import { profilePathFor } from '../utils/profilePath'
 import PostThumbnail from './PostThumbnail'
 import PostActionBar from './PostActionBar'
 import { usePostActions } from './usePostActions'
+import Avatar from './Avatar'
 
 type FeedType = 'forYou' | 'following'
 /** 'all' is the whole following feed; the others narrow it by group (#392). */
@@ -50,7 +51,7 @@ function FeedTab() {
   const [isLoading, setIsLoading] = useState(true)
   const [errorMessage, setErrorMessage] = useState<string | null>(null)
 
-  const { stateFor, toggleLike, openMenu, dialogs } = usePostActions({
+  const { stateFor, toggleLike, toggleSave, openMenu, dialogs } = usePostActions({
     currentUsername: getCurrentUsername(),
     // Deleting from the feed drops the row rather than reloading the whole feed,
     // which would reshuffle the weighted ordering under the user (issue #267).
@@ -181,13 +182,21 @@ function FeedTab() {
         <div className="feed-list">
           {posts.map(post => (
             <article key={post.post_identifier}>
-              <button
-                type="button"
-                className="feed-post__author"
-                onClick={() => navigate(profilePathFor(post.author_username))}
-              >
-                {post.author_username}
-              </button>
+              <div className="author-line">
+                <Avatar
+                  src={post.author_profile_image_url}
+                  originalSrc={post.author_profile_image_original_url}
+                  username={post.author_username}
+                  size="sm"
+                />
+                <button
+                  type="button"
+                  className="feed-post__author"
+                  onClick={() => navigate(profilePathFor(post.author_username))}
+                >
+                  {post.author_username}
+                </button>
+              </div>
               <button
                 type="button"
                 className="feed-post__image"
@@ -196,12 +205,19 @@ function FeedTab() {
               >
                 <PostThumbnail post={post} />
               </button>
+              {/* The caption under the photo (issue #378). Text-only posts (#307)
+                  already render their caption as the tile above, so it isn't
+                  repeated for them. */}
+              {post.image_url !== null && (
+                <p className="feed-post__caption">{post.caption}</p>
+              )}
               {/* Comment count and post time only appear here: feed rows have
                   the width for them, the square profile tiles don't (#249). */}
               <PostActionBar
                 post={post}
                 state={stateFor(post)}
                 onToggleLike={toggleLike}
+                onToggleSave={toggleSave}
                 onOpenMenu={openMenu}
                 onOpenPost={p => navigate(`/post/${p.post_identifier}`)}
                 showDetails

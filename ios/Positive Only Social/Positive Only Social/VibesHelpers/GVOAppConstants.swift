@@ -43,6 +43,8 @@ import Foundation
     static let pathSegmentAppeals = "appeals"
     static let pathSegmentBlock = "block"
     static let pathSegmentBlocked = "blocked"
+    // POST /password/change/ — change the signed-in account's password (#197).
+    static let pathSegmentChange = "change"
     static let pathSegmentConfirm = "confirm"
     static let pathSegmentDisable = "disable"
     static let pathSegmentSetup = "setup"
@@ -63,12 +65,21 @@ import Foundation
     // Relationship-category endpoint and query key (issue #392).
     static let pathSegmentCategory = "category"
     static let queryKeyCategory = "category"
+    static let pathSegmentFollowers = "followers"
+    static let pathSegmentFollowing = "following"
     static let pathSegmentLike = "like"
     static let pathSegmentLogin = "login"
     static let pathSegmentLogout = "logout"
+    // GET /me/ — the signed-in account's own username + email (#194/#197).
+    static let pathSegmentMe = "me"
     static let pathSegmentNotification = "notification"
     static let pathSegmentNotifications = "notifications"
     static let pathSegmentPassword = "password"
+    // Profile photo endpoints (issue #7): POST profile/photo/ sets the photo,
+    // POST profile/photo/remove/ clears it. `pathSegmenProfile` supplies the
+    // shared leading "profile" segment.
+    static let pathSegmentPhoto = "photo"
+    static let pathSegmentRemove = "remove"
     static let pathSegmentPost = "post"
     static let pathSegmentPosts = "posts"
     static let pathSegmentRegister = "register"
@@ -80,6 +91,7 @@ import Foundation
     static let pathSegmentReset = "reset"
     static let pathSegmentRetract = "retract"
     static let pathSegmentStatus = "status"
+    static let pathSegmentTags = "tags"
     static let pathSegmentThreads = "threads"
     static let pathSegmentUnblock = "unblock"
     static let pathSegmentUploadUrl = "upload-url"

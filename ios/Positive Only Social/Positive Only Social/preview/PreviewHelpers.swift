@@ -120,6 +120,14 @@ struct MockedAPI: Networking {
         return try encode(DisableTotpFields(totpEnabled: false))
     }
 
+    func getCurrentUser(sessionManagementToken: String) async throws -> Data {
+        return try encode(CurrentUserFields(username: "preview_user", email: "preview@example.com"))
+    }
+
+    func changePassword(sessionManagementToken: String, currentPassword: String, newPassword: String) async throws -> Data {
+        return try encode(["message": "Password changed successfully"])
+    }
+
     func resetPassword(username: String, email: String, newPassword: String, resetToken: String) async throws -> Data {
         return try encodeGenericSuccess()
     }
@@ -175,7 +183,7 @@ struct MockedAPI: Networking {
         return try JSONEncoder().encode(response)
     }
 
-    func makePost(sessionManagementToken: String, imageURL: String?, caption: String, audience: String? = nil) async throws -> Data {
+    func makePost(sessionManagementToken: String, imageURL: String?, caption: String, audience: String? = nil, captionFont: String = "default", backgroundColor: String = "default") async throws -> Data {
         return try encodeGenericSuccess()
     }
 
@@ -230,6 +238,13 @@ struct MockedAPI: Networking {
         return try encode(posts)
     }
 
+    func getPostsForTag(sessionManagementToken: String, tag: String, batch: Int) async throws -> Data {
+        let posts = [
+            Post(postIdentifier: "6", imageUrl: "https://picsum.photos/400/304", originalImageUrl: nil, caption: "Tagged #\(tag)", authorUsername: "tag_fan", tags: [tag])
+        ]
+        return try encode(posts)
+    }
+
     func getPostsForUser(sessionManagementToken: String, username: String, batch: Int) async throws -> Data {
         let posts = [
             Post(postIdentifier: "4", imageUrl: "https://picsum.photos/400/303", originalImageUrl: nil, caption: "Just me", authorUsername: username)
@@ -264,7 +279,7 @@ struct MockedAPI: Networking {
     
     // MARK: - Comment Management
 
-    func commentOnPost(sessionManagementToken: String, postIdentifier: String, commentText: String) async throws -> Data {
+    func commentOnPost(sessionManagementToken: String, postIdentifier: String, commentText: String, formatting: [CommentFormatSpan]? = nil) async throws -> Data {
         return try encodeGenericSuccess()
     }
 
@@ -336,7 +351,7 @@ struct MockedAPI: Networking {
         return try encode(comments)
     }
 
-    func replyToCommentThread(sessionManagementToken: String, postIdentifier: String, commentThreadIdentifier: String, commentText: String) async throws -> Data {
+    func replyToCommentThread(sessionManagementToken: String, postIdentifier: String, commentThreadIdentifier: String, commentText: String, formatting: [CommentFormatSpan]? = nil) async throws -> Data {
         return try encodeGenericSuccess()
     }
 
@@ -358,6 +373,22 @@ struct MockedAPI: Networking {
         return try encode(users)
     }
 
+    func getFollowers(sessionManagementToken: String) async throws -> Data {
+        let users = [
+            User(username: "follower_1", identityIsVerified: true),
+            User(username: "follower_2", identityIsVerified: false)
+        ]
+        return try encode(users)
+    }
+
+    func getFollowing(sessionManagementToken: String) async throws -> Data {
+        let users = [
+            User(username: "following_1", identityIsVerified: true),
+            User(username: "following_2", identityIsVerified: false)
+        ]
+        return try encode(users)
+    }
+
     func getProfileDetails(sessionManagementToken: String, username: String) async throws -> Data {
         let profile = ProfileDetailsResponse(
             username: username,
@@ -367,6 +398,18 @@ struct MockedAPI: Networking {
             isFollowing: false
         )
         return try encode(profile)
+    }
+
+    // MARK: - Profile Photo (issue #7)
+
+    func setProfilePhoto(sessionManagementToken: String, imageURL: String) async throws -> Data {
+        let response = ProfilePhotoResponse(profileImageStatus: "pending", message: "Your photo is being reviewed.")
+        return try encode(response)
+    }
+
+    func removeProfilePhoto(sessionManagementToken: String) async throws -> Data {
+        let response = ProfilePhotoResponse(profileImageStatus: "none", message: "Your profile photo has been removed.")
+        return try encode(response)
     }
 
     // MARK: - Appeals

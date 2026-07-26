@@ -3,6 +3,7 @@ import { Navigate, useNavigate } from 'react-router-dom'
 import { apiClient } from '../api/client'
 import type { ApiError } from '../api/client'
 import type { UserSearchResult } from '../api/types'
+import Avatar from '../components/Avatar'
 import './MainApp.css'
 
 /**
@@ -107,9 +108,12 @@ function BlockedUsersView() {
             <div className="user-list">
               {blockedUsers.map(user => (
                 <div key={user.username} className="user-list__item">
-                  <span className="user-list__avatar" aria-hidden="true">
-                    ◍
-                  </span>
+                  <Avatar
+                    src={user.author_profile_image_url}
+                    originalSrc={user.author_profile_image_original_url}
+                    username={user.username}
+                    size="sm"
+                  />
                   <span className="user-list__name">{user.username}</span>
                   {user.identity_is_verified && (
                     <span className="verified-badge" aria-label="Verified">

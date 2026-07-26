@@ -59,7 +59,12 @@ test('creates a text-only post without uploading to S3 (#307)', async () => {
   await userEvent.click(screen.getByRole('button', { name: 'Share Post' }))
 
   await waitFor(() =>
-    expect(mockCreatePost).toHaveBeenCalledWith({ caption: 'words only today', audience: 'public' }),
+    expect(mockCreatePost).toHaveBeenCalledWith({
+      caption: 'words only today',
+      audience: 'public',
+      caption_font: 'default',
+      background_color: 'default',
+    }),
   )
   expect(mockUploadImage).not.toHaveBeenCalled()
   expect(await screen.findByText('Your post was shared successfully!')).toBeInTheDocument()
@@ -96,6 +101,8 @@ test('uploads the photo to S3 and creates the post on success', async () => {
     image_url: 'https://goodvibesonly-images.s3.us-east-2.amazonaws.com/user-123/abc.jpeg',
     caption: 'great day',
     audience: 'public',
+    caption_font: 'default',
+    background_color: 'default',
   })
   expect(await screen.findByText('Your post was shared successfully!')).toBeInTheDocument()
   expect(onPosted).toHaveBeenCalled()
@@ -110,7 +117,31 @@ test('sends the chosen audience with the post (#392)', async () => {
   await userEvent.click(screen.getByRole('button', { name: 'Share Post' }))
 
   await waitFor(() =>
-    expect(mockCreatePost).toHaveBeenCalledWith({ caption: 'family news', audience: 'family' }),
+    expect(mockCreatePost).toHaveBeenCalledWith({
+      caption: 'family news',
+      audience: 'family',
+      caption_font: 'default',
+      background_color: 'default',
+    }),
+  )
+})
+
+test('sends the chosen caption font and background color (#318)', async () => {
+  mockCreatePost.mockResolvedValue({ post_identifier: 'p1' })
+  render(<NewPostTab onPosted={() => {}} />)
+
+  await userEvent.type(screen.getByLabelText('Caption'), 'styled words')
+  await userEvent.selectOptions(screen.getByLabelText('Font'), 'serif')
+  await userEvent.click(screen.getByRole('button', { name: 'Mint' }))
+  await userEvent.click(screen.getByRole('button', { name: 'Share Post' }))
+
+  await waitFor(() =>
+    expect(mockCreatePost).toHaveBeenCalledWith({
+      caption: 'styled words',
+      audience: 'public',
+      caption_font: 'serif',
+      background_color: 'mint',
+    }),
   )
 })
 

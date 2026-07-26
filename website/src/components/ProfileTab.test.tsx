@@ -33,6 +33,7 @@ const profile = {
   is_blocked: false,
   identity_is_verified: false,
   is_adult: true,
+  membership_number: 3,
 }
 const mockGetPostStatus = vi.mocked(apiClient.getPostStatus)
 
