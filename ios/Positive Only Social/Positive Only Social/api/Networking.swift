@@ -202,6 +202,13 @@ protocol Networking {
     /// neutral placeholder everywhere.
     func removeProfilePhoto(sessionManagementToken: String) async throws -> Data
 
+    // MARK: - Bio (issue #380)
+
+    /// Sets (or clears, with an empty string) the signed-in user's bio. Unlike a
+    /// photo, a bio is plain text moderated synchronously, so a non-positive bio
+    /// is rejected inline and never stored; there is no pending/approved state.
+    func setBio(sessionManagementToken: String, bio: String) async throws -> Data
+
     // MARK: - Appeals
 
     /// Gets a batch of the signed-in user's own hidden posts.

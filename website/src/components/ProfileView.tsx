@@ -1,10 +1,12 @@
 import { useCallback, useEffect, useRef, useState, type ChangeEvent } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { apiClient } from '../api/client'
+import { apiClient, ApiError } from '../api/client'
 import { uploadImage } from '../api/s3Uploader'
+import { isWithinLimit, MAX_BIO_LENGTH } from '../auth/requirements'
 import type { FeedPost, PostStatusResponse, ProfileDetails } from '../api/types'
 import PostGrid from './PostGrid'
 import Avatar from './Avatar'
+import CharacterCounter from './CharacterCounter'
 
 /** How often the bounded post-classification poll checks pending posts (#282). */
 const STATUS_POLL_INTERVAL_MS = 3000
@@ -58,6 +60,14 @@ function ProfileView({ username, isOwnProfile, currentUsername }: ProfileViewPro
   // profile afterwards to reflect the new pending/approved state.
   const [photoBusy, setPhotoBusy] = useState(false)
   const fileInputRef = useRef<HTMLInputElement>(null)
+
+  // Own bio editing (issue #380). Unlike the photo, a bio is plain text
+  // moderated synchronously on the server, so a rejection comes back inline as
+  // an error and there is no pending/approved state to poll.
+  const [bioEditing, setBioEditing] = useState(false)
+  const [bioDraft, setBioDraft] = useState('')
+  const [bioBusy, setBioBusy] = useState(false)
+  const [bioError, setBioError] = useState<string | null>(null)
 
   const [posts, setPosts] = useState<FeedPost[]>([])
   const [page, setPage] = useState(0)
@@ -238,6 +248,43 @@ function ProfileView({ username, isOwnProfile, currentUsername }: ProfileViewPro
       }
     } finally {
       if (isMounted.current) setPhotoBusy(false)
+    }
+  }
+
+  function startEditingBio() {
+    setBioDraft(profile?.bio ?? '')
+    setBioError(null)
+    setBioEditing(true)
+  }
+
+  function cancelEditingBio() {
+    setBioEditing(false)
+    setBioError(null)
+  }
+
+  async function handleSaveBio() {
+    if (bioBusy) return
+    // Guard on the same code-point limit the counter shows and the server
+    // enforces; an empty draft is allowed and clears the bio.
+    if (!isWithinLimit(bioDraft, MAX_BIO_LENGTH)) return
+    setBioBusy(true)
+    setBioError(null)
+    try {
+      const { bio } = await apiClient.setBio({ bio: bioDraft })
+      if (!isMounted.current) return
+      setProfile(p => (p ? { ...p, bio } : p))
+      setBioEditing(false)
+    } catch (err) {
+      if (!isMounted.current) return
+      // A moderation rejection (or length error) comes back as a 400 with a
+      // human-readable message; show it inline so the user can edit and retry.
+      setBioError(
+        err instanceof ApiError && err.status === 400
+          ? err.message
+          : 'Could not update your bio. Please try again.',
+      )
+    } finally {
+      if (isMounted.current) setBioBusy(false)
     }
   }
 
@@ -428,6 +475,65 @@ function ProfileView({ username, isOwnProfile, currentUsername }: ProfileViewPro
             🎉 Member #{profile.membership_number.toLocaleString()}
           </p>
         )}
+
+        {/* Bio (issue #380): shown to everyone when set; the owner can edit it
+            inline. Editing state is only ever offered on your own profile. */}
+        <div className="profile-bio">
+          {bioEditing ? (
+            <div className="profile-bio__edit">
+              <label className="auth-label" htmlFor="profile-bio-input">
+                Your bio
+              </label>
+              <textarea
+                id="profile-bio-input"
+                className="text-area"
+                rows={4}
+                value={bioDraft}
+                placeholder="Tell people a little about yourself"
+                disabled={bioBusy}
+                onChange={e => setBioDraft(e.target.value)}
+              />
+              <CharacterCounter value={bioDraft} max={MAX_BIO_LENGTH} />
+              {bioError && (
+                <p className="auth-error" role="alert">
+                  {bioError}
+                </p>
+              )}
+              <div className="profile-bio__actions">
+                <button
+                  type="button"
+                  className="btn btn-primary"
+                  disabled={bioBusy || !isWithinLimit(bioDraft, MAX_BIO_LENGTH)}
+                  onClick={() => void handleSaveBio()}
+                >
+                  Save
+                </button>
+                <button
+                  type="button"
+                  className="btn btn-outline"
+                  disabled={bioBusy}
+                  onClick={cancelEditingBio}
+                >
+                  Cancel
+                </button>
+                {bioBusy && <span className="spinner" aria-label="Saving" />}
+              </div>
+            </div>
+          ) : (
+            <>
+              {profile?.bio ? (
+                <p className="profile-bio__text">{profile.bio}</p>
+              ) : (
+                isOwnProfile && <p className="profile-bio__empty muted">You haven't added a bio yet.</p>
+              )}
+              {isOwnProfile && profile && (
+                <button type="button" className="btn btn-outline" onClick={startEditingBio}>
+                  {profile.bio ? 'Edit bio' : 'Add bio'}
+                </button>
+              )}
+            </>
+          )}
+        </div>
 
         {!isOwnProfile && (
           <div className="profile-actions">

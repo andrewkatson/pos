@@ -16,6 +16,7 @@ import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material3.*
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.runtime.*
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -27,7 +28,10 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.NavController
 import com.example.positiveonlysocial.api.PositiveOnlySocialAPI
+import com.example.positiveonlysocial.data.constants.Constants
 import com.example.positiveonlysocial.data.security.KeychainHelperProtocol
+import com.example.positiveonlysocial.ui.components.CharacterCounter
+import com.example.positiveonlysocial.ui.components.isWithinLength
 import com.example.positiveonlysocial.models.viewmodels.FollowListMode
 import com.example.positiveonlysocial.models.viewmodels.ProfileViewModel
 import com.example.positiveonlysocial.models.viewmodels.ProfileViewModelFactory
@@ -109,6 +113,11 @@ fun ProfileBody(
     val isPhotoBusy by viewModel.isPhotoBusy.collectAsState()
     val photoErrorMessage by viewModel.photoErrorMessage.collectAsState()
     val reviewNotice by viewModel.reviewNotice.collectAsState()
+    val isBioBusy by viewModel.isBioBusy.collectAsState()
+    val bioErrorMessage by viewModel.bioErrorMessage.collectAsState()
+
+    // Whether the owner's bio editor dialog is open (issue #380).
+    var showBioEditor by rememberSaveable { mutableStateOf(false) }
 
     val postActions = viewModel.postActions
     val currentUsername by postActions.currentUsername.collectAsState()
@@ -157,6 +166,67 @@ fun ProfileBody(
                     onClick = { viewModel.dismissReviewNotice() },
                     modifier = Modifier.testTag("OkButtonReviewNotice")
                 ) { Text("OK") }
+            }
+        )
+    }
+
+    // The owner's bio editor (issue #380). A plain multi-line field with the
+    // shared character counter, gated by the same length cap the backend
+    // enforces. Saving is synchronous: a non-positive bio is rejected inline
+    // (bioErrorMessage) and the dialog stays open so the user can revise; a
+    // blank value clears the bio.
+    if (showBioEditor) {
+        var bioDraft by rememberSaveable(showBioEditor) {
+            mutableStateOf(profileDetails?.bio ?: "")
+        }
+        AlertDialog(
+            onDismissRequest = {
+                if (!isBioBusy) {
+                    showBioEditor = false
+                    viewModel.clearBioError()
+                }
+            },
+            title = { Text("Your Bio") },
+            text = {
+                Column {
+                    OutlinedTextField(
+                        value = bioDraft,
+                        onValueChange = { bioDraft = it },
+                        placeholder = { Text("Tell people a little about yourself") },
+                        enabled = !isBioBusy,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .heightIn(min = 100.dp)
+                            .testTag("BioTextField")
+                    )
+                    CharacterCounter(text = bioDraft, max = Constants.MAX_BIO_LENGTH)
+                    bioErrorMessage?.let { error ->
+                        Text(
+                            text = error,
+                            color = MaterialTheme.colorScheme.error,
+                            style = MaterialTheme.typography.bodySmall,
+                            modifier = Modifier.testTag("BioError")
+                        )
+                    }
+                }
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        viewModel.updateBio(bioDraft) { showBioEditor = false }
+                    },
+                    enabled = !isBioBusy && isWithinLength(bioDraft, Constants.MAX_BIO_LENGTH),
+                    modifier = Modifier.testTag("SaveBioButton")
+                ) { Text("Save") }
+            },
+            dismissButton = {
+                TextButton(
+                    onClick = {
+                        showBioEditor = false
+                        viewModel.clearBioError()
+                    },
+                    enabled = !isBioBusy
+                ) { Text("Cancel") }
             }
         )
     }
@@ -299,6 +369,37 @@ fun ProfileBody(
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     modifier = Modifier.testTag("MembershipNumber")
                 )
+            }
+
+            // The user's bio (issue #380): the text when set, shown to everyone,
+            // plus an owner-only Add/Edit button that opens the editor dialog.
+            val bio = profileDetails?.bio ?: ""
+            if (bio.isNotEmpty()) {
+                Spacer(modifier = Modifier.height(8.dp))
+                Text(
+                    text = bio,
+                    style = MaterialTheme.typography.bodyMedium,
+                    textAlign = TextAlign.Center,
+                    modifier = Modifier.testTag("ProfileBio")
+                )
+            } else if (isOwnProfile) {
+                Spacer(modifier = Modifier.height(8.dp))
+                Text(
+                    text = "You haven't added a bio yet.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+            if (isOwnProfile && profileDetails != null) {
+                TextButton(
+                    onClick = {
+                        viewModel.clearBioError()
+                        showBioEditor = true
+                    },
+                    modifier = Modifier.testTag("EditBioButton")
+                ) {
+                    Text(if (bio.isEmpty()) "Add Bio" else "Edit Bio")
+                }
             }
 
             Spacer(modifier = Modifier.height(16.dp))

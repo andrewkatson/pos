@@ -866,6 +866,40 @@
   color: rgba(255, 255, 255, 0.75);
 }
 
+.profile-bio {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.5rem;
+  width: 100%;
+}
+
+.profile-bio__text {
+  margin: 0;
+  text-align: center;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  color: rgba(255, 255, 255, 0.9);
+}
+
+.profile-bio__empty {
+  margin: 0;
+  text-align: center;
+}
+
+.profile-bio__edit {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  width: 100%;
+}
+
+.profile-bio__actions {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+
 .profile-actions {
   display: flex;
   gap: 0.75rem;
