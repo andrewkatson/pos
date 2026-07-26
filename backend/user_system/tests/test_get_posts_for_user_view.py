@@ -146,6 +146,37 @@ class GetPostsForUserTests(PositiveOnlySocialTestCase):
         # (Assuming POST_BATCH_SIZE >= 10)
         self.assertEqual(len(responses), 10)
 
+    def test_own_posts_not_duplicated_when_following_multiple(self):
+        """Regression for #397: a viewer's own posts must not fan out by the
+        number of accounts they follow.
+
+        The per-post audience filter joins the author's outgoing follow edges;
+        on your own profile (viewer == author) that join was unrestricted, so
+        each post was returned once per account you follow. Following two
+        accounts reproduced the reported 2x duplication. .distinct() collapses
+        it.
+        """
+        me = get_user_with_username(self.username)
+        for prefix in ('followed_one', 'followed_two'):
+            followed = get_user_with_username(
+                self.make_user_with_prefix(prefix)[Fields.username])
+            me.following.add(followed)
+
+        # Gather every batch: with the fan-out the queryset held 20 rows (10
+        # posts x 2 follows), so the duplicates would otherwise just spill into
+        # batch 1 rather than vanish.
+        posts = []
+        for batch in (0, 1):
+            url = reverse('get_posts_for_user', kwargs={
+                'username': self.username, 'batch': batch})
+            response = self.client.get(url, **self.valid_header)
+            self.assertEqual(response.status_code, 200)
+            posts.extend(response.json())
+
+        ids = [post[Fields.post_identifier] for post in posts]
+        self.assertEqual(len(ids), len(set(ids)), "own posts were duplicated")
+        self.assertEqual(len(set(ids)), 10)
+
     def test_posts_include_original_image_url_fallback(self):
         """
         Each post carries an `original_image_url` (the full-resolution original)

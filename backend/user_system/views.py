@@ -3486,11 +3486,20 @@ def get_followers(request):
 
     Only ever returns the signed-in user's own followers — there is no username
     parameter, so a follower/following list can't be requested for anyone else.
+
+    Filtered through searchable_users so shadow-banned accounts and accounts
+    outside the requester's age band are excluded (issue #398): those profiles
+    are unopenable — get_profile_details returns "not found" for them — so
+    listing them here just produces a "couldn't load them" dead end. This keeps
+    the follow lists consistent with the central visibility invariant that
+    cross-band accounts are mutually invisible (README "Age segregation").
     """
     logger.info("Endpoint get_followers invoked by IP or User")
     # request.user.followers is the reverse side of the (non-symmetrical)
     # `following` relation: everyone with request.user in their `following`.
-    followers = request.user.followers.order_by('username')
+    followers = searchable_users(
+        request.user.followers.all(), request.user
+    ).order_by('username')
 
     users_data = [
         {
@@ -3512,9 +3521,17 @@ def get_following(request):
 
     Only ever returns the signed-in user's own following list — there is no
     username parameter, so this can't be requested for anyone else.
+
+    Filtered through searchable_users so shadow-banned accounts and accounts
+    outside the requester's age band are excluded (issue #398): those profiles
+    can't be opened, so listing them here is a dead end and would also leak a
+    cross-band account's existence, which the age-segregation invariant forbids
+    (README "Age segregation").
     """
     logger.info("Endpoint get_following invoked by IP or User")
-    following = request.user.following.order_by('username')
+    following = searchable_users(
+        request.user.following.all(), request.user
+    ).order_by('username')
 
     users_data = [
         {

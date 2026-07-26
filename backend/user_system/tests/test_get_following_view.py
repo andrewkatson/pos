@@ -1,6 +1,8 @@
+from django.contrib.auth import get_user_model
 from django.urls import reverse
 from .test_parent_case import PositiveOnlySocialTestCase
-from ..constants import Fields
+from ..constants import BAN_TYPE_SHADOW, Fields
+from ..models import UserBan
 from ..views import get_user_with_username
 
 class GetFollowingViewTests(PositiveOnlySocialTestCase):
@@ -74,6 +76,36 @@ class GetFollowingViewTests(PositiveOnlySocialTestCase):
         response = self.client.get(self.url, **self.user_a_header)
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.json(), [])
+
+    def test_shadow_banned_following_excluded(self):
+        """A shadow-banned account the requester follows is hidden from the list
+        (issue #398) — its profile can't be opened, so listing it is a dead end."""
+        self.user_a.following.add(self.user_b)
+        self.user_a.following.add(self.user_c)
+        UserBan.objects.create(user=self.user_b, ban_type=BAN_TYPE_SHADOW)
+
+        response = self.client.get(self.url, **self.user_a_header)
+
+        self.assertEqual(response.status_code, 200)
+        usernames = [user[Fields.username] for user in response.json()]
+        self.assertEqual(usernames, [self.user_c_username])
+
+    def test_cross_age_band_following_excluded(self):
+        """A followed account outside the requester's age band is hidden (issue
+        #398): cross-band profiles are unopenable and mutually invisible, so the
+        follow list must not surface one."""
+        # user_a keeps the registration default (unverified => general band).
+        # Make user_b a verified minor => the other band; user_c stays same-band.
+        get_user_model().objects.filter(pk=self.user_b.pk).update(
+            identity_is_verified=True, is_adult=False)
+        self.user_a.following.add(self.user_b)
+        self.user_a.following.add(self.user_c)
+
+        response = self.client.get(self.url, **self.user_a_header)
+
+        self.assertEqual(response.status_code, 200)
+        usernames = [user[Fields.username] for user in response.json()]
+        self.assertEqual(usernames, [self.user_c_username])
 
     def test_requires_authentication(self):
         """The endpoint rejects unauthenticated requests."""

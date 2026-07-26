@@ -27,11 +27,15 @@ def _audience_q(viewer):
     admits = Q(audience=POST_AUDIENCE_PUBLIC)
     if viewer is not None and getattr(viewer, 'is_authenticated', False):
         for audience, categories in AUDIENCE_ALLOWED_CATEGORIES.items():
-            # Join the author's outgoing follow edges to this viewer. The
-            # UserFollow unique constraint on (user_from, user_to) means at most
-            # one such edge exists, so this join never duplicates a post row —
-            # and a plain Q join keeps the whole filter combinable with the other
-            # Q terms in visible_posts.
+            # Join the author's outgoing follow edges (following_set) and keep
+            # rows whose edge points at this viewer. A plain Q join keeps the
+            # whole filter combinable with the other Q terms in visible_posts.
+            #
+            # NOTE: this DOES fan out. `following_set` is multi-valued, and the
+            # OR with the author-owns-it branch in visible_posts leaves the join
+            # unrestricted for the author's own posts (viewer == author), so a
+            # post is emitted once per follow edge its author has. visible_posts
+            # must therefore .distinct() to collapse the duplicates (issue #397).
             admits |= Q(
                 audience=audience,
                 author__following_set__user_to=viewer,
@@ -93,7 +97,11 @@ def visible_posts(posts, viewer):
             & _audience_q(viewer)
             & _same_age_band_q(viewer, 'author')
         )
-    )
+    # .distinct() collapses the audience-join fan-out: without it, a viewer's
+    # own posts are returned once per account the viewer's *author* follows, so
+    # your own profile shows each post N times where N = accounts you follow
+    # (issue #397). Ordering is by -creation_time only, so distinct is safe.
+    ).distinct()
 
 
 def visible_comments(comments, viewer):
