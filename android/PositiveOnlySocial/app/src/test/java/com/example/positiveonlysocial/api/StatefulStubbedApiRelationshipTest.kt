@@ -116,7 +116,9 @@ class StatefulStubbedApiRelationshipTest {
         val famPost = api.makePost(famToken, CreatePostRequest(imageUrl = "f.jpg", caption = "fam")).body()!!.postIdentifier
         val friPost = api.makePost(friToken, CreatePostRequest(imageUrl = "r.jpg", caption = "fri")).body()!!.postIdentifier
 
-        val all = api.getFollowedPosts(viewerToken, 0).body()!!.map { it.postIdentifier }
+        // Pass category explicitly: Kotlin overrides can't declare their own
+        // default, so the concrete StatefulStubbedAPI type needs all three args.
+        val all = api.getFollowedPosts(viewerToken, 0, null).body()!!.map { it.postIdentifier }
         assertTrue(all.contains(famPost))
         assertTrue(all.contains(friPost))
 
