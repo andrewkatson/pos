@@ -1,4 +1,4 @@
-from django.db.models import Exists, OuterRef, Q
+from django.db.models import Q
 
 from .constants import (
     AUDIENCE_ALLOWED_CATEGORIES,
@@ -27,9 +27,16 @@ def _audience_q(viewer):
     admits = Q(audience=POST_AUDIENCE_PUBLIC)
     if viewer is not None and getattr(viewer, 'is_authenticated', False):
         for audience, categories in AUDIENCE_ALLOWED_CATEGORIES.items():
-            edge = UserFollow.objects.filter(
-                user_from=OuterRef('author'), user_to=viewer, category__in=categories)
-            admits |= (Q(audience=audience) & Exists(edge))
+            # Join the author's outgoing follow edges to this viewer. The
+            # UserFollow unique constraint on (user_from, user_to) means at most
+            # one such edge exists, so this join never duplicates a post row —
+            # and a plain Q join keeps the whole filter combinable with the other
+            # Q terms in visible_posts.
+            admits |= Q(
+                audience=audience,
+                author__following_set__user_to=viewer,
+                author__following_set__category__in=categories,
+            )
     return admits
 
 
