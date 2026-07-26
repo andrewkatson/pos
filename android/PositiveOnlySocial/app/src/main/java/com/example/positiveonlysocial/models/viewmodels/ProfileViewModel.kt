@@ -566,25 +566,32 @@ class ProfileViewModel(
         _followCategory.value = newCategory
         _profileDetails.value = currentProfile.copy(followCategory = newCategory.value)
 
+        // Only undo this request's optimistic update if a newer changeCategory
+        // hasn't since moved the selection elsewhere — otherwise a slow failure
+        // would clobber the user's newer choice.
+        fun revertIfStillCurrent() {
+            if (_followCategory.value == newCategory) {
+                _followCategory.value = previous
+                _profileDetails.value = currentProfile
+            }
+        }
+
         viewModelScope.launch {
             try {
                 val userSession = keychainHelper.load(UserSession::class.java, service, account)
                 if (userSession == null) {
-                    _followCategory.value = previous
-                    _profileDetails.value = currentProfile
+                    revertIfStillCurrent()
                     _errorMessage.value = "Not logged in."
                     return@launch
                 }
                 val response = api.setFollowCategory(
                     userSession.sessionToken, username, SetCategoryRequest(newCategory.value))
                 if (!response.isSuccessful) {
-                    _followCategory.value = previous
-                    _profileDetails.value = currentProfile
+                    revertIfStillCurrent()
                     _errorMessage.value = "Failed to update relationship"
                 }
             } catch (e: Exception) {
-                _followCategory.value = previous
-                _profileDetails.value = currentProfile
+                revertIfStillCurrent()
                 _errorMessage.value = ApiErrors.messageFor(e, fallback = "Something went wrong. Please try again.")
             }
         }

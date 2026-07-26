@@ -150,8 +150,12 @@ function FeedTab() {
             aria-label="Filter following feed by group"
             value={group}
             onChange={e => {
+              const next = e.target.value as FeedGroup
+              // Re-selecting the current group wouldn't change `group`, so the
+              // reload effect wouldn't fire — guard against a stuck spinner.
+              if (next === group) return
               setIsLoading(true)
-              setGroup(e.target.value as FeedGroup)
+              setGroup(next)
             }}
           >
             {GROUP_OPTIONS.map(opt => (
