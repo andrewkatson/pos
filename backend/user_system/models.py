@@ -179,6 +179,14 @@ class PositiveOnlySocialUser(AbstractUser):
     profile_image_classification_alerted = models.BooleanField(default=False)
     profile_image_classification_time = models.DateTimeField(null=True, blank=True, default=None)
 
+    # Free-text profile bio (issue #380). A short blurb the user writes about
+    # themselves, shown on their profile. Unlike the photo it is plain text, so
+    # it is moderated synchronously by the text classifier on write (exactly like
+    # a username or a comment) rather than through the async image pipeline —
+    # there is no pending/approved lifecycle: a bio that fails the positivity
+    # check is simply rejected and never stored. Empty string means "no bio".
+    bio = models.TextField(default="", blank=True)
+
     creation_time = models.DateTimeField(auto_now_add=True, null=True, blank=True)
     updated_time = models.DateTimeField(auto_now=True, null=True, blank=True)
 

@@ -19,6 +19,7 @@ import {
 } from '../components/commentFormatting'
 import { formatRelativeTime } from '../utils/relativeTime'
 import { profilePathFor } from '../utils/profilePath'
+import { commentShareUrl, postShareUrl, shareLink } from '../utils/shareLink'
 import './MainApp.css'
 
 /** A comment enriched with per-user like/report state for the UI. */
@@ -126,6 +127,9 @@ function PostDetailView({ postId }: { postId: string }) {
   const [menuTarget, setMenuTarget] = useState<MenuTarget | null>(null)
   const [retractTarget, setRetractTarget] = useState<ReportTarget | null>(null)
   const [errorMessage, setErrorMessage] = useState<string | null>(null)
+  // Shown only when Share fell back to copying the link (no OS share sheet), so
+  // the user knows the link is on their clipboard (issue #34).
+  const [shareCopiedOpen, setShareCopiedOpen] = useState(false)
   // Ids of comments whose thread below them is collapsed. Tapping a comment's
   // username/time header toggles it (issue #243).
   const [collapsedIds, setCollapsedIds] = useState<Set<string>>(new Set())
@@ -408,6 +412,21 @@ function PostDetailView({ postId }: { postId: string }) {
   function menuDelete(target: MenuTarget) {
     setMenuTarget(null)
     setDeleteTarget(target)
+  }
+
+  // Share a post, or a specific comment (a #comment-<id> deep link into this
+  // page). Offered on every item, yours and everyone else's (issue #34).
+  async function menuShare(target: MenuTarget) {
+    setMenuTarget(null)
+    const url =
+      target.type === 'post'
+        ? postShareUrl(postId)
+        : commentShareUrl(postId, target.comment.id)
+    const result = await shareLink(url)
+    if (result === 'copied') setShareCopiedOpen(true)
+    else if (result === 'failed') {
+      setErrorMessage(`Could not share this ${target.type}.`)
+    }
   }
 
   // ---- Reporting ----
@@ -796,6 +815,14 @@ function PostDetailView({ postId }: { postId: string }) {
               <button type="button" className="modal__cancel" onClick={() => setMenuTarget(null)}>
                 Cancel
               </button>
+              {/* Share is offered on every item, yours and everyone else's. */}
+              <button
+                type="button"
+                className="modal__confirm"
+                onClick={() => void menuShare(menuTarget)}
+              >
+                Share
+              </button>
               {menuState(menuTarget).isOwn ? (
                 <button
                   type="button"
@@ -821,6 +848,24 @@ function PostDetailView({ postId }: { postId: string }) {
                   Report
                 </button>
               )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {shareCopiedOpen && (
+        <div className="modal-overlay">
+          <div className="modal" role="dialog" aria-modal="true" aria-label="Link copied">
+            <h2 className="modal__title">Link copied</h2>
+            <p className="muted">The link is on your clipboard.</p>
+            <div className="modal__actions">
+              <button
+                type="button"
+                className="modal__confirm"
+                onClick={() => setShareCopiedOpen(false)}
+              >
+                OK
+              </button>
             </div>
           </div>
         </div>

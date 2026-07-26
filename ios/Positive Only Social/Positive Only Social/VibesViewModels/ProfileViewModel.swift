@@ -32,6 +32,15 @@ class ProfileViewModel: ObservableObject {
     @Published var photoErrorMessage: String?
     private let s3Uploader = S3Uploader()
 
+    // Own bio editing (issue #380). Unlike the photo, a bio is plain text
+    // moderated synchronously, so a rejection comes back inline (there is no
+    // pending/approved state to poll).
+    @Published var isUpdatingBio = false
+    @Published var bioErrorMessage: String?
+
+    /// The user's bio, or "" when unset.
+    var bio: String { profileDetails?.bio ?? "" }
+
     // Private state for pagination and API
     private var batch = 0
     private let api: Networking
@@ -513,6 +522,59 @@ class ProfileViewModel: ObservableObject {
         } catch {
             NSLog("%@", "Error removing profile photo: \(error)")
             photoErrorMessage = "Could not remove your profile photo. Please try again."
+        }
+    }
+
+    /// Sets (or clears, with an empty string) the signed-in user's bio, then
+    /// writes the returned bio straight into `profileDetails` so the header
+    /// reflects it (no reload — a silent refresh failure could otherwise leave
+    /// the old bio on screen after a successful save). A non-positive bio is
+    /// rejected by the server (400) and surfaced inline without changing the
+    /// stored bio. Returns whether the update succeeded, so the caller can
+    /// dismiss the editor only on success.
+    @discardableResult
+    func updateBio(_ newBio: String) async -> Bool {
+        guard !isUpdatingBio else { return false }
+        isUpdatingBio = true
+        bioErrorMessage = nil
+        defer { isUpdatingBio = false }
+
+        do {
+            guard let userSession = try keychainHelper.load(UserSession.self, from: keychainService, account: account) else {
+                NSLog("%@", "No active session — cannot update bio")
+                bioErrorMessage = "You must be logged in to edit your bio."
+                return false
+            }
+            let data = try await api.setBio(sessionManagementToken: userSession.sessionToken, bio: newBio)
+            // setBio returns the stored bio; apply it directly rather than
+            // reloading (refreshProfileDetails swallows failures, which would
+            // leave the header stale after a successful save).
+            struct BioResponse: Decodable { let bio: String }
+            let storedBio = (try? JSONDecoder().decode(BioResponse.self, from: data))?.bio ?? newBio
+            // Copy-and-reassign rather than mutating profileDetails?.bio in place,
+            // matching adjustFollowerCount — avoids a read+write of profileDetails
+            // in one expression (an exclusive-access violation on the struct).
+            if var details = profileDetails {
+                details.bio = storedBio
+                profileDetails = details
+            }
+            return true
+        } catch let APIError.serverError(_, serverMessage) {
+            // A rejection (semicolon, length, or the positivity reason) comes back
+            // as a serverError carrying the backend's own message — show it
+            // directly, since RealAPI throws this (not badServerResponse) whenever
+            // the 4xx response has a JSON error body.
+            bioErrorMessage = serverMessage
+            return false
+        } catch APIError.badServerResponse(let statusCode) where statusCode == 400 {
+            // A 400 with no parseable error body (e.g. the stub): fall back to an
+            // actionable hint since there is no server message to show.
+            bioErrorMessage = "Your bio wasn't accepted. Please keep it positive and within \(GVOAppConstants.maxBioLength) characters."
+            return false
+        } catch {
+            NSLog("%@", "Error updating bio: \(error)")
+            bioErrorMessage = "Could not update your bio. Please try again."
+            return false
         }
     }
 }

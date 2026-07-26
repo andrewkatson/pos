@@ -65,6 +65,7 @@ profile grid, and the Feed — without opening the post first:
 - **Report**, with a reason. A flag marks posts you have an active report on.
 - **Retract report**, which shows the reason you originally gave.
 - **Delete**, offered only on your own posts.
+- **Share**, offered on every post (see [Sharing](#sharing)).
 
 Each feed row additionally shows the author, the caption under the photo, how
 long ago the post was made, and a comment count that opens the post when tapped.
@@ -114,6 +115,27 @@ most recently saved first. It runs through the same visibility filter as every
 other listing, so a post that is hidden or whose author is shadow-banned after
 you saved it silently drops off rather than rendering as an empty tile.
 Unsaving a post from that screen removes its tile.
+
+## Sharing
+
+Every post's options menu offers **Share**, and every comment's options menu on
+the post-detail screen does too (issue #34). Sharing hands off a link to the
+item — the website's post page, `https://smiling.social/post/<post_identifier>`,
+with a comment additionally carrying a `#comment-<comment_identifier>` fragment.
+Share is available on any post or comment, your own and everyone else's; unlike
+Like or Delete it has no ownership condition.
+
+Each client uses its native mechanism: iOS presents the system share sheet,
+Android fires an `ACTION_SEND` chooser, and the website uses the Web Share API
+when the browser offers it (typically mobile), otherwise copying the link to the
+clipboard and confirming with a "Link copied" prompt.
+
+This is deliberately the client-only first step. A shared link today opens the
+website and, because the single-post view is still behind auth, prompts a
+signed-out recipient to log in; on mobile it opens the browser rather than the
+app. Making a single post (and comment) publicly viewable with link-preview
+metadata, and adding iOS Universal Links / Android App Links so a shared link
+opens the app, are tracked follow-ups.
 
 ## Text formatting (issue #318)
 
@@ -541,6 +563,25 @@ clears the photo entirely.
 Reconciliation mirrors posts: `sweep_classifications` re-enqueues a photo stuck
 in `pending` past the threshold, or — once its retry budget is spent — leaves it
 pending (fail closed, never shown) and alerts an operator exactly once.
+
+## Bios
+
+A user can write a short free-text **bio** shown on their profile (issue #380).
+It is stored on the user (`bio`, empty string when unset) and returned in the
+profile-details payload (`GET /users/<username>/profile/`) — already moderated
+on write, so it is safe to show. It is redacted (returned empty) for a
+requester the profile has blocked, exactly like the stats and avatar there, so
+a blocked user cannot read the blocker's bio by name. `POST /profile/bio/` with
+`{"bio": "..."}` sets it; an empty or whitespace-only value clears it.
+
+Unlike a profile photo, a bio is **plain text**, so it is moderated
+**synchronously by the text classifier on write** — exactly like a username or a
+comment — rather than through the async image pipeline. There is no
+pending/approved lifecycle: a bio that fails the positivity check is rejected
+with a `400` (carrying a `reason_code`) and **never stored**, leaving any
+existing bio untouched. The remedy is simply to edit it, so a rejection is **not
+appealable**. Bios are capped at `MAX_BIO_LENGTH` (500) characters, counted as
+unicode code points like captions and comments.
 
 ## Post image cleanup
 

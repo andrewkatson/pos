@@ -40,6 +40,8 @@ import type {
   ResetPasswordRequest,
   SetProfilePhotoRequest,
   SetProfilePhotoResponse,
+  SetBioRequest,
+  SetBioResponse,
   SubmitAppealRequest,
   SubmitAppealResponse,
   TwoFactorSetupResponse,
@@ -169,6 +171,10 @@ export interface PositiveOnlySocialAPI {
   setProfilePhoto(body: SetProfilePhotoRequest): Promise<SetProfilePhotoResponse>
   /** Remove the signed-in user's profile photo entirely. */
   removeProfilePhoto(): Promise<RemoveProfilePhotoResponse>
+  /** Set (or clear, with an empty string) the signed-in user's bio (issue #380).
+   * The text is moderated synchronously; a non-positive bio is rejected and not
+   * stored. Returns the stored bio. */
+  setBio(body: SetBioRequest): Promise<SetBioResponse>
 
   // Appeals
   getHiddenPosts(batch: number): Promise<HiddenPost[]>

@@ -283,3 +283,30 @@ describe('saved posts endpoints (#193)', () => {
   })
 })
 
+describe('setBio (#380)', () => {
+  test('posts the bio to /profile/bio/ with the bearer token and returns the stored bio', async () => {
+    const fetchFn = vi
+      .fn()
+      .mockResolvedValue(jsonResponse(200, { bio: 'Hello world', message: 'Your bio has been updated.' }))
+    const client = new ApiClient({ baseUrl: 'https://api.test', token: 'tok', fetchFn })
+
+    const result = await client.setBio({ bio: 'Hello world' })
+
+    const [url, init] = fetchFn.mock.calls[0]
+    expect(url).toBe('https://api.test/profile/bio/')
+    expect((init as RequestInit).method).toBe('POST')
+    expect((init as RequestInit).headers).toMatchObject({ Authorization: 'Bearer tok' })
+    expect(JSON.parse((init as RequestInit).body as string)).toEqual({ bio: 'Hello world' })
+    expect(result.bio).toBe('Hello world')
+  })
+
+  test('surfaces a moderation rejection as a 400 ApiError', async () => {
+    const fetchFn = vi
+      .fn()
+      .mockResolvedValue(jsonResponse(400, { error: 'Text is not positive because your bio ...' }))
+    const client = new ApiClient({ baseUrl: 'https://api.test', token: 'tok', fetchFn })
+
+    await expect(client.setBio({ bio: 'a negative bio' })).rejects.toThrow(ApiError)
+  })
+})
+

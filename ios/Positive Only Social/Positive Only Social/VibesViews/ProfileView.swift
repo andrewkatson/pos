@@ -76,6 +76,9 @@ struct ProfileBodyView: View {
     /// profile photo when it changes (issue #7).
     @State private var selectedPhotoItem: PhotosPickerItem?
 
+    /// Whether the owner's bio editor sheet is open (issue #380).
+    @State private var isEditingBio = false
+
     /// The accessibility identifier for each grid tile. The Profile tab keeps
     /// "MyPostImage" so your own grid stays distinguishable from someone else's.
     var postAccessibilityIdentifier: String = "ProfilePostImage"
@@ -183,6 +186,10 @@ struct ProfileBodyView: View {
                     .padding(.top, 4)
                     .accessibilityIdentifier("MembershipNumberLabel")
             }
+
+            // The user's bio (issue #380), shown to everyone when set; the owner
+            // gets an edit affordance below it.
+            bioSection
 
             if !viewModel.isOwnProfile {
                 Button(action: viewModel.toggleFollow) {
@@ -321,6 +328,40 @@ struct ProfileBodyView: View {
         }
     }
 
+    /// The bio (issue #380): the text when set, plus an owner-only Edit/Add
+    /// button that opens the composer sheet. Editing is only ever offered on
+    /// your own profile, mirroring the photo controls.
+    @ViewBuilder
+    private var bioSection: some View {
+        VStack(spacing: 6) {
+            if !viewModel.bio.isEmpty {
+                Text(viewModel.bio)
+                    .font(.body)
+                    .multilineTextAlignment(.center)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .accessibilityIdentifier("ProfileBio")
+            } else if viewModel.isOwnProfile {
+                Text("You haven't added a bio yet.")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+            }
+
+            if viewModel.isOwnProfile {
+                Button {
+                    isEditingBio = true
+                } label: {
+                    Text(viewModel.bio.isEmpty ? "Add Bio" : "Edit Bio")
+                        .font(.subheadline)
+                }
+                .accessibilityIdentifier("EditBioButton")
+            }
+        }
+        .padding(.top, 4)
+        .sheet(isPresented: $isEditingBio) {
+            BioComposerView(viewModel: viewModel)
+        }
+    }
+
     /// The view for displaying the user's posts
     @ViewBuilder
     private var postGrid: some View {
@@ -399,6 +440,72 @@ struct ProfileBodyView: View {
 
 #Preview {
     ProfileView(user: User(username: "test", identityIsVerified: true), api: PreviewHelpers.api, keychainHelper: PreviewHelpers.keychainHelper)
+}
+
+/// The composer sheet for editing your own bio (issue #380). A plain multi-line
+/// editor with a character counter, gated by the same length limit the backend
+/// enforces. Submitting is synchronous: a non-positive bio is rejected inline
+/// (shown from the view model) and the sheet stays open so the user can revise;
+/// a clear (empty text) is allowed. Kept in this file so no new source file has
+/// to be registered with the test targets.
+struct BioComposerView: View {
+    @Environment(\.dismiss) private var dismiss
+    @ObservedObject var viewModel: ProfileViewModel
+
+    @State private var text: String = ""
+
+    private var isWithinLimit: Bool {
+        isWithinLength(text, max: GVOAppConstants.maxBioLength)
+    }
+
+    var body: some View {
+        NavigationView {
+            Form {
+                Section {
+                    ZStack(alignment: .topLeading) {
+                        if text.isEmpty {
+                            Text("Tell people a little about yourself")
+                                .foregroundColor(.secondary)
+                                .padding(.top, 8)
+                                .padding(.leading, 4)
+                                .allowsHitTesting(false)
+                        }
+                        TextEditor(text: $text)
+                            .frame(minHeight: 120)
+                            .accessibilityIdentifier("BioTextEditor")
+                    }
+                    CharacterCounter(text: text, max: GVOAppConstants.maxBioLength)
+                    if let error = viewModel.bioErrorMessage {
+                        Text(error)
+                            .font(.caption)
+                            .foregroundColor(.red)
+                            .accessibilityIdentifier("BioError")
+                    }
+                }
+            }
+            .navigationTitle("Your Bio")
+            .navigationBarTitleDisplayMode(.inline)
+            .scrollDismissesKeyboard(.immediately)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Cancel") { dismiss() }
+                }
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Save") {
+                        Task {
+                            if await viewModel.updateBio(text) { dismiss() }
+                        }
+                    }
+                    .disabled(viewModel.isUpdatingBio || !isWithinLimit)
+                    .accessibilityIdentifier("SaveBioButton")
+                }
+            }
+            .onAppear {
+                text = viewModel.bio
+                viewModel.bioErrorMessage = nil
+            }
+        }
+    }
 }
 
 /// Overlay label for the author's own pending/rejected grid tiles (#282).

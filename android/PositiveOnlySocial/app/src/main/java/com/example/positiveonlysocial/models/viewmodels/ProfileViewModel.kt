@@ -8,6 +8,7 @@ import com.example.positiveonlysocial.api.PositiveOnlySocialAPI
 import com.example.positiveonlysocial.data.model.FollowCategory
 import com.example.positiveonlysocial.data.model.Post
 import com.example.positiveonlysocial.data.model.ProfileDetailsResponse
+import com.example.positiveonlysocial.data.model.SetBioRequest
 import com.example.positiveonlysocial.data.model.SetCategoryRequest
 import com.example.positiveonlysocial.data.model.SetProfilePhotoRequest
 import com.example.positiveonlysocial.data.model.UserSession
@@ -76,6 +77,15 @@ class ProfileViewModel(
     // the presigned upload, and the set/remove calls.
     private val _photoErrorMessage = MutableStateFlow<String?>(null)
     val photoErrorMessage: StateFlow<String?> = _photoErrorMessage.asStateFlow()
+
+    // Bio editing (issue #380). Unlike the photo, a bio is plain text moderated
+    // synchronously, so a rejection comes back inline (no pending/approved state
+    // to poll) — surfaced through _bioErrorMessage so the editor can show it.
+    private val _isBioBusy = MutableStateFlow(false)
+    val isBioBusy: StateFlow<Boolean> = _isBioBusy.asStateFlow()
+
+    private val _bioErrorMessage = MutableStateFlow<String?>(null)
+    val bioErrorMessage: StateFlow<String?> = _bioErrorMessage.asStateFlow()
 
     /**
      * Like / report / retract-report / delete for the posts in this profile's
@@ -442,6 +452,58 @@ class ProfileViewModel(
                 profileResponse,
                 fallback = "Your change was saved, but the profile couldn't refresh — pull to refresh."
             )
+        }
+    }
+
+    /** Clears any inline bio error, e.g. when the editor is dismissed or reopened. */
+    fun clearBioError() {
+        _bioErrorMessage.value = null
+    }
+
+    /**
+     * Sets (or clears, with a blank string) the signed-in user's bio (issue
+     * #380). On success the new bio (returned by the endpoint) is written
+     * straight into [profileDetails] so the header updates without a reload. A
+     * non-positive bio is rejected by the server and surfaced through
+     * [bioErrorMessage] without changing the stored bio. [onSuccess] runs only
+     * on a successful save, so the caller can dismiss the editor.
+     */
+    fun updateBio(newBio: String, onSuccess: () -> Unit = {}) {
+        if (_isBioBusy.value) return
+        _isBioBusy.value = true
+        _bioErrorMessage.value = null
+
+        viewModelScope.launch {
+            try {
+                val userSession = keychainHelper.load(UserSession::class.java, service, account)
+                if (userSession == null) {
+                    Log.e(TAG, "No active session found — cannot update bio")
+                    _bioErrorMessage.value = "Not logged in."
+                    return@launch
+                }
+                val token = userSession.sessionToken
+
+                val response = api.setBio(token, SetBioRequest(newBio))
+                if (response.isSuccessful) {
+                    // setBio returns the stored bio, so update it directly rather
+                    // than reloading the whole profile — reloadProfileDetails
+                    // reports refresh failures as a *photo* error, which would be
+                    // misleading right after a successful bio save.
+                    val storedBio = response.body()?.bio ?: newBio
+                    _profileDetails.value = _profileDetails.value?.copy(bio = storedBio)
+                    onSuccess()
+                } else {
+                    _bioErrorMessage.value = ApiErrors.messageFor(
+                        response,
+                        fallback = "Could not update your bio. Please try again."
+                    )
+                }
+            } catch (e: Exception) {
+                Log.e(TAG, "Error updating bio", e)
+                _bioErrorMessage.value = ApiErrors.messageFor(e, fallback = "Could not update your bio. Please try again.")
+            } finally {
+                _isBioBusy.value = false
+            }
         }
     }
 

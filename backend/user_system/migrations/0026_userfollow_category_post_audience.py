@@ -4,7 +4,7 @@ from django.db import migrations, models
 class Migration(migrations.Migration):
 
     dependencies = [
-        ('user_system', '0024_tag_post_tags'),
+        ('user_system', '0025_merge_20260725_1618'),
     ]
 
     operations = [
