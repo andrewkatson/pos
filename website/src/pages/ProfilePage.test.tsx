@@ -12,6 +12,7 @@ vi.mock('../api/client', () => ({
     getPostsForUser: vi.fn(),
     followUser: vi.fn(),
     unfollowUser: vi.fn(),
+    setFollowCategory: vi.fn(),
     toggleBlock: vi.fn(),
     likePost: vi.fn(),
     unlikePost: vi.fn(),
@@ -35,6 +36,7 @@ const mockGetProfile = vi.mocked(apiClient.getProfile)
 const mockGetPosts = vi.mocked(apiClient.getPostsForUser)
 const mockFollow = vi.mocked(apiClient.followUser)
 const mockUnfollow = vi.mocked(apiClient.unfollowUser)
+const mockSetCategory = vi.mocked(apiClient.setFollowCategory)
 const mockLikePost = vi.mocked(apiClient.likePost)
 const mockUnlikePost = vi.mocked(apiClient.unlikePost)
 const mockReportPost = vi.mocked(apiClient.reportPost)
@@ -69,6 +71,7 @@ beforeEach(() => {
   mockGetPosts.mockReset().mockResolvedValue([])
   mockFollow.mockReset().mockResolvedValue({ message: 'ok' })
   mockUnfollow.mockReset().mockResolvedValue({ message: 'ok' })
+  mockSetCategory.mockReset().mockResolvedValue({ message: 'ok' })
   mockLikePost.mockReset().mockResolvedValue({ message: 'ok' })
   mockUnlikePost.mockReset().mockResolvedValue({ message: 'ok' })
   mockReportPost.mockReset().mockResolvedValue({ message: 'ok' })
@@ -101,6 +104,27 @@ test('following a user calls the API and updates the button', async () => {
   await userEvent.click(followBtn)
   await waitFor(() => expect(mockFollow).toHaveBeenCalledWith('bob'))
   expect(screen.getByRole('button', { name: 'Following' })).toBeInTheDocument()
+})
+
+test('the relationship-category control appears only once following (#392)', async () => {
+  renderProfile()
+  await screen.findByRole('button', { name: 'Follow' })
+  // Not following yet: no category control.
+  expect(screen.queryByLabelText('Relationship with bob')).not.toBeInTheDocument()
+
+  await userEvent.click(screen.getByRole('button', { name: 'Follow' }))
+  const categorySelect = await screen.findByLabelText('Relationship with bob')
+  await userEvent.selectOptions(categorySelect, 'family')
+
+  await waitFor(() => expect(mockSetCategory).toHaveBeenCalledWith('bob', 'family'))
+})
+
+test('a followed profile pre-selects its saved category (#392)', async () => {
+  mockGetProfile.mockResolvedValue({ ...baseProfile, is_following: true, follow_category: 'friend' })
+  renderProfile()
+
+  const categorySelect = await screen.findByLabelText('Relationship with bob')
+  expect(categorySelect).toHaveValue('friend')
 })
 
 test('shows empty state when the user has no posts', async () => {

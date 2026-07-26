@@ -61,6 +61,7 @@ test('creates a text-only post without uploading to S3 (#307)', async () => {
   await waitFor(() =>
     expect(mockCreatePost).toHaveBeenCalledWith({
       caption: 'words only today',
+      audience: 'public',
       caption_font: 'default',
       background_color: 'default',
     }),
@@ -99,11 +100,30 @@ test('uploads the photo to S3 and creates the post on success', async () => {
   expect(mockCreatePost).toHaveBeenCalledWith({
     image_url: 'https://goodvibesonly-images.s3.us-east-2.amazonaws.com/user-123/abc.jpeg',
     caption: 'great day',
+    audience: 'public',
     caption_font: 'default',
     background_color: 'default',
   })
   expect(await screen.findByText('Your post was shared successfully!')).toBeInTheDocument()
   expect(onPosted).toHaveBeenCalled()
+})
+
+test('sends the chosen audience with the post (#392)', async () => {
+  mockCreatePost.mockResolvedValue({ post_identifier: 'p1' })
+  render(<NewPostTab onPosted={() => {}} />)
+
+  await userEvent.type(screen.getByLabelText('Caption'), 'family news')
+  await userEvent.selectOptions(screen.getByLabelText('Audience'), 'family')
+  await userEvent.click(screen.getByRole('button', { name: 'Share Post' }))
+
+  await waitFor(() =>
+    expect(mockCreatePost).toHaveBeenCalledWith({
+      caption: 'family news',
+      audience: 'family',
+      caption_font: 'default',
+      background_color: 'default',
+    }),
+  )
 })
 
 test('sends the chosen caption font and background color (#318)', async () => {
@@ -118,6 +138,7 @@ test('sends the chosen caption font and background color (#318)', async () => {
   await waitFor(() =>
     expect(mockCreatePost).toHaveBeenCalledWith({
       caption: 'styled words',
+      audience: 'public',
       caption_font: 'serif',
       background_color: 'mint',
     }),

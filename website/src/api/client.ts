@@ -25,6 +25,7 @@ import type {
   DisableTotpRequest,
   DisableTotpResponse,
   FeedPost,
+  FollowCategory,
   HiddenComment,
   HiddenPost,
   LoginRequest,
@@ -507,8 +508,9 @@ export class ApiClient implements PositiveOnlySocialAPI {
     return this.request<FeedPost[]>('GET', `/feed/${batch}/`, { auth: true })
   }
 
-  getFollowedFeed(batch: number): Promise<FeedPost[]> {
-    return this.request<FeedPost[]>('GET', `/feed/followed/${batch}/`, { auth: true })
+  getFollowedFeed(batch: number, category?: FollowCategory): Promise<FeedPost[]> {
+    const query = category ? `?category=${encodeURIComponent(category)}` : ''
+    return this.request<FeedPost[]>('GET', `/feed/followed/${batch}/${query}`, { auth: true })
   }
 
   getPostsForUser(username: string, batch: number): Promise<FeedPost[]> {
@@ -649,12 +651,22 @@ export class ApiClient implements PositiveOnlySocialAPI {
     })
   }
 
-  followUser(username: string): Promise<MessageResponse> {
-    return this.request<MessageResponse>('POST', `/users/${username}/follow/`, { auth: true })
+  followUser(username: string, category?: FollowCategory): Promise<MessageResponse> {
+    return this.request<MessageResponse>('POST', `/users/${username}/follow/`, {
+      auth: true,
+      ...(category ? { body: { category } } : {}),
+    })
   }
 
   unfollowUser(username: string): Promise<MessageResponse> {
     return this.request<MessageResponse>('POST', `/users/${username}/unfollow/`, { auth: true })
+  }
+
+  setFollowCategory(username: string, category: FollowCategory): Promise<MessageResponse> {
+    return this.request<MessageResponse>('POST', `/users/${username}/category/`, {
+      auth: true,
+      body: { category },
+    })
   }
 
   toggleBlock(username: string): Promise<MessageResponse> {

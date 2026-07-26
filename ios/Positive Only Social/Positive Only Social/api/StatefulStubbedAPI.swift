@@ -64,6 +64,8 @@ fileprivate struct MockTwoFactorChallenge {
 fileprivate struct MockUserFollow {
     let userFromId: UUID
     let userToId: UUID
+    // Relationship category the follower assigned (issue #392).
+    var category: String = FollowCategory.following.rawValue
 }
 
 // We let this one be seen so the Settings tests can use it
@@ -95,6 +97,8 @@ fileprivate struct MockPost {
     var hiddenReason: String = GVOAppConstants.emptyString
     /// Public reason code recorded by the (stubbed) async classifier (#282).
     var reasonCode: String? = nil
+    /// Who may see the post (issue #392).
+    var audience: String = PostAudience.public.rawValue
     /// Hashtags parsed from the caption (issue #379), normalized and sorted.
     var tags: [String] = []
     let createdDate = Date()
@@ -130,6 +134,8 @@ fileprivate struct PostListingFields: Codable {
     let hidden: Bool?
     let hidden_reason: String?
     let appealable: Bool?
+    /// Who may see the post (issue #392).
+    let audience: String?
     /// Hashtags parsed from the caption (issue #379).
     let tags: [String]
 }
@@ -267,8 +273,28 @@ final class StatefulStubbedAPI: Networking {
             hidden: isOwnGrid ? post.isHidden : nil,
             hidden_reason: isOwnGrid ? post.hiddenReason : nil,
             appealable: isOwnGrid ? isAppealable(post) : nil,
+            audience: post.audience,
             tags: post.tags
         )
+    }
+
+    /// Mirrors visibility._audience_allows (issue #392): whether the post's
+    /// audience admits `viewer`. Public admits everyone and the author always
+    /// sees their own posts; otherwise the author must have labeled the viewer
+    /// with a category close enough for the audience's nested tier.
+    fileprivate func audienceAdmits(_ post: MockPost, viewer: MockUser) -> Bool {
+        if post.audience == PostAudience.public.rawValue || post.authorId == viewer.id {
+            return true
+        }
+        guard let follow = userFollows.first(where: {
+            $0.userFromId == post.authorId && $0.userToId == viewer.id
+        }), let category = FollowCategory(rawValue: follow.category),
+            let audience = PostAudience(rawValue: post.audience) else {
+            return false
+        }
+        let rank: [FollowCategory: Int] = [.following: 1, .friend: 2, .family: 3]
+        let required: [PostAudience: Int] = [.following: 1, .friends: 2, .family: 3]
+        return (rank[category] ?? 0) >= (required[audience] ?? 0)
     }
 
     /// Parses #hashtags from a caption the same way the backend does (issue
@@ -742,7 +768,7 @@ final class StatefulStubbedAPI: Networking {
         return try createSerializedResponse(fields: Fields(upload_url: "\(imageUrl)?X-Amz-Signature=stub", image_url: imageUrl))
     }
 
-    func makePost(sessionManagementToken: String, imageURL: String?, caption: String, captionFont: String = "default", backgroundColor: String = "default") async throws -> Data {
+    func makePost(sessionManagementToken: String, imageURL: String?, caption: String, audience: String? = nil, captionFont: String = "default", backgroundColor: String = "default") async throws -> Data {
         await simulateNetwork()
         guard let user = findUser(bySessionToken: sessionManagementToken) else { throw APIError.badServerResponse(statusCode: 400) }
         // Stub pre-filter, mirroring the backend's cheap inline check (#282): a
@@ -755,6 +781,8 @@ final class StatefulStubbedAPI: Networking {
         newPost.backgroundColor = backgroundColor
         newPost.isHidden = true
         newPost.hiddenReason = "pending_classification"
+        // Nil / unknown audience falls back to public, matching the backend (#392).
+        newPost.audience = PostAudience(rawValue: audience ?? "").map { $0.rawValue } ?? PostAudience.public.rawValue
         newPost.tags = Self.extractTags(from: caption)
         // The real backend classifies asynchronously in a worker; the stub
         // resolves instantly (like the backend's eager dev mode) but still
@@ -931,21 +959,22 @@ final class StatefulStubbedAPI: Networking {
         // Get *all* relevant posts, sorted
         let relevantPosts = posts
             .filter { post in
-                post.authorId != user.id && 
+                post.authorId != user.id &&
                 !post.isHidden &&
                 !user.blocked.contains(post.authorId) &&
-                !user.blockedBy.contains(post.authorId)
+                !user.blockedBy.contains(post.authorId) &&
+                audienceAdmits(post, viewer: user)
             }
             .sorted { $0.createdDate > $1.createdDate }
 
         let startIndex = batch * pageSize
-        
+
         // Check if the requested page is beyond the available posts
         guard startIndex < relevantPosts.count else {
             // Return an empty list, NOT an error
             return try createSerializedListResponse(fieldsList: [PostListingFields]())
         }
-        
+
         let endIndex = min(startIndex + pageSize, relevantPosts.count)
         let paginatedPosts = Array(relevantPosts[startIndex..<endIndex])
 
@@ -954,28 +983,30 @@ final class StatefulStubbedAPI: Networking {
         return try createSerializedListResponse(fieldsList: fieldObjects)
     }
 
-    func getPostsForFollowedUsers(sessionManagementToken: String, batch: Int) async throws -> Data {
+    func getPostsForFollowedUsers(sessionManagementToken: String, batch: Int, category: String? = nil) async throws -> Data {
         getPostsForFollowedUsersCallCount+=1
         await simulateNetwork()
-        
+
         // 1. Authenticate the user
         guard let currentUser = findUser(bySessionToken: sessionManagementToken) else {
             throw APIError.badServerResponse(statusCode: 401) // Unauthorized
         }
-        
-        // 2. Find all user IDs that the current user follows
+
+        // 2. Find all user IDs that the current user follows, optionally
+        //    narrowed to one exact relationship category (issue #392).
         let followedUserIDs = userFollows
-            .filter { $0.userFromId == currentUser.id }
+            .filter { $0.userFromId == currentUser.id && (category == nil || $0.category == category) }
             .map { $0.userToId }
-        
+
         // 3. Get all posts from those users, filtering out hidden posts
         let relevantPosts = posts
             .filter { post in
                 // Post author is in the followed list AND post is not hidden
-                followedUserIDs.contains(post.authorId) && 
+                followedUserIDs.contains(post.authorId) &&
                 !post.isHidden &&
                 !currentUser.blocked.contains(post.authorId) &&
-                !currentUser.blockedBy.contains(post.authorId)
+                !currentUser.blockedBy.contains(post.authorId) &&
+                audienceAdmits(post, viewer: currentUser)
             }
             .sorted { $0.createdDate > $1.createdDate } // Sort by newest first
         
@@ -1021,6 +1052,7 @@ final class StatefulStubbedAPI: Networking {
         let relevantPosts = posts
             .filter { $0.authorId == targetUser.id && $0.hiddenReason != "classifier_final" }
             .filter { isOwnGrid || !$0.isHidden }
+            .filter { isOwnGrid || audienceAdmits($0, viewer: user) }
             .sorted { $0.createdDate > $1.createdDate } // Sort newest first
 
         let startIndex = batch * pageSize
@@ -1045,6 +1077,11 @@ final class StatefulStubbedAPI: Networking {
         await simulateNetwork()
         guard let user = findUser(bySessionToken: sessionManagementToken) else { throw APIError.badServerResponse(statusCode: 401) }
         guard let post = findPost(byIdentifier: postIdentifier) else { throw APIError.badServerResponse(statusCode: 400) }
+        // Mirror can_view_post: a restricted post the viewer isn't in the
+        // audience for reads exactly like a missing one (issue #392).
+        if post.authorId != user.id && !audienceAdmits(post, viewer: user) {
+            throw APIError.badServerResponse(statusCode: 400)
+        }
         struct Fields: Codable {
             let post_identifier: String
             let image_url: String?
@@ -1058,6 +1095,7 @@ final class StatefulStubbedAPI: Networking {
             let is_reported: Bool
             let report_reason: String?
             let author_username: String
+            let audience: String?
             let tags: [String]
             let author_profile_image_url: String?
             let author_profile_image_original_url: String?
@@ -1083,6 +1121,7 @@ final class StatefulStubbedAPI: Networking {
             is_reported: userReport != nil,
             report_reason: userReport?.reason,
             author_username: users.first(where: {$0.id == post.authorId})?.username ?? "Unknown User",
+            audience: post.audience,
             tags: post.tags,
             author_profile_image_url: authorAvatar,
             author_profile_image_original_url: authorAvatar
@@ -1368,7 +1407,7 @@ final class StatefulStubbedAPI: Networking {
         return try createSerializedListResponse(fieldsList: fieldObjects)
     }
 
-    func followUser(sessionManagementToken: String, username: String) async throws -> Data {
+    func followUser(sessionManagementToken: String, username: String, category: String? = nil) async throws -> Data {
         await simulateNetwork()
         guard let currentUser = findUser(bySessionToken: sessionManagementToken) else {
             throw APIError.badServerResponse(statusCode: 400)
@@ -1376,19 +1415,57 @@ final class StatefulStubbedAPI: Networking {
         guard let userToFollow = findUser(byUsername: username) else {
             throw APIError.badServerResponse(statusCode: 400)
         }
-        
+
         if currentUser.id == userToFollow.id {
             throw APIError.badServerResponse(statusCode: 400) // Can't follow self
         }
-        
+
+        // A present-but-invalid category is rejected; nil uses the default (#392).
+        if let category, FollowCategory(rawValue: category) == nil {
+            throw APIError.serverError(statusCode: 400, serverMessage: "Invalid category")
+        }
+
         if isUserFollowing(from: currentUser.id, to: userToFollow.id) {
             throw APIError.badServerResponse(statusCode: 400) // Already following
         }
-        
-        let newFollow = MockUserFollow(userFromId: currentUser.id, userToId: userToFollow.id)
-        userFollows.append(newFollow)
-        
-        return try createEmptySuccessResponse()
+
+        let followCategory = category ?? FollowCategory.following.rawValue
+        userFollows.append(MockUserFollow(
+            userFromId: currentUser.id, userToId: userToFollow.id, category: followCategory))
+
+        struct Fields: Codable {
+            let message: String
+            let follow_category: String
+        }
+        return try createSerializedResponse(fields: Fields(message: "User followed", follow_category: followCategory))
+    }
+
+    func setFollowCategory(sessionManagementToken: String, username: String, category: String) async throws -> Data {
+        await simulateNetwork()
+        guard let currentUser = findUser(bySessionToken: sessionManagementToken) else {
+            throw APIError.badServerResponse(statusCode: 400)
+        }
+        guard let target = findUser(byUsername: username) else {
+            throw APIError.badServerResponse(statusCode: 400)
+        }
+        if currentUser.id == target.id {
+            throw APIError.serverError(statusCode: 400, serverMessage: "Cannot categorize self")
+        }
+        guard FollowCategory(rawValue: category) != nil else {
+            throw APIError.serverError(statusCode: 400, serverMessage: "Invalid category")
+        }
+        guard let index = userFollows.firstIndex(where: {
+            $0.userFromId == currentUser.id && $0.userToId == target.id
+        }) else {
+            throw APIError.serverError(statusCode: 400, serverMessage: "Not following user")
+        }
+        userFollows[index].category = category
+
+        struct Fields: Codable {
+            let message: String
+            let follow_category: String
+        }
+        return try createSerializedResponse(fields: Fields(message: "Category updated", follow_category: category))
     }
         
     func unfollowUser(sessionManagementToken: String, username: String) async throws -> Data {
@@ -1474,8 +1551,12 @@ final class StatefulStubbedAPI: Networking {
         // Count follows where 'userFromId' matches the profile user
         let followingCount = userFollows.filter { $0.userFromId == profileUser.id }.count
         
-        // 4. Check if the requesting user is following the profile user
-        let isFollowing = isUserFollowing(from: requestingUser.id, to: profileUser.id)
+        // 4. Check if the requesting user is following the profile user, and
+        //    with which relationship category (issue #392).
+        let followEdge = userFollows.first(where: {
+            $0.userFromId == requestingUser.id && $0.userToId == profileUser.id
+        })
+        let isFollowing = followEdge != nil
         let isBlocked = requestingUser.blocked.contains(profileUser.id)
         let isBlockedBy = requestingUser.blockedBy.contains(profileUser.id)
 
@@ -1494,6 +1575,7 @@ final class StatefulStubbedAPI: Networking {
             let follower_count: Int
             let following_count: Int
             let is_following: Bool
+            let follow_category: String?
             let is_blocked: Bool
             let identity_is_verified: Bool
             let is_adult: Bool
@@ -1515,6 +1597,7 @@ final class StatefulStubbedAPI: Networking {
                 follower_count: 0,
                 following_count: 0,
                 is_following: false,
+                follow_category: nil,
                 is_blocked: isBlocked,
                 identity_is_verified: false,
                 is_adult: false,
@@ -1536,6 +1619,7 @@ final class StatefulStubbedAPI: Networking {
             follower_count: followerCount,
             following_count: followingCount,
             is_following: isFollowing,
+            follow_category: followEdge?.category,
             is_blocked: isBlocked,
             identity_is_verified: profileUser.identityIsVerified,
             is_adult: profileUser.isAdult,

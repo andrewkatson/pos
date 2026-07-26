@@ -28,6 +28,7 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.NavController
 import com.example.positiveonlysocial.api.PositiveOnlySocialAPI
+import com.example.positiveonlysocial.data.model.FollowCategory
 import com.example.positiveonlysocial.data.constants.Constants
 import com.example.positiveonlysocial.data.security.KeychainHelperProtocol
 import com.example.positiveonlysocial.ui.components.CharacterCounter
@@ -413,6 +414,37 @@ fun ProfileBody(
                     )
                 ) {
                     Text(if (isFollowing) "Following" else "Follow")
+                }
+
+                // Relationship category, shown once you follow (issue #392).
+                if (isFollowing) {
+                    val followCategory by viewModel.followCategory.collectAsState()
+                    var categoryMenuExpanded by remember { mutableStateOf(false) }
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Box(modifier = Modifier.fillMaxWidth()) {
+                        OutlinedButton(
+                            onClick = { categoryMenuExpanded = true },
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .testTag("RelationshipCategoryPicker")
+                        ) {
+                            Text("Relationship: ${followCategory.displayName}")
+                        }
+                        DropdownMenu(
+                            expanded = categoryMenuExpanded,
+                            onDismissRequest = { categoryMenuExpanded = false }
+                        ) {
+                            FollowCategory.entries.forEach { category ->
+                                DropdownMenuItem(
+                                    text = { Text(category.displayName) },
+                                    onClick = {
+                                        viewModel.changeCategory(username, category)
+                                        categoryMenuExpanded = false
+                                    }
+                                )
+                            }
+                        }
+                    }
                 }
 
                 Spacer(modifier = Modifier.height(8.dp))

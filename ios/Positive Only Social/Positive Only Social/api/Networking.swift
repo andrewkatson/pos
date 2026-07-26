@@ -83,12 +83,16 @@ protocol Networking {
     /// Verifies the identity of the user
     func verifyIdentity(sessionManagementToken: String, dateOfBirth: String) async throws -> Data
     
-    /// Follow a user
-    func followUser(sessionManagementToken: String, username: String) async throws -> Data
-    
+    /// Follow a user, optionally categorizing the relationship at the same
+    /// time (issue #392). A nil `category` uses the default "following" bucket.
+    func followUser(sessionManagementToken: String, username: String, category: String?) async throws -> Data
+
     /// Unfollow a user
     func unfollowUser(sessionManagementToken: String, username: String) async throws -> Data
-    
+
+    /// Re-categorize an existing follow relationship (issue #392).
+    func setFollowCategory(sessionManagementToken: String, username: String, category: String) async throws -> Data
+
     /// Block or unblock a user
     func toggleBlock(sessionManagementToken: String, username: String) async throws -> Data
     
@@ -98,9 +102,10 @@ protocol Networking {
     /// (the backend scopes the object key to the authenticated user).
     func createUploadUrl(sessionManagementToken: String) async throws -> Data
 
-    /// Creates and stores a new post. A nil `imageURL` creates a text-only post (#307).
-    /// `captionFont` / `backgroundColor` are curated style keys (issue #318).
-    func makePost(sessionManagementToken: String, imageURL: String?, caption: String, captionFont: String, backgroundColor: String) async throws -> Data
+    /// Creates and stores a new post. A nil `imageURL` creates a text-only post
+    /// (#307). A nil `audience` defaults to public (issue #392). `captionFont` /
+    /// `backgroundColor` are curated style keys (issue #318).
+    func makePost(sessionManagementToken: String, imageURL: String?, caption: String, audience: String?, captionFont: String, backgroundColor: String) async throws -> Data
 
     /// Deletes a post.
     func deletePost(sessionManagementToken: String, postIdentifier: String) async throws -> Data
@@ -120,8 +125,10 @@ protocol Networking {
     /// Gets all posts for the user's feed in batches.
     func getPostsInFeed(sessionManagementToken: String, batch: Int) async throws -> Data
 
-    /// Get all posts for a user's feed in batches for anyone they follow.
-    func getPostsForFollowedUsers(sessionManagementToken: String, batch: Int) async throws -> Data
+    /// Get all posts for a user's feed in batches for anyone they follow,
+    /// optionally narrowed to one relationship category (issue #392). A nil
+    /// `category` returns the whole following feed.
+    func getPostsForFollowedUsers(sessionManagementToken: String, batch: Int, category: String?) async throws -> Data
 
     /// Gets a batch of posts for another user.
     func getPostsForUser(sessionManagementToken: String, username: String, batch: Int) async throws -> Data

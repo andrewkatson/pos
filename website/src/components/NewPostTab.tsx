@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState, type FormEvent } from 'react'
 import { apiClient } from '../api/client'
 import type { ApiError } from '../api/client'
-import type { BackgroundColor, CaptionFont } from '../api/types'
+import type { BackgroundColor, CaptionFont, PostAudience } from '../api/types'
 import { getCurrentUserId } from '../api/session'
 import { uploadImage } from '../api/s3Uploader'
 import { isWithinLimit, MAX_CAPTION_LENGTH } from '../auth/requirements'
@@ -18,6 +18,14 @@ interface NewPostTabProps {
   onPosted: () => void
 }
 
+/** Audience options, broadest to closest (issue #392). */
+const AUDIENCE_OPTIONS: { value: PostAudience; label: string; hint: string }[] = [
+  { value: 'public', label: 'Public', hint: 'Anyone can see this post' },
+  { value: 'following', label: 'People I follow', hint: 'Everyone you follow' },
+  { value: 'friends', label: 'Friends', hint: 'Friends and family only' },
+  { value: 'family', label: 'Family', hint: 'Family only' },
+]
+
 /**
  * The "Post" tab: write a caption and optionally pick a photo (#307). When a
  * photo is chosen it is uploaded to S3 via a backend-issued presigned URL (the
@@ -30,6 +38,7 @@ function NewPostTab({ onPosted }: NewPostTabProps) {
   const [previewUrl, setPreviewUrl] = useState<string | null>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
   const [caption, setCaption] = useState('')
+  const [audience, setAudience] = useState<PostAudience>('public')
   const [captionFont, setCaptionFont] = useState<CaptionFont>('default')
   const [backgroundColor, setBackgroundColor] = useState<BackgroundColor>('default')
   const [isLoading, setIsLoading] = useState(false)
@@ -68,6 +77,7 @@ function NewPostTab({ onPosted }: NewPostTabProps) {
       const imageUrl = file ? await uploadImage(file) : undefined
       const base = {
         caption: caption.trim(),
+        audience,
         caption_font: captionFont,
         background_color: backgroundColor,
       }
@@ -77,6 +87,7 @@ function NewPostTab({ onPosted }: NewPostTabProps) {
       setFile(null)
       setPreviewUrl(null)
       setCaption('')
+      setAudience('public')
       setCaptionFont('default')
       setBackgroundColor('default')
       // Classification is asynchronous (issue #282): the backend accepts the
@@ -171,6 +182,25 @@ function NewPostTab({ onPosted }: NewPostTabProps) {
           disabled={isLoading}
         />
         <CharacterCounter value={caption} max={MAX_CAPTION_LENGTH} />
+      </div>
+
+      <div className="auth-field">
+        <label className="auth-label" htmlFor="audience">
+          Audience
+        </label>
+        <select
+          id="audience"
+          className="select-input"
+          value={audience}
+          onChange={e => setAudience(e.target.value as PostAudience)}
+          disabled={isLoading}
+        >
+          {AUDIENCE_OPTIONS.map(opt => (
+            <option key={opt.value} value={opt.value}>
+              {opt.label} — {opt.hint}
+            </option>
+          ))}
+        </select>
       </div>
 
       {/* Text customization (issue #318): a whole-caption font and a whole-tile

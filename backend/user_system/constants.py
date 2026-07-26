@@ -35,6 +35,51 @@ POST_STATUS_APPROVED = "approved"
 POST_STATUS_REJECTED = "rejected"
 POST_STATUS_REJECTED_FINAL = "rejected_final"
 
+# Relationship categories on a follow edge (issue #392). The follower labels
+# the person they follow, and the same label drives both feed filtering (whose
+# posts I browse) and post audience (who may see my posts). Ordered by
+# closeness: FOLLOWING (the default "people I like" bucket) < FRIEND < FAMILY.
+# You can only categorize someone you follow — the label lives on the follow
+# relationship, so unfollowing drops the category too.
+FOLLOW_CATEGORY_FOLLOWING = "following"
+FOLLOW_CATEGORY_FRIEND = "friend"
+FOLLOW_CATEGORY_FAMILY = "family"
+FOLLOW_CATEGORY_CHOICES = [
+    (FOLLOW_CATEGORY_FOLLOWING, "Following"),
+    (FOLLOW_CATEGORY_FRIEND, "Friend"),
+    (FOLLOW_CATEGORY_FAMILY, "Family"),
+]
+FOLLOW_CATEGORIES = frozenset(value for value, _ in FOLLOW_CATEGORY_CHOICES)
+
+# Per-post audience (issue #392). Nested circles, each a subset of the one
+# before it: PUBLIC (anyone, even people who do not follow the author) ⊃
+# FOLLOWING (everyone the author follows) ⊃ FRIENDS (people the author labeled
+# friend or family) ⊃ FAMILY (family only). The author always sees their own
+# post regardless of audience.
+POST_AUDIENCE_PUBLIC = "public"
+POST_AUDIENCE_FOLLOWING = "following"
+POST_AUDIENCE_FRIENDS = "friends"
+POST_AUDIENCE_FAMILY = "family"
+POST_AUDIENCE_CHOICES = [
+    (POST_AUDIENCE_PUBLIC, "Public"),
+    (POST_AUDIENCE_FOLLOWING, "People I follow"),
+    (POST_AUDIENCE_FRIENDS, "Friends"),
+    (POST_AUDIENCE_FAMILY, "Family"),
+]
+POST_AUDIENCES = frozenset(value for value, _ in POST_AUDIENCE_CHOICES)
+
+# Which follow-edge categories satisfy each non-public audience. Because the
+# circles nest, a tighter audience is admitted by the closer categories only:
+# a "friends" post reaches friends and family, a "family" post reaches family
+# alone. PUBLIC is intentionally absent — it needs no follow edge at all.
+AUDIENCE_ALLOWED_CATEGORIES = {
+    POST_AUDIENCE_FOLLOWING: [
+        FOLLOW_CATEGORY_FOLLOWING, FOLLOW_CATEGORY_FRIEND, FOLLOW_CATEGORY_FAMILY,
+    ],
+    POST_AUDIENCE_FRIENDS: [FOLLOW_CATEGORY_FRIEND, FOLLOW_CATEGORY_FAMILY],
+    POST_AUDIENCE_FAMILY: [FOLLOW_CATEGORY_FAMILY],
+}
+
 # After this many worker attempts a post stuck in pending_classification is no
 # longer re-enqueued by the sweep; it stays hidden (fail closed) and the sweep
 # logs an error so an operator is alerted.
@@ -211,6 +256,11 @@ class Fields:
     following_count = "following_count"
     follower_count = "follower_count"
     is_following = "is_following"
+    # The viewer's relationship category for a profile user (null when not
+    # following), and the group/audience selectors introduced in issue #392.
+    follow_category = "follow_category"
+    category = "category"
+    audience = "audience"
     is_liked = "is_liked"
     is_saved = "is_saved"
     is_reported = "is_reported"

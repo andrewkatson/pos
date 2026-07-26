@@ -25,6 +25,7 @@ import type {
   DisableTotpRequest,
   DisableTotpResponse,
   FeedPost,
+  FollowCategory,
   HiddenComment,
   HiddenPost,
   LoginRequest,
@@ -34,6 +35,7 @@ import type {
   LoginWithRememberMeResponse,
   MessageResponse,
   MyAppeal,
+  PostAudience,
   PostDetails,
   PostStatusResponse,
   ProfileDetails,
@@ -114,6 +116,9 @@ interface UserMock {
   emailVerified: boolean
   emailVerificationToken: string | null
   following: Set<string>
+  /** Relationship category (issue #392) the user assigned to each person they
+   * follow, keyed by that person's id. Absent entries default to 'following'. */
+  followCategories: Map<string, FollowCategory>
   followers: Set<string>
   isVerified: boolean
   isAdult: boolean
@@ -169,6 +174,8 @@ interface PostMock {
   creationTime: number
   hidden: boolean
   hiddenReason: string
+  /** Who may see the post (issue #392). */
+  audience: PostAudience
   /** Public reason code recorded by the (stubbed) async classifier (#282). */
   reasonCode: string | null
   likes: Set<string>
@@ -329,6 +336,7 @@ export class StatefulStubbedAPI implements PositiveOnlySocialAPI {
       emailVerified: true,
       emailVerificationToken: null,
       following: new Set(),
+      followCategories: new Map(),
       followers: new Set(),
       isVerified: Boolean(body.date_of_birth),
       isAdult: age !== null && age >= 18,
@@ -707,6 +715,7 @@ export class StatefulStubbedAPI implements PositiveOnlySocialAPI {
       creationTime: Date.now(),
       hidden: true,
       hiddenReason: 'pending_classification',
+      audience: body.audience ?? 'public',
       reasonCode: null,
       likes: new Set(),
       reports: new Map(),
@@ -887,6 +896,7 @@ export class StatefulStubbedAPI implements PositiveOnlySocialAPI {
       original_image_url: post.imageUrl,
       author_username: author ? author.username : '',
       caption: post.caption,
+      audience: post.audience,
       tags: post.tags,
       is_saved: viewer.savedPostIds.includes(post.postIdentifier),
       ...this.authorAvatarFields(post.authorId),
@@ -894,6 +904,31 @@ export class StatefulStubbedAPI implements PositiveOnlySocialAPI {
       background_color: post.backgroundColor,
       ...this.authorStatusFields(post, viewer.id),
     }
+  }
+
+  /**
+   * Mirrors visibility._audience_allows (issue #392): whether the post's
+   * audience admits `viewerId`. Public admits everyone and the author always
+   * sees their own posts; otherwise the author must have labeled the viewer
+   * with a category close enough for the audience's nested tier — a "friends"
+   * post reaches friends and family, "family" only family.
+   */
+  private audienceAdmits(post: PostMock, viewerId: string): boolean {
+    if (post.audience === 'public' || post.authorId === viewerId) {
+      return true
+    }
+    const author = this.users.find((u) => u.id === post.authorId)
+    const category = author?.followCategories.get(viewerId)
+    if (!category) {
+      return false
+    }
+    const rank: Record<FollowCategory, number> = { following: 1, friend: 2, family: 3 }
+    const required: Record<Exclude<PostAudience, 'public'>, number> = {
+      following: 1,
+      friends: 2,
+      family: 3,
+    }
+    return rank[category] >= required[post.audience]
   }
 
   /** Whether a post is visible to a viewer, mirroring backend can_view_post:
@@ -909,12 +944,18 @@ export class StatefulStubbedAPI implements PositiveOnlySocialAPI {
   async getFeed(batch: number): Promise<FeedPost[]> {
     const user = this.requireUser()
     const visible = this.posts
-      .filter((p) => !p.hidden && !user.blocked.has(p.authorId) && !user.blockedBy.has(p.authorId))
+      .filter(
+        (p) =>
+          !p.hidden &&
+          !user.blocked.has(p.authorId) &&
+          !user.blockedBy.has(p.authorId) &&
+          this.audienceAdmits(p, user.id),
+      )
       .sort((a, b) => b.creationTime - a.creationTime)
     return this.batch(visible, batch, POST_BATCH_SIZE).map((p) => this.toFeedPost(p, user))
   }
 
-  async getFollowedFeed(batch: number): Promise<FeedPost[]> {
+  async getFollowedFeed(batch: number, category?: FollowCategory): Promise<FeedPost[]> {
     const user = this.requireUser()
     const visible = this.posts
       .filter(
@@ -922,7 +963,11 @@ export class StatefulStubbedAPI implements PositiveOnlySocialAPI {
           !p.hidden &&
           user.following.has(p.authorId) &&
           !user.blocked.has(p.authorId) &&
-          !user.blockedBy.has(p.authorId),
+          !user.blockedBy.has(p.authorId) &&
+          this.audienceAdmits(p, user.id) &&
+          // Exact-category feed filter (issue #392): no argument returns the
+          // whole following feed, as before.
+          (!category || (user.followCategories.get(p.authorId) ?? 'following') === category),
       )
       .sort((a, b) => b.creationTime - a.creationTime)
     return this.batch(visible, batch, POST_BATCH_SIZE).map((p) => this.toFeedPost(p, user))
@@ -944,6 +989,7 @@ export class StatefulStubbedAPI implements PositiveOnlySocialAPI {
       .filter((p) => p.authorId === target.id)
       .filter((p) => p.hiddenReason !== 'classifier_final')
       .filter((p) => (user.id === target.id ? true : !p.hidden))
+      .filter((p) => this.audienceAdmits(p, user.id))
       .sort((a, b) => b.creationTime - a.creationTime)
     return this.batch(visible, batch, POST_BATCH_SIZE).map((p) => this.toFeedPost(p, user))
   }
@@ -976,6 +1022,11 @@ export class StatefulStubbedAPI implements PositiveOnlySocialAPI {
   async getPostDetails(postIdentifier: string): Promise<PostDetails> {
     const user = this.requireUser()
     const post = this.findPost(postIdentifier)
+    // Mirror can_view_post: a restricted post the viewer isn't in the audience
+    // for reads exactly like a missing one (issue #392).
+    if (post.authorId !== user.id && !this.audienceAdmits(post, user.id)) {
+      throw new ApiError(400, 'No post with that identifier')
+    }
     const author = this.users.find((u) => u.id === post.authorId)
     return {
       post_identifier: post.postIdentifier,
@@ -991,6 +1042,7 @@ export class StatefulStubbedAPI implements PositiveOnlySocialAPI {
       is_reported: post.reports.has(user.id),
       report_reason: post.reports.get(user.id) ?? null,
       author_username: author ? author.username : '',
+      audience: post.audience,
       tags: post.tags,
       ...this.authorAvatarFields(post.authorId),
       ...this.authorStatusFields(post, user.id),
@@ -1250,7 +1302,7 @@ export class StatefulStubbedAPI implements PositiveOnlySocialAPI {
       }))
   }
 
-  async followUser(username: string): Promise<MessageResponse> {
+  async followUser(username: string, category?: FollowCategory): Promise<MessageResponse> {
     const user = this.requireUser()
     const target = this.findUserByName(username)
     if (!target) {
@@ -1262,9 +1314,11 @@ export class StatefulStubbedAPI implements PositiveOnlySocialAPI {
     if (user.following.has(target.id)) {
       throw new ApiError(400, 'Already following user')
     }
+    const followCategory = category ?? 'following'
     user.following.add(target.id)
+    user.followCategories.set(target.id, followCategory)
     target.followers.add(user.id)
-    return { message: 'User followed' }
+    return { message: 'User followed', follow_category: followCategory }
   }
 
   async unfollowUser(username: string): Promise<MessageResponse> {
@@ -1277,8 +1331,25 @@ export class StatefulStubbedAPI implements PositiveOnlySocialAPI {
       throw new ApiError(400, 'Not following user')
     }
     user.following.delete(target.id)
+    user.followCategories.delete(target.id)
     target.followers.delete(user.id)
     return { message: 'User unfollowed' }
+  }
+
+  async setFollowCategory(username: string, category: FollowCategory): Promise<MessageResponse> {
+    const user = this.requireUser()
+    const target = this.findUserByName(username)
+    if (!target) {
+      throw new ApiError(400, 'User does not exist')
+    }
+    if (user.id === target.id) {
+      throw new ApiError(400, 'Cannot categorize self')
+    }
+    if (!user.following.has(target.id)) {
+      throw new ApiError(400, 'Not following user')
+    }
+    user.followCategories.set(target.id, category)
+    return { message: 'Category updated', follow_category: category }
   }
 
   async toggleBlock(username: string): Promise<MessageResponse> {
@@ -1299,8 +1370,10 @@ export class StatefulStubbedAPI implements PositiveOnlySocialAPI {
     target.blockedBy.add(user.id)
     // Blocking severs follow relationships in both directions.
     user.following.delete(target.id)
+    user.followCategories.delete(target.id)
     target.followers.delete(user.id)
     target.following.delete(user.id)
+    target.followCategories.delete(user.id)
     user.followers.delete(target.id)
     return { message: 'User blocked' }
   }
@@ -1349,13 +1422,15 @@ export class StatefulStubbedAPI implements PositiveOnlySocialAPI {
     }
     const isBlockedBy = user.blockedBy.has(target.id)
     const postCount = isBlockedBy ? 0 : this.posts.filter((p) => p.authorId === target.id).length
+    const isFollowing = isBlockedBy ? false : user.following.has(target.id)
     const liveAvatar = isBlockedBy ? null : target.profileImageUrl
     const details: ProfileDetails = {
       username: target.username,
       post_count: postCount,
       follower_count: isBlockedBy ? 0 : target.followers.size,
       following_count: isBlockedBy ? 0 : target.following.size,
-      is_following: isBlockedBy ? false : user.following.has(target.id),
+      is_following: isFollowing,
+      follow_category: isFollowing ? (user.followCategories.get(target.id) ?? 'following') : null,
       is_blocked: user.blocked.has(target.id),
       identity_is_verified: target.isVerified,
       is_adult: target.isAdult,

@@ -19,6 +19,7 @@ import type {
   DisableTotpRequest,
   DisableTotpResponse,
   FeedPost,
+  FollowCategory,
   HiddenComment,
   HiddenPost,
   LoginRequest,
@@ -98,7 +99,9 @@ export interface PositiveOnlySocialAPI {
 
   // Feeds & post retrieval
   getFeed(batch: number): Promise<FeedPost[]>
-  getFollowedFeed(batch: number): Promise<FeedPost[]>
+  /** The following feed, optionally narrowed to one relationship category
+   * (issue #392). Omitting `category` returns the whole following feed. */
+  getFollowedFeed(batch: number, category?: FollowCategory): Promise<FeedPost[]>
   getPostsForUser(username: string, batch: number): Promise<FeedPost[]>
   /** Posts carrying a given #hashtag, newest first, batched (issue #379). */
   getPostsByTag(tag: string, batch: number): Promise<FeedPost[]>
@@ -151,8 +154,12 @@ export interface PositiveOnlySocialAPI {
 
   // Users & profiles
   searchUsers(usernameFragment: string): Promise<UserSearchResult[]>
-  followUser(username: string): Promise<MessageResponse>
+  /** Follow a user, optionally categorizing them at the same time (issue
+   * #392). Omitting `category` uses the default 'following' bucket. */
+  followUser(username: string, category?: FollowCategory): Promise<MessageResponse>
   unfollowUser(username: string): Promise<MessageResponse>
+  /** Re-categorize an existing follow relationship (issue #392). */
+  setFollowCategory(username: string, category: FollowCategory): Promise<MessageResponse>
   toggleBlock(username: string): Promise<MessageResponse>
   getBlockedUsers(): Promise<UserSearchResult[]>
   getFollowers(): Promise<UserSearchResult[]>

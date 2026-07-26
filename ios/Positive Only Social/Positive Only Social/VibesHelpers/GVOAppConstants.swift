@@ -64,6 +64,9 @@ import Foundation
     static let pathSegmentDetails = "details"
     static let pathSegmentFollow = "follow"
     static let pathSegmentFollowed = "followed"
+    // Relationship-category endpoint and query key (issue #392).
+    static let pathSegmentCategory = "category"
+    static let queryKeyCategory = "category"
     static let pathSegmentFollowers = "followers"
     static let pathSegmentFollowing = "following"
     static let pathSegmentLike = "like"

@@ -596,6 +596,116 @@ test('getPostStatus only answers for your own posts (#282)', async () => {
   )
 })
 
+// --- Relationship categories & post audience (issue #392) --------------------
+
+async function loginAs(api: StatefulStubbedAPI, username: string) {
+  const result = await api.login({ username_or_email: username, password: 'password123' })
+  if (isTwoFactorRequired(result)) throw new Error('expected a session, not a challenge')
+  return result
+}
+
+test('follow defaults to the following category and can be set explicitly', async () => {
+  const api = new StatefulStubbedAPI()
+  await register(api, 'target')
+
+  await register(api, 'plain')
+  await api.followUser('target')
+  expect((await api.getProfile('target')).follow_category).toBe('following')
+
+  await register(api, 'familyfollower')
+  const res = await api.followUser('target', 'family')
+  expect(res.follow_category).toBe('family')
+  expect((await api.getProfile('target')).follow_category).toBe('family')
+})
+
+test('setFollowCategory re-categorizes an existing follow and requires one', async () => {
+  const api = new StatefulStubbedAPI()
+  await register(api, 'target')
+  await register(api, 'viewer')
+
+  await expect(api.setFollowCategory('target', 'friend')).rejects.toThrow('Not following user')
+
+  await api.followUser('target')
+  await api.setFollowCategory('target', 'friend')
+  expect((await api.getProfile('target')).follow_category).toBe('friend')
+})
+
+test('profile reports a null category when not following', async () => {
+  const api = new StatefulStubbedAPI()
+  await register(api, 'target')
+  await register(api, 'viewer')
+
+  const profile = await api.getProfile('target')
+  expect(profile.is_following).toBe(false)
+  expect(profile.follow_category).toBeNull()
+})
+
+test('a family-only post reaches only family-labeled viewers', async () => {
+  const api = new StatefulStubbedAPI()
+  await register(api, 'viewer')
+  await register(api, 'author')
+  // The author labels the viewer, then posts to family only.
+  await api.followUser('viewer', 'friend')
+  const post = await api.createPost({ caption: 'family only', audience: 'family' })
+
+  // A friend is too far out for a family-only post.
+  await loginAs(api, 'viewer')
+  await expect(api.getPostDetails(post.post_identifier)).rejects.toThrow(
+    'No post with that identifier',
+  )
+
+  // Promote the viewer to family and it becomes visible.
+  await loginAs(api, 'author')
+  await api.setFollowCategory('viewer', 'family')
+  await loginAs(api, 'viewer')
+  const details = await api.getPostDetails(post.post_identifier)
+  expect(details.audience).toBe('family')
+})
+
+test('a friends post reaches friends and family but not plain followers', async () => {
+  const api = new StatefulStubbedAPI()
+  await register(api, 'plain')
+  await register(api, 'author')
+  await api.followUser('plain', 'following')
+  const post = await api.createPost({ caption: 'for friends', audience: 'friends' })
+
+  await loginAs(api, 'plain')
+  await expect(api.getPostDetails(post.post_identifier)).rejects.toThrow(
+    'No post with that identifier',
+  )
+})
+
+test('the author always sees their own restricted post', async () => {
+  const api = new StatefulStubbedAPI()
+  await register(api, 'author')
+  const post = await api.createPost({ caption: 'private', audience: 'family' })
+  const details = await api.getPostDetails(post.post_identifier)
+  expect(details.audience).toBe('family')
+})
+
+test('the followed feed can be filtered to an exact group', async () => {
+  const api = new StatefulStubbedAPI()
+  // Two authors, each with a public post.
+  await register(api, 'fam')
+  const famPost = await api.createPost({ image_url: 'https://example.com/f.jpg', caption: 'fam post' })
+  await register(api, 'fri')
+  const friPost = await api.createPost({ image_url: 'https://example.com/r.jpg', caption: 'fri post' })
+
+  await register(api, 'viewer')
+  await api.followUser('fam', 'family')
+  await api.followUser('fri', 'friend')
+
+  const all = (await api.getFollowedFeed(0)).map((p) => p.post_identifier)
+  expect(all).toContain(famPost.post_identifier)
+  expect(all).toContain(friPost.post_identifier)
+
+  const familyOnly = (await api.getFollowedFeed(0, 'family')).map((p) => p.post_identifier)
+  expect(familyOnly).toEqual([famPost.post_identifier])
+
+  const friendOnly = (await api.getFollowedFeed(0, 'friend')).map((p) => p.post_identifier)
+  expect(friendOnly).toEqual([friPost.post_identifier])
+})
+
 // --- Saved posts (#193) ------------------------------------------------------
 
 test('saving a post lists it as saved, newest save first', async () => {

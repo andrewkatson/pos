@@ -17,6 +17,7 @@ struct NewPostView: View {
     @State private var selectedItem: PhotosPickerItem?
     @State private var selectedImageData: Data?
     @State private var caption = ""
+    @State private var selectedAudience: PostAudience = .public
     // Whole-caption font + whole-tile background color keys (issue #318).
     @State private var captionFont = "default"
     @State private var backgroundColor = "default"
@@ -96,6 +97,14 @@ struct NewPostView: View {
                         TextEditor(text: $caption).frame(height: 100).accessibilityIdentifier("CaptionTextEditor")
                     }
                     CharacterCounter(text: caption, max: GVOAppConstants.maxCaptionLength)
+
+                    // Who may see the post (issue #392).
+                    Picker("Audience", selection: $selectedAudience) {
+                        ForEach(PostAudience.allCases) { audience in
+                            Text(audience.displayName).tag(audience)
+                        }
+                    }
+                    .accessibilityIdentifier("AudiencePicker")
                 }
 
                 // The Share button stays directly under the caption section so
@@ -215,6 +224,7 @@ struct NewPostView: View {
                     sessionManagementToken: userSession.sessionToken,
                     imageURL: imageURLString,
                     caption: caption,
+                    audience: selectedAudience.rawValue,
                     captionFont: captionFont,
                     backgroundColor: backgroundColor
                 )

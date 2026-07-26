@@ -102,6 +102,8 @@ export interface LoginWithRememberMeResponse {
 
 export interface MessageResponse {
   message: string
+  /** Echoed by the follow / set-category endpoints (issue #392). */
+  follow_category?: FollowCategory
 }
 
 export interface RequestResetRequest {
@@ -154,6 +156,20 @@ export interface CreateUploadUrlResponse {
   image_url: string
 }
 
+/**
+ * Relationship category the follower assigns to someone they follow, from
+ * broadest to closest (issue #392). Drives both feed filtering and post
+ * audience. A plain follow starts in 'following'.
+ */
+export type FollowCategory = 'following' | 'friend' | 'family'
+
+/**
+ * Who may see a post (issue #392). Nested circles: 'public' ⊃ 'following'
+ * (everyone the author follows) ⊃ 'friends' (friends + family) ⊃ 'family'.
+ * Defaults to 'public' when omitted.
+ */
+export type PostAudience = 'public' | 'following' | 'friends' | 'family'
+
 // ---------------------------------------------------------------------------
 // Text formatting (issue #318)
 // ---------------------------------------------------------------------------
@@ -190,6 +206,8 @@ export interface CreatePostRequest {
   /** Omitted for a text-only post (#307). */
   image_url?: string
   caption: string
+  /** Who may see the post (issue #392). Omitted means 'public'. */
+  audience?: PostAudience
   /** Whole-caption font (issue #318); omitted/`default` renders normally. */
   caption_font?: CaptionFont
   /** Whole-tile background color (issue #318); omitted/`default` is normal. */
@@ -323,6 +341,9 @@ export interface FeedPost extends AuthorAvatarFields {
    * (issue #249). The backend column is nullable, so this can be null; older
    * responses that predate the field omit it entirely. */
   creation_time?: string | null
+  /** Who may see the post (issue #392). Absent on older responses; treat a
+   * missing value as 'public'. */
+  audience?: PostAudience
   /** Author-only (issue #282): present on the viewer's own posts so the client
    * can render pending/rejected states; other users' posts never carry these
    * (their pending/hidden posts are filtered out server-side entirely). */
@@ -362,6 +383,9 @@ export interface PostDetails extends AuthorAvatarFields {
    * pre-populated (issue #176). Null/absent when they haven't reported it. */
   report_reason?: string | null
   author_username: string
+  /** Who may see the post (issue #392). Absent on older responses; treat a
+   * missing value as 'public'. */
+  audience?: PostAudience
   /** Hashtags parsed from the caption (issue #379), normalized to lowercase and
    * sorted. Older responses that predate the field omit it. */
   tags?: string[]
@@ -415,6 +439,9 @@ export interface ProfileDetails {
   follower_count: number
   following_count: number
   is_following: boolean
+  /** The viewer's relationship category for this user (issue #392); null when
+   * not following. Absent on older backends. */
+  follow_category?: FollowCategory | null
   is_blocked: boolean
   identity_is_verified: boolean
   is_adult: boolean

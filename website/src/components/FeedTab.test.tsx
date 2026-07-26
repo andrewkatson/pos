@@ -115,8 +115,35 @@ test('switches to the Following feed', async () => {
   renderTab()
 
   await userEvent.click(screen.getByRole('tab', { name: 'Following' }))
-  await waitFor(() => expect(mockGetFollowed).toHaveBeenCalledWith(0))
+  await waitFor(() => expect(mockGetFollowed).toHaveBeenCalledWith(0, undefined))
   expect(await screen.findByRole('button', { name: 'Open post by bob' })).toBeInTheDocument()
+})
+
+test('filters the Following feed by relationship group (#392)', async () => {
+  mockGetFeed.mockResolvedValue([])
+  mockGetFollowed.mockResolvedValue([
+    { post_identifier: 'p2', image_url: 'http://img/2.jpg', author_username: 'bob', caption: 'yo' },
+  ])
+  renderTab()
+
+  await userEvent.click(screen.getByRole('tab', { name: 'Following' }))
+  await waitFor(() => expect(mockGetFollowed).toHaveBeenCalledWith(0, undefined))
+
+  await userEvent.selectOptions(
+    screen.getByLabelText('Filter following feed by group'),
+    'family',
+  )
+  await waitFor(() => expect(mockGetFollowed).toHaveBeenLastCalledWith(0, 'family'))
+})
+
+test('the group filter is hidden on the For You feed (#392)', () => {
+  mockGetFeed.mockResolvedValue([])
+  mockGetFollowed.mockResolvedValue([])
+  renderTab()
+
+  expect(
+    screen.queryByLabelText('Filter following feed by group'),
+  ).not.toBeInTheDocument()
 })
 
 test('navigates to an author profile from the feed', async () => {

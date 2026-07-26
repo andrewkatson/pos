@@ -19,10 +19,12 @@ import androidx.compose.ui.unit.dp
 import androidx.navigation.NavController
 import coil.compose.AsyncImage
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.testTag
 import com.example.positiveonlysocial.api.ApiErrors
 import com.example.positiveonlysocial.api.PositiveOnlySocialAPI
 import com.example.positiveonlysocial.data.constants.Constants
 import com.example.positiveonlysocial.data.model.CreatePostRequest
+import com.example.positiveonlysocial.data.model.PostAudience
 import com.example.positiveonlysocial.ui.components.CharacterCounter
 import com.example.positiveonlysocial.ui.components.isWithinLength
 import com.example.positiveonlysocial.data.security.KeychainHelperProtocol
@@ -47,6 +49,8 @@ fun NewPostScreen(
 ) {
     PositiveOnlySocialTheme {
         var caption by remember { mutableStateOf("") }
+        var selectedAudience by remember { mutableStateOf(PostAudience.PUBLIC) }
+        var audienceMenuExpanded by remember { mutableStateOf(false) }
         // Whole-caption font + whole-tile background color keys (issue #318).
         var captionFont by remember { mutableStateOf("default") }
         var backgroundColor by remember { mutableStateOf("default") }
@@ -75,6 +79,7 @@ fun NewPostScreen(
                         showSuccessAlert = false
                         // Reset form
                         caption = ""
+                        selectedAudience = PostAudience.PUBLIC
                         captionFont = "default"
                         backgroundColor = "default"
                         selectedImageUri = null
@@ -158,6 +163,32 @@ fun NewPostScreen(
             )
 
             CharacterCounter(text = caption, max = Constants.MAX_CAPTION_LENGTH)
+
+            // Who may see the post (issue #392).
+            Box(modifier = Modifier.fillMaxWidth()) {
+                OutlinedButton(
+                    onClick = { audienceMenuExpanded = true },
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .testTag("AudiencePicker")
+                ) {
+                    Text("Audience: ${selectedAudience.displayName}")
+                }
+                DropdownMenu(
+                    expanded = audienceMenuExpanded,
+                    onDismissRequest = { audienceMenuExpanded = false }
+                ) {
+                    PostAudience.entries.forEach { audience ->
+                        DropdownMenuItem(
+                            text = { Text("${audience.displayName} — ${audience.hint}") },
+                            onClick = {
+                                selectedAudience = audience
+                                audienceMenuExpanded = false
+                            }
+                        )
+                    }
+                }
+            }
 
             // Text customization (issue #318): a whole-caption font, a
             // whole-tile background color, and a live preview.
@@ -272,6 +303,7 @@ fun NewPostScreen(
                                 val request = CreatePostRequest(
                                     imageUrl = imageUrl,
                                     caption = caption,
+                                    audience = selectedAudience.value,
                                     captionFont = captionFont,
                                     backgroundColor = backgroundColor
                                 )
