@@ -148,11 +148,15 @@ struct MockedAPI: Networking {
         return try encodeGenericSuccess()
     }
     
-    func followUser(sessionManagementToken: String, username: String) async throws -> Data {
+    func followUser(sessionManagementToken: String, username: String, category: String? = nil) async throws -> Data {
         return try encodeGenericSuccess()
     }
-    
+
     func unfollowUser(sessionManagementToken: String, username: String) async throws -> Data {
+        return try encodeGenericSuccess()
+    }
+
+    func setFollowCategory(sessionManagementToken: String, username: String, category: String) async throws -> Data {
         return try encodeGenericSuccess()
     }
 
@@ -171,7 +175,7 @@ struct MockedAPI: Networking {
         return try JSONEncoder().encode(response)
     }
 
-    func makePost(sessionManagementToken: String, imageURL: String?, caption: String) async throws -> Data {
+    func makePost(sessionManagementToken: String, imageURL: String?, caption: String, audience: String? = nil) async throws -> Data {
         return try encodeGenericSuccess()
     }
 
@@ -219,7 +223,7 @@ struct MockedAPI: Networking {
         return try encode(posts)
     }
 
-    func getPostsForFollowedUsers(sessionManagementToken: String, batch: Int) async throws -> Data {
+    func getPostsForFollowedUsers(sessionManagementToken: String, batch: Int, category: String? = nil) async throws -> Data {
         let posts = [
             Post(postIdentifier: "3", imageUrl: "https://picsum.photos/400/302", originalImageUrl: nil, caption: "Coffee time", authorUsername: "coffee_addict")
         ]

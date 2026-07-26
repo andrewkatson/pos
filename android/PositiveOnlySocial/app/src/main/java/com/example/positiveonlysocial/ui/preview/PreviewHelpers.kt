@@ -197,7 +197,7 @@ class MockPositiveOnlySocialAPI : PositiveOnlySocialAPI {
         )
     }
 
-    override suspend fun getFollowedPosts(token: String, batch: Int): Response<List<Post>> {
+    override suspend fun getFollowedPosts(token: String, batch: Int, category: String?): Response<List<Post>> {
         return Response.success(
             listOf(
                 Post(
@@ -484,6 +484,20 @@ class MockPositiveOnlySocialAPI : PositiveOnlySocialAPI {
             GenericResponse(
                 message = "Followed user",
                 error = null
+            )
+        )
+    }
+
+    override suspend fun setFollowCategory(
+        token: String,
+        username: String,
+        request: SetCategoryRequest
+    ): Response<GenericResponse> {
+        return Response.success(
+            GenericResponse(
+                message = "Category updated",
+                error = null,
+                followCategory = request.category
             )
         )
     }

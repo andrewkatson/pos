@@ -534,6 +534,39 @@
   border-color: #5ba4dc;
 }
 
+/* Dropdowns (post audience, feed group filter — issue #392). */
+.select-input {
+  background: #1a1a1a;
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  border-radius: 10px;
+  color: #ffffff;
+  padding: 0.75rem 1rem;
+  font-size: 1rem;
+  font-family: inherit;
+  width: 100%;
+  box-sizing: border-box;
+}
+
+.select-input:focus {
+  outline: none;
+  border-color: #5ba4dc;
+}
+
+.select-input:disabled {
+  opacity: 0.5;
+}
+
+.feed-group-filter {
+  display: block;
+  margin: 0.75rem 0;
+}
+
+/* The relationship-category dropdown sits inline with Follow/Block, so it
+   sizes to its content rather than stretching full width (issue #392). */
+.profile-category .select-input {
+  width: auto;
+}
+
 /* ---- Settings list ---- */
 
 .settings-list {

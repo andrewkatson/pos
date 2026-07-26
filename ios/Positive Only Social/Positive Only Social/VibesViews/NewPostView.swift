@@ -17,6 +17,7 @@ struct NewPostView: View {
     @State private var selectedItem: PhotosPickerItem?
     @State private var selectedImageData: Data?
     @State private var caption = ""
+    @State private var selectedAudience: PostAudience = .public
     @State private var isLoading = false
     @State private var showSuccessAlert = false
     @State private var successAlertMessage = "Your post was shared successfully!"
@@ -90,8 +91,16 @@ struct NewPostView: View {
                         TextEditor(text: $caption).frame(height: 100).accessibilityIdentifier("CaptionTextEditor")
                     }
                     CharacterCounter(text: caption, max: GVOAppConstants.maxCaptionLength)
+
+                    // Who may see the post (issue #392).
+                    Picker("Audience", selection: $selectedAudience) {
+                        ForEach(PostAudience.allCases) { audience in
+                            Text(audience.displayName).tag(audience)
+                        }
+                    }
+                    .accessibilityIdentifier("AudiencePicker")
                 }
-                
+
                 if isLoading {
                     HStack {
                         Spacer()
@@ -176,7 +185,8 @@ struct NewPostView: View {
                 let responseData = try await api.makePost(
                     sessionManagementToken: userSession.sessionToken,
                     imageURL: imageURLString,
-                    caption: caption
+                    caption: caption,
+                    audience: selectedAudience.rawValue
                 )
 
                 // Reload the Profile tab's grid so the new post appears there

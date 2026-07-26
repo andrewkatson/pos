@@ -144,7 +144,10 @@ data class ResendVerificationEmailRequest(
 data class CreatePostRequest(
     // Null for a text-only post (#307); Gson omits null fields from the body.
     @SerializedName("image_url") val imageUrl: String? = null,
-    val caption: String
+    val caption: String,
+    // Who may see the post (issue #392). Null defaults to public on the
+    // backend; Gson omits it from the body when null.
+    val audience: String? = null
 )
 
 data class CreatePostResponse(
@@ -232,7 +235,11 @@ data class Post(
     val status: String? = null,
     val hidden: Boolean? = null,
     @SerializedName("hidden_reason") val hiddenReason: String? = null,
-    val appealable: Boolean? = null
+    val appealable: Boolean? = null,
+    // Who may see the post (issue #392): "public", "following", "friends",
+    // "family". Nullable so a response that predates it still parses (Gson
+    // ignores Kotlin defaults for absent JSON), treated as public.
+    val audience: String? = null
 )
 
 // --- Comment DTOs ---
@@ -279,6 +286,10 @@ data class ProfileDetailsResponse(
     @SerializedName("follower_count") val followerCount: Int,
     @SerializedName("following_count") val followingCount: Int,
     @SerializedName("is_following") val isFollowing: Boolean,
+    // The viewer's relationship category for this user (issue #392): one of
+    // "following", "friend", "family", or null when not following. Nullable so
+    // a response that predates it still parses.
+    @SerializedName("follow_category") val followCategory: String? = null,
     @SerializedName("is_blocked") val isBlocked: Boolean = false,
     @SerializedName("identity_is_verified") val identityIsVerified: Boolean = false,
     @SerializedName("is_adult") val isAdult: Boolean = false
@@ -287,7 +298,48 @@ data class ProfileDetailsResponse(
 // Generic success/error response
 data class GenericResponse(
     val message: String?,
-    val error: String?
+    val error: String?,
+    // Echoed by the follow / set-category endpoints (issue #392).
+    @SerializedName("follow_category") val followCategory: String? = null
+)
+
+// --- Relationship categories & post audience (issue #392) ---
+
+/**
+ * Relationship category a follower assigns to someone they follow. Drives feed
+ * filtering and post audience; a plain follow is [FOLLOWING]. Raw values match
+ * the backend.
+ */
+enum class FollowCategory(val value: String, val displayName: String) {
+    FOLLOWING("following", "Following"),
+    FRIEND("friend", "Friend"),
+    FAMILY("family", "Family");
+
+    companion object {
+        fun from(value: String?): FollowCategory =
+            entries.firstOrNull { it.value == value } ?: FOLLOWING
+    }
+}
+
+/**
+ * Who may see a post. Nested circles from broadest to closest; raw values match
+ * the backend.
+ */
+enum class PostAudience(val value: String, val displayName: String, val hint: String) {
+    PUBLIC("public", "Public", "Anyone can see this post"),
+    FOLLOWING("following", "People I follow", "Everyone you follow"),
+    FRIENDS("friends", "Friends", "Friends and family only"),
+    FAMILY("family", "Family", "Family only")
+}
+
+// A CreatePostRequest body's audience, and a set-category request body.
+data class SetCategoryRequest(
+    val category: String
+)
+
+data class FollowRequest(
+    // Null uses the backend's default "following" bucket (issue #392).
+    val category: String? = null
 )
 
 /**

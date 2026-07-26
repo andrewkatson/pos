@@ -1,7 +1,14 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { apiClient } from '../api/client'
-import type { FeedPost, PostStatusResponse, ProfileDetails } from '../api/types'
+import type { FeedPost, FollowCategory, PostStatusResponse, ProfileDetails } from '../api/types'
 import PostGrid from './PostGrid'
+
+/** Relationship-category options shown once you follow someone (issue #392). */
+const CATEGORY_OPTIONS: { value: FollowCategory; label: string }[] = [
+  { value: 'following', label: 'Following' },
+  { value: 'friend', label: 'Friend' },
+  { value: 'family', label: 'Family' },
+]
 
 /** How often the bounded post-classification poll checks pending posts (#282). */
 const STATUS_POLL_INTERVAL_MS = 3000
@@ -44,6 +51,7 @@ function ProfileView({ username, isOwnProfile, currentUsername }: ProfileViewPro
   const [profile, setProfile] = useState<ProfileDetails | null>(null)
   const [loadFailed, setLoadFailed] = useState(false)
   const [isFollowing, setIsFollowing] = useState(false)
+  const [followCategory, setFollowCategory] = useState<FollowCategory>('following')
   const [isBlocked, setIsBlocked] = useState(false)
   const [isBusy, setIsBusy] = useState(false)
   const [errorMessage, setErrorMessage] = useState<string | null>(null)
@@ -69,6 +77,7 @@ function ProfileView({ username, isOwnProfile, currentUsername }: ProfileViewPro
       if (!isMounted.current) return
       setProfile(details)
       setIsFollowing(details.is_following)
+      setFollowCategory(details.follow_category ?? 'following')
       setIsBlocked(details.is_blocked)
       setLoadFailed(false)
     } catch {
@@ -172,6 +181,7 @@ function ProfileView({ username, isOwnProfile, currentUsername }: ProfileViewPro
         if (!isMounted.current) return
         setProfile(details)
         setIsFollowing(details.is_following)
+        setFollowCategory(details.follow_category ?? 'following')
         setIsBlocked(details.is_blocked)
       })
       .catch(() => {
@@ -201,10 +211,27 @@ function ProfileView({ username, isOwnProfile, currentUsername }: ProfileViewPro
       } else {
         await apiClient.followUser(username)
         setIsFollowing(true)
-        setProfile(p => (p ? { ...p, follower_count: p.follower_count + 1 } : p))
+        setFollowCategory('following')
+        setProfile(p => (p ? { ...p, follow_category: 'following', follower_count: p.follower_count + 1 } : p))
       }
     } catch {
       /* state is only updated after a successful call, so nothing to revert */
+    } finally {
+      setIsBusy(false)
+    }
+  }
+
+  async function changeCategory(next: FollowCategory) {
+    if (isBusy || next === followCategory) return
+    setIsBusy(true)
+    const previous = followCategory
+    // Optimistic: reflect the choice immediately, revert if the call fails.
+    setFollowCategory(next)
+    try {
+      await apiClient.setFollowCategory(username, next)
+      setProfile(p => (p ? { ...p, follow_category: next } : p))
+    } catch {
+      setFollowCategory(previous)
     } finally {
       setIsBusy(false)
     }
@@ -293,6 +320,24 @@ function ProfileView({ username, isOwnProfile, currentUsername }: ProfileViewPro
             >
               {isFollowing ? 'Following' : 'Follow'}
             </button>
+            {isFollowing && (
+              <label className="profile-category">
+                <span className="visually-hidden">Relationship category</span>
+                <select
+                  className="select-input"
+                  aria-label={`Relationship with ${username}`}
+                  value={followCategory}
+                  disabled={isBusy}
+                  onChange={e => void changeCategory(e.target.value as FollowCategory)}
+                >
+                  {CATEGORY_OPTIONS.map(opt => (
+                    <option key={opt.value} value={opt.value}>
+                      {opt.label}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            )}
             <button
               type="button"
               className={`btn ${isBlocked ? 'btn-danger--filled' : 'btn-danger'}`}

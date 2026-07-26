@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, type FormEvent } from 'react'
 import { apiClient } from '../api/client'
 import type { ApiError } from '../api/client'
+import type { PostAudience } from '../api/types'
 import { getCurrentUserId } from '../api/session'
 import { uploadImage } from '../api/s3Uploader'
 import { isWithinLimit, MAX_CAPTION_LENGTH } from '../auth/requirements'
@@ -10,6 +11,14 @@ interface NewPostTabProps {
   /** Called after a successful post so the shell can switch back to the Home tab. */
   onPosted: () => void
 }
+
+/** Audience options, broadest to closest (issue #392). */
+const AUDIENCE_OPTIONS: { value: PostAudience; label: string; hint: string }[] = [
+  { value: 'public', label: 'Public', hint: 'Anyone can see this post' },
+  { value: 'following', label: 'People I follow', hint: 'Everyone you follow' },
+  { value: 'friends', label: 'Friends', hint: 'Friends and family only' },
+  { value: 'family', label: 'Family', hint: 'Family only' },
+]
 
 /**
  * The "Post" tab: write a caption and optionally pick a photo (#307). When a
@@ -23,6 +32,7 @@ function NewPostTab({ onPosted }: NewPostTabProps) {
   const [previewUrl, setPreviewUrl] = useState<string | null>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
   const [caption, setCaption] = useState('')
+  const [audience, setAudience] = useState<PostAudience>('public')
   const [isLoading, setIsLoading] = useState(false)
   const [errorMessage, setErrorMessage] = useState<string | null>(null)
   const [successMessage, setSuccessMessage] = useState<string | null>(null)
@@ -57,12 +67,15 @@ function NewPostTab({ onPosted }: NewPostTabProps) {
     setSuccessMessage(null)
     try {
       const imageUrl = file ? await uploadImage(file) : undefined
-      const result = await apiClient.createPost(
-        imageUrl ? { image_url: imageUrl, caption: caption.trim() } : { caption: caption.trim() },
-      )
+      const result = await apiClient.createPost({
+        ...(imageUrl ? { image_url: imageUrl } : {}),
+        caption: caption.trim(),
+        audience,
+      })
       setFile(null)
       setPreviewUrl(null)
       setCaption('')
+      setAudience('public')
       // Classification is asynchronous (issue #282): the backend accepts the
       // post in a pending state and reviews it in the background, so tell the
       // user it's under review — the Home grid shows its progress and outcome.
@@ -155,6 +168,25 @@ function NewPostTab({ onPosted }: NewPostTabProps) {
           disabled={isLoading}
         />
         <CharacterCounter value={caption} max={MAX_CAPTION_LENGTH} />
+      </div>
+
+      <div className="auth-field">
+        <label className="auth-label" htmlFor="audience">
+          Audience
+        </label>
+        <select
+          id="audience"
+          className="select-input"
+          value={audience}
+          onChange={e => setAudience(e.target.value as PostAudience)}
+          disabled={isLoading}
+        >
+          {AUDIENCE_OPTIONS.map(opt => (
+            <option key={opt.value} value={opt.value}>
+              {opt.label} — {opt.hint}
+            </option>
+          ))}
+        </select>
       </div>
 
       {isLoading ? (

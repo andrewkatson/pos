@@ -5,8 +5,10 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.example.positiveonlysocial.api.ApiErrors
 import com.example.positiveonlysocial.api.PositiveOnlySocialAPI
+import com.example.positiveonlysocial.data.model.FollowCategory
 import com.example.positiveonlysocial.data.model.Post
 import com.example.positiveonlysocial.data.model.ProfileDetailsResponse
+import com.example.positiveonlysocial.data.model.SetCategoryRequest
 import com.example.positiveonlysocial.data.model.UserSession
 import com.example.positiveonlysocial.data.security.KeychainHelperProtocol
 import kotlinx.coroutines.Job
@@ -36,6 +38,11 @@ class ProfileViewModel(
 
     private val _isFollowing = MutableStateFlow(false)
     val isFollowing: StateFlow<Boolean> = _isFollowing.asStateFlow()
+
+    // The viewer's relationship category for this profile (issue #392); only
+    // meaningful while following.
+    private val _followCategory = MutableStateFlow(FollowCategory.FOLLOWING)
+    val followCategory: StateFlow<FollowCategory> = _followCategory.asStateFlow()
 
     private val _isBlocked = MutableStateFlow(false)
     val isBlocked: StateFlow<Boolean> = _isBlocked.asStateFlow()
@@ -117,6 +124,7 @@ class ProfileViewModel(
                     val profile = profileResponse.body()
                     _profileDetails.value = profile
                     _isFollowing.value = profile?.isFollowing ?: false
+                    _followCategory.value = FollowCategory.from(profile?.followCategory)
                     _isBlocked.value = profile?.isBlocked ?: false
                 } else {
                     _errorMessage.value = ApiErrors.messageFor(profileResponse, fallback = "Failed to load this profile. Please try again.")
@@ -174,6 +182,7 @@ class ProfileViewModel(
                     val profile = profileResponse.body()
                     _profileDetails.value = profile
                     _isFollowing.value = profile?.isFollowing ?: false
+                    _followCategory.value = FollowCategory.from(profile?.followCategory)
                     _isBlocked.value = profile?.isBlocked ?: false
                 } else {
                     // Surface the failure instead of silently leaving follow/block
@@ -307,9 +316,12 @@ class ProfileViewModel(
         // follow button and the follower count never drift apart.
         _profileDetails.value = currentProfile.copy(
             isFollowing = !isFollowing,
+            // A fresh follow starts in the default "following" bucket (#392).
+            followCategory = if (isFollowing) currentProfile.followCategory else FollowCategory.FOLLOWING.value,
             followerCount = if (isFollowing) currentProfile.followerCount - 1 else currentProfile.followerCount + 1
         )
         _isFollowing.value = !isFollowing
+        if (!isFollowing) _followCategory.value = FollowCategory.FOLLOWING
 
         viewModelScope.launch {
             try {
@@ -330,12 +342,50 @@ class ProfileViewModel(
                     // Revert on failure
                     _profileDetails.value = currentProfile
                     _isFollowing.value = isFollowing
+                    _followCategory.value = FollowCategory.from(currentProfile.followCategory)
                     _errorMessage.value = "Failed to update follow status"
                 }
             } catch (e: Exception) {
                 // Revert on error
                 _profileDetails.value = currentProfile
                 _isFollowing.value = isFollowing
+                _followCategory.value = FollowCategory.from(currentProfile.followCategory)
+                _errorMessage.value = ApiErrors.messageFor(e, fallback = "Something went wrong. Please try again.")
+            }
+        }
+    }
+
+    /**
+     * Re-categorizes the relationship (issue #392). Optimistic: updates the
+     * selection immediately and reverts if the call fails.
+     */
+    fun changeCategory(username: String, newCategory: FollowCategory) {
+        val currentProfile = _profileDetails.value ?: return
+        if (!_isFollowing.value || newCategory == _followCategory.value) return
+
+        val previous = _followCategory.value
+        _followCategory.value = newCategory
+        _profileDetails.value = currentProfile.copy(followCategory = newCategory.value)
+
+        viewModelScope.launch {
+            try {
+                val userSession = keychainHelper.load(UserSession::class.java, service, account)
+                if (userSession == null) {
+                    _followCategory.value = previous
+                    _profileDetails.value = currentProfile
+                    _errorMessage.value = "Not logged in."
+                    return@launch
+                }
+                val response = api.setFollowCategory(
+                    userSession.sessionToken, username, SetCategoryRequest(newCategory.value))
+                if (!response.isSuccessful) {
+                    _followCategory.value = previous
+                    _profileDetails.value = currentProfile
+                    _errorMessage.value = "Failed to update relationship"
+                }
+            } catch (e: Exception) {
+                _followCategory.value = previous
+                _profileDetails.value = currentProfile
                 _errorMessage.value = ApiErrors.messageFor(e, fallback = "Something went wrong. Please try again.")
             }
         }

@@ -89,7 +89,10 @@ interface PositiveOnlySocialAPI {
     @GET("feed/followed/{batch}/")
     suspend fun getFollowedPosts(
         @Header("Authorization") token: String,
-        @Path("batch") batch: Int
+        @Path("batch") batch: Int,
+        // Optional group filter (issue #392). Retrofit omits the query when null,
+        // so the whole following feed is returned by default.
+        @Query("category") category: String? = null
     ): Response<List<Post>>
 
     @GET("users/{username}/posts/{batch}/")
@@ -253,6 +256,14 @@ interface PositiveOnlySocialAPI {
     suspend fun unfollowUser(
         @Header("Authorization") token: String,
         @Path("username") username: String
+    ): Response<GenericResponse>
+
+    // Re-categorize an existing follow relationship (issue #392).
+    @POST("users/{username}/category/")
+    suspend fun setFollowCategory(
+        @Header("Authorization") token: String,
+        @Path("username") username: String,
+        @Body request: SetCategoryRequest
     ): Response<GenericResponse>
 
     @POST("users/{username}/block/")

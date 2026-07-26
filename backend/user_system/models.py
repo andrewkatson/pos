@@ -16,6 +16,8 @@ from .constants import (
     POST_STATUS_REJECTED_FINAL,
     APPEAL_STATUS_PENDING, APPEAL_STATUS_APPROVED, APPEAL_STATUS_DENIED,
     APPEAL_TARGET_POST, APPEAL_TARGET_COMMENT, APPEAL_TARGET_BAN,
+    FOLLOW_CATEGORY_CHOICES, FOLLOW_CATEGORY_FOLLOWING,
+    POST_AUDIENCE_CHOICES, POST_AUDIENCE_PUBLIC,
 )
 
 logger = logging.getLogger(__name__)
@@ -86,6 +88,12 @@ def notify_user_of_appeal_resolution(appeal, outcome_label):
 class UserFollow(models.Model):
     user_from = models.ForeignKey(settings.AUTH_USER_MODEL, related_name='following_set', on_delete=models.CASCADE)
     user_to = models.ForeignKey(settings.AUTH_USER_MODEL, related_name='followers_set', on_delete=models.CASCADE)
+    # The relationship category the follower (user_from) assigns to the person
+    # they follow (user_to). Drives both feed filtering and post audience
+    # (issue #392). Defaults to the plain "following" bucket, so an ordinary
+    # follow keeps working unchanged.
+    category = models.CharField(max_length=16, choices=FOLLOW_CATEGORY_CHOICES,
+                                default=FOLLOW_CATEGORY_FOLLOWING)
     created = models.DateTimeField(auto_now_add=True)
 
     class Meta:
@@ -312,6 +320,11 @@ class Post(models.Model):
                                          blank=True)
     updated_time = models.DateTimeField(auto_now=True, null=True, blank=True)
     author = models.ForeignKey(PositiveOnlySocialUser, on_delete=models.CASCADE)
+    # Who may see this post (issue #392). Defaults to public so posts created
+    # before the feature — and by clients that never send an audience — behave
+    # exactly as they did: visible to everyone. See visibility.visible_posts.
+    audience = models.CharField(max_length=16, choices=POST_AUDIENCE_CHOICES,
+                                default=POST_AUDIENCE_PUBLIC)
     hidden = models.BooleanField(default=False)
     hidden_reason = models.TextField(choices=HIDDEN_REASON_CHOICES, default=HIDDEN_REASON_NONE, blank=True)
 

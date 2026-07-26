@@ -100,6 +100,10 @@ struct Post: Codable, Identifiable, Hashable {
     var hiddenReason: String? = nil
     var appealable: Bool? = nil
 
+    /// Who may see the post (issue #392): one of "public", "following",
+    /// "friends", "family". Optional/nil on older backends, treated as public.
+    var audience: String? = nil
+
     /// The interaction state the post lists need to offer like / report /
     /// retract-report / delete in place, without opening the post (issue #267).
     /// These carry exactly what `get_post_details` returns, and the three
@@ -141,6 +145,7 @@ struct Post: Codable, Identifiable, Hashable {
         case hidden
         case hiddenReason = "hidden_reason"
         case appealable
+        case audience
     }
 
     init(
@@ -158,7 +163,8 @@ struct Post: Codable, Identifiable, Hashable {
         status: String? = nil,
         hidden: Bool? = nil,
         hiddenReason: String? = nil,
-        appealable: Bool? = nil
+        appealable: Bool? = nil,
+        audience: String? = nil
     ) {
         self.postIdentifier = postIdentifier
         self.imageUrl = imageUrl
@@ -175,6 +181,7 @@ struct Post: Codable, Identifiable, Hashable {
         self.hidden = hidden
         self.hiddenReason = hiddenReason
         self.appealable = appealable
+        self.audience = audience
     }
 
     // Decodes the interaction fields leniently so a response that predates them
@@ -197,6 +204,7 @@ struct Post: Codable, Identifiable, Hashable {
         hidden = try container.decodeIfPresent(Bool.self, forKey: .hidden)
         hiddenReason = try container.decodeIfPresent(String.self, forKey: .hiddenReason)
         appealable = try container.decodeIfPresent(Bool.self, forKey: .appealable)
+        audience = try container.decodeIfPresent(String.self, forKey: .audience)
     }
 }
 
@@ -338,6 +346,10 @@ struct ProfileDetailsResponse: Codable, Identifiable, Hashable {
     var followerCount: Int
     var followingCount: Int
     var isFollowing: Bool
+    /// The viewer's relationship category for this user (issue #392): one of
+    /// "following", "friend", "family", or nil when not following / on older
+    /// backends. Optional so the synthesized decoder tolerates its absence.
+    var followCategory: String? = nil
     var isBlocked: Bool = false
     var identityIsVerified: Bool = false
     var isAdult: Bool = false
@@ -348,9 +360,58 @@ struct ProfileDetailsResponse: Codable, Identifiable, Hashable {
         case followerCount = "follower_count"
         case followingCount = "following_count"
         case isFollowing = "is_following"
+        case followCategory = "follow_category"
         case isBlocked = "is_blocked"
         case identityIsVerified = "identity_is_verified"
         case isAdult = "is_adult"
+    }
+}
+
+/// Relationship category a follower assigns to someone they follow (issue
+/// #392). Drives feed filtering and post audience; a plain follow is
+/// `.following`. Raw values match the backend.
+enum FollowCategory: String, CaseIterable, Identifiable {
+    case following
+    case friend
+    case family
+
+    var id: String { rawValue }
+
+    var displayName: String {
+        switch self {
+        case .following: return "Following"
+        case .friend: return "Friend"
+        case .family: return "Family"
+        }
+    }
+}
+
+/// Who may see a post (issue #392). Nested circles from broadest to closest;
+/// raw values match the backend.
+enum PostAudience: String, CaseIterable, Identifiable {
+    case `public`
+    case following
+    case friends
+    case family
+
+    var id: String { rawValue }
+
+    var displayName: String {
+        switch self {
+        case .public: return "Public"
+        case .following: return "People I follow"
+        case .friends: return "Friends"
+        case .family: return "Family"
+        }
+    }
+
+    var hint: String {
+        switch self {
+        case .public: return "Anyone can see this post"
+        case .following: return "Everyone you follow"
+        case .friends: return "Friends and family only"
+        case .family: return "Family only"
+        }
     }
 }
 

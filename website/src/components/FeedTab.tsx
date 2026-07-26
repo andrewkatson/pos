@@ -2,13 +2,22 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { apiClient } from '../api/client'
 import { getCurrentUsername } from '../api/session'
-import type { FeedPost } from '../api/types'
+import type { FeedPost, FollowCategory } from '../api/types'
 import { profilePathFor } from '../utils/profilePath'
 import PostThumbnail from './PostThumbnail'
 import PostActionBar from './PostActionBar'
 import { usePostActions } from './usePostActions'
 
 type FeedType = 'forYou' | 'following'
+/** 'all' is the whole following feed; the others narrow it by group (#392). */
+type FeedGroup = 'all' | FollowCategory
+
+const GROUP_OPTIONS: { value: FeedGroup; label: string }[] = [
+  { value: 'all', label: 'Everyone' },
+  { value: 'following', label: 'People I follow' },
+  { value: 'friend', label: 'Friends' },
+  { value: 'family', label: 'Family' },
+]
 
 /**
  * The "Feed" tab with a For You / Following segmented control. Each feed loads
@@ -21,6 +30,7 @@ type FeedType = 'forYou' | 'following'
 function FeedTab() {
   const navigate = useNavigate()
   const [selected, setSelected] = useState<FeedType>('forYou')
+  const [group, setGroup] = useState<FeedGroup>('all')
 
   // Track mount state so async loads that resolve after the tab is switched
   // away (HomePage unmounts inactive tabs) don't set state on an unmounted view.
@@ -51,8 +61,10 @@ function FeedTab() {
 
   const fetcher = useCallback(
     (batch: number) =>
-      selected === 'forYou' ? apiClient.getFeed(batch) : apiClient.getFollowedFeed(batch),
-    [selected],
+      selected === 'forYou'
+        ? apiClient.getFeed(batch)
+        : apiClient.getFollowedFeed(batch, group === 'all' ? undefined : group),
+    [selected, group],
   )
 
   const loadFeed = useCallback(
@@ -128,6 +140,27 @@ function FeedTab() {
           Following
         </button>
       </div>
+
+      {selected === 'following' && (
+        <label className="feed-group-filter">
+          <span className="visually-hidden">Filter by group</span>
+          <select
+            className="select-input"
+            aria-label="Filter following feed by group"
+            value={group}
+            onChange={e => {
+              setIsLoading(true)
+              setGroup(e.target.value as FeedGroup)
+            }}
+          >
+            {GROUP_OPTIONS.map(opt => (
+              <option key={opt.value} value={opt.value}>
+                {opt.label}
+              </option>
+            ))}
+          </select>
+        </label>
+      )}
 
       <button
         type="button"

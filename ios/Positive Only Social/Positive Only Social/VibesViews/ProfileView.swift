@@ -156,6 +156,22 @@ struct ProfileBodyView: View {
                 .padding(.vertical)
                 .accessibilityIdentifier("FollowButton")
 
+                // Relationship category, shown once you follow (issue #392).
+                if viewModel.isFollowing {
+                    Picker("Relationship", selection: Binding(
+                        get: { viewModel.followCategory },
+                        set: { viewModel.changeCategory(to: $0) }
+                    )) {
+                        ForEach(FollowCategory.allCases) { category in
+                            Text(category.displayName).tag(category)
+                        }
+                    }
+                    .pickerStyle(.segmented)
+                    .disabled(viewModel.isLoadingProfile || viewModel.isBusy)
+                    .padding(.bottom, 8)
+                    .accessibilityIdentifier("RelationshipCategoryPicker")
+                }
+
                 Button(action: viewModel.toggleBlock) {
                     Text(viewModel.isBlocked ? "Unblock" : "Block")
                         .fontWeight(.medium)

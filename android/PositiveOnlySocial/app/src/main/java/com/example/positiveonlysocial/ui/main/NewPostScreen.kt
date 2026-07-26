@@ -16,10 +16,12 @@ import androidx.compose.ui.unit.dp
 import androidx.navigation.NavController
 import coil.compose.AsyncImage
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.testTag
 import com.example.positiveonlysocial.api.ApiErrors
 import com.example.positiveonlysocial.api.PositiveOnlySocialAPI
 import com.example.positiveonlysocial.data.constants.Constants
 import com.example.positiveonlysocial.data.model.CreatePostRequest
+import com.example.positiveonlysocial.data.model.PostAudience
 import com.example.positiveonlysocial.ui.components.CharacterCounter
 import com.example.positiveonlysocial.ui.components.isWithinLength
 import com.example.positiveonlysocial.data.security.KeychainHelperProtocol
@@ -44,6 +46,8 @@ fun NewPostScreen(
 ) {
     PositiveOnlySocialTheme {
         var caption by remember { mutableStateOf("") }
+        var selectedAudience by remember { mutableStateOf(PostAudience.PUBLIC) }
+        var audienceMenuExpanded by remember { mutableStateOf(false) }
         var selectedImageUri by remember { mutableStateOf<Uri?>(null) }
         var isLoading by remember { mutableStateOf(false) }
         var showSuccessAlert by remember { mutableStateOf(false) }
@@ -69,6 +73,7 @@ fun NewPostScreen(
                         showSuccessAlert = false
                         // Reset form
                         caption = ""
+                        selectedAudience = PostAudience.PUBLIC
                         selectedImageUri = null
                         // Navigate back to Home tab
                         navController.navigate(com.example.positiveonlysocial.ui.navigation.Screen.Home.route) {
@@ -150,6 +155,32 @@ fun NewPostScreen(
             )
 
             CharacterCounter(text = caption, max = Constants.MAX_CAPTION_LENGTH)
+
+            // Who may see the post (issue #392).
+            Box(modifier = Modifier.fillMaxWidth()) {
+                OutlinedButton(
+                    onClick = { audienceMenuExpanded = true },
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .testTag("AudiencePicker")
+                ) {
+                    Text("Audience: ${selectedAudience.displayName}")
+                }
+                DropdownMenu(
+                    expanded = audienceMenuExpanded,
+                    onDismissRequest = { audienceMenuExpanded = false }
+                ) {
+                    PostAudience.entries.forEach { audience ->
+                        DropdownMenuItem(
+                            text = { Text("${audience.displayName} — ${audience.hint}") },
+                            onClick = {
+                                selectedAudience = audience
+                                audienceMenuExpanded = false
+                            }
+                        )
+                    }
+                }
+            }
 
             Spacer(modifier = Modifier.weight(1f))
 
@@ -243,7 +274,8 @@ fun NewPostScreen(
 
                                 val request = CreatePostRequest(
                                     imageUrl = imageUrl,
-                                    caption = caption
+                                    caption = caption,
+                                    audience = selectedAudience.value
                                 )
                                 val response = api.makePost(
                                     token = session.sessionToken,

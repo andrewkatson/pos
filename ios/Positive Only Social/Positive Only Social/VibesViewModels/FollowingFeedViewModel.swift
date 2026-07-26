@@ -17,6 +17,8 @@ final class FollowingFeedViewModel: ObservableObject {
     private let keychainService = GVOAppConstants.keychainService
     @Published var followingPosts: [Post] = []
     @Published var isLoadingNextPage = false
+    /// Optional group filter (issue #392): nil is the whole following feed.
+    @Published private(set) var selectedCategory: FollowCategory? = nil
     private var canLoadMore = true
     private var currentPage = 0
 
@@ -52,6 +54,14 @@ final class FollowingFeedViewModel: ObservableObject {
         }
     }
 
+    /// Switches the group filter and reloads from the first page (issue #392).
+    /// A no-op when the category is unchanged so re-selecting doesn't refetch.
+    func selectCategory(_ category: FollowCategory?) {
+        guard category != selectedCategory else { return }
+        selectedCategory = category
+        Task { await refreshFeed() }
+    }
+
     /// Reloads the following feed from the first page.
     ///
     /// This is `async` so SwiftUI's `.refreshable` keeps the pull-to-refresh
@@ -80,8 +90,12 @@ final class FollowingFeedViewModel: ObservableObject {
                 return
             }
 
-            // Call the API endpoint for followed users
-            let responseData = try await api.getPostsForFollowedUsers(sessionManagementToken: userSession.sessionToken, batch: page)
+            // Call the API endpoint for followed users, narrowed to the
+            // selected group when one is chosen (issue #392).
+            let responseData = try await api.getPostsForFollowedUsers(
+                sessionManagementToken: userSession.sessionToken,
+                batch: page,
+                category: selectedCategory?.rawValue)
 
             let newPosts = try JSONDecoder().decode([Post].self, from: responseData)
 

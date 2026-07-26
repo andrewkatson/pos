@@ -53,8 +53,8 @@ those two — there is no room for them.
 
 The post listing endpoints (`get_posts_in_feed`, `get_posts_for_followed_users`,
 `get_posts_for_user`) therefore return `post_likes`, `is_liked`, `is_reported`,
-`report_reason`, `comment_count` and `creation_time` per post, matching what the
-post-details endpoint returns. The state is gathered in grouped queries per
+`report_reason`, `comment_count`, `creation_time` and `audience` per post,
+matching what the post-details endpoint returns. The state is gathered in grouped queries per
 batch rather than per post, so a larger batch does not add queries. The comment
 count respects the same visibility rule as the thread listing, so a row never
 advertises comments the viewer would not be shown.
@@ -144,6 +144,51 @@ and is independent of the ban type. A temporary ban lifts itself once
 `expires` passes — `UserBan.objects.active()` filters it out, so no scheduled
 job is needed. Escalation for ordinary users follows the ladder: warning
 (content hidden by reports) → temporary outright ban → permanent outright ban.
+
+## Relationship categories & post audience
+
+Following is not all-or-nothing (issue #392). Every follow relationship carries
+a **category** that the follower assigns to the person they follow, and the same
+label does double duty: it filters your own feed *and* gates who may see your
+posts. The categories, from broadest to closest, are:
+
+- **Following** — the default "people I like" bucket every plain follow starts
+  in.
+- **Friend**
+- **Family**
+
+The category lives on the follow edge (`UserFollow.category`), so you can only
+categorize someone you already follow, and unfollowing drops the label with it.
+A follow request may set the category up front (`follow_user` accepts an
+optional `category`), and an existing relationship is re-categorized with
+`POST /users/<username>/category/`. A profile response carries the viewer's
+`follow_category` for that user (null when not following).
+
+Each post has an **audience** chosen at creation (`make_post` accepts an
+optional `audience`, defaulting to `public` so older clients and pre-existing
+posts are unaffected). The audiences are **nested circles**, each a subset of
+the one before it:
+
+- **Public** — anyone, even people who do not follow the author.
+- **People I follow** (`following`) — everyone the author follows.
+- **Friends** (`friends`) — people the author labeled friend *or* family.
+- **Family** (`family`) — family only.
+
+So a friends-only post also reaches family, and a family-only post reaches
+family alone. The rule is enforced centrally in `visibility.py`
+(`visible_posts` / `can_view_post`): a non-public post is shown to a viewer only
+when the author has a follow edge to that viewer whose category is close enough
+for the post's tier. The author always sees their own posts regardless of
+audience, and the audience filter composes with the existing moderation
+(hidden / shadow-ban / tombstone) rules and applies everywhere posts are listed
+— feeds, profile grids, and post details alike.
+
+Feeds can be **filtered by group**: the followed feed
+(`GET /feed/followed/<batch>/`) takes an optional `?category=following|friend|family`
+that narrows it to people you labeled with exactly that category (no argument
+returns the whole following feed, as before). Feed filtering is an exact-category
+match — "show me my family" means just family — while post audience nests, since
+sharing with a wider circle should naturally include the closer ones.
 
 ## Blocking
 

@@ -68,6 +68,9 @@ class StatefulStubbedAPI : PositiveOnlySocialAPI {
         var emailVerified: Boolean = true,
         var emailVerificationToken: String? = null,
         val following: MutableList<String> = mutableListOf(), // List of User IDs
+        // Relationship category (issue #392) per followed user id; absent
+        // entries default to "following".
+        val followCategories: MutableMap<String, String> = mutableMapOf(),
         val followers: MutableList<String> = mutableListOf(),
         var isVerified: Boolean = false,
         var isAdult: Boolean = false,
@@ -112,6 +115,8 @@ class StatefulStubbedAPI : PositiveOnlySocialAPI {
         var hiddenReason: String = "",
         // Public reason code recorded by the (stubbed) async classifier (#282).
         var reasonCode: String? = null,
+        // Who may see the post (issue #392).
+        var audience: String = "public",
         val likes: MutableSet<String> = mutableSetOf(), // Set of User IDs
         // Reporting user id -> their reason, so retract flows can show the reason.
         val reports: MutableMap<String, String> = mutableMapOf()
@@ -550,6 +555,22 @@ class StatefulStubbedAPI : PositiveOnlySocialAPI {
     private fun isAppealable(post: PostMock): Boolean =
         post.hidden && post.hiddenReason != "pending_classification" && post.hiddenReason != "classifier_final"
 
+    /**
+     * Mirrors visibility._audience_allows (issue #392): whether the post's
+     * audience admits [viewerId]. Public admits everyone and the author always
+     * sees their own posts; otherwise the author must have labeled the viewer
+     * with a category close enough for the audience's nested tier — a "friends"
+     * post reaches friends and family, "family" only family.
+     */
+    private fun audienceAdmits(post: PostMock, viewerId: String): Boolean {
+        if (post.audience == PostAudience.PUBLIC.value || post.authorId == viewerId) return true
+        val author = users.find { it.id == post.authorId } ?: return false
+        val category = author.followCategories[viewerId] ?: return false
+        val rank = mapOf("following" to 1, "friend" to 2, "family" to 3)
+        val required = mapOf("following" to 1, "friends" to 2, "family" to 3)
+        return (rank[category] ?: 0) >= (required[post.audience] ?: 0)
+    }
+
     override suspend fun makePost(token: String, request: CreatePostRequest): Response<CreatePostResponse> {
         val user = getAuthorizedUser(token) ?: return errorGeneric(401, "Unauthorized")
 
@@ -567,6 +588,9 @@ class StatefulStubbedAPI : PositiveOnlySocialAPI {
         )
         newPost.hidden = true
         newPost.hiddenReason = "pending_classification"
+        // Nil / unknown audience falls back to public, matching the backend (#392).
+        newPost.audience = PostAudience.entries.firstOrNull { it.value == request.audience }?.value
+            ?: PostAudience.PUBLIC.value
         // The real backend classifies asynchronously in a worker; the stub
         // resolves instantly (like the backend's eager dev mode) but still
         // returns the pending response, so clients exercise the reconcile path.
@@ -684,10 +708,11 @@ class StatefulStubbedAPI : PositiveOnlySocialAPI {
     override suspend fun getPostsInFeed(token: String, batch: Int): Response<List<Post>> {
         val user = getAuthorizedUser(token) ?: return errorGeneric(401, "Unauthorized")
 
-        val allPosts = posts.filter { 
-            !it.hidden && 
-            !user.blocked.contains(it.authorId) && 
-            !user.blockedBy.contains(it.authorId)
+        val allPosts = posts.filter {
+            !it.hidden &&
+            !user.blocked.contains(it.authorId) &&
+            !user.blockedBy.contains(it.authorId) &&
+            audienceAdmits(it, user.id)
         }.sortedByDescending { it.creationTime }
         val batched = getBatch(allPosts, batch, POST_BATCH_SIZE)
 
@@ -698,14 +723,17 @@ class StatefulStubbedAPI : PositiveOnlySocialAPI {
         return Response.success(dtos)
     }
 
-    override suspend fun getFollowedPosts(token: String, batch: Int): Response<List<Post>> {
+    override suspend fun getFollowedPosts(token: String, batch: Int, category: String?): Response<List<Post>> {
         val user = getAuthorizedUser(token) ?: return errorGeneric(401, "Unauthorized")
 
-        val followedPosts = posts.filter { 
-            !it.hidden && 
+        val followedPosts = posts.filter {
+            !it.hidden &&
             user.following.contains(it.authorId) &&
             !user.blocked.contains(it.authorId) &&
-            !user.blockedBy.contains(it.authorId)
+            !user.blockedBy.contains(it.authorId) &&
+            audienceAdmits(it, user.id) &&
+            // Exact-category feed filter (issue #392): null returns everyone.
+            (category == null || (user.followCategories[it.authorId] ?: "following") == category)
         }.sortedByDescending { it.creationTime }
 
         val batched = getBatch(followedPosts, batch, POST_BATCH_SIZE)
@@ -733,6 +761,7 @@ class StatefulStubbedAPI : PositiveOnlySocialAPI {
         val userPosts = posts.filter { it.authorId == targetUser.id }
             .filter { it.hiddenReason != "classifier_final" }
             .filter { isOwnGrid || !it.hidden }
+            .filter { isOwnGrid || audienceAdmits(it, user.id) }
             .sortedByDescending { it.creationTime }
 
         val batched = getBatch(userPosts, batch, POST_BATCH_SIZE)
@@ -771,7 +800,8 @@ class StatefulStubbedAPI : PositiveOnlySocialAPI {
             status = if (isOwnGrid) classificationStatus(post) else null,
             hidden = if (isOwnGrid) post.hidden else null,
             hiddenReason = if (isOwnGrid) post.hiddenReason else null,
-            appealable = if (isOwnGrid) isAppealable(post) else null
+            appealable = if (isOwnGrid) isAppealable(post) else null,
+            audience = post.audience
         )
 
     private fun visibleCommentCount(postIdentifier: String): Int =
@@ -783,6 +813,11 @@ class StatefulStubbedAPI : PositiveOnlySocialAPI {
         val user = getAuthorizedUser(token) ?: return errorGeneric(401, "Unauthorized")
         val post = posts.find { it.postIdentifier == postId }
             ?: return errorGeneric(404, "No post with that identifier")
+        // Mirror can_view_post: a restricted post the viewer isn't in the
+        // audience for reads exactly like a missing one (issue #392).
+        if (post.authorId != user.id && !audienceAdmits(post, user.id)) {
+            return errorGeneric(400, "No post with that identifier")
+        }
         val author = users.find { it.id == post.authorId }!!
 
         return Response.success(Post(
@@ -794,7 +829,8 @@ class StatefulStubbedAPI : PositiveOnlySocialAPI {
             isLiked = post.likes.contains(user.id),
             creationTime = post.creationTime.toString(),
             isReported = post.reports.contains(user.id),
-            reportReason = post.reports[user.id]
+            reportReason = post.reports[user.id],
+            audience = post.audience
         ))
     }
 
@@ -949,8 +985,27 @@ class StatefulStubbedAPI : PositiveOnlySocialAPI {
         if (user.following.contains(target.id)) return error(404, "Already following")
 
         user.following.add(target.id)
+        user.followCategories[target.id] = FollowCategory.FOLLOWING.value
         target.followers.add(user.id)
-        return Response.success(GenericResponse("User followed", null))
+        return Response.success(
+            GenericResponse("User followed", null, FollowCategory.FOLLOWING.value))
+    }
+
+    override suspend fun setFollowCategory(
+        token: String, username: String, request: SetCategoryRequest
+    ): Response<GenericResponse> {
+        val user = getAuthorizedUser(token) ?: return error(401, "Unauthorized")
+        val target = users.find { it.username == username } ?: return error(404, "User not found")
+
+        if (user.id == target.id) return error(400, "Cannot categorize self")
+        if (FollowCategory.entries.none { it.value == request.category }) {
+            return error(400, "Invalid category")
+        }
+        if (!user.following.contains(target.id)) return error(400, "Not following user")
+
+        user.followCategories[target.id] = request.category
+        return Response.success(
+            GenericResponse("Category updated", null, request.category))
     }
 
     override suspend fun unfollowUser(token: String, username: String): Response<GenericResponse> {
@@ -960,8 +1015,7 @@ class StatefulStubbedAPI : PositiveOnlySocialAPI {
         if (!user.following.contains(target.id)) return error(404, "Not following")
 
         user.following.remove(target.id)
-        target.followers.remove(user.id)
-        user.following.remove(target.id)
+        user.followCategories.remove(target.id)
         target.followers.remove(user.id)
         return Response.success(GenericResponse("User unfollowed", null))
     }
@@ -985,10 +1039,12 @@ class StatefulStubbedAPI : PositiveOnlySocialAPI {
             // Remove follow relationships
             if (user.following.contains(target.id)) {
                 user.following.remove(target.id)
+                user.followCategories.remove(target.id)
                 target.followers.remove(user.id)
             }
             if (target.following.contains(user.id)) {
                 target.following.remove(user.id)
+                target.followCategories.remove(user.id)
                 user.followers.remove(target.id)
             }
             
@@ -1011,27 +1067,30 @@ class StatefulStubbedAPI : PositiveOnlySocialAPI {
 
         val postCount = posts.count { it.authorId == target.id }
         val isFollowing = user?.following?.contains(target.id) ?: false
+        val followCategory = if (isFollowing) user?.followCategories?.get(target.id) else null
         val isBlocked = user?.blocked?.contains(target.id) ?: false
         val isBlockedBy = user?.blockedBy?.contains(target.id) ?: false
 
         if (isBlockedBy) {
              return Response.success(ProfileDetailsResponse(
-                target.username,
-                0,
-                0,
-                0,
-                false,
+                username = target.username,
+                postCount = 0,
+                followerCount = 0,
+                followingCount = 0,
+                isFollowing = false,
+                followCategory = null,
                 isBlocked = isBlocked
             ))
         }
 
         return Response.success(ProfileDetailsResponse(
-            target.username,
-            postCount,
-            target.followers.size,
-            target.following.size,
-            isFollowing,
-            isBlocked
+            username = target.username,
+            postCount = postCount,
+            followerCount = target.followers.size,
+            followingCount = target.following.size,
+            isFollowing = isFollowing,
+            followCategory = followCategory,
+            isBlocked = isBlocked
         ))
     }
 

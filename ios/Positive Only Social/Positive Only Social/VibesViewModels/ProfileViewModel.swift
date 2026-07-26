@@ -19,6 +19,9 @@ class ProfileViewModel: ObservableObject {
     @Published var isLoadingProfile = false
     @Published var isBusy = false // For follow/block button actions
     @Published var isFollowing = false
+    // The viewer's relationship category for this profile (issue #392); only
+    // meaningful while `isFollowing`.
+    @Published var followCategory: FollowCategory = .following
     @Published var isBlocked = false
 
     // Private state for pagination and API
@@ -257,6 +260,7 @@ class ProfileViewModel: ObservableObject {
 
             self.profileDetails = details
             self.isFollowing = details.isFollowing
+            self.followCategory = details.followCategory.flatMap(FollowCategory.init(rawValue:)) ?? .following
             self.isBlocked = details.isBlocked
         } catch {
             NSLog("%@", "Error refreshing profile details for \(user.username): \(error)")
@@ -281,6 +285,7 @@ class ProfileViewModel: ObservableObject {
                 
                 self.profileDetails = details
                 self.isFollowing = details.isFollowing // Set initial follow state
+                self.followCategory = details.followCategory.flatMap(FollowCategory.init(rawValue:)) ?? .following
                 self.isBlocked = details.isBlocked // Set initial block state
             } catch {
                 NSLog("%@", "Error fetching profile details: \(error)")
@@ -307,6 +312,8 @@ class ProfileViewModel: ObservableObject {
         // Optimistic update: change UI immediately, revert on error.
         let wasFollowing = isFollowing
         isFollowing = !wasFollowing
+        // A fresh follow starts in the default "following" bucket (issue #392).
+        if !wasFollowing { followCategory = .following }
         adjustFollowerCount(by: wasFollowing ? -1 : 1)
 
         Task {
@@ -322,7 +329,7 @@ class ProfileViewModel: ObservableObject {
                 if wasFollowing {
                     let _ = try await api.unfollowUser(sessionManagementToken: token, username: user.username)
                 } else {
-                    let _ = try await api.followUser(sessionManagementToken: token, username: user.username)
+                    let _ = try await api.followUser(sessionManagementToken: token, username: user.username, category: nil)
                 }
             } catch {
                 NSLog("%@", "Error toggling follow: \(error)")
@@ -335,6 +342,34 @@ class ProfileViewModel: ObservableObject {
     private func revertFollow(wasFollowing: Bool) {
         isFollowing = wasFollowing
         adjustFollowerCount(by: wasFollowing ? 1 : -1)
+    }
+
+    /// Re-categorizes the relationship (issue #392). Optimistic: updates the
+    /// selection immediately and reverts if the call fails.
+    func changeCategory(to newCategory: FollowCategory) {
+        guard !isBusy, isFollowing, newCategory != followCategory else { return }
+        isBusy = true
+        let previous = followCategory
+        followCategory = newCategory
+
+        Task {
+            do {
+                guard let userSession = try keychainHelper.load(UserSession.self, from: keychainService, account: account) else {
+                    NSLog("%@", "No active session — cannot change category")
+                    followCategory = previous
+                    isBusy = false
+                    return
+                }
+                let _ = try await api.setFollowCategory(
+                    sessionManagementToken: userSession.sessionToken,
+                    username: user.username,
+                    category: newCategory.rawValue)
+            } catch {
+                NSLog("%@", "Error changing follow category: \(error)")
+                followCategory = previous
+            }
+            isBusy = false
+        }
     }
 
     func toggleBlock() {

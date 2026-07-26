@@ -37,11 +37,12 @@ from .constants import Patterns, Params, POST_BATCH_SIZE, MAX_BEFORE_HIDING_POST
     APPEAL_TARGET_POST, APPEAL_TARGET_COMMENT, APPEAL_TARGET_BAN, \
     MAX_APPEAL_REASON_LENGTH, \
     TWO_FACTOR_CHALLENGE_MINUTES, TWO_FACTOR_MAX_ATTEMPTS, NUM_RECOVERY_CODES, \
-    LEN_RECOVERY_CODE_HEX, TOTP_ISSUER, INVALID_TWO_FACTOR_CHALLENGE
+    LEN_RECOVERY_CODE_HEX, TOTP_ISSUER, INVALID_TWO_FACTOR_CHALLENGE, \
+    FOLLOW_CATEGORIES, FOLLOW_CATEGORY_FOLLOWING, POST_AUDIENCES, POST_AUDIENCE_PUBLIC
 from .feed_algorithm import feed_algorithm
 from .input_validator import is_valid_pattern
 from .models import LoginCookie, Session, Post, CommentThread, PositiveOnlySocialUser, Comment, CommentLike, \
-    PostLike, UserBlock, UserBan, KnownDevice, Appeal, TwoFactorChallenge, RecoveryCode
+    PostLike, UserBlock, UserBan, UserFollow, KnownDevice, Appeal, TwoFactorChallenge, RecoveryCode
 from .utils import convert_to_bool, generate_login_cookie_token, generate_management_token, generate_series_identifier, \
     get_batch, get_queryset_batch, get_compressed_image_url
 from .s3 import delete_image, generate_presigned_upload, image_url_to_key
@@ -1456,6 +1457,17 @@ def make_post(request):
             or not is_valid_pattern(caption, Patterns.alphanumeric_with_special_chars)):
         invalid_fields.append(Params.caption)
 
+    # Who may see the post (issue #392). Absent/null/"" keep the historical
+    # public default, so older clients that never send it are unaffected.
+    raw_audience = data.get(Fields.audience)
+    if raw_audience in (None, ""):
+        audience = POST_AUDIENCE_PUBLIC
+    elif raw_audience in POST_AUDIENCES:
+        audience = raw_audience
+    else:
+        audience = POST_AUDIENCE_PUBLIC
+        invalid_fields.append(Fields.audience)
+
     if len(invalid_fields) > 0:
         logger.warning(f"Make post failed: Invalid fields {invalid_fields} for user_id: {request.user.id}")
         return log_and_return_json("make_post", {'error': f"Invalid fields {invalid_fields}"}, status=400)
@@ -1488,7 +1500,7 @@ def make_post(request):
     # or to hidden + appealable, or to a final-rejection tombstone.
     new_post = request.user.post_set.create(
         image_url=image_url, caption=caption, hidden=True,
-        hidden_reason=HIDDEN_REASON_PENDING_CLASSIFICATION)
+        hidden_reason=HIDDEN_REASON_PENDING_CLASSIFICATION, audience=audience)
     tasks.enqueue_classification(new_post.post_identifier)
 
     logger.info(f"Post created pending classification: post_id: {new_post.post_identifier} for user_id: {request.user.id}")
@@ -1848,6 +1860,7 @@ def get_posts_in_feed(request, batch):
                 Fields.original_image_url: post.image_url,
                 Fields.author_username: post.author.username,
                 Fields.caption: post.caption,
+                Fields.audience: post.audience,
                 **interaction_state(post),
                 # Authors see their own pending/hidden posts in feeds, so their
                 # payloads carry the classification state for the client to
@@ -1870,7 +1883,20 @@ def get_posts_for_followed_users(request, batch):
     if batch < 0:
         return log_and_return_json("get_posts_for_followed_users", {'error': "Invalid batch parameter"}, status=400)
 
+    # Optional group filter (issue #392): ?category=friend|family|following
+    # narrows the feed to people the viewer labeled with exactly that category.
+    # Absent means the whole following feed, as before.
+    category_filter = request.GET.get(Fields.category)
+    if category_filter is not None and category_filter not in FOLLOW_CATEGORIES:
+        return log_and_return_json("get_posts_for_followed_users", {'error': "Invalid category"}, status=400)
+
     followed_users = request.user.following.all()
+
+    if category_filter:
+        categorized_ids = UserFollow.objects.filter(
+            user_from=request.user, category=category_filter
+        ).values_list('user_to_id', flat=True)
+        followed_users = followed_users.filter(pk__in=categorized_ids)
 
     # Filter out users who are blocked or blocking
     blocked_users = request.user.blocked.all()
@@ -1895,6 +1921,7 @@ def get_posts_for_followed_users(request, batch):
             Fields.original_image_url: post.image_url,
             Fields.author_username: post.author.username,
             Fields.caption: post.caption,
+            Fields.audience: post.audience,
             **interaction_state(post),
             **_author_status_fields(post, request.user),
         }
@@ -1945,6 +1972,7 @@ def get_posts_for_user(request, username, batch):
                 Fields.original_image_url: post.image_url,
                 Fields.caption: post.caption,
                 Fields.author_username: target_user.username,
+                Fields.audience: post.audience,
                 **interaction_state(post),
                 # The author's own profile grid includes pending/hidden posts;
                 # these fields let the client render their state.
@@ -1984,6 +2012,7 @@ def get_post_details(request, post_identifier):
             Fields.is_reported: my_report is not None,
             Fields.report_reason: my_report.reason if my_report is not None else None,
             Fields.author_username: post.author.username,
+            Fields.audience: post.audience,
             **_author_status_fields(post, request.user),
         }
         return log_and_return_json("get_post_details", post_data)
@@ -2505,12 +2534,27 @@ def follow_user(request, username_to_follow):
     if request.user == user_to_follow_obj:
         return log_and_return_json("follow_user", {'error': "Cannot follow self"}, status=400)
 
+    # An optional relationship category (issue #392). No body / null keeps the
+    # default "following" bucket, so bodiless follow calls from older clients
+    # still work. A body that is present but not valid JSON is ignored rather
+    # than rejected for the same backward-compatibility reason.
+    category = FOLLOW_CATEGORY_FOLLOWING
+    data = _get_json_body(request)
+    if data:
+        raw_category = data.get(Fields.category)
+        if raw_category is not None:
+            if raw_category not in FOLLOW_CATEGORIES:
+                return log_and_return_json("follow_user", {'error': "Invalid category"}, status=400)
+            category = raw_category
+
     if request.user.following.filter(pk=user_to_follow_obj.pk).exists():
         return log_and_return_json("follow_user", {'error': "Already following user"}, status=400)
 
-    request.user.following.add(user_to_follow_obj)
+    # Create the through row directly so the category is set; .add() cannot pass
+    # extra through-model fields.
+    UserFollow.objects.create(user_from=request.user, user_to=user_to_follow_obj, category=category)
     logger.info(f"Follow user successful: target_user_id: {user_to_follow_obj.id} by user_id: {request.user.id}")
-    return log_and_return_json("follow_user", {'message': 'User followed'})
+    return log_and_return_json("follow_user", {'message': 'User followed', Fields.follow_category: category})
 
 
 @csrf_exempt
@@ -2533,6 +2577,47 @@ def unfollow_user(request, username_to_unfollow):
     request.user.following.remove(user_to_unfollow_obj)
     logger.info(f"Unfollow user successful: target_user_id: {user_to_unfollow_obj.id} by user_id: {request.user.id}")
     return log_and_return_json("unfollow_user", {'message': 'User unfollowed'})
+
+
+@csrf_exempt
+@api_login_required
+@ratelimit(key='user', rate='30/m', block=True)
+@require_POST
+def set_follow_category(request, username):
+    """Change the relationship category on an existing follow edge (issue #392).
+
+    The caller must already follow the target — the category lives on the
+    follow relationship, so there is nothing to categorize otherwise. Clients
+    that want to both follow and categorize in one shot pass `category` to
+    follow_user instead.
+    """
+    logger.info("Endpoint set_follow_category invoked by IP or User")
+    if not is_valid_pattern(username, Patterns.alphanumeric):
+        return log_and_return_json("set_follow_category", {'error': "Invalid username fragment"}, status=400)
+
+    target_user = get_user_with_username(username)
+    if not target_user:
+        return log_and_return_json("set_follow_category", {'error': "User does not exist"}, status=400)
+
+    if request.user == target_user:
+        return log_and_return_json("set_follow_category", {'error': "Cannot categorize self"}, status=400)
+
+    data = _get_json_body(request)
+    if data is None:
+        return log_and_return_json("set_follow_category", {'error': "Invalid JSON data"}, status=400)
+
+    category = data.get(Fields.category)
+    if category not in FOLLOW_CATEGORIES:
+        return log_and_return_json("set_follow_category", {'error': "Invalid category"}, status=400)
+
+    edge = UserFollow.objects.filter(user_from=request.user, user_to=target_user).first()
+    if edge is None:
+        return log_and_return_json("set_follow_category", {'error': "Not following user"}, status=400)
+
+    edge.category = category
+    edge.save(update_fields=['category'])
+    logger.info(f"Set follow category successful: target_user_id: {target_user.id} by user_id: {request.user.id} to {category}")
+    return log_and_return_json("set_follow_category", {'message': 'Category updated', Fields.follow_category: category})
 
 
 @csrf_exempt
@@ -2613,7 +2698,11 @@ def get_profile_details(request, username):
     follower_count = profile_user.followers.count()
     following_count = profile_user.following.count()
 
-    is_following = request.user.following.filter(pk=profile_user.pk).exists()
+    # The follow edge (if any) carries the viewer's relationship category for
+    # this profile user (issue #392); null when not following.
+    follow_edge = UserFollow.objects.filter(user_from=request.user, user_to=profile_user).first()
+    is_following = follow_edge is not None
+    follow_category = follow_edge.category if follow_edge else None
     is_blocked = request.user.blocked.filter(pk=profile_user.pk).exists()
 
     # If I am blocked by them, should I see details?
@@ -2631,6 +2720,7 @@ def get_profile_details(request, username):
         follower_count = 0
         following_count = 0
         is_following = False
+        follow_category = None
 
     data = {
         Fields.username: profile_user.username,
@@ -2638,6 +2728,7 @@ def get_profile_details(request, username):
         Fields.follower_count: follower_count,
         Fields.following_count: following_count,
         Fields.is_following: is_following,
+        Fields.follow_category: follow_category,
         'is_blocked': is_blocked,
         Fields.identity_is_verified: profile_user.identity_is_verified,
         Fields.is_adult: profile_user.is_adult

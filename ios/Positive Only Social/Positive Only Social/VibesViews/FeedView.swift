@@ -168,6 +168,28 @@ struct FollowingFeedView: View {
     @ObservedObject var postActions: PostActionsViewModel
 
     var body: some View {
+        VStack(spacing: 0) {
+            // Group filter (issue #392): narrow the following feed to a
+            // relationship category, or show everyone.
+            Picker("Group", selection: Binding(
+                get: { viewModel.selectedCategory },
+                set: { viewModel.selectCategory($0) }
+            )) {
+                Text("Everyone").tag(FollowCategory?.none)
+                ForEach(FollowCategory.allCases) { category in
+                    Text(category.displayName).tag(FollowCategory?.some(category))
+                }
+            }
+            .pickerStyle(.segmented)
+            .padding(.horizontal)
+            .padding(.top, 8)
+            .accessibilityIdentifier("FollowingGroupPicker")
+
+            feedScroll
+        }
+    }
+
+    private var feedScroll: some View {
         // We use the same UI structure as ForYouFeedView
         ScrollView {
             LazyVStack(spacing: 25) {

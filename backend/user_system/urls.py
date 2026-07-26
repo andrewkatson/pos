@@ -156,6 +156,9 @@ urlpatterns = [
     # POST /users/<str:username_to_unfollow>/unfollow/ (Token in header)
     path('users/<str:username_to_unfollow>/unfollow/', views.unfollow_user, name='unfollow_user'),
 
+    # POST /users/<str:username>/category/ (Token in header) — issue #392
+    path('users/<str:username>/category/', views.set_follow_category, name='set_follow_category'),
+
     # POST /users/<str:username_to_toggle_block>/block/ (Token in header)
     path('users/<str:username_to_toggle_block>/block/', views.toggle_block, name='toggle_block'),
 
