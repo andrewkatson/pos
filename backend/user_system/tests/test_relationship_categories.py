@@ -287,3 +287,13 @@ class FollowedFeedCategoryFilterTests(RelationshipCategoryTestBase):
         url = reverse('get_posts_for_followed_users', kwargs={'batch': 0})
         response = self.client.get(f'{url}?{Fields.category}=nope', **self.viewer_header)
         self.assertEqual(response.status_code, 400)
+
+    def test_empty_category_filter_returns_full_feed(self):
+        # An empty ?category= is treated like absent (the whole following feed),
+        # not an invalid category.
+        url = reverse('get_posts_for_followed_users', kwargs={'batch': 0})
+        response = self.client.get(f'{url}?{Fields.category}=', **self.viewer_header)
+        self.assertEqual(response.status_code, 200)
+        ids = {p[Fields.post_identifier] for p in response.json()}
+        self.assertIn(str(self.family_post.post_identifier), ids)
+        self.assertIn(str(self.friend_post.post_identifier), ids)

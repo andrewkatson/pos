@@ -2362,8 +2362,10 @@ def get_posts_for_followed_users(request, batch):
 
     # Optional group filter (issue #392): ?category=friend|family|following
     # narrows the feed to people the viewer labeled with exactly that category.
-    # Absent means the whole following feed, as before.
-    category_filter = request.GET.get(Fields.category)
+    # Absent — or present but empty (?category=) — means the whole following
+    # feed, matching how make_post treats an empty audience and how clients omit
+    # the query when no filter is selected.
+    category_filter = request.GET.get(Fields.category) or None
     if category_filter is not None and category_filter not in FOLLOW_CATEGORIES:
         return log_and_return_json("get_posts_for_followed_users", {'error': "Invalid category"}, status=400)
 
