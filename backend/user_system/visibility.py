@@ -97,10 +97,16 @@ def visible_posts(posts, viewer):
             & _audience_q(viewer)
             & _same_age_band_q(viewer, 'author')
         )
-    # .distinct() collapses the audience-join fan-out: without it, a viewer's
-    # own posts are returned once per account the viewer's *author* follows, so
-    # your own profile shows each post N times where N = accounts you follow
-    # (issue #397). Ordering is by -creation_time only, so distinct is safe.
+    # .distinct() collapses the audience-join fan-out from _audience_q: on the
+    # author-owns-it branch the join over the author's outgoing follow edges is
+    # unrestricted, so a viewer's own posts come back once per account they
+    # follow — N copies on your own profile where N = accounts you follow
+    # (issue #397). Plain row-level distinct is correct for every caller: the
+    # duplicated rows are identical across all selected columns (the audience
+    # edge is unique per (author, viewer)), and the callers' own orderings and
+    # annotations (feed weight, -creation_time, saved posts' -saved_time) are
+    # single-valued per post, so none of them split a post back into rows that
+    # distinct would keep.
     ).distinct()
 
 

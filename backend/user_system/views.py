@@ -3487,12 +3487,16 @@ def get_followers(request):
     Only ever returns the signed-in user's own followers — there is no username
     parameter, so a follower/following list can't be requested for anyone else.
 
-    Filtered through searchable_users so shadow-banned accounts and accounts
-    outside the requester's age band are excluded (issue #398): those profiles
-    are unopenable — get_profile_details returns "not found" for them — so
-    listing them here just produces a "couldn't load them" dead end. This keeps
-    the follow lists consistent with the central visibility invariant that
-    cross-band accounts are mutually invisible (README "Age segregation").
+    Filtered through searchable_users (issue #398), which drops two kinds of
+    account for different reasons:
+    - Cross-age-band accounts: get_profile_details returns "User not found" for
+      a cross-band profile, so listing it here is the "couldn't load them" dead
+      end from the bug report, and surfacing it would leak a cross-band
+      account's existence — the age-segregation invariant forbids it (README
+      "Age segregation").
+    - Shadow-banned accounts: their profile still opens, but shadow-ban
+      semantics keep the account hidden from everyone else, so it is excluded
+      here just as user search excludes it.
     """
     logger.info("Endpoint get_followers invoked by IP or User")
     # request.user.followers is the reverse side of the (non-symmetrical)
@@ -3522,11 +3526,12 @@ def get_following(request):
     Only ever returns the signed-in user's own following list — there is no
     username parameter, so this can't be requested for anyone else.
 
-    Filtered through searchable_users so shadow-banned accounts and accounts
-    outside the requester's age band are excluded (issue #398): those profiles
-    can't be opened, so listing them here is a dead end and would also leak a
-    cross-band account's existence, which the age-segregation invariant forbids
-    (README "Age segregation").
+    Filtered through searchable_users (issue #398), for two distinct reasons: a
+    cross-age-band profile is unopenable — get_profile_details returns "User not
+    found" for it — so listing it is a dead end and would leak a cross-band
+    account's existence (README "Age segregation"); a shadow-banned account's
+    profile still opens, but shadow-ban semantics keep it hidden from everyone
+    else, so it is excluded here just as user search excludes it.
     """
     logger.info("Endpoint get_following invoked by IP or User")
     following = searchable_users(
