@@ -6,10 +6,13 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.graphics.painter.BitmapPainter
 import androidx.compose.ui.layout.ContentScale
 import coil.compose.AsyncImage
 import com.example.positiveonlysocial.data.model.Post
 import com.example.positiveonlysocial.ui.components.CaptionTile
+import com.example.positiveonlysocial.util.BlurHashDecoder
 
 /**
  * A post thumbnail that loads the compressed [Post.imageUrl] and falls back to
@@ -41,11 +44,19 @@ fun PostImageWithFallback(
     // so a recycled grid cell resets when it's reused for a different post.
     var useOriginal by remember(post.postIdentifier) { mutableStateOf(false) }
     val model = if (useOriginal) post.originalImageUrl else post.imageUrl
+    // The BlurHash placeholder (issue #387), decoded once per post: shown while
+    // the image loads instead of a black box, and kept as the error image so a
+    // tile whose compressed and original URLs both fail still shows the blur.
+    val blurPainter = remember(post.blurHash) {
+        BlurHashDecoder.decode(post.blurHash)?.asImageBitmap()?.let { BitmapPainter(it) }
+    }
     AsyncImage(
         model = model,
         contentDescription = "Post Image",
         modifier = modifier,
         contentScale = contentScale,
+        placeholder = blurPainter,
+        error = blurPainter,
         onError = {
             if (!useOriginal && post.originalImageUrl != null) {
                 useOriginal = true
