@@ -15,6 +15,17 @@ interface NewPostTabProps {
   onPosted: () => void
 }
 
+/**
+ * The photo preview is always a locally-created object URL (`URL.createObjectURL`
+ * of the picked File), never remote or user-authored text. Restricting the
+ * `<img src>` to the `blob:` scheme makes that explicit and keeps anything else
+ * — including the tainted File the picker read from the DOM — from reaching the
+ * image, which also clears CodeQL's js/xss-through-dom false positive on the src.
+ */
+function blobPreviewSrc(url: string | null): string | undefined {
+  return url && url.startsWith('blob:') ? url : undefined
+}
+
 /** Audience options, broadest to closest (issue #392). */
 const AUDIENCE_OPTIONS: { value: PostAudience; label: string; hint: string }[] = [
   { value: 'public', label: 'Public', hint: 'Anyone can see this post' },
@@ -61,6 +72,8 @@ function NewPostTab({ onPosted }: NewPostTabProps) {
   // reads like the real post the feed will render (issue #418).
   const username = getCurrentUsername()
   const trimmedCaption = caption.trim()
+  // Guarded object URL (blob: only) shared by the picker tile and the preview.
+  const previewSrc = blobPreviewSrc(previewUrl)
 
   async function handleSubmit(e: FormEvent) {
     e.preventDefault()
@@ -154,7 +167,7 @@ function NewPostTab({ onPosted }: NewPostTabProps) {
           aria-label={file ? 'Change photo' : 'Add a photo'}
         >
           {previewUrl ? (
-            <img className="photo-picker__image" src={previewUrl} alt="Selected post preview" />
+            <img className="photo-picker__image" src={previewSrc} alt="Selected post preview" />
           ) : (
             <span className="photo-picker__placeholder" aria-hidden="true">
               +
@@ -275,7 +288,7 @@ function NewPostTab({ onPosted }: NewPostTabProps) {
             {previewUrl ? (
               // Decorative here: the picker above already carries the labeled
               // copy of this same image, so the preview copy needs no alt.
-              <img className="post-preview__image" src={previewUrl} alt="" />
+              <img className="post-preview__image" src={previewSrc} alt="" />
             ) : (
               <CaptionTile
                 caption={trimmedCaption || 'Your caption will look like this.'}
