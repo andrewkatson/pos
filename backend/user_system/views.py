@@ -3595,12 +3595,13 @@ def get_profile_details(request, username):
     # shadow-banned profile shows no posts to others (but all to its owner).
     post_count = visible_posts(profile_user.post_set.all(), request.user).count()
 
-    # Assuming UserFollow model or a ManyToMany 'followers' field
-    # This logic depends heavily on your model structure.
-    # The original code's `followers_set` and `following_set` imply a
-    # ManyToMany relationship, perhaps 'following' on the User model.
-    follower_count = profile_user.followers.count()
-    following_count = profile_user.following.count()
+    # The follower/following counts must agree with the filtered lists
+    # (issue #398): a shadow-banned or cross-age-band account is hidden from the
+    # follower/following list, so it must not inflate the count either. Apply the
+    # same searchable_users exclusion the list endpoints use — mirroring how
+    # post_count above counts only visible_posts.
+    follower_count = searchable_users(profile_user.followers.all(), request.user).count()
+    following_count = searchable_users(profile_user.following.all(), request.user).count()
 
     # The follow edge (if any) carries the viewer's relationship category for
     # this profile user (issue #392); null when not following.
