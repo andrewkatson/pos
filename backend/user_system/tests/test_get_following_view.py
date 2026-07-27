@@ -78,8 +78,10 @@ class GetFollowingViewTests(PositiveOnlySocialTestCase):
         self.assertEqual(response.json(), [])
 
     def test_shadow_banned_following_excluded(self):
-        """A shadow-banned account the requester follows is hidden from the list
-        (issue #398) — its profile can't be opened, so listing it is a dead end."""
+        """A shadow-banned account the requester follows is excluded from the list
+        (issue #398): shadow-ban semantics hide the account from everyone else, so
+        it's dropped here just as user search drops it (the profile itself still
+        opens)."""
         self.user_a.following.add(self.user_b)
         self.user_a.following.add(self.user_c)
         UserBan.objects.create(user=self.user_b, ban_type=BAN_TYPE_SHADOW)
