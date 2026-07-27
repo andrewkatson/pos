@@ -499,6 +499,10 @@ enum BlurHashImage {
     static func decode(_ blurHash: String, size: CGSize, punch: Float = 1) -> UIImage? {
         let characters = Array(blurHash)
         guard characters.count >= 6 else { return nil }
+        // Reject any character outside the BlurHash alphabet up front, so a
+        // malformed string returns nil (as documented) rather than decoding to a
+        // garbage bitmap — decode83 itself just skips unknown characters.
+        guard characters.allSatisfy({ digitValues[$0] != nil }) else { return nil }
 
         let sizeFlag = decode83(characters[0 ..< 1])
         let numberOfY = (sizeFlag / 9) + 1

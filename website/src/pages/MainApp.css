@@ -512,16 +512,28 @@
    preview canvas that sits behind a post image while it loads. In the
    fixed-size feed/grid cells the wrapper must fill the cell so the image's
    height:100% still resolves against it; on the detail page it shrink-wraps the
-   naturally-sized image. */
+   naturally-sized image. The caller's `className` (e.g. `.detail-image`) is
+   applied to this wrapper, so its rounding/background/sizing frame the whole
+   tile; `overflow: hidden` clips both the canvas and the image to that box so
+   the blur respects rounded corners. */
 .post-thumbnail {
   position: relative;
   display: block;
+  overflow: hidden;
 }
 
 .post-grid__cell > .post-thumbnail,
 .feed-post__image > .post-thumbnail {
   width: 100%;
   height: 100%;
+}
+
+/* The image sits above the canvas and is transparent, so while it's still
+   loading the BlurHash shows through instead of the image's own background. */
+.post-thumbnail__img {
+  display: block;
+  width: 100%;
+  background: transparent;
 }
 
 .post-thumbnail__blur {

@@ -29,6 +29,10 @@ object BlurHashDecoder {
      */
     fun decode(blurHash: String?, width: Int = DECODE_SIZE, height: Int = DECODE_SIZE, punch: Float = 1f): Bitmap? {
         if (blurHash == null || blurHash.length < 6 || width <= 0 || height <= 0) return null
+        // Reject any character outside the BlurHash alphabet up front, so a
+        // malformed string returns null (as documented) rather than decoding to a
+        // garbage bitmap — decode83 itself just skips unknown characters.
+        if (blurHash.any { DIGITS.indexOf(it) < 0 }) return null
 
         val sizeFlag = decode83(blurHash, 0, 1)
         val numberOfY = (sizeFlag / 9) + 1

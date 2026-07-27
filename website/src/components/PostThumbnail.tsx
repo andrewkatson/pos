@@ -103,11 +103,16 @@ function PostThumbnail({
   }
   const src = useOriginal && post.original_image_url ? post.original_image_url : post.image_url
   const blurhash = post.image_blurhash
+  // The passed `className` (e.g. `detail-image`) goes on the wrapper, which
+  // clips its contents (`.post-thumbnail { overflow: hidden }`): that way the
+  // caller's sizing/rounding/background applies to the whole tile and the
+  // BlurHash canvas shows through instead of being hidden behind the image's own
+  // background. The image itself is transparent so it never paints over the blur.
   return (
-    <span className="post-thumbnail">
+    <span className={className ? `post-thumbnail ${className}` : 'post-thumbnail'}>
       {blurhash && !loaded && <BlurhashCanvas hash={blurhash} />}
       <img
-        className={className}
+        className="post-thumbnail__img"
         src={src}
         alt={post.caption}
         onDoubleClick={onDoubleClick}
