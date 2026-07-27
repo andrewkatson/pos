@@ -27,11 +27,15 @@ def _audience_q(viewer):
     admits = Q(audience=POST_AUDIENCE_PUBLIC)
     if viewer is not None and getattr(viewer, 'is_authenticated', False):
         for audience, categories in AUDIENCE_ALLOWED_CATEGORIES.items():
-            # Join the author's outgoing follow edges to this viewer. The
-            # UserFollow unique constraint on (user_from, user_to) means at most
-            # one such edge exists, so this join never duplicates a post row —
-            # and a plain Q join keeps the whole filter combinable with the other
-            # Q terms in visible_posts.
+            # Join the author's outgoing follow edges (following_set) and keep
+            # rows whose edge points at this viewer. A plain Q join keeps the
+            # whole filter combinable with the other Q terms in visible_posts.
+            #
+            # NOTE: this DOES fan out. `following_set` is multi-valued, and the
+            # OR with the author-owns-it branch in visible_posts leaves the join
+            # unrestricted for the author's own posts (viewer == author), so a
+            # post is emitted once per follow edge its author has. visible_posts
+            # must therefore .distinct() to collapse the duplicates (issue #397).
             admits |= Q(
                 audience=audience,
                 author__following_set__user_to=viewer,
@@ -93,7 +97,17 @@ def visible_posts(posts, viewer):
             & _audience_q(viewer)
             & _same_age_band_q(viewer, 'author')
         )
-    )
+    # .distinct() collapses the audience-join fan-out from _audience_q: on the
+    # author-owns-it branch the join over the author's outgoing follow edges is
+    # unrestricted, so a viewer's own posts come back once per account they
+    # follow — N copies on your own profile where N = accounts you follow
+    # (issue #397). Plain row-level distinct is correct for every caller: the
+    # duplicated rows are identical across all selected columns (the audience
+    # edge is unique per (author, viewer)), and the callers' own orderings and
+    # annotations (feed weight, -creation_time, saved posts' -saved_time) are
+    # single-valued per post, so none of them split a post back into rows that
+    # distinct would keep.
+    ).distinct()
 
 
 def visible_comments(comments, viewer):
