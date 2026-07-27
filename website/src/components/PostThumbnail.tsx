@@ -63,7 +63,7 @@ function BlurhashCanvas({ hash }: { hash: string }) {
  * keys this component by post id, so a new post gets fresh state.
  *
  * While the image loads, a BlurHash preview (issue #387) sits behind it and is
- * revealed instead of a grey square; it fades out once the image paints and
+ * revealed instead of a grey square; it is removed once the image paints and
  * stays put if the image never loads at all.
  */
 function PostThumbnail({

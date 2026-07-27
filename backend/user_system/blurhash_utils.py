@@ -18,7 +18,7 @@ import blurhash
 from django.conf import settings
 from PIL import Image, ImageOps
 
-from .s3 import _s3_client, image_url_bucket, image_url_to_key
+from .s3 import _s3_client, image_url_to_key, is_source_bucket_url
 
 logger = logging.getLogger(__name__)
 
@@ -60,10 +60,17 @@ def compute_blurhash_for_image_url(image_url):
         client = _s3_client()
         if client is None:
             return None
-        bucket = image_url_bucket(image_url) or settings.AWS_STORAGE_BUCKET_NAME
+        # Only ever fetch from our own source bucket. is_source_bucket_url rejects
+        # any URL whose bucket isn't derivable from the host or doesn't match the
+        # configured source bucket (the same SSRF guard make_post applies), so a
+        # look-alike or non-S3 URL can never be coerced into a bucket+key here.
+        if not is_source_bucket_url(image_url):
+            logger.warning("Image URL is not in the source bucket; skipping BlurHash.")
+            return None
+        bucket = settings.AWS_STORAGE_BUCKET_NAME
         key = image_url_to_key(image_url)
-        if not bucket or not key:
-            logger.warning("Could not derive an S3 bucket/key for BlurHash; skipping.")
+        if not key:
+            logger.warning("Could not derive an S3 key for BlurHash; skipping.")
             return None
         response = client.get_object(Bucket=bucket, Key=key)
         image = Image.open(BytesIO(response['Body'].read()))

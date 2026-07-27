@@ -49,6 +49,17 @@ class ComputeBlurhashTests(TestCase):
 
     @override_settings(AWS_STORAGE_BUCKET_NAME='test-bucket')
     @patch('user_system.blurhash_utils._s3_client')
+    def test_returns_none_for_url_outside_source_bucket(self, mock_client):
+        # A look-alike / non-S3 host must never be coerced into our bucket + key
+        # (the SSRF guard make_post applies is enforced here too): no fetch happens.
+        client = MagicMock()
+        mock_client.return_value = client
+        self.assertIsNone(
+            blurhash_utils.compute_blurhash_for_image_url('https://evil.com/1/photo.jpeg'))
+        client.get_object.assert_not_called()
+
+    @override_settings(AWS_STORAGE_BUCKET_NAME='test-bucket')
+    @patch('user_system.blurhash_utils._s3_client')
     def test_returns_none_on_fetch_error(self, mock_client):
         client = MagicMock()
         client.get_object.side_effect = Exception('boom')

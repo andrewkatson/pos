@@ -4,10 +4,12 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.painter.BitmapPainter
+import androidx.compose.ui.graphics.painter.ColorPainter
 import androidx.compose.ui.layout.ContentScale
 import coil.compose.AsyncImage
 import com.example.positiveonlysocial.data.model.Post
@@ -44,19 +46,22 @@ fun PostImageWithFallback(
     // so a recycled grid cell resets when it's reused for a different post.
     var useOriginal by remember(post.postIdentifier) { mutableStateOf(false) }
     val model = if (useOriginal) post.originalImageUrl else post.imageUrl
-    // The BlurHash placeholder (issue #387), decoded once per post: shown while
-    // the image loads instead of a black box, and kept as the error image so a
-    // tile whose compressed and original URLs both fail still shows the blur.
-    val blurPainter = remember(post.blurHash) {
+    // The placeholder shown while the image loads (and kept as the error image so
+    // a tile whose compressed and original URLs both fail isn't left blank): the
+    // decoded BlurHash (issue #387) when the post carries one, otherwise a plain
+    // surface color — never null, mirroring the iOS grid's placeholderColor.
+    val placeholderColor = MaterialTheme.colorScheme.surfaceVariant
+    val placeholderPainter = remember(post.blurHash, placeholderColor) {
         BlurHashDecoder.decode(post.blurHash)?.asImageBitmap()?.let { BitmapPainter(it) }
+            ?: ColorPainter(placeholderColor)
     }
     AsyncImage(
         model = model,
         contentDescription = "Post Image",
         modifier = modifier,
         contentScale = contentScale,
-        placeholder = blurPainter,
-        error = blurPainter,
+        placeholder = placeholderPainter,
+        error = placeholderPainter,
         onError = {
             if (!useOriginal && post.originalImageUrl != null) {
                 useOriginal = true
