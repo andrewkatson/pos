@@ -76,6 +76,7 @@ DATABASE_PASSWORD=""
 DATABASE_HOST=""
 DATABASE_PORT="5432"
 ADMIN_IP_ALLOWLIST=""                 # optional: exact public IP(s) allowed to reach /admin
+REDIS_URL=""                          # optional: enables queue mode + the classification worker
 
 ###############################################################################
 # Helper Functions
@@ -126,6 +127,9 @@ Optional:
   --domain DOMAIN               API host (default: api.smiling.social)
   --frontend-domain DOMAIN      Website host, for CORS/CSRF origins (default: smiling.social)
   --admin-ip-allowlist IPS      Comma-separated exact IPs allowed to reach /admin
+  --redis-url URL               Redis URL (e.g. redis://localhost:6379/0). Setting this
+                                enables queue mode: async classification runs in the
+                                classification-worker service instead of eagerly in-process.
   --admin-email EMAIL           Admin email for Let's Encrypt (standalone TLS only)
   --help                        Show this help message
 EOF
@@ -154,6 +158,7 @@ parse_arguments() {
             --domain)                DOMAIN="$2"; shift 2 ;;
             --frontend-domain)       FRONTEND_DOMAIN="$2"; shift 2 ;;
             --admin-ip-allowlist)    ADMIN_IP_ALLOWLIST="$2"; shift 2 ;;
+            --redis-url)             REDIS_URL="$2"; shift 2 ;;
             --admin-email)           ADMIN_EMAIL="$2"; shift 2 ;;
             --help)                  print_usage ;;
             *) print_error "Unknown option: $1"; print_usage ;;
@@ -327,6 +332,19 @@ DATABASE_HOST=$(env_quote "$DATABASE_HOST")
 DATABASE_PORT=$(env_quote "$DATABASE_PORT")
 EOF
 
+    # REDIS_URL is optional and only written when provided: its presence flips
+    # the app from eager in-process classification to queue mode (settings.py:
+    # CLASSIFICATION_EAGER = not bool(REDIS_URL)), which is what the
+    # classification-worker service consumes. Left unset, the worker service is
+    # installed but stays disabled (see setup_classification_worker_service).
+    if [ -n "$REDIS_URL" ]; then
+        cat >> "$BACKEND_DIR/.env" << EOF
+
+# Redis (enables queue mode + the classification worker; also used for caching/rate-limiting)
+REDIS_URL=$(env_quote "$REDIS_URL")
+EOF
+    fi
+
     chmod 600 "$BACKEND_DIR/.env"
     print_status ".env file created successfully"
 
@@ -404,6 +422,110 @@ EOF
         print_status "Gunicorn service started successfully"
     else
         print_error "Gunicorn failed to start. Check logs with: sudo journalctl -u gunicorn -n 50"
+    fi
+}
+
+setup_classification_worker_service() {
+    # Long-lived RQ worker that drains the async classification queue (issue
+    # #282: posts, issue #7: profile photos). It is the counterpart to gunicorn
+    # and MUST be restarted on every deploy — a worker started before a feature
+    # was committed keeps a stale user_system.tasks in memory and every job it
+    # picks up fails on import, silently stranding classifications (issue #399).
+    #
+    # It only makes sense in QUEUE MODE: the command hard-requires REDIS_URL and
+    # exits non-zero without it, so Restart=always would just crash-loop. We
+    # therefore always install the unit (so a later `enable --now` is one step)
+    # but only enable/start it when REDIS_URL is present in .env. In eager mode
+    # (no REDIS_URL) classification runs in-process and no worker is needed.
+    print_status "Setting up classification worker systemd service..."
+
+    sudo tee /etc/systemd/system/classification-worker.service > /dev/null << EOF
+[Unit]
+Description=RQ classification worker for $DOMAIN (async post/profile-photo moderation)
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+User=$APP_USER
+Group=www-data
+WorkingDirectory=$BACKEND_DIR
+Environment="PATH=$BACKEND_DIR/venv/bin"
+# wsgi.py does not load .env; systemd must, or the worker starts without
+# REDIS_URL/DB/AWS creds and cannot reach the queue.
+EnvironmentFile=$BACKEND_DIR/.env
+ExecStart=$BACKEND_DIR/venv/bin/python manage.py classification_worker
+# Long-lived: restart if it ever exits (crash, OOM, transient Redis blip).
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
+EOF
+
+    sudo systemctl daemon-reload
+
+    # Gate enablement on REDIS_URL actually being set in .env (queue mode).
+    if grep -Eq '^REDIS_URL=..*' "$BACKEND_DIR/.env"; then
+        sudo systemctl enable --now classification-worker
+        if sudo systemctl is-active --quiet classification-worker; then
+            print_status "Classification worker started successfully (queue mode)"
+        else
+            print_error "Classification worker failed to start. Check: sudo journalctl -u classification-worker -n 50"
+        fi
+    else
+        print_warning "REDIS_URL is not set in $BACKEND_DIR/.env — the app runs in eager mode,"
+        print_warning "so the classification-worker service was installed but left DISABLED."
+        print_warning "To switch to queue mode: add REDIS_URL to .env, restart gunicorn, then run"
+        print_warning "  sudo systemctl enable --now classification-worker"
+    fi
+}
+
+setup_sweep_timer() {
+    # Backstop for the async classification pipeline (issue #282/#7): re-enqueues
+    # posts and profile photos stuck pending past ~15 min (worker crash, deploy,
+    # Redis flush) and purges old final-rejection tombstones. The stuck threshold
+    # is 15 min, so the timer runs every 15 min to match. Like cleanup-orphan-
+    # images it needs the database + AWS/Redis env, so it runs on the app host.
+    # It is safe in eager mode too (no stuck items accumulate; it still purges
+    # tombstones), so it is enabled unconditionally.
+    print_status "Setting up classification sweep systemd timer..."
+
+    sudo tee /etc/systemd/system/sweep-classifications.service > /dev/null << EOF
+[Unit]
+Description=Re-enqueue stuck classifications and purge tombstones for $DOMAIN
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=oneshot
+User=$APP_USER
+Group=www-data
+WorkingDirectory=$BACKEND_DIR
+Environment="PATH=$BACKEND_DIR/venv/bin"
+EnvironmentFile=$BACKEND_DIR/.env
+ExecStart=$BACKEND_DIR/venv/bin/python manage.py sweep_classifications
+EOF
+
+    sudo tee /etc/systemd/system/sweep-classifications.timer > /dev/null << EOF
+[Unit]
+Description=Run classification sweep every 15 minutes
+
+[Timer]
+# Matches sweep_classifications' 15-minute stuck threshold.
+OnCalendar=*:0/15
+Persistent=true
+
+[Install]
+WantedBy=timers.target
+EOF
+
+    sudo systemctl daemon-reload
+    sudo systemctl enable --now sweep-classifications.timer
+
+    if sudo systemctl is-enabled --quiet sweep-classifications.timer; then
+        print_status "Classification sweep timer enabled (every 15 min)"
+    else
+        print_error "Sweep timer failed to enable. Check: sudo journalctl -u sweep-classifications -n 50"
     fi
 }
 
@@ -577,8 +699,21 @@ python manage.py migrate --noinput
 python manage.py collectstatic --noinput
 deactivate
 
-# Restart services
+# Restart ALL long-lived processes so none keeps running the pre-pull code.
+# gunicorn AND the classification worker are both long-lived and cache the
+# imported source in memory: a worker not restarted after a deploy keeps a
+# stale user_system.tasks and every new-feature job fails on import, silently
+# stranding classifications (issue #399). The sweep/cleanup timers run oneshot
+# services that re-exec the new code on their next fire, but reload the units in
+# case their definitions changed.
 sudo systemctl restart gunicorn
+# The worker only exists in queue mode; restart it only if it is enabled, so an
+# eager-mode host (no REDIS_URL) doesn't error on a disabled unit.
+if systemctl is-enabled --quiet classification-worker 2>/dev/null; then
+    sudo systemctl restart classification-worker
+fi
+sudo systemctl daemon-reload
+sudo systemctl restart sweep-classifications.timer cleanup-orphan-images.timer
 sudo systemctl reload nginx
 
 echo "API updated successfully!"
@@ -601,10 +736,17 @@ print_summary() {
     echo ""
     echo "Useful Commands:"
     echo "  - Check server status: ~/status_check.sh"
-    echo "  - Update application: ~/update-app.sh"
+    echo "  - Update application: ~/update-app.sh  (restarts gunicorn AND the worker)"
     echo "  - View Gunicorn logs: sudo journalctl -u gunicorn -f"
+    echo "  - View classification worker logs: sudo journalctl -u classification-worker -f"
     echo "  - View Nginx logs: sudo tail -f /var/log/nginx/error.log"
     echo ""
+    if ! grep -Eq '^REDIS_URL=..*' "$BACKEND_DIR/.env"; then
+        echo -e "${YELLOW}NOTE:${NC} REDIS_URL is unset — running in eager mode (classification on the"
+        echo "      request path). For production set REDIS_URL in $BACKEND_DIR/.env and run"
+        echo "      'sudo systemctl enable --now classification-worker' to switch to queue mode."
+        echo ""
+    fi
     echo "Next Steps:"
     echo "  1. Confirm the ALB target group points at this instance on :80 and is healthy."
     echo "  2. Create Django superuser:"
@@ -648,6 +790,8 @@ main() {
     test_database_connection
     run_django_setup
     setup_gunicorn_service
+    setup_classification_worker_service
+    setup_sweep_timer
     setup_cleanup_timer
     setup_nginx
     setup_log_rotation

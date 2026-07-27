@@ -209,11 +209,22 @@ own posts only.
 
 Without `REDIS_URL` (local dev, tests, CI) there is no queue, so the job runs
 eagerly in-process; production must set `REDIS_URL` and run the worker. The
-`sweep_classifications` management command (cron, like
-`cleanup_orphan_images`) re-enqueues posts stuck pending past a threshold,
-alerts (log error) once a post has exhausted its retry budget, and purges old
-final-rejection tombstones (default 7 days, `--tombstone-days`; preview with
-`--dry-run`).
+`sweep_classifications` management command (scheduled, like
+`cleanup_orphan_images`) re-enqueues posts **and pending profile photos** stuck
+pending past a threshold (default 15 min, `--stuck-minutes`), alerts (log error)
+once an item has exhausted its retry budget, and purges old final-rejection
+tombstones (default 7 days, `--tombstone-days`; preview with `--dry-run`).
+
+On the app host these async pieces are provisioned by `backend/tools/setup-django.sh`
+as systemd units (see [Deploying and restarting services](#deploying-and-restarting-services)):
+
+- **`classification-worker.service`** — the long-lived RQ worker
+  (`manage.py classification_worker`). Installed always but only enabled when
+  `REDIS_URL` is set in `.env` (queue mode); in eager mode it is not needed.
+- **`sweep-classifications.timer`** — runs `manage.py sweep_classifications`
+  every 15 minutes (matching the stuck threshold).
+- **`cleanup-orphan-images.timer`** — the daily S3 orphan sweep (see
+  [Post image cleanup](#post-image-cleanup)).
 
 Comments are still classified inline in the request (text-only, much smaller
 worst case); moving them to the same async flow is a tracked follow-up.
@@ -657,3 +668,48 @@ resolution trail.
 
 Admins review appeals and either approve them — reversing the moderation action
 (un-hiding the content) — or deny them.
+
+## Deploying and restarting services
+
+The Django API runs on an EC2 host provisioned by `backend/tools/setup-django.sh`
+(gunicorn behind nginx; the website is a separate S3 + CloudFront SPA published
+with `website/deploy-web.sh`). Beyond gunicorn, the backend relies on several
+**async background services**, all installed as systemd units by that script:
+
+| Unit | Kind | What it does | Enabled when |
+| --- | --- | --- | --- |
+| `gunicorn.service` | long-lived | Serves the API (WSGI). | always |
+| `classification-worker.service` | long-lived | RQ worker draining the async post/profile-photo moderation queue (`manage.py classification_worker`). | `REDIS_URL` set (queue mode) |
+| `sweep-classifications.timer` | timer (15 min) | `manage.py sweep_classifications` — re-enqueues stuck-pending items and purges tombstones. | always |
+| `cleanup-orphan-images.timer` | timer (daily) | `manage.py cleanup_orphan_images` — reclaims orphaned S3 images. | always |
+
+**Restart every long-lived process on every deploy.** Both gunicorn *and* the
+classification worker cache the imported source in memory, so a `git pull` alone
+does not pick up new code. In issue #399 a profile photo was stuck "in review"
+forever because the prod worker had been running since **before** the
+profile-photo feature was committed and was never restarted after deploy — its
+cached `user_system.tasks` lacked `classify_profile_photo`, so every job failed
+on import and silently stranded classifications. The generated `~/update-app.sh`
+therefore restarts gunicorn **and** the worker and reloads the timers after
+migrating and collecting static files; use it (or replicate its steps) for every
+by-hand deploy. (The timers run oneshot services that re-exec the new code on
+their next fire, so they self-heal, but the units are reloaded in case their
+definitions changed.)
+
+**Queue vs eager mode.** `REDIS_URL` (set via `--redis-url`, written to
+`backend/.env`) flips the app from eager in-process classification to queue mode.
+Only in queue mode is a worker needed, so `setup-django.sh` installs
+`classification-worker.service` unconditionally but only **enables** it when
+`REDIS_URL` is present. To switch an existing eager host to queue mode: add
+`REDIS_URL` to `.env`, restart gunicorn, then
+`sudo systemctl enable --now classification-worker`.
+
+**`.env` and systemd.** `manage.py` loads `.env` via `python-dotenv`, but
+`wsgi.py` does not — so every systemd unit points at the `.env` with
+`EnvironmentFile=` (parent-of-`backend` on the prod host), or the service would
+start without `REDIS_URL`/DB/AWS credentials.
+
+`backend/tools/status_check.sh` reports the health of all of the above — gunicorn,
+nginx, the classification worker (active/enabled, or "stranding!" if enabled but
+dead), the two timers (last/next run), and best-effort `classification` queue
+depth — so a silently dead worker is visible at a glance.
