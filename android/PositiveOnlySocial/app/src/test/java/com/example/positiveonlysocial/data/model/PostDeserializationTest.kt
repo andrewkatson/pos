@@ -51,6 +51,7 @@ class PostDeserializationTest {
               "author_username": "bob",
               "post_likes": 4,
               "is_liked": true,
+              "is_saved": true,
               "is_reported": true,
               "report_reason": "spam",
               "comment_count": 12,
@@ -63,6 +64,7 @@ class PostDeserializationTest {
         assertEquals("p2", post.postIdentifier)
         assertEquals(4, post.likeCount)
         assertTrue(post.isLiked)
+        assertEquals(true, post.isSaved)
         assertTrue(post.isReported)
         assertEquals("spam", post.reportReason)
         assertEquals(12, post.commentCount)
@@ -90,6 +92,9 @@ class PostDeserializationTest {
         assertEquals(false, post.isReported)
         assertNull(post.reportReason)
         assertNull(post.creationTime)
+        // Gson ignores the Kotlin default for an absent field, so is_saved comes
+        // back null; the render/action layer reads it as `isSaved == true`.
+        assertNull(post.isSaved)
     }
 
     @Test

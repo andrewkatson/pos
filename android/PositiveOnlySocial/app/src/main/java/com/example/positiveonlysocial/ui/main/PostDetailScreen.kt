@@ -594,20 +594,36 @@ fun ActionSheetDialog(
     onShare: () -> Unit,
     onReport: () -> Unit,
     onRetract: () -> Unit,
-    onDelete: () -> Unit
+    onDelete: () -> Unit,
+    // Save / unsave (issue #193/#412), offered for any post. Null for items that
+    // can't be saved (comments), which then show no Save row. `isSaved` picks the
+    // Save vs Unsave label.
+    isSaved: Boolean = false,
+    onToggleSave: (() -> Unit)? = null
 ) {
     AlertDialog(
         onDismissRequest = onDismiss,
         title = { Text(itemLabel) },
-        // Share isn't a confirm/dismiss action and AlertDialog only exposes those
-        // two button slots, so it lives in the body content as a full-width
-        // button. It's offered for any post or comment, own or not (issue #34).
+        // Share (and Save) aren't confirm/dismiss actions and AlertDialog only
+        // exposes those two button slots, so they live in the body content as
+        // full-width buttons. Share is offered for any post or comment, own or
+        // not (issue #34); Save only when a save handler is supplied.
         text = {
-            TextButton(
-                onClick = { onShare(); onDismiss() },
-                modifier = Modifier.fillMaxWidth()
-            ) {
-                Text("Share $itemLabel")
+            Column {
+                TextButton(
+                    onClick = { onShare(); onDismiss() },
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Text("Share $itemLabel")
+                }
+                if (onToggleSave != null) {
+                    TextButton(
+                        onClick = { onToggleSave(); onDismiss() },
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Text(if (isSaved) "Unsave $itemLabel" else "Save $itemLabel")
+                    }
+                }
             }
         },
         // The primary action lives in the confirmButton slot so it's laid out and

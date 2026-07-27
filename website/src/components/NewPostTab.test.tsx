@@ -194,6 +194,41 @@ test('shows an error when the upload fails', async () => {
   expect(mockCreatePost).not.toHaveBeenCalled()
 })
 
+test('the photo picker shows a + placeholder until a photo is chosen, then the image (#417)', async () => {
+  render(<NewPostTab onPosted={() => {}} />)
+
+  // Before a photo: the picker invites adding one and shows no image.
+  const picker = screen.getByRole('button', { name: 'Add a photo' })
+  expect(picker).toBeInTheDocument()
+  expect(screen.queryByAltText('Selected post preview')).not.toBeInTheDocument()
+
+  await userEvent.upload(screen.getByLabelText('Choose a photo'), makeFile())
+
+  // After: the picker becomes the image target ("Change photo") and shows it.
+  expect(screen.getByRole('button', { name: 'Change photo' })).toBeInTheDocument()
+  expect(screen.getByAltText('Selected post preview')).toBeInTheDocument()
+})
+
+test('style settings live behind an Advanced options disclosure (#419)', async () => {
+  render(<NewPostTab onPosted={() => {}} />)
+
+  const summary = screen.getByText('Advanced options')
+  expect(summary).toBeInTheDocument()
+  // The font/color controls live inside the disclosure.
+  expect(summary.closest('details')).toContainElement(screen.getByLabelText('Font'))
+  expect(summary.closest('details')).toContainElement(
+    screen.getByRole('button', { name: 'Mint' }),
+  )
+})
+
+test('the preview shows the caption as a tile for a text-only post (#418)', async () => {
+  render(<NewPostTab onPosted={() => {}} />)
+
+  await userEvent.type(screen.getByLabelText('Caption'), 'a sunny thought')
+  // A text-only post renders its caption as the tile (role="img" from CaptionTile).
+  expect(screen.getByRole('img', { name: 'a sunny thought' })).toBeInTheDocument()
+})
+
 test('shows an error when there is no signed-in user', async () => {
   vi.stubGlobal('localStorage', {
     getItem: vi.fn(() => null),

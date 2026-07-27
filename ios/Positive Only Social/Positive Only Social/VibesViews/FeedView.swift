@@ -255,7 +255,11 @@ struct FollowingFeedView: View {
                                     )
                                 }
                                 .clipped()
-                                .border(Color.black, width: 1)
+                                // Match the For You feed's rounded corners so the
+                                // two feeds are visually consistent (issue #414).
+                                .border(Color.gray, width: 0.5)
+                                .cornerRadius(15)
+                                .shadow(color: Color.black.opacity(0.4), radius: 10, x: 0, y: 0)
                         }
                         .onAppear {
                             // Trigger for infinite scrolling

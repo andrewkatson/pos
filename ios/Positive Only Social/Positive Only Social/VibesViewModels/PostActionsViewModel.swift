@@ -26,6 +26,8 @@ final class PostActionsViewModel: ObservableObject {
         var isOwn: Bool
         var isLiked: Bool
         var likeCount: Int
+        /// Whether the viewer has saved the post (issue #193/#412).
+        var isSaved: Bool
         var isReported: Bool
         var reportReason: String?
     }
@@ -82,6 +84,7 @@ final class PostActionsViewModel: ObservableObject {
             isOwn: post.authorUsername == currentUsername,
             isLiked: post.isLiked,
             likeCount: post.postLikes,
+            isSaved: post.isSaved,
             isReported: post.isReported,
             reportReason: post.reportReason
         )
@@ -118,6 +121,35 @@ final class PostActionsViewModel: ObservableObject {
                 NSLog("%@", "Failed to \(liking ? "like" : "unlike") post: \(error)")
                 overrides[post.id] = previous
                 alertMessage = "Failed to \(liking ? "like" : "unlike") post: \(error.userFacingMessage)"
+            }
+        }
+    }
+
+    /// Saves or unsaves a post, updating the row immediately and reverting if
+    /// the request fails — the same optimistic behavior as `toggleLike`. Saving
+    /// is offered on any post, your own and others' (issue #193/#412).
+    func toggleSave(_ post: Post) {
+        let previous = state(for: post)
+        let saving = !previous.isSaved
+        var updated = previous
+        updated.isSaved = saving
+        overrides[post.id] = updated
+
+        Task {
+            guard let token = loadToken(for: saving ? "save post" : "unsave post") else {
+                overrides[post.id] = previous
+                return
+            }
+            do {
+                if saving {
+                    _ = try await api.savePost(sessionManagementToken: token, postIdentifier: post.id)
+                } else {
+                    _ = try await api.unsavePost(sessionManagementToken: token, postIdentifier: post.id)
+                }
+            } catch {
+                NSLog("%@", "Failed to \(saving ? "save" : "unsave") post: \(error)")
+                overrides[post.id] = previous
+                alertMessage = "Failed to \(saving ? "save" : "unsave") post: \(error.userFacingMessage)"
             }
         }
     }

@@ -137,6 +137,8 @@ class StatefulStubbedAPI : PositiveOnlySocialAPI {
         // Who may see the post (issue #392).
         var audience: String = "public",
         val likes: MutableSet<String> = mutableSetOf(), // Set of User IDs
+        // User ids who saved this post (issue #193/#412).
+        val savers: MutableSet<String> = mutableSetOf(),
         // Reporting user id -> their reason, so retract flows can show the reason.
         val reports: MutableMap<String, String> = mutableMapOf(),
         // Hashtags parsed from the caption (issue #379), normalized and sorted.
@@ -765,6 +767,24 @@ class StatefulStubbedAPI : PositiveOnlySocialAPI {
         return error(404, "Post not liked yet")
     }
 
+    override suspend fun savePost(token: String, postId: String): Response<GenericResponse> {
+        val user = getAuthorizedUser(token) ?: return error(401, "Unauthorized")
+        val post = posts.find { it.postIdentifier == postId }
+            ?: return error(404, "No post with that identifier")
+        // Saving is idempotent server-side, so a repeat save is a no-op rather
+        // than an error (unlike liking, which rejects a double-like).
+        post.savers.add(user.id)
+        return Response.success(GenericResponse("Post saved", null))
+    }
+
+    override suspend fun unsavePost(token: String, postId: String): Response<GenericResponse> {
+        val user = getAuthorizedUser(token) ?: return error(401, "Unauthorized")
+        val post = posts.find { it.postIdentifier == postId }
+            ?: return error(404, "No post with that identifier")
+        post.savers.remove(user.id)
+        return Response.success(GenericResponse("Post unsaved", null))
+    }
+
     // ============================================================================================
     // feed / retrieval
     // ============================================================================================
@@ -860,6 +880,7 @@ class StatefulStubbedAPI : PositiveOnlySocialAPI {
             authorUsername = authorUsername,
             likeCount = post.likes.count(),
             isLiked = post.likes.contains(viewerId),
+            isSaved = post.savers.contains(viewerId),
             isReported = post.reports.contains(viewerId),
             reportReason = post.reports[viewerId],
             commentCount = visibleCommentCount(post.postIdentifier),
@@ -910,6 +931,7 @@ class StatefulStubbedAPI : PositiveOnlySocialAPI {
             authorUsername = author.username,
             likeCount = post.likes.count(),
             isLiked = post.likes.contains(user.id),
+            isSaved = post.savers.contains(user.id),
             creationTime = post.creationTime.toString(),
             isReported = post.reports.contains(user.id),
             reportReason = post.reports[user.id],

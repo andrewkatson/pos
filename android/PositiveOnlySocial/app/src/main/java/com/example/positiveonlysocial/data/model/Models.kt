@@ -299,7 +299,12 @@ data class Post(
     // "family". Nullable so a response that predates it still parses (Gson
     // ignores Kotlin defaults for absent JSON), treated as public. Appended last
     // so positional constructions are unaffected.
-    val audience: String? = null
+    val audience: String? = null,
+    // Whether the viewer has saved this post (issue #193/#412), so a row can
+    // offer Save/Unsave in place. Nullable because Gson ignores Kotlin defaults
+    // for absent JSON (an older response omitting it yields null); read as
+    // `isSaved == true`. Appended last so positional constructions are unaffected.
+    @SerializedName("is_saved") val isSaved: Boolean? = false
 )
 
 // --- Comment DTOs ---
