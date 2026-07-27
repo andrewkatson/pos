@@ -771,8 +771,10 @@ class StatefulStubbedAPI : PositiveOnlySocialAPI {
         val user = getAuthorizedUser(token) ?: return error(401, "Unauthorized")
         val post = posts.find { it.postIdentifier == postId }
             ?: return error(404, "No post with that identifier")
-        // Saving is idempotent server-side, so a repeat save is a no-op rather
-        // than an error (unlike liking, which rejects a double-like).
+        // Mirror the backend (save_post): a repeat save is rejected with 400
+        // ("Already saved post"), like a double-like — so the client's optimistic
+        // revert path is exercised. Saving your own post is still allowed.
+        if (post.savers.contains(user.id)) return error(400, "Already saved post")
         post.savers.add(user.id)
         return Response.success(GenericResponse("Post saved", null))
     }
@@ -781,7 +783,9 @@ class StatefulStubbedAPI : PositiveOnlySocialAPI {
         val user = getAuthorizedUser(token) ?: return error(401, "Unauthorized")
         val post = posts.find { it.postIdentifier == postId }
             ?: return error(404, "No post with that identifier")
-        post.savers.remove(user.id)
+        // Mirror the backend (unsave_post): unsaving a post that wasn't saved is
+        // rejected with 400 ("Post not saved yet").
+        if (!post.savers.remove(user.id)) return error(400, "Post not saved yet")
         return Response.success(GenericResponse("Post unsaved", null))
     }
 

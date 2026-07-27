@@ -168,7 +168,7 @@ function NewPostTab({ onPosted }: NewPostTabProps) {
           disabled={isLoading}
           aria-label={file ? 'Change photo' : 'Add a photo'}
         >
-          {previewUrl ? (
+          {previewSrc ? (
             <img className="photo-picker__image" src={previewSrc} alt="Selected post preview" />
           ) : (
             <span className="photo-picker__placeholder" aria-hidden="true">
@@ -287,7 +287,7 @@ function NewPostTab({ onPosted }: NewPostTabProps) {
             <span className="feed-post__author">{username ?? 'You'}</span>
           </div>
           <div className="post-preview__media">
-            {previewUrl ? (
+            {previewSrc ? (
               // Decorative here: the picker above already carries the labeled
               // copy of this same image, so the preview copy needs no alt.
               <img className="post-preview__image" src={previewSrc} alt="" />
@@ -301,7 +301,7 @@ function NewPostTab({ onPosted }: NewPostTabProps) {
           </div>
           {/* An image post shows its caption below the photo, matching the feed;
               a text-only post already shows it as the tile above. */}
-          {previewUrl && trimmedCaption && (
+          {previewSrc && trimmedCaption && (
             <p className="feed-post__caption">{trimmedCaption}</p>
           )}
         </article>

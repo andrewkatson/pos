@@ -267,6 +267,28 @@ struct Positive_Only_SocialTests_PostActionsViewModel {
         #expect(refreshedPost.isSaved == true)
     }
 
+    @Test func testToggleSave_WhenRequestFails_RevertsAndAlerts() async throws {
+        let account = "saveFails_account"
+        let viewerToken = try await setupLoggedInUser(username: "failSaver", account: account)
+        let authorToken = try await registerUserAndGetToken(username: "failSaveAuthor")
+        _ = try await stubAPI.makePost(sessionManagementToken: authorToken, imageURL: "img/1", caption: "Post 1")
+
+        let post = try await firstFeedPost(token: viewerToken)
+        let sut = PostActionsViewModel(api: stubAPI, keychainHelper: keychainHelper, account: account)
+
+        // Given: the post is already saved on the backend (stale client state), so
+        // saving it again fails — mirroring the backend's "Already saved post".
+        _ = try await stubAPI.savePost(sessionManagementToken: viewerToken, postIdentifier: post.id)
+
+        sut.toggleSave(post)
+        #expect(sut.state(for: post).isSaved == true, "Optimistic update applies first")
+        await yield()
+
+        // Then: the optimistic save is rolled back and the user is told.
+        #expect(sut.state(for: post).isSaved == false)
+        #expect(sut.alertMessage != nil)
+    }
+
     // --- Report / Retract Tests ---
 
     @Test func testReportThenRetract_UpdatesRowState() async throws {

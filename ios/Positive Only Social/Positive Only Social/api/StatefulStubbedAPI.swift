@@ -956,11 +956,11 @@ final class StatefulStubbedAPI: Networking {
         await simulateNetwork()
         guard let saver = findUser(bySessionToken: sessionManagementToken) else { throw APIError.badServerResponse(statusCode: 400) }
         guard let postIndex = posts.firstIndex(where: { $0.postIdentifier == postIdentifier }) else { throw APIError.badServerResponse(statusCode: 400) }
-        // Saving is idempotent server-side, so a repeat save is a no-op rather
-        // than an error (unlike liking, which rejects a double-like).
-        if !posts[postIndex].savers.contains(saver.username) {
-            posts[postIndex].savers.append(saver.username)
-        }
+        // Mirror the backend (save_post): a repeat save is rejected with 400
+        // ("Already saved post"), like a double-like — so the client's optimistic
+        // revert path is exercised. Saving your own post is still allowed.
+        if posts[postIndex].savers.contains(saver.username) { throw APIError.badServerResponse(statusCode: 400) }
+        posts[postIndex].savers.append(saver.username)
         return try createEmptySuccessResponse()
     }
 
@@ -968,7 +968,10 @@ final class StatefulStubbedAPI: Networking {
         await simulateNetwork()
         guard let saver = findUser(bySessionToken: sessionManagementToken) else { throw APIError.badServerResponse(statusCode: 400) }
         guard let postIndex = posts.firstIndex(where: { $0.postIdentifier == postIdentifier }) else { throw APIError.badServerResponse(statusCode: 400) }
-        posts[postIndex].savers.removeAll { $0 == saver.username }
+        // Mirror the backend (unsave_post): unsaving a post that wasn't saved is
+        // rejected with 400 ("Post not saved yet").
+        guard let saveIndex = posts[postIndex].savers.firstIndex(of: saver.username) else { throw APIError.badServerResponse(statusCode: 400) }
+        posts[postIndex].savers.remove(at: saveIndex)
         return try createEmptySuccessResponse()
     }
 
