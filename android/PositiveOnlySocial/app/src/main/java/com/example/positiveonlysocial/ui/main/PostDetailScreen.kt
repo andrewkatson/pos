@@ -595,9 +595,9 @@ fun ActionSheetDialog(
     onReport: () -> Unit,
     onRetract: () -> Unit,
     onDelete: () -> Unit,
-    // Save / unsave (issue #193/#412), offered for any post. Null for items that
-    // can't be saved (comments), which then show no Save row. `isSaved` picks the
-    // Save vs Unsave label.
+    // Save / unsave (issue #193/#412). `isSaved` only picks the Save vs Unsave
+    // label. A null `onToggleSave` hides the Save row entirely — that's how items
+    // that can't be saved (comments) opt out.
     isSaved: Boolean = false,
     onToggleSave: (() -> Unit)? = null
 ) {
