@@ -93,7 +93,8 @@ class PostDeserializationTest {
         assertNull(post.reportReason)
         assertNull(post.creationTime)
         // Gson ignores the Kotlin default for an absent field, so is_saved comes
-        // back null; the render/action layer reads it as `isSaved == true`.
+        // back null. The render/action layer checks `isSaved == true`, so null is
+        // treated as not saved.
         assertNull(post.isSaved)
     }
 
