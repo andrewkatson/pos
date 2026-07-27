@@ -261,6 +261,28 @@
   font-size: 1.15rem;
 }
 
+/* A text-only post's detail tile also carries `.detail-image` (for the shared
+   width/border-radius/cursor), whose `display: block` would otherwise override
+   the tile's flex centering — at equal specificity it wins by source order —
+   and drop the caption to the top of the box (issue #404). Re-assert centering
+   with a two-class selector so it wins regardless of order. */
+.caption-tile--detail.detail-image {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+/* A default/old text post has no chosen color, so CaptionTile adds no `.post-bg`
+   class and nothing overrides `.detail-image`'s solid #1a1a1a — it renders black
+   in the detail view while the feed/grid (no `.detail-image`) shows the themed
+   gradient (issue #405). Restore the gradient for that case only; posts with a
+   chosen color carry `.post-bg--x`, which this :not() excludes so their color
+   still wins. */
+.caption-tile--detail.detail-image:not(.post-bg) {
+  background: linear-gradient(135deg, #2b5876, #5ba4dc);
+  color: #ffffff;
+}
+
 /* Appeals list: thumbnail-sized stand-in. */
 .caption-tile--thumb {
   width: 48px;
