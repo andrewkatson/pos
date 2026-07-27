@@ -383,6 +383,13 @@ run_django_setup() {
     # Run migrations
     python manage.py migrate --noinput || print_warning "Migration failed - check database connection"
 
+    # Create the rate-limit cache table. Without REDIS_URL the app falls back to
+    # Django's DatabaseCache (settings.py), which needs this table or every
+    # rate-limited request errors at runtime. It is idempotent (skips if the
+    # table exists) and a no-op when REDIS_URL is set (RedisCache defines no
+    # DatabaseCache backend), so it is safe to run unconditionally.
+    python manage.py createcachetable || print_warning "createcachetable failed - check database connection"
+
     # Collect static files
     python manage.py collectstatic --noinput
 
@@ -699,6 +706,9 @@ pip install -r requirements.txt
 
 # manage.py loads .env via python-dotenv (no shell 'source' of secrets).
 python manage.py migrate --noinput
+# Idempotent; needed for eager-mode (no REDIS_URL) DatabaseCache rate limiting,
+# a no-op under Redis. Cheap insurance in case the cache backend changes.
+python manage.py createcachetable
 python manage.py collectstatic --noinput
 deactivate
 
@@ -748,7 +758,9 @@ print_summary() {
     echo ""
     if ! grep -Eq '^REDIS_URL="?[^"]' "$BACKEND_DIR/.env"; then
         echo -e "${YELLOW}NOTE:${NC} REDIS_URL is unset — running in eager mode (classification on the"
-        echo "      request path). For production set REDIS_URL in $BACKEND_DIR/.env and run"
+        echo "      request path, and rate limiting via the DatabaseCache 'rate_limit_cache'"
+        echo "      table, which this setup already created). For production set REDIS_URL in"
+        echo "      $BACKEND_DIR/.env and run"
         echo "      'sudo systemctl enable --now classification-worker' to switch to queue mode."
         echo ""
     fi
