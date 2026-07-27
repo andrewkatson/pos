@@ -1,7 +1,8 @@
+from django.contrib.auth import get_user_model
 from django.urls import reverse
 from .test_parent_case import PositiveOnlySocialTestCase
-from ..constants import Fields
-from ..models import PositiveOnlySocialUser  # Import model for setup
+from ..constants import BAN_TYPE_SHADOW, Fields
+from ..models import PositiveOnlySocialUser, UserBan  # Import model for setup
 
 # Constants for this test case
 invalid_session_management_token = '?'
@@ -119,6 +120,31 @@ class GetProfileDetailsTests(PositiveOnlySocialTestCase):
         self.assertEqual(data[Fields.username], self.profile_username)
         self.assertEqual(data[Fields.follower_count], 1)  # The profile user now has 1 follower
         self.assertEqual(data[Fields.is_following], True)
+
+    def test_follower_count_excludes_shadow_banned_and_cross_band(self):
+        """The follower count must agree with the filtered follower list (issue
+        #398): a shadow-banned or cross-age-band follower is hidden from the list,
+        so it must not inflate the count either. Viewing own profile here, so the
+        requester's age band is the filter — matching get_followers."""
+        normal = PositiveOnlySocialUser.objects.get(
+            username=self.make_user_with_prefix('normie')[Fields.username])
+        shadow = PositiveOnlySocialUser.objects.get(
+            username=self.make_user_with_prefix('shady')[Fields.username])
+        minor = PositiveOnlySocialUser.objects.get(
+            username=self.make_user_with_prefix('minorx')[Fields.username])
+        for follower in (normal, shadow, minor):
+            follower.following.add(self.requesting_user)
+        # Hide two of the three: one shadow-banned, one in the other age band.
+        UserBan.objects.create(user=shadow, ban_type=BAN_TYPE_SHADOW)
+        get_user_model().objects.filter(pk=minor.pk).update(
+            identity_is_verified=True, is_adult=False)
+
+        url = reverse('get_profile_details', kwargs={'username': self.local_username})
+        response = self.client.get(url, **self.valid_header)
+
+        self.assertEqual(response.status_code, 200)
+        # Only the normal, same-band follower is counted — not 3.
+        self.assertEqual(response.json()[Fields.follower_count], 1)
 
     def test_is_blocked_is_true_when_blocked(self):
         """
