@@ -119,9 +119,11 @@
 .post-grid {
   display: grid;
   grid-template-columns: repeat(3, 1fr);
-  /* The black backing shows through the 1px gaps as thin borders between posts. */
+  /* The page background shows through the 1px gaps as thin borders between posts,
+     and behind any empty slots in a partial last row — so those empties blend with
+     the screen instead of painting black boxes next to posts (#415). */
   gap: 1px;
-  background: #000;
+  background: transparent;
 }
 
 .post-grid__cell {

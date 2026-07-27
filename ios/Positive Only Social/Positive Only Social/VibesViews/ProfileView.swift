@@ -83,8 +83,9 @@ struct ProfileBodyView: View {
     /// "MyPostImage" so your own grid stays distinguishable from someone else's.
     var postAccessibilityIdentifier: String = "ProfilePostImage"
 
-    // Grid layout: 3 columns with a 1pt gap that shows the black grid
-    // background as a thin border between posts.
+    // Grid layout: 3 columns with a 1pt gap. The gap (and any empty slots in a
+    // partial last row) show the grid's background, which is the theme background
+    // so it blends in both light and dark mode rather than painting black (#415).
     private let columns: [GridItem] = Array(repeating: GridItem(.flexible(), spacing: 1), count: 3)
 
     var body: some View {
@@ -421,8 +422,9 @@ struct ProfileBodyView: View {
 
                         PostActionBar(post: post, postActions: postActions)
                     }
-                    // Keeps the action bar off the grid's black backing, which
-                    // is only meant to show through as the 1pt tile borders.
+                    // Each cell (tile + action bar) sits on the theme background,
+                    // matching the grid backing so the whole grid reads as one
+                    // surface with hairline gaps between tiles.
                     .background(Color(.systemBackground))
                     .onAppear {
                         // Trigger for infinite scrolling
@@ -432,8 +434,10 @@ struct ProfileBodyView: View {
                     }
                 }
             }
-            // Black backing shows through the 1pt gaps as thin borders between posts.
-            .background(Color.black)
+            // The theme background shows through the 1pt gaps and any empty slots
+            // in a partial last row, so it blends with the screen in both light and
+            // dark mode instead of painting black boxes next to posts (#415).
+            .background(Color(.systemBackground))
         }
     }
 }
