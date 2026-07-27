@@ -464,8 +464,11 @@ EOF
 
     sudo systemctl daemon-reload
 
-    # Gate enablement on REDIS_URL actually being set in .env (queue mode).
-    if grep -Eq '^REDIS_URL=..*' "$BACKEND_DIR/.env"; then
+    # Gate enablement on REDIS_URL actually being set to a NON-EMPTY value in
+    # .env (queue mode). The optional-quote + non-quote-char match rejects both
+    # a missing line and an empty `REDIS_URL=""`, either of which would make the
+    # worker crash-loop (the command hard-requires a non-empty REDIS_URL).
+    if grep -Eq '^REDIS_URL="?[^"]' "$BACKEND_DIR/.env"; then
         sudo systemctl enable --now classification-worker
         if sudo systemctl is-active --quiet classification-worker; then
             print_status "Classification worker started successfully (queue mode)"
@@ -706,13 +709,15 @@ deactivate
 # stranding classifications (issue #399). The sweep/cleanup timers run oneshot
 # services that re-exec the new code on their next fire, but reload the units in
 # case their definitions changed.
+#
+# daemon-reload FIRST, so the restarts below pick up any changed unit files.
+sudo systemctl daemon-reload
 sudo systemctl restart gunicorn
 # The worker only exists in queue mode; restart it only if it is enabled, so an
 # eager-mode host (no REDIS_URL) doesn't error on a disabled unit.
 if systemctl is-enabled --quiet classification-worker 2>/dev/null; then
     sudo systemctl restart classification-worker
 fi
-sudo systemctl daemon-reload
 sudo systemctl restart sweep-classifications.timer cleanup-orphan-images.timer
 sudo systemctl reload nginx
 
@@ -741,7 +746,7 @@ print_summary() {
     echo "  - View classification worker logs: sudo journalctl -u classification-worker -f"
     echo "  - View Nginx logs: sudo tail -f /var/log/nginx/error.log"
     echo ""
-    if ! grep -Eq '^REDIS_URL=..*' "$BACKEND_DIR/.env"; then
+    if ! grep -Eq '^REDIS_URL="?[^"]' "$BACKEND_DIR/.env"; then
         echo -e "${YELLOW}NOTE:${NC} REDIS_URL is unset — running in eager mode (classification on the"
         echo "      request path). For production set REDIS_URL in $BACKEND_DIR/.env and run"
         echo "      'sudo systemctl enable --now classification-worker' to switch to queue mode."

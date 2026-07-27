@@ -706,8 +706,9 @@ Only in queue mode is a worker needed, so `setup-django.sh` installs
 
 **`.env` and systemd.** `manage.py` loads `.env` via `python-dotenv`, but
 `wsgi.py` does not — so every systemd unit points at the `.env` with
-`EnvironmentFile=` (parent-of-`backend` on the prod host), or the service would
-start without `REDIS_URL`/DB/AWS credentials.
+`EnvironmentFile=$BACKEND_DIR/.env` (i.e. `backend/.env`, the same file
+`setup-django.sh` generates), or the service would start without
+`REDIS_URL`/DB/AWS credentials.
 
 `backend/tools/status_check.sh` reports the health of all of the above — gunicorn,
 nginx, the classification worker (active/enabled, or "stranding!" if enabled but
