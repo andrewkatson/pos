@@ -275,9 +275,10 @@
 /* A default/old text post has no chosen color, so CaptionTile adds no `.post-bg`
    class and nothing overrides `.detail-image`'s solid #1a1a1a — it renders black
    in the detail view while the feed/grid (no `.detail-image`) shows the themed
-   gradient (issue #405). Restore the gradient for that case only; posts with a
-   chosen color carry `.post-bg--x`, which this :not() excludes so their color
-   still wins. */
+   gradient (issue #405). Restore the gradient for that case only. A post that
+   DID pick a color gets the base `.post-bg` class (alongside its `.post-bg--x`
+   modifier), so `:not(.post-bg)` excludes it here and its chosen color still
+   wins. */
 .caption-tile--detail.detail-image:not(.post-bg) {
   background: linear-gradient(135deg, #2b5876, #5ba4dc);
   color: #ffffff;
