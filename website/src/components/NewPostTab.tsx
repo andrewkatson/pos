@@ -19,8 +19,10 @@ interface NewPostTabProps {
  * The photo preview is always a locally-created object URL (`URL.createObjectURL`
  * of the picked File), never remote or user-authored text. Restricting the
  * `<img src>` to the `blob:` scheme makes that explicit and keeps anything else
- * — including the tainted File the picker read from the DOM — from reaching the
- * image, which also clears CodeQL's js/xss-through-dom false positive on the src.
+ * from reaching the image. (CodeQL's js/xss-through-dom still flags the File →
+ * createObjectURL → src flow; that's an accepted false positive — an `<img src>`
+ * is not reinterpreted as HTML — dismissed the same way as the prior single-image
+ * preview alert.)
  */
 function blobPreviewSrc(url: string | null): string | undefined {
   return url && url.startsWith('blob:') ? url : undefined
