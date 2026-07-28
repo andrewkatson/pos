@@ -81,15 +81,14 @@ class ImagePrefilterTests(SimpleTestCase):
 
     def test_missing_models_fail_open(self):
         # With neither NudeNet nor a gore model available (CI/dev), the real
-        # detector entry points return 0.0 and the image is allowed.
-        with patch.dict(os.environ, {}, clear=True):
-            image_prefilter._nudenet_unavailable = True
-            image_prefilter._gore_unavailable = True
-            try:
-                self.assertTrue(image_prefilter.prefilter_image(_image()))
-            finally:
-                image_prefilter._nudenet_unavailable = False
-                image_prefilter._gore_unavailable = False
+        # detector entry points return 0.0 and the image is allowed. Patch the
+        # cache sentinels (auto-restored on exit) rather than assigning them, so
+        # this never clobbers cached state and leaks order dependence into other
+        # tests.
+        with patch.dict(os.environ, {}, clear=True), \
+             patch.object(image_prefilter, '_nudenet_unavailable', True), \
+             patch.object(image_prefilter, '_gore_unavailable', True):
+            self.assertTrue(image_prefilter.prefilter_image(_image()))
 
 
 class ImagePrefilterCascadeIntegrationTests(SimpleTestCase):
