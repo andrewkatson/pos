@@ -30,9 +30,11 @@ from .classifier_utils import ClassificationResult
 
 logger = logging.getLogger(__name__)
 
-# Lazily-initialised singletons. `False` means "tried and unavailable" so we
-# neither reload the model nor re-log the failure on every image; `None` means
-# "not tried yet".
+# Lazily-initialised singletons, two vars per detector:
+#   _*_detector / _*_session — None until loaded, then the loaded model object.
+#   _*_unavailable          — False until a load is attempted and fails, then
+#                             True so we neither retry the load nor re-log the
+#                             failure on every image (preserving fail-open).
 _nudenet_detector = None
 _nudenet_unavailable = False
 _gore_session = None          # onnxruntime.InferenceSession

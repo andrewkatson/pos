@@ -55,13 +55,14 @@ _LDNOOBW_FILE = os.path.join(os.path.dirname(__file__), 'data', 'ldnoobw_en.txt'
 
 
 def _load_ldnoobw():
-    """Load the vendored LDNOOBW terms, or fall back to the curated list.
+    """Return the vendored LDNOOBW terms, or ``[]`` if the file can't be read.
 
-    A missing/unreadable data file must never take the pre-filter (which is
-    imported at module load) down: it just degrades to the curated floor and
-    the async cascade still runs. "Unreadable" includes both I/O failures
-    (OSError) and a bad-encoding/corrupted file (UnicodeDecodeError, a
-    ValueError rather than an OSError).
+    The caller always unions the result with ``_CURATED_PROFANITY``, so an
+    empty return just drops the extra LDNOOBW coverage — the curated floor
+    still applies. A missing/unreadable data file must never take the
+    pre-filter (which is imported at module load) down. "Unreadable" includes
+    both I/O failures (OSError) and a bad-encoding/corrupted file
+    (UnicodeDecodeError, a ValueError rather than an OSError).
     """
     try:
         with open(_LDNOOBW_FILE, encoding='utf-8') as fh:
