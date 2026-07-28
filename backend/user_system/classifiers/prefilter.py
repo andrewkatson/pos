@@ -74,14 +74,18 @@ def _term_regex(term):
 def _word_pattern(terms):
     """Whole-word / whole-phrase, case-insensitive matcher for ``terms``.
 
-    Word boundaries keep e.g. "shiitake" or "class" from tripping "shit"/"ass".
-    Empty input yields a pattern that never matches (rather than an empty
-    alternation, which would match everything).
+    Uses ``(?<!\\w)``/``(?!\\w)`` lookarounds ("not part of a larger word")
+    rather than ``\\b``: they keep e.g. "shiitake" or "class" from tripping
+    "shit"/"ass", but — unlike ``\\b``, which only fires between a ``\\w`` and a
+    ``\\W`` — they still match terms that begin or end with a non-word
+    character, such as the LDNOOBW emoji entry "🖕". Empty input yields a
+    pattern that never matches (rather than an empty alternation, which would
+    match everything).
     """
     unique = sorted({t for t in terms if t})
     if not unique:
         return re.compile(r'(?!)')
-    return re.compile(r'\b(?:' + '|'.join(_term_regex(t) for t in unique) + r')\b',
+    return re.compile(r'(?<!\w)(?:' + '|'.join(_term_regex(t) for t in unique) + r')(?!\w)',
                       re.IGNORECASE)
 
 

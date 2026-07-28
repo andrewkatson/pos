@@ -50,3 +50,11 @@ class PrefilterTests(SimpleTestCase):
     def test_ldnoobw_substring_does_not_trip_on_word_boundary(self):
         # 'analysis' contains 'anal' but is a whole different word.
         self.assertTrue(prefilter_text('a careful analysis of the class scunthorpe'))
+
+    def test_ldnoobw_non_word_char_entry_is_matched(self):
+        # A term that begins/ends with a non-word character (the LDNOOBW emoji
+        # entry) must still match — \b could never catch these; the lookaround
+        # matcher does.
+        result = prefilter_text('right back at you \U0001f595')
+        self.assertFalse(result)
+        self.assertEqual(result.public_reason_code(), 'profanity')
