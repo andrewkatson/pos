@@ -167,6 +167,44 @@ class PostDeserializationTest {
         assertTrue(body.contains("words only"))
     }
 
+    // --- BlurHash placeholder (issue #387) ---
+
+    @Test
+    fun `post json maps image_blurhash to blurHash`() {
+        val json = """
+            {
+              "post_identifier": "p7",
+              "image_url": "https://example.com/g.jpg",
+              "caption": "hi",
+              "author_username": "alice",
+              "image_blurhash": "LEHV6nWB2yk8pyo0adR*.7kCMdnj"
+            }
+        """.trimIndent()
+
+        val post = gson.fromJson(json, Post::class.java)
+
+        assertEquals("LEHV6nWB2yk8pyo0adR*.7kCMdnj", post.blurHash)
+    }
+
+    @Test
+    fun `post json without image_blurhash leaves blurHash null (older backend)`() {
+        // Gson does not apply Kotlin default values for absent JSON fields, so a
+        // response that predates the field (or a text-only post) deserializes it
+        // to null; the render layer then shows its plain placeholder.
+        val json = """
+            {
+              "post_identifier": "p8",
+              "image_url": "https://example.com/h.jpg",
+              "caption": "hi",
+              "author_username": "bob"
+            }
+        """.trimIndent()
+
+        val post = gson.fromJson(json, Post::class.java)
+
+        assertNull(post.blurHash)
+    }
+
     // --- Profile photos (issue #7) ---
 
     @Test

@@ -22,8 +22,10 @@ FINAL_REJECT_GORE = ClassificationResult(allowed=False, appealable=False, reason
 
 TEXT = 'user_system.tasks.text_classifier_class.is_text_positive'
 IMAGE = 'user_system.tasks.image_classifier_class.is_image_positive'
+BLURHASH = 'user_system.tasks.compute_blurhash'
 
 IMAGE_URL = 'https://test-bucket.s3.amazonaws.com/user/img.jpeg'
+FAKE_BLURHASH = 'LEHV6nWB2yk8pyo0adR*.7kCMdnj'
 
 
 class ClassifyPostTaskTests(TestCase):
@@ -59,6 +61,49 @@ class ClassifyPostTaskTests(TestCase):
         self._run()
         self.assertFalse(self.post.hidden)
         self.assertIsNone(self.post.classification_reason_code)
+
+    @patch(BLURHASH, return_value=FAKE_BLURHASH)
+    @patch(IMAGE, return_value=ALLOWED)
+    @patch(TEXT, return_value=ALLOWED)
+    def test_approval_stores_blurhash(self, _text, _image, mock_blur):
+        """On approval the worker records the computed BlurHash (issue #387) so
+        clients can render a blurred placeholder while the image loads."""
+        self._run()
+        self.assertFalse(self.post.hidden)
+        mock_blur.assert_called_once_with(IMAGE_URL)
+        self.assertEqual(self.post.image_blurhash, FAKE_BLURHASH)
+
+    @patch(BLURHASH, return_value=None)
+    @patch(IMAGE, return_value=ALLOWED)
+    @patch(TEXT, return_value=ALLOWED)
+    def test_approval_tolerates_blurhash_failure(self, _text, _image, _blur):
+        """BlurHash is decorative: an encode failure (None) never blocks the
+        approval — the post still becomes visible, just without a placeholder."""
+        self._run()
+        self.assertFalse(self.post.hidden)
+        self.assertIsNone(self.post.image_blurhash)
+
+    @patch(BLURHASH, return_value=FAKE_BLURHASH)
+    @patch(IMAGE, return_value=ALLOWED)
+    @patch(TEXT, return_value=APPEALABLE)
+    def test_appealable_rejection_still_stores_blurhash(self, _text, _image, _blur):
+        """A hidden-but-appealable post keeps its BlurHash so a later successful
+        appeal can show the placeholder without re-running classification."""
+        self._run()
+        self.assertEqual(self.post.hidden_reason, HIDDEN_REASON_CLASSIFIER)
+        self.assertEqual(self.post.image_blurhash, FAKE_BLURHASH)
+
+    @patch(BLURHASH, return_value=FAKE_BLURHASH)
+    @patch('user_system.tasks.delete_image')
+    @patch(IMAGE, return_value=ALLOWED)
+    @patch(TEXT, return_value=FINAL_REJECT)
+    def test_final_rejection_skips_blurhash(self, _text, _image, _delete, mock_blur):
+        """A final rejection deletes the image, so the worker neither computes
+        nor stores a BlurHash for it."""
+        self._run()
+        self.assertEqual(self.post.hidden_reason, HIDDEN_REASON_CLASSIFIER_FINAL)
+        mock_blur.assert_not_called()
+        self.assertIsNone(self.post.image_blurhash)
 
     @patch(IMAGE, return_value=ALLOWED)
     @patch(TEXT, return_value=APPEALABLE)

@@ -24,6 +24,7 @@ from django.db import transaction
 from django.db.models import F
 from django.utils import timezone
 
+from .blurhash_utils import compute_blurhash_for_image_url
 from .classifiers import image_classifier, text_classifier
 from .classifiers.classifier_utils import ClassificationResult
 from .constants import (
@@ -40,6 +41,9 @@ from .s3 import delete_image
 # `user_system.views.text_classifier_class` pattern.
 image_classifier_class = image_classifier
 text_classifier_class = text_classifier
+# Aliased here for the same reason (patchable in tests) and so the (best-effort)
+# BlurHash computation lives behind one name at its single call site.
+compute_blurhash = compute_blurhash_for_image_url
 
 logger = logging.getLogger(__name__)
 
@@ -229,6 +233,13 @@ def classify_post(post_identifier):
     else:
         reason_result = text_result if not text_result else image_result
 
+    # Best-effort BlurHash placeholder for the image (issue #387), computed off
+    # the request path here in the worker. Done before the transaction so the
+    # (slow) S3 fetch + encode never pins the row lock, and skipped for final
+    # rejections (their image is deleted below, so a placeholder is pointless).
+    image_blurhash = (compute_blurhash(post.image_url)
+                      if post.image_url and not final else None)
+
     image_url_to_delete = None
     with transaction.atomic():
         # Re-claim the row under lock so a concurrent duplicate delivery
@@ -245,6 +256,7 @@ def classify_post(post_identifier):
             # value — e.g. a manual admin edit — can never survive an approval
             # and leak into the author-visible status payloads.
             claimed.classification_reason_code = None
+            claimed.image_blurhash = image_blurhash
         elif final:
             # Terminal rejection: keep the row as a tombstone (so the author's
             # client can reconcile the outcome) but strip the image reference;
@@ -254,11 +266,17 @@ def classify_post(post_identifier):
             claimed.classification_reason_code = reason_result.public_reason_code()
             image_url_to_delete = claimed.image_url
             claimed.image_url = None
+            claimed.image_blurhash = None
         else:
             claimed.hidden = True
             claimed.hidden_reason = HIDDEN_REASON_CLASSIFIER
             claimed.classification_reason_code = reason_result.public_reason_code()
-        claimed.save(update_fields=['hidden', 'hidden_reason', 'classification_reason_code', 'image_url'])
+            # Kept even while hidden: an appeal can un-hide this post later
+            # (without re-running classification), and the placeholder should be
+            # ready when it does.
+            claimed.image_blurhash = image_blurhash
+        claimed.save(update_fields=['hidden', 'hidden_reason', 'classification_reason_code',
+                                    'image_url', 'image_blurhash'])
 
     # Side effects only after the one-time transition has committed, so they
     # can neither fire twice nor fire for a rolled-back transition.
