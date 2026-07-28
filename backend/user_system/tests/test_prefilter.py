@@ -34,3 +34,19 @@ class PrefilterTests(SimpleTestCase):
 
     def test_non_string_input_is_coerced_not_crashed(self):
         self.assertTrue(prefilter_text(12345))
+
+    def test_ldnoobw_word_outside_curated_list_is_rejected(self):
+        # 'bollocks' is in the vendored LDNOOBW list but not the curated floor,
+        # so this only passes when the LDNOOBW file is actually loaded (#393).
+        result = prefilter_text('what a load of bollocks')
+        self.assertFalse(result)
+        self.assertEqual(result.public_reason_code(), 'profanity')
+
+    def test_ldnoobw_multiword_phrase_is_rejected(self):
+        # A multi-word LDNOOBW entry must match as a phrase, across arbitrary
+        # whitespace between its tokens.
+        self.assertFalse(prefilter_text('the alabama  hot pocket incident'))
+
+    def test_ldnoobw_substring_does_not_trip_on_word_boundary(self):
+        # 'analysis' contains 'anal' but is a whole different word.
+        self.assertTrue(prefilter_text('a careful analysis of the class scunthorpe'))

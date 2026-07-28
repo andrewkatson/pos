@@ -1,0 +1,15 @@
+# Optional heavy dependencies for the local image pre-filter (issue #393),
+# used by backend/user_system/classifiers/image_prefilter.py.
+#
+# Deliberately NOT in requirements.txt: CI, tests, and local dev stay
+# lightweight, and the pre-filter fails OPEN (allows, deferring to the AI
+# vision cascade) whenever these are absent. Install them on the
+# classification-worker host to enable local nudity/gore screening:
+#
+#     pip install -r requirements-local-image-filter.txt
+#
+# NudeNet supplies the nudity detector (and pulls in onnxruntime + opencv).
+# onnxruntime is also used to run the optional gore/NSFW model pointed at by
+# the LOCAL_GORE_MODEL_PATH env var; provision that model separately.
+nudenet
+onnxruntime
