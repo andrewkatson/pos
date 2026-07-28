@@ -11,5 +11,9 @@
 # NudeNet supplies the nudity detector (and pulls in onnxruntime + opencv).
 # onnxruntime is also used to run the optional gore/NSFW model pointed at by
 # the LOCAL_GORE_MODEL_PATH env var; provision that model separately.
+# numpy is declared explicitly because image_prefilter._detect_gore() imports
+# it directly to build the model's input tensor — don't rely on it arriving
+# transitively, or gore detection would silently fail open if that changed.
 nudenet
 onnxruntime
+numpy
