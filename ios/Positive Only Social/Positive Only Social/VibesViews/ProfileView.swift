@@ -395,6 +395,7 @@ struct ProfileBodyView: View {
                                     GridPostImage(
                                         imageUrl: post.imageUrl,
                                         originalImageUrl: post.originalImageUrl,
+                                        blurHash: post.blurHash,
                                         caption: post.caption,
                                         captionFont: post.captionFont,
                                         backgroundColor: post.backgroundColor

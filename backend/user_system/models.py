@@ -358,6 +358,13 @@ HIDDEN_REASON_CHOICES = [
 class Post(models.Model):
     post_identifier = models.UUIDField(default=uuid.uuid4, primary_key=True, unique=True, editable=False)
     image_url = models.TextField(null=True)
+    # A tiny BlurHash string (issue #387) the clients decode into a blurred
+    # preview of the image, shown while the full image is still loading so a
+    # feed tile is a soft blur of the real photo instead of a grey square.
+    # Computed best-effort by the classification worker once it has fetched and
+    # decoded the image; stays null for text-only posts, or when encoding fails
+    # (the clients then fall back to their existing plain placeholder).
+    image_blurhash = models.TextField(null=True, blank=True, default=None)
     caption = models.TextField(null=True)
     # Whole-caption font choice and whole-tile background color (issue #318),
     # stored as curated allow-list keys (see ALLOWED_CAPTION_FONTS /

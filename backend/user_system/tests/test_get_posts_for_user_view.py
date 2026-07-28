@@ -199,6 +199,26 @@ class GetPostsForUserTests(PositiveOnlySocialTestCase):
             # The original is the uncompressed source URL the client uploaded to.
             self.assertIn('test-bucket', post[Fields.original_image_url])
 
+    def test_posts_include_image_blurhash(self):
+        """Each post carries its BlurHash placeholder string (issue #387) so
+        clients can render a blurred preview while the image loads. The field is
+        always present (null until the classification worker computes it)."""
+        user = get_user_with_username(self.username)
+        post = user.post_set.first()
+        post.image_blurhash = 'LEHV6nWB2yk8pyo0adR*.7kCMdnj'
+        post.save(update_fields=['image_blurhash'])
+
+        url = reverse('get_posts_for_user', kwargs={'username': self.username, 'batch': 0})
+        response = self.client.get(url, **self.valid_header)
+        self.assertEqual(response.status_code, 200)
+        responses = response.json()
+
+        for p in responses:
+            self.assertIn(Fields.image_blurhash, p)
+        match = [p for p in responses if p[Fields.post_identifier] == str(post.post_identifier)]
+        self.assertEqual(len(match), 1)
+        self.assertEqual(match[0][Fields.image_blurhash], 'LEHV6nWB2yk8pyo0adR*.7kCMdnj')
+
     def test_posts_hidden_when_user_blocked(self):
         """
         Tests that the blocked users posts are hidden when they are blocked

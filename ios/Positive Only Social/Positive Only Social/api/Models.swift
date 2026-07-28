@@ -95,6 +95,11 @@ struct Post: Codable, Identifiable, Hashable {
     /// those grid tiles render as empty grey boxes until the user re-logs in.
     /// Optional for backward compatibility with responses that predate the field.
     let originalImageUrl: String?
+    /// A BlurHash string (issue #387) decoded into a blurred placeholder shown
+    /// while the image loads, so a grid tile is a soft blur of the real photo
+    /// rather than a grey square. Nil for text-only posts, until the async
+    /// classification worker has computed it, and on older backends.
+    let blurHash: String?
     let caption: String
     /// Whole-caption font + whole-tile background color keys (issue #318).
     /// "default" reproduces the original rendering. Defaulted on decode so
@@ -156,6 +161,7 @@ struct Post: Codable, Identifiable, Hashable {
         case postIdentifier = "post_identifier"
         case imageUrl = "image_url"
         case originalImageUrl = "original_image_url"
+        case blurHash = "image_blurhash"
         case caption = "caption"
         case captionFont = "caption_font"
         case backgroundColor = "background_color"
@@ -180,6 +186,7 @@ struct Post: Codable, Identifiable, Hashable {
         postIdentifier: String,
         imageUrl: String?,
         originalImageUrl: String? = nil,
+        blurHash: String? = nil,
         caption: String,
         captionFont: String = "default",
         backgroundColor: String = "default",
@@ -202,6 +209,7 @@ struct Post: Codable, Identifiable, Hashable {
         self.postIdentifier = postIdentifier
         self.imageUrl = imageUrl
         self.originalImageUrl = originalImageUrl
+        self.blurHash = blurHash
         self.caption = caption
         self.captionFont = captionFont
         self.backgroundColor = backgroundColor
@@ -229,6 +237,8 @@ struct Post: Codable, Identifiable, Hashable {
         postIdentifier = try container.decode(String.self, forKey: .postIdentifier)
         imageUrl = try container.decodeIfPresent(String.self, forKey: .imageUrl)
         originalImageUrl = try container.decodeIfPresent(String.self, forKey: .originalImageUrl)
+        // BlurHash placeholder (#387); absent on older backends and text-only posts.
+        blurHash = try container.decodeIfPresent(String.self, forKey: .blurHash)
         caption = try container.decode(String.self, forKey: .caption)
         captionFont = try container.decodeIfPresent(String.self, forKey: .captionFont) ?? "default"
         backgroundColor = try container.decodeIfPresent(String.self, forKey: .backgroundColor) ?? "default"
