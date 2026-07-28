@@ -2112,6 +2112,7 @@ def get_saved_posts(request, batch):
                 # Full-res original, used as a client fallback while the async
                 # Lambda-generated compressed copy is still missing (#252/#254).
                 Fields.original_image_url: sign_original_url(post.image_url),
+                Fields.image_blurhash: post.image_blurhash,
                 Fields.author_username: post.author.username,
                 **_author_avatar_fields(post.author),
                 Fields.caption: post.caption,
@@ -2332,6 +2333,7 @@ def get_posts_in_feed(request, batch):
                 # Full-res original, used as a client fallback while the async
                 # Lambda-generated compressed copy is still missing (#252/#254).
                 Fields.original_image_url: sign_original_url(post.image_url),
+                Fields.image_blurhash: post.image_blurhash,
                 Fields.author_username: post.author.username,
                 **_author_avatar_fields(post.author),
                 Fields.caption: post.caption,
@@ -2398,6 +2400,7 @@ def get_posts_for_followed_users(request, batch):
             # Full-res original, used as a client fallback while the async
             # Lambda-generated compressed copy is still missing (#252/#254).
             Fields.original_image_url: sign_original_url(post.image_url),
+            Fields.image_blurhash: post.image_blurhash,
             Fields.author_username: post.author.username,
             **_author_avatar_fields(post.author),
             Fields.caption: post.caption,
@@ -2460,6 +2463,7 @@ def get_posts_for_user(request, username, batch):
                 # fallback those tiles render as empty grey/black boxes until the
                 # user re-logs in. See issues #252 and #254.
                 Fields.original_image_url: sign_original_url(post.image_url),
+                Fields.image_blurhash: post.image_blurhash,
                 Fields.caption: post.caption,
                 **_caption_style_fields(post),
                 Fields.author_username: target_user.username,
@@ -2498,6 +2502,7 @@ def get_post_details(request, post_identifier):
             # Full-res original, used as a client fallback while the async
             # Lambda-generated compressed copy is still missing (#252/#254).
             Fields.original_image_url: sign_original_url(post.image_url),
+            Fields.image_blurhash: post.image_blurhash,
             Fields.caption: post.caption,
             **_caption_style_fields(post),
             Fields.creation_time: post.creation_time,
@@ -2566,6 +2571,7 @@ def get_posts_for_tag(request, tag, batch):
                 # Full-res original, used as a client fallback while the async
                 # Lambda-generated compressed copy is still missing (#252/#254).
                 Fields.original_image_url: sign_original_url(post.image_url),
+                Fields.image_blurhash: post.image_blurhash,
                 Fields.author_username: post.author.username,
                 **_author_avatar_fields(post.author),
                 Fields.caption: post.caption,
@@ -3721,6 +3727,7 @@ def get_hidden_posts(request, batch):
         {
             Fields.post_identifier: post.post_identifier,
             Fields.image_url: sign_compressed_url(post.image_url),
+            Fields.image_blurhash: post.image_blurhash,
             Fields.caption: post.caption,
             **_caption_style_fields(post),
             Fields.hidden_reason: post.hidden_reason,

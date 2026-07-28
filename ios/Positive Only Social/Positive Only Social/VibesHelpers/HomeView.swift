@@ -7,6 +7,7 @@
 
 import SwiftUI
 import Kingfisher
+import UIKit
 
 struct HomeView: View {
     
@@ -362,6 +363,10 @@ struct GridPostImage: View {
     /// Nil for a text-only post (#307), which renders as a caption tile.
     let imageUrl: String?
     let originalImageUrl: String?
+    /// BlurHash for the image (issue #387): decoded into a blurred placeholder
+    /// shown while the photo loads, so the tile is a soft blur of the real image
+    /// instead of a flat grey square. Nil for text-only posts / older backends.
+    var blurHash: String? = nil
     /// The post caption, rendered as the tile for a text-only post.
     var caption: String = ""
     /// Caption font + background color keys for a text-only tile (issue #318).
@@ -376,6 +381,20 @@ struct GridPostImage: View {
     // Kingfisher load the new URL.
     @State private var useOriginal = false
 
+    /// What KFImage shows while the photo loads (and if it never loads): the
+    /// decoded BlurHash when the post carries one, otherwise the flat grey shade.
+    /// Decoding only runs while the placeholder is on screen, and at a tiny size,
+    /// so it stays cheap.
+    @ViewBuilder private var blurHashPlaceholder: some View {
+        if let blurHash, let image = BlurHashImage.decode(blurHash, size: BlurHashImage.decodeSize) {
+            Image(uiImage: image)
+                .resizable()
+                .scaledToFill()
+        } else {
+            placeholderColor
+        }
+    }
+
     var body: some View {
         if let imageUrl {
             let urlString = useOriginal ? (originalImageUrl ?? imageUrl) : imageUrl
@@ -383,7 +402,7 @@ struct GridPostImage: View {
                 // Rides out the just-posted window where the compressed copy isn't
                 // in the bucket yet; only HTTP errors are retried, not cancellations.
                 .retry(maxCount: 2, interval: .seconds(1))
-                .placeholder { placeholderColor }
+                .placeholder { blurHashPlaceholder }
                 .onFailure { error in
                     // A cancelled load isn't a missing image — the tile reloads the
                     // same URL when it next appears, so save the fallback for real
@@ -454,4 +473,129 @@ struct UserSearchResultsView: View {
 
 #Preview {
     HomeView(api: PreviewHelpers.api, keychainHelper: PreviewHelpers.keychainHelper).environmentObject(PreviewHelpers.authManager)
+}
+
+/// A minimal BlurHash decoder (issue #387) — a Swift port of the reference
+/// algorithm at https://github.com/woltapp/blurhash. It turns the short BlurHash
+/// string the backend attaches to a post into a small blurred `UIImage` the grid
+/// shows while the real photo loads, so a loading tile isn't a flat grey box.
+/// Vendored (a handful of pure functions) rather than taking a dependency just
+/// to decode ~30 characters.
+enum BlurHashImage {
+    /// The preview is upscaled to fill the tile, so a tiny decode is plenty and
+    /// keeps the per-tile cost negligible.
+    static let decodeSize = CGSize(width: 32, height: 32)
+
+    private static let digits: [Character] =
+        Array("0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz#$%*+,-.:;=?@[]^_{|}~")
+    private static let digitValues: [Character: Int] = {
+        var map = [Character: Int]()
+        for (index, character) in digits.enumerated() { map[character] = index }
+        return map
+    }()
+
+    /// Decode `blurHash` into a blurred image of `size`, or nil if the string is
+    /// malformed (bad length/characters) — callers then fall back to a flat color.
+    static func decode(_ blurHash: String, size: CGSize, punch: Float = 1) -> UIImage? {
+        let characters = Array(blurHash)
+        guard characters.count >= 6 else { return nil }
+        // Reject any character outside the BlurHash alphabet up front, so a
+        // malformed string returns nil (as documented) rather than decoding to a
+        // garbage bitmap — decode83 itself just skips unknown characters.
+        guard characters.allSatisfy({ digitValues[$0] != nil }) else { return nil }
+
+        let sizeFlag = decode83(characters[0 ..< 1])
+        let numberOfY = (sizeFlag / 9) + 1
+        let numberOfX = (sizeFlag % 9) + 1
+        guard characters.count == 4 + 2 * numberOfX * numberOfY else { return nil }
+
+        let quantisedMaximumValue = decode83(characters[1 ..< 2])
+        let maximumValue = Float(quantisedMaximumValue + 1) / 166
+
+        var colours = [(Float, Float, Float)](repeating: (0, 0, 0), count: numberOfX * numberOfY)
+        for index in 0 ..< colours.count {
+            if index == 0 {
+                colours[index] = decodeDC(decode83(characters[2 ..< 6]))
+            } else {
+                let value = decode83(characters[(4 + index * 2) ..< (6 + index * 2)])
+                colours[index] = decodeAC(value, maximumValue: maximumValue * punch)
+            }
+        }
+
+        let width = Int(size.width)
+        let height = Int(size.height)
+        guard width > 0, height > 0 else { return nil }
+        let bytesPerRow = width * 3
+        var pixels = [UInt8](repeating: 0, count: bytesPerRow * height)
+
+        for y in 0 ..< height {
+            for x in 0 ..< width {
+                var red: Float = 0, green: Float = 0, blue: Float = 0
+                for j in 0 ..< numberOfY {
+                    for i in 0 ..< numberOfX {
+                        let basis = Float(cos(Double.pi * Double(x) * Double(i) / Double(width))
+                            * cos(Double.pi * Double(y) * Double(j) / Double(height)))
+                        let colour = colours[i + j * numberOfX]
+                        red += colour.0 * basis
+                        green += colour.1 * basis
+                        blue += colour.2 * basis
+                    }
+                }
+                let offset = 3 * x + y * bytesPerRow
+                pixels[offset] = UInt8(linearTosRGB(red))
+                pixels[offset + 1] = UInt8(linearTosRGB(green))
+                pixels[offset + 2] = UInt8(linearTosRGB(blue))
+            }
+        }
+
+        let colourSpace = CGColorSpaceCreateDeviceRGB()
+        guard let provider = CGDataProvider(data: Data(pixels) as CFData) else { return nil }
+        guard let cgImage = CGImage(
+            width: width, height: height, bitsPerComponent: 8, bitsPerPixel: 24,
+            bytesPerRow: bytesPerRow, space: colourSpace,
+            bitmapInfo: CGBitmapInfo(rawValue: CGImageAlphaInfo.none.rawValue),
+            provider: provider, decode: nil, shouldInterpolate: true, intent: .defaultIntent
+        ) else { return nil }
+        return UIImage(cgImage: cgImage)
+    }
+
+    private static func decode83(_ characters: ArraySlice<Character>) -> Int {
+        var value = 0
+        for character in characters {
+            if let digit = digitValues[character] { value = value * 83 + digit }
+        }
+        return value
+    }
+
+    private static func decodeDC(_ value: Int) -> (Float, Float, Float) {
+        (sRGBToLinear(value >> 16), sRGBToLinear((value >> 8) & 255), sRGBToLinear(value & 255))
+    }
+
+    private static func decodeAC(_ value: Int, maximumValue: Float) -> (Float, Float, Float) {
+        let quantR = value / (19 * 19)
+        let quantG = (value / 19) % 19
+        let quantB = value % 19
+        return (
+            signPow((Float(quantR) - 9) / 9, 2) * maximumValue,
+            signPow((Float(quantG) - 9) / 9, 2) * maximumValue,
+            signPow((Float(quantB) - 9) / 9, 2) * maximumValue
+        )
+    }
+
+    private static func signPow(_ value: Float, _ exponent: Float) -> Float {
+        let magnitude = Float(pow(Double(abs(value)), Double(exponent)))
+        return value < 0 ? -magnitude : magnitude
+    }
+
+    private static func linearTosRGB(_ value: Float) -> Int {
+        let clamped = max(0, min(1, value))
+        if clamped <= 0.0031308 { return Int(clamped * 12.92 * 255 + 0.5) }
+        return Int((1.055 * Float(pow(Double(clamped), 1 / 2.4)) - 0.055) * 255 + 0.5)
+    }
+
+    private static func sRGBToLinear(_ value: Int) -> Float {
+        let v = Float(value) / 255
+        if v <= 0.04045 { return v / 12.92 }
+        return Float(pow(Double((v + 0.055) / 1.055), 2.4))
+    }
 }

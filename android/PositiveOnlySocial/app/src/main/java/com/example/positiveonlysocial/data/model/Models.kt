@@ -299,7 +299,13 @@ data class Post(
     // "family". Nullable so a response that predates it still parses (Gson
     // ignores Kotlin defaults for absent JSON), treated as public. Appended last
     // so positional constructions are unaffected.
-    val audience: String? = null
+    val audience: String? = null,
+    // A BlurHash string (issue #387) decoded into a blurred placeholder shown
+    // while the image loads, so a grid tile is a soft blur of the real photo
+    // instead of a black box. Nullable because Gson ignores Kotlin defaults for
+    // absent JSON (older backends and text-only posts omit it → null). Appended
+    // last so positional constructions are unaffected.
+    @SerializedName("image_blurhash") val blurHash: String? = null
 )
 
 // --- Comment DTOs ---

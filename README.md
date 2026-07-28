@@ -556,6 +556,26 @@ file); optionally `CLOUDFRONT_SIGNED_URL_EXPIRY_SECONDS`.
    both distributions; deliver the matching private key to the backend as
    `CLOUDFRONT_PRIVATE_KEY[_PATH]` and its id as `CLOUDFRONT_KEY_PAIR_ID`.
 
+### BlurHash placeholders (issue #387)
+
+Even with the `original_image_url` fallback, a grid tile is blank while its image
+downloads — a grey/black square that flashes on every feed load. Each post
+therefore carries a **BlurHash**: a ~30-character string
+([woltapp/blurhash](https://github.com/woltapp/blurhash)) that encodes a tiny,
+blurred version of the image. All three clients decode it locally and render the
+blur in the tile *while the real image loads* (and leave it in place if the image
+never loads), so a loading photo is a soft blur of itself instead of a flat box.
+
+The BlurHash is stored on the post (`Post.image_blurhash`) and computed
+best-effort by the async classification worker (`classify_post`), which already
+has the image in hand — it downscales the image and encodes a 4x3 hash. It is
+purely decorative: any failure (encode error, missing object, no credentials)
+just leaves it null, and the clients fall back to their plain placeholder, so it
+can never block a post from being published. It is skipped for final-rejected
+posts (their image is deleted) and for text-only posts (which have no image), and
+is serialized as `image_blurhash` alongside `image_url` in every listing/detail
+payload. Older clients that don't know the field simply ignore it.
+
 ## Profile photos
 
 A user's profile photo is stored on the user (`profile_image_url`) and served

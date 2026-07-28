@@ -1,4 +1,5 @@
 anthropic
+blurhash
 boto3
 cryptography
 google-genai

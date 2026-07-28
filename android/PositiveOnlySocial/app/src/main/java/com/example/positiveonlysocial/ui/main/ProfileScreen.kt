@@ -494,13 +494,16 @@ fun ProfileBody(
                         )
                     }
                 } else {
-                    // Black backing shows through the 1dp gaps as thin borders between
-                    // posts; the 1dp contentPadding extends that border around the outer edge.
+                    // The grid backing shows through the 1dp gaps and contentPadding,
+                    // and behind any empty slots in a partial last row. Use the theme
+                    // background — the Scaffold's default container color — so those
+                    // empties truly match the screen behind the grid in both light and
+                    // dark mode instead of painting black boxes next to posts (#415).
                     LazyVerticalGrid(
                         columns = GridCells.Fixed(3),
                         modifier = Modifier
                             .fillMaxSize()
-                            .background(Color.Black),
+                            .background(MaterialTheme.colorScheme.background),
                         contentPadding = PaddingValues(1.dp),
                         horizontalArrangement = Arrangement.spacedBy(1.dp),
                         verticalArrangement = Arrangement.spacedBy(1.dp)
