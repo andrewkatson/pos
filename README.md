@@ -174,17 +174,32 @@ provider can never surface as a gateway timeout.
 
 The flow is:
 
-1. A cheap local **pre-filter** (`classifiers/prefilter.py`, no LLM) runs
-   inline. A blatant hit (unambiguous profanity or slurs) is rejected
-   immediately with a final, non-appealable `400` and the post is never
-   created (its uploaded image is cleaned up).
+1. A cheap local **text pre-filter** (`classifiers/prefilter.py`, no LLM) runs
+   inline. It matches the caption against a curated slur list (reported as hate
+   speech) and the vendored **LDNOOBW** profanity list (issue #393,
+   "List of Dirty, Naughty, Obscene and Otherwise Bad Words",
+   `classifiers/data/ldnoobw_en.txt`), on whole-word/phrase boundaries. A hit
+   is rejected immediately with a final, non-appealable `400` and the post is
+   never created (its uploaded image is cleaned up). The list is broad, so it
+   errs toward catching blatant obscenity; subtler text is the async cascade's
+   job.
 2. Otherwise the post is created hidden in a **`pending_classification`**
    state and a job is enqueued; the request returns `201` with
    `status: "pending"`. A pending post is visible only to its author, who
    sees it in their own grid with an "In review" state.
 3. A worker (RQ on the same Redis used for rate limiting; run
    `python manage.py classification_worker`) runs the text + image cascades
-   and resolves the post exactly once to one of:
+   and resolves the post exactly once. Image posts first pass a **local image
+   pre-filter** (`classifiers/image_prefilter.py`, issue #393): blunt, zero-API
+   detectors for the two most objective image violations — nudity (NudeNet) and
+   gore (an optional ONNX NSFW/gore model at `LOCAL_GORE_MODEL_PATH`). A
+   confident hit is a final rejection, skipping the paid vision cascade
+   entirely, exactly like the text pre-filter. These detectors are heavy
+   *optional* dependencies (`backend/requirements-local-image-filter.txt`,
+   installed on the worker host); when absent or erroring the pre-filter **fails
+   open** — it allows the image and defers to the AI cascade, so it can only
+   ever add a rejection the cascade might also have made, never fail a post shut
+   on infrastructure grounds. The post is then resolved to one of:
    - **visible** (`hidden_reason` cleared) — both cascades passed;
    - **hidden + appealable** (`classifier`) — an appealable rejection, which
      appears on the appeals screens as before;
