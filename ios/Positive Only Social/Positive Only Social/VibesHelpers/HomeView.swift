@@ -280,6 +280,12 @@ struct PostActionDialogs: ViewModifier {
                     postActions.share(post)
                 }
                 .accessibilityIdentifier("SharePostListActionButton")
+                // Save / Unsave, offered on any post (issue #193/#412). Web has a
+                // dedicated bookmark control; on mobile it lives in this menu.
+                Button(postActions.state(for: post).isSaved ? "Unsave Post" : "Save Post") {
+                    postActions.toggleSave(post)
+                }
+                .accessibilityIdentifier("SavePostListActionButton")
                 if postActions.state(for: post).isOwn {
                     Button("Delete Post", role: .destructive) {
                         postActions.delete(post)

@@ -221,6 +221,14 @@ struct MockedAPI: Networking {
         return try encodeGenericSuccess()
     }
 
+    func savePost(sessionManagementToken: String, postIdentifier: String) async throws -> Data {
+        return try encodeGenericSuccess()
+    }
+
+    func unsavePost(sessionManagementToken: String, postIdentifier: String) async throws -> Data {
+        return try encodeGenericSuccess()
+    }
+
     func getPostsInFeed(sessionManagementToken: String, batch: Int) async throws -> Data {
         let posts = [
             Post(postIdentifier: "1", imageUrl: "https://picsum.photos/400/300", originalImageUrl: nil, caption: "Beautiful sunset!", authorUsername: "nature_lover"),

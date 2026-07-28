@@ -647,28 +647,50 @@
   font-size: 0.9rem;
 }
 
-.form-section__preview {
+/* The photo picker is the image target itself (issue #417): a full-width square
+   the user taps to choose or change the photo. Empty, it's a dashed grey box
+   with a centered "+"; filled, it shows the chosen photo cropped to fill. */
+.photo-picker {
   width: 100%;
-  max-height: 320px;
-  object-fit: contain;
+  aspect-ratio: 1 / 1;
+  box-sizing: border-box;
+  padding: 0;
+  border: 2px dashed rgba(255, 255, 255, 0.25);
   border-radius: 10px;
   background: #1a1a1a;
+  color: rgba(255, 255, 255, 0.5);
+  cursor: pointer;
+  overflow: hidden;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: border-color 0.15s ease, color 0.15s ease;
 }
 
-/* The "Select a Photo" control: a full-width button that stands on its own
-   rather than the browser's default file input. */
-.form-section__file-button {
-  display: block;
+.photo-picker:hover:not(:disabled),
+.photo-picker:focus-visible {
+  border-color: #5ba4dc;
+  color: #9ccbee;
+  outline: none;
+}
+
+.photo-picker:disabled {
+  cursor: not-allowed;
+  opacity: 0.6;
+}
+
+.photo-picker__placeholder {
+  font-size: 3rem;
+  font-weight: 300;
+  line-height: 1;
+}
+
+/* A picked photo fills the square edge to edge (the picker clips it). */
+.photo-picker__image {
   width: 100%;
-  text-align: center;
-}
-
-.form-section__file-name {
+  height: 100%;
+  object-fit: cover;
   display: block;
-  margin-top: 0.4rem;
-  font-size: 0.85rem;
-  color: rgba(255, 255, 255, 0.6);
-  word-break: break-all;
 }
 
 /* Keep an element accessible to assistive tech and tests while hiding it
@@ -1436,21 +1458,51 @@
   font-size: 1.5em;
 }
 
-/* ---- New-post caption preview ---- */
-.caption-preview {
-  border-radius: 12px;
-  padding: 1rem;
-  min-height: 64px;
+/* ---- New-post full-post preview (issue #418) ---- */
+/* Mirrors a feed row: author line, square media, caption underneath — so the
+   user sees where every element lands, not just a style swatch. */
+.post-preview {
   display: flex;
-  align-items: center;
-  justify-content: center;
-  text-align: center;
+  flex-direction: column;
 }
-.caption-preview__text {
-  margin: 0;
+
+.post-preview__media {
+  width: 100%;
+  box-sizing: border-box;
+  aspect-ratio: 1 / 1;
+  border: 1px solid #000;
+  border-radius: 10px;
+  overflow: hidden;
+  background: #1a1a1a;
+}
+
+.post-preview__image {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+/* ---- New-post advanced options (issue #419) ---- */
+.advanced-options {
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 10px;
+  padding: 0 1rem;
+  background: #1a1a1a;
+}
+
+/* Collapsed, the disclosure is just its summary row, so drop the side padding's
+   vertical companion onto the summary instead of the container. */
+.advanced-options__summary {
+  cursor: pointer;
+  padding: 0.85rem 0;
   font-weight: 600;
-  line-height: 1.3;
-  overflow-wrap: anywhere;
+  color: rgba(255, 255, 255, 0.85);
+  user-select: none;
+}
+
+.advanced-options[open] {
+  padding-bottom: 1rem;
 }
 
 /* ---- Background color swatch picker ---- */

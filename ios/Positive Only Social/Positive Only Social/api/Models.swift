@@ -140,6 +140,10 @@ struct Post: Codable, Identifiable, Hashable {
     /// response from an older backend (which omits them) still decodes.
     var postLikes: Int
     var isLiked: Bool
+    /// Whether the viewer has saved this post (issue #193/#412), so a row can
+    /// offer Save/Unsave in place. `var` for optimistic updates; defaulted on
+    /// decode so responses from an older backend still decode.
+    var isSaved: Bool
     var isReported: Bool
     var reportReason: String?
 
@@ -170,6 +174,7 @@ struct Post: Codable, Identifiable, Hashable {
         case authorProfileImageOriginalUrl = "author_profile_image_original_url"
         case postLikes = "post_likes"
         case isLiked = "is_liked"
+        case isSaved = "is_saved"
         case isReported = "is_reported"
         case reportReason = "report_reason"
         case commentCount = "comment_count"
@@ -195,6 +200,7 @@ struct Post: Codable, Identifiable, Hashable {
         authorProfileImageOriginalUrl: String? = nil,
         postLikes: Int = 0,
         isLiked: Bool = false,
+        isSaved: Bool = false,
         isReported: Bool = false,
         reportReason: String? = nil,
         commentCount: Int = 0,
@@ -218,6 +224,7 @@ struct Post: Codable, Identifiable, Hashable {
         self.authorProfileImageOriginalUrl = authorProfileImageOriginalUrl
         self.postLikes = postLikes
         self.isLiked = isLiked
+        self.isSaved = isSaved
         self.isReported = isReported
         self.reportReason = reportReason
         self.commentCount = commentCount
@@ -249,6 +256,7 @@ struct Post: Codable, Identifiable, Hashable {
         authorProfileImageOriginalUrl = try container.decodeIfPresent(String.self, forKey: .authorProfileImageOriginalUrl)
         postLikes = try container.decodeIfPresent(Int.self, forKey: .postLikes) ?? 0
         isLiked = try container.decodeIfPresent(Bool.self, forKey: .isLiked) ?? false
+        isSaved = try container.decodeIfPresent(Bool.self, forKey: .isSaved) ?? false
         isReported = try container.decodeIfPresent(Bool.self, forKey: .isReported) ?? false
         reportReason = try container.decodeIfPresent(String.self, forKey: .reportReason)
         commentCount = try container.decodeIfPresent(Int.self, forKey: .commentCount) ?? 0

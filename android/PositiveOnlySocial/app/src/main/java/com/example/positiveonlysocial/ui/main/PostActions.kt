@@ -161,7 +161,11 @@ fun PostActionDialogs(actions: PostListActions) {
             onShare = { ShareLinks.shareText(context, ShareLinks.postUrl(post.postIdentifier)) },
             onReport = { actions.setPostToReport(post) },
             onRetract = { actions.setPostToRetract(post) },
-            onDelete = { actions.deletePost(post) }
+            onDelete = { actions.deletePost(post) },
+            // Save / unsave lives in the 3-dot menu on mobile (issue #412); web
+            // has a dedicated bookmark control.
+            isSaved = post.isSaved == true,
+            onToggleSave = { actions.toggleSave(post) }
         )
     }
 

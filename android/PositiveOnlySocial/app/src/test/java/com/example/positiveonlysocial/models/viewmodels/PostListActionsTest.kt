@@ -150,6 +150,58 @@ class PostListActionsTest {
     }
 
     @Test
+    fun `toggleSave saves optimistically and calls the api`() = runTest {
+        loadFeed()
+        whenever(api.savePost("token123", "1"))
+            .thenReturn(Response.success(GenericResponse("Saved", null)))
+
+        actions.toggleSave(otherPost)
+
+        assertEquals(true, postWithId("1").isSaved)
+        verify(api).savePost("token123", "1")
+    }
+
+    @Test
+    fun `toggleSave unsaves a post that is already saved`() = runTest {
+        whenever(api.getPostsInFeed("token123", 0))
+            .thenReturn(Response.success(listOf(otherPost.copy(isSaved = true))))
+        viewModel.fetchFeed()
+        whenever(api.unsavePost("token123", "1"))
+            .thenReturn(Response.success(GenericResponse("Unsaved", null)))
+
+        actions.toggleSave(otherPost)
+
+        assertEquals(false, postWithId("1").isSaved)
+        verify(api).unsavePost("token123", "1")
+    }
+
+    @Test
+    fun `toggleSave is allowed on your own post`() = runTest {
+        loadFeed()
+        whenever(api.savePost("token123", "2"))
+            .thenReturn(Response.success(GenericResponse("Saved", null)))
+
+        // Unlike liking, saving your own post is permitted (issue #193/#412).
+        actions.toggleSave(ownPost)
+
+        assertEquals(true, postWithId("2").isSaved)
+        verify(api).savePost("token123", "2")
+    }
+
+    @Test
+    fun `toggleSave reverts when the request fails`() = runTest {
+        loadFeed()
+        whenever(api.savePost("token123", "1"))
+            .thenReturn(Response.error(500, "{\"error\":\"Server error\"}".toResponseBody()))
+
+        actions.toggleSave(otherPost)
+        advanceUntilIdle()
+
+        assertEquals(false, postWithId("1").isSaved)
+        assertEquals("Server error", actions.alertMessage.value)
+    }
+
+    @Test
     fun `reportPost marks the post reported and keeps the reason`() = runTest {
         loadFeed()
         whenever(api.reportPost(eq("token123"), eq("1"), any()))

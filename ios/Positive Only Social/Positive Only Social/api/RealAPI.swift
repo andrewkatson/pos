@@ -614,7 +614,27 @@ final class RealAPI: Networking {
             authToken: sessionManagementToken
         )
     }
-    
+
+    /// Saves a post to the viewer's saved collection (issue #193/#412).
+    func savePost(sessionManagementToken: String, postIdentifier: String) async throws -> Data {
+        // This is a POST request, no body, with auth. ID is in path.
+        return try await performRequest(
+            pathSegments: [GVOAppConstants.pathSegmentPosts, postIdentifier, GVOAppConstants.pathSegmentSave],
+            method: .post,
+            authToken: sessionManagementToken
+        )
+    }
+
+    /// Removes a post from the viewer's saved collection (issue #193/#412).
+    func unsavePost(sessionManagementToken: String, postIdentifier: String) async throws -> Data {
+        // This is a POST request, no body, with auth. ID is in path.
+        return try await performRequest(
+            pathSegments: [GVOAppConstants.pathSegmentPosts, postIdentifier, GVOAppConstants.pathSegmentUnsave],
+            method: .post,
+            authToken: sessionManagementToken
+        )
+    }
+
     /// Gets all posts for the user's feed in batches.
     func getPostsInFeed(sessionManagementToken: String, batch: Int) async throws -> Data {
         // This is a GET request, no body, with auth. Batch is in path.

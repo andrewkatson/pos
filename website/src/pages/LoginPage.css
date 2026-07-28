@@ -285,8 +285,11 @@
   color: #4caf50;
 }
 
+/* A required-but-unmet requirement is a hard blocker, so it reads red rather
+   than the neutral grey used before — grey made it look optional (issue #413).
+   Optional suggestions stay neutral so they never look like failures. */
 .auth-hint--unmet {
-  color: rgba(255, 255, 255, 0.4);
+  color: #ff6b6b;
 }
 
 .auth-hint--optional {
