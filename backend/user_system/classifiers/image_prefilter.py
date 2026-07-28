@@ -75,7 +75,16 @@ def _pil_to_temp_file(image):
     """
     fd, path = tempfile.mkstemp(suffix='.png', prefix='prefilter_')
     os.close(fd)
-    image.convert('RGB').save(path, format='PNG')
+    try:
+        image.convert('RGB').save(path, format='PNG')
+    except Exception:
+        # save() failed (disk full, encoder error, ...): the caller never gets
+        # the path, so unlink here rather than orphan the mkstemp file.
+        try:
+            os.unlink(path)
+        except OSError:
+            pass
+        raise
     return path
 
 

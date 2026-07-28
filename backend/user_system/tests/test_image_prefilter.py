@@ -91,6 +91,25 @@ class ImagePrefilterTests(SimpleTestCase):
             self.assertTrue(image_prefilter.prefilter_image(_image()))
 
 
+    def test_pil_to_temp_file_cleans_up_on_save_error(self):
+        # If save() fails the caller never receives the path, so the helper
+        # itself must unlink the mkstemp file rather than orphan it in /tmp.
+        created = {}
+        real_mkstemp = image_prefilter.tempfile.mkstemp
+
+        def spy_mkstemp(*args, **kwargs):
+            fd, path = real_mkstemp(*args, **kwargs)
+            created['path'] = path
+            return fd, path
+
+        with patch.object(image_prefilter.tempfile, 'mkstemp', side_effect=spy_mkstemp), \
+             patch('PIL.Image.Image.save', side_effect=RuntimeError('encoder boom')):
+            with self.assertRaises(RuntimeError):
+                image_prefilter._pil_to_temp_file(_image())
+        self.assertIn('path', created)
+        self.assertFalse(os.path.exists(created['path']))
+
+
 class ImagePrefilterCascadeIntegrationTests(SimpleTestCase):
     """The pre-filter short-circuits is_image_positive: a local hit is returned
     without ever consulting the paid AI cascade."""
