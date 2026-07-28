@@ -20,10 +20,13 @@ made by keeping these hits *final*. A short curated slur list is checked first
 and reported as hate speech, so slurs surface the more serious reason even
 though many also appear in LDNOOBW.
 """
+import logging
 import os
 import re
 
 from .classifier_utils import ClassificationResult
+
+logger = logging.getLogger(__name__)
 
 # Unambiguous slurs — rule 5 ("No hate speech"). Checked before the profanity
 # list so a slur is reported as hate speech, not generic profanity. Kept to
@@ -54,13 +57,18 @@ _LDNOOBW_FILE = os.path.join(os.path.dirname(__file__), 'data', 'ldnoobw_en.txt'
 def _load_ldnoobw():
     """Load the vendored LDNOOBW terms, or fall back to the curated list.
 
-    A missing/unreadable data file must never take the pre-filter down: it
-    just degrades to the curated floor and the async cascade still runs.
+    A missing/unreadable data file must never take the pre-filter (which is
+    imported at module load) down: it just degrades to the curated floor and
+    the async cascade still runs. "Unreadable" includes both I/O failures
+    (OSError) and a bad-encoding/corrupted file (UnicodeDecodeError, a
+    ValueError rather than an OSError).
     """
     try:
         with open(_LDNOOBW_FILE, encoding='utf-8') as fh:
             return [line.strip() for line in fh if line.strip()]
-    except OSError:
+    except (OSError, UnicodeDecodeError):
+        logger.warning("Could not load LDNOOBW list from %s; falling back to the curated "
+                       "profanity floor.", _LDNOOBW_FILE, exc_info=True)
         return []
 
 

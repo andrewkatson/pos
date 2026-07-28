@@ -1,6 +1,9 @@
+from unittest.mock import patch
+
 from django.test import SimpleTestCase
 
 from ..classifiers.prefilter import prefilter_text
+from ..classifiers import prefilter
 
 
 class PrefilterTests(SimpleTestCase):
@@ -58,3 +61,13 @@ class PrefilterTests(SimpleTestCase):
         result = prefilter_text('right back at you \U0001f595')
         self.assertFalse(result)
         self.assertEqual(result.public_reason_code(), 'profanity')
+
+    def test_load_ldnoobw_falls_back_on_decode_error(self):
+        # A corrupted/mis-encoded data file raises UnicodeDecodeError (a
+        # ValueError, not an OSError). It must be swallowed so module import —
+        # and the pre-filter — survive, degrading to the curated floor.
+        boom = UnicodeDecodeError('utf-8', b'\xff', 0, 1, 'bad')
+        with patch('builtins.open', side_effect=boom):
+            self.assertEqual(prefilter._load_ldnoobw(), [])
+        # And the curated floor still rejects blatant profanity.
+        self.assertFalse(prefilter_text('what a shit day'))
