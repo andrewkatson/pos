@@ -100,6 +100,10 @@ struct SecureInputField: UIViewRepresentable {
             shouldChangeCharactersIn range: NSRange,
             replacementString string: String
         ) -> Bool {
+            // Secure fields don't offer multistage/IME composition, but guard
+            // regardless: while there is marked (mid-composition) text, let UIKit
+            // manage the edit so composition keyboards keep working.
+            if textField.markedTextRange != nil { return true }
             let current = textField.text ?? ""
             guard let stringRange = Range(range, in: current) else { return false }
             let updated = current.replacingCharacters(in: stringRange, with: string)
