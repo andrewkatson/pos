@@ -819,6 +819,31 @@ final class Positive_Only_SocialUITests: XCTestCase {
         passwordTextField.tap()
         typeText(element: passwordTextField, text: newStrongPassword)
 
+        // Regression guard for issue #301: a plain SecureField wipes its
+        // contents on the first edit after it regains focus. Tap away, tap back,
+        // append one character with a raw typeText (the helper would clear the
+        // field first), and confirm the earlier input survived — the masked
+        // value should now be one character longer, not reset to just "!".
+        let lengthBeforeRefocus = (passwordTextField.value as? String)?.count ?? 0
+        emailTextField.tap()
+        // Retry the refocus tap: a loaded CI simulator can swallow the first one,
+        // and typeText requires the field to actually hold keyboard focus.
+        var refocusAttempts = 0
+        passwordTextField.tap()
+        while !passwordTextField.hasFocus && app.keyboards.count == 0 && refocusAttempts < 5 {
+            passwordTextField.tap()
+            RunLoop.current.run(until: NSDate(timeIntervalSinceNow: 0.5) as Date)
+            refocusAttempts += 1
+        }
+        passwordTextField.typeText("!")
+        let lengthAfterRefocus = (passwordTextField.value as? String)?.count ?? 0
+        XCTAssertEqual(
+            lengthAfterRefocus, lengthBeforeRefocus + 1,
+            "New password field lost its contents when refocused (issue #301)"
+        )
+        // Restore a clean, matching value for the rest of the reset flow.
+        typeText(element: passwordTextField, text: newStrongPassword)
+
         let confirmNewPasswordTextField = app.secureTextFields["ConfirmNewPasswordSecureField"]
         XCTAssertTrue(confirmNewPasswordTextField.waitForExistence(timeout: TestConstants.shortTimeout))
         confirmNewPasswordTextField.tap()
