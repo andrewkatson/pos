@@ -7,15 +7,14 @@ from ..classifiers.image_classifier import is_image_positive
 from ..classifiers.classifier_constants import POSITIVE_TEXT, POSITIVE_IMAGE_URL, TEXT_CLASSIFIER_PROMPT, IMAGE_CLASSIFIER_PROMPT
 from ..classifiers.classifier_constants import GENERIC_REASON_CODE, REASON_PHRASES
 from ..classifiers.classifier_utils import (
-    API_GEMINI, API_CLAUDE, API_OPENAI, parse_probability, parse_probability_and_rule,
+    API_GEMMA, API_GEMINI, API_OPENAI, API_CLAUDE, CASCADE_ORDER,
+    get_available_apis, model_for, parse_probability, parse_probability_and_rule,
 )
 from .test_parent_case import PositiveOnlySocialTestCase
 
-_ALL_AI_KEYS = {
-    "GEMINI_API_KEY": "fake_gemini",
-    "ANTHROPIC_API_KEY": "fake_claude",
-    "OPENAI_API_KEY": "fake_openai",
-}
+# Every classifier call now routes through OpenRouter, so availability is a
+# single key rather than one per provider.
+_OPENROUTER_KEY = {"OPENROUTER_API_KEY": "fake_openrouter"}
 _AWS_KEYS = {
     "AWS_ACCESS_KEY_ID": "fake_aws_key",
     "AWS_SECRET_ACCESS_KEY": "fake_aws_secret",
@@ -28,6 +27,11 @@ _AWS_KEYS_NO_BUCKET = {
 
 _TEXT_DISPATCH = "user_system.classifiers.classifier_utils.TEXT_API_DISPATCH"
 _IMAGE_DISPATCH = "user_system.classifiers.classifier_utils.IMAGE_API_DISPATCH"
+# The cascade order comes from get_available_apis(); patch it (in the module
+# that imported it) to control which tiers run and in what order — no need to
+# juggle per-provider keys, and the order is deterministic now (no shuffle).
+_TEXT_AVAILABLE = "user_system.classifiers.text_classifier.get_available_apis"
+_IMAGE_AVAILABLE = "user_system.classifiers.image_classifier.get_available_apis"
 
 # Representative scores for each probability zone.
 ALLOW_SCORE = 0.9
@@ -100,6 +104,32 @@ class TestClassifiers(PositiveOnlySocialTestCase):
         self.assertEqual(parse_probability_and_rule("0.5,42"), (0.5, 42))
 
     # ------------------------------------------------------------------ #
+    # Provider selection / model routing (OpenRouter)                      #
+    # ------------------------------------------------------------------ #
+
+    @patch.dict(os.environ, {}, clear=True)
+    def test_get_available_apis_empty_without_openrouter_key(self):
+        self.assertEqual(get_available_apis(), [])
+
+    @patch.dict(os.environ, _OPENROUTER_KEY, clear=True)
+    def test_get_available_apis_is_full_priority_order_with_key(self):
+        # Free model first, Claude last (issue #393).
+        self.assertEqual(get_available_apis(), list(CASCADE_ORDER))
+        self.assertEqual(get_available_apis()[0], API_GEMMA)
+        self.assertEqual(get_available_apis()[-1], API_CLAUDE)
+
+    @patch.dict(os.environ, {}, clear=True)
+    def test_model_for_uses_defaults(self):
+        self.assertEqual(model_for(API_GEMMA), 'google/gemma-3-12b-it:free')
+        self.assertEqual(model_for(API_CLAUDE), 'anthropic/claude-haiku-4-5')
+
+    @patch.dict(os.environ, {"OPENROUTER_MODEL_GEMMA": "vendor/some-other-model"}, clear=True)
+    def test_model_for_env_override(self):
+        # Swapping a model behind a tier is a config change, not a code change.
+        self.assertEqual(model_for(API_GEMMA), 'vendor/some-other-model')
+        self.assertEqual(model_for(API_GEMINI), 'google/gemini-2.5-flash')
+
+    # ------------------------------------------------------------------ #
     # Text classifier – testing mode                                       #
     # ------------------------------------------------------------------ #
 
@@ -109,7 +139,7 @@ class TestClassifiers(PositiveOnlySocialTestCase):
         self.assertFalse(is_text_positive("negative random text"))
 
     # ------------------------------------------------------------------ #
-    # Text classifier – no API keys                                        #
+    # Text classifier – no OpenRouter key                                  #
     # ------------------------------------------------------------------ #
 
     @patch.dict(os.environ, {}, clear=True)
@@ -122,159 +152,153 @@ class TestClassifiers(PositiveOnlySocialTestCase):
         self.assertTrue(result.provider_failure)
 
     # ------------------------------------------------------------------ #
-    # Text classifier – single API                                         #
+    # Text classifier – single tier                                        #
     # ------------------------------------------------------------------ #
 
-    @patch.dict(os.environ, {"GEMINI_API_KEY": "fake_key"}, clear=True)
-    def test_text_classifier_single_gemini_allow_zone(self):
-        mock_gemini = MagicMock(return_value=ALLOW_SCORE)
-        with patch.dict(_TEXT_DISPATCH, {API_GEMINI: mock_gemini}):
+    @patch.dict(os.environ, {}, clear=True)
+    @patch(_TEXT_AVAILABLE, return_value=[API_GEMMA])
+    def test_text_classifier_single_allow_zone(self, _avail):
+        mock_gemma = MagicMock(return_value=ALLOW_SCORE)
+        with patch.dict(_TEXT_DISPATCH, {API_GEMMA: mock_gemma}):
             self.assertTrue(is_text_positive("I am happy"))
-        mock_gemini.assert_called_once_with("I am happy", TEXT_CLASSIFIER_PROMPT)
+        mock_gemma.assert_called_once_with("I am happy", TEXT_CLASSIFIER_PROMPT)
 
-    @patch.dict(os.environ, {"GEMINI_API_KEY": "fake_key"}, clear=True)
-    def test_text_classifier_single_gemini_reject_zone_not_appealable(self):
-        with patch.dict(_TEXT_DISPATCH, {API_GEMINI: MagicMock(return_value=REJECT_SCORE)}):
+    @patch.dict(os.environ, {}, clear=True)
+    @patch(_TEXT_AVAILABLE, return_value=[API_GEMMA])
+    def test_text_classifier_single_reject_zone_not_appealable(self, _avail):
+        with patch.dict(_TEXT_DISPATCH, {API_GEMMA: MagicMock(return_value=REJECT_SCORE)}):
             result = is_text_positive("I am sad")
         self.assertFalse(result)
         self.assertFalse(result.appealable)
 
-    @patch.dict(os.environ, {"GEMINI_API_KEY": "fake_key"}, clear=True)
-    def test_text_classifier_single_gemini_middle_zone_rejected_but_appealable(self):
-        with patch.dict(_TEXT_DISPATCH, {API_GEMINI: MagicMock(return_value=MIDDLE_SCORE)}):
+    @patch.dict(os.environ, {}, clear=True)
+    @patch(_TEXT_AVAILABLE, return_value=[API_GEMMA])
+    def test_text_classifier_single_middle_zone_rejected_but_appealable(self, _avail):
+        with patch.dict(_TEXT_DISPATCH, {API_GEMMA: MagicMock(return_value=MIDDLE_SCORE)}):
             result = is_text_positive("ambiguous text")
         self.assertFalse(result)
         self.assertTrue(result.appealable)
 
-    @patch.dict(os.environ, {"ANTHROPIC_API_KEY": "fake_key"}, clear=True)
-    def test_text_classifier_single_claude_allow_zone(self):
+    @patch.dict(os.environ, {}, clear=True)
+    @patch(_TEXT_AVAILABLE, return_value=[API_CLAUDE])
+    def test_text_classifier_single_claude_allow_zone(self, _avail):
+        # Any single tier can settle a classification on its own.
         mock_claude = MagicMock(return_value=ALLOW_SCORE)
         with patch.dict(_TEXT_DISPATCH, {API_CLAUDE: mock_claude}):
             self.assertTrue(is_text_positive("Great day"))
         mock_claude.assert_called_once_with("Great day", TEXT_CLASSIFIER_PROMPT)
 
-    @patch.dict(os.environ, {"OPENAI_API_KEY": "fake_key"}, clear=True)
-    def test_text_classifier_single_openai_allow_zone(self):
-        mock_openai = MagicMock(return_value=ALLOW_SCORE)
-        with patch.dict(_TEXT_DISPATCH, {API_OPENAI: mock_openai}):
-            self.assertTrue(is_text_positive("Wonderful"))
-        mock_openai.assert_called_once_with("Wonderful", TEXT_CLASSIFIER_PROMPT)
-
     # ------------------------------------------------------------------ #
     # Text classifier – zone boundaries                                    #
     # ------------------------------------------------------------------ #
 
-    @patch.dict(os.environ, {"GEMINI_API_KEY": "fake_key"}, clear=True)
-    def test_text_classifier_boundary_scores(self):
+    @patch.dict(os.environ, {}, clear=True)
+    @patch(_TEXT_AVAILABLE, return_value=[API_GEMMA])
+    def test_text_classifier_boundary_scores(self, _avail):
         # Exactly 0.3 is the reject zone (not appealable).
-        with patch.dict(_TEXT_DISPATCH, {API_GEMINI: MagicMock(return_value=0.3)}):
+        with patch.dict(_TEXT_DISPATCH, {API_GEMMA: MagicMock(return_value=0.3)}):
             result = is_text_positive("some text")
             self.assertFalse(result)
             self.assertFalse(result.appealable)
         # Exactly 0.7 is the allow zone.
-        with patch.dict(_TEXT_DISPATCH, {API_GEMINI: MagicMock(return_value=0.7)}):
+        with patch.dict(_TEXT_DISPATCH, {API_GEMMA: MagicMock(return_value=0.7)}):
             self.assertTrue(is_text_positive("some text"))
         # Just inside the middle zone on either side: rejected but appealable.
         for score in (0.35, 0.65):
-            with patch.dict(_TEXT_DISPATCH, {API_GEMINI: MagicMock(return_value=score)}):
+            with patch.dict(_TEXT_DISPATCH, {API_GEMMA: MagicMock(return_value=score)}):
                 result = is_text_positive("some text")
                 self.assertFalse(result)
                 self.assertTrue(result.appealable)
 
     # ------------------------------------------------------------------ #
-    # Text classifier – cascade between AIs                                #
+    # Text classifier – cascade between tiers (priority order)             #
     # ------------------------------------------------------------------ #
 
-    @patch.dict(os.environ, _ALL_AI_KEYS, clear=True)
-    @patch("user_system.classifiers.classifier_utils.random")
-    def test_text_cascade_first_ai_allows_no_escalation(self, mock_random):
-        mock_random.sample.return_value = [API_GEMINI, API_CLAUDE, API_OPENAI]
+    @patch.dict(os.environ, {}, clear=True)
+    @patch(_TEXT_AVAILABLE, return_value=[API_GEMMA, API_GEMINI, API_OPENAI])
+    def test_text_cascade_first_allows_no_escalation(self, _avail):
+        # The cheap/free tier settling it means the pricier tiers are never
+        # called — the cost win of the priority order.
+        mock_gemma = MagicMock(return_value=ALLOW_SCORE)
         mock_gemini = MagicMock(return_value=ALLOW_SCORE)
-        mock_claude = MagicMock(return_value=ALLOW_SCORE)
         mock_openai = MagicMock(return_value=ALLOW_SCORE)
-        with patch.dict(_TEXT_DISPATCH, {API_GEMINI: mock_gemini, API_CLAUDE: mock_claude, API_OPENAI: mock_openai}):
+        with patch.dict(_TEXT_DISPATCH, {API_GEMMA: mock_gemma, API_GEMINI: mock_gemini, API_OPENAI: mock_openai}):
             self.assertTrue(is_text_positive("nice text"))
-        mock_claude.assert_not_called()
+        mock_gemma.assert_called_once()
+        mock_gemini.assert_not_called()
         mock_openai.assert_not_called()
 
-    @patch.dict(os.environ, _ALL_AI_KEYS, clear=True)
-    @patch("user_system.classifiers.classifier_utils.random")
-    def test_text_cascade_first_ai_rejects_no_escalation_not_appealable(self, mock_random):
-        mock_random.sample.return_value = [API_GEMINI, API_CLAUDE, API_OPENAI]
-        mock_gemini = MagicMock(return_value=REJECT_SCORE)
-        mock_claude = MagicMock(return_value=ALLOW_SCORE)
+    @patch.dict(os.environ, {}, clear=True)
+    @patch(_TEXT_AVAILABLE, return_value=[API_GEMMA, API_GEMINI, API_OPENAI])
+    def test_text_cascade_first_rejects_no_escalation_not_appealable(self, _avail):
+        mock_gemma = MagicMock(return_value=REJECT_SCORE)
+        mock_gemini = MagicMock(return_value=ALLOW_SCORE)
         mock_openai = MagicMock(return_value=ALLOW_SCORE)
-        with patch.dict(_TEXT_DISPATCH, {API_GEMINI: mock_gemini, API_CLAUDE: mock_claude, API_OPENAI: mock_openai}):
+        with patch.dict(_TEXT_DISPATCH, {API_GEMMA: mock_gemma, API_GEMINI: mock_gemini, API_OPENAI: mock_openai}):
             result = is_text_positive("bad text")
         self.assertFalse(result)
         self.assertFalse(result.appealable)
-        mock_claude.assert_not_called()
+        mock_gemini.assert_not_called()
         mock_openai.assert_not_called()
 
-    @patch.dict(os.environ, _ALL_AI_KEYS, clear=True)
-    @patch("user_system.classifiers.classifier_utils.random")
-    def test_text_cascade_middle_then_second_allows(self, mock_random):
-        mock_random.sample.return_value = [API_GEMINI, API_CLAUDE, API_OPENAI]
-        mock_gemini = MagicMock(return_value=MIDDLE_SCORE)
-        mock_claude = MagicMock(return_value=ALLOW_SCORE)
+    @patch.dict(os.environ, {}, clear=True)
+    @patch(_TEXT_AVAILABLE, return_value=[API_GEMMA, API_GEMINI, API_OPENAI])
+    def test_text_cascade_middle_then_second_allows(self, _avail):
+        mock_gemma = MagicMock(return_value=MIDDLE_SCORE)
+        mock_gemini = MagicMock(return_value=ALLOW_SCORE)
         mock_openai = MagicMock(return_value=REJECT_SCORE)
-        with patch.dict(_TEXT_DISPATCH, {API_GEMINI: mock_gemini, API_CLAUDE: mock_claude, API_OPENAI: mock_openai}):
+        with patch.dict(_TEXT_DISPATCH, {API_GEMMA: mock_gemma, API_GEMINI: mock_gemini, API_OPENAI: mock_openai}):
             self.assertTrue(is_text_positive("some text"))
         mock_openai.assert_not_called()
 
-    @patch.dict(os.environ, _ALL_AI_KEYS, clear=True)
-    @patch("user_system.classifiers.classifier_utils.random")
-    def test_text_cascade_middle_then_reject_then_third_allows(self, mock_random):
-        mock_random.sample.return_value = [API_GEMINI, API_CLAUDE, API_OPENAI]
-        mock_gemini = MagicMock(return_value=MIDDLE_SCORE)
-        mock_claude = MagicMock(return_value=REJECT_SCORE)
+    @patch.dict(os.environ, {}, clear=True)
+    @patch(_TEXT_AVAILABLE, return_value=[API_GEMMA, API_GEMINI, API_OPENAI])
+    def test_text_cascade_middle_then_reject_then_third_allows(self, _avail):
+        mock_gemma = MagicMock(return_value=MIDDLE_SCORE)
+        mock_gemini = MagicMock(return_value=REJECT_SCORE)
         mock_openai = MagicMock(return_value=ALLOW_SCORE)
-        with patch.dict(_TEXT_DISPATCH, {API_GEMINI: mock_gemini, API_CLAUDE: mock_claude, API_OPENAI: mock_openai}):
+        with patch.dict(_TEXT_DISPATCH, {API_GEMMA: mock_gemma, API_GEMINI: mock_gemini, API_OPENAI: mock_openai}):
             self.assertTrue(is_text_positive("some text"))
         mock_openai.assert_called_once()
 
-    @patch.dict(os.environ, _ALL_AI_KEYS, clear=True)
-    @patch("user_system.classifiers.classifier_utils.random")
-    def test_text_cascade_third_middle_rejected_but_appealable(self, mock_random):
-        mock_random.sample.return_value = [API_GEMINI, API_CLAUDE, API_OPENAI]
+    @patch.dict(os.environ, {}, clear=True)
+    @patch(_TEXT_AVAILABLE, return_value=[API_GEMMA, API_GEMINI, API_OPENAI])
+    def test_text_cascade_third_middle_rejected_but_appealable(self, _avail):
+        mock_gemma = MagicMock(return_value=MIDDLE_SCORE)
         mock_gemini = MagicMock(return_value=MIDDLE_SCORE)
-        mock_claude = MagicMock(return_value=MIDDLE_SCORE)
         mock_openai = MagicMock(return_value=MIDDLE_SCORE)
-        with patch.dict(_TEXT_DISPATCH, {API_GEMINI: mock_gemini, API_CLAUDE: mock_claude, API_OPENAI: mock_openai}):
+        with patch.dict(_TEXT_DISPATCH, {API_GEMMA: mock_gemma, API_GEMINI: mock_gemini, API_OPENAI: mock_openai}):
             result = is_text_positive("some text")
         self.assertFalse(result)
         self.assertTrue(result.appealable)
 
-    @patch.dict(os.environ, _ALL_AI_KEYS, clear=True)
-    @patch("user_system.classifiers.classifier_utils.random")
-    def test_text_cascade_third_reject_not_appealable(self, mock_random):
-        mock_random.sample.return_value = [API_GEMINI, API_CLAUDE, API_OPENAI]
-        mock_gemini = MagicMock(return_value=MIDDLE_SCORE)
-        mock_claude = MagicMock(return_value=REJECT_SCORE)
+    @patch.dict(os.environ, {}, clear=True)
+    @patch(_TEXT_AVAILABLE, return_value=[API_GEMMA, API_GEMINI, API_OPENAI])
+    def test_text_cascade_third_reject_not_appealable(self, _avail):
+        mock_gemma = MagicMock(return_value=MIDDLE_SCORE)
+        mock_gemini = MagicMock(return_value=REJECT_SCORE)
         mock_openai = MagicMock(return_value=REJECT_SCORE)
-        with patch.dict(_TEXT_DISPATCH, {API_GEMINI: mock_gemini, API_CLAUDE: mock_claude, API_OPENAI: mock_openai}):
+        with patch.dict(_TEXT_DISPATCH, {API_GEMMA: mock_gemma, API_GEMINI: mock_gemini, API_OPENAI: mock_openai}):
             result = is_text_positive("some text")
         self.assertFalse(result)
         self.assertFalse(result.appealable)
 
-    @patch.dict(os.environ, {"GEMINI_API_KEY": "gk", "ANTHROPIC_API_KEY": "ak"}, clear=True)
-    @patch("user_system.classifiers.classifier_utils.random")
-    def test_text_cascade_two_apis_second_middle_no_third_rejected_appealable(self, mock_random):
-        mock_random.sample.return_value = [API_GEMINI, API_CLAUDE]
+    @patch.dict(os.environ, {}, clear=True)
+    @patch(_TEXT_AVAILABLE, return_value=[API_GEMMA, API_GEMINI])
+    def test_text_cascade_two_tiers_second_middle_no_third_rejected_appealable(self, _avail):
+        mock_gemma = MagicMock(return_value=MIDDLE_SCORE)
         mock_gemini = MagicMock(return_value=MIDDLE_SCORE)
-        mock_claude = MagicMock(return_value=MIDDLE_SCORE)
-        with patch.dict(_TEXT_DISPATCH, {API_GEMINI: mock_gemini, API_CLAUDE: mock_claude}):
+        with patch.dict(_TEXT_DISPATCH, {API_GEMMA: mock_gemma, API_GEMINI: mock_gemini}):
             result = is_text_positive("some text")
         self.assertFalse(result)
         self.assertTrue(result.appealable)
 
-    @patch.dict(os.environ, {"GEMINI_API_KEY": "gk", "ANTHROPIC_API_KEY": "ak"}, clear=True)
-    @patch("user_system.classifiers.classifier_utils.random")
-    def test_text_cascade_two_apis_second_reject_no_third_rejected_not_appealable(self, mock_random):
-        mock_random.sample.return_value = [API_GEMINI, API_CLAUDE]
-        mock_gemini = MagicMock(return_value=MIDDLE_SCORE)
-        mock_claude = MagicMock(return_value=REJECT_SCORE)
-        with patch.dict(_TEXT_DISPATCH, {API_GEMINI: mock_gemini, API_CLAUDE: mock_claude}):
+    @patch.dict(os.environ, {}, clear=True)
+    @patch(_TEXT_AVAILABLE, return_value=[API_GEMMA, API_GEMINI])
+    def test_text_cascade_two_tiers_second_reject_no_third_rejected_not_appealable(self, _avail):
+        mock_gemma = MagicMock(return_value=MIDDLE_SCORE)
+        mock_gemini = MagicMock(return_value=REJECT_SCORE)
+        with patch.dict(_TEXT_DISPATCH, {API_GEMMA: mock_gemma, API_GEMINI: mock_gemini}):
             result = is_text_positive("some text")
         self.assertFalse(result)
         self.assertFalse(result.appealable)
@@ -283,33 +307,36 @@ class TestClassifiers(PositiveOnlySocialTestCase):
     # Rejection reasons                                                    #
     # ------------------------------------------------------------------ #
 
-    @patch.dict(os.environ, {"GEMINI_API_KEY": "fake_key"}, clear=True)
-    def test_rejection_reason_from_single_ai(self):
-        with patch.dict(_TEXT_DISPATCH, {API_GEMINI: MagicMock(return_value=(REJECT_SCORE, 5))}):
+    @patch.dict(os.environ, {}, clear=True)
+    @patch(_TEXT_AVAILABLE, return_value=[API_GEMMA])
+    def test_rejection_reason_from_single_ai(self, _avail):
+        with patch.dict(_TEXT_DISPATCH, {API_GEMMA: MagicMock(return_value=(REJECT_SCORE, 5))}):
             result = is_text_positive("some text")
         self.assertFalse(result)
         self.assertEqual(result.reason_code, 'hate_speech')
         self.assertEqual(result.public_reason_code(), 'hate_speech')
         self.assertEqual(result.public_reason(), 'may contain hate speech')
 
-    @patch.dict(os.environ, {"GEMINI_API_KEY": "fake_key"}, clear=True)
-    def test_rejection_without_cited_rule_uses_generic_reason(self):
+    @patch.dict(os.environ, {}, clear=True)
+    @patch(_TEXT_AVAILABLE, return_value=[API_GEMMA])
+    def test_rejection_without_cited_rule_uses_generic_reason(self, _avail):
         # A bare score (legacy mocks / models that ignore the rule instruction)
         # still rejects, with the generic reason.
-        with patch.dict(_TEXT_DISPATCH, {API_GEMINI: MagicMock(return_value=REJECT_SCORE)}):
+        with patch.dict(_TEXT_DISPATCH, {API_GEMMA: MagicMock(return_value=REJECT_SCORE)}):
             result = is_text_positive("some text")
         self.assertFalse(result)
         self.assertIsNone(result.reason_code)
         self.assertEqual(result.public_reason_code(), GENERIC_REASON_CODE)
         self.assertEqual(result.public_reason(), REASON_PHRASES[GENERIC_REASON_CODE])
 
-    @patch.dict(os.environ, {"GEMINI_API_KEY": "fake_key"}, clear=True)
-    def test_rejection_reason_for_depicting_a_minor(self):
+    @patch.dict(os.environ, {}, clear=True)
+    @patch(_TEXT_AVAILABLE, return_value=[API_GEMMA])
+    def test_rejection_reason_for_depicting_a_minor(self, _avail):
         # Rule 9 (issue #336): content the AI flags as showing a baby/child is
         # rejected with the 'minors' reason. The reason-code plumbing is shared
         # by the text and image cascades, so the text path exercises it without
         # needing to mock the S3 fetch.
-        with patch.dict(_TEXT_DISPATCH, {API_GEMINI: MagicMock(return_value=(REJECT_SCORE, 9))}):
+        with patch.dict(_TEXT_DISPATCH, {API_GEMMA: MagicMock(return_value=(REJECT_SCORE, 9))}):
             result = is_text_positive("some text")
         self.assertFalse(result)
         self.assertEqual(result.reason_code, 'minors')
@@ -320,20 +347,20 @@ class TestClassifiers(PositiveOnlySocialTestCase):
         # Rule 9 must survive the probability,rule parser (previously capped at 8).
         self.assertEqual(parse_probability_and_rule("0.10,9"), (0.10, 9))
 
-    @patch.dict(os.environ, {"GEMINI_API_KEY": "fake_key"}, clear=True)
-    def test_allowed_result_has_no_reason(self):
-        with patch.dict(_TEXT_DISPATCH, {API_GEMINI: MagicMock(return_value=(ALLOW_SCORE, 2))}):
+    @patch.dict(os.environ, {}, clear=True)
+    @patch(_TEXT_AVAILABLE, return_value=[API_GEMMA])
+    def test_allowed_result_has_no_reason(self, _avail):
+        with patch.dict(_TEXT_DISPATCH, {API_GEMMA: MagicMock(return_value=(ALLOW_SCORE, 2))}):
             result = is_text_positive("some text")
         self.assertTrue(result)
         self.assertIsNone(result.reason_code)
 
-    @patch.dict(os.environ, _ALL_AI_KEYS, clear=True)
-    @patch("user_system.classifiers.classifier_utils.random")
-    def test_rejection_reason_majority_wins(self, mock_random):
-        mock_random.sample.return_value = [API_GEMINI, API_CLAUDE, API_OPENAI]
+    @patch.dict(os.environ, {}, clear=True)
+    @patch(_TEXT_AVAILABLE, return_value=[API_GEMMA, API_GEMINI, API_OPENAI])
+    def test_rejection_reason_majority_wins(self, _avail):
         mocks = {
-            API_GEMINI: MagicMock(return_value=(MIDDLE_SCORE, 2)),
-            API_CLAUDE: MagicMock(return_value=(REJECT_SCORE, 5)),
+            API_GEMMA: MagicMock(return_value=(MIDDLE_SCORE, 2)),
+            API_GEMINI: MagicMock(return_value=(REJECT_SCORE, 5)),
             API_OPENAI: MagicMock(return_value=(REJECT_SCORE, 5)),
         }
         with patch.dict(_TEXT_DISPATCH, mocks):
@@ -341,13 +368,12 @@ class TestClassifiers(PositiveOnlySocialTestCase):
         self.assertFalse(result)
         self.assertEqual(result.reason_code, 'hate_speech')
 
-    @patch.dict(os.environ, _ALL_AI_KEYS, clear=True)
-    @patch("user_system.classifiers.classifier_utils.random")
-    def test_rejection_reason_tie_broken_by_decisive_ai(self, mock_random):
-        mock_random.sample.return_value = [API_GEMINI, API_CLAUDE, API_OPENAI]
+    @patch.dict(os.environ, {}, clear=True)
+    @patch(_TEXT_AVAILABLE, return_value=[API_GEMMA, API_GEMINI, API_OPENAI])
+    def test_rejection_reason_tie_broken_by_decisive_ai(self, _avail):
         mocks = {
-            API_GEMINI: MagicMock(return_value=(MIDDLE_SCORE, 2)),
-            API_CLAUDE: MagicMock(return_value=(MIDDLE_SCORE, 6)),
+            API_GEMMA: MagicMock(return_value=(MIDDLE_SCORE, 2)),
+            API_GEMINI: MagicMock(return_value=(MIDDLE_SCORE, 6)),
             API_OPENAI: MagicMock(return_value=(MIDDLE_SCORE, 6)),
         }
         with patch.dict(_TEXT_DISPATCH, mocks):
@@ -356,15 +382,14 @@ class TestClassifiers(PositiveOnlySocialTestCase):
         self.assertTrue(result.appealable)
         self.assertEqual(result.reason_code, 'harassment')
 
-    @patch.dict(os.environ, _ALL_AI_KEYS, clear=True)
-    @patch("user_system.classifiers.classifier_utils.random")
-    def test_rejection_reason_single_citation_wins(self, mock_random):
+    @patch.dict(os.environ, {}, clear=True)
+    @patch(_TEXT_AVAILABLE, return_value=[API_GEMMA, API_GEMINI, API_OPENAI])
+    def test_rejection_reason_single_citation_wins(self, _avail):
         # When only one AI cites a rule, that rule is the reason even though
         # the others scored without citing anything.
-        mock_random.sample.return_value = [API_GEMINI, API_CLAUDE, API_OPENAI]
         mocks = {
-            API_GEMINI: MagicMock(return_value=(MIDDLE_SCORE, None)),
-            API_CLAUDE: MagicMock(return_value=(MIDDLE_SCORE, 7)),
+            API_GEMMA: MagicMock(return_value=(MIDDLE_SCORE, None)),
+            API_GEMINI: MagicMock(return_value=(MIDDLE_SCORE, 7)),
             API_OPENAI: MagicMock(return_value=(MIDDLE_SCORE, None)),
         }
         with patch.dict(_TEXT_DISPATCH, mocks):
@@ -382,28 +407,29 @@ class TestClassifiers(PositiveOnlySocialTestCase):
     # Text classifier – API errors are skipped                             #
     # ------------------------------------------------------------------ #
 
-    @patch.dict(os.environ, {"GEMINI_API_KEY": "gk", "ANTHROPIC_API_KEY": "ak"}, clear=True)
-    @patch("user_system.classifiers.classifier_utils.random")
-    def test_text_cascade_errored_api_is_skipped(self, mock_random):
-        mock_random.sample.return_value = [API_GEMINI, API_CLAUDE]
-        mock_gemini = MagicMock(side_effect=Exception("boom"))
-        mock_claude = MagicMock(return_value=ALLOW_SCORE)
-        with patch.dict(_TEXT_DISPATCH, {API_GEMINI: mock_gemini, API_CLAUDE: mock_claude}):
+    @patch.dict(os.environ, {}, clear=True)
+    @patch(_TEXT_AVAILABLE, return_value=[API_GEMMA, API_GEMINI])
+    def test_text_cascade_errored_api_is_skipped(self, _avail):
+        mock_gemma = MagicMock(side_effect=Exception("boom"))
+        mock_gemini = MagicMock(return_value=ALLOW_SCORE)
+        with patch.dict(_TEXT_DISPATCH, {API_GEMMA: mock_gemma, API_GEMINI: mock_gemini}):
             self.assertTrue(is_text_positive("some text"))
-        mock_claude.assert_called_once()
+        mock_gemini.assert_called_once()
 
-    @patch.dict(os.environ, {"GEMINI_API_KEY": "fake_key"}, clear=True)
-    def test_text_cascade_all_apis_error_rejected_not_appealable(self):
-        with patch.dict(_TEXT_DISPATCH, {API_GEMINI: MagicMock(side_effect=Exception("boom"))}):
+    @patch.dict(os.environ, {}, clear=True)
+    @patch(_TEXT_AVAILABLE, return_value=[API_GEMMA])
+    def test_text_cascade_all_apis_error_rejected_not_appealable(self, _avail):
+        with patch.dict(_TEXT_DISPATCH, {API_GEMMA: MagicMock(side_effect=Exception("boom"))}):
             result = is_text_positive("some text")
         self.assertFalse(result)
         self.assertFalse(result.appealable)
         # No usable score at all is infrastructure, not a verdict (issue #282).
         self.assertTrue(result.provider_failure)
 
-    @patch.dict(os.environ, {"GEMINI_API_KEY": "fake_key"}, clear=True)
-    def test_genuine_rejection_is_not_a_provider_failure(self):
-        with patch.dict(_TEXT_DISPATCH, {API_GEMINI: MagicMock(return_value=REJECT_SCORE)}):
+    @patch.dict(os.environ, {}, clear=True)
+    @patch(_TEXT_AVAILABLE, return_value=[API_GEMMA])
+    def test_genuine_rejection_is_not_a_provider_failure(self, _avail):
+        with patch.dict(_TEXT_DISPATCH, {API_GEMMA: MagicMock(return_value=REJECT_SCORE)}):
             result = is_text_positive("I am sad")
         self.assertFalse(result)
         self.assertFalse(result.provider_failure)
@@ -418,7 +444,7 @@ class TestClassifiers(PositiveOnlySocialTestCase):
         self.assertFalse(is_image_positive("random_image.png"))
 
     # ------------------------------------------------------------------ #
-    # Image classifier – no API keys                                       #
+    # Image classifier – no OpenRouter key                                 #
     # ------------------------------------------------------------------ #
 
     @patch.dict(os.environ, _AWS_KEYS, clear=True)
@@ -428,55 +454,59 @@ class TestClassifiers(PositiveOnlySocialTestCase):
         self.assertTrue(result.provider_failure)
 
     # ------------------------------------------------------------------ #
-    # Image classifier – single API                                        #
+    # Image classifier – single tier                                       #
     # ------------------------------------------------------------------ #
 
-    @patch.dict(os.environ, {"GEMINI_API_KEY": "fake_key", **_AWS_KEYS}, clear=True)
+    @patch.dict(os.environ, _AWS_KEYS, clear=True)
+    @patch(_IMAGE_AVAILABLE, return_value=[API_GEMMA])
     @patch("user_system.classifiers.image_classifier.boto3")
-    def test_image_classifier_single_gemini_allow_zone(self, mock_boto3):
+    def test_image_classifier_single_allow_zone(self, mock_boto3, _avail):
         mock_s3 = MagicMock()
         mock_boto3.client.return_value = mock_s3
         mock_body = MagicMock()
         mock_body.read.return_value = _make_fake_image_bytes()
         mock_s3.get_object.return_value = {'Body': mock_body}
 
-        mock_gemini = MagicMock(return_value=ALLOW_SCORE)
-        with patch.dict(_IMAGE_DISPATCH, {API_GEMINI: mock_gemini}):
+        mock_gemma = MagicMock(return_value=ALLOW_SCORE)
+        with patch.dict(_IMAGE_DISPATCH, {API_GEMMA: mock_gemma}):
             self.assertTrue(is_image_positive("some_image.png"))
         mock_s3.get_object.assert_called_with(Bucket="fake_bucket", Key="some_image.png")
-        mock_gemini.assert_called_once()
+        mock_gemma.assert_called_once()
 
-    @patch.dict(os.environ, {"GEMINI_API_KEY": "fake_key", **_AWS_KEYS}, clear=True)
+    @patch.dict(os.environ, _AWS_KEYS, clear=True)
+    @patch(_IMAGE_AVAILABLE, return_value=[API_GEMMA])
     @patch("user_system.classifiers.image_classifier.boto3")
-    def test_image_classifier_single_gemini_reject_zone(self, mock_boto3):
+    def test_image_classifier_single_reject_zone(self, mock_boto3, _avail):
         mock_s3 = MagicMock()
         mock_boto3.client.return_value = mock_s3
         mock_body = MagicMock()
         mock_body.read.return_value = _make_fake_image_bytes()
         mock_s3.get_object.return_value = {'Body': mock_body}
 
-        with patch.dict(_IMAGE_DISPATCH, {API_GEMINI: MagicMock(return_value=REJECT_SCORE)}):
+        with patch.dict(_IMAGE_DISPATCH, {API_GEMMA: MagicMock(return_value=REJECT_SCORE)}):
             result = is_image_positive("some_image.png")
         self.assertFalse(result)
         self.assertFalse(result.appealable)
 
-    @patch.dict(os.environ, {"GEMINI_API_KEY": "fake_key", **_AWS_KEYS}, clear=True)
+    @patch.dict(os.environ, _AWS_KEYS, clear=True)
+    @patch(_IMAGE_AVAILABLE, return_value=[API_GEMMA])
     @patch("user_system.classifiers.image_classifier.boto3")
-    def test_image_classifier_single_gemini_middle_zone_appealable(self, mock_boto3):
+    def test_image_classifier_single_middle_zone_appealable(self, mock_boto3, _avail):
         mock_s3 = MagicMock()
         mock_boto3.client.return_value = mock_s3
         mock_body = MagicMock()
         mock_body.read.return_value = _make_fake_image_bytes()
         mock_s3.get_object.return_value = {'Body': mock_body}
 
-        with patch.dict(_IMAGE_DISPATCH, {API_GEMINI: MagicMock(return_value=MIDDLE_SCORE)}):
+        with patch.dict(_IMAGE_DISPATCH, {API_GEMMA: MagicMock(return_value=MIDDLE_SCORE)}):
             result = is_image_positive("some_image.png")
         self.assertFalse(result)
         self.assertTrue(result.appealable)
 
-    @patch.dict(os.environ, {"ANTHROPIC_API_KEY": "fake_key", **_AWS_KEYS}, clear=True)
+    @patch.dict(os.environ, _AWS_KEYS, clear=True)
+    @patch(_IMAGE_AVAILABLE, return_value=[API_CLAUDE])
     @patch("user_system.classifiers.image_classifier.boto3")
-    def test_image_classifier_single_claude_allow_zone(self, mock_boto3):
+    def test_image_classifier_single_claude_allow_zone(self, mock_boto3, _avail):
         mock_s3 = MagicMock()
         mock_boto3.client.return_value = mock_s3
         mock_body = MagicMock()
@@ -488,58 +518,43 @@ class TestClassifiers(PositiveOnlySocialTestCase):
             self.assertTrue(is_image_positive("some_image.png"))
         mock_claude.assert_called_once()
 
-    @patch.dict(os.environ, {"OPENAI_API_KEY": "fake_key", **_AWS_KEYS}, clear=True)
-    @patch("user_system.classifiers.image_classifier.boto3")
-    def test_image_classifier_single_openai_allow_zone(self, mock_boto3):
-        mock_s3 = MagicMock()
-        mock_boto3.client.return_value = mock_s3
-        mock_body = MagicMock()
-        mock_body.read.return_value = _make_fake_image_bytes()
-        mock_s3.get_object.return_value = {'Body': mock_body}
-
-        mock_openai = MagicMock(return_value=ALLOW_SCORE)
-        with patch.dict(_IMAGE_DISPATCH, {API_OPENAI: mock_openai}):
-            self.assertTrue(is_image_positive("some_image.png"))
-        mock_openai.assert_called_once()
-
     # ------------------------------------------------------------------ #
     # Image classifier – cascade                                           #
     # ------------------------------------------------------------------ #
 
-    @patch.dict(os.environ, {**_ALL_AI_KEYS, **_AWS_KEYS}, clear=True)
-    @patch("user_system.classifiers.classifier_utils.random")
+    @patch.dict(os.environ, _AWS_KEYS, clear=True)
+    @patch(_IMAGE_AVAILABLE, return_value=[API_GEMMA, API_GEMINI, API_OPENAI])
     @patch("user_system.classifiers.image_classifier.boto3")
-    def test_image_cascade_first_allows_no_escalation(self, mock_boto3, mock_random):
-        mock_random.sample.return_value = [API_GEMINI, API_CLAUDE, API_OPENAI]
+    def test_image_cascade_first_allows_no_escalation(self, mock_boto3, _avail):
         mock_s3 = MagicMock()
         mock_boto3.client.return_value = mock_s3
         mock_body = MagicMock()
         mock_body.read.return_value = _make_fake_image_bytes()
         mock_s3.get_object.return_value = {'Body': mock_body}
 
+        mock_gemma = MagicMock(return_value=ALLOW_SCORE)
         mock_gemini = MagicMock(return_value=ALLOW_SCORE)
-        mock_claude = MagicMock(return_value=ALLOW_SCORE)
         mock_openai = MagicMock(return_value=ALLOW_SCORE)
-        with patch.dict(_IMAGE_DISPATCH, {API_GEMINI: mock_gemini, API_CLAUDE: mock_claude, API_OPENAI: mock_openai}):
+        with patch.dict(_IMAGE_DISPATCH, {API_GEMMA: mock_gemma, API_GEMINI: mock_gemini, API_OPENAI: mock_openai}):
             self.assertTrue(is_image_positive("img.png"))
-        mock_claude.assert_not_called()
+        mock_gemma.assert_called_once()
+        mock_gemini.assert_not_called()
         mock_openai.assert_not_called()
 
-    @patch.dict(os.environ, {**_ALL_AI_KEYS, **_AWS_KEYS}, clear=True)
-    @patch("user_system.classifiers.classifier_utils.random")
+    @patch.dict(os.environ, _AWS_KEYS, clear=True)
+    @patch(_IMAGE_AVAILABLE, return_value=[API_GEMMA, API_GEMINI, API_OPENAI])
     @patch("user_system.classifiers.image_classifier.boto3")
-    def test_image_cascade_middle_then_reject_then_reject_not_appealable(self, mock_boto3, mock_random):
-        mock_random.sample.return_value = [API_GEMINI, API_CLAUDE, API_OPENAI]
+    def test_image_cascade_middle_then_reject_then_reject_not_appealable(self, mock_boto3, _avail):
         mock_s3 = MagicMock()
         mock_boto3.client.return_value = mock_s3
         mock_body = MagicMock()
         mock_body.read.return_value = _make_fake_image_bytes()
         mock_s3.get_object.return_value = {'Body': mock_body}
 
-        mock_gemini = MagicMock(return_value=MIDDLE_SCORE)
-        mock_claude = MagicMock(return_value=REJECT_SCORE)
+        mock_gemma = MagicMock(return_value=MIDDLE_SCORE)
+        mock_gemini = MagicMock(return_value=REJECT_SCORE)
         mock_openai = MagicMock(return_value=REJECT_SCORE)
-        with patch.dict(_IMAGE_DISPATCH, {API_GEMINI: mock_gemini, API_CLAUDE: mock_claude, API_OPENAI: mock_openai}):
+        with patch.dict(_IMAGE_DISPATCH, {API_GEMMA: mock_gemma, API_GEMINI: mock_gemini, API_OPENAI: mock_openai}):
             result = is_image_positive("img.png")
         self.assertFalse(result)
         self.assertFalse(result.appealable)
@@ -557,73 +572,80 @@ class TestClassifiers(PositiveOnlySocialTestCase):
         mock_s3.get_object.return_value = {'Body': mock_body}
         return mock_s3
 
-    @patch.dict(os.environ, {"GEMINI_API_KEY": "fake_key", **_AWS_KEYS}, clear=True)
+    @patch.dict(os.environ, _AWS_KEYS, clear=True)
+    @patch(_IMAGE_AVAILABLE, return_value=[API_GEMMA])
     @patch("user_system.classifiers.image_classifier.boto3")
-    def test_url_parsing_virtual_hosted_with_bucket_env_var(self, mock_boto3):
+    def test_url_parsing_virtual_hosted_with_bucket_env_var(self, mock_boto3, _avail):
         """When AWS_STORAGE_BUCKET_NAME is set, virtual-hosted URL key is still extracted from path."""
         mock_s3 = self._make_mock_s3(mock_boto3)
         url = "https://goodvibesonly-images.s3.us-east-2.amazonaws.com/folder/image.jpg"
-        with patch.dict(_IMAGE_DISPATCH, {API_GEMINI: MagicMock(return_value=ALLOW_SCORE)}):
+        with patch.dict(_IMAGE_DISPATCH, {API_GEMMA: MagicMock(return_value=ALLOW_SCORE)}):
             is_image_positive(url)
         mock_s3.get_object.assert_called_with(Bucket="fake_bucket", Key="folder/image.jpg")
 
-    @patch.dict(os.environ, {"GEMINI_API_KEY": "fake_key", **_AWS_KEYS_NO_BUCKET}, clear=True)
+    @patch.dict(os.environ, _AWS_KEYS_NO_BUCKET, clear=True)
+    @patch(_IMAGE_AVAILABLE, return_value=[API_GEMMA])
     @patch("user_system.classifiers.image_classifier.boto3")
-    def test_url_parsing_virtual_hosted_without_bucket_env_var(self, mock_boto3):
+    def test_url_parsing_virtual_hosted_without_bucket_env_var(self, mock_boto3, _avail):
         """When AWS_STORAGE_BUCKET_NAME is unset, bucket is derived from virtual-hosted URL hostname."""
         mock_s3 = self._make_mock_s3(mock_boto3)
         url = "https://goodvibesonly-images.s3.us-east-2.amazonaws.com/folder/image.jpg"
-        with patch.dict(_IMAGE_DISPATCH, {API_GEMINI: MagicMock(return_value=ALLOW_SCORE)}):
+        with patch.dict(_IMAGE_DISPATCH, {API_GEMMA: MagicMock(return_value=ALLOW_SCORE)}):
             is_image_positive(url)
         mock_s3.get_object.assert_called_with(Bucket="goodvibesonly-images", Key="folder/image.jpg")
 
-    @patch.dict(os.environ, {"GEMINI_API_KEY": "fake_key", **_AWS_KEYS_NO_BUCKET}, clear=True)
+    @patch.dict(os.environ, _AWS_KEYS_NO_BUCKET, clear=True)
+    @patch(_IMAGE_AVAILABLE, return_value=[API_GEMMA])
     @patch("user_system.classifiers.image_classifier.boto3")
-    def test_url_parsing_path_style(self, mock_boto3):
+    def test_url_parsing_path_style(self, mock_boto3, _avail):
         """Path-style URL (s3.amazonaws.com/bucket/key) correctly splits bucket and key."""
         mock_s3 = self._make_mock_s3(mock_boto3)
         url = "https://s3.amazonaws.com/mybucket/path/to/image.jpg"
-        with patch.dict(_IMAGE_DISPATCH, {API_GEMINI: MagicMock(return_value=ALLOW_SCORE)}):
+        with patch.dict(_IMAGE_DISPATCH, {API_GEMMA: MagicMock(return_value=ALLOW_SCORE)}):
             is_image_positive(url)
         mock_s3.get_object.assert_called_with(Bucket="mybucket", Key="path/to/image.jpg")
 
-    @patch.dict(os.environ, {"GEMINI_API_KEY": "fake_key", **_AWS_KEYS_NO_BUCKET}, clear=True)
+    @patch.dict(os.environ, _AWS_KEYS_NO_BUCKET, clear=True)
+    @patch(_IMAGE_AVAILABLE, return_value=[API_GEMMA])
     @patch("user_system.classifiers.image_classifier.boto3")
-    def test_url_parsing_path_style_dashed_region(self, mock_boto3):
+    def test_url_parsing_path_style_dashed_region(self, mock_boto3, _avail):
         """Dashed-region path-style URL (s3-region.amazonaws.com/bucket/key) is not misread as virtual-hosted."""
         mock_s3 = self._make_mock_s3(mock_boto3)
         url = "https://s3-us-west-2.amazonaws.com/mybucket/path/to/image.jpg"
-        with patch.dict(_IMAGE_DISPATCH, {API_GEMINI: MagicMock(return_value=ALLOW_SCORE)}):
+        with patch.dict(_IMAGE_DISPATCH, {API_GEMMA: MagicMock(return_value=ALLOW_SCORE)}):
             is_image_positive(url)
         mock_s3.get_object.assert_called_with(Bucket="mybucket", Key="path/to/image.jpg")
 
-    @patch.dict(os.environ, {"GEMINI_API_KEY": "fake_key", **_AWS_KEYS_NO_BUCKET}, clear=True)
+    @patch.dict(os.environ, _AWS_KEYS_NO_BUCKET, clear=True)
+    @patch(_IMAGE_AVAILABLE, return_value=[API_GEMMA])
     @patch("user_system.classifiers.image_classifier.boto3")
-    def test_url_parsing_virtual_hosted_s3_dash_bucket(self, mock_boto3):
+    def test_url_parsing_virtual_hosted_s3_dash_bucket(self, mock_boto3, _avail):
         """A virtual-hosted bucket whose name starts with 's3-' is not misread as path-style."""
         mock_s3 = self._make_mock_s3(mock_boto3)
         url = "https://s3-my-bucket.s3.amazonaws.com/123/abc.jpeg"
-        with patch.dict(_IMAGE_DISPATCH, {API_GEMINI: MagicMock(return_value=ALLOW_SCORE)}):
+        with patch.dict(_IMAGE_DISPATCH, {API_GEMMA: MagicMock(return_value=ALLOW_SCORE)}):
             is_image_positive(url)
         mock_s3.get_object.assert_called_with(Bucket="s3-my-bucket", Key="123/abc.jpeg")
 
-    @patch.dict(os.environ, {"GEMINI_API_KEY": "fake_key", **_AWS_KEYS_NO_BUCKET}, clear=True)
+    @patch.dict(os.environ, _AWS_KEYS_NO_BUCKET, clear=True)
+    @patch(_IMAGE_AVAILABLE, return_value=[API_GEMMA])
     @patch("user_system.classifiers.image_classifier.boto3")
-    def test_url_parsing_virtual_hosted_s3_dash_bucket_with_region(self, mock_boto3):
+    def test_url_parsing_virtual_hosted_s3_dash_bucket_with_region(self, mock_boto3, _avail):
         """An 's3-' virtual-hosted bucket with a region is still parsed as virtual-hosted."""
         mock_s3 = self._make_mock_s3(mock_boto3)
         url = "https://s3-my-bucket.s3.us-east-2.amazonaws.com/123/abc.jpeg"
-        with patch.dict(_IMAGE_DISPATCH, {API_GEMINI: MagicMock(return_value=ALLOW_SCORE)}):
+        with patch.dict(_IMAGE_DISPATCH, {API_GEMMA: MagicMock(return_value=ALLOW_SCORE)}):
             is_image_positive(url)
         mock_s3.get_object.assert_called_with(Bucket="s3-my-bucket", Key="123/abc.jpeg")
 
-    @patch.dict(os.environ, {"GEMINI_API_KEY": "fake_key", **_AWS_KEYS_NO_BUCKET}, clear=True)
+    @patch.dict(os.environ, _AWS_KEYS_NO_BUCKET, clear=True)
+    @patch(_IMAGE_AVAILABLE, return_value=[API_GEMMA])
     @patch("user_system.classifiers.image_classifier.boto3")
-    def test_url_parsing_virtual_hosted_s3_dash_bucket_accelerate(self, mock_boto3):
+    def test_url_parsing_virtual_hosted_s3_dash_bucket_accelerate(self, mock_boto3, _avail):
         """An 's3-' virtual-hosted bucket on a non-literal-'s3' endpoint label is still virtual-hosted."""
         mock_s3 = self._make_mock_s3(mock_boto3)
         url = "https://s3-my-bucket.s3-accelerate.amazonaws.com/123/abc.jpeg"
-        with patch.dict(_IMAGE_DISPATCH, {API_GEMINI: MagicMock(return_value=ALLOW_SCORE)}):
+        with patch.dict(_IMAGE_DISPATCH, {API_GEMMA: MagicMock(return_value=ALLOW_SCORE)}):
             is_image_positive(url)
         mock_s3.get_object.assert_called_with(Bucket="s3-my-bucket", Key="123/abc.jpeg")
 

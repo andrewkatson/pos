@@ -22,7 +22,7 @@
 #     --django-secret-key "your-secret-key" \
 #     --email-user "your-email@gmail.com" \
 #     --email-pass "your-app-password" \
-#     --gemini-api-key "your-gemini-key" \
+#     --openrouter-api-key "your-openrouter-key" \
 #     --aws-access-key-id "your-aws-access-key" \
 #     --aws-secret-access-key "your-aws-secret-key" \
 #     --aws-region "us-east-1" \
@@ -64,7 +64,7 @@ ADMIN_EMAIL="admin@smiling.social"    # used for Let's Encrypt notifications (st
 DJANGO_SECRET_KEY=""
 EMAIL_USER=""
 EMAIL_PASS=""
-GEMINI_API_KEY=""
+OPENROUTER_API_KEY=""
 AWS_ACCESS_KEY_ID=""
 AWS_SECRET_ACCESS_KEY=""
 AWS_REGION=""
@@ -109,7 +109,7 @@ Required Options:
   --django-secret-key KEY       Django secret key
   --email-user EMAIL            Gmail address used to send verification emails
   --email-pass PASSWORD         Gmail app password
-  --gemini-api-key KEY          Gemini API key
+  --openrouter-api-key KEY      OpenRouter API key (gateway for the classifier cascade)
   --aws-access-key-id KEY       AWS access key ID
   --aws-secret-access-key KEY   AWS secret access key
   --aws-region REGION           AWS region (e.g., us-east-1)
@@ -142,7 +142,7 @@ parse_arguments() {
             --django-secret-key)     DJANGO_SECRET_KEY="$2"; shift 2 ;;
             --email-user)            EMAIL_USER="$2"; shift 2 ;;
             --email-pass)            EMAIL_PASS="$2"; shift 2 ;;
-            --gemini-api-key)        GEMINI_API_KEY="$2"; shift 2 ;;
+            --openrouter-api-key)    OPENROUTER_API_KEY="$2"; shift 2 ;;
             --aws-access-key-id)     AWS_ACCESS_KEY_ID="$2"; shift 2 ;;
             --aws-secret-access-key) AWS_SECRET_ACCESS_KEY="$2"; shift 2 ;;
             --aws-region)            AWS_REGION="$2"; shift 2 ;;
@@ -171,7 +171,7 @@ parse_arguments() {
     [[ -z "$DJANGO_SECRET_KEY" ]] && missing_params+=("--django-secret-key")
     [[ -z "$EMAIL_USER" ]] && missing_params+=("--email-user")
     [[ -z "$EMAIL_PASS" ]] && missing_params+=("--email-pass")
-    [[ -z "$GEMINI_API_KEY" ]] && missing_params+=("--gemini-api-key")
+    [[ -z "$OPENROUTER_API_KEY" ]] && missing_params+=("--openrouter-api-key")
     [[ -z "$AWS_ACCESS_KEY_ID" ]] && missing_params+=("--aws-access-key-id")
     [[ -z "$AWS_SECRET_ACCESS_KEY" ]] && missing_params+=("--aws-secret-access-key")
     [[ -z "$AWS_REGION" ]] && missing_params+=("--aws-region")
@@ -314,8 +314,11 @@ ADMIN_IP_ALLOWLIST=$(env_quote "$ADMIN_IP_ALLOWLIST")
 EMAIL_USER=$(env_quote "$EMAIL_USER")
 EMAIL_PASS=$(env_quote "$EMAIL_PASS")
 
-# Gemini API
-GEMINI_API_KEY=$(env_quote "$GEMINI_API_KEY")
+# OpenRouter API — one gateway (OpenAI-compatible) for the whole classifier
+# cascade. The cascade tries a free model first and Claude only as a last resort
+# (issue #393). To swap the model behind a tier without a code change, add e.g.
+# OPENROUTER_MODEL_GEMMA / _GEMINI / _OPENAI / _CLAUDE here.
+OPENROUTER_API_KEY=$(env_quote "$OPENROUTER_API_KEY")
 
 # AWS Configuration
 AWS_ACCESS_KEY_ID=$(env_quote "$AWS_ACCESS_KEY_ID")

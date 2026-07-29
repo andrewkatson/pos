@@ -1,39 +1,61 @@
 import os
 import re
-import random
 import logging
 import base64
 from collections import Counter
 from io import BytesIO
 from dataclasses import dataclass, field
-from google import genai
-import anthropic
 import openai as openai_lib
 from .classifier_constants import (
-    GEMINI_MODEL, CLAUDE_MODEL, OPENAI_MODEL,
+    OPENROUTER_BASE_URL,
     REJECT_THRESHOLD, ALLOW_THRESHOLD, LLM_TIMEOUT_SECONDS,
     RULE_REASON_CODES, GENERIC_REASON_CODE, REASON_PHRASES,
 )
 
 logger = logging.getLogger(__name__)
 
+# Logical cascade tiers, consulted in this order: a free model first and Claude
+# only as a last resort (issue #393). Every call is routed through OpenRouter
+# (one OPENROUTER_API_KEY), so the concrete model behind each tier can be
+# swapped via env without a code change. All four defaults are vision-capable,
+# so the same tiers serve both the text and image cascades.
+API_GEMMA = 'gemma'
 API_GEMINI = 'gemini'
-API_CLAUDE = 'claude'
 API_OPENAI = 'openai'
+API_CLAUDE = 'claude'
+
+# Priority order: cheapest/free first, most expensive last.
+CASCADE_ORDER = (API_GEMMA, API_GEMINI, API_OPENAI, API_CLAUDE)
+
+# Default OpenRouter model ID per tier. Override any one of them with the env
+# var OPENROUTER_MODEL_<TIER> (e.g. OPENROUTER_MODEL_GEMMA) to switch models
+# without touching code.
+_DEFAULT_MODELS = {
+    API_GEMMA:  'google/gemma-3-12b-it:free',
+    API_GEMINI: 'google/gemini-2.5-flash',
+    API_OPENAI: 'openai/gpt-4o-mini',
+    API_CLAUDE: 'anthropic/claude-haiku-4-5',
+}
 
 ZONE_REJECT = 'reject'
 ZONE_MIDDLE = 'middle'
 ZONE_ALLOW = 'allow'
 
-ENV_KEY_TO_API = {
-    'GEMINI_API_KEY': API_GEMINI,
-    'ANTHROPIC_API_KEY': API_CLAUDE,
-    'OPENAI_API_KEY': API_OPENAI,
-}
+
+def model_for(api_name):
+    """OpenRouter model ID for a cascade tier, honoring an env override."""
+    return os.environ.get(f'OPENROUTER_MODEL_{api_name.upper()}') or _DEFAULT_MODELS[api_name]
 
 
 def get_available_apis():
-    return [api for env_var, api in ENV_KEY_TO_API.items() if os.environ.get(env_var)]
+    """Cascade tiers to consult, in priority order (free first, Claude last).
+
+    Everything routes through OpenRouter, so the whole cascade is available
+    when OPENROUTER_API_KEY is set, and nothing is otherwise.
+    """
+    if not os.environ.get('OPENROUTER_API_KEY'):
+        return []
+    return list(CASCADE_ORDER)
 
 
 @dataclass
@@ -149,14 +171,16 @@ def classify_with_thresholds(available_apis, call_fn):
     - If the cascade needs another AI and none is available, the content is
       rejected; it is appealable only if the last score was in the middle zone.
 
-    APIs are consulted in random order. An API that errors or returns an
-    unparseable score is skipped as if unavailable. With no usable scores at
-    all the content is rejected and not appealable.
+    APIs are consulted in the given priority order (free models first, Claude
+    last — issue #393), so clear content is usually settled by the cheap tier
+    and only ambiguous content escalates to the pricier ones. An API that
+    errors or returns an unparseable score is skipped as if unavailable. With
+    no usable scores at all the content is rejected and not appealable.
     """
     if not available_apis:
         return ClassificationResult(allowed=False, provider_failure=True)
 
-    order = random.sample(available_apis, len(available_apis))
+    order = list(available_apis)
     scores = []
     cited_codes = []
 
@@ -196,33 +220,18 @@ def classify_with_thresholds(available_apis, call_fn):
     return rejection(appealable=appealable)
 
 
-def call_text_gemini(text, prompt_template):
-    api_key = os.environ.get('GEMINI_API_KEY')
-    # google-genai expects the timeout in milliseconds.
-    client = genai.Client(api_key=api_key, http_options={'timeout': LLM_TIMEOUT_SECONDS * 1000})
-    prompt = prompt_template.format(text=text)
-    response = client.models.generate_content(model=GEMINI_MODEL, contents=prompt)
-    return parse_probability_and_rule(response.text)
+def _openrouter_client():
+    # OpenRouter is OpenAI-compatible, so the openai SDK talks to it by simply
+    # pointing base_url at the gateway. One key covers every model.
+    api_key = os.environ.get('OPENROUTER_API_KEY')
+    return openai_lib.OpenAI(api_key=api_key, base_url=OPENROUTER_BASE_URL, timeout=LLM_TIMEOUT_SECONDS)
 
 
-def call_text_claude(text, prompt_template):
-    api_key = os.environ.get('ANTHROPIC_API_KEY')
-    client = anthropic.Anthropic(api_key=api_key, timeout=LLM_TIMEOUT_SECONDS)
-    prompt = prompt_template.format(text=text)
-    response = client.messages.create(
-        model=CLAUDE_MODEL,
-        max_tokens=16,
-        messages=[{"role": "user", "content": prompt}]
-    )
-    return parse_probability_and_rule(response.content[0].text)
-
-
-def call_text_openai(text, prompt_template):
-    api_key = os.environ.get('OPENAI_API_KEY')
-    client = openai_lib.OpenAI(api_key=api_key, timeout=LLM_TIMEOUT_SECONDS)
+def call_text_openrouter(text, prompt_template, model):
+    client = _openrouter_client()
     prompt = prompt_template.format(text=text)
     response = client.chat.completions.create(
-        model=OPENAI_MODEL,
+        model=model,
         max_tokens=16,
         messages=[{"role": "user", "content": prompt}]
     )
@@ -235,38 +244,11 @@ def _image_to_base64_png(image):
     return base64.standard_b64encode(buffer.getvalue()).decode('utf-8')
 
 
-def call_image_gemini(image, prompt):
-    api_key = os.environ.get('GEMINI_API_KEY')
-    # google-genai expects the timeout in milliseconds.
-    client = genai.Client(api_key=api_key, http_options={'timeout': LLM_TIMEOUT_SECONDS * 1000})
-    response = client.models.generate_content(model=GEMINI_MODEL, contents=[prompt, image])
-    return parse_probability_and_rule(response.text)
-
-
-def call_image_claude(image, prompt):
-    api_key = os.environ.get('ANTHROPIC_API_KEY')
-    client = anthropic.Anthropic(api_key=api_key, timeout=LLM_TIMEOUT_SECONDS)
-    image_data = _image_to_base64_png(image)
-    response = client.messages.create(
-        model=CLAUDE_MODEL,
-        max_tokens=16,
-        messages=[{
-            "role": "user",
-            "content": [
-                {"type": "image", "source": {"type": "base64", "media_type": "image/png", "data": image_data}},
-                {"type": "text", "text": prompt}
-            ]
-        }]
-    )
-    return parse_probability_and_rule(response.content[0].text)
-
-
-def call_image_openai(image, prompt):
-    api_key = os.environ.get('OPENAI_API_KEY')
-    client = openai_lib.OpenAI(api_key=api_key, timeout=LLM_TIMEOUT_SECONDS)
+def call_image_openrouter(image, prompt, model):
+    client = _openrouter_client()
     image_data = _image_to_base64_png(image)
     response = client.chat.completions.create(
-        model=OPENAI_MODEL,
+        model=model,
         max_tokens=16,
         messages=[{
             "role": "user",
@@ -279,14 +261,17 @@ def call_image_openai(image, prompt):
     return parse_probability_and_rule(response.choices[0].message.content)
 
 
-TEXT_API_DISPATCH = {
-    API_GEMINI: call_text_gemini,
-    API_CLAUDE: call_text_claude,
-    API_OPENAI: call_text_openai,
-}
+# One entry per cascade tier. Each binds its tier's OpenRouter model (resolved
+# at call time so an env override takes effect without reimport) and keeps the
+# (content, prompt) signature the classifiers call with.
+def _text_caller(api_name):
+    return lambda text, prompt: call_text_openrouter(text, prompt, model_for(api_name))
 
-IMAGE_API_DISPATCH = {
-    API_GEMINI: call_image_gemini,
-    API_CLAUDE: call_image_claude,
-    API_OPENAI: call_image_openai,
-}
+
+def _image_caller(api_name):
+    return lambda image, prompt: call_image_openrouter(image, prompt, model_for(api_name))
+
+
+TEXT_API_DISPATCH = {api: _text_caller(api) for api in CASCADE_ORDER}
+
+IMAGE_API_DISPATCH = {api: _image_caller(api) for api in CASCADE_ORDER}
