@@ -1,6 +1,9 @@
+from unittest.mock import patch
+
 from django.test import SimpleTestCase
 
 from ..classifiers.prefilter import prefilter_text
+from ..classifiers import prefilter
 
 
 class PrefilterTests(SimpleTestCase):
@@ -34,3 +37,37 @@ class PrefilterTests(SimpleTestCase):
 
     def test_non_string_input_is_coerced_not_crashed(self):
         self.assertTrue(prefilter_text(12345))
+
+    def test_ldnoobw_word_outside_curated_list_is_rejected(self):
+        # 'bollocks' is in the vendored LDNOOBW list but not the curated floor,
+        # so this only passes when the LDNOOBW file is actually loaded (#393).
+        result = prefilter_text('what a load of bollocks')
+        self.assertFalse(result)
+        self.assertEqual(result.public_reason_code(), 'profanity')
+
+    def test_ldnoobw_multiword_phrase_is_rejected(self):
+        # A multi-word LDNOOBW entry must match as a phrase, across arbitrary
+        # whitespace between its tokens.
+        self.assertFalse(prefilter_text('the alabama  hot pocket incident'))
+
+    def test_ldnoobw_substring_does_not_trip_on_word_boundary(self):
+        # 'analysis' contains 'anal' but is a whole different word.
+        self.assertTrue(prefilter_text('a careful analysis of the class scunthorpe'))
+
+    def test_ldnoobw_non_word_char_entry_is_matched(self):
+        # A term that begins/ends with a non-word character (the LDNOOBW emoji
+        # entry) must still match — \b could never catch these; the lookaround
+        # matcher does.
+        result = prefilter_text('right back at you \U0001f595')
+        self.assertFalse(result)
+        self.assertEqual(result.public_reason_code(), 'profanity')
+
+    def test_load_ldnoobw_falls_back_on_decode_error(self):
+        # A corrupted/mis-encoded data file raises UnicodeDecodeError (a
+        # ValueError, not an OSError). It must be swallowed so module import —
+        # and the pre-filter — survive, degrading to the curated floor.
+        boom = UnicodeDecodeError('utf-8', b'\xff', 0, 1, 'bad')
+        with patch('builtins.open', side_effect=boom):
+            self.assertEqual(prefilter._load_ldnoobw(), [])
+        # And the curated floor still rejects blatant profanity.
+        self.assertFalse(prefilter_text('what a shit day'))

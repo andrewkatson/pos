@@ -1,4 +1,4 @@
-"""Cheap, local pre-filter for blatant caption violations (issue #282).
+"""Cheap, local pre-filter for blatant caption violations (issues #282, #393).
 
 Classification now runs asynchronously, so a genuinely negative post is
 normally accepted with a "pending" response and rejected minutes later. For
@@ -7,28 +7,30 @@ email) and needless queue load, so make_post still runs this zero-cost local
 check inline: an unambiguous hit is rejected immediately, exactly like the
 old synchronous final rejection, and the post is never created.
 
-This is deliberately a blunt, conservative instrument: a small list of
-unambiguous profanity and slurs matched on word boundaries. Anything subtle
-(context, sarcasm, imagery) is the AI cascade's job — a miss here just means
-the post goes through the normal async review.
+This is deliberately a blunt instrument: a word/phrase-list match on word
+boundaries, no LLM. Anything subtle (context, sarcasm, imagery) is the AI
+cascade's job — a miss here just means the post goes through the normal async
+review.
+
+The profanity list is the vendored **LDNOOBW** word list (issue #393,
+`data/ldnoobw_en.txt`), the "List of Dirty, Naughty, Obscene and Otherwise Bad
+Words". It is far broader than a hand-maintained list, so it favours catching
+blatant obscenity over avoiding every false positive — the trade the product
+made by keeping these hits *final*. A short curated slur list is checked first
+and reported as hate speech, so slurs surface the more serious reason even
+though many also appear in LDNOOBW.
 """
+import logging
+import os
 import re
 
 from .classifier_utils import ClassificationResult
 
-# Unambiguous profanity — rule 1 ("No swear words"). Matched as whole words,
-# case-insensitively, so e.g. "shiitake" or "class" never trip it.
-_PROFANITY = (
-    'fuck', 'fucking', 'fucked', 'fucker', 'motherfucker',
-    'shit', 'bullshit', 'shitty',
-    'bitch', 'bitches',
-    'asshole', 'assholes',
-    'cunt', 'cunts',
-    'dickhead',
-)
+logger = logging.getLogger(__name__)
 
-# Unambiguous slurs — rule 5 ("No hate speech"). Kept to terms with no benign
-# everyday reading.
+# Unambiguous slurs — rule 5 ("No hate speech"). Checked before the profanity
+# list so a slur is reported as hate speech, not generic profanity. Kept to
+# terms with no benign everyday reading.
 _SLURS = (
     'nigger', 'niggers',
     'faggot', 'faggots',
@@ -38,13 +40,67 @@ _SLURS = (
     'retard', 'retards', 'retarded',
 )
 
+# Curated profanity kept as a floor under the vendored list, so the pre-filter
+# never regresses on these even if the LDNOOBW file is trimmed or missing.
+_CURATED_PROFANITY = (
+    'fuck', 'fucking', 'fucked', 'fucker', 'motherfucker',
+    'shit', 'bullshit', 'shitty',
+    'bitch', 'bitches',
+    'asshole', 'assholes',
+    'cunt', 'cunts',
+    'dickhead',
+)
 
-def _word_pattern(words):
-    return re.compile(r'\b(?:' + '|'.join(re.escape(w) for w in words) + r')\b', re.IGNORECASE)
+_LDNOOBW_FILE = os.path.join(os.path.dirname(__file__), 'data', 'ldnoobw_en.txt')
+
+
+def _load_ldnoobw():
+    """Return the vendored LDNOOBW terms, or ``[]`` if the file can't be read.
+
+    The caller always unions the result with ``_CURATED_PROFANITY``, so an
+    empty return just drops the extra LDNOOBW coverage — the curated floor
+    still applies. A missing/unreadable data file must never take the
+    pre-filter (which is imported at module load) down. "Unreadable" includes
+    both I/O failures (OSError) and a bad-encoding/corrupted file
+    (UnicodeDecodeError, a ValueError rather than an OSError).
+    """
+    try:
+        with open(_LDNOOBW_FILE, encoding='utf-8') as fh:
+            return [line.strip() for line in fh if line.strip()]
+    except (OSError, UnicodeDecodeError):
+        logger.warning("Could not load LDNOOBW list from %s; falling back to the curated "
+                       "profanity floor.", _LDNOOBW_FILE, exc_info=True)
+        return []
+
+
+def _term_regex(term):
+    """Regex for one term/phrase: each whitespace-separated token escaped,
+    joined by ``\\s+`` so multi-word phrases still match across runs of
+    whitespace (e.g. "alabama  hot pocket")."""
+    return r'\s+'.join(re.escape(token) for token in term.split())
+
+
+def _word_pattern(terms):
+    """Whole-word / whole-phrase, case-insensitive matcher for ``terms``.
+
+    Uses ``(?<!\\w)``/``(?!\\w)`` lookarounds ("not part of a larger word")
+    rather than ``\\b``: they keep e.g. "shiitake" or "class" from tripping
+    "shit"/"ass", but — unlike ``\\b``, which only fires between a ``\\w`` and a
+    ``\\W`` — they still match terms that begin or end with a non-word
+    character, such as the LDNOOBW emoji entry "🖕". Empty input yields a
+    pattern that never matches (rather than an empty alternation, which would
+    match everything).
+    """
+    unique = sorted({t for t in terms if t})
+    if not unique:
+        return re.compile(r'(?!)')
+    return re.compile(r'(?<!\w)(?:' + '|'.join(_term_regex(t) for t in unique) + r')(?!\w)',
+                      re.IGNORECASE)
 
 
 _SLUR_PATTERN = _word_pattern(_SLURS)
-_PROFANITY_PATTERN = _word_pattern(_PROFANITY)
+# Profanity = the vendored LDNOOBW list unioned with the curated floor.
+_PROFANITY_PATTERN = _word_pattern(tuple(_CURATED_PROFANITY) + tuple(_load_ldnoobw()))
 
 
 def prefilter_text(text):

@@ -95,6 +95,11 @@ struct Post: Codable, Identifiable, Hashable {
     /// those grid tiles render as empty grey boxes until the user re-logs in.
     /// Optional for backward compatibility with responses that predate the field.
     let originalImageUrl: String?
+    /// A BlurHash string (issue #387) decoded into a blurred placeholder shown
+    /// while the image loads, so a grid tile is a soft blur of the real photo
+    /// rather than a grey square. Nil for text-only posts, until the async
+    /// classification worker has computed it, and on older backends.
+    let blurHash: String?
     let caption: String
     /// Whole-caption font + whole-tile background color keys (issue #318).
     /// "default" reproduces the original rendering. Defaulted on decode so
@@ -135,6 +140,10 @@ struct Post: Codable, Identifiable, Hashable {
     /// response from an older backend (which omits them) still decodes.
     var postLikes: Int
     var isLiked: Bool
+    /// Whether the viewer has saved this post (issue #193/#412), so a row can
+    /// offer Save/Unsave in place. `var` for optimistic updates; defaulted on
+    /// decode so responses from an older backend still decode.
+    var isSaved: Bool
     var isReported: Bool
     var reportReason: String?
 
@@ -156,6 +165,7 @@ struct Post: Codable, Identifiable, Hashable {
         case postIdentifier = "post_identifier"
         case imageUrl = "image_url"
         case originalImageUrl = "original_image_url"
+        case blurHash = "image_blurhash"
         case caption = "caption"
         case captionFont = "caption_font"
         case backgroundColor = "background_color"
@@ -164,6 +174,7 @@ struct Post: Codable, Identifiable, Hashable {
         case authorProfileImageOriginalUrl = "author_profile_image_original_url"
         case postLikes = "post_likes"
         case isLiked = "is_liked"
+        case isSaved = "is_saved"
         case isReported = "is_reported"
         case reportReason = "report_reason"
         case commentCount = "comment_count"
@@ -180,6 +191,7 @@ struct Post: Codable, Identifiable, Hashable {
         postIdentifier: String,
         imageUrl: String?,
         originalImageUrl: String? = nil,
+        blurHash: String? = nil,
         caption: String,
         captionFont: String = "default",
         backgroundColor: String = "default",
@@ -188,6 +200,7 @@ struct Post: Codable, Identifiable, Hashable {
         authorProfileImageOriginalUrl: String? = nil,
         postLikes: Int = 0,
         isLiked: Bool = false,
+        isSaved: Bool = false,
         isReported: Bool = false,
         reportReason: String? = nil,
         commentCount: Int = 0,
@@ -202,6 +215,7 @@ struct Post: Codable, Identifiable, Hashable {
         self.postIdentifier = postIdentifier
         self.imageUrl = imageUrl
         self.originalImageUrl = originalImageUrl
+        self.blurHash = blurHash
         self.caption = caption
         self.captionFont = captionFont
         self.backgroundColor = backgroundColor
@@ -210,6 +224,7 @@ struct Post: Codable, Identifiable, Hashable {
         self.authorProfileImageOriginalUrl = authorProfileImageOriginalUrl
         self.postLikes = postLikes
         self.isLiked = isLiked
+        self.isSaved = isSaved
         self.isReported = isReported
         self.reportReason = reportReason
         self.commentCount = commentCount
@@ -229,6 +244,8 @@ struct Post: Codable, Identifiable, Hashable {
         postIdentifier = try container.decode(String.self, forKey: .postIdentifier)
         imageUrl = try container.decodeIfPresent(String.self, forKey: .imageUrl)
         originalImageUrl = try container.decodeIfPresent(String.self, forKey: .originalImageUrl)
+        // BlurHash placeholder (#387); absent on older backends and text-only posts.
+        blurHash = try container.decodeIfPresent(String.self, forKey: .blurHash)
         caption = try container.decode(String.self, forKey: .caption)
         captionFont = try container.decodeIfPresent(String.self, forKey: .captionFont) ?? "default"
         backgroundColor = try container.decodeIfPresent(String.self, forKey: .backgroundColor) ?? "default"
@@ -239,6 +256,7 @@ struct Post: Codable, Identifiable, Hashable {
         authorProfileImageOriginalUrl = try container.decodeIfPresent(String.self, forKey: .authorProfileImageOriginalUrl)
         postLikes = try container.decodeIfPresent(Int.self, forKey: .postLikes) ?? 0
         isLiked = try container.decodeIfPresent(Bool.self, forKey: .isLiked) ?? false
+        isSaved = try container.decodeIfPresent(Bool.self, forKey: .isSaved) ?? false
         isReported = try container.decodeIfPresent(Bool.self, forKey: .isReported) ?? false
         reportReason = try container.decodeIfPresent(String.self, forKey: .reportReason)
         commentCount = try container.decodeIfPresent(Int.self, forKey: .commentCount) ?? 0

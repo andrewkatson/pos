@@ -230,6 +230,10 @@ class Fields:
     post_identifier = "post_identifier"
     image_url = "image_url"
     original_image_url = "original_image_url"
+    # A short BlurHash string the clients decode into a blurred preview shown
+    # while the image loads (issue #387). Null for text-only posts and until the
+    # classification worker has computed it.
+    image_blurhash = "image_blurhash"
     upload_url = "upload_url"
     # A user's own profile photo (the approved, live one) and, for the owner,
     # the pending/rejected state of a photo still under async review.

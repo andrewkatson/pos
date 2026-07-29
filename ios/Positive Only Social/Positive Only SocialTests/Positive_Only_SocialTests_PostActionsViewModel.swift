@@ -68,10 +68,12 @@ struct Positive_Only_SocialTests_PostActionsViewModel {
             "post_identifier": "p1",
             "image_url": "https://example.com/1.jpg",
             "original_image_url": "https://example.com/original.jpg",
+            "image_blurhash": "LEHV6nWB2yk8pyo0adR*.7kCMdnj",
             "caption": "Hello",
             "author_username": "someone",
             "post_likes": 3,
             "is_liked": true,
+            "is_saved": true,
             "is_reported": true,
             "report_reason": "spam",
             "comment_count": 7,
@@ -83,10 +85,12 @@ struct Positive_Only_SocialTests_PostActionsViewModel {
         let post = try unwrap(decoded.first, "a decoded post")
         #expect(post.postLikes == 3)
         #expect(post.isLiked == true)
+        #expect(post.isSaved == true)
         #expect(post.isReported == true)
         #expect(post.reportReason == "spam")
         #expect(post.commentCount == 7)
         #expect(post.createdDate != nil, "The Django-style timestamp should parse")
+        #expect(post.blurHash == "LEHV6nWB2yk8pyo0adR*.7kCMdnj", "The BlurHash placeholder decodes (#387)")
     }
 
     @Test func testPostDecoding_OlderResponseWithoutInteractionState_StillDecodes() throws {
@@ -104,10 +108,12 @@ struct Positive_Only_SocialTests_PostActionsViewModel {
         let post = try unwrap(decoded.first, "a decoded post")
         #expect(post.postLikes == 0)
         #expect(post.isLiked == false)
+        #expect(post.isSaved == false)
         #expect(post.isReported == false)
         #expect(post.reportReason == nil)
         #expect(post.commentCount == 0)
         #expect(post.createdDate == nil, "No timestamp means no relative-time label")
+        #expect(post.blurHash == nil, "An older response omits the BlurHash (#387)")
     }
 
     @Test func testFeedListing_IncludesLikeReportAndCommentState() async throws {
@@ -210,6 +216,79 @@ struct Positive_Only_SocialTests_PostActionsViewModel {
         // Then: the optimistic like is rolled back and the user is told.
         #expect(sut.state(for: post).isLiked == false)
         #expect(sut.state(for: post).likeCount == 0)
+        #expect(sut.alertMessage != nil)
+    }
+
+    // --- Save Tests ---
+
+    @Test func testToggleSave_SavesThenUnsaves() async throws {
+        let account = "toggleSave_account"
+        let viewerToken = try await setupLoggedInUser(username: "saveViewer", account: account)
+        let authorToken = try await registerUserAndGetToken(username: "saveAuthor")
+        _ = try await stubAPI.makePost(sessionManagementToken: authorToken, imageURL: "img/1", caption: "Post 1")
+
+        let post = try await firstFeedPost(token: viewerToken)
+        #expect(post.isSaved == false)
+        let sut = PostActionsViewModel(api: stubAPI, keychainHelper: keychainHelper, account: account)
+
+        // When: Save is tapped, the row updates immediately...
+        sut.toggleSave(post)
+        #expect(sut.state(for: post).isSaved == true)
+        await yield()
+
+        // ...and the backend agrees the post is saved.
+        let afterSave = try await firstFeedPost(token: viewerToken)
+        #expect(afterSave.isSaved == true)
+
+        // When: Unsave is tapped, the save is removed.
+        sut.toggleSave(post)
+        #expect(sut.state(for: post).isSaved == false)
+        await yield()
+
+        let afterUnsave = try await firstFeedPost(token: viewerToken)
+        #expect(afterUnsave.isSaved == false)
+    }
+
+    @Test func testToggleSave_OnOwnPost_IsAllowed() async throws {
+        // Unlike liking, saving your own post is permitted (issue #193/#412).
+        let account = "saveOwnPost_account"
+        let token = try await setupLoggedInUser(username: "selfSaver", account: account)
+        _ = try await stubAPI.makePost(sessionManagementToken: token, imageURL: "img/1", caption: "Mine")
+
+        let data = try await stubAPI.getPostsForUser(sessionManagementToken: token, username: "selfSaver", batch: 0)
+        let ownPosts = try JSONDecoder().decode([Post].self, from: data)
+        let post = try unwrap(ownPosts.first, "the user's own post")
+
+        let sut = PostActionsViewModel(api: stubAPI, keychainHelper: keychainHelper, account: account)
+        sut.toggleSave(post)
+        #expect(sut.state(for: post).isSaved == true)
+        await yield()
+        #expect(sut.alertMessage == nil)
+
+        let refreshed = try await stubAPI.getPostsForUser(sessionManagementToken: token, username: "selfSaver", batch: 0)
+        let refreshedPost = try unwrap(try JSONDecoder().decode([Post].self, from: refreshed).first, "the refreshed own post")
+        #expect(refreshedPost.isSaved == true)
+    }
+
+    @Test func testToggleSave_WhenRequestFails_RevertsAndAlerts() async throws {
+        let account = "saveFails_account"
+        let viewerToken = try await setupLoggedInUser(username: "failSaver", account: account)
+        let authorToken = try await registerUserAndGetToken(username: "failSaveAuthor")
+        _ = try await stubAPI.makePost(sessionManagementToken: authorToken, imageURL: "img/1", caption: "Post 1")
+
+        let post = try await firstFeedPost(token: viewerToken)
+        let sut = PostActionsViewModel(api: stubAPI, keychainHelper: keychainHelper, account: account)
+
+        // Given: the post is already saved on the backend (stale client state), so
+        // saving it again fails — mirroring the backend's "Already saved post".
+        _ = try await stubAPI.savePost(sessionManagementToken: viewerToken, postIdentifier: post.id)
+
+        sut.toggleSave(post)
+        #expect(sut.state(for: post).isSaved == true, "Optimistic update applies first")
+        await yield()
+
+        // Then: the optimistic save is rolled back and the user is told.
+        #expect(sut.state(for: post).isSaved == false)
         #expect(sut.alertMessage != nil)
     }
 

@@ -92,6 +92,8 @@ import Foundation
     static let pathSegmentResendVerificationEmail = "resend-verification-email"
     static let pathSegmentReset = "reset"
     static let pathSegmentRetract = "retract"
+    // Save / unsave a post to the viewer's collection (issue #193/#412).
+    static let pathSegmentSave = "save"
     static let pathSegmentStatus = "status"
     static let pathSegmentTags = "tags"
     static let pathSegmentThreads = "threads"
@@ -101,6 +103,7 @@ import Foundation
     static let pathSegmentUnfollow = "unfollow"
     static let pathSegmentUnfollowed = "followed"
     static let pathSegmentUnlike = "unlike"
+    static let pathSegmentUnsave = "unsave"
     static let pathSegmentUser = "user"
     static let pathSegmentUsers = "users"
     static let pathSegmentVerifyEmail = "verify-email"
