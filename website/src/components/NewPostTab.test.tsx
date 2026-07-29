@@ -185,6 +185,10 @@ test('shows the appeal message when the post is hidden pending appeal', async ()
 test('hides the background-color control once a photo is selected (#421)', async () => {
   render(<NewPostTab onPosted={() => {}} />)
 
+  // The color swatches live behind the Advanced options disclosure (#419), so
+  // open it first to match the real user flow.
+  await userEvent.click(screen.getByText('Advanced options'))
+
   // Visible on a text-only post.
   expect(screen.getByRole('button', { name: 'Mint' })).toBeInTheDocument()
 
@@ -201,6 +205,8 @@ test('sends the default background color even if one was picked before adding a 
   mockCreatePost.mockResolvedValue({ post_identifier: 'p1' })
   render(<NewPostTab onPosted={() => {}} />)
 
+  // The color swatches live behind the Advanced options disclosure (#419).
+  await userEvent.click(screen.getByText('Advanced options'))
   await userEvent.type(screen.getByLabelText('Caption'), 'great day')
   await userEvent.click(screen.getByRole('button', { name: 'Mint' }))
   await userEvent.upload(screen.getByLabelText('Choose a photo'), makeFile())

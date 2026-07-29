@@ -232,9 +232,13 @@ fun NewPostScreen(
             // While a post is submitting, keep the button in place and switch it
             // to a "Processing…" state rather than hiding it (issue #306).
             Button(
-                onClick = {
+                onClick = submitPost@{
+                    // Guard against a fast double-tap: the button now stays on
+                    // screen while submitting (#306), so set the flag before
+                    // launching and bail if a submission is already in flight.
+                    if (isLoading) return@submitPost
+                    isLoading = true
                     scope.launch {
-                            isLoading = true
                             try {
                                 // Load session first so we can scope the S3 key to the authenticated user.
                                 val session = keychainHelper.load(
