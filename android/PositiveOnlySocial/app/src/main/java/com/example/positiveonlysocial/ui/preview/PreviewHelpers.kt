@@ -363,6 +363,14 @@ class MockPositiveOnlySocialAPI : PositiveOnlySocialAPI {
         )
     }
 
+    override suspend fun savePost(token: String, postId: String): Response<GenericResponse> {
+        return Response.success(GenericResponse(message = "Post saved", error = null))
+    }
+
+    override suspend fun unsavePost(token: String, postId: String): Response<GenericResponse> {
+        return Response.success(GenericResponse(message = "Post unsaved", error = null))
+    }
+
     override suspend fun commentOnPost(
         token: String,
         postId: String,

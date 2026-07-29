@@ -1,3 +1,4 @@
+blurhash
 boto3
 cryptography
 openai

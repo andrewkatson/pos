@@ -91,6 +91,7 @@ fileprivate struct MockPost {
     var captionFont: String = "default"
     var backgroundColor: String = "default"
     var likes: [String] = [] // Usernames of likers
+    var savers: [String] = [] // Usernames who saved the post (issue #193/#412)
     var reports: [(username: String, reason: String)] = []
     var commentThreads: [MockCommentThread] = []
     var isHidden: Bool = false
@@ -120,6 +121,8 @@ fileprivate struct PostListingFields: Codable {
     let author_profile_image_original_url: String?
     let post_likes: Int
     let is_liked: Bool
+    /// Whether the viewer has saved this post (issue #193/#412).
+    let is_saved: Bool
     let is_reported: Bool
     let report_reason: String?
     /// Comments visible to the viewer, and when the post was made — the extra
@@ -257,6 +260,7 @@ final class StatefulStubbedAPI: Networking {
             author_profile_image_original_url: authorAvatar,
             post_likes: post.likes.count,
             is_liked: post.likes.contains(viewer.username),
+            is_saved: post.savers.contains(viewer.username),
             is_reported: viewerReport != nil,
             report_reason: viewerReport?.reason,
             comment_count: commentCount(forPost: post.postIdentifier),
@@ -948,6 +952,29 @@ final class StatefulStubbedAPI: Networking {
         return try createEmptySuccessResponse()
     }
 
+    func savePost(sessionManagementToken: String, postIdentifier: String) async throws -> Data {
+        await simulateNetwork()
+        guard let saver = findUser(bySessionToken: sessionManagementToken) else { throw APIError.badServerResponse(statusCode: 400) }
+        guard let postIndex = posts.firstIndex(where: { $0.postIdentifier == postIdentifier }) else { throw APIError.badServerResponse(statusCode: 400) }
+        // Mirror the backend (save_post): a repeat save is rejected with 400
+        // ("Already saved post"), like a double-like — so the client's optimistic
+        // revert path is exercised. Saving your own post is still allowed.
+        if posts[postIndex].savers.contains(saver.username) { throw APIError.badServerResponse(statusCode: 400) }
+        posts[postIndex].savers.append(saver.username)
+        return try createEmptySuccessResponse()
+    }
+
+    func unsavePost(sessionManagementToken: String, postIdentifier: String) async throws -> Data {
+        await simulateNetwork()
+        guard let saver = findUser(bySessionToken: sessionManagementToken) else { throw APIError.badServerResponse(statusCode: 400) }
+        guard let postIndex = posts.firstIndex(where: { $0.postIdentifier == postIdentifier }) else { throw APIError.badServerResponse(statusCode: 400) }
+        // Mirror the backend (unsave_post): unsaving a post that wasn't saved is
+        // rejected with 400 ("Post not saved yet").
+        guard let saveIndex = posts[postIndex].savers.firstIndex(of: saver.username) else { throw APIError.badServerResponse(statusCode: 400) }
+        posts[postIndex].savers.remove(at: saveIndex)
+        return try createEmptySuccessResponse()
+    }
+
     func getPostsInFeed(sessionManagementToken: String, batch: Int) async throws -> Data {
         getPostsInFeedCallCount += 1 // Track call count
         await simulateNetwork()
@@ -1092,6 +1119,7 @@ final class StatefulStubbedAPI: Networking {
             let creation_time: String
             let post_likes: Int
             let is_liked: Bool
+            let is_saved: Bool
             let is_reported: Bool
             let report_reason: String?
             let author_username: String
@@ -1118,6 +1146,7 @@ final class StatefulStubbedAPI: Networking {
             ),
             post_likes: post.likes.count,
             is_liked: post.likes.contains(user.username),
+            is_saved: post.savers.contains(user.username),
             is_reported: userReport != nil,
             report_reason: userReport?.reason,
             author_username: users.first(where: {$0.id == post.authorId})?.username ?? "Unknown User",

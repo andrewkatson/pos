@@ -143,6 +143,47 @@ class PostListActions(
         }
     }
 
+    /**
+     * Saves or unsaves [post], depending on its current server-backed save state.
+     * The bookmark updates immediately and reverts if the request fails. Unlike
+     * liking, saving your own post is allowed (issue #193/#412).
+     */
+    fun toggleSave(post: Post) {
+        val current = currentVersionOf(post) ?: return
+        val wasSaved = current.isSaved == true
+        val saving = !wasSaved
+
+        applySave(post.postIdentifier, saving)
+
+        scope.launch {
+            val token = sessionToken()
+            if (token == null) {
+                applySave(post.postIdentifier, wasSaved)
+                return@launch
+            }
+            try {
+                val response = if (saving) {
+                    api.savePost(token, post.postIdentifier)
+                } else {
+                    api.unsavePost(token, post.postIdentifier)
+                }
+                if (!response.isSuccessful) {
+                    applySave(post.postIdentifier, wasSaved)
+                    _alertMessage.value = ApiErrors.messageFor(
+                        response,
+                        fallback = if (saving) "Failed to save the post. Please try again."
+                        else "Failed to unsave the post. Please try again."
+                    )
+                }
+            } catch (e: Exception) {
+                Log.e(TAG, "Failed to toggle save on post", e)
+                applySave(post.postIdentifier, wasSaved)
+                _alertMessage.value =
+                    ApiErrors.messageFor(e, fallback = "Something went wrong. Please try again.")
+            }
+        }
+    }
+
     /** Files a report against [post] with [reason]. */
     fun reportPost(post: Post, reason: String) {
         val current = currentVersionOf(post) ?: return
@@ -273,6 +314,12 @@ class PostListActions(
 
     private fun applyReport(postIdentifier: String, isReported: Boolean, reason: String?) {
         updatePost(postIdentifier) { it.copy(isReported = isReported, reportReason = reason) }
+    }
+
+    // Only the saved flag is written back, so a concurrent like/report revert
+    // can't clobber it (and vice versa).
+    private fun applySave(postIdentifier: String, isSaved: Boolean) {
+        updatePost(postIdentifier) { it.copy(isSaved = isSaved) }
     }
 
     private fun removeLocally(postIdentifier: String) {

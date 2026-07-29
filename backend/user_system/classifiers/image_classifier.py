@@ -10,6 +10,7 @@ from .classifier_utils import (
     get_available_apis, classify_with_thresholds, ClassificationResult,
     IMAGE_API_DISPATCH,
 )
+from . import image_prefilter
 from ..utils import convert_to_bool
 
 logger = logging.getLogger(__name__)
@@ -115,6 +116,17 @@ def is_image_positive(image_url):
         image_data = response['Body'].read()
         image = Image.open(BytesIO(image_data))
         logger.debug("PIL image opened — size=%s mode=%s", image.size, image.mode)
+
+        # Blunt, zero-API local pre-filter (issue #393) runs before the paid
+        # cascade: a confident nudity/gore hit is a final rejection, exactly
+        # like the text pre-filter. It fails open (allows) when its optional
+        # models are absent, so this can only ever add a rejection the cascade
+        # might also have made — never fail the image on infrastructure.
+        prefilter_result = image_prefilter.prefilter_image(image)
+        if not prefilter_result:
+            logger.info("Image rejected by local pre-filter (reason=%s) for key=%s; skipping AI cascade.",
+                        prefilter_result.public_reason_code(), key)
+            return prefilter_result
 
         def call_api(api_name):
             try:

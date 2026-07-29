@@ -308,6 +308,11 @@ export interface FeedPost extends AuthorAvatarFields {
    * tiles render as broken images until the user re-logs in (issues #252/#254).
    * Older responses that predate the field omit it. */
   original_image_url?: string | null
+  /** A BlurHash string (issue #387) decoded client-side into a blurred preview
+   * shown while the image loads, so a feed tile is a soft blur of the real photo
+   * instead of a grey square. Null for text-only posts and until the async
+   * classification worker has computed it; older responses omit it. */
+  image_blurhash?: string | null
   author_username: string
   caption: string
   /** Hashtags parsed from the caption (issue #379), normalized to lowercase and
@@ -363,6 +368,9 @@ export interface PostDetails extends AuthorAvatarFields {
    * compressed `image_url` fails to load (see `FeedPost.original_image_url`).
    * Older responses that predate the field omit it. */
   original_image_url?: string | null
+  /** A BlurHash string decoded into a blurred preview shown while the image
+   * loads (issue #387; see `FeedPost.image_blurhash`). */
+  image_blurhash?: string | null
   caption: string
   /** ISO-8601 timestamp of when the post was created. The backend column is
    * nullable, so this can be null; older responses that predate the field

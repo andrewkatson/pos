@@ -188,6 +188,19 @@ interface PositiveOnlySocialAPI {
         @Path("post_id") postId: String
     ): Response<GenericResponse>
 
+    // Save / unsave a post to the viewer's saved collection (issue #193/#412).
+    @POST("posts/{post_id}/save/")
+    suspend fun savePost(
+        @Header("Authorization") token: String,
+        @Path("post_id") postId: String
+    ): Response<GenericResponse>
+
+    @POST("posts/{post_id}/unsave/")
+    suspend fun unsavePost(
+        @Header("Authorization") token: String,
+        @Path("post_id") postId: String
+    ): Response<GenericResponse>
+
     // ============================================================================================
     // COMMENTS
     // ============================================================================================
