@@ -66,7 +66,16 @@ function NewPostTab({ onPosted }: NewPostTabProps) {
   function handleFileChange(next: File | null) {
     setFile(next)
     setPreviewUrl(next ? URL.createObjectURL(next) : null)
+    // On a photo post the background color applies to nothing visible (the
+    // photo, not a caption tile, fills the post), so picking one is confusing
+    // (issue #421). Drop any chosen color and hide the control while a photo is
+    // attached; reset back to default so no stale value is sent.
+    if (next) setBackgroundColor('default')
   }
+
+  // Whether the background-color control is meaningful. Hidden on photo posts
+  // (issue #421) since the color never shows on the rendered image post.
+  const showBackgroundControls = !file
 
   const isFormValid = caption.trim().length > 0 && isWithinLimit(caption, MAX_CAPTION_LENGTH)
 
@@ -250,29 +259,35 @@ function NewPostTab({ onPosted }: NewPostTabProps) {
           </select>
         </div>
 
-        <div className="auth-field">
-          <span className="auth-label" id="bg-color-label">
-            Background color
-          </span>
-          {/* Toggle buttons in a labeled group rather than an ARIA radiogroup:
-              a radiogroup implies roving-tabindex/arrow-key navigation we don't
-              implement, so aria-pressed toggles are the more honest semantics. */}
-          <div className="color-swatches" role="group" aria-labelledby="bg-color-label">
-            {BACKGROUND_COLOR_OPTIONS.map(option => (
-              <button
-                key={option.key}
-                type="button"
-                aria-pressed={option.key === backgroundColor}
-                aria-label={option.label}
-                className={`color-swatch post-bg--${option.key}${
-                  option.key === backgroundColor ? ' color-swatch--selected' : ''
-                }`}
-                onClick={() => setBackgroundColor(option.key)}
-                disabled={isLoading}
-              />
-            ))}
+        {/* On a photo post the background color never shows (the image fills the
+            post), so hide the control to avoid promising a change that never
+            appears (issue #421). The font, which does style an image post's
+            caption, stays available. */}
+        {showBackgroundControls && (
+          <div className="auth-field">
+            <span className="auth-label" id="bg-color-label">
+              Background color
+            </span>
+            {/* Toggle buttons in a labeled group rather than an ARIA radiogroup:
+                a radiogroup implies roving-tabindex/arrow-key navigation we don't
+                implement, so aria-pressed toggles are the more honest semantics. */}
+            <div className="color-swatches" role="group" aria-labelledby="bg-color-label">
+              {BACKGROUND_COLOR_OPTIONS.map(option => (
+                <button
+                  key={option.key}
+                  type="button"
+                  aria-pressed={option.key === backgroundColor}
+                  aria-label={option.label}
+                  className={`color-swatch post-bg--${option.key}${
+                    option.key === backgroundColor ? ' color-swatch--selected' : ''
+                  }`}
+                  onClick={() => setBackgroundColor(option.key)}
+                  disabled={isLoading}
+                />
+              ))}
+            </div>
           </div>
-        </div>
+        )}
       </details>
 
       {/* A full-post preview (issue #418): the author line, the square image (or
@@ -307,15 +322,16 @@ function NewPostTab({ onPosted }: NewPostTabProps) {
         </article>
       </div>
 
-      {isLoading ? (
-        <div className="center-spinner">
-          <span className="spinner" />
-        </div>
-      ) : (
-        <button type="submit" className="btn btn-primary" disabled={!isFormValid}>
-          Share Post
-        </button>
-      )}
+      {/* Keep the button in place while submitting and swap its label to a
+          processing state rather than hiding it (issue #306). */}
+      <button
+        type="submit"
+        className="btn btn-primary"
+        disabled={isLoading || !isFormValid}
+        aria-busy={isLoading}
+      >
+        {isLoading ? 'Processing…' : 'Share Post'}
+      </button>
     </form>
   )
 }

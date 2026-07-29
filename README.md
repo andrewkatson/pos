@@ -149,7 +149,12 @@ styling means different things:
   `blush`, `lemon`, `lavender`. Each client maps a key to a concrete,
   contrast-checked font/color, so rendering stays consistent and legible across
   web, iOS, and Android. Unknown keys are rejected; `default` reproduces the
-  original rendering, so legacy posts and older clients are unaffected.
+  original rendering, so legacy posts and older clients are unaffected. The
+  background color only shows on **text-only** posts: on a photo post the image
+  fills the tile, so the color has no visible effect. To avoid promising a
+  change that never appears, the composer **hides the background-color control
+  while a photo is attached** and sends `default` for image posts (issue #421);
+  the font, which does style an image post's caption, stays available.
 - **Comments** carry **inline** formatting (`body_formatting`): a list of range
   **spans** over the plain comment text, each `{start, end, bold, italic,
   size}`, where `size` is one of `small`/`normal`/`large`/`xlarge` and offsets

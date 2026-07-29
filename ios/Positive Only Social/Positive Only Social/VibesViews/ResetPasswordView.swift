@@ -43,18 +43,27 @@ struct ResetPasswordView: View {
                 }
                 
                 Section(header: Text("Set New Password")) {
-                    SecureField("New Password", text: $newPassword)
-                        // Disable the automatic "Use Strong Password" AutoFill prompt
-                        // during UI tests, where it would block interaction. Real users
-                        // still get the new-password content type.
-                        .textContentType(isUITesting() ? nil : .newPassword)
-                        .accessibilityIdentifier("NewPasswordSecureField")
+                    // SecureInputField preserves what the user typed when the
+                    // field loses and regains focus; a plain SecureField clears
+                    // it on the next edit, wiping the entry (issue #301).
+                    // Disable the automatic "Use Strong Password" AutoFill prompt
+                    // during UI tests, where it would block interaction. Real users
+                    // still get the new-password content type.
+                    SecureInputField(
+                        "New Password",
+                        text: $newPassword,
+                        textContentType: isUITesting() ? nil : .newPassword,
+                        accessibilityIdentifier: "NewPasswordSecureField"
+                    )
                     if !newPassword.isEmpty {
                         RequirementHints(requirements: AuthRequirements.password(newPassword))
                     }
-                    SecureField("Confirm Password", text: $confirmPassword)
-                        .textContentType(isUITesting() ? nil : .newPassword)
-                        .accessibilityIdentifier("ConfirmNewPasswordSecureField")
+                    SecureInputField(
+                        "Confirm Password",
+                        text: $confirmPassword,
+                        textContentType: isUITesting() ? nil : .newPassword,
+                        accessibilityIdentifier: "ConfirmNewPasswordSecureField"
+                    )
                     if !confirmPassword.isEmpty && newPassword != confirmPassword {
                         Text("Passwords do not match.")
                             .font(.caption)

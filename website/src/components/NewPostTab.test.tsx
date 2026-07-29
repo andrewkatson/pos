@@ -182,6 +182,65 @@ test('shows the appeal message when the post is hidden pending appeal', async ()
   expect(await screen.findByText(/hidden for now but you can appeal/i)).toBeInTheDocument()
 })
 
+test('hides the background-color control once a photo is selected (#421)', async () => {
+  render(<NewPostTab onPosted={() => {}} />)
+
+  // The color swatches live behind the Advanced options disclosure (#419), so
+  // open it first to match the real user flow.
+  await userEvent.click(screen.getByText('Advanced options'))
+
+  // Visible on a text-only post.
+  expect(screen.getByRole('button', { name: 'Mint' })).toBeInTheDocument()
+
+  await userEvent.upload(screen.getByLabelText('Choose a photo'), makeFile())
+
+  // Gone once a photo is attached — the color never shows on an image post.
+  expect(screen.queryByRole('button', { name: 'Mint' })).not.toBeInTheDocument()
+})
+
+test('sends the default background color even if one was picked before adding a photo (#421)', async () => {
+  mockUploadImage.mockResolvedValue(
+    'https://goodvibesonly-images.s3.us-east-2.amazonaws.com/user-123/abc.jpeg',
+  )
+  mockCreatePost.mockResolvedValue({ post_identifier: 'p1' })
+  render(<NewPostTab onPosted={() => {}} />)
+
+  // The color swatches live behind the Advanced options disclosure (#419).
+  await userEvent.click(screen.getByText('Advanced options'))
+  await userEvent.type(screen.getByLabelText('Caption'), 'great day')
+  await userEvent.click(screen.getByRole('button', { name: 'Mint' }))
+  await userEvent.upload(screen.getByLabelText('Choose a photo'), makeFile())
+  await userEvent.click(screen.getByRole('button', { name: 'Share Post' }))
+
+  await waitFor(() =>
+    expect(mockCreatePost).toHaveBeenCalledWith(
+      expect.objectContaining({ background_color: 'default' }),
+    ),
+  )
+})
+
+test('keeps the share button visible with a processing label while submitting (#306)', async () => {
+  let resolveCreate: () => void = () => {}
+  mockCreatePost.mockReturnValue(
+    new Promise(resolve => {
+      resolveCreate = () => resolve({ post_identifier: 'p1' })
+    }),
+  )
+  render(<NewPostTab onPosted={() => {}} />)
+
+  await userEvent.type(screen.getByLabelText('Caption'), 'great day')
+  await userEvent.click(screen.getByRole('button', { name: 'Share Post' }))
+
+  const processing = await screen.findByRole('button', { name: 'Processing…' })
+  expect(processing).toBeInTheDocument()
+  expect(processing).toBeDisabled()
+
+  resolveCreate()
+  await waitFor(() =>
+    expect(screen.getByRole('button', { name: 'Share Post' })).toBeInTheDocument(),
+  )
+})
+
 test('shows an error when the upload fails', async () => {
   mockUploadImage.mockRejectedValue({ message: 'Upload failed' })
   render(<NewPostTab onPosted={() => {}} />)

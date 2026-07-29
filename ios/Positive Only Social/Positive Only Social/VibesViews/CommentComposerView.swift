@@ -210,7 +210,13 @@ struct CommentComposerView: View {
           NavigationView {
               Form {
                   Section {
-                      // Inline formatting toolbar: styles the current selection.
+                      FormattedTextEditor(controller: controller)
+                          .frame(minHeight: 150)
+
+                      // The formatting toolbar sits below the editor so the
+                      // system's text-selection callout (Cut/Copy/Paste), which
+                      // pops up above the highlighted text, doesn't cover the
+                      // Bold/Italic/Size controls (issue #425).
                       HStack(spacing: 20) {
                           Button { controller.toggleBold() } label: {
                               Image(systemName: "bold")
@@ -233,8 +239,6 @@ struct CommentComposerView: View {
                       .buttonStyle(.borderless)
                       .font(.headline)
 
-                      FormattedTextEditor(controller: controller)
-                          .frame(minHeight: 150)
                       Text("Select text, then tap Bold, Italic, or Size to format it.")
                           .font(.caption)
                           .foregroundColor(.secondary)
