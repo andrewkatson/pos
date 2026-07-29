@@ -830,11 +830,19 @@ final class Positive_Only_SocialUITests: XCTestCase {
         // and typeText requires the field to actually hold keyboard focus.
         var refocusAttempts = 0
         passwordTextField.tap()
-        while !passwordTextField.hasFocus && app.keyboards.count == 0 && refocusAttempts < 5 {
+        // Keep retrying until the field truly holds focus AND a keyboard is up
+        // (mirrors the typeText helper). A plain `&&` would exit as soon as
+        // either was true — and the keyboard is already visible from the prior
+        // field, so the loop would never actually retry the focus tap.
+        while (!passwordTextField.hasFocus || app.keyboards.count == 0) && refocusAttempts < 5 {
             passwordTextField.tap()
             RunLoop.current.run(until: NSDate(timeIntervalSinceNow: 0.5) as Date)
             refocusAttempts += 1
         }
+        XCTAssertTrue(
+            passwordTextField.hasFocus,
+            "New password field did not regain focus for the refocus regression check"
+        )
         passwordTextField.typeText("!")
         let lengthAfterRefocus = (passwordTextField.value as? String)?.count ?? 0
         XCTAssertEqual(
