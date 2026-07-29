@@ -742,7 +742,18 @@ fun CommentComposerDialog(
             // inserts a newline). The dialog's confirm/Cancel buttons remain
             // reachable above the keyboard, so no Done-to-dismiss is needed.
             Column {
-                // Formatting toolbar: styles the current text selection.
+                TextField(
+                    value = value,
+                    onValueChange = { newValue ->
+                        styles = CommentFormatting.reconcile(styles, value.text, newValue.text)
+                        value = newValue
+                    },
+                    placeholder = { Text("Write a comment...") }
+                )
+                // The formatting toolbar sits BELOW the field so the native
+                // Cut/Copy/Paste selection popup — which appears above the
+                // highlighted text — no longer covers the B / I / Size controls
+                // (issue #425).
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     TextButton(onClick = {
                         selectionRange()?.let { (s, e) -> styles = CommentFormatting.toggleBold(styles, s, e) }
@@ -765,14 +776,6 @@ fun CommentComposerDialog(
                         }
                     }
                 }
-                TextField(
-                    value = value,
-                    onValueChange = { newValue ->
-                        styles = CommentFormatting.reconcile(styles, value.text, newValue.text)
-                        value = newValue
-                    },
-                    placeholder = { Text("Write a comment...") }
-                )
                 Text(
                     "Select text, then tap B, I, or Size to format it.",
                     style = MaterialTheme.typography.labelSmall

@@ -1,6 +1,8 @@
 package com.example.positiveonlysocial.ui.auth
 
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.*
@@ -131,14 +133,25 @@ fun RegisterScreen(
             )
         }
 
+        // Keep the Register button pinned below a scrollable field area so it
+        // stays reachable when the keyboard covers the lower fields (#277). The
+        // inner column scrolls (bounded by the outer column's weight), so the
+        // button never gets pushed off-screen.
         Column(
             modifier = Modifier
                 .fillMaxSize()
                 .dismissKeyboardOnTap()
                 .padding(16.dp),
-            verticalArrangement = Arrangement.spacedBy(15.dp),
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
+            Column(
+                modifier = Modifier
+                    .weight(1f)
+                    .fillMaxWidth()
+                    .verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(15.dp),
+                horizontalAlignment = Alignment.CenterHorizontally
+            ) {
             Text(
                 text = "Create Account",
                 fontSize = 30.sp,
@@ -215,7 +228,9 @@ fun RegisterScreen(
                 )
             }
 
-            Spacer(modifier = Modifier.weight(1f))
+            }
+
+            Spacer(modifier = Modifier.height(16.dp))
 
             if (isLoading) {
                 CircularProgressIndicator()

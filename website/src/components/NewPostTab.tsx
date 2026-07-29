@@ -56,7 +56,16 @@ function NewPostTab({ onPosted }: NewPostTabProps) {
   function handleFileChange(next: File | null) {
     setFile(next)
     setPreviewUrl(next ? URL.createObjectURL(next) : null)
+    // On a photo post the background color applies to nothing visible (the
+    // photo, not a caption tile, fills the post), so picking one is confusing
+    // (issue #421). Drop any chosen color and hide the control while a photo is
+    // attached; reset back to default so no stale value is sent.
+    if (next) setBackgroundColor('default')
   }
+
+  // Whether the background-color control is meaningful. Hidden on photo posts
+  // (issue #421) since the color never shows on the rendered image post.
+  const showBackgroundControls = !file
 
   const isFormValid = caption.trim().length > 0 && isWithinLimit(caption, MAX_CAPTION_LENGTH)
 
@@ -141,6 +150,11 @@ function NewPostTab({ onPosted }: NewPostTabProps) {
 
       <div className="auth-field">
         <span className="auth-label">Photo (optional)</span>
+        {/* The photo sits above its button so the larger preview leads and the
+            "Change Photo" action reads as a caption to it (issue #305). */}
+        {previewUrl && (
+          <img className="form-section__preview" src={previewUrl} alt="Selected post preview" />
+        )}
         <button
           type="button"
           className="btn btn-outline form-section__file-button"
@@ -163,10 +177,6 @@ function NewPostTab({ onPosted }: NewPostTabProps) {
           disabled={isLoading}
         />
       </div>
-
-      {previewUrl && (
-        <img className="form-section__preview" src={previewUrl} alt="Selected post preview" />
-      )}
 
       <div className="auth-field">
         <label className="auth-label" htmlFor="caption">
@@ -224,48 +234,57 @@ function NewPostTab({ onPosted }: NewPostTabProps) {
         </select>
       </div>
 
-      <div className="auth-field">
-        <span className="auth-label" id="bg-color-label">
-          Background color
-        </span>
-        {/* Toggle buttons in a labeled group rather than an ARIA radiogroup:
-            a radiogroup implies roving-tabindex/arrow-key navigation we don't
-            implement, so aria-pressed toggles are the more honest semantics. */}
-        <div className="color-swatches" role="group" aria-labelledby="bg-color-label">
-          {BACKGROUND_COLOR_OPTIONS.map(option => (
-            <button
-              key={option.key}
-              type="button"
-              aria-pressed={option.key === backgroundColor}
-              aria-label={option.label}
-              className={`color-swatch post-bg--${option.key}${
-                option.key === backgroundColor ? ' color-swatch--selected' : ''
-              }`}
-              onClick={() => setBackgroundColor(option.key)}
-              disabled={isLoading}
-            />
-          ))}
+      {showBackgroundControls && (
+        <div className="auth-field">
+          <span className="auth-label" id="bg-color-label">
+            Background color
+          </span>
+          {/* Toggle buttons in a labeled group rather than an ARIA radiogroup:
+              a radiogroup implies roving-tabindex/arrow-key navigation we don't
+              implement, so aria-pressed toggles are the more honest semantics. */}
+          <div className="color-swatches" role="group" aria-labelledby="bg-color-label">
+            {BACKGROUND_COLOR_OPTIONS.map(option => (
+              <button
+                key={option.key}
+                type="button"
+                aria-pressed={option.key === backgroundColor}
+                aria-label={option.label}
+                className={`color-swatch post-bg--${option.key}${
+                  option.key === backgroundColor ? ' color-swatch--selected' : ''
+                }`}
+                onClick={() => setBackgroundColor(option.key)}
+                disabled={isLoading}
+              />
+            ))}
+          </div>
         </div>
-      </div>
+      )}
 
       <div className="auth-field">
         <span className="auth-label">Preview</span>
-        <div className={`caption-preview post-bg ${backgroundColorClass(backgroundColor)}`}>
+        {/* On a photo post the background never shows, so the preview drops it
+            too (issue #421) and only previews the font. */}
+        <div
+          className={`caption-preview post-bg ${backgroundColorClass(
+            showBackgroundControls ? backgroundColor : 'default',
+          )}`}
+        >
           <p className={`caption-preview__text ${captionFontClass(captionFont)}`}>
             {caption.trim() || 'Your caption will look like this.'}
           </p>
         </div>
       </div>
 
-      {isLoading ? (
-        <div className="center-spinner">
-          <span className="spinner" />
-        </div>
-      ) : (
-        <button type="submit" className="btn btn-primary" disabled={!isFormValid}>
-          Share Post
-        </button>
-      )}
+      {/* Keep the button in place while submitting and swap its label to a
+          processing state rather than hiding it (issue #306). */}
+      <button
+        type="submit"
+        className="btn btn-primary"
+        disabled={isLoading || !isFormValid}
+        aria-busy={isLoading}
+      >
+        {isLoading ? 'Processing…' : 'Share Post'}
+      </button>
     </form>
   )
 }

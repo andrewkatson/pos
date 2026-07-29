@@ -66,7 +66,12 @@ fun NewPostScreen(
 
         val singlePhotoPickerLauncher = rememberLauncherForActivityResult(
             contract = ActivityResultContracts.PickVisualMedia(),
-            onResult = { uri -> selectedImageUri = uri }
+            onResult = { uri ->
+                selectedImageUri = uri
+                // Adding a photo hides the background control (issue #421); clear
+                // any color already chosen so a stale value isn't sent.
+                if (uri != null) backgroundColor = "default"
+            }
         )
 
         if (showSuccessAlert) {
@@ -119,6 +124,19 @@ fun NewPostScreen(
                 style = MaterialTheme.typography.headlineMedium
             )
 
+            // Show the chosen photo prominently first; the "Change Photo" button
+            // sits below the larger image and reads as its caption (issue #305).
+            if (selectedImageUri != null) {
+                AsyncImage(
+                    model = selectedImageUri,
+                    contentDescription = "Selected Image",
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(240.dp),
+                    contentScale = ContentScale.Crop
+                )
+            }
+
             Button(
                 onClick = {
                     singlePhotoPickerLauncher.launch(
@@ -138,17 +156,6 @@ fun NewPostScreen(
                 Text(
                     text = if (selectedImageUri == null) "Select a Photo (Optional)" else "Change Photo",
                     style = MaterialTheme.typography.titleMedium
-                )
-            }
-
-            if (selectedImageUri != null) {
-                AsyncImage(
-                    model = selectedImageUri,
-                    contentDescription = "Selected Image",
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(200.dp),
-                    contentScale = ContentScale.Crop
                 )
             }
 
@@ -198,28 +205,30 @@ fun NewPostScreen(
                 selected = captionFont,
                 onSelected = { captionFont = it }
             )
-            StyleKeyDropdown(
-                label = "Background",
-                options = TextFormatting.backgroundOptions,
-                selected = backgroundColor,
-                onSelected = { backgroundColor = it }
-            )
+            // On a photo post the background color never shows (the image fills
+            // the tile), so hide the control to avoid promising a change that
+            // never appears (issue #421).
+            if (selectedImageUri == null) {
+                StyleKeyDropdown(
+                    label = "Background",
+                    options = TextFormatting.backgroundOptions,
+                    selected = backgroundColor,
+                    onSelected = { backgroundColor = it }
+                )
+            }
             CaptionPreview(
                 caption = caption.ifBlank { "Your caption will look like this." },
                 captionFont = captionFont,
-                backgroundColor = backgroundColor
+                backgroundColor = if (selectedImageUri == null) backgroundColor else "default"
             )
 
             Spacer(modifier = Modifier.weight(1f))
 
-            if (isLoading) {
-                Box(modifier = Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
-                    CircularProgressIndicator()
-                }
-            } else {
-                Button(
-                    onClick = {
-                        scope.launch {
+            // While a post is submitting, keep the button in place and switch it
+            // to a "Processing…" state rather than hiding it (issue #306).
+            Button(
+                onClick = {
+                    scope.launch {
                             isLoading = true
                             try {
                                 // Load session first so we can scope the S3 key to the authenticated user.
@@ -350,11 +359,20 @@ fun NewPostScreen(
                         }
                     },
                     modifier = Modifier.fillMaxWidth(),
-                    enabled = caption.isNotEmpty() && isWithinLength(caption, Constants.MAX_CAPTION_LENGTH)
+                    enabled = !isLoading && caption.isNotEmpty() && isWithinLength(caption, Constants.MAX_CAPTION_LENGTH)
                 ) {
-                    Text("Share Post")
+                    if (isLoading) {
+                        CircularProgressIndicator(
+                            modifier = Modifier.size(18.dp),
+                            strokeWidth = 2.dp,
+                            color = MaterialTheme.colorScheme.onPrimary
+                        )
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text("Processing…")
+                    } else {
+                        Text("Share Post")
+                    }
                 }
-            }
         }
     }
 }
