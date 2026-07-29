@@ -67,10 +67,15 @@ fun NewPostScreen(
         val singlePhotoPickerLauncher = rememberLauncherForActivityResult(
             contract = ActivityResultContracts.PickVisualMedia(),
             onResult = { uri ->
-                selectedImageUri = uri
-                // Adding a photo hides the background control (issue #421); clear
-                // any color already chosen so a stale value isn't sent.
-                if (uri != null) backgroundColor = "default"
+                // A null uri means the user cancelled the picker; keep the
+                // current selection rather than clearing it (matches web/iOS,
+                // where cancelling "Change Photo" leaves the existing image).
+                if (uri != null) {
+                    selectedImageUri = uri
+                    // Adding a photo hides the background control (issue #421);
+                    // clear any color already chosen so a stale value isn't sent.
+                    backgroundColor = "default"
+                }
             }
         )
 
