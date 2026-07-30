@@ -1,5 +1,5 @@
 import { Fragment } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useNavigate } from 'react-router'
 import { splitCaptionByTags, tagPathFor } from '../utils/tags'
 
 /**

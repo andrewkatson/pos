@@ -1,5 +1,5 @@
 import { useState, type FormEvent } from 'react'
-import { useLocation, useNavigate } from 'react-router-dom'
+import { useLocation, useNavigate } from 'react-router'
 import Logo from '../components/Logo'
 import { apiClient } from '../api/client'
 import type { ApiError } from '../api/client'

@@ -1,5 +1,5 @@
 import { useEffect } from 'react'
-import { useNavigate, useSearchParams } from 'react-router-dom'
+import { useNavigate, useSearchParams } from 'react-router'
 import ProfileTab from '../components/ProfileTab'
 import FeedTab from '../components/FeedTab'
 import NewPostTab from '../components/NewPostTab'

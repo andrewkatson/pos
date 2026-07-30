@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { Navigate, useNavigate } from 'react-router-dom'
+import { Navigate, useNavigate } from 'react-router'
 import { apiClient } from '../api/client'
 import type { ApiError } from '../api/client'
 import { getCurrentUsername } from '../api/session'

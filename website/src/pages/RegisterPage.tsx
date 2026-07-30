@@ -1,5 +1,5 @@
 import { useCallback, useRef, useState, useEffect } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useNavigate } from 'react-router'
 import Logo from '../components/Logo'
 import { apiClient } from '../api/client'
 import type { ApiError } from '../api/client'

@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useNavigate } from 'react-router'
 import { apiClient } from '../api/client'
 import { clearSession } from '../api/session'
 import type { CurrentUser } from '../api/types'

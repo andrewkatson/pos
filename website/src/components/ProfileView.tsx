@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState, type ChangeEvent } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useNavigate } from 'react-router'
 import { apiClient, ApiError } from '../api/client'
 import { uploadImage } from '../api/s3Uploader'
 import { isWithinLimit, MAX_BIO_LENGTH } from '../auth/requirements'

@@ -1,4 +1,4 @@
-import { Navigate, useNavigate, useParams } from 'react-router-dom'
+import { Navigate, useNavigate, useParams } from 'react-router'
 import { apiClient } from '../api/client'
 import { getCurrentUsername } from '../api/session'
 import ProfileView from '../components/ProfileView'
