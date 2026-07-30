@@ -194,7 +194,14 @@ function NewPostTab({ onPosted }: NewPostTabProps) {
           type="file"
           accept="image/*"
           aria-label="Choose a photo"
-          onChange={e => handleFileChange(e.target.files?.[0] ?? null)}
+          onChange={e => {
+            handleFileChange(e.target.files?.[0] ?? null)
+            // Clear the input so picking the *same* file again still fires
+            // onChange (browsers skip it when the value is unchanged), letting
+            // "Change photo" re-select the current image. Safe because the
+            // chosen File is held in state, not read back off the input.
+            e.target.value = ''
+          }}
           disabled={isLoading}
         />
       </div>
