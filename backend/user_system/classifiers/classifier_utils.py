@@ -24,7 +24,7 @@ API_GEMINI = 'gemini'
 API_OPENAI = 'openai'
 API_CLAUDE = 'claude'
 
-# Priority order: cheapest/free first, most expensive last.
+# Priority order: cheapest first, most expensive last.
 #
 # NOTE: classify_with_thresholds consults at most THREE tiers (it decides by the
 # 3rd usable score), so on the normal path where the first three tiers all
@@ -38,8 +38,15 @@ CASCADE_ORDER = (API_GEMMA, API_GEMINI, API_OPENAI, API_CLAUDE)
 # Default OpenRouter model ID per tier. Override any one of them with the env
 # var OPENROUTER_MODEL_<TIER> (e.g. OPENROUTER_MODEL_GEMMA) to switch models
 # without touching code.
+#
+# The Gemma tier uses the paid `google/gemma-3-12b-it` slug, not the
+# `:free` variant: OpenRouter retired the free Gemma 3 12B (it now 404s with
+# "unavailable for free"), which made the whole first tier fail on every call
+# and fall through to the pricier Gemini tier. The paid slug is still very
+# cheap, so it keeps the cheapest-first ordering intact. Don't reintroduce a
+# `:free` slug here — those tiers get rate-limited and deprecated.
 _DEFAULT_MODELS = {
-    API_GEMMA:  'google/gemma-3-12b-it:free',
+    API_GEMMA:  'google/gemma-3-12b-it',
     API_GEMINI: 'google/gemini-2.5-flash',
     API_OPENAI: 'openai/gpt-4o-mini',
     API_CLAUDE: 'anthropic/claude-haiku-4-5',
@@ -56,7 +63,7 @@ def model_for(api_name):
 
 
 def get_available_apis():
-    """Cascade tiers to consult, in priority order (free first, Claude last).
+    """Cascade tiers to consult, in priority order (cheapest first, Claude last).
 
     Everything routes through OpenRouter, so the whole cascade is available
     when OPENROUTER_API_KEY is set, and nothing is otherwise.
