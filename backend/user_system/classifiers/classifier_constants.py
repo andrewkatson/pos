@@ -4,9 +4,11 @@ POSITIVE_IMAGE_URL = f'https://test-bucket.s3.amazonaws.com/{POSITIVE_IMAGE_FILE
 NEGATIVE_IMAGE_URL = f'https://test-bucket.s3.amazonaws.com/{NEGATIVE_IMAGE_FILENAME}'
 POSITIVE_TEXT = 'positive'
 NEGATIVE_TEXT = 'negative'
-GEMINI_MODEL = 'gemini-3.5-flash'
-CLAUDE_MODEL = 'claude-haiku-4-5-20251001'
-OPENAI_MODEL = 'gpt-4o-mini'
+# Every non-first-line classifier call is routed through OpenRouter, an
+# OpenAI-compatible gateway, so we can swap the model behind each cascade tier
+# without a code change (issue #393). The concrete model IDs and their priority
+# order live in classifier_utils.
+OPENROUTER_BASE_URL = 'https://openrouter.ai/api/v1'
 
 # Probability zones for classification scores (probability that content is
 # positive/acceptable). Scores at or below REJECT_THRESHOLD are rejected with

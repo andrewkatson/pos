@@ -1,8 +1,6 @@
-anthropic
 blurhash
 boto3
 cryptography
-google-genai
 openai
 Pillow
 django

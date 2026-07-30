@@ -13,6 +13,10 @@ from ..classifiers.classifier_constants import (
 from ..classifiers.classifier_utils import API_GEMINI
 
 _IMAGE_DISPATCH = "user_system.classifiers.classifier_utils.IMAGE_API_DISPATCH"
+# Availability now hinges on OPENROUTER_API_KEY, not per-provider keys; patch the
+# cascade order (in the module that imported it) to a single tier so the
+# integration tests stay hermetic and never make a real OpenRouter call.
+_IMAGE_AVAILABLE = "user_system.classifiers.image_classifier.get_available_apis"
 _AWS_KEYS = {
     "AWS_ACCESS_KEY_ID": "fake_aws_key",
     "AWS_SECRET_ACCESS_KEY": "fake_aws_secret",
@@ -114,9 +118,10 @@ class ImagePrefilterCascadeIntegrationTests(SimpleTestCase):
     """The pre-filter short-circuits is_image_positive: a local hit is returned
     without ever consulting the paid AI cascade."""
 
-    @patch.dict(os.environ, {"GEMINI_API_KEY": "fake_key", **_AWS_KEYS}, clear=True)
+    @patch.dict(os.environ, {**_AWS_KEYS}, clear=True)
+    @patch(_IMAGE_AVAILABLE, return_value=[API_GEMINI])
     @patch("user_system.classifiers.image_classifier.boto3")
-    def test_local_hit_skips_cascade(self, mock_boto3):
+    def test_local_hit_skips_cascade(self, mock_boto3, _avail):
         mock_s3 = MagicMock()
         mock_boto3.client.return_value = mock_s3
         mock_body = MagicMock()
@@ -132,9 +137,10 @@ class ImagePrefilterCascadeIntegrationTests(SimpleTestCase):
         self.assertEqual(result.public_reason_code(), 'nudity')
         cascade_api.assert_not_called()
 
-    @patch.dict(os.environ, {"GEMINI_API_KEY": "fake_key", **_AWS_KEYS}, clear=True)
+    @patch.dict(os.environ, {**_AWS_KEYS}, clear=True)
+    @patch(_IMAGE_AVAILABLE, return_value=[API_GEMINI])
     @patch("user_system.classifiers.image_classifier.boto3")
-    def test_clean_local_prefilter_defers_to_cascade(self, mock_boto3):
+    def test_clean_local_prefilter_defers_to_cascade(self, mock_boto3, _avail):
         mock_s3 = MagicMock()
         mock_boto3.client.return_value = mock_s3
         mock_body = MagicMock()

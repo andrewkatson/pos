@@ -12,8 +12,8 @@ export DJANGO_SECRET_KEY="your-django-secret-key-here"
 export EMAIL_USER="yourapp@gmail.com"
 export EMAIL_PASS="your-email-app-password"
 
-# Gemini API
-export GEMINI_API_KEY="your-gemini-api-key"
+# OpenRouter API (gateway for the classifier cascade)
+export OPENROUTER_API_KEY="your-openrouter-api-key"
 
 # AWS Configuration
 export AWS_ACCESS_KEY_ID="AKIAXXXXXXXXXXXXXXXX"
@@ -59,7 +59,7 @@ required_vars=(
     "DJANGO_SECRET_KEY"
     "EMAIL_USER"
     "EMAIL_PASS"
-    "GEMINI_API_KEY"
+    "OPENROUTER_API_KEY"
     "AWS_ACCESS_KEY_ID"
     "AWS_SECRET_ACCESS_KEY"
     "AWS_REGION"
@@ -96,7 +96,7 @@ fi
   --django-secret-key "$DJANGO_SECRET_KEY" \
   --email-user "$EMAIL_USER" \
   --email-pass "$EMAIL_PASS" \
-  --gemini-api-key "$GEMINI_API_KEY" \
+  --openrouter-api-key "$OPENROUTER_API_KEY" \
   --aws-access-key-id "$AWS_ACCESS_KEY_ID" \
   --aws-secret-access-key "$AWS_SECRET_ACCESS_KEY" \
   --aws-region "$AWS_REGION" \
