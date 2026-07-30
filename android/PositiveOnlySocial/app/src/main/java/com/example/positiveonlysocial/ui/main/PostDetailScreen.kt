@@ -594,20 +594,36 @@ fun ActionSheetDialog(
     onShare: () -> Unit,
     onReport: () -> Unit,
     onRetract: () -> Unit,
-    onDelete: () -> Unit
+    onDelete: () -> Unit,
+    // Save / unsave (issue #193/#412). `isSaved` only picks the Save vs Unsave
+    // label. A null `onToggleSave` hides the Save row entirely — that's how items
+    // that can't be saved (comments) opt out.
+    isSaved: Boolean = false,
+    onToggleSave: (() -> Unit)? = null
 ) {
     AlertDialog(
         onDismissRequest = onDismiss,
         title = { Text(itemLabel) },
-        // Share isn't a confirm/dismiss action and AlertDialog only exposes those
-        // two button slots, so it lives in the body content as a full-width
-        // button. It's offered for any post or comment, own or not (issue #34).
+        // Share (and Save) aren't confirm/dismiss actions and AlertDialog only
+        // exposes those two button slots, so they live in the body content as
+        // full-width buttons. Share is offered for any post or comment, own or
+        // not (issue #34); Save only when a save handler is supplied.
         text = {
-            TextButton(
-                onClick = { onShare(); onDismiss() },
-                modifier = Modifier.fillMaxWidth()
-            ) {
-                Text("Share $itemLabel")
+            Column {
+                TextButton(
+                    onClick = { onShare(); onDismiss() },
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Text("Share $itemLabel")
+                }
+                if (onToggleSave != null) {
+                    TextButton(
+                        onClick = { onToggleSave(); onDismiss() },
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Text(if (isSaved) "Unsave $itemLabel" else "Save $itemLabel")
+                    }
+                }
             }
         },
         // The primary action lives in the confirmButton slot so it's laid out and
@@ -742,7 +758,18 @@ fun CommentComposerDialog(
             // inserts a newline). The dialog's confirm/Cancel buttons remain
             // reachable above the keyboard, so no Done-to-dismiss is needed.
             Column {
-                // Formatting toolbar: styles the current text selection.
+                TextField(
+                    value = value,
+                    onValueChange = { newValue ->
+                        styles = CommentFormatting.reconcile(styles, value.text, newValue.text)
+                        value = newValue
+                    },
+                    placeholder = { Text("Write a comment...") }
+                )
+                // The formatting toolbar sits BELOW the field so the native
+                // Cut/Copy/Paste selection popup — which appears above the
+                // highlighted text — no longer covers the B / I / Size controls
+                // (issue #425).
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     TextButton(onClick = {
                         selectionRange()?.let { (s, e) -> styles = CommentFormatting.toggleBold(styles, s, e) }
@@ -765,14 +792,6 @@ fun CommentComposerDialog(
                         }
                     }
                 }
-                TextField(
-                    value = value,
-                    onValueChange = { newValue ->
-                        styles = CommentFormatting.reconcile(styles, value.text, newValue.text)
-                        value = newValue
-                    },
-                    placeholder = { Text("Write a comment...") }
-                )
                 Text(
                     "Select text, then tap B, I, or Size to format it.",
                     style = MaterialTheme.typography.labelSmall

@@ -149,7 +149,12 @@ styling means different things:
   `blush`, `lemon`, `lavender`. Each client maps a key to a concrete,
   contrast-checked font/color, so rendering stays consistent and legible across
   web, iOS, and Android. Unknown keys are rejected; `default` reproduces the
-  original rendering, so legacy posts and older clients are unaffected.
+  original rendering, so legacy posts and older clients are unaffected. The
+  background color only shows on **text-only** posts: on a photo post the image
+  fills the tile, so the color has no visible effect. To avoid promising a
+  change that never appears, the composer **hides the background-color control
+  while a photo is attached** and sends `default` for image posts (issue #421);
+  the font, which does style an image post's caption, stays available.
 - **Comments** carry **inline** formatting (`body_formatting`): a list of range
   **spans** over the plain comment text, each `{start, end, bold, italic,
   size}`, where `size` is one of `small`/`normal`/`large`/`xlarge` and offsets
@@ -172,19 +177,48 @@ image (`backend/user_system/classifiers/`). Classification runs **off the
 request path** (issue #282): `make_post` performs no LLM calls, so a slow
 provider can never surface as a gateway timeout.
 
+All non-prefilter classifier calls go through **OpenRouter** (issue #393), an
+OpenAI-compatible gateway reached with a single `OPENROUTER_API_KEY`. The
+cascade consults models in a fixed priority order — a free model first
+(`gemma`), then `gemini`, then `openai` (ChatGPT), with Claude only as a last
+resort — so clear content is usually settled by the free tier and only
+ambiguous content escalates to the paid ones. The cascade decides by the third
+usable score, so on the normal path only the first three tiers are consulted;
+`claude` is a genuine last resort, reached only when one of the cheaper tiers
+returns no usable score (an error or unparseable response). The model behind
+each tier is overridable per deploy via `OPENROUTER_MODEL_GEMMA` / `_GEMINI` /
+`_OPENAI` / `_CLAUDE` (see
+`backend/user_system/classifiers/classifier_utils.py`), so swapping models is a
+config change, not a code change.
+
 The flow is:
 
-1. A cheap local **pre-filter** (`classifiers/prefilter.py`, no LLM) runs
-   inline. A blatant hit (unambiguous profanity or slurs) is rejected
-   immediately with a final, non-appealable `400` and the post is never
-   created (its uploaded image is cleaned up).
+1. A cheap local **text pre-filter** (`classifiers/prefilter.py`, no LLM) runs
+   inline. It matches the caption against a curated slur list (reported as hate
+   speech) and the vendored **LDNOOBW** profanity list (issue #393,
+   "List of Dirty, Naughty, Obscene and Otherwise Bad Words",
+   `classifiers/data/ldnoobw_en.txt`), on whole-word/phrase boundaries. A hit
+   is rejected immediately with a final, non-appealable `400` and the post is
+   never created (its uploaded image is cleaned up). The list is broad, so it
+   errs toward catching blatant obscenity; subtler text is the async cascade's
+   job.
 2. Otherwise the post is created hidden in a **`pending_classification`**
    state and a job is enqueued; the request returns `201` with
    `status: "pending"`. A pending post is visible only to its author, who
    sees it in their own grid with an "In review" state.
 3. A worker (RQ on the same Redis used for rate limiting; run
    `python manage.py classification_worker`) runs the text + image cascades
-   and resolves the post exactly once to one of:
+   and resolves the post exactly once. Image posts first pass a **local image
+   pre-filter** (`classifiers/image_prefilter.py`, issue #393): blunt, zero-API
+   detectors for the two most objective image violations — nudity (NudeNet) and
+   gore (an optional ONNX NSFW/gore model at `LOCAL_GORE_MODEL_PATH`). A
+   confident hit is a final rejection, skipping the paid vision cascade
+   entirely, exactly like the text pre-filter. These detectors are heavy
+   *optional* dependencies (`backend/requirements-local-image-filter.txt`,
+   installed on the worker host); when absent or erroring the pre-filter **fails
+   open** — it allows the image and defers to the AI cascade, so it can only
+   ever add a rejection the cascade might also have made, never fail a post shut
+   on infrastructure grounds. The post is then resolved to one of:
    - **visible** (`hidden_reason` cleared) — both cascades passed;
    - **hidden + appealable** (`classifier`) — an appealable rejection, which
      appears on the appeals screens as before;
@@ -540,6 +574,26 @@ file); optionally `CLOUDFRONT_SIGNED_URL_EXPIRY_SECONDS`.
 3. Create a CloudFront public key + key group (trusted signer) and attach it to
    both distributions; deliver the matching private key to the backend as
    `CLOUDFRONT_PRIVATE_KEY[_PATH]` and its id as `CLOUDFRONT_KEY_PAIR_ID`.
+
+### BlurHash placeholders (issue #387)
+
+Even with the `original_image_url` fallback, a grid tile is blank while its image
+downloads — a grey/black square that flashes on every feed load. Each post
+therefore carries a **BlurHash**: a ~30-character string
+([woltapp/blurhash](https://github.com/woltapp/blurhash)) that encodes a tiny,
+blurred version of the image. All three clients decode it locally and render the
+blur in the tile *while the real image loads* (and leave it in place if the image
+never loads), so a loading photo is a soft blur of itself instead of a flat box.
+
+The BlurHash is stored on the post (`Post.image_blurhash`) and computed
+best-effort by the async classification worker (`classify_post`), which already
+has the image in hand — it downscales the image and encodes a 4x3 hash. It is
+purely decorative: any failure (encode error, missing object, no credentials)
+just leaves it null, and the clients fall back to their plain placeholder, so it
+can never block a post from being published. It is skipped for final-rejected
+posts (their image is deleted) and for text-only posts (which have no image), and
+is serialized as `image_blurhash` alongside `image_url` in every listing/detail
+payload. Older clients that don't know the field simply ignore it.
 
 ## Profile photos
 

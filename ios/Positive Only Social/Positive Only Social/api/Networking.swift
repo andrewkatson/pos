@@ -122,6 +122,12 @@ protocol Networking {
     /// Unlikes a post.
     func unlikePost(sessionManagementToken: String, postIdentifier: String) async throws -> Data
 
+    /// Saves a post to the viewer's saved collection (issue #193/#412).
+    func savePost(sessionManagementToken: String, postIdentifier: String) async throws -> Data
+
+    /// Removes a post from the viewer's saved collection (issue #193/#412).
+    func unsavePost(sessionManagementToken: String, postIdentifier: String) async throws -> Data
+
     /// Gets all posts for the user's feed in batches.
     func getPostsInFeed(sessionManagementToken: String, batch: Int) async throws -> Data
 

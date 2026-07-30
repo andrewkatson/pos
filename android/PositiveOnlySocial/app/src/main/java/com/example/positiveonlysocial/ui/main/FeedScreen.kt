@@ -7,10 +7,12 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.*
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
@@ -247,14 +249,16 @@ fun PostItem(
             )
         }
 
-        // Square, cropped to fill so images keep a standard size, with a thin
-        // black border to match the grid views.
+        // Square, cropped to fill so images keep a standard size, with rounded
+        // corners and a thin border — matching the web and iOS feeds (#414).
+        // Clip before the border so the image and the outline share the shape.
         PostImageWithFallback(
             post = post,
             modifier = Modifier
                 .fillMaxWidth()
                 .aspectRatio(1f)
-                .border(1.dp, Color.Black)
+                .clip(RoundedCornerShape(12.dp))
+                .border(1.dp, Color.Black, RoundedCornerShape(12.dp))
                 .clickable {
                     navController.navigate(Screen.PostDetail.createRoute(post.postIdentifier))
                 }

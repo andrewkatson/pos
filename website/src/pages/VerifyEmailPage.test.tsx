@@ -1,6 +1,6 @@
 import { act, render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import { MemoryRouter, Routes, Route, useNavigate } from 'react-router-dom'
+import { MemoryRouter, Routes, Route, useNavigate } from 'react-router'
 import { vi, beforeEach } from 'vitest'
 import VerifyEmailPage from './VerifyEmailPage'
 

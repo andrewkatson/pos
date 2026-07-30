@@ -182,6 +182,65 @@ test('shows the appeal message when the post is hidden pending appeal', async ()
   expect(await screen.findByText(/hidden for now but you can appeal/i)).toBeInTheDocument()
 })
 
+test('hides the background-color control once a photo is selected (#421)', async () => {
+  render(<NewPostTab onPosted={() => {}} />)
+
+  // The color swatches live behind the Advanced options disclosure (#419), so
+  // open it first to match the real user flow.
+  await userEvent.click(screen.getByText('Advanced options'))
+
+  // Visible on a text-only post.
+  expect(screen.getByRole('button', { name: 'Mint' })).toBeInTheDocument()
+
+  await userEvent.upload(screen.getByLabelText('Choose a photo'), makeFile())
+
+  // Gone once a photo is attached — the color never shows on an image post.
+  expect(screen.queryByRole('button', { name: 'Mint' })).not.toBeInTheDocument()
+})
+
+test('sends the default background color even if one was picked before adding a photo (#421)', async () => {
+  mockUploadImage.mockResolvedValue(
+    'https://goodvibesonly-images.s3.us-east-2.amazonaws.com/user-123/abc.jpeg',
+  )
+  mockCreatePost.mockResolvedValue({ post_identifier: 'p1' })
+  render(<NewPostTab onPosted={() => {}} />)
+
+  // The color swatches live behind the Advanced options disclosure (#419).
+  await userEvent.click(screen.getByText('Advanced options'))
+  await userEvent.type(screen.getByLabelText('Caption'), 'great day')
+  await userEvent.click(screen.getByRole('button', { name: 'Mint' }))
+  await userEvent.upload(screen.getByLabelText('Choose a photo'), makeFile())
+  await userEvent.click(screen.getByRole('button', { name: 'Share Post' }))
+
+  await waitFor(() =>
+    expect(mockCreatePost).toHaveBeenCalledWith(
+      expect.objectContaining({ background_color: 'default' }),
+    ),
+  )
+})
+
+test('keeps the share button visible with a processing label while submitting (#306)', async () => {
+  let resolveCreate: () => void = () => {}
+  mockCreatePost.mockReturnValue(
+    new Promise(resolve => {
+      resolveCreate = () => resolve({ post_identifier: 'p1' })
+    }),
+  )
+  render(<NewPostTab onPosted={() => {}} />)
+
+  await userEvent.type(screen.getByLabelText('Caption'), 'great day')
+  await userEvent.click(screen.getByRole('button', { name: 'Share Post' }))
+
+  const processing = await screen.findByRole('button', { name: 'Processing…' })
+  expect(processing).toBeInTheDocument()
+  expect(processing).toBeDisabled()
+
+  resolveCreate()
+  await waitFor(() =>
+    expect(screen.getByRole('button', { name: 'Share Post' })).toBeInTheDocument(),
+  )
+})
+
 test('shows an error when the upload fails', async () => {
   mockUploadImage.mockRejectedValue({ message: 'Upload failed' })
   render(<NewPostTab onPosted={() => {}} />)
@@ -192,6 +251,53 @@ test('shows an error when the upload fails', async () => {
 
   expect(await screen.findByRole('alert')).toHaveTextContent('Upload failed')
   expect(mockCreatePost).not.toHaveBeenCalled()
+})
+
+test('the photo picker shows a + placeholder until a photo is chosen, then the image (#417)', async () => {
+  render(<NewPostTab onPosted={() => {}} />)
+
+  // Before a photo: the picker invites adding one and shows no image.
+  const picker = screen.getByRole('button', { name: 'Add a photo' })
+  expect(picker).toBeInTheDocument()
+  expect(screen.queryByAltText('Selected post preview')).not.toBeInTheDocument()
+
+  await userEvent.upload(screen.getByLabelText('Choose a photo'), makeFile())
+
+  // After: the picker becomes the image target ("Change photo") and shows it.
+  expect(screen.getByRole('button', { name: 'Change photo' })).toBeInTheDocument()
+  expect(screen.getByAltText('Selected post preview')).toBeInTheDocument()
+})
+
+test('the file input is cleared after a pick so the same file can be re-selected', async () => {
+  render(<NewPostTab onPosted={() => {}} />)
+
+  const input = screen.getByLabelText('Choose a photo') as HTMLInputElement
+  await userEvent.upload(input, makeFile())
+
+  // The preview appeared, but the input value is reset — otherwise the browser
+  // skips onChange when the user re-picks the identical file via "Change photo".
+  expect(screen.getByAltText('Selected post preview')).toBeInTheDocument()
+  expect(input.value).toBe('')
+})
+
+test('style settings live behind an Advanced options disclosure (#419)', async () => {
+  render(<NewPostTab onPosted={() => {}} />)
+
+  const summary = screen.getByText('Advanced options')
+  expect(summary).toBeInTheDocument()
+  // The font/color controls live inside the disclosure.
+  expect(summary.closest('details')).toContainElement(screen.getByLabelText('Font'))
+  expect(summary.closest('details')).toContainElement(
+    screen.getByRole('button', { name: 'Mint' }),
+  )
+})
+
+test('the preview shows the caption as a tile for a text-only post (#418)', async () => {
+  render(<NewPostTab onPosted={() => {}} />)
+
+  await userEvent.type(screen.getByLabelText('Caption'), 'a sunny thought')
+  // A text-only post renders its caption as the tile (role="img" from CaptionTile).
+  expect(screen.getByRole('img', { name: 'a sunny thought' })).toBeInTheDocument()
 })
 
 test('shows an error when there is no signed-in user', async () => {

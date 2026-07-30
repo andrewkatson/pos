@@ -59,8 +59,15 @@ struct RegisterView: View {
 
     // MARK: - View Body
     var body: some View {
-        VStack(spacing: 15) {
-            Text("Create Account")
+        // Wrap the form in a ScrollView so that when the keyboard covers the
+        // lower fields, the user can scroll to reach them and the Register
+        // button (issue #277). The GeometryReader + minHeight keeps the button
+        // anchored to the bottom when the keyboard is down, preserving the
+        // original layout; with the keyboard up the content simply scrolls.
+        GeometryReader { proxy in
+            ScrollView {
+                VStack(spacing: 15) {
+                    Text("Create Account")
                 .font(.largeTitle).fontWeight(.bold)
                 .padding(.bottom, 20)
                 // Let taps on this decorative title fall through to the
@@ -151,27 +158,34 @@ struct RegisterView: View {
                         .background(isFormValid ? Color.blue : Color.gray)
                         .cornerRadius(12)
                 }
-                .disabled(!isFormValid)
-                .accessibilityIdentifier("RegisterButton")
+                    .disabled(!isFormValid)
+                    .accessibilityIdentifier("RegisterButton")
+                }
+                }
+                .padding()
+                // Fill at least the viewport so the Spacer keeps the button at
+                // the bottom when there's room, while still allowing the content
+                // to scroll once the keyboard shrinks the visible area (#277).
+                .frame(minHeight: proxy.size.height)
             }
-        }
-        .padding()
-        .dismissKeyboardOnTap { focusedField = nil }
-        .onSubmit { focusedField = nil }
-        .navigationTitle("Register")
-        .navigationBarTitleDisplayMode(.inline)
-        .alert("Registration Failed", isPresented: $showingErrorAlert) {
-            Button("OK") { }
-        } message: {
-            Text(errorMessage ?? "An unknown error occurred.")
-        }
-        .alert("Privacy Policy", isPresented: $showingPrivacyPolicy) {
-            Button("Ok") {
-                register()
+            .scrollDismissesKeyboard(.interactively)
+            .dismissKeyboardOnTap { focusedField = nil }
+            .onSubmit { focusedField = nil }
+            .navigationTitle("Register")
+            .navigationBarTitleDisplayMode(.inline)
+            .alert("Registration Failed", isPresented: $showingErrorAlert) {
+                Button("OK") { }
+            } message: {
+                Text(errorMessage ?? "An unknown error occurred.")
             }
-            Button("Cancel", role: .cancel) { }
-        } message: {
-            Text(GVOAppConstants.privacyPolicyText)
+            .alert("Privacy Policy", isPresented: $showingPrivacyPolicy) {
+                Button("Ok") {
+                    register()
+                }
+                Button("Cancel", role: .cancel) { }
+            } message: {
+                Text(GVOAppConstants.privacyPolicyText)
+            }
         }
     }
 

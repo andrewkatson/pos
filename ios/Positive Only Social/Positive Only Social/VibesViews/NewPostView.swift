@@ -31,19 +31,39 @@ struct NewPostView: View {
     @State private var failureAlertMessage = ""
     
     @Binding var tabSelection: Int
-    
+
+    // The background color is only meaningful on a text-only post; on a photo
+    // post the image fills the tile and the color never shows (issue #421).
+    private var showBackgroundControls: Bool { selectedImageData == nil }
+
     var body: some View {
         NavigationStack {
             Form {
                 Section(header: Text("New Post Details")) {
+                    // Show the chosen photo prominently first; its "Change Photo"
+                    // button sits below it and reads as a caption to the larger
+                    // image (issue #305).
+                    if let selectedImageData,
+                       let uiImage = UIImage(data: selectedImageData)
+                    {
+                        Image(uiImage: uiImage)
+                            .resizable().scaledToFit().frame(
+                                maxWidth: .infinity,
+                                maxHeight: 240
+                            )
+                            .clipShape(RoundedRectangle(cornerRadius: 10))
+                    }
+
                     // A prominent, full-width button reads as the primary call to
-                    // action rather than looking like plain tappable text.
+                    // action rather than looking like plain tappable text. The
+                    // label is centered so it doesn't read as left-aligned text
+                    // (issue #305).
                     let pickerLabel = Label(
                         selectedImageData == nil ? "Select a Photo (Optional)" : "Change Photo",
                         systemImage: "photo.on.rectangle.angled"
                     )
                     .font(.headline)
-                    .frame(maxWidth: .infinity)
+                    .frame(maxWidth: .infinity, alignment: .center)
 
                     if isUITesting() {
                         // Testing mode: Use a regular button
@@ -73,17 +93,6 @@ struct NewPostView: View {
                         .accessibilityIdentifier("SelectAPhotoPicker")
                     }
 
-                    if let selectedImageData,
-                       let uiImage = UIImage(data: selectedImageData)
-                    {
-                        Image(uiImage: uiImage)
-                            .resizable().scaledToFit().frame(
-                                maxWidth: .infinity,
-                                maxHeight: 200
-                            )
-                            .clipShape(RoundedRectangle(cornerRadius: 10))
-                    }
-
                     // TextEditor has no built-in placeholder, so overlay one that
                     // shows until the user starts typing a description.
                     ZStack(alignment: .topLeading) {
@@ -111,17 +120,27 @@ struct NewPostView: View {
                 // it keeps its original, on-screen position (SwiftUI's Form is a
                 // lazy list; pushing the button far down can make it unreachable
                 // for automation). The optional style controls follow below it.
-                if isLoading {
+                //
+                // While a post is submitting, keep the button in place and switch
+                // it to a "Processing…" state rather than hiding it (issue #306).
+                // A prominent style makes it read clearly as the primary action
+                // (issue #280).
+                Button(action: makePost) {
                     HStack {
                         Spacer()
-                        ProgressView()
+                        if isLoading {
+                            ProgressView()
+                            Text("Processing…")
+                        } else {
+                            Text("Share Post")
+                        }
                         Spacer()
                     }
-                } else {
-                    Button(action: makePost) { Text("Share Post") }
-                        .disabled(caption.isEmpty || !isWithinLength(caption, max: GVOAppConstants.maxCaptionLength))
-                        .accessibilityIdentifier("SharePostButton")
                 }
+                .buttonStyle(.borderedProminent)
+                .controlSize(.large)
+                .disabled(isLoading || caption.isEmpty || !isWithinLength(caption, max: GVOAppConstants.maxCaptionLength))
+                .accessibilityIdentifier("SharePostButton")
 
                 // Text customization (issue #318): a whole-caption font, a
                 // whole-tile background color, and a live preview.
@@ -133,18 +152,23 @@ struct NewPostView: View {
                     }
                     .accessibilityIdentifier("CaptionFontPicker")
 
-                    Picker("Background", selection: $backgroundColor) {
-                        ForEach(backgroundOptions, id: \.self) { key in
-                            Text(key.capitalized).tag(key)
+                    // On a photo post the background color never shows (the photo
+                    // fills the post, not a caption tile), so hide the control to
+                    // avoid promising a change that never appears (issue #421).
+                    if showBackgroundControls {
+                        Picker("Background", selection: $backgroundColor) {
+                            ForEach(backgroundOptions, id: \.self) { key in
+                                Text(key.capitalized).tag(key)
+                            }
                         }
+                        .accessibilityIdentifier("BackgroundColorPicker")
                     }
-                    .accessibilityIdentifier("BackgroundColorPicker")
 
                     CaptionTileView(
                         caption: caption.isEmpty ? "Your caption will look like this." : caption,
                         lineLimit: nil,
                         captionFont: captionFont,
-                        backgroundColor: backgroundColor
+                        backgroundColor: showBackgroundControls ? backgroundColor : "default"
                     )
                     .frame(height: 120)
                     .clipShape(RoundedRectangle(cornerRadius: 10))
@@ -175,6 +199,13 @@ struct NewPostView: View {
                 Task {
                     selectedImageData = try? await selectedItem?
                         .loadTransferable(type: Data.self)
+                }
+            }
+            // Adding a photo hides the background control (issue #421); clear any
+            // color already picked so a stale value isn't sent with the post.
+            .onChange(of: selectedImageData) {
+                if selectedImageData != nil {
+                    backgroundColor = "default"
                 }
             }
         }

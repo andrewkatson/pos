@@ -4,9 +4,11 @@ POSITIVE_IMAGE_URL = f'https://test-bucket.s3.amazonaws.com/{POSITIVE_IMAGE_FILE
 NEGATIVE_IMAGE_URL = f'https://test-bucket.s3.amazonaws.com/{NEGATIVE_IMAGE_FILENAME}'
 POSITIVE_TEXT = 'positive'
 NEGATIVE_TEXT = 'negative'
-GEMINI_MODEL = 'gemini-3.5-flash'
-CLAUDE_MODEL = 'claude-haiku-4-5-20251001'
-OPENAI_MODEL = 'gpt-4o-mini'
+# Every non-first-line classifier call is routed through OpenRouter, an
+# OpenAI-compatible gateway, so we can swap the model behind each cascade tier
+# without a code change (issue #393). The concrete model IDs and their priority
+# order live in classifier_utils.
+OPENROUTER_BASE_URL = 'https://openrouter.ai/api/v1'
 
 # Probability zones for classification scores (probability that content is
 # positive/acceptable). Scores at or below REJECT_THRESHOLD are rejected with
@@ -15,6 +17,36 @@ OPENAI_MODEL = 'gpt-4o-mini'
 # to additional AIs and, if still not allowed, rejected but appealable.
 REJECT_THRESHOLD = 0.3
 ALLOW_THRESHOLD = 0.7
+
+# Local image pre-filter (issue #393). Blunt, zero-API detectors for the two
+# most objective image violations — nudity (rule 2) and gore (rule 4) — run in
+# the classification worker before the paid AI vision cascade. A confident hit
+# is a final, non-appealable rejection, mirroring the text pre-filter; anything
+# subtler is the cascade's job. The detector models are heavy *optional*
+# dependencies (see backend/requirements-local-image-filter.txt): when they are
+# absent or fail to load the pre-filter fails OPEN (allows) and the cascade
+# stays the real gate, so CI/dev without the models are unaffected.
+#
+# NudeNet reports fine-grained classes; only these "exposed" ones are treated
+# as blatant nudity. Suggestive-but-covered classes are deliberately left to
+# the AI cascade to keep local rejections unambiguous.
+NUDENET_BLOCKING_CLASSES = frozenset({
+    'FEMALE_GENITALIA_EXPOSED',
+    'MALE_GENITALIA_EXPOSED',
+    'FEMALE_BREAST_EXPOSED',
+    'BUTTOCKS_EXPOSED',
+    'ANUS_EXPOSED',
+})
+# Minimum detector confidence for a *final* local rejection. Set conservatively
+# high so only blatant hits are rejected outright here; the AI cascade catches
+# the rest. Gore models are noisier than NudeNet, so its bar is higher.
+LOCAL_NUDITY_THRESHOLD = 0.5
+LOCAL_GORE_THRESHOLD = 0.85
+# Optional env overrides. LOCAL_GORE_MODEL_PATH points at an ONNX NSFW/gore
+# classifier (loaded via onnxruntime); with it unset gore detection is skipped
+# (fails open) since there is no reliable pip-installable local gore model.
+ENV_GORE_MODEL_PATH = 'LOCAL_GORE_MODEL_PATH'
+ENV_NUDENET_MODEL_PATH = 'LOCAL_NUDENET_MODEL_PATH'
 
 # Per-call timeout (in seconds) for outbound AI classification requests. Without
 # an explicit timeout the provider SDKs default to minutes, so a single hung

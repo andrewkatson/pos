@@ -51,6 +51,7 @@ class PostDeserializationTest {
               "author_username": "bob",
               "post_likes": 4,
               "is_liked": true,
+              "is_saved": true,
               "is_reported": true,
               "report_reason": "spam",
               "comment_count": 12,
@@ -63,6 +64,7 @@ class PostDeserializationTest {
         assertEquals("p2", post.postIdentifier)
         assertEquals(4, post.likeCount)
         assertTrue(post.isLiked)
+        assertEquals(true, post.isSaved)
         assertTrue(post.isReported)
         assertEquals("spam", post.reportReason)
         assertEquals(12, post.commentCount)
@@ -90,6 +92,10 @@ class PostDeserializationTest {
         assertEquals(false, post.isReported)
         assertNull(post.reportReason)
         assertNull(post.creationTime)
+        // Gson ignores the Kotlin default for an absent field, so is_saved comes
+        // back null. The render/action layer checks `isSaved == true`, so null is
+        // treated as not saved.
+        assertNull(post.isSaved)
     }
 
     @Test
@@ -159,6 +165,44 @@ class PostDeserializationTest {
 
         assertFalse(body.contains("image_url"))
         assertTrue(body.contains("words only"))
+    }
+
+    // --- BlurHash placeholder (issue #387) ---
+
+    @Test
+    fun `post json maps image_blurhash to blurHash`() {
+        val json = """
+            {
+              "post_identifier": "p7",
+              "image_url": "https://example.com/g.jpg",
+              "caption": "hi",
+              "author_username": "alice",
+              "image_blurhash": "LEHV6nWB2yk8pyo0adR*.7kCMdnj"
+            }
+        """.trimIndent()
+
+        val post = gson.fromJson(json, Post::class.java)
+
+        assertEquals("LEHV6nWB2yk8pyo0adR*.7kCMdnj", post.blurHash)
+    }
+
+    @Test
+    fun `post json without image_blurhash leaves blurHash null (older backend)`() {
+        // Gson does not apply Kotlin default values for absent JSON fields, so a
+        // response that predates the field (or a text-only post) deserializes it
+        // to null; the render layer then shows its plain placeholder.
+        val json = """
+            {
+              "post_identifier": "p8",
+              "image_url": "https://example.com/h.jpg",
+              "caption": "hi",
+              "author_username": "bob"
+            }
+        """.trimIndent()
+
+        val post = gson.fromJson(json, Post::class.java)
+
+        assertNull(post.blurHash)
     }
 
     // --- Profile photos (issue #7) ---

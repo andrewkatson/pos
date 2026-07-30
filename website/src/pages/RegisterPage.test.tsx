@@ -1,6 +1,6 @@
 import { render, screen,fireEvent} from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import { MemoryRouter, Routes, Route } from 'react-router-dom'
+import { MemoryRouter, Routes, Route } from 'react-router'
 import { vi, beforeEach, afterEach } from 'vitest'
 import RegisterPage from './RegisterPage'
 
