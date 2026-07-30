@@ -1,6 +1,6 @@
 import { render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import { MemoryRouter, Routes, Route } from 'react-router-dom'
+import { MemoryRouter, Routes, Route } from 'react-router'
 import { vi, beforeEach, afterEach, test, expect } from 'vitest'
 import SavedPostsPage from './SavedPostsPage'
 import type { FeedPost } from '../api/types'

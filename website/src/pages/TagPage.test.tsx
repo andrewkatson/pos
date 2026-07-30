@@ -1,5 +1,5 @@
 import { render, screen } from '@testing-library/react'
-import { MemoryRouter, Routes, Route } from 'react-router-dom'
+import { MemoryRouter, Routes, Route } from 'react-router'
 import { vi, beforeEach, afterEach, test, expect } from 'vitest'
 import TagPage from './TagPage'
 

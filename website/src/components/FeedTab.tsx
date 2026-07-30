@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useNavigate } from 'react-router'
 import { apiClient } from '../api/client'
 import { getCurrentUsername } from '../api/session'
 import type { FeedPost, FollowCategory } from '../api/types'

@@ -1,4 +1,4 @@
-import { useNavigate } from 'react-router-dom'
+import { useNavigate } from 'react-router'
 import type { FeedPost } from '../api/types'
 import PostThumbnail from './PostThumbnail'
 import PostActionBar from './PostActionBar'
