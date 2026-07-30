@@ -25,6 +25,14 @@ API_OPENAI = 'openai'
 API_CLAUDE = 'claude'
 
 # Priority order: cheapest/free first, most expensive last.
+#
+# NOTE: classify_with_thresholds consults at most THREE tiers (it decides by the
+# 3rd usable score), so on the normal path where the first three tiers all
+# return a usable score, Claude is never called. Listing it 4th is deliberate:
+# it makes Claude a genuine *last resort*, reached only when one of the cheaper
+# tiers yields no usable score (an error or an unparseable response) and is
+# skipped — never adding a 4th vote on top of three good ones. Reorder this
+# tuple to change which tier is the fallback.
 CASCADE_ORDER = (API_GEMMA, API_GEMINI, API_OPENAI, API_CLAUDE)
 
 # Default OpenRouter model ID per tier. Override any one of them with the env

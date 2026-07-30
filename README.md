@@ -182,9 +182,13 @@ OpenAI-compatible gateway reached with a single `OPENROUTER_API_KEY`. The
 cascade consults models in a fixed priority order — a free model first
 (`gemma`), then `gemini`, then `openai` (ChatGPT), with Claude only as a last
 resort — so clear content is usually settled by the free tier and only
-ambiguous content escalates to the paid ones. The model behind each tier is
-overridable per deploy via `OPENROUTER_MODEL_GEMMA` / `_GEMINI` / `_OPENAI` /
-`_CLAUDE` (see `classifiers/classifier_utils.py`), so swapping models is a
+ambiguous content escalates to the paid ones. The cascade decides by the third
+usable score, so on the normal path only the first three tiers are consulted;
+`claude` is a genuine last resort, reached only when one of the cheaper tiers
+returns no usable score (an error or unparseable response). The model behind
+each tier is overridable per deploy via `OPENROUTER_MODEL_GEMMA` / `_GEMINI` /
+`_OPENAI` / `_CLAUDE` (see
+`backend/user_system/classifiers/classifier_utils.py`), so swapping models is a
 config change, not a code change.
 
 The flow is:
