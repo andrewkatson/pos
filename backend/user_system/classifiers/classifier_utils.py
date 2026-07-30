@@ -14,8 +14,8 @@ from .classifier_constants import (
 
 logger = logging.getLogger(__name__)
 
-# Logical cascade tiers, consulted in this order: a free model first and Claude
-# only as a last resort (issue #393). Every call is routed through OpenRouter
+# Logical cascade tiers, consulted in this order: the cheapest model first and
+# Claude only as a last resort (issue #393). Every call is routed through OpenRouter
 # (one OPENROUTER_API_KEY), so the concrete model behind each tier can be
 # swapped via env without a code change. All four defaults are vision-capable,
 # so the same tiers serve both the text and image cascades.
@@ -186,7 +186,7 @@ def classify_with_thresholds(available_apis, call_fn):
     - If the cascade needs another AI and none is available, the content is
       rejected; it is appealable only if the last score was in the middle zone.
 
-    APIs are consulted in the given priority order (free models first, Claude
+    APIs are consulted in the given priority order (cheapest models first, Claude
     last — issue #393), so clear content is usually settled by the cheap tier
     and only ambiguous content escalates to the pricier ones. An API that
     errors or returns an unparseable score is skipped as if unavailable. With
