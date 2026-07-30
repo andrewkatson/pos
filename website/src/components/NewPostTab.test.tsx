@@ -268,6 +268,18 @@ test('the photo picker shows a + placeholder until a photo is chosen, then the i
   expect(screen.getByAltText('Selected post preview')).toBeInTheDocument()
 })
 
+test('the file input is cleared after a pick so the same file can be re-selected', async () => {
+  render(<NewPostTab onPosted={() => {}} />)
+
+  const input = screen.getByLabelText('Choose a photo') as HTMLInputElement
+  await userEvent.upload(input, makeFile())
+
+  // The preview appeared, but the input value is reset — otherwise the browser
+  // skips onChange when the user re-picks the identical file via "Change photo".
+  expect(screen.getByAltText('Selected post preview')).toBeInTheDocument()
+  expect(input.value).toBe('')
+})
+
 test('style settings live behind an Advanced options disclosure (#419)', async () => {
   render(<NewPostTab onPosted={() => {}} />)
 
