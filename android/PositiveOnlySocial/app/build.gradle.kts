@@ -16,6 +16,16 @@ android {
         versionName = "1.01.06"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+
+        // FCM-for-Android push (issues #342/#343). These are the (public)
+        // Firebase project identifiers; supply them via -P/gradle.properties to
+        // enable push. When any is empty the app initializes no FirebaseApp and
+        // push is a no-op — so no google-services.json (and no google-services
+        // plugin) is required to build, and CI stays green without one.
+        buildConfigField("String", "FCM_PROJECT_ID", "\"${project.findProperty("FCM_PROJECT_ID") ?: ""}\"")
+        buildConfigField("String", "FCM_APPLICATION_ID", "\"${project.findProperty("FCM_APPLICATION_ID") ?: ""}\"")
+        buildConfigField("String", "FCM_API_KEY", "\"${project.findProperty("FCM_API_KEY") ?: ""}\"")
+        buildConfigField("String", "FCM_SENDER_ID", "\"${project.findProperty("FCM_SENDER_ID") ?: ""}\"")
     }
 
     buildTypes {
@@ -68,6 +78,8 @@ dependencies {
     implementation(libs.androidx.security.crypto)
     implementation(libs.kotlinx.coroutines.core)
     implementation(libs.androidx.navigation.compose)
+    implementation(platform(libs.firebase.bom))
+    implementation(libs.firebase.messaging)
     implementation(libs.io.coil.compose)
     implementation(libs.zxing.core)
     implementation(libs.androidx.material.icons.extended)

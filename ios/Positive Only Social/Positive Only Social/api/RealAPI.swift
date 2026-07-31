@@ -187,6 +187,16 @@ final class RealAPI: Networking {
         let freeform: [String]
     }
 
+    private struct RegisterDeviceBody: Encodable {
+        let platform: String
+        let token: String
+    }
+
+    private struct SetNotificationPreferenceBody: Encodable {
+        let type: String
+        let enabled: Bool
+    }
+
     // MARK: - Private Helpers
     
     /// Encodes an `Encodable` value into `Data`.
@@ -914,11 +924,41 @@ final class RealAPI: Networking {
         )
     }
 
+    // MARK: - Push notifications (issue #342/#343)
+
+    func registerDevice(sessionManagementToken: String, platform: String, token: String) async throws -> Data {
+        let requestBody = try encode(RegisterDeviceBody(platform: platform, token: token))
+        return try await performRequest(
+            pathSegments: [GVOAppConstants.pathSegmentDevices, GVOAppConstants.pathSegmentRegister],
+            method: .post,
+            body: requestBody,
+            authToken: sessionManagementToken
+        )
+    }
+
+    func getNotificationPreferences(sessionManagementToken: String) async throws -> Data {
+        return try await performRequest(
+            pathSegments: [GVOAppConstants.pathSegmentNotifications, GVOAppConstants.pathSegmentPreferences],
+            method: .get,
+            authToken: sessionManagementToken
+        )
+    }
+
     func setInterests(sessionManagementToken: String, categories: [String], freeform: [String]) async throws -> Data {
         let body = SetInterestsBody(categories: categories, freeform: freeform)
         let requestBody = try encode(body)
         return try await performRequest(
             pathSegments: [GVOAppConstants.pathSegmentInterests, GVOAppConstants.pathSegmentSet],
+            method: .post,
+            body: requestBody,
+            authToken: sessionManagementToken
+        )
+    }
+
+    func setNotificationPreference(sessionManagementToken: String, notificationType: String, enabled: Bool) async throws -> Data {
+        let requestBody = try encode(SetNotificationPreferenceBody(type: notificationType, enabled: enabled))
+        return try await performRequest(
+            pathSegments: [GVOAppConstants.pathSegmentNotifications, GVOAppConstants.pathSegmentPreferences],
             method: .post,
             body: requestBody,
             authToken: sessionManagementToken

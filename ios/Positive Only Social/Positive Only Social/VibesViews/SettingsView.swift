@@ -141,6 +141,22 @@ struct SettingsView: View {
                     }.accessibilityIdentifier("InterestsButton")
                 }
 
+                // MARK: - Notifications Section (issues #342/#343)
+                if !viewModel.notificationPreferences.isEmpty {
+                    Section(header: Text("Notifications")) {
+                        ForEach(viewModel.notificationPreferences) { pref in
+                            Toggle(pref.label, isOn: Binding(
+                                get: { pref.enabled },
+                                set: { viewModel.updateNotificationPreference(pref, enabled: $0) }
+                            ))
+                            // Disabled while its save is in flight, so a rapid
+                            // re-toggle can't race (#342/#343).
+                            .disabled(viewModel.savingPreferences.contains(pref.type))
+                            .accessibilityIdentifier("NotificationToggle_\(pref.type)")
+                        }
+                    }
+                }
+
                 // MARK: - Security Section (issues #348 / #197)
                 Section(header: Text("Security")) {
                     Button {
@@ -191,6 +207,7 @@ struct SettingsView: View {
             // Information section (load-on-mount, matching the rest of the app).
             .onAppear {
                 viewModel.loadCurrentUser()
+                viewModel.loadNotificationPreferences()
             }
             // MARK: - Confirmation Alerts
             .alert("Are you sure you want to log out?", isPresented: $viewModel.showingLogoutConfirm) {
