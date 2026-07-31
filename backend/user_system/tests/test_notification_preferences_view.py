@@ -80,3 +80,7 @@ class NotificationPreferencesViewTests(PositiveOnlySocialTestCase):
     def test_requires_authentication(self):
         response = self.client.get(self.url)
         self.assertIn(response.status_code, (401, 403))
+
+    def test_disallowed_method_returns_405(self):
+        response = self.client.delete(self.url, **self._auth())
+        self.assertEqual(response.status_code, 405)

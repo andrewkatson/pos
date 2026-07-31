@@ -18,7 +18,7 @@ from django.db.models import Count, Max, OuterRef, Subquery
 from django.http import JsonResponse
 from django.utils import timezone
 from django.views.decorators.csrf import csrf_exempt
-from django.views.decorators.http import require_POST, require_GET
+from django.views.decorators.http import require_POST, require_GET, require_http_methods
 from django_ratelimit.decorators import ratelimit
 from django_ratelimit.exceptions import Ratelimited
 
@@ -3547,6 +3547,7 @@ def register_device(request):
 @csrf_exempt
 @api_login_required
 @ratelimit(key='user', rate='60/h', block=True)
+@require_http_methods(["GET", "POST"])
 def notification_preferences(request):
     """Read or update the caller's push notification preferences (issues
     #342/#343; the Settings "Notifications" toggles).
@@ -3592,6 +3593,8 @@ def notification_preferences(request):
         return log_and_return_json("notification_preferences", {
             Fields.notification_type: notification_type, Fields.enabled: enabled})
 
+    # Unreachable: @require_http_methods already 405s any other verb (with the
+    # Allow header). Kept as a defensive default so the view always returns.
     return log_and_return_json(
         "notification_preferences", {'error': "Method not allowed"}, status=405)
 

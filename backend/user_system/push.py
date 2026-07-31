@@ -347,10 +347,16 @@ def _fcm_token_is_dead(response):
     the caller.
     """
     try:
-        error = response.json().get("error", {})
+        body = response.json()
     except Exception:
         return False
-    for detail in error.get("details", []):
-        if detail.get("errorCode") == "UNREGISTERED":
+    # Be defensive about the shape: an unexpected body must simply not prune
+    # (return False), never raise and abort the rest of the send fan-out.
+    error = body.get("error", {}) if isinstance(body, dict) else {}
+    details = error.get("details", []) if isinstance(error, dict) else []
+    if not isinstance(details, list):
+        return False
+    for detail in details:
+        if isinstance(detail, dict) and detail.get("errorCode") == "UNREGISTERED":
             return True
     return False
