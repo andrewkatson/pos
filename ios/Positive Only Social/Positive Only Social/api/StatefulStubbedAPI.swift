@@ -216,7 +216,8 @@ final class StatefulStubbedAPI: Networking {
     /// passed separately rather than as colon-joined pairs — pairing them
     /// reads like an embedded credential to secret scanners, and this is
     /// simpler anyway. The email is derived as `<username>@test.com`, matching
-    /// the convention every UI test uses.
+    /// the convention every UI test uses. Both variables must be set together;
+    /// usernames without a sign-in value seed nothing and log why.
     ///
     /// Nothing here is sensitive: `StatefulStubbedAPI` is an in-memory fake
     /// used only under UI testing, and the value arrives at runtime from the
@@ -225,7 +226,17 @@ final class StatefulStubbedAPI: Networking {
         guard isUITesting(),
               let raw = ProcessInfo.processInfo.environment["seed-usernames"],
               !raw.isEmpty else { return }
-        let sharedSignIn = ProcessInfo.processInfo.environment["seed-secret"] ?? ""
+        // Seeding accounts with an empty sign-in value would create accounts
+        // that can never be logged into, and the test would then fail deep in a
+        // login flow with nothing pointing back at the real cause. Refuse to
+        // seed and say why, so the misconfiguration explains itself.
+        guard let sharedSignIn = ProcessInfo.processInfo.environment["seed-secret"],
+              !sharedSignIn.isEmpty else {
+            NSLog("%@", "[seed] 'seed-usernames' was set but 'seed-secret' is missing or empty, "
+                  + "so no accounts were seeded. Every seeded-account sign-in would have failed. "
+                  + "Set both launch environment variables together.")
+            return
+        }
         for entry in raw.split(separator: ";") {
             let username = String(entry)
             if username.isEmpty { continue }
