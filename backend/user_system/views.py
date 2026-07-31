@@ -44,7 +44,7 @@ from .constants import Patterns, Params, POST_BATCH_SIZE, MAX_BEFORE_HIDING_POST
     ALLOWED_TEXT_SIZES, MAX_COMMENT_FORMAT_SPANS, \
     MINIMUM_AGE, ADULT_AGE, AGE_RESTRICTED, \
     INTEREST_CATEGORY_CHOICES, INTEREST_CATEGORY_SLUGS, \
-    MAX_FREEFORM_INTERESTS, MAX_FREEFORM_INTEREST_LENGTH, \
+    MAX_FREEFORM_INTERESTS, MAX_FREEFORM_INTEREST_LENGTH, REJECTED_TEXT_ECHO_LIMIT, \
     DEVICE_PLATFORMS, MAX_DEVICE_TOKEN_LENGTH, \
     PUSH_TYPE_CHOICES, PUSH_TYPES
 from .feed_algorithm import feed_algorithm
@@ -3520,7 +3520,9 @@ def _normalize_freeform_terms(raw_terms):
     preserving order, and capped at MAX_FREEFORM_INTERESTS. A term over the
     length limit is dropped into `rejected` with a reason so the client can tell
     the user which entry was too long; anything past the count cap is silently
-    ignored (the clients enforce the same cap).
+    ignored (the clients enforce the same cap). Both lists are bounded, and each
+    echoed term is truncated at REJECTED_TEXT_ECHO_LIMIT, so a crafted payload
+    cannot inflate the response.
     """
     terms = []
     rejected = []
@@ -3534,16 +3536,26 @@ def _normalize_freeform_terms(raw_terms):
         if not term:
             continue
         if len(term) > MAX_FREEFORM_INTEREST_LENGTH:
-            # Echo the term back untruncated so the client can show the user
-            # exactly what they typed (truncating to the limit would display a
-            # value that is no longer "too long"). It came in on this request,
-            # so it is already bounded by the request body size — and the client
-            # stubs return it whole too, keeping the contract identical.
-            rejected.append({
-                Fields.text: term,
-                Fields.reason_code: 'too_long',
-                'reason': f"is longer than {MAX_FREEFORM_INTEREST_LENGTH} characters",
-            })
+            # Over-length terms never reach the `terms` cap that ends this loop,
+            # so bound them separately: a crafted payload of thousands of
+            # over-length entries would otherwise build an arbitrarily large
+            # response. Past the bound they are simply ignored.
+            if len(rejected) < MAX_FREEFORM_INTERESTS:
+                # Echo the term back so the client can show the user what they
+                # typed (truncating to exactly the limit would display a value
+                # that is no longer "too long"), but bound the echo — a single
+                # term can be as large as the request body allows, and neither
+                # we nor the client should render megabytes of it. The bound
+                # stays well over the limit, so an elided term still reads as
+                # too long.
+                echo = term[:REJECTED_TEXT_ECHO_LIMIT]
+                if len(term) > REJECTED_TEXT_ECHO_LIMIT:
+                    echo += "…"
+                rejected.append({
+                    Fields.text: echo,
+                    Fields.reason_code: 'too_long',
+                    'reason': f"is longer than {MAX_FREEFORM_INTEREST_LENGTH} characters",
+                })
             continue
         key = term.lower()
         if key in seen:

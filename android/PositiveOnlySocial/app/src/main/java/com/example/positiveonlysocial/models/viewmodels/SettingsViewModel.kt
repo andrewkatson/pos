@@ -100,6 +100,12 @@ class SettingsViewModel(
     private val _isLoadingInterests = MutableStateFlow(false)
     val isLoadingInterests: StateFlow<Boolean> = _isLoadingInterests.asStateFlow()
 
+    // Saving is a full replace, so it must never run on state we failed to
+    // load: the empty defaults would wipe every stored interest. Save stays
+    // disabled until the current selection is actually in hand.
+    private val _hasLoadedInterests = MutableStateFlow(false)
+    val hasLoadedInterests: StateFlow<Boolean> = _hasLoadedInterests.asStateFlow()
+
     private val _isSavingInterests = MutableStateFlow(false)
     val isSavingInterests: StateFlow<Boolean> = _isSavingInterests.asStateFlow()
 
@@ -408,6 +414,7 @@ class SettingsViewModel(
     fun loadInterests() {
         _isLoadingInterests.value = true
         _rejectedInterests.value = emptyList()
+        _hasLoadedInterests.value = false
         viewModelScope.launch {
             try {
                 val optionsResponse = api.getInterestOptions()
@@ -425,6 +432,7 @@ class SettingsViewModel(
                     val body = response.body()
                     _selectedInterestSlugs.value = body?.categories.orEmpty()
                     _freeformInterests.value = body?.freeform.orEmpty()
+                    _hasLoadedInterests.value = true
                 } else {
                     _errorMessage.value = ApiErrors.messageFor(response, fallback = "Could not load your interests.")
                     _showingErrorAlert.value = true
@@ -469,6 +477,9 @@ class SettingsViewModel(
      * the dialog stays open showing which were dropped. */
     fun saveInterests() {
         if (_isSavingInterests.value) return
+        // Guarded here too, not just on the button: a full replace built from
+        // never-loaded state would clear everything the user has stored.
+        if (!_hasLoadedInterests.value) return
         _isSavingInterests.value = true
         _rejectedInterests.value = emptyList()
         viewModelScope.launch {

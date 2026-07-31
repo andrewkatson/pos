@@ -153,6 +153,20 @@ test('shows rejected freeform terms and keeps the dialog open', async () => {
   expect(onSaved).not.toHaveBeenCalled()
 })
 
+test('does not offer Save when the interests failed to load', async () => {
+  const user = userEvent.setup()
+  // A transient failure leaves the working state empty. Saving that would be a
+  // full replace with nothing — wiping everything the user had stored.
+  mockGet.mockRejectedValue(new Error('network'))
+  renderModal()
+
+  expect(await screen.findByRole('alert')).toHaveTextContent('Could not load your interests')
+  const saveButton = screen.getByRole('button', { name: 'Save' })
+  expect(saveButton).toBeDisabled()
+  await user.click(saveButton)
+  expect(mockSet).not.toHaveBeenCalled()
+})
+
 test('blocks adding once the freeform cap is reached, without eating the input', async () => {
   const user = userEvent.setup()
   // Start at the cap.

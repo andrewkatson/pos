@@ -6,7 +6,7 @@ from django.urls import reverse
 from .test_parent_case import PositiveOnlySocialTestCase
 from ..constants import (
     Fields, INTEREST_CATEGORY_CHOICES, INTEREST_CATEGORY_SLUGS,
-    MAX_FREEFORM_INTEREST_LENGTH,
+    MAX_FREEFORM_INTEREST_LENGTH, MAX_FREEFORM_INTERESTS, REJECTED_TEXT_ECHO_LIMIT,
 )
 from ..models import InterestCategory, PositiveOnlySocialUser, UserFreeformInterest
 
@@ -140,6 +140,32 @@ class InterestsViewTests(PositiveOnlySocialTestCase):
         rejected = response.json()[Fields.freeform][Fields.rejected]
         self.assertEqual(len(rejected), 1)
         self.assertEqual(rejected[0][Fields.reason_code], 'too_long')
+
+    def test_rejected_list_is_bounded(self):
+        # Over-length terms never reach the term cap that ends the parse loop,
+        # so a crafted payload of many of them must not build an unbounded
+        # response.
+        flood = ['a' * (MAX_FREEFORM_INTEREST_LENGTH + 1)] * 500
+        response = self._set(freeform=flood)
+        rejected = response.json()[Fields.freeform][Fields.rejected]
+        self.assertLessEqual(len(rejected), MAX_FREEFORM_INTERESTS)
+
+    def test_rejected_text_echo_is_bounded(self):
+        # A single term can be as large as the request body allows; the echo is
+        # truncated but stays clearly over the limit and is marked as elided.
+        huge = 'b' * (REJECTED_TEXT_ECHO_LIMIT + 50)
+        response = self._set(freeform=[huge])
+        echoed = response.json()[Fields.freeform][Fields.rejected][0][Fields.text]
+        self.assertLessEqual(len(echoed), REJECTED_TEXT_ECHO_LIMIT + 1)  # +1 for the ellipsis
+        self.assertTrue(echoed.endswith('…'))
+        self.assertGreater(len(echoed), MAX_FREEFORM_INTEREST_LENGTH)
+
+    def test_rejected_text_not_truncated_when_modestly_over(self):
+        # The common case — a term just over the limit — is echoed whole.
+        term = 'c' * (MAX_FREEFORM_INTEREST_LENGTH + 1)
+        response = self._set(freeform=[term])
+        echoed = response.json()[Fields.freeform][Fields.rejected][0][Fields.text]
+        self.assertEqual(echoed, term)
 
     def test_freeform_deduped_case_insensitively(self):
         self._set(freeform=['Nature', 'nature', 'NATURE'])

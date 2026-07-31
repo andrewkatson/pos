@@ -52,6 +52,10 @@ final class SettingsViewModel: ObservableObject {
     @Published var freeformInterests: [String] = []
     @Published var rejectedInterests: [RejectedInterest] = []
     @Published var isLoadingInterests = false
+    // Saving is a full replace, so it must never run on state we failed to
+    // load: the empty defaults would wipe every stored interest. Save stays
+    // disabled until the current selection is actually in hand.
+    @Published var hasLoadedInterests = false
     @Published var isSavingInterests = false
     @Published var interestsErrorMessage: String?
     @Published var interestsSaved = false
@@ -220,6 +224,7 @@ final class SettingsViewModel: ObservableObject {
         isLoadingInterests = true
         interestsErrorMessage = nil
         rejectedInterests = []
+        hasLoadedInterests = false
         Task {
             defer { isLoadingInterests = false }
             do {
@@ -233,6 +238,7 @@ final class SettingsViewModel: ObservableObject {
                 let current = try JSONDecoder().decode(InterestsResponse.self, from: data)
                 selectedInterestSlugs = current.categories
                 freeformInterests = current.freeform
+                hasLoadedInterests = true
             } catch {
                 interestsErrorMessage = error.userFacingMessage
             }
@@ -269,6 +275,9 @@ final class SettingsViewModel: ObservableObject {
     /// save the sheet dismisses; if the server rejected any freeform term the
     /// sheet stays open showing which were dropped.
     func saveInterests() {
+        // Guarded here too, not just on the button: a full replace built from
+        // never-loaded state would clear everything the user has stored.
+        guard hasLoadedInterests else { return }
         isSavingInterests = true
         interestsErrorMessage = nil
         rejectedInterests = []

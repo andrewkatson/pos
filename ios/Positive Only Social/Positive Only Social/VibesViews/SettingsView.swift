@@ -379,7 +379,8 @@ struct SettingsView: View {
                 }
                 ToolbarItem(placement: .confirmationAction) {
                     Button("Save") { viewModel.saveInterests() }
-                        .disabled(viewModel.isLoadingInterests || viewModel.isSavingInterests)
+                        .disabled(viewModel.isLoadingInterests || viewModel.isSavingInterests
+                                  || !viewModel.hasLoadedInterests)
                 }
             }
         }

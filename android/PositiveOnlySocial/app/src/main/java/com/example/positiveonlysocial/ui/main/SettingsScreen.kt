@@ -124,6 +124,7 @@ fun SettingsScreen(
         val freeformInterests by viewModel.freeformInterests.collectAsState()
         val rejectedInterests by viewModel.rejectedInterests.collectAsState()
         val isLoadingInterests by viewModel.isLoadingInterests.collectAsState()
+        val hasLoadedInterests by viewModel.hasLoadedInterests.collectAsState()
         val isSavingInterests by viewModel.isSavingInterests.collectAsState()
         val interestsSaved by viewModel.interestsSaved.collectAsState()
 
@@ -155,6 +156,7 @@ fun SettingsScreen(
                 rejected = rejectedInterests,
                 isLoading = isLoadingInterests,
                 isSaving = isSavingInterests,
+                hasLoaded = hasLoadedInterests,
                 onToggle = { viewModel.toggleInterest(it) },
                 onAddFreeform = { viewModel.addFreeformInterests(it) },
                 onRemoveFreeform = { viewModel.removeFreeformInterest(it) },
@@ -912,6 +914,7 @@ fun InterestsDialog(
     rejected: List<RejectedInterest>,
     isLoading: Boolean,
     isSaving: Boolean,
+    hasLoaded: Boolean,
     onToggle: (String) -> Unit,
     onAddFreeform: (List<String>) -> Unit,
     onRemoveFreeform: (String) -> Unit,
@@ -949,7 +952,7 @@ fun InterestsDialog(
             }
         },
         confirmButton = {
-            Button(onClick = onSave, enabled = !isLoading && !isSaving) {
+            Button(onClick = onSave, enabled = !isLoading && !isSaving && hasLoaded) {
                 Text("Save")
             }
         },

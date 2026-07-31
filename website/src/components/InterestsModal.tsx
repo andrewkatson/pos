@@ -26,6 +26,10 @@ function InterestsModal({ onClose, onSaved }: InterestsModalProps) {
   const [isLoading, setIsLoading] = useState(true)
   const [isSaving, setIsSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  // Saving is a full replace, so it must never run on state we failed to load:
+  // the empty defaults would wipe every stored interest. Save stays disabled
+  // until the current selection is actually in hand.
+  const [hasLoaded, setHasLoaded] = useState(false)
 
   useEffect(() => {
     let cancelled = false
@@ -35,6 +39,7 @@ function InterestsModal({ onClose, onSaved }: InterestsModalProps) {
         setOptions(opts.options)
         setSelected(current.categories)
         setFreeform(current.freeform)
+        setHasLoaded(true)
       })
       .catch(() => {
         if (!cancelled) setError('Could not load your interests. Please try again.')
@@ -71,6 +76,9 @@ function InterestsModal({ onClose, onSaved }: InterestsModalProps) {
   }
 
   async function handleSave() {
+    // Guarded here too, not just on the button: a full replace built from
+    // never-loaded state would clear everything the user has stored.
+    if (!hasLoaded) return
     setIsSaving(true)
     setError(null)
     setRejected([])
@@ -130,7 +138,7 @@ function InterestsModal({ onClose, onSaved }: InterestsModalProps) {
           type="button"
           className="modal__confirm"
           onClick={handleSave}
-          disabled={isLoading || isSaving}
+          disabled={isLoading || isSaving || !hasLoaded}
         >
           {isSaving ? 'Saving…' : 'Save'}
         </button>

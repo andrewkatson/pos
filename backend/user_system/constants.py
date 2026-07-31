@@ -451,6 +451,12 @@ INTEREST_CATEGORY_SLUGS = frozenset(slug for slug, _ in INTEREST_CATEGORY_CHOICE
 MAX_FREEFORM_INTERESTS = 20
 # Max length (unicode code points) of a single freeform interest term.
 MAX_FREEFORM_INTEREST_LENGTH = 100
+# How much of a rejected (over-length) term is echoed back to the client so it
+# can show the user what they typed. Deliberately well above
+# MAX_FREEFORM_INTEREST_LENGTH so an elided term still reads as clearly too
+# long, while bounding the response for a crafted payload whose single term is
+# as large as the request body allows.
+REJECTED_TEXT_ECHO_LIMIT = MAX_FREEFORM_INTEREST_LENGTH * 2
 # Most interest buckets the offline categorizer assigns to one post — a handful
 # of "what this is about" labels, not an exhaustive tagging.
 MAX_INTEREST_TAGS_PER_POST = 3
