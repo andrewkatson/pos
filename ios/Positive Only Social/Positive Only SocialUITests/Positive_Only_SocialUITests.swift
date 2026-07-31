@@ -284,10 +284,23 @@ final class Positive_Only_SocialUITests: XCTestCase {
     /// resetting: the stub's database is in-memory and is rebuilt, reseeded,
     /// on every launch.
     private func returnToWelcomeIfSignedIn(app: XCUIApplication) throws {
-        // A plain `exists` here would race the launch on a slow runner, so give
-        // the app a moment to settle before deciding which screen it is on.
+        // Wait for whichever screen the launch settles on, rather than only for
+        // the signed-in one. Polling for Home alone would mean the common
+        // signed-out case never satisfies the condition and always pays the
+        // full timeout — a per-test cost on a suite whose point is runtime.
+        // Waiting for either signal returns as soon as the app renders.
+        //
+        // A plain `exists` would instead race the launch and mis-read a
+        // still-launching app as signed out, so the wait itself is needed; app
+        // launch has been observed taking double-digit seconds on a loaded CI
+        // runner, hence longTimeout, which is only ever paid when the app fails
+        // to show either screen (already a failure).
         let profileTab = app.buttons["Profile"]
-        if poll(timeout: TestConstants.shortTimeout, until: { profileTab.exists }) {
+        let welcomeText = app.staticTexts["Welcome! 👋"]
+        poll(timeout: TestConstants.longTimeout,
+             until: { profileTab.exists || welcomeText.exists })
+
+        if profileTab.exists {
             try logoutUserFromHome(app: app)
         }
     }
