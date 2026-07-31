@@ -18,7 +18,7 @@ from django.db.models import Count, Max, OuterRef, Subquery
 from django.http import JsonResponse
 from django.utils import timezone
 from django.views.decorators.csrf import csrf_exempt
-from django.views.decorators.http import require_POST, require_GET
+from django.views.decorators.http import require_POST, require_GET, require_http_methods
 from django_ratelimit.decorators import ratelimit
 from django_ratelimit.exceptions import Ratelimited
 
@@ -44,12 +44,14 @@ from .constants import Patterns, Params, POST_BATCH_SIZE, MAX_BEFORE_HIDING_POST
     ALLOWED_TEXT_SIZES, MAX_COMMENT_FORMAT_SPANS, \
     MINIMUM_AGE, ADULT_AGE, AGE_RESTRICTED, \
     INTEREST_CATEGORY_CHOICES, INTEREST_CATEGORY_SLUGS, \
-    MAX_FREEFORM_INTERESTS, MAX_FREEFORM_INTEREST_LENGTH
+    MAX_FREEFORM_INTERESTS, MAX_FREEFORM_INTEREST_LENGTH, \
+    DEVICE_PLATFORMS, MAX_DEVICE_TOKEN_LENGTH, \
+    PUSH_TYPE_CHOICES, PUSH_TYPES
 from .feed_algorithm import feed_algorithm
 from .input_validator import is_valid_pattern
 from .models import LoginCookie, Session, Post, CommentThread, PositiveOnlySocialUser, Comment, CommentLike, \
     PostLike, SavedPost, UserBlock, UserBan, UserFollow, KnownDevice, Appeal, TwoFactorChallenge, RecoveryCode, \
-    InterestCategory, UserFreeformInterest
+    InterestCategory, UserFreeformInterest, DeviceToken, NotificationPreference
 from .utils import convert_to_bool, generate_login_cookie_token, generate_management_token, generate_series_identifier, \
     get_batch, get_queryset_batch
 from .cloudfront import sign_compressed_url, sign_original_url
@@ -2111,13 +2113,23 @@ def get_saved_posts(request, batch):
     saved_time = SavedPost.objects.filter(
         user=request.user, post=OuterRef('pk')
     ).values('creation_time')[:1]
+    # Tie-breaker: creation_time isn't guaranteed unique (two posts saved close
+    # together can share a value; the timestamp resolution varies by DB backend),
+    # so ordering on it alone would leave those ties to resolve arbitrarily.
+    # SavedPost's auto-increment id is monotonic with save order and unique per
+    # (user, post), so it resolves those ties in favor of the more-recently-saved
+    # post and makes the ordering fully deterministic.
+    saved_id = SavedPost.objects.filter(
+        user=request.user, post=OuterRef('pk')
+    ).values('id')[:1]
     saved_posts = Post.objects.filter(savedpost__user=request.user).annotate(
-        saved_time=Subquery(saved_time))
+        saved_time=Subquery(saved_time), saved_id=Subquery(saved_id))
     # Drop posts by users on either side of a block, mirroring the feed, so a
     # post saved before a block doesn't keep surfacing afterward.
     saved_posts = saved_posts.exclude(author__in=request.user.blocked.all()).exclude(
         author__in=request.user.blocked_by.all())
-    saved_posts = visible_posts(saved_posts, request.user).order_by('-saved_time').select_related('author').prefetch_related('tags')
+    saved_posts = visible_posts(saved_posts, request.user).order_by(
+        '-saved_time', '-saved_id').select_related('author').prefetch_related('tags')
 
     if saved_posts.exists():
         batched_posts = get_queryset_batch(saved_posts, batch, POST_BATCH_SIZE)
@@ -3686,6 +3698,118 @@ def set_interests(request):
     logger.info(f"Interests updated for user_id: {request.user.id}")
     result['message'] = "Your interests have been updated."
     return log_and_return_json("set_interests", result)
+
+
+@csrf_exempt
+@api_login_required
+@ratelimit(key='user', rate='30/h', block=True)
+@require_POST
+def register_device(request):
+    """Register (or refresh) the caller's native push-notification token (issue #342).
+
+    The client calls this after the OS grants notification permission, and again
+    whenever the provider rotates the token. Upsert on the device's natural key
+    (platform, token): re-registering a token that already exists just repoints
+    it at the current user and bumps updated_at, so a device that changed
+    accounts is moved rather than duplicated. Push is best-effort and never the
+    source of truth (#282 reconciliation is), so this endpoint only records the
+    token — delivery and dead-token pruning happen off the request path in the
+    worker send path. Rate limited per user since a client should register a
+    device at most a handful of times a day.
+    """
+    logger.info("Endpoint register_device invoked by User")
+    data = _get_json_body(request)
+    # _get_json_body returns any valid JSON; a non-object (e.g. a JSON array)
+    # would make data.get(...) raise -> 500, so require a dict up front.
+    if not isinstance(data, dict):
+        return log_and_return_json("register_device", {'error': "Invalid JSON data"}, status=400)
+
+    platform = data.get(Fields.platform)
+    token = data.get(Fields.token)
+    # Strip first, then validate and store the same value — so length is checked
+    # against what actually gets persisted (and indexed), not the raw input.
+    if isinstance(token, str):
+        token = token.strip()
+    invalid_fields = []
+    # isinstance guard first: a non-string JSON value (list/object) is unhashable,
+    # so `x not in <frozenset>` would raise TypeError -> 500 instead of a 400.
+    if not isinstance(platform, str) or platform not in DEVICE_PLATFORMS:
+        invalid_fields.append(Params.platform)
+    # Real APNs/FCM tokens are printable, non-space ASCII (hex / base64url-ish).
+    # Requiring that rejects junk — control chars or embedded whitespace that
+    # would break a provider request (APNs URL path, FCM INVALID_ARGUMENT) — and
+    # keeps len(token) == the UTF-8 byte size, so the length cap actually bounds
+    # what lands in the (platform, token) UNIQUE index (a multibyte 1024-char
+    # string could otherwise blow past PostgreSQL's btree row limit at insert).
+    if (not isinstance(token, str) or not token or not token.isascii()
+            or not token.isprintable() or ' ' in token
+            or len(token) > MAX_DEVICE_TOKEN_LENGTH):
+        invalid_fields.append(Params.token)
+    if invalid_fields:
+        return log_and_return_json(
+            "register_device", {'error': f"Invalid fields {invalid_fields}"}, status=400)
+
+    DeviceToken.objects.update_or_create(
+        platform=platform, token=token,
+        defaults={'user': request.user},
+    )
+    logger.info(f"Device registered ({platform}) for user_id: {request.user.id}")
+    return log_and_return_json("register_device", {'message': "Device registered."})
+
+
+@csrf_exempt
+@api_login_required
+@ratelimit(key='user', rate='60/h', block=True)
+@require_http_methods(["GET", "POST"])
+def notification_preferences(request):
+    """Read or update the caller's push notification preferences (issues
+    #342/#343; the Settings "Notifications" toggles).
+
+    GET returns one {type, label, enabled} row per known push type — the clients
+    render a toggle per row generically, so a new type shows up everywhere with
+    no client change. Preferences default to enabled. POST {type, enabled}
+    upserts one type's preference; send_push consults these before sending, so a
+    type toggled off is never delivered on any device.
+    """
+    if request.method == 'GET':
+        overrides = {p.notification_type: p.enabled
+                     for p in NotificationPreference.objects.filter(user=request.user)}
+        prefs = [{
+            Fields.notification_type: notification_type,
+            Fields.label: label,
+            Fields.enabled: overrides.get(notification_type, True),
+        } for notification_type, label in PUSH_TYPE_CHOICES]
+        return log_and_return_json("notification_preferences", {Fields.preferences: prefs})
+
+    if request.method == 'POST':
+        data = _get_json_body(request)
+        # Require a JSON object: a non-object (e.g. a JSON array) would make
+        # data.get(...) raise -> 500.
+        if not isinstance(data, dict):
+            return log_and_return_json(
+                "notification_preferences", {'error': "Invalid JSON data"}, status=400)
+        notification_type = data.get(Fields.notification_type)
+        enabled = data.get(Fields.enabled)
+        invalid_fields = []
+        # isinstance guard first: a non-string (unhashable) type value would make
+        # `x not in <frozenset>` raise TypeError -> 500 instead of a 400.
+        if not isinstance(notification_type, str) or notification_type not in PUSH_TYPES:
+            invalid_fields.append(Params.notification_type)
+        if not isinstance(enabled, bool):
+            invalid_fields.append(Params.enabled)
+        if invalid_fields:
+            return log_and_return_json(
+                "notification_preferences", {'error': f"Invalid fields {invalid_fields}"}, status=400)
+        NotificationPreference.objects.update_or_create(
+            user=request.user, notification_type=notification_type, defaults={'enabled': enabled})
+        logger.info(f"Notification pref {notification_type}={enabled} for user_id: {request.user.id}")
+        return log_and_return_json("notification_preferences", {
+            Fields.notification_type: notification_type, Fields.enabled: enabled})
+
+    # Unreachable: @require_http_methods already 405s any other verb (with the
+    # Allow header). Kept as a defensive default so the view always returns.
+    return log_and_return_json(
+        "notification_preferences", {'error': "Method not allowed"}, status=405)
 
 
 @api_login_required

@@ -1,0 +1,66 @@
+/* ============================================================
+   Account & data deletion page (issue #439). Reuses the shared
+   auth-page/auth-card/auth-* styles from LoginPage.css; the rules
+   below cover only the deletion-specific bits.
+   ============================================================ */
+
+.delete-account__list {
+  margin: 0;
+  padding-left: 1.25rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+  font-size: 0.9rem;
+  line-height: 1.5;
+  color: rgba(255, 255, 255, 0.75);
+}
+
+.delete-account__ack {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.6rem;
+  font-size: 0.9rem;
+  line-height: 1.4;
+  color: rgba(255, 255, 255, 0.8);
+  cursor: pointer;
+}
+
+.delete-account__ack input {
+  margin-top: 0.15rem;
+  width: 1.1rem;
+  height: 1.1rem;
+  flex-shrink: 0;
+  accent-color: #dc3232;
+  cursor: pointer;
+}
+
+/* Destructive primary action — red rather than the blue auth-button so the
+   permanent delete never looks like a routine confirm. */
+.delete-account__danger-button {
+  width: 100%;
+  padding: 0.8rem;
+  border-radius: 12px;
+  font-weight: 600;
+  font-size: 1rem;
+  cursor: pointer;
+  border: none;
+  background: #dc3232;
+  color: #ffffff;
+  transition: opacity 0.15s ease;
+}
+
+.delete-account__danger-button:not(:disabled):hover {
+  opacity: 0.85;
+}
+
+.delete-account__danger-button:disabled {
+  background: #444;
+  cursor: not-allowed;
+}
+
+/* The "Return home" link reuses auth-button but is an <a>, so re-assert the
+   centered text a button gets for free. */
+.delete-account__home-link {
+  text-align: center;
+  text-decoration: none;
+}

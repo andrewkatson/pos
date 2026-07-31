@@ -200,6 +200,16 @@ urlpatterns = [
     # POST /interests/set/ (Token in header) — replace the caller's interest selection.
     path('interests/set/', views.set_interests, name='set_interests'),
 
+    # =========================================================================
+    # PUSH NOTIFICATIONS (issue #342)
+    # =========================================================================
+    # POST /devices/register/ (Token in header) — register/refresh a push token
+    path('devices/register/', views.register_device, name='register_device'),
+
+    # GET/POST /notifications/preferences/ (Token in header) — per-type push
+    # notification toggles shown in Settings
+    path('notifications/preferences/', views.notification_preferences, name='notification_preferences'),
+
     # GET /users/followers/ (Token in header) — the requester's own followers
     path('users/followers/', views.get_followers, name='get_followers'),
 

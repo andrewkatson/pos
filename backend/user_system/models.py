@@ -22,6 +22,7 @@ from .constants import (
     MAX_FREEFORM_INTEREST_LENGTH,
     PROFILE_IMAGE_STATUS_NONE,
     DEFAULT_STYLE_KEY,
+    DEVICE_PLATFORM_CHOICES, MAX_DEVICE_TOKEN_LENGTH,
 )
 
 logger = logging.getLogger(__name__)
@@ -289,6 +290,53 @@ class KnownDevice(models.Model):
 
     def __str__(self):
         return f"{self.user} @ {self.ip}/{self.user_agent[:80]}"
+
+
+# A device a user has registered to receive native push notifications on
+# (issues #342/#343). A user has many devices; a device can move between
+# accounts, so the natural key is (platform, token) and re-registering an
+# existing token repoints user/updated_at rather than duplicating. Push is
+# best-effort (see user_system.push): a stale row here is cheap because the send
+# path deletes any token a provider reports as unregistered.
+class DeviceToken(models.Model):
+    user = models.ForeignKey(PositiveOnlySocialUser, related_name='device_tokens', on_delete=models.CASCADE)
+    platform = models.CharField(max_length=16, choices=DEVICE_PLATFORM_CHOICES)
+    # Bounded at the DB layer (not just the view) so no insertion path — admin,
+    # a fixture, future code — can store a value too long for the (platform,
+    # token) UNIQUE btree index.
+    token = models.CharField(max_length=MAX_DEVICE_TOKEN_LENGTH)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        app_label = 'user_system'
+        constraints = [
+            models.UniqueConstraint(fields=['platform', 'token'], name='unique_platform_token')
+        ]
+
+    def __str__(self):
+        # A device token is effectively a credential; keep it out of admin UIs,
+        # logs, and error reports — identify the row by user + platform + pk only.
+        return f"{self.user} [{self.platform}] #{self.pk}"
+
+
+# A user's opt-out of one push notification type (issues #342/#343). Preferences
+# default to enabled, so a row exists only once the user has toggled a type in
+# Settings; its absence means "on". notification_type is validated against
+# PUSH_TYPES at the view layer (kept a plain CharField here so adding a new type
+# needs no migration). send_push consults is_push_type_enabled before sending.
+class NotificationPreference(models.Model):
+    user = models.ForeignKey(PositiveOnlySocialUser, related_name='notification_preferences', on_delete=models.CASCADE)
+    notification_type = models.CharField(max_length=32)
+    enabled = models.BooleanField(default=True)
+
+    class Meta:
+        app_label = 'user_system'
+        constraints = [
+            models.UniqueConstraint(fields=['user', 'notification_type'], name='unique_user_notification_type')
+        ]
+
+    def __str__(self):
+        return f"{self.user} {self.notification_type}={self.enabled}"
 
 
 class UserBanManager(models.Manager):

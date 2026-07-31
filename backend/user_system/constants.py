@@ -99,6 +99,45 @@ PROFILE_IMAGE_STATUS_PENDING = "pending"
 PROFILE_IMAGE_STATUS_APPROVED = "approved"
 PROFILE_IMAGE_STATUS_REJECTED = "rejected"
 
+# Native push notifications (issues #342/#343). A DeviceToken row is one device
+# a user has registered to receive pop-up notifications on. The platform picks
+# the delivery provider: iOS goes through APNs directly, Android and web through
+# FCM. Push is best-effort and never the source of truth — a user who never
+# receives it still learns the outcome via in-app reconciliation (#282).
+DEVICE_PLATFORM_IOS = "ios"
+DEVICE_PLATFORM_ANDROID = "android"
+DEVICE_PLATFORM_WEB = "web"
+DEVICE_PLATFORM_CHOICES = [
+    (DEVICE_PLATFORM_IOS, "iOS"),
+    (DEVICE_PLATFORM_ANDROID, "Android"),
+    (DEVICE_PLATFORM_WEB, "Web"),
+]
+DEVICE_PLATFORMS = frozenset(value for value, _ in DEVICE_PLATFORM_CHOICES)
+
+# Upper bound on a stored device token. APNs tokens are 64 hex chars; FCM
+# registration tokens (Android and FCM-for-web) run ~150–350 chars. 1024 leaves
+# generous headroom over any real provider token while staying well under
+# PostgreSQL's ~2704-byte btree row limit — the token participates in the
+# (platform, token) UNIQUE index, so a larger value could pass validation only
+# to fail the insert at the index level.
+MAX_DEVICE_TOKEN_LENGTH = 1024
+
+# Machine-readable "type" on a push payload's data dict so a client can branch
+# on why it was notified and deep-link accordingly. The only kind today is a
+# post rejection resolved off the request path.
+PUSH_TYPE_POST_REJECTED = "post_rejected"
+
+# Registry of user-toggleable push notification types. Each entry's label is
+# what the clients' Settings "Notifications" toggles show; the preferences
+# endpoint returns one {type, label, enabled} row per entry and every client
+# renders a toggle per row generically — so a NEW push type needs only an entry
+# here plus a send_push call that passes its type, with no client changes.
+# Preferences default to enabled; send_push skips a type a user has turned off.
+PUSH_TYPE_CHOICES = [
+    (PUSH_TYPE_POST_REJECTED, "Post moderation"),
+]
+PUSH_TYPES = frozenset(value for value, _ in PUSH_TYPE_CHOICES)
+
 # Lifecycle of an appeal a user files against hidden content or a ban.
 APPEAL_STATUS_PENDING = "pending"
 APPEAL_STATUS_APPROVED = "approved"
@@ -220,6 +259,10 @@ class Params:
     totp_code = "TOTP_CODE"
     recovery_code = "RECOVERY_CODE"
     bio = "BIO"
+    platform = "PLATFORM"
+    token = "TOKEN"
+    notification_type = "TYPE"
+    enabled = "ENABLED"
 
 class Fields:
     is_adult = 'is_adult'
@@ -322,6 +365,13 @@ class Fields:
     accepted = "accepted"
     rejected = "rejected"
     text = "text"
+    platform = "platform"
+    token = "token"
+    # Push notification preferences (Settings toggles).
+    notification_type = "type"
+    enabled = "enabled"
+    label = "label"
+    preferences = "preferences"
 
 # Lengths of things
 LEN_LOGIN_COOKIE_TOKEN = 32
