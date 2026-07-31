@@ -279,10 +279,12 @@ bring the user back to look.
 
 - **Device tokens.** Each client, after the OS grants notification permission,
   uploads its provider token to authenticated `POST /devices/register/`
-  (`{platform, token}`, `platform ∈ {ios, android, web}`) and re-uploads on
-  rotation. A `DeviceToken` row is keyed by `(platform, token)`, so
-  re-registering an existing token repoints it at the current user rather than
-  duplicating (a device can change accounts).
+  (`{platform, token}`, `platform ∈ {ios, android, web}`, `token` at most
+  `MAX_DEVICE_TOKEN_LENGTH` = 1024 chars — bounded so it stays within the
+  `(platform, token)` unique index) and re-uploads on rotation. A `DeviceToken`
+  row is keyed by `(platform, token)`, so re-registering an existing token
+  repoints it at the current user rather than duplicating (a device can change
+  accounts).
 - **Send path.** `user_system.push.send_push(user, payload)` fans out to all a
   user's tokens, called by `classify_post` on a resolved rejection — off the
   request path, on the same durable queue, best-effort. The payload's `data`
