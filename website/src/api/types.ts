@@ -106,6 +106,14 @@ export interface MessageResponse {
   follow_category?: FollowCategory
 }
 
+/** Register (or refresh) this browser's Web-push token (issues #342/#343).
+ * `platform` is always 'web' from this client; the backend keys the device on
+ * (platform, token) and upserts. */
+export interface RegisterDeviceRequest {
+  platform: 'web'
+  token: string
+}
+
 export interface RequestResetRequest {
   username_or_email: string
 }

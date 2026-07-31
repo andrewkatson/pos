@@ -40,6 +40,7 @@ import type {
   PostStatusResponse,
   ProfileDetails,
   ProfileImageStatus,
+  RegisterDeviceRequest,
   RegisterRequest,
   RemoveProfilePhotoResponse,
   ReplyResponse,
@@ -1496,6 +1497,17 @@ export class StatefulStubbedAPI implements PositiveOnlySocialAPI {
     }
     user.bio = body.bio
     return { bio: user.bio, message: 'Your bio has been updated.' }
+  }
+
+  // ---------------------------------------------------------------------------
+  // Push notifications (issues #342/#343)
+  // ---------------------------------------------------------------------------
+
+  async registerDevice(_body: RegisterDeviceRequest): Promise<MessageResponse> {
+    // The stub keeps no device table; registration always "succeeds" so the
+    // push bootstrap flow can be exercised in UI mode without a real backend.
+    this.requireUser()
+    return { message: 'Device registered.' }
   }
 
   // ---------------------------------------------------------------------------

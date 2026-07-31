@@ -18,6 +18,7 @@ import {
   persistSession,
   saveRememberMeTokens,
 } from '../api/session'
+import { registerForPush } from '../push/webPush'
 import './LoginPage.css'
 
 function LoginPage() {
@@ -78,6 +79,10 @@ function LoginPage() {
     } else {
       clearRememberMeTokens()
     }
+    // Now that we have a session, ask for notification permission and register
+    // this browser for push (issues #342/#343). Best-effort and non-blocking —
+    // it never affects entering the app.
+    void registerForPush({ promptIfNeeded: true })
     navigate('/home')
   }
 

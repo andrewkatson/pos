@@ -112,6 +112,33 @@ describe('post classification status (#282)', () => {
   })
 })
 
+describe('push device registration (#342/#343)', () => {
+  test('registerDevice posts platform + token to the device endpoint with auth', async () => {
+    const fetchFn = vi.fn().mockResolvedValue(jsonResponse(200, { message: 'Device registered.' }))
+    const client = new ApiClient({ token: 'sometoken', fetchFn })
+
+    const result = await client.registerDevice({ platform: 'web', token: 'fcm-token-abc' })
+
+    expect(fetchFn).toHaveBeenCalledWith(
+      'https://api.smiling.social/user_index/devices/register/',
+      expect.objectContaining({
+        method: 'POST',
+        headers: expect.objectContaining({ Authorization: 'Bearer sometoken' }),
+        body: JSON.stringify({ platform: 'web', token: 'fcm-token-abc' }),
+      }),
+    )
+    expect(result).toEqual({ message: 'Device registered.' })
+  })
+
+  test('registerDevice refuses to send without a session', async () => {
+    const fetchFn = vi.fn()
+    const client = new ApiClient({ fetchFn })
+
+    await expect(client.registerDevice({ platform: 'web', token: 't' })).rejects.toThrow(ApiError)
+    expect(fetchFn).not.toHaveBeenCalled()
+  })
+})
+
 describe('friendly error messages', () => {
   test('passes the backend error message through unchanged', async () => {
     const fetchFn = vi.fn().mockResolvedValue(jsonResponse(400, { error: 'Text is not positive' }))

@@ -38,6 +38,7 @@ import type {
   PostDetails,
   PostStatusResponse,
   ProfileDetails,
+  RegisterDeviceRequest,
   RegisterRequest,
   RemoveProfilePhotoResponse,
   ReplyResponse,
@@ -701,6 +702,14 @@ export class ApiClient implements PositiveOnlySocialAPI {
 
   setBio(body: SetBioRequest): Promise<SetBioResponse> {
     return this.request<SetBioResponse>('POST', '/profile/bio/', { auth: true, body })
+  }
+
+  // ===========================================================================
+  // PUSH NOTIFICATIONS (issues #342/#343)
+  // ===========================================================================
+
+  registerDevice(body: RegisterDeviceRequest): Promise<MessageResponse> {
+    return this.request<MessageResponse>('POST', '/devices/register/', { auth: true, body })
   }
 
   // ===========================================================================

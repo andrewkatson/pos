@@ -32,6 +32,7 @@ import type {
   PostDetails,
   PostStatusResponse,
   ProfileDetails,
+  RegisterDeviceRequest,
   RegisterRequest,
   RemoveProfilePhotoResponse,
   ReplyResponse,
@@ -175,6 +176,10 @@ export interface PositiveOnlySocialAPI {
    * The text is moderated synchronously; a non-positive bio is rejected and not
    * stored. Returns the stored bio. */
   setBio(body: SetBioRequest): Promise<SetBioResponse>
+
+  // Push notifications (issues #342/#343). Register or refresh this browser's
+  // Web-push token so the backend can notify the user of async outcomes.
+  registerDevice(body: RegisterDeviceRequest): Promise<MessageResponse>
 
   // Appeals
   getHiddenPosts(batch: number): Promise<HiddenPost[]>
