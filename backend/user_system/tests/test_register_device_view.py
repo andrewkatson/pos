@@ -126,6 +126,13 @@ class RegisterDeviceViewTests(PositiveOnlySocialTestCase):
         response = self.client.post(self.url, data='not json', content_type='application/json', **header)
         self.assertEqual(response.status_code, 400)
 
+    def test_rejects_non_object_json_with_400(self):
+        # A valid JSON array is not an object; it must 400, not 500 on data.get.
+        header = {'HTTP_AUTHORIZATION': f'Bearer {self.token}'}
+        response = self.client.post(self.url, data='[]', content_type='application/json', **header)
+        self.assertEqual(response.status_code, 400)
+        self.assertFalse(DeviceToken.objects.exists())
+
     def test_requires_authentication(self):
         response = self.client.post(
             self.url, data={'platform': DEVICE_PLATFORM_IOS, 'token': 'abc'},

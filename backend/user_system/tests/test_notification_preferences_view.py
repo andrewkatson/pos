@@ -65,6 +65,13 @@ class NotificationPreferencesViewTests(PositiveOnlySocialTestCase):
         self.assertEqual(response.status_code, 400)
         self.assertFalse(NotificationPreference.objects.exists())
 
+    def test_post_non_object_json_is_400_not_500(self):
+        # A valid JSON array is not an object; must 400, not 500 on data.get.
+        response = self.client.post(
+            self.url, data='[]', content_type='application/json', **self._auth())
+        self.assertEqual(response.status_code, 400)
+        self.assertFalse(NotificationPreference.objects.exists())
+
     def test_post_rejects_non_boolean_enabled(self):
         response = self._post({'type': PUSH_TYPE_POST_REJECTED, 'enabled': 'yes'})
         self.assertEqual(response.status_code, 400)

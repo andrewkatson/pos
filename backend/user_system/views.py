@@ -3506,7 +3506,9 @@ def register_device(request):
     """
     logger.info("Endpoint register_device invoked by User")
     data = _get_json_body(request)
-    if data is None:
+    # _get_json_body returns any valid JSON; a non-object (e.g. a JSON array)
+    # would make data.get(...) raise -> 500, so require a dict up front.
+    if not isinstance(data, dict):
         return log_and_return_json("register_device", {'error': "Invalid JSON data"}, status=400)
 
     platform = data.get(Fields.platform)
@@ -3567,7 +3569,9 @@ def notification_preferences(request):
 
     if request.method == 'POST':
         data = _get_json_body(request)
-        if data is None:
+        # Require a JSON object: a non-object (e.g. a JSON array) would make
+        # data.get(...) raise -> 500.
+        if not isinstance(data, dict):
             return log_and_return_json(
                 "notification_preferences", {'error': "Invalid JSON data"}, status=400)
         notification_type = data.get(Fields.notification_type)
