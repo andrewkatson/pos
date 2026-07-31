@@ -646,6 +646,23 @@ class MockPositiveOnlySocialAPI : PositiveOnlySocialAPI {
         return Response.success(SetBioResponse(bio = request.bio, message = "Your bio has been updated."))
     }
 
+    override suspend fun getInterestOptions(): Response<InterestOptionsResponse> =
+        Response.success(InterestOptionsResponse(options = InterestVocabulary.options))
+
+    override suspend fun getInterests(token: String): Response<InterestsResponse> =
+        Response.success(InterestsResponse(categories = emptyList(), freeform = emptyList()))
+
+    override suspend fun setInterests(
+        token: String,
+        request: SetInterestsRequest
+    ): Response<SetInterestsResponse> = Response.success(
+        SetInterestsResponse(
+            categories = request.categories,
+            freeform = InterestFreeformResult(accepted = request.freeform, rejected = emptyList()),
+            message = "Your interests have been updated."
+        )
+    )
+
     override suspend fun getHiddenPosts(token: String, batch: Int): Response<List<HiddenPost>> =
         Response.success(emptyList())
 
