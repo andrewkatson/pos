@@ -41,10 +41,9 @@ class PosFirebaseMessagingService : FirebaseMessagingService() {
 
         val intent = Intent(this, MainActivity::class.java).apply {
             flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
-            // Mirror the data keys FCM would place as extras on a background tap,
-            // so MainActivity's handling is identical either way.
+            // Android routes by post_identifier only (the web deep_link isn't
+            // used here), matching the extra FCM places on a background tap.
             if (postId != null) putExtra(KEY_POST_IDENTIFIER, postId)
-            message.data[KEY_DEEP_LINK]?.let { putExtra(KEY_DEEP_LINK, it) }
         }
         val pendingIntent = PendingIntent.getActivity(
             this, 0, intent,
@@ -80,9 +79,9 @@ class PosFirebaseMessagingService : FirebaseMessagingService() {
     }
 
     companion object {
-        // Data keys from the backend payload (user_system/push.build_rejection_payload).
+        // Data key from the backend payload (user_system/push.build_rejection_payload).
+        // Android routes by post_identifier; the web-only deep_link is ignored here.
         const val KEY_POST_IDENTIFIER = "post_identifier"
-        const val KEY_DEEP_LINK = "deep_link"
         private const val CHANNEL_ID = "post_moderation"
         private const val NOTIFICATION_ID = 342
     }
