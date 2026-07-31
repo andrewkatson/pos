@@ -206,6 +206,9 @@ def _send_apns(tokens, payload):
         "authorization": f"bearer {auth}",
         "apns-topic": settings.APNS_TOPIC,
         "apns-push-type": "alert",
+        # httpx's content= doesn't set a content type; be explicit that the body
+        # is JSON so APNs never has to guess.
+        "content-type": "application/json",
     }
     # Custom keys go under "data" (not flattened to the top level) so iOS reads
     # them at userInfo["data"], matching the FCM data map exactly.

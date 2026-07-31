@@ -302,7 +302,9 @@ class DeviceToken(models.Model):
         ]
 
     def __str__(self):
-        return f"{self.user} [{self.platform}] {self.token[:16]}"
+        # A device token is effectively a credential; keep it out of admin UIs,
+        # logs, and error reports — identify the row by user + platform + pk only.
+        return f"{self.user} [{self.platform}] #{self.pk}"
 
 
 # A user's opt-out of one push notification type (issues #342/#343). Preferences
