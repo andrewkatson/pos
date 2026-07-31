@@ -9,6 +9,7 @@ import com.example.positiveonlysocial.data.model.ProfileDetailsResponse
 import com.example.positiveonlysocial.data.model.SetBioResponse
 import com.example.positiveonlysocial.data.model.UserSession
 import com.example.positiveonlysocial.data.security.KeychainHelperProtocol
+import com.example.positiveonlysocial.util.PostEvents
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.test.advanceTimeBy
@@ -356,5 +357,69 @@ class ProfileViewModelTest {
         assertFalse(succeeded)
         // The rejected edit never overwrote the loaded bio.
         assertEquals("Kindness matters.", viewModel.profileDetails.value!!.bio)
+    }
+
+    // --- Posts stat backed by the backend post_count (issue #437) ---
+
+    @Test
+    fun `post count reflects the backend total not the loaded grid size`() = runTest {
+        // The backend reports 5 posts but only the first page (2) is loaded into
+        // the grid; the Posts stat must show 5, not 2.
+        val mockProfile = ProfileDetailsResponse("user1", 5, 0, 0, false)
+        val firstPage = listOf(
+            Post("1", "url1", "cap1", "user1", 1),
+            Post("2", "url2", "cap2", "user1", 1),
+        )
+        whenever(api.getProfileDetails("token123", "user1")).thenReturn(Response.success(mockProfile))
+        whenever(api.getPostsForUser("token123", "user1", 0)).thenReturn(Response.success(firstPage))
+
+        viewModel.fetchProfile("user1")
+        advanceUntilIdle()
+
+        assertEquals(2, viewModel.userPosts.value.size)
+        assertEquals(5, viewModel.profileDetails.value?.postCount)
+    }
+
+    @Test
+    fun `deleting a post on this grid decrements the post count`() = runTest {
+        val mockProfile = ProfileDetailsResponse("user1", 2, 0, 0, false)
+        val posts = listOf(
+            Post("1", "url1", "cap1", "user1", 1),
+            Post("2", "url2", "cap2", "user1", 1),
+        )
+        whenever(api.getProfileDetails("token123", "user1")).thenReturn(Response.success(mockProfile))
+        whenever(api.getPostsForUser("token123", "user1", 0)).thenReturn(Response.success(posts))
+
+        viewModel.fetchProfile("user1")
+        advanceUntilIdle()
+        assertEquals(2, viewModel.profileDetails.value?.postCount)
+
+        // A delete announced for a post on this grid drops the tile and the count.
+        PostEvents.postDeleted("1")
+        advanceUntilIdle()
+
+        assertEquals(1, viewModel.userPosts.value.size)
+        assertEquals(1, viewModel.profileDetails.value?.postCount)
+    }
+
+    @Test
+    fun `deleting a post not on this grid leaves the post count unchanged`() = runTest {
+        val mockProfile = ProfileDetailsResponse("user1", 2, 0, 0, false)
+        val posts = listOf(
+            Post("1", "url1", "cap1", "user1", 1),
+            Post("2", "url2", "cap2", "user1", 1),
+        )
+        whenever(api.getProfileDetails("token123", "user1")).thenReturn(Response.success(mockProfile))
+        whenever(api.getPostsForUser("token123", "user1", 0)).thenReturn(Response.success(posts))
+
+        viewModel.fetchProfile("user1")
+        advanceUntilIdle()
+
+        // An unrelated delete (a post this grid never held) must not move the count.
+        PostEvents.postDeleted("does-not-exist")
+        advanceUntilIdle()
+
+        assertEquals(2, viewModel.userPosts.value.size)
+        assertEquals(2, viewModel.profileDetails.value?.postCount)
     }
 }

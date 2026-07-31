@@ -14,11 +14,13 @@ import com.example.positiveonlysocial.data.model.SetProfilePhotoRequest
 import com.example.positiveonlysocial.data.model.UserSession
 import com.example.positiveonlysocial.data.security.KeychainHelperProtocol
 import com.example.positiveonlysocial.data.uploader.ImageUploader
+import com.example.positiveonlysocial.util.PostEvents
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 
 private const val TAG = "ProfileViewModel"
@@ -87,11 +89,28 @@ class ProfileViewModel(
     private val _bioErrorMessage = MutableStateFlow<String?>(null)
     val bioErrorMessage: StateFlow<String?> = _bioErrorMessage.asStateFlow()
 
+    // Keeps the authoritative post_count in step with deletes from this grid
+    // (issue #437). The Posts stat now reads profileDetails.postCount rather
+    // than the paginated grid size, so removing a tile must also drop the count
+    // until the next reload reconciles it. Declared (and therefore subscribed)
+    // before [postActions] so this observes the grid *before* PostListActions
+    // removes the post, letting it tell whether the deleted post was on this
+    // profile — a delete from an unrelated screen must not move the count.
+    private val postCountDeleteWatcher = viewModelScope.launch {
+        PostEvents.deletedPostIds.collect { deletedId ->
+            if (_userPosts.value.any { it.postIdentifier == deletedId }) {
+                _profileDetails.update { details ->
+                    details?.copy(postCount = maxOf(0, details.postCount - 1))
+                }
+            }
+        }
+    }
+
     /**
      * Like / report / retract-report / delete for the posts in this profile's
      * grid, so they can be acted on without opening each one (issue #267).
-     * Deleting drops the post from [userPosts]; the Posts stat is rendered from
-     * that list, so the count follows automatically.
+     * Deleting drops the post from [userPosts]; [postCountDeleteWatcher] keeps
+     * the Posts stat (backed by profileDetails.postCount, issue #437) in step.
      */
     val postActions = PostListActions(api, keychainHelper, viewModelScope, _userPosts, account)
 

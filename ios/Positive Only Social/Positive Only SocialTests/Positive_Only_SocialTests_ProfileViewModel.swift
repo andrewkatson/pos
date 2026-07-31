@@ -403,8 +403,10 @@ struct Positive_Only_SocialTests_ProfileViewModel {
 
         _ = try await stubAPI.makePost(sessionManagementToken: token, imageURL: "own.image/1", caption: "Post 1")
         sut.fetchUserPosts()
+        sut.fetchProfileDetails()
         await yield()
         #expect(sut.userPosts.count == 1)
+        #expect(sut.profileDetails?.postCount == 1)
 
         // When: a new post is created elsewhere in the app
         _ = try await stubAPI.makePost(sessionManagementToken: token, imageURL: "own.image/2", caption: "Post 2")
@@ -414,6 +416,9 @@ struct Positive_Only_SocialTests_ProfileViewModel {
         // Then: it shows up without a manual pull-to-refresh
         #expect(sut.userPosts.count == 2)
         #expect(sut.userPosts.first?.imageUrl == "own.image/2", "Newest first")
+        // And the Posts stat (backed by the backend's post_count) increments too,
+        // not just the grid — the whole point of issue #437.
+        #expect(sut.profileDetails?.postCount == 2)
     }
 
     @Test func testPostCreatedNotification_IgnoredOnSomeoneElsesProfile() async throws {
@@ -451,8 +456,10 @@ struct Positive_Only_SocialTests_ProfileViewModel {
         _ = try await stubAPI.makePost(sessionManagementToken: token, imageURL: "del.image/1", caption: "Post 1")
         _ = try await stubAPI.makePost(sessionManagementToken: token, imageURL: "del.image/2", caption: "Post 2")
         sut.fetchUserPosts()
+        sut.fetchProfileDetails()
         await yield()
         #expect(sut.userPosts.count == 2)
+        #expect(sut.profileDetails?.postCount == 2)
 
         // When: one of the loaded posts is deleted (announced by whichever list
         // or detail view deleted it)
@@ -464,6 +471,59 @@ struct Positive_Only_SocialTests_ProfileViewModel {
         #expect(sut.userPosts.count == 1)
         #expect(!sut.userPosts.contains { $0.id == deletedId })
         #expect(stubAPI.getPostsForUserCallCount == 1)
+        // And the Posts stat (backed by post_count) drops with the tile, so the
+        // count doesn't contradict the grid until the next reload (issue #437).
+        #expect(sut.profileDetails?.postCount == 1)
+    }
+
+    @Test func testPostDeletedNotification_ForPostNotOnGrid_LeavesCountUnchanged() async throws {
+        // A delete announced for a post this profile's grid never held (e.g. a
+        // delete on an unrelated screen) must not move this profile's count.
+        stubAPI.pageSize = 10
+        let (token, user) = try await registerUser(username: "profileDeleterUnrelated")
+        let account = "profileDeleterUnrelated_account"
+        try await setupLoggedInUser(user: user, token: token, account: account)
+
+        let center = NotificationCenter()
+        let sut = ProfileViewModel(user: user, api: stubAPI, keychainHelper: keychainHelper, account: account,
+                                   notificationCenter: center)
+
+        _ = try await stubAPI.makePost(sessionManagementToken: token, imageURL: "keep.image/1", caption: "Post 1")
+        sut.fetchUserPosts()
+        sut.fetchProfileDetails()
+        await yield()
+        #expect(sut.userPosts.count == 1)
+        #expect(sut.profileDetails?.postCount == 1)
+
+        center.post(name: .postDeleted, object: "some-other-post-id")
+        await yield()
+
+        #expect(sut.userPosts.count == 1)
+        #expect(sut.profileDetails?.postCount == 1, "An unrelated delete must not touch the count")
+    }
+
+    @Test func testPostCount_ReflectsBackendTotal_NotPaginatedGridSize() async throws {
+        // The Posts stat reads the backend's post_count, so it shows the true
+        // total even when only the first page of the grid is loaded — the bug
+        // in issue #437 was that it tracked the loaded-grid size instead.
+        stubAPI.pageSize = 2
+        let (token, user) = try await registerUser(username: "paginatedOwner")
+        let account = "paginatedOwner_account"
+        try await setupLoggedInUser(user: user, token: token, account: account)
+
+        for index in 1...5 {
+            _ = try await stubAPI.makePost(sessionManagementToken: token, imageURL: "page.image/\(index)", caption: "Post \(index)")
+        }
+
+        let sut = ProfileViewModel(user: user, api: stubAPI, keychainHelper: keychainHelper, account: account)
+        sut.fetchUserPosts()
+        sut.fetchProfileDetails()
+        await yield()
+
+        // Only the first page is loaded into the grid...
+        #expect(sut.userPosts.count == 2)
+        // ...but the count reflects all five posts.
+        #expect(sut.profileDetails?.postCount == 5)
     }
 
     // --- Async Classification Reconciliation Tests (#282) ---
