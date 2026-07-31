@@ -5,10 +5,16 @@ on:
     paths:
       - 'ios/**'
       - '.github/workflows/ios-tests.yml'
+      # The coverage guard this workflow runs. Without it listed, a change to
+      # the guard alone would not trigger CI, so a broken guard could sit
+      # unexercised until some unrelated iOS change happened along - the same
+      # silent-gap failure the guard exists to prevent.
+      - '.github/scripts/check_ui_test_coverage.py'
   pull_request:
     paths:
       - 'ios/**'
       - '.github/workflows/ios-tests.yml'
+      - '.github/scripts/check_ui_test_coverage.py'
 
 jobs:
   build:
