@@ -148,13 +148,23 @@ class ProfileViewModel: ObservableObject {
             .sink { [weak self] notification in
                 guard let postIdentifier = notification.object as? String else { return }
                 guard let self else { return }
-                // Only decrement the stat if the post was actually on this grid,
-                // so a delete from an unrelated screen doesn't move an unrelated
-                // profile's count. The Posts stat reads profileDetails.postCount
-                // (issue #437), so it has to be kept in step with the grid.
+                // The Posts stat reads profileDetails.postCount (issue #437), so a
+                // delete has to keep it in step with the backend total.
                 let wasPresent = self.userPosts.contains { $0.id == postIdentifier }
                 self.userPosts.removeAll { $0.id == postIdentifier }
-                if wasPresent { self.adjustPostCount(by: -1) }
+                if wasPresent {
+                    // Fast path: the tile was on the loaded grid, so just drop the
+                    // count locally.
+                    self.adjustPostCount(by: -1)
+                } else if self.isOwnProfile {
+                    // Your own post was deleted from another screen (a feed, or a
+                    // detail view for a post not on the loaded page): userPosts
+                    // didn't change here, but the backend's post_count did. Reload
+                    // the stats so the Posts count doesn't go stale until a manual
+                    // refresh. A user can only delete their own posts, so this only
+                    // matters on your own profile.
+                    Task { @MainActor in await self.refreshProfileDetails() }
+                }
             }
 
         // A newly created post only ever belongs on the author's own profile.

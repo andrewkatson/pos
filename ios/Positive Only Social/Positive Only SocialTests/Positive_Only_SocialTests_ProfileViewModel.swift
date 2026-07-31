@@ -476,30 +476,69 @@ struct Positive_Only_SocialTests_ProfileViewModel {
         #expect(sut.profileDetails?.postCount == 1)
     }
 
-    @Test func testPostDeletedNotification_ForPostNotOnGrid_LeavesCountUnchanged() async throws {
-        // A delete announced for a post this profile's grid never held (e.g. a
-        // delete on an unrelated screen) must not move this profile's count.
+    @Test func testPostDeletedNotification_OnAnotherUsersProfile_LeavesCountUnchanged() async throws {
+        // Viewing someone else's profile: a delete announced elsewhere is for one
+        // of your own posts (you can only delete your own), which isn't counted
+        // here, so the count must not move and the stats aren't reloaded.
         stubAPI.pageSize = 10
-        let (token, user) = try await registerUser(username: "profileDeleterUnrelated")
-        let account = "profileDeleterUnrelated_account"
+        let (viewerToken, viewer) = try await registerUser(username: "otherDeleteViewer")
+        let (profileToken, profileUser) = try await registerUser(username: "otherDeleteOwner")
+        let account = "otherDeleteViewer_account"
+        try await setupLoggedInUser(user: viewer, token: viewerToken, account: account)
+
+        _ = try await stubAPI.makePost(sessionManagementToken: profileToken, imageURL: "pu.image/1", caption: "Post 1")
+
+        let center = NotificationCenter()
+        let sut = ProfileViewModel(user: profileUser, api: stubAPI, keychainHelper: keychainHelper, account: account,
+                                   notificationCenter: center)
+        sut.fetchUserPosts()
+        sut.fetchProfileDetails()
+        await yield()
+        #expect(sut.isOwnProfile == false)
+        #expect(sut.profileDetails?.postCount == 1)
+
+        center.post(name: .postDeleted, object: "some-own-post-deleted-elsewhere")
+        await yield()
+
+        #expect(sut.profileDetails?.postCount == 1, "A delete on another user's profile must not move the count")
+    }
+
+    @Test func testPostDeletedNotification_OwnPostOffPage_ReloadsCountFromBackend() async throws {
+        // On your own profile, deleting one of your posts from another screen —
+        // one that isn't on the loaded page — doesn't change userPosts here, but
+        // the backend post_count drops. The stats are reloaded so the Posts count
+        // stays consistent with the backend total rather than going stale (#437).
+        stubAPI.pageSize = 2
+        let (token, user) = try await registerUser(username: "ownDeleteOffPage")
+        let account = "ownDeleteOffPage_account"
         try await setupLoggedInUser(user: user, token: token, account: account)
+
+        // Three posts: the grid loads the two newest; the oldest is off-page.
+        struct MadePost: Decodable { let post_identifier: String }
+        let oldestData = try await stubAPI.makePost(sessionManagementToken: token, imageURL: "off.image/1", caption: "Oldest")
+        let oldestId = try JSONDecoder().decode(MadePost.self, from: oldestData).post_identifier
+        _ = try await stubAPI.makePost(sessionManagementToken: token, imageURL: "off.image/2", caption: "Middle")
+        _ = try await stubAPI.makePost(sessionManagementToken: token, imageURL: "off.image/3", caption: "Newest")
 
         let center = NotificationCenter()
         let sut = ProfileViewModel(user: user, api: stubAPI, keychainHelper: keychainHelper, account: account,
                                    notificationCenter: center)
-
-        _ = try await stubAPI.makePost(sessionManagementToken: token, imageURL: "keep.image/1", caption: "Post 1")
         sut.fetchUserPosts()
         sut.fetchProfileDetails()
         await yield()
-        #expect(sut.userPosts.count == 1)
-        #expect(sut.profileDetails?.postCount == 1)
+        #expect(sut.isOwnProfile == true)
+        #expect(sut.userPosts.count == 2, "Only the first page is loaded")
+        #expect(sut.profileDetails?.postCount == 3)
+        #expect(!sut.userPosts.contains { $0.id == oldestId }, "The oldest post is off-page")
 
-        center.post(name: .postDeleted, object: "some-other-post-id")
+        // The off-page post is deleted from another screen; the backend drops to 2.
+        _ = try await stubAPI.deletePost(sessionManagementToken: token, postIdentifier: oldestId)
+        center.post(name: .postDeleted, object: oldestId)
         await yield()
 
-        #expect(sut.userPosts.count == 1)
-        #expect(sut.profileDetails?.postCount == 1, "An unrelated delete must not touch the count")
+        // The grid is unchanged (that post wasn't loaded), but the count reloaded.
+        #expect(sut.userPosts.count == 2)
+        #expect(sut.profileDetails?.postCount == 2)
     }
 
     @Test func testPostCount_ReflectsBackendTotal_NotPaginatedGridSize() async throws {
