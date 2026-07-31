@@ -229,6 +229,12 @@ protocol Networking {
     /// path). Upserts on (platform, token) server-side; `platform` is "ios".
     func registerDevice(sessionManagementToken: String, platform: String, token: String) async throws -> Data
 
+    /// The per-type push toggles shown in Settings → Notifications.
+    func getNotificationPreferences(sessionManagementToken: String) async throws -> Data
+
+    /// Turns one push type on or off.
+    func setNotificationPreference(sessionManagementToken: String, notificationType: String, enabled: Bool) async throws -> Data
+
     // MARK: - Appeals
 
     /// Gets a batch of the signed-in user's own hidden posts.

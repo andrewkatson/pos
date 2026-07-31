@@ -30,6 +30,11 @@ final class SettingsViewModel: ObservableObject {
     @Published var currentUsername: String?
     @Published var currentEmail: String?
 
+    // Push notification preferences (issues #342/#343): the per-type Settings
+    // toggles, loaded on mount. Empty until the fetch resolves (or if it fails,
+    // in which case the section simply doesn't render).
+    @Published var notificationPreferences: [NotificationPreference] = []
+
     // Change-password state (issue #197). Errors raised while the sheet is open
     // surface inline via `passwordChangeErrorMessage` (not the shared
     // showingErrorAlert — two `.alert`s on one flag are undefined in SwiftUI),
@@ -147,6 +152,54 @@ final class SettingsViewModel: ObservableObject {
                 // Non-fatal: leave the placeholder in place.
                 NSLog("%@", "🔴 Could not load current user: \(error.localizedDescription)")
             }
+        }
+    }
+
+    // MARK: - Notification preferences (issues #342/#343)
+
+    /// Loads the per-type push toggles for Settings → Notifications (load-on-
+    /// mount). Non-fatal: on failure the section just stays empty.
+    func loadNotificationPreferences() {
+        Task {
+            do {
+                guard let userSession = try keychainHelper.load(UserSession.self, from: keychainService, account: account) else {
+                    return
+                }
+                let data = try await api.getNotificationPreferences(sessionManagementToken: userSession.sessionToken)
+                let response = try JSONDecoder().decode(NotificationPreferencesResponse.self, from: data)
+                notificationPreferences = response.preferences ?? []
+            } catch {
+                NSLog("%@", "🔴 Could not load notification preferences: \(error.localizedDescription)")
+            }
+        }
+    }
+
+    /// Turns one push type on or off. Optimistic: the toggle flips immediately
+    /// and reverts (with an error) if the save fails.
+    func updateNotificationPreference(_ pref: NotificationPreference, enabled: Bool) {
+        setLocalPreference(type: pref.type, enabled: enabled)
+        Task {
+            do {
+                guard let userSession = try keychainHelper.load(UserSession.self, from: keychainService, account: account) else {
+                    setLocalPreference(type: pref.type, enabled: pref.enabled)
+                    return
+                }
+                _ = try await api.setNotificationPreference(
+                    sessionManagementToken: userSession.sessionToken,
+                    notificationType: pref.type, enabled: enabled)
+            } catch {
+                setLocalPreference(type: pref.type, enabled: pref.enabled)
+                errorMessage = "Could not update notification settings: \(error.userFacingMessage)"
+                showingErrorAlert = true
+            }
+        }
+    }
+
+    private func setLocalPreference(type: String, enabled: Bool) {
+        notificationPreferences = notificationPreferences.map {
+            $0.type == type
+                ? NotificationPreference(type: $0.type, label: $0.label, enabled: enabled)
+                : $0
         }
     }
 

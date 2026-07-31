@@ -78,6 +78,8 @@ import Foundation
     static let pathSegmentMe = "me"
     static let pathSegmentNotification = "notification"
     static let pathSegmentNotifications = "notifications"
+    // GET/POST notifications/preferences/ — the Settings push toggles (#342/#343).
+    static let pathSegmentPreferences = "preferences"
     static let pathSegmentPassword = "password"
     // Profile photo endpoints (issue #7): POST profile/photo/ sets the photo,
     // POST profile/photo/remove/ clears it. `pathSegmenProfile` supplies the

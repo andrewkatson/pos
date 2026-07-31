@@ -183,6 +183,11 @@ final class RealAPI: Networking {
         let token: String
     }
 
+    private struct SetNotificationPreferenceBody: Encodable {
+        let type: String
+        let enabled: Bool
+    }
+
     // MARK: - Private Helpers
     
     /// Encodes an `Encodable` value into `Data`.
@@ -899,6 +904,24 @@ final class RealAPI: Networking {
         let requestBody = try encode(RegisterDeviceBody(platform: platform, token: token))
         return try await performRequest(
             pathSegments: [GVOAppConstants.pathSegmentDevices, GVOAppConstants.pathSegmentRegister],
+            method: .post,
+            body: requestBody,
+            authToken: sessionManagementToken
+        )
+    }
+
+    func getNotificationPreferences(sessionManagementToken: String) async throws -> Data {
+        return try await performRequest(
+            pathSegments: [GVOAppConstants.pathSegmentNotifications, GVOAppConstants.pathSegmentPreferences],
+            method: .get,
+            authToken: sessionManagementToken
+        )
+    }
+
+    func setNotificationPreference(sessionManagementToken: String, notificationType: String, enabled: Bool) async throws -> Data {
+        let requestBody = try encode(SetNotificationPreferenceBody(type: notificationType, enabled: enabled))
+        return try await performRequest(
+            pathSegments: [GVOAppConstants.pathSegmentNotifications, GVOAppConstants.pathSegmentPreferences],
             method: .post,
             body: requestBody,
             authToken: sessionManagementToken

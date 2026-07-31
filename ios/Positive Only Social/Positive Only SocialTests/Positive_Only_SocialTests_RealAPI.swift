@@ -89,6 +89,20 @@ struct Positive_Only_SocialTests_RealAPI {
         #expect(CapturingURLProtocol.lastRequestURL?.path == "/user_index/devices/register")
     }
 
+    /// GET/POST notifications/preferences/ back the Settings toggles (#342/#343).
+    @Test func testNotificationPreferencesUsesPreferencesPath() async throws {
+        CapturingURLProtocol.lastRequestURL = nil
+        URLProtocol.registerClass(CapturingURLProtocol.self)
+        defer { URLProtocol.unregisterClass(CapturingURLProtocol.self) }
+
+        _ = try await RealAPI().getNotificationPreferences(sessionManagementToken: "token")
+        #expect(CapturingURLProtocol.lastRequestURL?.path == "/user_index/notifications/preferences")
+
+        _ = try await RealAPI().setNotificationPreference(
+            sessionManagementToken: "token", notificationType: "post_rejected", enabled: false)
+        #expect(CapturingURLProtocol.lastRequestURL?.path == "/user_index/notifications/preferences")
+    }
+
     @Test func testGetPostsForTagBuildsTagPath() async throws {
         // Browse-by-tag hits tags/<tag>/posts/<batch>/ (issue #379).
         CapturingURLProtocol.lastRequestURL = nil
