@@ -21,7 +21,7 @@ from .constants import (
     MAX_TAG_LENGTH,
     PROFILE_IMAGE_STATUS_NONE,
     DEFAULT_STYLE_KEY,
-    DEVICE_PLATFORM_CHOICES,
+    DEVICE_PLATFORM_CHOICES, MAX_DEVICE_TOKEN_LENGTH,
 )
 
 logger = logging.getLogger(__name__)
@@ -292,7 +292,10 @@ class KnownDevice(models.Model):
 class DeviceToken(models.Model):
     user = models.ForeignKey(PositiveOnlySocialUser, related_name='device_tokens', on_delete=models.CASCADE)
     platform = models.CharField(max_length=16, choices=DEVICE_PLATFORM_CHOICES)
-    token = models.TextField()
+    # Bounded at the DB layer (not just the view) so no insertion path — admin,
+    # a fixture, future code — can store a value too long for the (platform,
+    # token) UNIQUE btree index.
+    token = models.CharField(max_length=MAX_DEVICE_TOKEN_LENGTH)
     updated_at = models.DateTimeField(auto_now=True)
 
     class Meta:
