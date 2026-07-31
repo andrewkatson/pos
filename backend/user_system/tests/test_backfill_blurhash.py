@@ -4,6 +4,7 @@ from unittest.mock import patch
 
 from django.contrib.auth import get_user_model
 from django.core.management import call_command
+from django.core.management.base import CommandError
 from django.test import TestCase
 
 from ..models import Post
@@ -95,3 +96,17 @@ class BackfillBlurhashCommandTests(TestCase):
         self.assertEqual(
             Post.objects.filter(image_blurhash__isnull=False).count(), 2
         )
+
+    def test_rejects_nonpositive_flags(self):
+        post = self._make_post(key='1/a.jpeg')
+
+        with patch(COMPUTE, side_effect=_hash_for) as compute:
+            for args in (['--batch-size', '0'], ['--batch-size', '-5'],
+                         ['--limit', '0'], ['--limit', '-1']):
+                with self.assertRaises(CommandError):
+                    call_command(COMMAND, *args, stdout=StringIO())
+
+        # Nothing ran: no encode attempted and no hash written.
+        compute.assert_not_called()
+        post.refresh_from_db()
+        self.assertIsNone(post.image_blurhash)

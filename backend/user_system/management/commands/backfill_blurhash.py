@@ -1,6 +1,6 @@
 import logging
 
-from django.core.management.base import BaseCommand
+from django.core.management.base import BaseCommand, CommandError
 
 from user_system.blurhash_utils import compute_blurhash_for_image_url
 from user_system.models import Post
@@ -45,6 +45,14 @@ class Command(BaseCommand):
         batch_size = options['batch_size']
         limit = options['limit']
         dry_run = options['dry_run']
+
+        # Fail fast on nonsensical flags: a non-positive batch size slices an
+        # empty chunk (the loop would just exit having done nothing), and a
+        # negative limit would print a negative count / short-circuit oddly.
+        if batch_size < 1:
+            raise CommandError("--batch-size must be a positive integer.")
+        if limit is not None and limit < 1:
+            raise CommandError("--limit must be a positive integer when given.")
 
         # image_url__isnull=False already excludes text-only posts and
         # terminally-rejected ones (their image_url is cleared on rejection), so
