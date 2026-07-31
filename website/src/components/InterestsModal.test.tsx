@@ -167,6 +167,29 @@ test('does not offer Save when the interests failed to load', async () => {
   expect(mockSet).not.toHaveBeenCalled()
 })
 
+test('stays usable when only the preset options fail to load', async () => {
+  const user = userEvent.setup()
+  // The options endpoint is public reference data — losing it must not take the
+  // dialog down, since the selection (what Save replaces) loaded fine.
+  mockOptions.mockRejectedValue(new Error('network'))
+  const { onSaved } = renderModal()
+
+  // The prefilled freeform term is still there and still removable.
+  expect(await screen.findByRole('button', { name: 'Remove hiking' })).toBeInTheDocument()
+  expect(screen.getByRole('status')).toHaveTextContent('Topic suggestions couldn’t be loaded')
+  expect(screen.queryByRole('button', { name: 'Nature' })).not.toBeInTheDocument()
+
+  // Saving still works, so the user can drop a term they no longer want.
+  await user.click(screen.getByRole('button', { name: 'Remove hiking' }))
+  const saveButton = screen.getByRole('button', { name: 'Save' })
+  expect(saveButton).toBeEnabled()
+  await user.click(saveButton)
+  await waitFor(() =>
+    expect(mockSet).toHaveBeenCalledWith({ categories: ['nature'], freeform: [] }),
+  )
+  await waitFor(() => expect(onSaved).toHaveBeenCalled())
+})
+
 test('blocks adding once the freeform cap is reached, without eating the input', async () => {
   const user = userEvent.setup()
   // Start at the cap.

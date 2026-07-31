@@ -33,10 +33,25 @@ function InterestsModal({ onClose, onSaved }: InterestsModalProps) {
 
   useEffect(() => {
     let cancelled = false
-    Promise.all([apiClient.getInterestOptions(), apiClient.getInterests()])
-      .then(([opts, current]) => {
+    // The preset vocabulary is public reference data, so it is best-effort —
+    // the same way RegisterPage treats it. Failing to fetch it must not take
+    // the dialog down with it: with the selection loaded the user can still
+    // remove freeform terms and save. Only the chips would be missing.
+    apiClient
+      .getInterestOptions()
+      .then(opts => {
+        if (!cancelled) setOptions(opts.options)
+      })
+      .catch(() => {
+        // Non-fatal; the preset section simply renders empty (see below).
+      })
+    // The current selection is what Save replaces, so this is the call that
+    // gates saving — a full replace built on state we never loaded would wipe
+    // everything the user has stored.
+    apiClient
+      .getInterests()
+      .then(current => {
         if (cancelled) return
-        setOptions(opts.options)
         setSelected(current.categories)
         setFreeform(current.freeform)
         setHasLoaded(true)
@@ -117,6 +132,13 @@ function InterestsModal({ onClose, onSaved }: InterestsModalProps) {
             <div className="auth-error" role="alert">
               <p>{error}</p>
             </div>
+          )}
+          {/* Say why the preset chips are missing rather than leaving an
+              unexplained empty section; the rest of the dialog still works. */}
+          {hasLoaded && options.length === 0 && (
+            <p className="interest-picker__hint" role="status">
+              Topic suggestions couldn’t be loaded. You can still add your own below.
+            </p>
           )}
           <InterestPicker
             options={options}
