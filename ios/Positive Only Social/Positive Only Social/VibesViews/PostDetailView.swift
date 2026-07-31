@@ -172,8 +172,14 @@ struct PostDetailView: View {
                         .padding(.horizontal)
 
                     // Filter the comment list by relationship group — the same
-                    // toggle the Following feed offers (issue #445).
-                    Picker("Group", selection: Binding(
+                    // toggle the Following feed offers (issue #445). Rendered as a
+                    // menu (a single button), not a segmented control: unlike the
+                    // Following feed's picker — which sits in a fixed header above
+                    // its ScrollView — this one lives inside the comment scroll,
+                    // directly above the comment rows, and an in-scroll
+                    // UISegmentedControl interferes with hit-testing/scrolling of
+                    // those rows under XCUITest.
+                    Picker("Show", selection: Binding(
                         get: { viewModel.selectedCommentCategory },
                         set: { viewModel.selectCommentCategory($0) }
                     )) {
@@ -182,7 +188,7 @@ struct PostDetailView: View {
                             Text(category.displayName).tag(FollowCategory?.some(category))
                         }
                     }
-                    .pickerStyle(.segmented)
+                    .pickerStyle(.menu)
                     .padding(.horizontal)
                     .accessibilityIdentifier("CommentGroupPicker")
 

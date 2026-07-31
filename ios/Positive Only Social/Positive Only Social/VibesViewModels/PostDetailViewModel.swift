@@ -490,6 +490,7 @@ final class PostDetailViewModel: ObservableObject {
             authorProfileImageOriginalURL: oldComment.authorProfileImageOriginalURL,
             body: oldComment.body,
             formatting: oldComment.formatting,
+            audience: oldComment.audience,
             likeCount: oldComment.likeCount + 1, // The update
             isLiked: true,
             createdDate: oldComment.createdDate,
@@ -543,6 +544,7 @@ final class PostDetailViewModel: ObservableObject {
             authorProfileImageOriginalURL: oldComment.authorProfileImageOriginalURL,
             body: oldComment.body,
             formatting: oldComment.formatting,
+            audience: oldComment.audience,
             likeCount: newLikeCount, // The update
             isLiked: false,
             createdDate: oldComment.createdDate,
