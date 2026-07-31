@@ -7,15 +7,23 @@ import LoginPage from './LoginPage'
 vi.mock('../api/client', async importOriginal => {
   const actual = await importOriginal<typeof import('../api/client')>()
   // setToken is used by clearSession(), which runs when entering the 2FA step.
+  // isAuthenticated is checked on mount to bounce an already-remembered session
+  // into the app; default it to false so the login form renders.
   return {
     ...actual,
-    apiClient: { login: vi.fn(), loginWithTwoFactor: vi.fn(), setToken: vi.fn() },
+    apiClient: {
+      login: vi.fn(),
+      loginWithTwoFactor: vi.fn(),
+      setToken: vi.fn(),
+      isAuthenticated: vi.fn(() => false),
+    },
   }
 })
 
 import { apiClient } from '../api/client'
 const mockLogin = vi.mocked(apiClient.login)
 const mockLoginWithTwoFactor = vi.mocked(apiClient.loginWithTwoFactor)
+const mockIsAuthenticated = vi.mocked(apiClient.isAuthenticated)
 
 function makeStorageMock() {
   return { setItem: vi.fn(), getItem: vi.fn(), removeItem: vi.fn(), clear: vi.fn() }
@@ -39,6 +47,8 @@ function renderLoginPage() {
 beforeEach(() => {
   mockLogin.mockReset()
   mockLoginWithTwoFactor.mockReset()
+  mockIsAuthenticated.mockReset()
+  mockIsAuthenticated.mockReturnValue(false)
   localStorageMock = makeStorageMock()
   sessionStorageMock = makeStorageMock()
   vi.stubGlobal('localStorage', localStorageMock)
@@ -60,6 +70,15 @@ async function loginIntoTwoFactorStep() {
 
 afterEach(() => {
   vi.unstubAllGlobals()
+})
+
+test('redirects into the app when a remembered session is already restored', async () => {
+  // main.tsx restores a "Remember Me" session into the ApiClient before render,
+  // so a returning user must not be shown the login form (issue #411).
+  mockIsAuthenticated.mockReturnValue(true)
+  renderLoginPage()
+  expect(await screen.findByText('Home')).toBeInTheDocument()
+  expect(screen.queryByRole('heading', { name: 'Login' })).not.toBeInTheDocument()
 })
 
 test('renders login form with all fields', () => {
