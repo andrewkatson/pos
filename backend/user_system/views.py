@@ -3092,10 +3092,11 @@ def get_comments_for_thread(request, comment_thread_identifier, batch):
     # from those ids. Feeding the visible_comments queryset (which carries the
     # audience-join fan-out) straight into the like-count weighting would inflate
     # the counts, so we go through ids exactly like visible_comment_threads does.
-    visible_comment_ids = list(
-        visible_comments(comment_thread.comment_set.all(), request.user, category_filter)
-        .values_list('comment_identifier', flat=True)
-    )
+    # The values_list is passed straight into __in as a subquery (not
+    # materialized), so the ids never round-trip through Python.
+    visible_comment_ids = visible_comments(
+        comment_thread.comment_set.all(), request.user, category_filter
+    ).values_list('comment_identifier', flat=True)
     # select_related('author') so serializing author_username and the author's
     # profile photo per comment does not fan out into a query per row.
     comments = Comment.objects.filter(

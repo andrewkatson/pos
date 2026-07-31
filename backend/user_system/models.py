@@ -499,8 +499,8 @@ class Comment(models.Model):
     # Who may see this comment (issue #445). Mirrors Post.audience: the same
     # nested-circle tiers, defaulting to public so comments created before the
     # feature — and by clients that never send an audience — stay visible to
-    # everyone. Enforced centrally in visibility.visible_comments /
-    # can_view_comment exactly like posts.
+    # everyone. Enforced centrally in visibility.visible_comments (listings) and
+    # visibility.audience_admits (single-comment interaction gate), like posts.
     audience = models.CharField(max_length=16, choices=POST_AUDIENCE_CHOICES,
                                 default=POST_AUDIENCE_PUBLIC)
     hidden = models.BooleanField(default=False)
