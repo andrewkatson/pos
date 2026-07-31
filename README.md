@@ -180,6 +180,13 @@ post↔bucket join (not a second aggregate) so it can never corrupt the like cou
 Interest weighting composes on top of the existing `visible_posts` and block
 filters — it only reorders posts the viewer was already allowed to see.
 
+The like count itself is counted `distinct`. `visible_posts`' audience filter
+LEFT JOINs the author's follow edges and deliberately fans out (see
+`visibility._audience_q`), so a plain count would tally each like once per edge
+— scoring a post by an author who follows 200 people as though it had 200× the
+likes. The `.distinct()` that filter applies collapses duplicate rows but does
+not undo an aggregate computed over them.
+
 ## Sharing
 
 Every post's options menu offers **Share**, and every comment's options menu on

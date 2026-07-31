@@ -38,9 +38,18 @@ class DurationToSeconds(Func):
 
 def calculate_weights(qs, like_field, G=1.8, user=None, interest_category_ids=None):
     logger.debug(f"Calculating feed weights with gravity G={G}")
-    # 1. Annotate the like count for each post
+    # 1. Annotate the like count for each post.
+    #    distinct=True is load-bearing, not decoration: the caller layers
+    #    visible_posts() on top of this queryset, whose audience filter LEFT
+    #    JOINs the author's following_set (see visibility._audience_q, which
+    #    documents that it fans out). Without distinct, a plain COUNT counts
+    #    each like once per follow edge the author has — a post with one like
+    #    from an author following 200 people scored as if it had 200 — so
+    #    ranking quietly favored authors who follow a lot of people. The
+    #    .distinct() visible_posts applies collapses duplicate *rows*; it does
+    #    not undo an aggregate computed over them.
     qs = qs.annotate(
-        like_count=Count(like_field)
+        like_count=Count(like_field, distinct=True)
     )
 
     # 2. Annotate the age of the post in hours as a pure float.

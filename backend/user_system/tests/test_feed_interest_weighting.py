@@ -58,6 +58,34 @@ class FeedInterestWeightingTests(TestCase):
         by_pk = {p.pk: p.score for p in self._ordered()}
         self.assertGreater(by_pk[two.pk], by_pk[one.pk])
 
+    def test_like_count_unaffected_by_audience_join_fanout(self):
+        # visible_posts' audience filter LEFT JOINs the author's following_set,
+        # which fans out (see visibility._audience_q). A non-distinct COUNT
+        # counted each like once per follow edge, so an author who follows many
+        # people had their posts scored as if they had many times the likes.
+        from ..models import PostLike, UserFollow
+        from ..visibility import visible_posts
+        from ..constants import FOLLOW_CATEGORY_FRIEND, POST_AUDIENCE_PUBLIC
+
+        User = get_user_model()
+        for i in range(4):
+            other = User.objects.create_user(username=f'followed{i}', email=f'f{i}@t.com')
+            UserFollow.objects.create(user_from=self.author, user_to=other,
+                                      category=FOLLOW_CATEGORY_FRIEND)
+        # An edge to the viewer too, so the audience OR branch actually matches.
+        UserFollow.objects.create(user_from=self.author, user_to=self.viewer,
+                                  category=FOLLOW_CATEGORY_FRIEND)
+
+        post = self._post("public post")
+        post.audience = POST_AUDIENCE_PUBLIC
+        post.save(update_fields=['audience'])
+        liker = User.objects.create_user(username='onlyliker', email='ol@t.com')
+        PostLike.objects.create(user=liker, post=post)
+
+        ranked = visible_posts(feed_algorithm.get_posts_weighted(self.viewer, Post), self.viewer)
+        by_pk = {p.pk: p for p in ranked}
+        self.assertEqual(by_pk[post.pk].like_count, 1)
+
     def test_like_count_unaffected_by_interest_join(self):
         # The interest subquery must not multiply the like_count aggregate.
         from ..models import PostLike
