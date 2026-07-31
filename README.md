@@ -285,8 +285,8 @@ bring the user back to look.
   row is keyed by `(platform, token)`, so re-registering an existing token
   repoints it at the current user rather than duplicating (a device can change
   accounts).
-- **Send path.** `user_system.push.send_push(user, payload)` fans out to all a
-  user's tokens, called by `classify_post` on a resolved rejection — off the
+- **Send path.** `user_system.push.send_push(user, payload)` fans out to all of
+  a user's tokens, called by `classify_post` on a resolved rejection — off the
   request path, on the same durable queue, best-effort. The payload's `data`
   map carries the `post_identifier`, a `type` (`post_rejected`), whether it is
   `appealable`, and a `deep_link` (`<FRONTEND_BASE_URL>/post/<id>`) so the client
