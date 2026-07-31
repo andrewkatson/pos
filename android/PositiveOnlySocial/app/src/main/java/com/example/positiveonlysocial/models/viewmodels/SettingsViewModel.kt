@@ -13,6 +13,8 @@ import com.example.positiveonlysocial.data.model.DisableTotpRequest
 import com.example.positiveonlysocial.data.model.TotpSetupResponse
 import com.example.positiveonlysocial.data.model.ChangePasswordRequest
 import com.example.positiveonlysocial.data.model.CurrentUserResponse
+import com.example.positiveonlysocial.data.model.NotificationPreference
+import com.example.positiveonlysocial.data.model.SetNotificationPreferenceRequest
 import com.example.positiveonlysocial.data.security.KeychainHelperProtocol
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -67,6 +69,11 @@ class SettingsViewModel(
     // section (issue #197/#194). Loaded on demand; null until it arrives.
     private val _currentUser = MutableStateFlow<CurrentUserResponse?>(null)
     val currentUser: StateFlow<CurrentUserResponse?> = _currentUser.asStateFlow()
+
+    // Per-type push toggles for Settings → Notifications (#342/#343). Empty until
+    // loaded (and if the load fails), so the section just doesn't render.
+    private val _notificationPreferences = MutableStateFlow<List<NotificationPreference>>(emptyList())
+    val notificationPreferences: StateFlow<List<NotificationPreference>> = _notificationPreferences.asStateFlow()
 
     // Change-password state (issue #197). `passwordChangeMessage` drives the
     // one-shot confirmation dialog, mirroring `twoFactorStatusMessage`.
@@ -325,6 +332,57 @@ class SettingsViewModel(
                 // Non-fatal: leave the section on its placeholder.
                 Log.w(TAG, "Could not load current user: ${e.message}")
             }
+        }
+    }
+
+    /** Loads the per-type push toggles (load-on-mount). Non-fatal: the section
+     * stays empty on failure. */
+    fun loadNotificationPreferences() {
+        viewModelScope.launch {
+            try {
+                val userSession = keychainHelper.load(UserSession::class.java, service, account) ?: return@launch
+                val response = api.getNotificationPreferences(userSession.sessionToken)
+                if (response.isSuccessful) {
+                    _notificationPreferences.value = response.body()?.preferences.orEmpty()
+                }
+            } catch (e: Exception) {
+                Log.w(TAG, "Could not load notification preferences: ${e.message}")
+            }
+        }
+    }
+
+    /** Turns one push type on or off. Optimistic: flips immediately and reverts
+     * (surfacing an error) if the save fails. */
+    fun updateNotificationPreference(type: String, enabled: Boolean) {
+        val previous = _notificationPreferences.value
+        setLocalPreference(type, enabled)
+        viewModelScope.launch {
+            try {
+                val userSession = keychainHelper.load(UserSession::class.java, service, account)
+                if (userSession == null) {
+                    _notificationPreferences.value = previous
+                    return@launch
+                }
+                val response = api.setNotificationPreference(
+                    userSession.sessionToken, SetNotificationPreferenceRequest(type, enabled))
+                if (!response.isSuccessful) {
+                    _notificationPreferences.value = previous
+                    _errorMessage.value = ApiErrors.messageFor(
+                        response, fallback = "Could not update notification settings.")
+                    _showingErrorAlert.value = true
+                }
+            } catch (e: Exception) {
+                _notificationPreferences.value = previous
+                _errorMessage.value = ApiErrors.messageFor(
+                    e, fallback = "Could not update notification settings.")
+                _showingErrorAlert.value = true
+            }
+        }
+    }
+
+    private fun setLocalPreference(type: String, enabled: Boolean) {
+        _notificationPreferences.value = _notificationPreferences.value.map {
+            if (it.type == type) it.copy(enabled = enabled) else it
         }
     }
 

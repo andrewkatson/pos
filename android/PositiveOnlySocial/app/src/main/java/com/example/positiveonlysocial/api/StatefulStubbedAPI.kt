@@ -1361,6 +1361,31 @@ class StatefulStubbedAPI : PositiveOnlySocialAPI {
         return Response.success(GenericResponse(message = "Device registered.", error = null))
     }
 
+    // Per-type push preferences, mirroring the backend's PUSH_TYPE_CHOICES.
+    // Defaults to enabled; toggling stores an override.
+    private val notificationOverrides = mutableMapOf<String, Boolean>()
+
+    override suspend fun getNotificationPreferences(
+        token: String
+    ): Response<NotificationPreferencesResponse> {
+        getAuthorizedUser(token) ?: return errorGeneric(401, "Unauthorized")
+        val prefs = listOf(
+            NotificationPreference(
+                type = "post_rejected", label = "Post moderation",
+                enabled = notificationOverrides["post_rejected"] ?: true)
+        )
+        return Response.success(NotificationPreferencesResponse(preferences = prefs))
+    }
+
+    override suspend fun setNotificationPreference(
+        token: String,
+        request: SetNotificationPreferenceRequest
+    ): Response<GenericResponse> {
+        getAuthorizedUser(token) ?: return errorGeneric(401, "Unauthorized")
+        notificationOverrides[request.type] = request.enabled
+        return Response.success(GenericResponse(message = "Preference saved.", error = null))
+    }
+
     // ============================================================================================
     // appeals
     // ============================================================================================

@@ -442,6 +442,25 @@ data class RegisterDeviceRequest(
     @SerializedName("token") val token: String
 )
 
+// One push type the user can toggle in Settings → Notifications (#342/#343).
+// Fields are nullable because Gson ignores Kotlin defaults for absent JSON keys
+// (see the other DTOs in this file); callers treat a null as its safe default.
+data class NotificationPreference(
+    @SerializedName("type") val type: String? = null,
+    @SerializedName("label") val label: String? = null,
+    @SerializedName("enabled") val enabled: Boolean? = null
+)
+
+data class NotificationPreferencesResponse(
+    @SerializedName("preferences") val preferences: List<NotificationPreference>? = null
+)
+
+// Body of POST notifications/preferences/ — turn one type on or off.
+data class SetNotificationPreferenceRequest(
+    @SerializedName("type") val type: String,
+    @SerializedName("enabled") val enabled: Boolean
+)
+
 /**
  * Response of `POST profile/bio/` (HTTP 200). The bio is moderated synchronously,
  * so this carries the stored bio directly (a non-positive bio is a 4xx and is

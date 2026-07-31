@@ -653,6 +653,25 @@ class MockPositiveOnlySocialAPI : PositiveOnlySocialAPI {
         return Response.success(GenericResponse(message = "Device registered.", error = null))
     }
 
+    override suspend fun getNotificationPreferences(
+        token: String
+    ): Response<NotificationPreferencesResponse> {
+        return Response.success(
+            NotificationPreferencesResponse(
+                preferences = listOf(
+                    NotificationPreference(type = "post_rejected", label = "Post moderation", enabled = true)
+                )
+            )
+        )
+    }
+
+    override suspend fun setNotificationPreference(
+        token: String,
+        request: SetNotificationPreferenceRequest
+    ): Response<GenericResponse> {
+        return Response.success(GenericResponse(message = "Preference saved.", error = null))
+    }
+
     override suspend fun getHiddenPosts(token: String, batch: Int): Response<List<HiddenPost>> =
         Response.success(emptyList())
 

@@ -371,6 +371,20 @@ interface PositiveOnlySocialAPI {
         @Body request: RegisterDeviceRequest
     ): Response<GenericResponse>
 
+    // The per-type push toggles shown in Settings → Notifications.
+    @GET("notifications/preferences/")
+    suspend fun getNotificationPreferences(
+        @Header("Authorization") token: String
+    ): Response<NotificationPreferencesResponse>
+
+    // Turns one push type on or off. The {type, enabled} body is echoed back;
+    // the caller only needs success/failure, so GenericResponse suffices.
+    @POST("notifications/preferences/")
+    suspend fun setNotificationPreference(
+        @Header("Authorization") token: String,
+        @Body request: SetNotificationPreferenceRequest
+    ): Response<GenericResponse>
+
     // ============================================================================================
     // APPEALS
     // ============================================================================================

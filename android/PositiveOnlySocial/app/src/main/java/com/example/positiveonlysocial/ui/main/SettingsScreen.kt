@@ -112,9 +112,12 @@ fun SettingsScreen(
         val isChangingPassword by viewModel.isChangingPassword.collectAsState()
         val passwordChangeMessage by viewModel.passwordChangeMessage.collectAsState()
         val currentUser by viewModel.currentUser.collectAsState()
+        val notificationPreferences by viewModel.notificationPreferences.collectAsState()
 
         // Load the signed-in account's own username + email once, on mount.
         LaunchedEffect(Unit) { viewModel.loadCurrentUser() }
+        // Load the per-type push toggles (#342/#343) once, on mount.
+        LaunchedEffect(Unit) { viewModel.loadNotificationPreferences() }
 
         // Once the change succeeds, close the dialog and wipe the entered
         // passwords — they're sensitive and must not linger in composition state.
@@ -484,6 +487,34 @@ fun SettingsScreen(
             }
 
             HorizontalDivider()
+
+            // Notifications section (#342/#343): one toggle per push type. Renders
+            // only once the backend has reported at least one type.
+            if (notificationPreferences.isNotEmpty()) {
+                Text(
+                    text = "Notifications",
+                    style = MaterialTheme.typography.titleMedium,
+                    modifier = Modifier.padding(16.dp)
+                )
+                notificationPreferences.forEach { pref ->
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 16.dp, vertical = 8.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Text(pref.label ?: pref.type.orEmpty())
+                        Switch(
+                            checked = pref.enabled ?: true,
+                            onCheckedChange = { checked ->
+                                pref.type?.let { viewModel.updateNotificationPreference(it, checked) }
+                            }
+                        )
+                    }
+                    HorizontalDivider()
+                }
+            }
 
             Text(
                 text = "Security",
