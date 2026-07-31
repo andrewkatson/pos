@@ -210,9 +210,16 @@ final class PostDetailViewModel: ObservableObject {
                         group.addTask {
                             let commentsData = try await self.api.getCommentsForThread(sessionManagementToken: token, commentThreadIdentifier: threadId, batch: 0, category: categoryFilter)
 
-                            // decodeList is synchronous, so no `await` (an await
-                            // here would warn "no async operations occur").
-                            let commentFields = try self.decodeList(from: commentsData, type: CommentFields.self)
+                            // `await` is required even though decodeList is
+                            // synchronous: this ViewModel is @MainActor-isolated
+                            // and decodeList inherits that isolation, but we are
+                            // inside a detached withThrowingTaskGroup task, so the
+                            // call hops back to the main actor (an actor hop is an
+                            // async operation — it does NOT warn "no async
+                            // operations occur"). Dropping the await fails the
+                            // build with "main actor-isolated ... cannot be called
+                            // from outside of the actor".
+                            let commentFields = try await self.decodeList(from: commentsData, type: CommentFields.self)
 
                             // 4. Convert network models to View Models
                             return commentFields.map { field in
