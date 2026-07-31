@@ -129,7 +129,9 @@ jobs:
           # IOS_OS below) rather than "newest installed": simctl lists
           # unavailable runtimes too, and picking the newest would silently test
           # on a different OS than we built for whenever the image bumps Xcode.
-          if ! xcrun simctl list runtimes available | grep -q "$IOS_RUNTIME"; then
+          # -F: the identifier contains dots, which would otherwise be regex
+          # wildcards and could match a runtime that isn't the one we want.
+          if ! xcrun simctl list runtimes available | grep -qF -- "$IOS_RUNTIME"; then
             echo "Runtime $IOS_RUNTIME is not available on this runner. Available:"
             xcrun simctl list runtimes available
             exit 1
@@ -317,11 +319,21 @@ jobs:
         if: failure()
         working-directory: "ios/Positive Only Social"
         run: |
-          # Glob rather than naming both logs: shard B does not run for a
-          # single-entry group, and grep on a missing file exits 2, which would
-          # print "(no test-case lines found)" right after real failures.
+          # Collect whichever shard logs exist: shard B does not run for a
+          # single-entry group, and naming a missing file makes grep exit 2,
+          # which would print "(none found)" right after real failures. The
+          # array also keeps an unmatched glob from reaching grep as a literal
+          # when a failure happens before any log is written.
+          SHARD_LOGS=()
+          for SHARD in A B; do
+            [ -f "xcodebuild-$SHARD.log" ] && SHARD_LOGS+=("xcodebuild-$SHARD.log")
+          done
           echo "=== Failed test cases (shard logs) ==="
-          grep -iE "test case .* failed|test suite .* failed" xcodebuild-*.log || echo "(no test-case lines found)"
+          if [ ${#SHARD_LOGS[@]} -eq 0 ]; then
+            echo "(no shard logs were produced — the run failed before testing started)"
+          else
+            grep -iE "test case .* failed|test suite .* failed" "${SHARD_LOGS[@]}" || echo "(no test-case lines found)"
+          fi
           echo ""
           echo "=== Assertion failures (xcresult) ==="
           cat > /tmp/parse_xcresult.py << 'PYEOF'
@@ -368,7 +380,11 @@ jobs:
           done
           echo ""
           echo "=== Compiler errors ==="
-          grep -E "error:" xcodebuild-*.log | grep -v "^▸" | head -50 || echo "(none)"
+          if [ ${#SHARD_LOGS[@]} -eq 0 ]; then
+            echo "(no shard logs)"
+          else
+            grep -E "error:" "${SHARD_LOGS[@]}" | grep -v "^▸" | head -50 || echo "(none)"
+          fi
           for SHARD in A B; do
             LOG="xcodebuild-$SHARD.log"
             [ -f "$LOG" ] || continue

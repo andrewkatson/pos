@@ -127,8 +127,13 @@ final class Positive_Only_SocialUITests: XCTestCase {
     /// testing, which should stop the panel appearing at all. This stays as a
     /// safety net because content-type suppression alone has proven unreliable
     /// inside a Form/Section (the reason this helper was written in the first
-    /// place) — but it is now a short poll rather than the old multi-second
-    /// `waitForExistence` chain, so the common "nothing there" case is cheap.
+    /// place).
+    ///
+    /// Each call is a single immediate probe with no waiting, unlike the old
+    /// multi-second `waitForExistence` chain: the panel appears asynchronously,
+    /// so `typeText` calls this again on every focus-retry attempt and the
+    /// waiting happens in that loop's `poll`. Waiting here instead would charge
+    /// every field for a panel that normally never appears.
     private func dismissStrongPasswordIfPresent() {
         // Newer iOS: floating AutoFill panel with an X / xmark close button.
         // Older iOS: an action sheet with text buttons.
