@@ -15,6 +15,11 @@ import { firebaseConfig, firebaseVapidKey, isPushConfigured } from './firebaseCo
 const SERVICE_WORKER_URL = '/firebase-messaging-sw.js'
 
 let inFlight: Promise<void> | null = null
+// The active foreground-message subscription. registerForPush can run more than
+// once (login + session restore), so we keep a single subscription and replace
+// it rather than stacking a new onMessage handler — and duplicate banners — each
+// time.
+let foregroundUnsubscribe: (() => void) | null = null
 
 interface RegisterOptions {
   /** Request notification permission if the user hasn't decided yet. Set on the
@@ -75,8 +80,10 @@ async function doRegister({ promptIfNeeded = false }: RegisterOptions): Promise<
 
     // A foreground message doesn't raise a system notification on its own, so
     // surface one ourselves; the service worker's notificationclick handler
-    // deep-links it to the rejected post.
-    onMessage(messaging, (payload) => {
+    // deep-links it to the rejected post. Replace any prior subscription so
+    // repeated registerForPush calls can't stack duplicate handlers.
+    foregroundUnsubscribe?.()
+    foregroundUnsubscribe = onMessage(messaging, (payload) => {
       const title = payload.notification?.title ?? 'Good Vibes Only'
       const body = payload.notification?.body ?? ''
       const deepLink = payload.data?.deep_link

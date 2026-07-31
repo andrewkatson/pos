@@ -20,8 +20,10 @@ struct HomeView: View {
 
     @State private var currentTab = 0
     // The Profile tab's navigation stack path. A tapped push notification pushes
-    // the rejected post onto it (issues #342/#343).
-    @State private var profilePath: [String] = []
+    // the rejected post onto it (issues #342/#343). NavigationPath (not [String])
+    // because that stack already navigates by other value types — Post, User,
+    // FollowListMode — and a homogeneous typed path would break those pushes.
+    @State private var profilePath = NavigationPath()
     @ObservedObject private var pushRouter = PushRouter.shared
 
     init(api: Networking, keychainHelper: KeychainHelperProtocol) {
@@ -77,7 +79,9 @@ struct HomeView: View {
         .onReceive(pushRouter.$pendingPostIdentifier) { postIdentifier in
             guard let postIdentifier else { return }
             currentTab = GVOAppConstants.profileTabIndex
-            profilePath = [postIdentifier]
+            var newPath = NavigationPath()
+            newPath.append(postIdentifier)
+            profilePath = newPath
             pushRouter.pendingPostIdentifier = nil
         }
     }
@@ -148,12 +152,12 @@ struct MyProfileTabView: View {
 
     // The navigation path, owned by HomeView so a tapped push notification can
     // push the rejected post's detail onto this stack (issues #342/#343).
-    @Binding private var path: [String]
+    @Binding private var path: NavigationPath
 
     @StateObject private var viewModel: ProfileViewModel
     @StateObject private var postActions: PostActionsViewModel
 
-    init(api: Networking, keychainHelper: KeychainHelperProtocol, path: Binding<[String]>) {
+    init(api: Networking, keychainHelper: KeychainHelperProtocol, path: Binding<NavigationPath>) {
         self.api = api
         self.keychainHelper = keychainHelper
         _path = path

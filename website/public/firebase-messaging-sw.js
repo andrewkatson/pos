@@ -47,8 +47,11 @@ self.addEventListener('notificationclick', (event) => {
     self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then((clientList) => {
       for (const client of clientList) {
         if ('focus' in client) {
+          // Return the navigate -> focus chain so waitUntil actually awaits the
+          // navigation before the SW is allowed to terminate; otherwise the
+          // window can get focused without reliably landing on deep_link.
           if ('navigate' in client) {
-            client.navigate(target)
+            return client.navigate(target).then((navigated) => (navigated || client).focus())
           }
           return client.focus()
         }

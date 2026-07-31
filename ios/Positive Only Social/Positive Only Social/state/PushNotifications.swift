@@ -95,9 +95,12 @@ final class PushNotifications: NSObject, UNUserNotificationCenterDelegate {
     }
 
     /// Pull `post_identifier` out of the payload's `data` map (the shape the
-    /// backend sends under the APNs `data` key) and hand it to the router.
+    /// backend sends under the APNs `data` key) and hand it to the router. Gated
+    /// on the `type` tag so only a post-rejection push routes to a post — any
+    /// future push kind is ignored here rather than mis-routed.
     private func routeIfPostRejection(userInfo: [AnyHashable: Any]) {
         guard let data = userInfo["data"] as? [String: Any],
+              data["type"] as? String == PUSH_TYPE_POST_REJECTED,
               let postIdentifier = data["post_identifier"] as? String else {
             return
         }
@@ -106,3 +109,7 @@ final class PushNotifications: NSObject, UNUserNotificationCenterDelegate {
         }
     }
 }
+
+// The machine-readable `type` on a rejection push's data map, mirroring the
+// backend's PUSH_TYPE_POST_REJECTED (user_system/constants.py).
+private let PUSH_TYPE_POST_REJECTED = "post_rejected"
