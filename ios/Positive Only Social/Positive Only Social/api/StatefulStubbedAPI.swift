@@ -1761,9 +1761,13 @@ final class StatefulStubbedAPI: Networking {
     /// backend TESTING classifier) and mapped to buckets; the weighting set is
     /// the union of picks and mapped buckets. Returns the applied result.
     private func applyInterests(atIndex index: Int, categories: [String], freeform: [String]) -> SetInterestsResponse {
+        // Normalize before matching, mirroring the backend's strip().lower().
         var picked: [String] = []
-        for raw in categories where InterestVocabulary.slugs.contains(raw) && !picked.contains(raw) {
-            picked.append(raw)
+        for raw in categories {
+            let slug = raw.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+            if InterestVocabulary.slugs.contains(slug) && !picked.contains(slug) {
+                picked.append(slug)
+            }
         }
 
         var accepted: [String] = []

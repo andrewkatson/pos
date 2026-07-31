@@ -1367,9 +1367,11 @@ class StatefulStubbedAPI : PositiveOnlySocialAPI {
      * backend TESTING classifier) and mapped to buckets; the weighting set is
      * the union of picks and mapped buckets. Returns the applied result. */
     private fun applyInterests(user: UserMock, categories: List<String>, freeform: List<String>): SetInterestsResponse {
+        // Normalize before matching, mirroring the backend's strip().lower().
         val picked = mutableListOf<String>()
         for (raw in categories) {
-            if (InterestVocabulary.slugs.contains(raw) && !picked.contains(raw)) picked.add(raw)
+            val slug = raw.trim().lowercase()
+            if (InterestVocabulary.slugs.contains(slug) && !picked.contains(slug)) picked.add(slug)
         }
 
         val accepted = mutableListOf<String>()

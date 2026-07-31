@@ -1536,8 +1536,17 @@ export class StatefulStubbedAPI implements PositiveOnlySocialAPI {
     categories: string[],
     freeform: string[],
   ): SetInterestsResponse {
+    // Normalize before matching, mirroring the backend's strip().lower() — a
+    // slug arriving as " Nature" must resolve the same way here as in production.
     const picked = Array.isArray(categories)
-      ? [...new Set(categories.filter((s) => typeof s === 'string' && INTEREST_SLUGS.has(s)))]
+      ? [
+          ...new Set(
+            categories
+              .filter((s) => typeof s === 'string')
+              .map((s) => s.trim().toLowerCase())
+              .filter((s) => INTEREST_SLUGS.has(s)),
+          ),
+        ]
       : []
 
     const accepted: string[] = []

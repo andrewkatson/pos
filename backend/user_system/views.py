@@ -3624,7 +3624,13 @@ def apply_user_interests(user, category_slugs, freeform_terms):
                         InterestCategory.objects.filter(slug__in=union_slugs)}
 
         for term, mapped_slugs in new_rows:
-            new_row = UserFreeformInterest.objects.create(user=user, text=term)
+            # get_or_create, not create: (user, text) is UNIQUE, and two
+            # concurrent saves that both introduce the same new term would race
+            # — one insert wins and the other would raise IntegrityError (a 500).
+            # get_or_create runs its insert in a nested atomic block, so losing
+            # the race falls back to the existing row without poisoning this
+            # transaction.
+            new_row, _ = UserFreeformInterest.objects.get_or_create(user=user, text=term)
             mapped_cats = [cats_by_slug[s] for s in mapped_slugs if s in cats_by_slug]
             if mapped_cats:
                 new_row.categories.set(mapped_cats)
