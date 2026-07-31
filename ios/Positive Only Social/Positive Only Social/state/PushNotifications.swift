@@ -40,6 +40,11 @@ final class PushNotifications: NSObject, UNUserNotificationCenterDelegate {
     /// to call whenever the home screen appears — iOS only prompts once, and a
     /// re-register just refreshes the token.
     func requestAuthorizationAndRegister() {
+        // Never trigger the system permission dialog under UI tests: it would
+        // interrupt unrelated UI-test flows navigating the app. Checked inline
+        // (same arg as isUITesting()) to avoid referencing that free function
+        // across the test-target membership boundary.
+        if CommandLine.arguments.contains("--ui_testing") { return }
         UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound, .badge]) { granted, _ in
             guard granted else { return }
             DispatchQueue.main.async {
