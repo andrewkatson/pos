@@ -135,6 +135,9 @@ struct SettingsView: View {
                                 get: { pref.enabled },
                                 set: { viewModel.updateNotificationPreference(pref, enabled: $0) }
                             ))
+                            // Disabled while its save is in flight, so a rapid
+                            // re-toggle can't race (#342/#343).
+                            .disabled(viewModel.savingPreferences.contains(pref.type))
                             .accessibilityIdentifier("NotificationToggle_\(pref.type)")
                         }
                     }

@@ -34,6 +34,10 @@ final class SettingsViewModel: ObservableObject {
     // toggles, loaded on mount. Empty until the fetch resolves (or if it fails,
     // in which case the section simply doesn't render).
     @Published var notificationPreferences: [NotificationPreference] = []
+    // Types with a save in flight: the view disables their toggle, and
+    // updateNotificationPreference ignores a re-toggle while present, so
+    // concurrent saves for one type can't race.
+    @Published var savingPreferences: Set<String> = []
 
     // Change-password state (issue #197). Errors raised while the sheet is open
     // surface inline via `passwordChangeErrorMessage` (not the shared
@@ -177,8 +181,14 @@ final class SettingsViewModel: ObservableObject {
     /// Turns one push type on or off. Optimistic: the toggle flips immediately
     /// and reverts (with an error) if the save fails.
     func updateNotificationPreference(_ pref: NotificationPreference, enabled: Bool) {
+        // Serialize per type: ignore a re-toggle while one save is in flight
+        // for this type (the toggle is also disabled), so a slow earlier failure
+        // can't revert to a stale value and clobber the user's newer intent.
+        if savingPreferences.contains(pref.type) { return }
         setLocalPreference(type: pref.type, enabled: enabled)
+        savingPreferences.insert(pref.type)
         Task {
+            defer { savingPreferences.remove(pref.type) }
             do {
                 guard let userSession = try keychainHelper.load(UserSession.self, from: keychainService, account: account) else {
                     setLocalPreference(type: pref.type, enabled: pref.enabled)

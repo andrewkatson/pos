@@ -113,6 +113,7 @@ fun SettingsScreen(
         val passwordChangeMessage by viewModel.passwordChangeMessage.collectAsState()
         val currentUser by viewModel.currentUser.collectAsState()
         val notificationPreferences by viewModel.notificationPreferences.collectAsState()
+        val savingPreferences by viewModel.savingPreferences.collectAsState()
 
         // Load the signed-in account's own username + email once, on mount.
         LaunchedEffect(Unit) { viewModel.loadCurrentUser() }
@@ -507,6 +508,9 @@ fun SettingsScreen(
                         Text(pref.label ?: pref.type.orEmpty())
                         Switch(
                             checked = pref.enabled ?: true,
+                            // Disabled while its save is in flight, so a rapid
+                            // re-toggle can't race (#342/#343).
+                            enabled = pref.type != null && pref.type !in savingPreferences,
                             onCheckedChange = { checked ->
                                 pref.type?.let { viewModel.updateNotificationPreference(it, checked) }
                             }

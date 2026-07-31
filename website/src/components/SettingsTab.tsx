@@ -37,6 +37,9 @@ function SettingsTab() {
   const [infoMessage, setInfoMessage] = useState<string | null>(null)
   const [currentUser, setCurrentUser] = useState<CurrentUser | null>(null)
   const [notifPrefs, setNotifPrefs] = useState<NotificationPreference[]>([])
+  // Types with a save in flight (#342/#343): their row is disabled and a
+  // re-click is ignored, so concurrent saves for one type can't race.
+  const [savingTypes, setSavingTypes] = useState<string[]>([])
 
   // Load the signed-in account's own username + email for the Contact
   // Information section (load-on-mount, matching the rest of the app).
@@ -73,17 +76,24 @@ function SettingsTab() {
   }, [])
 
   async function toggleNotification(pref: NotificationPreference) {
+    // Serialize per type: ignore a re-click while this type's save is in flight
+    // (the row is also disabled), so out-of-order responses can't leave the UI
+    // or the backend on an unintended value.
+    if (savingTypes.includes(pref.type)) return
     const next = !pref.enabled
     // Clear any error from a previous failed toggle so the banner only ever
     // reflects the most recent attempt.
     setErrorMessage(null)
     // Optimistic: flip immediately, revert on failure.
     setNotifPrefs(prev => prev.map(p => (p.type === pref.type ? { ...p, enabled: next } : p)))
+    setSavingTypes(prev => [...prev, pref.type])
     try {
       await apiClient.setNotificationPreference(pref.type, next)
     } catch {
       setNotifPrefs(prev => prev.map(p => (p.type === pref.type ? { ...p, enabled: !next } : p)))
       setErrorMessage('Could not update notification settings. Please try again.')
+    } finally {
+      setSavingTypes(prev => prev.filter(t => t !== pref.type))
     }
   }
 
@@ -213,6 +223,7 @@ function SettingsTab() {
               type="button"
               className="settings-row settings-row--toggle"
               aria-pressed={pref.enabled}
+              disabled={savingTypes.includes(pref.type)}
               onClick={() => toggleNotification(pref)}
             >
               <span>{pref.label}</span>

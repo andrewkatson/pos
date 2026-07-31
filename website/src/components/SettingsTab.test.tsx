@@ -296,6 +296,24 @@ test('a failed notification toggle reverts and surfaces an error', async () => {
   expect(toggle).toHaveTextContent('On')
 })
 
+test('a second click while a toggle save is in flight is ignored', async () => {
+  mockGetNotifPrefs.mockResolvedValue([
+    { type: 'post_rejected', label: 'Post moderation', enabled: true },
+  ])
+  // Never resolves: the first save stays in flight for the whole test.
+  mockSetNotifPref.mockImplementation(() => new Promise(() => {}))
+  renderTab()
+
+  const toggle = await screen.findByRole('button', { name: /Post moderation/ })
+  await userEvent.click(toggle)
+  expect(mockSetNotifPref).toHaveBeenCalledTimes(1)
+
+  // The row is disabled while saving, so a rapid re-click can't race.
+  expect(toggle).toBeDisabled()
+  await userEvent.click(toggle)
+  expect(mockSetNotifPref).toHaveBeenCalledTimes(1)
+})
+
 test('a later successful toggle clears a previous toggle error', async () => {
   mockGetNotifPrefs.mockResolvedValue([
     { type: 'post_rejected', label: 'Post moderation', enabled: true },

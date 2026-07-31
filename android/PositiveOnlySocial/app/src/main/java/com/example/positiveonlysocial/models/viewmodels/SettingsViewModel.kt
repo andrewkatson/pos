@@ -75,6 +75,12 @@ class SettingsViewModel(
     private val _notificationPreferences = MutableStateFlow<List<NotificationPreference>>(emptyList())
     val notificationPreferences: StateFlow<List<NotificationPreference>> = _notificationPreferences.asStateFlow()
 
+    // Types with a save in flight (#342/#343). The UI disables their switch, and
+    // updateNotificationPreference ignores a re-toggle while present, so
+    // concurrent saves for one type can't race.
+    private val _savingPreferences = MutableStateFlow<Set<String>>(emptySet())
+    val savingPreferences: StateFlow<Set<String>> = _savingPreferences.asStateFlow()
+
     // Change-password state (issue #197). `passwordChangeMessage` drives the
     // one-shot confirmation dialog, mirroring `twoFactorStatusMessage`.
     private val _passwordChangeMessage = MutableStateFlow<String?>(null)
@@ -358,8 +364,14 @@ class SettingsViewModel(
     /** Turns one push type on or off. Optimistic: flips immediately and reverts
      * (surfacing an error) if the save fails. */
     fun updateNotificationPreference(type: String, enabled: Boolean) {
+        // Serialize updates per type: ignore a new toggle while one is already
+        // in flight for this type (the UI also disables the switch). This stops
+        // a slow earlier failure from reverting to a stale snapshot and
+        // clobbering the user's newer intent.
+        if (_savingPreferences.value.contains(type)) return
         val previous = _notificationPreferences.value
         setLocalPreference(type, enabled)
+        _savingPreferences.value = _savingPreferences.value + type
         viewModelScope.launch {
             try {
                 val userSession = keychainHelper.load(UserSession::class.java, service, account)
@@ -380,6 +392,8 @@ class SettingsViewModel(
                 _errorMessage.value = ApiErrors.messageFor(
                     e, fallback = "Could not update notification settings.")
                 _showingErrorAlert.value = true
+            } finally {
+                _savingPreferences.value = _savingPreferences.value - type
             }
         }
     }
