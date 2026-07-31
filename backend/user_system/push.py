@@ -211,10 +211,13 @@ def _send_apns(tokens, payload):
         "content-type": "application/json",
     }
     # Custom keys go under "data" (not flattened to the top level) so iOS reads
-    # them at userInfo["data"], matching the FCM data map exactly.
+    # them at userInfo["data"], matching the FCM data map exactly — including
+    # coercing values to strings, so the "all-string data map" contract holds
+    # even if a future caller passes a non-string.
+    data = {k: str(v) for k, v in payload.get("data", {}).items()}
     body = json.dumps({
         "aps": {"alert": {"title": payload["title"], "body": payload["body"]}, "sound": "default"},
-        "data": payload.get("data", {}),
+        "data": data,
     })
 
     dead = []

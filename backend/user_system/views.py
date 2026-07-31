@@ -3520,11 +3520,14 @@ def register_device(request):
     # so `x not in <frozenset>` would raise TypeError -> 500 instead of a 400.
     if not isinstance(platform, str) or platform not in DEVICE_PLATFORMS:
         invalid_fields.append(Params.platform)
-    # Real APNs/FCM tokens are ASCII, so require it: besides rejecting junk, it
+    # Real APNs/FCM tokens are printable, non-space ASCII (hex / base64url-ish).
+    # Requiring that rejects junk — control chars or embedded whitespace that
+    # would break a provider request (APNs URL path, FCM INVALID_ARGUMENT) — and
     # keeps len(token) == the UTF-8 byte size, so the length cap actually bounds
     # what lands in the (platform, token) UNIQUE index (a multibyte 1024-char
     # string could otherwise blow past PostgreSQL's btree row limit at insert).
     if (not isinstance(token, str) or not token or not token.isascii()
+            or not token.isprintable() or ' ' in token
             or len(token) > MAX_DEVICE_TOKEN_LENGTH):
         invalid_fields.append(Params.token)
     if invalid_fields:
