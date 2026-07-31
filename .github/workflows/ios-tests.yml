@@ -130,10 +130,8 @@ jobs:
           # AutoFill suppression, polling helpers, seeded accounts) carry the
           # win and none of them need a second simulator.
           #
-          # Pin the same runtime the build job builds against (IOS_RUNTIME /
-          # IOS_OS below) rather than "newest installed": simctl lists
-          # unavailable runtimes too, and picking the newest would silently test
-          # on a different OS than we built for whenever the image bumps Xcode.
+          # Verify the runtime the build job builds against is actually present,
+          # rather than discovering a mismatch as a confusing test failure.
           # -F: the identifier contains dots, which would otherwise be regex
           # wildcards and could match a runtime that isn't the one we want.
           if ! xcrun simctl list runtimes available | grep -qF -- "$IOS_RUNTIME"; then
@@ -141,9 +139,36 @@ jobs:
             xcrun simctl list runtimes available
             exit 1
           fi
-          SIM_ID=$(xcrun simctl create "PosTest" "iPhone 16" "$IOS_RUNTIME")
+
+          # Use the image's existing iPhone 16 rather than creating a device.
+          # Creating one was only ever needed to give each of two shards its own
+          # simulator, and that sharding is gone. It also cost us a real
+          # failure: on a freshly created device the software keyboard never
+          # appeared, so a login field could not take focus and
+          # testFollowAndUnfollowFromSearch failed every attempt with "Element
+          # did not gain keyboard focus". Staying on the pre-existing device
+          # keeps us on the configuration the suite has always passed against.
+          # Kept to one line: a multi-line -c script would have to sit at column
+          # zero to satisfy Python, which ends this block scalar and breaks the
+          # YAML. Error reporting lives in the shell below instead.
+          SIM_ID=$(xcrun simctl list devices available --json \
+            | python3 -c "import json,sys;ds=json.load(sys.stdin)['devices'].get('$IOS_RUNTIME',[]);m=[d['udid'] for d in ds if d['name']=='iPhone 16'];print(m[0] if m else '')")
+          if [ -z "$SIM_ID" ]; then
+            echo "No available 'iPhone 16' for $IOS_RUNTIME. Devices present:"
+            xcrun simctl list devices available
+            exit 1
+          fi
+          echo "Using simulator $SIM_ID"
           echo "SIM_ID=$SIM_ID" >> "$GITHUB_ENV"
-          xcrun simctl boot "$SIM_ID"
+
+          # Force the software keyboard on. With the hardware keyboard attached
+          # iOS shows no on-screen keyboard, text fields never report focus, and
+          # every typing helper fails - which is exactly how the failure above
+          # presented. Defaulted per-device, so set it before boot.
+          defaults write com.apple.iphonesimulator DevicePreferences -dict-add \
+            "$SIM_ID" '{ConnectHardwareKeyboard = 0;}' || true
+
+          xcrun simctl boot "$SIM_ID" || true
           xcrun simctl bootstatus "$SIM_ID" -b
 
       - name: Download Test Bundle
