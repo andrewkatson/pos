@@ -34,10 +34,15 @@ export const firebaseConfig: FirebaseWebConfig = {
 // Web configuration → "Web Push certificates"). getToken requires it for web.
 export const firebaseVapidKey = readEnv('VITE_FIREBASE_VAPID_KEY')
 
-/** True only when every value push needs is present. */
+/** True only when the full Firebase Web config (every field we pass to
+ * initializeApp) and the VAPID key are present. authDomain isn't strictly
+ * required by FCM messaging, but a real Firebase Web config always includes it,
+ * so requiring it here means a partially-filled config is treated as unconfigured
+ * rather than initializing Firebase with a half-set config. */
 export function isPushConfigured(): boolean {
   return Boolean(
     firebaseConfig.apiKey &&
+      firebaseConfig.authDomain &&
       firebaseConfig.projectId &&
       firebaseConfig.messagingSenderId &&
       firebaseConfig.appId &&
