@@ -1,4 +1,5 @@
 from django.urls import reverse
+from django.utils import timezone
 
 from ..constants import Fields, HIDDEN_REASON_CLASSIFIER
 from .test_constants import UserFields
@@ -158,6 +159,21 @@ class GetSavedPostsTests(PositiveOnlySocialTestCase):
         # Save post 0 first, then post 1, so post 1 should come back first.
         self._save(self.posts[0])
         self._save(self.posts[1])
+
+        payload = self.client.get(self.list_url, **self.saver_header).json()
+        self.assertEqual(
+            [p[Fields.post_identifier] for p in payload],
+            [str(self.posts[1].post_identifier), str(self.posts[0].post_identifier)],
+        )
+
+    def test_tie_broken_by_save_order_when_save_times_equal(self):
+        # Regression: SavedPost.creation_time isn't guaranteed unique, so two
+        # saves can share a timestamp. Force that tie and assert the order is
+        # still most-recently-saved-first (post 1 before post 0), which only
+        # holds because the query breaks ties on SavedPost's monotonic id.
+        self._save(self.posts[0])
+        self._save(self.posts[1])
+        SavedPost.objects.update(creation_time=timezone.now())
 
         payload = self.client.get(self.list_url, **self.saver_header).json()
         self.assertEqual(

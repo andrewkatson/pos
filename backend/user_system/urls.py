@@ -192,6 +192,16 @@ urlpatterns = [
     # POST /profile/bio/ (Token in header) — set or clear the caller's bio
     path('profile/bio/', views.set_bio, name='set_bio'),
 
+    # =========================================================================
+    # PUSH NOTIFICATIONS (issue #342)
+    # =========================================================================
+    # POST /devices/register/ (Token in header) — register/refresh a push token
+    path('devices/register/', views.register_device, name='register_device'),
+
+    # GET/POST /notifications/preferences/ (Token in header) — per-type push
+    # notification toggles shown in Settings
+    path('notifications/preferences/', views.notification_preferences, name='notification_preferences'),
+
     # GET /users/followers/ (Token in header) — the requester's own followers
     path('users/followers/', views.get_followers, name='get_followers'),
 

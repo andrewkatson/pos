@@ -273,6 +273,31 @@ try:
 except ValueError:
     CLOUDFRONT_SIGNED_URL_EXPIRY_SECONDS = 86400
 
+# Native push notifications (issues #342/#343).
+#
+# Best-effort pop-up notifications for outcomes resolved off the request path
+# (a post rejected after make_post already returned 201). See user_system.push.
+# Every credential is optional: when a provider is unconfigured its send path is
+# a logged no-op, so local dev, tests, and a not-yet-provisioned deploy all
+# import cleanly and simply don't send. Push is never the source of truth — a
+# user who never gets it still reconciles the outcome in-app (#282).
+#
+# APNs (iOS) uses token-based auth: a .p8 signing key (inline PEM in
+# APNS_AUTH_KEY, or a file the deploy mounts at APNS_AUTH_KEY_PATH), its key id,
+# the Apple team id, and the app bundle id used as apns-topic. APNS_USE_SANDBOX
+# routes to the sandbox gateway for development app builds.
+APNS_AUTH_KEY = os.environ.get("APNS_AUTH_KEY", "")
+APNS_AUTH_KEY_PATH = os.environ.get("APNS_AUTH_KEY_PATH", "").strip()
+APNS_KEY_ID = os.environ.get("APNS_KEY_ID", "").strip()
+APNS_TEAM_ID = os.environ.get("APNS_TEAM_ID", "").strip()
+APNS_TOPIC = os.environ.get("APNS_TOPIC", "").strip()
+APNS_USE_SANDBOX = os.environ.get("APNS_USE_SANDBOX", "").strip().lower() in ("1", "true", "yes")
+
+# FCM (Android + web) uses a Firebase service-account JSON, supplied inline in
+# FCM_CREDENTIALS or as a file the deploy mounts at FCM_CREDENTIALS_PATH.
+FCM_CREDENTIALS = os.environ.get("FCM_CREDENTIALS", "")
+FCM_CREDENTIALS_PATH = os.environ.get("FCM_CREDENTIALS_PATH", "").strip()
+
 # Logging Configuration
 log_dir = BASE_DIR / 'logs'
 log_dir.mkdir(exist_ok=True)

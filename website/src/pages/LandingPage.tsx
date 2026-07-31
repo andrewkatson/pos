@@ -1,9 +1,22 @@
+import { useEffect } from 'react'
 import { Link, useNavigate } from 'react-router'
+import { apiClient } from '../api/client'
 import Logo from '../components/Logo'
 import './LandingPage.css'
 
 function LandingPage() {
   const navigate = useNavigate()
+
+  // A remembered session is restored into the ApiClient on startup (see
+  // main.tsx). If we're already signed in, skip this logged-out marketing
+  // screen and go straight into the app — otherwise a returning "Remember Me"
+  // user is shown the landing page and has to sign in (and clear 2FA) again,
+  // making it look like the session was dropped (issue #411).
+  useEffect(() => {
+    if (apiClient.isAuthenticated()) {
+      navigate('/home', { replace: true })
+    }
+  }, [navigate])
 
   return (
     <div className="landing">
@@ -35,6 +48,9 @@ function LandingPage() {
       <footer className="landing__footer">
         <Link to="/privacy-policy" className="landing__footer-link">
           Privacy Policy
+        </Link>
+        <Link to="/delete-account" className="landing__footer-link">
+          Delete Account
         </Link>
       </footer>
     </div>
