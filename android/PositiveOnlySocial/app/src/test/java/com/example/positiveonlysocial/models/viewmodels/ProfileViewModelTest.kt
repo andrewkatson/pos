@@ -381,21 +381,27 @@ class ProfileViewModelTest {
     }
 
     @Test
-    fun `deleting a post on this grid decrements the post count`() = runTest {
-        val mockProfile = ProfileDetailsResponse("user1", 2, 0, 0, false)
+    fun `deleting a post from your own profile grid decrements the post count`() = runTest {
+        // The session user ("testuser") is viewing their own profile, so a delete
+        // is for one of their posts and must drop the count. Driven through the
+        // real UI path (postActions.deletePost) — PostListActions removes the tile
+        // from the shared list *before* it emits PostEvents.postDeleted, so the
+        // decrement must not depend on the grid still holding the id (#437).
+        val mockProfile = ProfileDetailsResponse("testuser", 2, 0, 0, false)
         val posts = listOf(
-            Post("1", "url1", "cap1", "user1", 1),
-            Post("2", "url2", "cap2", "user1", 1),
+            Post("1", "url1", "cap1", "testuser", 1),
+            Post("2", "url2", "cap2", "testuser", 1),
         )
-        whenever(api.getProfileDetails("token123", "user1")).thenReturn(Response.success(mockProfile))
-        whenever(api.getPostsForUser("token123", "user1", 0)).thenReturn(Response.success(posts))
+        whenever(api.getProfileDetails("token123", "testuser")).thenReturn(Response.success(mockProfile))
+        whenever(api.getPostsForUser("token123", "testuser", 0)).thenReturn(Response.success(posts))
+        whenever(api.deletePost("token123", "1")).thenReturn(Response.success(GenericResponse("Deleted", null)))
 
-        viewModel.fetchProfile("user1")
+        viewModel.fetchProfile("testuser")
         advanceUntilIdle()
+        assertTrue(viewModel.isOwnProfile.value)
         assertEquals(2, viewModel.profileDetails.value?.postCount)
 
-        // A delete announced for a post on this grid drops the tile and the count.
-        PostEvents.postDeleted("1")
+        viewModel.postActions.deletePost(posts[0])
         advanceUntilIdle()
 
         assertEquals(1, viewModel.userPosts.value.size)
@@ -437,7 +443,10 @@ class ProfileViewModelTest {
     }
 
     @Test
-    fun `deleting a post not on this grid leaves the post count unchanged`() = runTest {
+    fun `a delete while viewing another user's profile leaves the post count unchanged`() = runTest {
+        // The session user ("testuser") is viewing someone else's profile
+        // ("user1"). A user can only delete their own posts, so a delete event
+        // here is for a post not counted on this profile and must not move it.
         val mockProfile = ProfileDetailsResponse("user1", 2, 0, 0, false)
         val posts = listOf(
             Post("1", "url1", "cap1", "user1", 1),
@@ -448,12 +457,11 @@ class ProfileViewModelTest {
 
         viewModel.fetchProfile("user1")
         advanceUntilIdle()
+        assertFalse(viewModel.isOwnProfile.value)
 
-        // An unrelated delete (a post this grid never held) must not move the count.
-        PostEvents.postDeleted("does-not-exist")
+        PostEvents.postDeleted("some-own-post-deleted-elsewhere")
         advanceUntilIdle()
 
-        assertEquals(2, viewModel.userPosts.value.size)
         assertEquals(2, viewModel.profileDetails.value?.postCount)
     }
 }
