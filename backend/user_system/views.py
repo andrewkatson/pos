@@ -3510,17 +3510,21 @@ def register_device(request):
 
     platform = data.get(Fields.platform)
     token = data.get(Fields.token)
+    # Strip first, then validate and store the same value — so length is checked
+    # against what actually gets persisted (and indexed), not the raw input.
+    if isinstance(token, str):
+        token = token.strip()
     invalid_fields = []
     if platform not in DEVICE_PLATFORMS:
         invalid_fields.append(Params.platform)
-    if not isinstance(token, str) or not token.strip() or len(token) > MAX_DEVICE_TOKEN_LENGTH:
+    if not isinstance(token, str) or not token or len(token) > MAX_DEVICE_TOKEN_LENGTH:
         invalid_fields.append(Params.token)
     if invalid_fields:
         return log_and_return_json(
             "register_device", {'error': f"Invalid fields {invalid_fields}"}, status=400)
 
     DeviceToken.objects.update_or_create(
-        platform=platform, token=token.strip(),
+        platform=platform, token=token,
         defaults={'user': request.user},
     )
     logger.info(f"Device registered ({platform}) for user_id: {request.user.id}")

@@ -115,10 +115,12 @@ DEVICE_PLATFORM_CHOICES = [
 DEVICE_PLATFORMS = frozenset(value for value, _ in DEVICE_PLATFORM_CHOICES)
 
 # Upper bound on a stored device token. APNs tokens are 64 hex chars; FCM
-# registration tokens (Android and FCM-for-web) run ~150–350 chars. The cap is
-# generous so no legitimate provider token is rejected, while still bounding
-# what a crafted /devices/register call can persist.
-MAX_DEVICE_TOKEN_LENGTH = 4096
+# registration tokens (Android and FCM-for-web) run ~150–350 chars. 1024 leaves
+# generous headroom over any real provider token while staying well under
+# PostgreSQL's ~2704-byte btree row limit — the token participates in the
+# (platform, token) UNIQUE index, so a larger value could pass validation only
+# to fail the insert at the index level.
+MAX_DEVICE_TOKEN_LENGTH = 1024
 
 # Machine-readable "type" on a push payload's data dict so a client can branch
 # on why it was notified and deep-link accordingly. The only kind today is a
