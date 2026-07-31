@@ -152,21 +152,29 @@ final class Positive_Only_SocialUITests: XCTestCase {
         // panel is suppressed; the retry budget stays as a safety net for a
         // loaded CI simulator dropping a tap, but each attempt polls rather
         // than sleeping a fixed second (issue #377).
-        let maxAttempts = 5
+        let maxAttempts = 10
         var attempt = 0
 
         element.tap()
 
         dismissStrongPasswordIfPresent()
 
-        // Wait on this element's own focus, and nothing else. A keyboard-based
-        // condition is wrong in both directions here: `keyboards.count > 0` is
-        // usually already true from the previous field, so it would let a
-        // dropped tap type into that field instead of this one; and requiring a
-        // keyboard would spin out the full retry budget on a simulator that
-        // never shows the software keyboard (a connected hardware keyboard
-        // suppresses it) even though the field is focused and typing works.
-        while !poll(timeout: 1.0, until: { element.hasFocus }) && attempt < maxAttempts {
+        // Require focus *and* a keyboard, which is the condition this suite has
+        // always passed under. Focus alone is not enough: the keyboard can lag
+        // behind it, and typing before it arrives drops characters.
+        //
+        // The budget is deliberately generous. Because `poll` returns the
+        // instant the condition holds, waiting longer is free whenever the
+        // field is ready quickly - it only costs time in the case that used to
+        // fail outright. It needs to be generous: seeding removed the
+        // registration walk, so the login form is now the *first* field typed
+        // into after launch, and the first keyboard presentation of a process
+        // is the slowest. An earlier revision trimmed this budget from roughly
+        // twelve seconds to five and that is precisely what broke - tests
+        // failed here on "did not gain keyboard focus" with no keyboard ever
+        // appearing.
+        while !poll(timeout: 2.0, until: { element.hasFocus && app.keyboards.count > 0 })
+                && attempt < maxAttempts {
             element.tap()
             dismissStrongPasswordIfPresent()
             attempt += 1
