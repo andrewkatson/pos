@@ -16,6 +16,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.tooling.preview.Preview
 import com.example.positiveonlysocial.di.DependencyProvider
+import com.example.positiveonlysocial.fcm.FcmConfig
 import com.example.positiveonlysocial.fcm.PosFirebaseMessagingService
 import com.example.positiveonlysocial.fcm.PushNavigator
 import com.example.positiveonlysocial.ui.navigation.NavGraph
@@ -60,6 +61,10 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun maybeRequestNotificationPermission() {
+        // Don't prompt for a permission the app can't use yet: when push isn't
+        // configured every push path is a no-op, so asking would be pointless
+        // (and contrary to the graceful-degradation rule).
+        if (!FcmConfig.isConfigured) return
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) return
         // Only ask when we don't already hold it — no point re-launching the
         // request on every cold start once the user has granted it. (The system
