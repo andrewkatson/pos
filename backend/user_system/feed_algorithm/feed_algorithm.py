@@ -63,11 +63,13 @@ def calculate_weights(qs, like_field, G=1.8, user=None, interest_category_ids=No
     )
 
     # 3b. Personalization (issues #446/#35): boost posts that share interest
-    #     buckets with the viewer. Each shared bucket multiplies the hot score
-    #     by (1 + INTEREST_BOOST), so a fresh, liked, on-topic post rises while
-    #     an ancient on-topic post still decays — the boost scales the rank, it
-    #     doesn't replace it. When the viewer has no interests this branch is
-    #     skipped entirely and the ranking is byte-for-byte the old hot rank.
+    #     buckets with the viewer. The hot score is multiplied by
+    #     (1 + INTEREST_BOOST * overlap), linear in the number of shared buckets
+    #     (NOT (1 + INTEREST_BOOST) per bucket — no exponential compounding), so
+    #     a fresh, liked, on-topic post rises while an ancient on-topic post
+    #     still decays — the boost scales the rank, it doesn't replace it. When
+    #     the viewer has no interests this branch is skipped entirely and the
+    #     ranking is byte-for-byte the old hot rank.
     #
     #     The match count comes from a correlated Subquery over the M2M through
     #     table rather than a second Count annotation: two Counts over different

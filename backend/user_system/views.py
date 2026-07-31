@@ -3534,8 +3534,13 @@ def _normalize_freeform_terms(raw_terms):
         if not term:
             continue
         if len(term) > MAX_FREEFORM_INTEREST_LENGTH:
+            # Echo the term back untruncated so the client can show the user
+            # exactly what they typed (truncating to the limit would display a
+            # value that is no longer "too long"). It came in on this request,
+            # so it is already bounded by the request body size — and the client
+            # stubs return it whole too, keeping the contract identical.
             rejected.append({
-                Fields.text: term[:MAX_FREEFORM_INTEREST_LENGTH],
+                Fields.text: term,
                 Fields.reason_code: 'too_long',
                 'reason': f"is longer than {MAX_FREEFORM_INTEREST_LENGTH} characters",
             })
@@ -3580,20 +3585,21 @@ def apply_user_interests(user, category_slugs, freeform_terms):
 
     with transaction.atomic():
         existing = {f.text: f for f in
-                    user.freeform_interests.select_related('category').all()}
+                    user.freeform_interests.prefetch_related('categories').all()}
         accepted_terms = []
         union_slugs = set(picked)
         keep_texts = set()
-        new_rows = []  # (text, representative_slug_or_None)
+        new_rows = []  # (text, [mapped_slug, ...])
 
         for term in terms:
             row = existing.get(term)
             if row is not None:
-                # Already accepted before — keep as-is, don't re-classify.
+                # Already accepted before — keep as-is, don't re-classify. Its
+                # full set of mapped buckets rebuilds the union deterministically
+                # (a term that mapped to several keeps them all across saves).
                 accepted_terms.append(term)
                 keep_texts.add(term)
-                if row.category_id:
-                    union_slugs.add(row.category.slug)
+                union_slugs.update(c.slug for c in row.categories.all())
                 continue
             result = text_classifier_class.is_text_positive(term)
             if not result:
@@ -3606,20 +3612,22 @@ def apply_user_interests(user, category_slugs, freeform_terms):
             mapped = interest_classifier_class.categorize_text_interests(term)
             union_slugs.update(mapped)
             accepted_terms.append(term)
-            new_rows.append((term, mapped[0] if mapped else None))
+            new_rows.append((term, mapped))
 
         # Remove freeform rows the user no longer lists.
         stale = [t for t in existing if t not in keep_texts]
         if stale:
             user.freeform_interests.filter(text__in=stale).delete()
 
-        # Resolve every slug we need (union + representative categories) once.
+        # Resolve every slug we need (the whole union) once.
         cats_by_slug = {c.slug: c for c in
                         InterestCategory.objects.filter(slug__in=union_slugs)}
 
-        for term, rep_slug in new_rows:
-            UserFreeformInterest.objects.create(
-                user=user, text=term, category=cats_by_slug.get(rep_slug))
+        for term, mapped_slugs in new_rows:
+            new_row = UserFreeformInterest.objects.create(user=user, text=term)
+            mapped_cats = [cats_by_slug[s] for s in mapped_slugs if s in cats_by_slug]
+            if mapped_cats:
+                new_row.categories.set(mapped_cats)
 
         user.interest_categories.set(
             [cats_by_slug[s] for s in union_slugs if s in cats_by_slug])

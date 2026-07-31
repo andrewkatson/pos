@@ -168,9 +168,11 @@ approved (enqueued from the approval branch of `classify_post`), and the
 approval hook missed (safe to run from cron alongside `sweep_classifications`).
 
 **Weighting the feed.** In `calculate_weights`
-(`backend/user_system/feed_algorithm/feed_algorithm.py`), each interest bucket a
-post shares with the viewer multiplies its hot score by `(1 + INTEREST_BOOST)`.
-The boost *scales* the hot rank rather than replacing it: a fresh, liked,
+(`backend/user_system/feed_algorithm/feed_algorithm.py`), the hot score is
+multiplied by `(1 + INTEREST_BOOST × overlap)`, where `overlap` is the number of
+interest buckets the post shares with the viewer. The boost is **linear** in the
+overlap (not `(1 + INTEREST_BOOST)` per bucket), so it *scales* the hot rank
+rather than replacing it: a fresh, liked,
 on-topic post rises, but an ancient on-topic post still decays. When the viewer
 has no interests the branch is skipped entirely and the ranking is byte-for-byte
 the old hot rank. The match count is computed with a correlated subquery over the

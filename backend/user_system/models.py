@@ -544,17 +544,20 @@ class InterestCategory(models.Model):
 # A single freeform interest term a user typed (issues #446/#35). Kept so the
 # Settings/registration picker can show and let them remove what they entered
 # ("hiking", "jazz"), distinct from the preset buckets. Each term passed the
-# positive classifier on write; `category` is the preset bucket the freeform
-# mapper matched it to (nullable when the mapper found no match — the term is
-# still stored and shown, it just contributes nothing to feed weighting). The
-# user's interest_categories M2M is the union of picked presets and these
-# mapped categories, so ranking never has to walk these rows.
+# positive classifier on write; `categories` are ALL the preset buckets the
+# freeform mapper matched it to (empty when the mapper found no match — the term
+# is still stored and shown, it just contributes nothing to feed weighting).
+# Storing every mapped bucket (not just one) means the user's interest_categories
+# union can be rebuilt deterministically from these rows without re-classifying,
+# so a term that maps to several buckets ("hiking" -> nature, outdoors) keeps
+# them all across saves.
 class UserFreeformInterest(models.Model):
     user = models.ForeignKey(settings.AUTH_USER_MODEL, related_name='freeform_interests',
                              on_delete=models.CASCADE)
     text = models.CharField(max_length=MAX_FREEFORM_INTEREST_LENGTH)
-    category = models.ForeignKey(InterestCategory, null=True, blank=True,
-                                 on_delete=models.SET_NULL)
+    # related_name='+': we never need to walk from a category back to the
+    # freeform terms that mapped to it, so skip the reverse accessor.
+    categories = models.ManyToManyField(InterestCategory, related_name='+', blank=True)
     creation_time = models.DateTimeField(auto_now_add=True, null=True, blank=True)
 
     class Meta:

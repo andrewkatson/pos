@@ -112,7 +112,20 @@ class InterestsViewTests(PositiveOnlySocialTestCase):
         self.assertEqual(self._get().json()[Fields.freeform], ['hiking'])
         self.assertEqual(self._slugs(), [])
         row = UserFreeformInterest.objects.get(user=self.user, text='hiking')
-        self.assertIsNone(row.category)
+        self.assertEqual(row.categories.count(), 0)
+
+    def test_freeform_multi_bucket_term_keeps_all_buckets_across_saves(self):
+        # A single freeform term that maps to several buckets keeps them ALL,
+        # even after a re-save that doesn't re-classify it (regression: only the
+        # first mapped bucket used to survive the second save).
+        self._set(freeform=['nature outdoors'])
+        self.assertEqual(self._slugs(), ['nature', 'outdoors'])
+        row = UserFreeformInterest.objects.get(user=self.user, text='nature outdoors')
+        self.assertEqual(sorted(row.categories.values_list('slug', flat=True)),
+                         ['nature', 'outdoors'])
+        # Re-save the same term (now a kept row): both buckets still contribute.
+        self._set(freeform=['nature outdoors'])
+        self.assertEqual(self._slugs(), ['nature', 'outdoors'])
 
     def test_freeform_disallowed_term_is_rejected(self):
         response = self._set(freeform=['negative vibes'])
