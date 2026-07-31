@@ -43,9 +43,11 @@ object PushRegistrar {
     fun registerCurrentToken() {
         if (!FcmConfig.isConfigured) return
         try {
-            FirebaseMessaging.getInstance().token.addOnSuccessListener { token ->
-                uploadToken(token)
-            }
+            FirebaseMessaging.getInstance().token
+                .addOnSuccessListener { token -> uploadToken(token) }
+                // The token fetch is async: a failure resolves the Task, it
+                // doesn't throw here, so surface it via the failure listener.
+                .addOnFailureListener { e -> Log.w(TAG, "Fetching FCM token failed", e) }
         } catch (e: Exception) {
             Log.w(TAG, "Fetching FCM token failed", e)
         }

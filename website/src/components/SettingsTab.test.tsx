@@ -295,3 +295,21 @@ test('a failed notification toggle reverts and surfaces an error', async () => {
   expect(await screen.findByRole('alert')).toHaveTextContent('Could not update notification settings')
   expect(toggle).toHaveTextContent('On')
 })
+
+test('a later successful toggle clears a previous toggle error', async () => {
+  mockGetNotifPrefs.mockResolvedValue([
+    { type: 'post_rejected', label: 'Post moderation', enabled: true },
+  ])
+  mockSetNotifPref.mockRejectedValueOnce(new Error('nope')).mockResolvedValue({
+    type: 'post_rejected',
+    enabled: false,
+  })
+  renderTab()
+
+  const toggle = await screen.findByRole('button', { name: /Post moderation/ })
+  await userEvent.click(toggle) // fails -> error banner
+  expect(await screen.findByRole('alert')).toBeInTheDocument()
+
+  await userEvent.click(toggle) // succeeds -> banner cleared
+  expect(screen.queryByRole('alert')).not.toBeInTheDocument()
+})

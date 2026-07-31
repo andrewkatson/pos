@@ -77,6 +77,9 @@ class MainActivity : ComponentActivity() {
         val postId = intent?.getStringExtra(PosFirebaseMessagingService.KEY_POST_IDENTIFIER)
         if (!postId.isNullOrEmpty()) {
             PushNavigator.openPost(postId)
+            // Consume it so an Activity recreation (rotation / process death)
+            // doesn't re-read the same extra and navigate again.
+            intent.removeExtra(PosFirebaseMessagingService.KEY_POST_IDENTIFIER)
         }
     }
 }

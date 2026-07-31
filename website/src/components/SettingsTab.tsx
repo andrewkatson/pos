@@ -74,6 +74,9 @@ function SettingsTab() {
 
   async function toggleNotification(pref: NotificationPreference) {
     const next = !pref.enabled
+    // Clear any error from a previous failed toggle so the banner only ever
+    // reflects the most recent attempt.
+    setErrorMessage(null)
     // Optimistic: flip immediately, revert on failure.
     setNotifPrefs(prev => prev.map(p => (p.type === pref.type ? { ...p, enabled: next } : p)))
     try {

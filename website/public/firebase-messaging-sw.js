@@ -42,6 +42,9 @@ if (config && config.apiKey) {
 // (a future push type, a backend bug) can't turn a tap into an open redirect /
 // phishing navigation; anything else falls back to the app root.
 function safeTarget(rawLink) {
+  // A missing deep_link must fall back to '/', not become new URL(undefined)
+  // -> "/undefined".
+  if (!rawLink) return '/'
   try {
     const url = new URL(rawLink, self.location.origin)
     return url.origin === self.location.origin ? url.href : '/'
