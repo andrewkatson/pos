@@ -38,11 +38,23 @@ if (config && config.apiKey) {
   })
 }
 
+// Restrict navigation to same-origin URLs so a malformed or external deep_link
+// (a future push type, a backend bug) can't turn a tap into an open redirect /
+// phishing navigation; anything else falls back to the app root.
+function safeTarget(rawLink) {
+  try {
+    const url = new URL(rawLink, self.location.origin)
+    return url.origin === self.location.origin ? url.href : '/'
+  } catch (err) {
+    return '/'
+  }
+}
+
 // Open (or focus) the rejected post when a notification is tapped.
 self.addEventListener('notificationclick', (event) => {
   event.notification.close()
   const data = event.notification.data || {}
-  const target = data.deep_link || '/'
+  const target = safeTarget(data.deep_link)
   event.waitUntil(
     self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then((clientList) => {
       for (const client of clientList) {
