@@ -104,7 +104,10 @@ final class PushNotifications: NSObject, UNUserNotificationCenterDelegate {
     /// on the `type` tag so only a post-rejection push routes to a post — any
     /// future push kind is ignored here rather than mis-routed.
     private func routeIfPostRejection(userInfo: [AnyHashable: Any]) {
-        guard let data = userInfo["data"] as? [String: Any],
+        // APNs bridges the nested JSON object as [AnyHashable: Any] (from
+        // NSDictionary), so cast to that — [String: Any] can fail on a valid
+        // payload and silently drop the tap.
+        guard let data = userInfo["data"] as? [AnyHashable: Any],
               data["type"] as? String == PUSH_TYPE_POST_REJECTED,
               let postIdentifier = data["post_identifier"] as? String else {
             return

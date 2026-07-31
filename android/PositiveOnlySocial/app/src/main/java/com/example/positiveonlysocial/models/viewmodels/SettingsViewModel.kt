@@ -97,6 +97,10 @@ class SettingsViewModel(
 
     fun clearError() {
         _errorMessage.value = null
+        // The error AlertDialog visibility is driven by _showingErrorAlert, so
+        // reset it too or the dialog can't be dismissed (it would recompose with
+        // a null message but stay open).
+        _showingErrorAlert.value = false
     }
 
     fun logout() {
