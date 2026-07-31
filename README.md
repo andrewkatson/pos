@@ -226,8 +226,8 @@ The flow is:
      tombstone: the S3 image is deleted, the row is kept (invisible to
      everyone, its author included) only so clients can reconcile the
      outcome, and the sweep purges it after a few days.
-   On either rejection the author is emailed (with the public reason and,
-   when appealable, how to appeal) and, best-effort, sent a native push
+   On either rejection the author receives an email (with the public reason
+   and, when appealable, how to appeal) and, best-effort, a native push
    notification (see [Push notifications](#push-notifications)). Approval sends
    neither — the post simply appears.
 4. Provider failures (no usable score from any AI, unreachable S3) are not
