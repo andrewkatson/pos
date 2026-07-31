@@ -252,6 +252,10 @@ jobs:
               # swallow the real exit code. errexit does not abort the pipeline
               # before the return, because this function runs as an `if`
               # condition and that suppression extends into the body.
+              #
+              # Declared before the pipeline so capturing PIPESTATUS afterwards
+              # cannot be disturbed by the assignment itself.
+              local -a stages
               xcodebuild test-without-building \
                 -xctestrun "$XCTESTRUN" \
                 -destination "id=$SIM_ID" \
@@ -262,7 +266,20 @@ jobs:
                 -test-iterations 3 \
                 "${ONLY_TESTING_ARGS[@]}" \
                 2>&1 | tee xcodebuild.log | xcpretty
-              return "${PIPESTATUS[0]}"
+              stages=("${PIPESTATUS[@]}")
+
+              # Surface a broken log pipeline without failing on it. Whether the
+              # tests passed is xcodebuild's answer alone; tee or xcpretty dying
+              # costs us the log or the formatting, not the result. Failing here
+              # would turn a green suite red and burn another scarce macOS
+              # runner on a rerun, so warn loudly and let the result stand.
+              if [ "${stages[1]}" -ne 0 ]; then
+                echo "::warning::tee exited ${stages[1]} - xcodebuild.log may be truncated or missing"
+              fi
+              if [ "${stages[2]}" -ne 0 ]; then
+                echo "::warning::xcpretty exited ${stages[2]} - console output may be unformatted; the raw log is still uploaded on failure"
+              fi
+              return "${stages[0]}"
             }
 
             # In-process retry only covers *test* failures. It cannot recover
