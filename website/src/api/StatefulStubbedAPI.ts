@@ -6,6 +6,14 @@
 import { ApiError, INVALID_TWO_FACTOR_CHALLENGE } from './client'
 import { characterCount, MAX_BIO_LENGTH } from '../auth/requirements'
 import { extractTags } from '../utils/tags'
+import {
+  INTEREST_OPTIONS,
+  INTEREST_SLUGS,
+  MAX_FREEFORM_INTERESTS,
+  MAX_FREEFORM_INTEREST_LENGTH,
+  REJECTED_TEXT_ECHO_LIMIT,
+  matchInterestSlugs,
+} from './interestVocabulary'
 import type { PositiveOnlySocialAPI } from './PositiveOnlySocialAPI'
 import type {
   AuthResponse,
@@ -53,6 +61,10 @@ import type {
   SetProfilePhotoResponse,
   SetBioRequest,
   SetBioResponse,
+  InterestOptionsResponse,
+  InterestsResponse,
+  SetInterestsRequest,
+  SetInterestsResponse,
   SubmitAppealRequest,
   SubmitAppealResponse,
   TwoFactorSetupResponse,
@@ -144,6 +156,11 @@ interface UserMock {
   membershipNumber: number
   /** Free-text bio shown on the profile (issue #380); '' when unset. */
   bio: string
+  /** Positive interest weighting buckets (issues #446/#35): picks ∪ mapped
+   * freeform. */
+  interestCategories: Set<string>
+  /** Freeform interest terms the user typed, lowercased, in entry order. */
+  freeformInterests: string[]
 }
 
 interface TwoFactorChallengeMock {
@@ -358,8 +375,16 @@ export class StatefulStubbedAPI implements PositiveOnlySocialAPI {
       // Next join number, one past the current highest (#198).
       membershipNumber: this.users.reduce((max, u) => Math.max(max, u.membershipNumber), 0) + 1,
       bio: '',
+      interestCategories: new Set(),
+      freeformInterests: [],
     }
     this.users.push(user)
+
+    // Interests picked during sign-up ride along in the register payload
+    // (issues #446/#35). Best-effort, exactly like the backend.
+    if (body.interest_categories?.length || body.interest_freeform?.length) {
+      this.applyInterests(user, body.interest_categories ?? [], body.interest_freeform ?? [])
+    }
 
     const sessionToken = newId()
     this.sessions.push({ managementToken: sessionToken, userId: user.id })
@@ -1543,6 +1568,110 @@ export class StatefulStubbedAPI implements PositiveOnlySocialAPI {
     }
     user.bio = body.bio
     return { bio: user.bio, message: 'Your bio has been updated.' }
+  }
+
+  // ===========================================================================
+  // POSITIVE INTEREST TAGS (issues #446/#35)
+  // ===========================================================================
+
+  /** Mirrors the backend apply_user_interests: full-replace of a user's
+   * interest state. Preset slugs are kept if known; each freeform term is
+   * positivity-checked (reject anything containing "negative", like the backend
+   * TESTING classifier) and mapped to buckets; the weighting set is the union
+   * of picks and mapped buckets. */
+  private applyInterests(
+    user: UserMock,
+    categories: string[],
+    freeform: string[],
+  ): SetInterestsResponse {
+    // Normalize before matching, mirroring the backend's strip().lower() — a
+    // slug arriving as " Nature" must resolve the same way here as in production.
+    const picked = Array.isArray(categories)
+      ? [
+          ...new Set(
+            categories
+              .filter((s) => typeof s === 'string')
+              .map((s) => s.trim().toLowerCase())
+              .filter((s) => INTEREST_SLUGS.has(s)),
+          ),
+        ]
+      : []
+
+    const accepted: string[] = []
+    const rejected: SetInterestsResponse['freeform']['rejected'] = []
+    const union = new Set<string>(picked)
+    const seen = new Set<string>()
+
+    if (Array.isArray(freeform)) {
+      for (const raw of freeform) {
+        if (typeof raw !== 'string') continue
+        const term = raw.trim()
+        if (!term) continue
+        // Dedupe before deciding the term's fate and bound the rejected list,
+        // mirroring the backend's _normalize_freeform_terms: deduping only the
+        // accepted terms let a repeated bad term be reported once per
+        // occurrence, and an unbounded list diverges from what the real API
+        // returns (duplicate React keys, inflated responses).
+        const key = term.toLowerCase()
+        if (seen.has(key)) continue
+        seen.add(key)
+        if (characterCount(term) > MAX_FREEFORM_INTEREST_LENGTH) {
+          if (rejected.length < MAX_FREEFORM_INTERESTS) {
+            // Echo bounded the same way the backend bounds it, so a huge term
+            // doesn't produce a huge response. Still well over the limit, so an
+            // elided term reads as too long.
+            const echo =
+              characterCount(term) > REJECTED_TEXT_ECHO_LIMIT
+                ? [...term].slice(0, REJECTED_TEXT_ECHO_LIMIT).join('') + '…'
+                : term
+            rejected.push({
+              text: echo,
+              reason_code: 'too_long',
+              reason: `is longer than ${MAX_FREEFORM_INTEREST_LENGTH} characters`,
+            })
+          }
+          continue
+        }
+        if (key.includes('negative')) {
+          if (rejected.length < MAX_FREEFORM_INTERESTS) {
+            rejected.push({
+              text: key,
+              reason_code: 'guidelines',
+              reason: 'did not meet our positivity guidelines',
+            })
+          }
+          continue
+        }
+        accepted.push(key)
+        for (const slug of matchInterestSlugs(key)) union.add(slug)
+        if (accepted.length >= MAX_FREEFORM_INTERESTS) break
+      }
+    }
+
+    user.freeformInterests = accepted
+    user.interestCategories = union
+    return {
+      categories: [...union].sort(),
+      freeform: { accepted, rejected },
+    }
+  }
+
+  async getInterestOptions(): Promise<InterestOptionsResponse> {
+    return { options: INTEREST_OPTIONS.map((o) => ({ ...o })) }
+  }
+
+  async getInterests(): Promise<InterestsResponse> {
+    const user = this.requireUser()
+    return {
+      categories: [...user.interestCategories].sort(),
+      freeform: [...user.freeformInterests],
+    }
+  }
+
+  async setInterests(body: SetInterestsRequest): Promise<SetInterestsResponse> {
+    const user = this.requireUser()
+    const result = this.applyInterests(user, body.categories ?? [], body.freeform ?? [])
+    return { ...result, message: 'Your interests have been updated.' }
   }
 
   // ---------------------------------------------------------------------------

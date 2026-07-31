@@ -5,6 +5,7 @@ import { clearSession } from '../api/session'
 import type { CurrentUser, NotificationPreference } from '../api/types'
 import { PRIVACY_POLICY_TEXT } from '../privacyPolicy'
 import Modal from './Modal'
+import InterestsModal from './InterestsModal'
 import {
   ChangePasswordModal,
   DisableTwoFactorModal,
@@ -19,6 +20,7 @@ type ActiveModal =
   | 'enable2fa'
   | 'disable2fa'
   | 'changePassword'
+  | 'interests'
   | null
 
 /** Support address shown under "Contact Us" for feedback and help (issue #194). */
@@ -234,6 +236,17 @@ function SettingsTab() {
       )}
 
       <div className="settings-group">
+        <span className="settings-group__header">Feed</span>
+        <button
+          type="button"
+          className="settings-row settings-row--action"
+          onClick={() => setActiveModal('interests')}
+        >
+          Interests
+        </button>
+      </div>
+
+      <div className="settings-group">
         <span className="settings-group__header">Security</span>
         <button
           type="button"
@@ -346,6 +359,16 @@ function SettingsTab() {
           onChanged={() => {
             close()
             setInfoMessage('Your password has been changed.')
+          }}
+        />
+      )}
+
+      {activeModal === 'interests' && (
+        <InterestsModal
+          onClose={close}
+          onSaved={message => {
+            close()
+            setInfoMessage(message)
           }}
         />
       )}

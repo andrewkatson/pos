@@ -129,3 +129,32 @@ IMAGE_CLASSIFIER_PROMPT = (
     + _CONTENT_ALLOWANCES
     + _PROBABILITY_INSTRUCTION
 )
+
+# =============================================================================
+# POSITIVE INTEREST CATEGORIZATION (issues #446 / #35)
+# =============================================================================
+# These prompts are a *topic tagger*, not the safety gate above: a post has
+# already passed moderation by the time it is categorized, and a freeform
+# interest term has already passed is_text_positive. The model is asked only to
+# pick which of the curated interest buckets the content is about. The allowed
+# bucket slugs ({options}) and the per-item cap ({max}) are injected by the
+# caller (interest_classifier) so the vocabulary stays defined in one place
+# (user_system.constants) without this module importing it.
+_INTEREST_CATEGORIZATION_INSTRUCTION = (
+    "Choose up to {max} categories from this exact list that best describe what "
+    "the {subject} is about:\n{options}\n"
+    "Reply with only matching category names from the list, lowercase, separated "
+    "by commas, and nothing else. If none of them apply, reply with the single "
+    "word: none.\n"
+)
+
+INTEREST_CATEGORIZATION_TEXT_PROMPT = (
+    "You label short, positive social-media posts with topic categories.\n"
+    + _INTEREST_CATEGORIZATION_INSTRUCTION.replace("{subject}", "post")
+    + "\nPost: \"{text}\""
+)
+
+INTEREST_CATEGORIZATION_IMAGE_PROMPT = (
+    "You label positive social-media images with topic categories.\n"
+    + _INTEREST_CATEGORIZATION_INSTRUCTION.replace("{subject}", "image")
+)

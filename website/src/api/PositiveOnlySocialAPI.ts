@@ -46,6 +46,10 @@ import type {
   SetProfilePhotoResponse,
   SetBioRequest,
   SetBioResponse,
+  InterestOptionsResponse,
+  InterestsResponse,
+  SetInterestsRequest,
+  SetInterestsResponse,
   SubmitAppealRequest,
   SubmitAppealResponse,
   TwoFactorSetupResponse,
@@ -195,6 +199,18 @@ export interface PositiveOnlySocialAPI {
    * The text is moderated synchronously; a non-positive bio is rejected and not
    * stored. Returns the stored bio. */
   setBio(body: SetBioRequest): Promise<SetBioResponse>
+
+  // Positive interest tags (issues #446/#35)
+  /** The curated preset bucket vocabulary. Public — the registration screen
+   * (no session) renders the picker from it. */
+  getInterestOptions(): Promise<InterestOptionsResponse>
+  /** The signed-in user's current interest selection, to prefill the picker. */
+  getInterests(): Promise<InterestsResponse>
+  /** Replace the signed-in user's interest selection (full-replace/set
+   * semantics — anything omitted is removed). Freeform terms are
+   * positivity-checked and mapped to buckets server-side; the response reports
+   * which were accepted/rejected. */
+  setInterests(body: SetInterestsRequest): Promise<SetInterestsResponse>
 
   // Push notifications (issues #342/#343). Register or refresh this browser's
   // Web-push token so the backend can notify the user of async outcomes.

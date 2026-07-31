@@ -15,8 +15,11 @@ protocol Networking {
 
     // MARK: - User & Session Management
 
-    /// Creates a user if they do not exist.
-    func register(username: String, email: String, password: String, rememberMe: String, ip: String, dateOfBirth: String) async throws -> Data
+    /// Creates a user if they do not exist. `interestCategories` and
+    /// `interestFreeform` (issues #446/#35) are optional positive-interest
+    /// picks that ride along in the register payload, since the account has no
+    /// usable session until email verification.
+    func register(username: String, email: String, password: String, rememberMe: String, ip: String, dateOfBirth: String, interestCategories: [String], interestFreeform: [String]) async throws -> Data
 
     /// Logs the user in if they exist.
     func loginUser(usernameOrEmail: String, password: String, rememberMe: String, ip: String) async throws -> Data
@@ -227,6 +230,21 @@ protocol Networking {
     /// is rejected inline and never stored; there is no pending/approved state.
     func setBio(sessionManagementToken: String, bio: String) async throws -> Data
 
+    // MARK: - Positive interest tags (issues #446/#35)
+
+    /// The curated preset interest-bucket vocabulary. Public (no session) so the
+    /// registration screen can render the picker.
+    func getInterestOptions() async throws -> Data
+
+    /// The signed-in user's current interest selection (preset slugs + freeform
+    /// terms), for prefilling the Settings picker.
+    func getInterests(sessionManagementToken: String) async throws -> Data
+
+    /// Replaces the signed-in user's interest selection (full-replace/set
+    /// semantics — anything omitted is removed). Freeform terms are
+    /// positivity-checked and mapped to buckets on the backend; the response
+    /// reports which were accepted/rejected.
+    func setInterests(sessionManagementToken: String, categories: [String], freeform: [String]) async throws -> Data
     // MARK: - Push notifications (issue #342/#343)
 
     /// Registers (or refreshes) this device's APNs token so the backend can send
@@ -254,4 +272,13 @@ protocol Networking {
     /// Files an appeal against a hidden post or comment. `targetType` is
     /// "post" or "comment"; ban appeals go through the email-reply flow.
     func submitAppeal(sessionManagementToken: String, targetType: String, targetIdentifier: String, reason: String) async throws -> Data
+}
+
+extension Networking {
+    /// Backward-compatible register without interests (issues #446/#35): existing
+    /// call sites and tests that don't collect interests keep working while the
+    /// registration screen uses the full method. Defaults to empty picks.
+    func register(username: String, email: String, password: String, rememberMe: String, ip: String, dateOfBirth: String) async throws -> Data {
+        try await register(username: username, email: email, password: password, rememberMe: rememberMe, ip: ip, dateOfBirth: dateOfBirth, interestCategories: [], interestFreeform: [])
+    }
 }

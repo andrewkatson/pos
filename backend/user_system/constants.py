@@ -27,6 +27,17 @@ NON_APPEALABLE_HIDDEN_REASONS = (
     HIDDEN_REASON_CLASSIFIER_FINAL,
 )
 
+# Hidden reasons in which a post has NOT (yet) passed classification, so there
+# is nothing meaningful to categorize into interest buckets (issues #446/#35):
+# it is still pending, or it was rejected — its content will never surface, and
+# a final rejection has had its image deleted. Report-hiding is deliberately
+# absent: such a post already passed classification and can return to the feed.
+NON_CATEGORIZABLE_HIDDEN_REASONS = frozenset({
+    HIDDEN_REASON_PENDING_CLASSIFICATION,
+    HIDDEN_REASON_CLASSIFIER,
+    HIDDEN_REASON_CLASSIFIER_FINAL,
+})
+
 # Classification lifecycle of a post as reported to its author (the `status`
 # field of make_post/get_post_status). Derived from hidden_reason; see
 # Post.classification_status.
@@ -351,6 +362,20 @@ class Fields:
     recovery_codes = "recovery_codes"
     totp_enabled = "totp_enabled"
     tags = "tags"
+    # Positive interest tags (issues #446/#35). `categories`/`freeform` are the
+    # POST /interests/set/ and GET /interests/ body keys; `interest_categories`/
+    # `interest_freeform` are the distinct keys interests ride under in the
+    # register payload (so they don't collide with anything else there).
+    categories = "categories"
+    freeform = "freeform"
+    interest_categories = "interest_categories"
+    interest_freeform = "interest_freeform"
+    options = "options"
+    slug = "slug"
+    name = "name"
+    accepted = "accepted"
+    rejected = "rejected"
+    text = "text"
     platform = "platform"
     token = "token"
     # Push notification preferences (Settings toggles).
@@ -386,6 +411,72 @@ MAX_BIO_LENGTH = 500
 # MAX_CAPTION_LENGTH, so this is a belt-and-suspenders bound on abuse.
 MAX_TAG_LENGTH = 100
 MAX_TAGS_PER_POST = 30
+
+# =============================================================================
+# POSITIVE INTEREST TAGS (issues #446 / #35)
+# =============================================================================
+# The curated, closed vocabulary of "positive interest" buckets a user can pick
+# from (in Settings and at registration) and that the offline categorizer
+# assigns to posts. This is the single source of truth: the seed data migration
+# and the GET /interests/options/ endpoint both read it, and both the freeform
+# mapper and the post categorizer intersect the model's output against these
+# slugs. `slug` is the stable machine key (sent over the wire, stored on the
+# InterestCategory row); the name is the human label the clients display.
+#
+# Kept deliberately separate from the open-vocabulary hashtag Tag table: a
+# hashtag is whatever a user typed in a caption, whereas an interest bucket is a
+# controlled label the feed-weighting join relies on being finite and stable.
+INTEREST_CATEGORY_CHOICES = [
+    ("nature", "Nature"),
+    ("animals", "Animals"),
+    ("sports", "Sports"),
+    ("art", "Art"),
+    ("music", "Music"),
+    ("food", "Food"),
+    ("travel", "Travel"),
+    ("science", "Science"),
+    ("technology", "Technology"),
+    ("fitness", "Fitness"),
+    ("family", "Family"),
+    ("friends", "Friends"),
+    ("humor", "Humor"),
+    ("gratitude", "Gratitude"),
+    ("kindness", "Kindness"),
+    ("community", "Community"),
+    ("learning", "Learning"),
+    ("achievement", "Achievement"),
+    ("faith", "Faith"),
+    ("wellness", "Wellness"),
+    ("outdoors", "Outdoors"),
+    ("books", "Books"),
+    ("gaming", "Gaming"),
+    ("photography", "Photography"),
+]
+# Frozenset of the valid slugs, for cheap membership checks when validating an
+# incoming payload or a model's raw output.
+INTEREST_CATEGORY_SLUGS = frozenset(slug for slug, _ in INTEREST_CATEGORY_CHOICES)
+
+# A user keeps at most this many freeform interest terms (each a short phrase
+# they typed that passed the positivity check). Bounds the synchronous
+# classifier work a single /interests/ write can trigger.
+MAX_FREEFORM_INTERESTS = 20
+# Max length (unicode code points) of a single freeform interest term.
+MAX_FREEFORM_INTEREST_LENGTH = 100
+# How much of a rejected (over-length) term is echoed back to the client so it
+# can show the user what they typed. Deliberately well above
+# MAX_FREEFORM_INTEREST_LENGTH so an elided term still reads as clearly too
+# long, while bounding the response for a crafted payload whose single term is
+# as large as the request body allows.
+REJECTED_TEXT_ECHO_LIMIT = MAX_FREEFORM_INTEREST_LENGTH * 2
+# Most interest buckets the offline categorizer assigns to one post — a handful
+# of "what this is about" labels, not an exhaustive tagging.
+MAX_INTEREST_TAGS_PER_POST = 3
+# Feed weighting: a post's hot-rank score is multiplied by
+# (1 + INTEREST_BOOST * overlap), where overlap is the number of interest
+# buckets the post shares with the viewer — a LINEAR boost in the overlap, not
+# (1 + INTEREST_BOOST) applied per bucket. 0 would disable the feature; a larger
+# value surfaces on-interest posts more aggressively. Tunable.
+INTEREST_BOOST = 0.5
 
 # Number of reports before hiding
 MAX_BEFORE_HIDING_POST = 10

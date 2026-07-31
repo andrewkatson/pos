@@ -4,6 +4,7 @@ import json
 import logging
 import secrets
 import uuid
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, date, timedelta
 
 from functools import wraps
@@ -23,7 +24,7 @@ from django_ratelimit.decorators import ratelimit
 from django_ratelimit.exceptions import Ratelimited
 
 from . import tasks
-from .classifiers import image_classifier, text_classifier
+from .classifiers import image_classifier, text_classifier, interest_classifier
 from .classifiers.classifier_constants import REASON_PHRASES, GENERIC_REASON_CODE
 from .classifiers.prefilter import prefilter_text
 from .constants import Patterns, Params, POST_BATCH_SIZE, MAX_BEFORE_HIDING_POST, MAX_BEFORE_HIDING_COMMENT, \
@@ -43,13 +44,15 @@ from .constants import Patterns, Params, POST_BATCH_SIZE, MAX_BEFORE_HIDING_POST
     DEFAULT_STYLE_KEY, ALLOWED_CAPTION_FONTS, ALLOWED_BACKGROUND_COLORS, \
     ALLOWED_TEXT_SIZES, MAX_COMMENT_FORMAT_SPANS, \
     MINIMUM_AGE, ADULT_AGE, AGE_RESTRICTED, \
+    INTEREST_CATEGORY_CHOICES, INTEREST_CATEGORY_SLUGS, \
+    MAX_FREEFORM_INTERESTS, MAX_FREEFORM_INTEREST_LENGTH, REJECTED_TEXT_ECHO_LIMIT, \
     DEVICE_PLATFORMS, MAX_DEVICE_TOKEN_LENGTH, \
     PUSH_TYPE_CHOICES, PUSH_TYPES
 from .feed_algorithm import feed_algorithm
 from .input_validator import is_valid_pattern
 from .models import LoginCookie, Session, Post, CommentThread, PositiveOnlySocialUser, Comment, CommentLike, \
     PostLike, SavedPost, UserBlock, UserBan, UserFollow, KnownDevice, Appeal, TwoFactorChallenge, RecoveryCode, \
-    DeviceToken, NotificationPreference
+    InterestCategory, UserFreeformInterest, DeviceToken, NotificationPreference
 from .utils import convert_to_bool, generate_login_cookie_token, generate_management_token, generate_series_identifier, \
     get_batch, get_queryset_batch
 from .cloudfront import sign_compressed_url, sign_original_url
@@ -67,9 +70,16 @@ def _age_from_dob(dob):
 
 image_classifier_class = image_classifier
 text_classifier_class = text_classifier
+interest_classifier_class = interest_classifier
 feed_algorithm_class = feed_algorithm
 
 logger = logging.getLogger(__name__)
+
+# Bounded pool for the freeform-interest classifier calls (issues #446/#35), so
+# a save carrying several new terms overlaps their provider round trips instead
+# of paying their sum. Mirrors tasks._CLASSIFICATION_EXECUTOR; kept separate so
+# request-path work and worker work never contend for the same slots.
+_INTEREST_EXECUTOR = ThreadPoolExecutor(max_workers=8, thread_name_prefix="interests")
 
 
 def log_and_return_json(view_name, data, **kwargs):
@@ -739,6 +749,19 @@ def register(request):
     # Stamp their join number now, in creation order, so the client can greet
     # them with "You're member #n!" (issue #198).
     _assign_membership_number(new_user)
+
+    # Positive interests picked during sign-up (issues #446/#35), applied here
+    # rather than via a follow-up call because the account has no usable session
+    # until email verification. Best-effort: interests are optional, so any
+    # failure (including a classifier hiccup on a freeform term) must never sink
+    # an otherwise-good registration.
+    interest_categories = data.get(Fields.interest_categories)
+    interest_freeform = data.get(Fields.interest_freeform)
+    if interest_categories or interest_freeform:
+        try:
+            apply_user_interests(new_user, interest_categories or [], interest_freeform or [])
+        except Exception:
+            logger.exception("Failed to apply registration interests for user_id: %s", new_user.id)
 
     verification_token = _issue_email_verification_token(new_user)
     try:
@@ -3548,6 +3571,268 @@ def set_bio(request):
         Fields.bio: user.bio,
         'message': "Your bio has been updated.",
     })
+
+
+def _normalize_freeform_terms(raw_terms):
+    """Clean an incoming freeform list into (terms, rejected).
+
+    Terms are stripped, lowercased (so "Hiking" and "hiking" are one), deduped
+    preserving order, and capped at MAX_FREEFORM_INTERESTS. A term over the
+    length limit is dropped into `rejected` with a reason so the client can tell
+    the user which entry was too long; anything past the count cap is silently
+    ignored (the clients enforce the same cap). Both lists are bounded, and each
+    echoed term is truncated at REJECTED_TEXT_ECHO_LIMIT, so a crafted payload
+    cannot inflate the response. Note the caller appends its own classifier
+    rejections to the same `rejected` list and applies the same cap, so the
+    bound holds across both sources rather than per-source.
+    """
+    terms = []
+    rejected = []
+    seen = set()
+    if not isinstance(raw_terms, list):
+        return terms, rejected
+    for raw in raw_terms:
+        if not isinstance(raw, str):
+            continue
+        term = raw.strip()
+        if not term:
+            continue
+        # Dedupe before deciding the term's fate, so a repeated entry is
+        # considered once whatever the outcome. Doing this only for accepted
+        # terms let the same over-length term be reported several times, which
+        # both padded the response and handed the clients duplicate list keys.
+        key = term.lower()
+        if key in seen:
+            continue
+        seen.add(key)
+        if len(term) > MAX_FREEFORM_INTEREST_LENGTH:
+            # Over-length terms never reach the `terms` cap that ends this loop,
+            # so bound them separately: a crafted payload of thousands of
+            # over-length entries would otherwise build an arbitrarily large
+            # response. Past the bound they are simply ignored.
+            if len(rejected) < MAX_FREEFORM_INTERESTS:
+                # Echo the term back so the client can show the user what they
+                # typed (truncating to exactly the limit would display a value
+                # that is no longer "too long"), but bound the echo — a single
+                # term can be as large as the request body allows, and neither
+                # we nor the client should render megabytes of it. The bound
+                # stays well over the limit, so an elided term still reads as
+                # too long.
+                echo = term[:REJECTED_TEXT_ECHO_LIMIT]
+                if len(term) > REJECTED_TEXT_ECHO_LIMIT:
+                    echo += "…"
+                rejected.append({
+                    Fields.text: echo,
+                    Fields.reason_code: 'too_long',
+                    'reason': f"is longer than {MAX_FREEFORM_INTEREST_LENGTH} characters",
+                })
+            continue
+        terms.append(key)
+        if len(terms) >= MAX_FREEFORM_INTERESTS:
+            break
+    return terms, rejected
+
+
+def apply_user_interests(user, category_slugs, freeform_terms):
+    """Replace a user's positive-interest selection (issues #446/#35).
+
+    Full-replace/set semantics: `category_slugs` and `freeform_terms` are the
+    user's complete desired state, so anything absent is removed. Preset slugs
+    are validated against the vocabulary. Each freeform term is checked for
+    positivity (is_text_positive) and mapped to preset bucket(s)
+    (categorize_text_interests); a term already stored is kept without
+    re-classifying it. The user's interest_categories M2M is rebuilt as the
+    union of picked presets and every bucket a freeform term mapped to, so feed
+    weighting never has to walk the freeform rows.
+
+    Returns a dict describing the applied state and any rejected freeform terms.
+    Best-effort on the classifier calls (categorize_* never raise); a classifier
+    that reports a positivity provider-failure rejects the term (fail closed),
+    matching how a bio/username is treated.
+    """
+    # Preset picks: keep known slugs, deduped, order-preserving.
+    picked = []
+    if isinstance(category_slugs, list):
+        for raw in category_slugs:
+            if isinstance(raw, str):
+                slug = raw.strip().lower()
+                if slug in INTEREST_CATEGORY_SLUGS and slug not in picked:
+                    picked.append(slug)
+
+    terms, rejected = _normalize_freeform_terms(freeform_terms)
+
+    # --- Phase 1: classification, deliberately OUTSIDE any transaction. ---
+    # is_text_positive and categorize_text_interests call external providers and
+    # can take seconds each, so running them inside the atomic block below would
+    # pin a transaction open across slow network I/O. Same rule the async
+    # classification worker follows ("the cascades run outside any DB
+    # transaction/lock", tasks.classify_post). A term already stored is skipped
+    # here, so the usual re-save does no provider work at all.
+    existing = {f.text: f for f in
+                user.freeform_interests.prefetch_related('categories').all()}
+    accepted_terms = []
+    union_slugs = set(picked)
+    new_rows = []  # (text, [mapped_slug, ...])
+
+    # Classify the genuinely new terms concurrently. Each costs up to two
+    # sequential provider round trips (positivity, then mapping), and a single
+    # save may carry MAX_FREEFORM_INTERESTS of them — run back to back that is
+    # dozens of calls on the request path, and registration runs it inline.
+    # Overlapping them makes the wait roughly one chain rather than their sum,
+    # the same trick tasks.classify_post uses for its text/image cascades. The
+    # pool is bounded so a traffic spike can't spawn unbounded threads, and the
+    # work is pure network I/O — no DB access happens on these threads.
+    def _classify(term):
+        result = text_classifier_class.is_text_positive(term)
+        if not result:
+            return term, result, []
+        return term, result, interest_classifier_class.categorize_text_interests(term)
+
+    to_classify = [t for t in terms if t not in existing]
+    # .map keeps input order, though the loop below reads results by key.
+    classified = {term: (result, mapped)
+                  for term, result, mapped in _INTEREST_EXECUTOR.map(_classify, to_classify)}
+
+    for term in terms:
+        row = existing.get(term)
+        if row is not None:
+            # Already accepted before — keep as-is, don't re-classify. Its
+            # full set of mapped buckets rebuilds the union deterministically
+            # (a term that mapped to several keeps them all across saves).
+            accepted_terms.append(term)
+            union_slugs.update(c.slug for c in row.categories.all())
+            continue
+        result, mapped = classified[term]
+        if not result:
+            # Bounded against the same cap the over-length rejections use — they
+            # share this one list, so bounding only there let a payload of 20
+            # too-long plus 20 non-positive terms return 40 entries, twice what
+            # the response is documented to carry.
+            if len(rejected) < MAX_FREEFORM_INTERESTS:
+                rejected.append({
+                    Fields.text: term,
+                    Fields.reason_code: result.public_reason_code(),
+                    'reason': result.public_reason(),
+                })
+            continue
+        union_slugs.update(mapped)
+        accepted_terms.append(term)
+        new_rows.append((term, mapped))
+
+    # --- Phase 2: the writes, in one short transaction. ---
+    # Every write is last-writer-wins by design (this endpoint replaces the
+    # user's whole interest state), and each is expressed against *this
+    # request's* desired state rather than the Phase 1 snapshot, so a concurrent
+    # save landing in between cannot leave the account in a state neither
+    # request asked for: the delete keeps exactly the accepted terms,
+    # get_or_create absorbs a duplicate insert, and set() replaces the M2M
+    # wholesale.
+    with transaction.atomic():
+        # Keep exactly the terms this request accepted — deleting by the Phase 1
+        # snapshot instead would miss a row a concurrent save inserted during
+        # the (slow, transaction-free) classification above, stranding a term
+        # the caller never asked for. An empty accepted set clears them all,
+        # which is what an empty payload means.
+        user.freeform_interests.exclude(text__in=accepted_terms).delete()
+
+        # Resolve every slug we need (the whole union) once.
+        cats_by_slug = {c.slug: c for c in
+                        InterestCategory.objects.filter(slug__in=union_slugs)}
+
+        for term, mapped_slugs in new_rows:
+            # get_or_create, not create: (user, text) is UNIQUE, and two
+            # concurrent saves that both introduce the same new term would race
+            # — one insert wins and the other would raise IntegrityError (a 500).
+            # get_or_create runs its insert in a nested atomic block, so losing
+            # the race falls back to the existing row without poisoning this
+            # transaction.
+            new_row, _ = UserFreeformInterest.objects.get_or_create(user=user, text=term)
+            mapped_cats = [cats_by_slug[s] for s in mapped_slugs if s in cats_by_slug]
+            # Set unconditionally, including to empty. Skipping the empty case
+            # would leave a row get_or_create *found* (one a concurrent save
+            # inserted) carrying that writer's buckets, and the next save — which
+            # treats a stored term as already-accepted and folds its buckets back
+            # into the union — would reintroduce buckets this request mapped to
+            # nothing. set([]) clears, which is what last-writer-wins means here.
+            new_row.categories.set(mapped_cats)
+
+        user.interest_categories.set(
+            [cats_by_slug[s] for s in union_slugs if s in cats_by_slug])
+
+    return {
+        Fields.categories: sorted(user.interest_categories.values_list('slug', flat=True)),
+        Fields.freeform: {
+            Fields.accepted: accepted_terms,
+            Fields.rejected: rejected,
+        },
+    }
+
+
+@csrf_exempt
+@require_GET
+def get_interest_options(request):
+    """The curated positive-interest bucket vocabulary (issues #446/#35).
+
+    Public (no auth) because the registration screen — which has no session yet
+    — needs it to render the picker. Static reference data, so it is cacheable.
+    """
+    logger.info("Endpoint get_interest_options invoked by IP or User")
+    options = [{Fields.slug: slug, Fields.name: name}
+               for slug, name in INTEREST_CATEGORY_CHOICES]
+    response = log_and_return_json("get_interest_options", {Fields.options: options})
+    response['Cache-Control'] = 'public, max-age=3600'
+    return response
+
+
+@api_login_required
+@ratelimit(key='user', rate='60/m', block=True)
+@require_GET
+def get_interests(request):
+    """The signed-in user's current interest selection (issues #446/#35):
+    the preset bucket slugs they want to see and the freeform terms they
+    entered, so the Settings picker can prefill and allow removal."""
+    logger.info("Endpoint get_interests invoked by User")
+    user = request.user
+    data = {
+        Fields.categories: sorted(user.interest_categories.values_list('slug', flat=True)),
+        Fields.freeform: list(
+            user.freeform_interests.order_by('creation_time').values_list('text', flat=True)),
+    }
+    return log_and_return_json("get_interests", data)
+
+
+@csrf_exempt
+@api_login_required
+@ratelimit(key='user', rate='20/h', block=True)
+@require_POST
+def set_interests(request):
+    """Replace the signed-in user's positive-interest selection (issues #446/#35).
+
+    Body: {"categories": [slug, ...], "freeform": [text, ...]}. Full-replace
+    semantics power removal in Settings — anything omitted is dropped, empty
+    arrays clear everything. Rate limited per user like set_bio since each
+    non-stored freeform term runs a billable positivity + mapping classification.
+    """
+    logger.info("Endpoint set_interests invoked by User")
+    data = _get_json_body(request)
+    if data is None:
+        return log_and_return_json("set_interests", {'error': "Invalid JSON data"}, status=400)
+
+    categories = data.get(Fields.categories, [])
+    freeform = data.get(Fields.freeform, [])
+    if categories is None:
+        categories = []
+    if freeform is None:
+        freeform = []
+    if not isinstance(categories, list) or not isinstance(freeform, list):
+        return log_and_return_json("set_interests", {
+            'error': f"Invalid fields ['{Fields.categories}', '{Fields.freeform}']"},
+            status=400)
+
+    result = apply_user_interests(request.user, categories, freeform)
+    logger.info(f"Interests updated for user_id: {request.user.id}")
+    result['message'] = "Your interests have been updated."
+    return log_and_return_json("set_interests", result)
 
 
 @csrf_exempt

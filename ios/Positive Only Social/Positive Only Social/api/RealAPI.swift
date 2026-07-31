@@ -59,6 +59,10 @@ final class RealAPI: Networking {
         let remember_me: String
         let ip: String
         let date_of_birth: String
+        // Positive interest picks (issues #446/#35). Empty arrays encode
+        // harmlessly — the backend skips them when both are empty.
+        let interest_categories: [String]
+        let interest_freeform: [String]
     }
 
     private struct VerifyIdentityBody: Encodable {
@@ -180,6 +184,11 @@ final class RealAPI: Networking {
         let bio: String
     }
 
+    private struct SetInterestsBody: Encodable {
+        let categories: [String]
+        let freeform: [String]
+    }
+
     private struct RegisterDeviceBody: Encodable {
         let platform: String
         let token: String
@@ -297,10 +306,10 @@ final class RealAPI: Networking {
     // MARK: - User & Session Management
     
     /// Creates a user if they do not exist.
-    func register(username: String, email: String, password: String, rememberMe: String, ip: String, dateOfBirth: String) async throws -> Data {
-        let body = RegisterBody(username: username, email: email, password: password, remember_me: rememberMe, ip: ip, date_of_birth: dateOfBirth)
+    func register(username: String, email: String, password: String, rememberMe: String, ip: String, dateOfBirth: String, interestCategories: [String], interestFreeform: [String]) async throws -> Data {
+        let body = RegisterBody(username: username, email: email, password: password, remember_me: rememberMe, ip: ip, date_of_birth: dateOfBirth, interest_categories: interestCategories, interest_freeform: interestFreeform)
         let requestBody = try encode(body)
-        
+
         return try await performRequest(
             pathSegments: [GVOAppConstants.pathSegmentRegister],
             method: .post,
@@ -905,6 +914,23 @@ final class RealAPI: Networking {
         )
     }
 
+    // MARK: - Positive interest tags (issues #446/#35)
+
+    func getInterestOptions() async throws -> Data {
+        return try await performRequest(
+            pathSegments: [GVOAppConstants.pathSegmentInterests, GVOAppConstants.pathSegmentOptions],
+            method: .get
+        )
+    }
+
+    func getInterests(sessionManagementToken: String) async throws -> Data {
+        return try await performRequest(
+            pathSegments: [GVOAppConstants.pathSegmentInterests],
+            method: .get,
+            authToken: sessionManagementToken
+        )
+    }
+
     // MARK: - Push notifications (issue #342/#343)
 
     func registerDevice(sessionManagementToken: String, platform: String, token: String) async throws -> Data {
@@ -921,6 +947,17 @@ final class RealAPI: Networking {
         return try await performRequest(
             pathSegments: [GVOAppConstants.pathSegmentNotifications, GVOAppConstants.pathSegmentPreferences],
             method: .get,
+            authToken: sessionManagementToken
+        )
+    }
+
+    func setInterests(sessionManagementToken: String, categories: [String], freeform: [String]) async throws -> Data {
+        let body = SetInterestsBody(categories: categories, freeform: freeform)
+        let requestBody = try encode(body)
+        return try await performRequest(
+            pathSegments: [GVOAppConstants.pathSegmentInterests, GVOAppConstants.pathSegmentSet],
+            method: .post,
+            body: requestBody,
             authToken: sessionManagementToken
         )
     }

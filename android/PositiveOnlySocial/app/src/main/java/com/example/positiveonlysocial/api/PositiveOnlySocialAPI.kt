@@ -391,6 +391,27 @@ interface PositiveOnlySocialAPI {
     ): Response<GenericResponse>
 
     // ============================================================================================
+    // POSITIVE INTEREST TAGS (issues #446/#35)
+    // ============================================================================================
+
+    // Public (no auth): the curated preset bucket vocabulary the picker renders.
+    @GET("interests/options/")
+    suspend fun getInterestOptions(): Response<InterestOptionsResponse>
+
+    // The signed-in user's current interest selection, to prefill the picker.
+    @GET("interests/")
+    suspend fun getInterests(@Header("Authorization") token: String): Response<InterestsResponse>
+
+    // Replace the signed-in user's interest selection (full-replace/set
+    // semantics — anything omitted is removed). Freeform terms are
+    // positivity-checked and mapped to buckets server-side.
+    @POST("interests/set/")
+    suspend fun setInterests(
+        @Header("Authorization") token: String,
+        @Body request: SetInterestsRequest
+    ): Response<SetInterestsResponse>
+
+    // ============================================================================================
     // APPEALS
     // ============================================================================================
 

@@ -11,7 +11,11 @@ data class RegisterRequest(
     val password: String,
     @SerializedName("remember_me") val rememberMe: String,
     val ip: String,
-    @SerializedName("date_of_birth") val dateOfBirth: String
+    @SerializedName("date_of_birth") val dateOfBirth: String,
+    // Positive interest picks collected during sign-up (issues #446/#35).
+    // Nullable so Gson omits them when absent; the backend skips empty picks.
+    @SerializedName("interest_categories") val interestCategories: List<String>? = null,
+    @SerializedName("interest_freeform") val interestFreeform: List<String>? = null
 )
 
 data class IdentityVerificationRequest(
@@ -477,6 +481,118 @@ data class SetBioResponse(
     @SerializedName("bio") val bio: String,
     val message: String? = null
 )
+
+// --- Positive interest tags (issues #446/#35) ---
+
+/** One preset interest bucket the user can pick. slug/name are always present
+ * in the vocabulary endpoint's response, so they are non-null. */
+data class InterestOption(
+    @SerializedName("slug") val slug: String,
+    @SerializedName("name") val name: String
+)
+
+/** GET interests/options/. `options` nullable per the Gson-default rule; read
+ * via `.orEmpty()`. */
+data class InterestOptionsResponse(
+    @SerializedName("options") val options: List<InterestOption>? = null
+)
+
+/** GET interests/ — the caller's current selection. */
+data class InterestsResponse(
+    @SerializedName("categories") val categories: List<String>? = null,
+    @SerializedName("freeform") val freeform: List<String>? = null
+)
+
+/** A freeform term the classifier rejected, for inline display. */
+data class RejectedInterest(
+    @SerializedName("text") val text: String,
+    @SerializedName("reason_code") val reasonCode: String? = null,
+    @SerializedName("reason") val reason: String? = null
+)
+
+data class InterestFreeformResult(
+    @SerializedName("accepted") val accepted: List<String>? = null,
+    @SerializedName("rejected") val rejected: List<RejectedInterest>? = null
+)
+
+/** Full-replace: the complete desired interest state. */
+data class SetInterestsRequest(
+    @SerializedName("categories") val categories: List<String>,
+    @SerializedName("freeform") val freeform: List<String>
+)
+
+data class SetInterestsResponse(
+    @SerializedName("categories") val categories: List<String>? = null,
+    @SerializedName("freeform") val freeform: InterestFreeformResult? = null,
+    val message: String? = null
+)
+
+/**
+ * The curated interest-bucket vocabulary and limits (issues #446/#35),
+ * mirroring backend/user_system/constants.py. The backend's
+ * GET interests/options/ is the source of truth at runtime; this local copy
+ * backs the in-memory StatefulStubbedAPI and the picker's freeform helpers.
+ */
+object InterestVocabulary {
+    val options: List<InterestOption> = listOf(
+        InterestOption("nature", "Nature"),
+        InterestOption("animals", "Animals"),
+        InterestOption("sports", "Sports"),
+        InterestOption("art", "Art"),
+        InterestOption("music", "Music"),
+        InterestOption("food", "Food"),
+        InterestOption("travel", "Travel"),
+        InterestOption("science", "Science"),
+        InterestOption("technology", "Technology"),
+        InterestOption("fitness", "Fitness"),
+        InterestOption("family", "Family"),
+        InterestOption("friends", "Friends"),
+        InterestOption("humor", "Humor"),
+        InterestOption("gratitude", "Gratitude"),
+        InterestOption("kindness", "Kindness"),
+        InterestOption("community", "Community"),
+        InterestOption("learning", "Learning"),
+        InterestOption("achievement", "Achievement"),
+        InterestOption("faith", "Faith"),
+        InterestOption("wellness", "Wellness"),
+        InterestOption("outdoors", "Outdoors"),
+        InterestOption("books", "Books"),
+        InterestOption("gaming", "Gaming"),
+        InterestOption("photography", "Photography"),
+    )
+
+    val slugs: Set<String> = options.map { it.slug }.toSet()
+
+    const val MAX_FREEFORM_INTERESTS = 20
+    const val MAX_FREEFORM_INTEREST_LENGTH = 100
+    /** How much of a rejected (over-length) term the backend echoes back, so the
+     * stub can bound it identically. Well above the length limit, so an elided
+     * term still reads as clearly too long. */
+    const val REJECTED_TEXT_ECHO_LIMIT = MAX_FREEFORM_INTEREST_LENGTH * 2
+
+    /** Split a freeform entry (possibly comma-separated) into trimmed, non-empty
+     * terms, deduped case-insensitively, preserving order. */
+    fun parseFreeform(raw: String): List<String> {
+        val out = mutableListOf<String>()
+        val seen = mutableSetOf<String>()
+        for (piece in raw.split(",")) {
+            val term = piece.trim()
+            if (term.isEmpty()) continue
+            val key = term.lowercase()
+            if (seen.contains(key)) continue
+            seen.add(key)
+            out.add(term)
+        }
+        return out
+    }
+
+    /** Deterministic keyword mapper mirroring the backend TESTING categorizer:
+     * a bucket matches when its slug appears as a word in the text. */
+    fun matchSlugs(text: String): List<String> {
+        val words = text.lowercase().split(Regex("[^a-z0-9]+")).toSet()
+        return options.map { it.slug }.filter { words.contains(it) }
+    }
+}
 
 // Generic success/error response
 data class GenericResponse(

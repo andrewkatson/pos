@@ -25,6 +25,9 @@ import com.example.positiveonlysocial.api.ApiErrors
 import com.example.positiveonlysocial.api.PositiveOnlySocialAPI
 import com.example.positiveonlysocial.data.constants.Constants
 import com.example.positiveonlysocial.data.model.RegisterRequest
+import com.example.positiveonlysocial.data.model.InterestOption
+import com.example.positiveonlysocial.data.model.InterestVocabulary
+import com.example.positiveonlysocial.ui.components.InterestPicker
 import com.example.positiveonlysocial.ui.dismissKeyboardOnTap
 import com.example.positiveonlysocial.ui.navigation.Screen
 import com.example.positiveonlysocial.ui.theme.PositiveOnlySocialTheme
@@ -46,8 +49,27 @@ fun RegisterScreen(
         var showingErrorAlert by remember { mutableStateOf(false) }
         var showingPrivacyPolicy by remember { mutableStateOf(false) }
 
+        // Optional positive interests collected during sign-up (issues #446/#35),
+        // sent along in the register call since the account has no session yet.
+        var interestOptions by remember { mutableStateOf<List<InterestOption>>(emptyList()) }
+        var selectedInterestSlugs by remember { mutableStateOf<List<String>>(emptyList()) }
+        var freeformInterests by remember { mutableStateOf<List<String>>(emptyList()) }
+
         val scope = rememberCoroutineScope()
         val focusManager = LocalFocusManager.current
+
+        // Load the preset bucket vocabulary (public endpoint). Best-effort: on
+        // failure the picker shows no presets and freeform entry still works.
+        LaunchedEffect(Unit) {
+            try {
+                val response = api.getInterestOptions()
+                if (response.isSuccessful) {
+                    interestOptions = response.body()?.options.orEmpty()
+                }
+            } catch (_: Exception) {
+                // Interests are optional at sign-up.
+            }
+        }
 
         val usernameRequirements = AuthRequirements.username(username)
         val passwordRequirements = AuthRequirements.password(password)
@@ -78,7 +100,9 @@ fun RegisterScreen(
                                     password = password,
                                     rememberMe = "false",
                                     ip = "127.0.0.1",
-                                    dateOfBirth = dateOfBirth
+                                    dateOfBirth = dateOfBirth,
+                                    interestCategories = selectedInterestSlugs.ifEmpty { null },
+                                    interestFreeform = freeformInterests.ifEmpty { null }
                                 )
 
                                 val response = api.register(
@@ -227,6 +251,39 @@ fun RegisterScreen(
                     modifier = Modifier.fillMaxWidth()
                 )
             }
+
+            Spacer(modifier = Modifier.height(16.dp))
+            Text(
+                text = "Interests (optional)",
+                fontWeight = FontWeight.Bold,
+                modifier = Modifier.fillMaxWidth()
+            )
+            Spacer(modifier = Modifier.height(8.dp))
+            InterestPicker(
+                options = interestOptions,
+                selectedSlugs = selectedInterestSlugs,
+                freeformTerms = freeformInterests,
+                rejected = emptyList(),
+                isBusy = isLoading,
+                onToggle = { slug ->
+                    selectedInterestSlugs =
+                        if (selectedInterestSlugs.contains(slug)) selectedInterestSlugs - slug
+                        else selectedInterestSlugs + slug
+                },
+                onAddFreeform = { terms ->
+                    val seen = freeformInterests.map { it.lowercase() }.toMutableSet()
+                    val next = freeformInterests.toMutableList()
+                    for (term in terms) {
+                        val key = term.lowercase()
+                        if (!seen.contains(key) && next.size < InterestVocabulary.MAX_FREEFORM_INTERESTS) {
+                            seen.add(key)
+                            next.add(term)
+                        }
+                    }
+                    freeformInterests = next
+                },
+                onRemoveFreeform = { term -> freeformInterests = freeformInterests.filter { it != term } }
+            )
 
             }
 

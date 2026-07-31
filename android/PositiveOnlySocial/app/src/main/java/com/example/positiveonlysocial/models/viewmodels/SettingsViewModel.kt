@@ -13,6 +13,10 @@ import com.example.positiveonlysocial.data.model.DisableTotpRequest
 import com.example.positiveonlysocial.data.model.TotpSetupResponse
 import com.example.positiveonlysocial.data.model.ChangePasswordRequest
 import com.example.positiveonlysocial.data.model.CurrentUserResponse
+import com.example.positiveonlysocial.data.model.InterestOption
+import com.example.positiveonlysocial.data.model.InterestVocabulary
+import com.example.positiveonlysocial.data.model.RejectedInterest
+import com.example.positiveonlysocial.data.model.SetInterestsRequest
 import com.example.positiveonlysocial.data.model.NotificationPreference
 import com.example.positiveonlysocial.data.model.SetNotificationPreferenceRequest
 import com.example.positiveonlysocial.data.security.KeychainHelperProtocol
@@ -90,6 +94,38 @@ class SettingsViewModel(
     // second submission racing the first.
     private val _isChangingPassword = MutableStateFlow(false)
     val isChangingPassword: StateFlow<Boolean> = _isChangingPassword.asStateFlow()
+
+    // Positive interest tags state (issues #446/#35). Options is the preset
+    // vocabulary; selected/freeform are the working selection (prefilled,
+    // editable, removable); rejected surfaces dropped freeform terms.
+    private val _interestOptions = MutableStateFlow<List<InterestOption>>(emptyList())
+    val interestOptions: StateFlow<List<InterestOption>> = _interestOptions.asStateFlow()
+
+    private val _selectedInterestSlugs = MutableStateFlow<List<String>>(emptyList())
+    val selectedInterestSlugs: StateFlow<List<String>> = _selectedInterestSlugs.asStateFlow()
+
+    private val _freeformInterests = MutableStateFlow<List<String>>(emptyList())
+    val freeformInterests: StateFlow<List<String>> = _freeformInterests.asStateFlow()
+
+    private val _rejectedInterests = MutableStateFlow<List<RejectedInterest>>(emptyList())
+    val rejectedInterests: StateFlow<List<RejectedInterest>> = _rejectedInterests.asStateFlow()
+
+    private val _isLoadingInterests = MutableStateFlow(false)
+    val isLoadingInterests: StateFlow<Boolean> = _isLoadingInterests.asStateFlow()
+
+    // Saving is a full replace, so it must never run on state we failed to
+    // load: the empty defaults would wipe every stored interest. Save stays
+    // disabled until the current selection is actually in hand.
+    private val _hasLoadedInterests = MutableStateFlow(false)
+    val hasLoadedInterests: StateFlow<Boolean> = _hasLoadedInterests.asStateFlow()
+
+    private val _isSavingInterests = MutableStateFlow(false)
+    val isSavingInterests: StateFlow<Boolean> = _isSavingInterests.asStateFlow()
+
+    // One-shot: set true on a clean save so the UI can close the dialog and
+    // show a confirmation; the UI resets it via clearInterestsSaved().
+    private val _interestsSaved = MutableStateFlow(false)
+    val interestsSaved: StateFlow<Boolean> = _interestsSaved.asStateFlow()
 
     private val service = "positive-only-social.Positive-Only-Social"
 
@@ -445,6 +481,138 @@ class SettingsViewModel(
                 _isChangingPassword.value = false
             }
         }
+    }
+
+    // MARK: Positive interest tags (issues #446/#35)
+
+    /** Loads the preset vocabulary and the user's current selection to prefill
+     * the Interests dialog. A failure surfaces via the shared error alert. */
+    fun loadInterests() {
+        _isLoadingInterests.value = true
+        _rejectedInterests.value = emptyList()
+        _hasLoadedInterests.value = false
+        viewModelScope.launch {
+            // The preset vocabulary is public reference data, so fetch it
+            // best-effort and on its own: sharing a try with the call below
+            // meant a thrown network error here skipped loading the selection
+            // entirely, leaving the dialog unusable (Save gates on
+            // hasLoadedInterests). Losing it just costs the preset chips.
+            try {
+                val optionsResponse = api.getInterestOptions()
+                if (optionsResponse.isSuccessful) {
+                    _interestOptions.value = optionsResponse.body()?.options.orEmpty()
+                }
+            } catch (e: Exception) {
+                Log.w(TAG, "Could not load interest options; continuing without preset chips.", e)
+            }
+            // The current selection is what Save replaces, so this is the call
+            // that gates saving.
+            try {
+                val userSession = keychainHelper.load(UserSession::class.java, service, account)
+                if (userSession == null) {
+                    _errorMessage.value = "Session not found."
+                    _showingErrorAlert.value = true
+                    return@launch
+                }
+                val response = api.getInterests(userSession.sessionToken)
+                if (response.isSuccessful) {
+                    val body = response.body()
+                    _selectedInterestSlugs.value = body?.categories.orEmpty()
+                    _freeformInterests.value = body?.freeform.orEmpty()
+                    _hasLoadedInterests.value = true
+                } else {
+                    _errorMessage.value = ApiErrors.messageFor(response, fallback = "Could not load your interests.")
+                    _showingErrorAlert.value = true
+                }
+            } catch (e: Exception) {
+                _errorMessage.value = ApiErrors.messageFor(e, fallback = "Could not load your interests.")
+                _showingErrorAlert.value = true
+            } finally {
+                _isLoadingInterests.value = false
+            }
+        }
+    }
+
+    /** Toggle a preset bucket on/off (deselecting removes it on save). */
+    fun toggleInterest(slug: String) {
+        val current = _selectedInterestSlugs.value
+        _selectedInterestSlugs.value =
+            if (current.contains(slug)) current - slug else current + slug
+    }
+
+    /** Add one or more freeform terms (a comma-separated entry is split), deduped
+     * and capped, mirroring the backend limit. */
+    fun addFreeformInterests(terms: List<String>) {
+        val next = _freeformInterests.value.toMutableList()
+        val seen = next.map { it.lowercase() }.toMutableSet()
+        for (term in terms) {
+            val key = term.lowercase()
+            if (!seen.contains(key) && next.size < InterestVocabulary.MAX_FREEFORM_INTERESTS) {
+                seen.add(key)
+                next.add(term)
+            }
+        }
+        _freeformInterests.value = next
+    }
+
+    fun removeFreeformInterest(term: String) {
+        _freeformInterests.value = _freeformInterests.value.filter { it != term }
+    }
+
+    /** Save the full remaining selection (full-replace semantics). On a clean
+     * save `interestsSaved` flips true; if the server rejected any freeform term
+     * the dialog stays open showing which were dropped. */
+    fun saveInterests() {
+        if (_isSavingInterests.value) return
+        // Guarded here too, not just on the button: a full replace built from
+        // never-loaded state would clear everything the user has stored.
+        if (!_hasLoadedInterests.value) return
+        _isSavingInterests.value = true
+        _rejectedInterests.value = emptyList()
+        viewModelScope.launch {
+            try {
+                val userSession = keychainHelper.load(UserSession::class.java, service, account)
+                if (userSession == null) {
+                    _errorMessage.value = "Session not found."
+                    _showingErrorAlert.value = true
+                    return@launch
+                }
+                val response = api.setInterests(
+                    userSession.sessionToken,
+                    SetInterestsRequest(
+                        categories = _selectedInterestSlugs.value,
+                        freeform = _freeformInterests.value
+                    )
+                )
+                if (response.isSuccessful) {
+                    val body = response.body()
+                    // Re-seed both from the response, exactly as loadInterests
+                    // does: some terms may have been rejected, and the stored
+                    // buckets are the union of picks and what the accepted terms
+                    // mapped to. Otherwise a dialog left open after a partial
+                    // rejection shows different chips than one reopened.
+                    _freeformInterests.value = body?.freeform?.accepted.orEmpty()
+                    _selectedInterestSlugs.value = body?.categories.orEmpty()
+                    val rejected = body?.freeform?.rejected.orEmpty()
+                    _rejectedInterests.value = rejected
+                    if (rejected.isEmpty()) {
+                        _interestsSaved.value = true
+                    }
+                } else {
+                    _errorMessage.value = ApiErrors.messageFor(response, fallback = "Could not save your interests.")
+                    _showingErrorAlert.value = true
+                }
+            } catch (e: Exception) {
+                _errorMessage.value = ApiErrors.messageFor(e, fallback = "Could not save your interests.")
+                _showingErrorAlert.value = true
+            } finally {
+                _isSavingInterests.value = false
+            }
+        }
+    }
+
+    fun clearInterestsSaved() {
+        _interestsSaved.value = false
     }
 
     fun verifyIdentity(dateOfBirth: String) {

@@ -96,7 +96,11 @@ class StatefulStubbedAPI : PositiveOnlySocialAPI {
         var profileImageStatus: String = "none",
         var profileImageReasonCode: String? = null,
         // Free-text bio (issue #380); "" when unset.
-        var bio: String = ""
+        var bio: String = "",
+        // Positive interest tags (issues #446/#35): weighting buckets (picks ∪
+        // mapped freeform) and the freeform terms the user typed.
+        val interestCategories: MutableList<String> = mutableListOf(),
+        val freeformInterests: MutableList<String> = mutableListOf()
     )
 
     // A pending two-factor login, issued by loginUser when the account has
@@ -220,6 +224,12 @@ class StatefulStubbedAPI : PositiveOnlySocialAPI {
             membershipNumber = ++membershipCounter
         )
         users.add(newUser)
+
+        // Interests picked during sign-up ride along in the register payload
+        // (issues #446/#35). Best-effort, exactly like the backend.
+        if (!request.interestCategories.isNullOrEmpty() || !request.interestFreeform.isNullOrEmpty()) {
+            applyInterests(newUser, request.interestCategories.orEmpty(), request.interestFreeform.orEmpty())
+        }
 
         // Create Session
         val sessionToken = UUID.randomUUID().toString()
@@ -1391,6 +1401,91 @@ class StatefulStubbedAPI : PositiveOnlySocialAPI {
         }
         user.bio = bio
         return Response.success(SetBioResponse(bio = bio, message = "Your bio has been updated."))
+    }
+
+    // ============================================================================================
+    // positive interest tags (issues #446/#35)
+    // ============================================================================================
+
+    /** Mirrors the backend apply_user_interests: full-replace of a user's
+     * interest state. Known preset slugs are kept; each freeform term is
+     * positivity-checked (reject anything containing "negative", like the
+     * backend TESTING classifier) and mapped to buckets; the weighting set is
+     * the union of picks and mapped buckets. Returns the applied result. */
+    private fun applyInterests(user: UserMock, categories: List<String>, freeform: List<String>): SetInterestsResponse {
+        // Normalize before matching, mirroring the backend's strip().lower().
+        val picked = mutableListOf<String>()
+        for (raw in categories) {
+            val slug = raw.trim().lowercase()
+            if (InterestVocabulary.slugs.contains(slug) && !picked.contains(slug)) picked.add(slug)
+        }
+
+        val accepted = mutableListOf<String>()
+        val rejected = mutableListOf<RejectedInterest>()
+        val union = picked.toMutableSet()
+        val seen = mutableSetOf<String>()
+
+        for (raw in freeform) {
+            val term = raw.trim()
+            if (term.isEmpty()) continue
+            // Dedupe before deciding the term's fate and bound the rejected
+            // list, mirroring the backend's _normalize_freeform_terms: deduping
+            // only accepted terms let a repeated bad term be reported once per
+            // occurrence, and an unbounded list diverges from the real API
+            // (duplicate list keys, inflated responses).
+            val key = term.lowercase()
+            if (seen.contains(key)) continue
+            seen.add(key)
+            if (term.codePointCount(0, term.length) > InterestVocabulary.MAX_FREEFORM_INTEREST_LENGTH) {
+                if (rejected.size < InterestVocabulary.MAX_FREEFORM_INTERESTS) {
+                    // Echo bounded like the backend bounds it, so a huge term
+                    // can't produce a huge response.
+                    val echo =
+                        if (term.codePointCount(0, term.length) > InterestVocabulary.REJECTED_TEXT_ECHO_LIMIT)
+                            term.take(InterestVocabulary.REJECTED_TEXT_ECHO_LIMIT) + "…"
+                        else term
+                    rejected.add(RejectedInterest(echo, "too_long",
+                        "is longer than ${InterestVocabulary.MAX_FREEFORM_INTEREST_LENGTH} characters"))
+                }
+                continue
+            }
+            if (key.contains("negative")) {
+                if (rejected.size < InterestVocabulary.MAX_FREEFORM_INTERESTS) {
+                    rejected.add(RejectedInterest(key, "guidelines", "did not meet our positivity guidelines"))
+                }
+                continue
+            }
+            accepted.add(key)
+            union.addAll(InterestVocabulary.matchSlugs(key))
+            if (accepted.size >= InterestVocabulary.MAX_FREEFORM_INTERESTS) break
+        }
+
+        user.freeformInterests.clear()
+        user.freeformInterests.addAll(accepted)
+        user.interestCategories.clear()
+        user.interestCategories.addAll(union.sorted())
+        return SetInterestsResponse(
+            categories = union.sorted(),
+            freeform = InterestFreeformResult(accepted = accepted, rejected = rejected),
+            message = "Your interests have been updated."
+        )
+    }
+
+    override suspend fun getInterestOptions(): Response<InterestOptionsResponse> {
+        return Response.success(InterestOptionsResponse(options = InterestVocabulary.options))
+    }
+
+    override suspend fun getInterests(token: String): Response<InterestsResponse> {
+        val user = getAuthorizedUser(token) ?: return errorGeneric(401, "Unauthorized")
+        return Response.success(InterestsResponse(
+            categories = user.interestCategories.toList(),
+            freeform = user.freeformInterests.toList()
+        ))
+    }
+
+    override suspend fun setInterests(token: String, request: SetInterestsRequest): Response<SetInterestsResponse> {
+        val user = getAuthorizedUser(token) ?: return errorGeneric(401, "Unauthorized")
+        return Response.success(applyInterests(user, request.categories, request.freeform))
     }
 
     // ============================================================================================

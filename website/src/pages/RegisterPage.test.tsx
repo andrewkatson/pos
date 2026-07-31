@@ -5,11 +5,12 @@ import { vi, beforeEach, afterEach } from 'vitest'
 import RegisterPage from './RegisterPage'
 
 vi.mock('../api/client', () => ({
-  apiClient: { register: vi.fn(), setToken: vi.fn() },
+  apiClient: { register: vi.fn(), setToken: vi.fn(), getInterestOptions: vi.fn() },
 }))
 
 import { apiClient } from '../api/client'
 const mockRegister = vi.mocked(apiClient.register)
+const mockGetInterestOptions = vi.mocked(apiClient.getInterestOptions)
 
 // Credentials that satisfy the backend patterns mirrored on the client:
 // username = ^\w{10,500}$, password requires upper/lower/digit/special/no-space.
@@ -42,6 +43,12 @@ let sessionStorageMock: typeof localStorageMock
 
 beforeEach(() => {
   mockRegister.mockReset()
+  mockGetInterestOptions.mockReset().mockResolvedValue({
+    options: [
+      { slug: 'nature', name: 'Nature' },
+      { slug: 'music', name: 'Music' },
+    ],
+  })
   vi.mocked(apiClient.setToken).mockReset()
   localStorageMock = { setItem: vi.fn(), getItem: vi.fn(), removeItem: vi.fn(), clear: vi.fn() }
   sessionStorageMock = { setItem: vi.fn(), getItem: vi.fn(), removeItem: vi.fn(), clear: vi.fn() }
@@ -224,6 +231,30 @@ test('greets the new member with their join number, then navigates to check-emai
 
   await userEvent.click(screen.getByRole('button', { name: 'Continue' }))
   expect(await screen.findByText('Check Email')).toBeInTheDocument()
+})
+
+test('includes picked interests in the register call', async () => {
+  mockRegister.mockResolvedValueOnce({
+    session_management_token: 'tok',
+    user_id: 'uuid-abc',
+    username: VALID_USERNAME,
+    membership_number: 1,
+  })
+  renderRegisterPage()
+  await fillValidForm()
+  // The preset chips load asynchronously from getInterestOptions.
+  await userEvent.click(await screen.findByRole('button', { name: 'Nature' }))
+  await userEvent.type(screen.getByRole('textbox', { name: 'Add your own' }), 'jazz')
+  await userEvent.click(screen.getByRole('button', { name: 'Add' }))
+  await userEvent.click(screen.getByRole('button', { name: 'Register' }))
+  await userEvent.click(screen.getByRole('button', { name: 'Ok' }))
+
+  expect(mockRegister).toHaveBeenCalledWith(
+    expect.objectContaining({
+      interest_categories: ['nature'],
+      interest_freeform: ['jazz'],
+    }),
+  )
 })
 
 test('Escape dismisses the welcome modal and continues to check-email', async () => {

@@ -44,6 +44,10 @@ struct MockUser {
     var profileImageReasonCode: String? = nil
     // Free-text bio (issue #380); "" when unset.
     var bio: String = ""
+    // Positive interest tags (issues #446/#35): weighting buckets (picks ∪
+    // mapped freeform) and the freeform terms the user typed.
+    var interestCategories: [String] = []
+    var freeformInterests: [String] = []
 
     init(username: String, email: String, passwordHash: String) {
         self.username = username
@@ -405,7 +409,7 @@ final class StatefulStubbedAPI: Networking {
 
     // MARK: - Implementations
     
-    func register(username: String, email: String, password: String, rememberMe: String, ip: String, dateOfBirth: String) async throws -> Data {
+    func register(username: String, email: String, password: String, rememberMe: String, ip: String, dateOfBirth: String, interestCategories: [String], interestFreeform: [String]) async throws -> Data {
         await simulateNetwork()
         if findUser(byUsername: username) != nil || findUser(byEmail: email) != nil {
             throw APIError.badServerResponse(statusCode: 400) // "User already exists"
@@ -418,6 +422,13 @@ final class StatefulStubbedAPI: Networking {
         newUser.membershipNumber = membershipCounter
         let membershipNumber = newUser.membershipNumber
         users.append(newUser)
+
+        // Interests picked during sign-up ride along in the register payload
+        // (issues #446/#35). Best-effort, exactly like the backend.
+        if !interestCategories.isEmpty || !interestFreeform.isEmpty,
+           let index = users.firstIndex(where: { $0.id == newUser.id }) {
+            _ = applyInterests(atIndex: index, categories: interestCategories, freeform: interestFreeform)
+        }
         let newSession = MockSession(managementToken: generateToken(), userId: newUser.id, ip: ip)
         sessions.append(newSession)
 
@@ -1805,6 +1816,106 @@ final class StatefulStubbedAPI: Networking {
         }
         users[userIndex].bio = bio
         return try createSerializedResponse(fields: Fields(bio: bio, message: "Your bio has been updated."))
+    }
+
+    // MARK: - Positive interest tags (issues #446/#35)
+
+    /// Mirrors the backend apply_user_interests: full-replace of a user's
+    /// interest state. Known preset slugs are kept; each freeform term is
+    /// positivity-checked (reject anything containing "negative", like the
+    /// backend TESTING classifier) and mapped to buckets; the weighting set is
+    /// the union of picks and mapped buckets. Returns the applied result.
+    private func applyInterests(atIndex index: Int, categories: [String], freeform: [String]) -> SetInterestsResponse {
+        // Normalize before matching, mirroring the backend's strip().lower().
+        var picked: [String] = []
+        for raw in categories {
+            let slug = raw.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+            if InterestVocabulary.slugs.contains(slug) && !picked.contains(slug) {
+                picked.append(slug)
+            }
+        }
+
+        var accepted: [String] = []
+        var rejected: [RejectedInterest] = []
+        var union = Set(picked)
+        var seen = Set<String>()
+
+        for raw in freeform {
+            let term = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+            if term.isEmpty { continue }
+            // Dedupe before deciding the term's fate and bound the rejected
+            // list, mirroring the backend's _normalize_freeform_terms: deduping
+            // only accepted terms let a repeated bad term be reported once per
+            // occurrence, and an unbounded list diverges from the real API
+            // (duplicate ForEach ids, inflated responses).
+            let key = term.lowercased()
+            if seen.contains(key) { continue }
+            seen.insert(key)
+            if term.unicodeScalars.count > GVOAppConstants.maxFreeformInterestLength {
+                if rejected.count < GVOAppConstants.maxFreeformInterests {
+                    // Echo bounded like the backend bounds it, so a huge term
+                    // can't produce a huge response.
+                    let echo = term.unicodeScalars.count > GVOAppConstants.rejectedTextEchoLimit
+                        ? String(term.prefix(GVOAppConstants.rejectedTextEchoLimit)) + "…"
+                        : term
+                    rejected.append(RejectedInterest(text: echo, reasonCode: "too_long",
+                        reason: "is longer than \(GVOAppConstants.maxFreeformInterestLength) characters"))
+                }
+                continue
+            }
+            if key.contains("negative") {
+                if rejected.count < GVOAppConstants.maxFreeformInterests {
+                    rejected.append(RejectedInterest(text: key, reasonCode: "guidelines",
+                        reason: "did not meet our positivity guidelines"))
+                }
+                continue
+            }
+            accepted.append(key)
+            for slug in InterestVocabulary.matchSlugs(key) { union.insert(slug) }
+            if accepted.count >= GVOAppConstants.maxFreeformInterests { break }
+        }
+
+        users[index].freeformInterests = accepted
+        users[index].interestCategories = union.sorted()
+        return SetInterestsResponse(
+            categories: union.sorted(),
+            freeform: InterestFreeformResult(accepted: accepted, rejected: rejected),
+            message: "Your interests have been updated.")
+    }
+
+    func getInterestOptions() async throws -> Data {
+        await simulateNetwork()
+        struct Fields: Codable { let options: [InterestOption] }
+        return try createSerializedResponse(fields: Fields(options: InterestVocabulary.options))
+    }
+
+    func getInterests(sessionManagementToken: String) async throws -> Data {
+        await simulateNetwork()
+        guard let user = findUser(bySessionToken: sessionManagementToken) else {
+            throw APIError.badServerResponse(statusCode: 401)
+        }
+        struct Fields: Codable { let categories: [String]; let freeform: [String] }
+        return try createSerializedResponse(fields: Fields(
+            categories: user.interestCategories, freeform: user.freeformInterests))
+    }
+
+    func setInterests(sessionManagementToken: String, categories: [String], freeform: [String]) async throws -> Data {
+        await simulateNetwork()
+        guard let user = findUser(bySessionToken: sessionManagementToken),
+              let index = users.firstIndex(where: { $0.id == user.id })
+        else { throw APIError.badServerResponse(statusCode: 401) }
+        let result = applyInterests(atIndex: index, categories: categories, freeform: freeform)
+        struct RejectedFields: Codable { let text: String; let reason_code: String?; let reason: String? }
+        struct FreeformFields: Codable { let accepted: [String]; let rejected: [RejectedFields] }
+        struct Fields: Codable { let categories: [String]; let freeform: FreeformFields; let message: String? }
+        return try createSerializedResponse(fields: Fields(
+            categories: result.categories,
+            freeform: FreeformFields(
+                accepted: result.freeform.accepted,
+                rejected: result.freeform.rejected.map {
+                    RejectedFields(text: $0.text, reason_code: $0.reasonCode, reason: $0.reason)
+                }),
+            message: result.message))
     }
 
     // MARK: - Push notifications (issue #342/#343)

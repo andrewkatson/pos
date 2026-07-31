@@ -25,7 +25,7 @@ from django.db.models import F
 from django.utils import timezone
 
 from .blurhash_utils import compute_blurhash_for_image_url
-from .classifiers import image_classifier, text_classifier
+from .classifiers import image_classifier, text_classifier, interest_classifier
 from .classifiers.classifier_utils import ClassificationResult
 from .constants import (
     CLASSIFICATION_MAX_ATTEMPTS,
@@ -33,8 +33,9 @@ from .constants import (
     HIDDEN_REASON_PENDING_CLASSIFICATION, HIDDEN_REASON_CLASSIFIER_FINAL,
     PROFILE_IMAGE_STATUS_PENDING, PROFILE_IMAGE_STATUS_APPROVED,
     PROFILE_IMAGE_STATUS_REJECTED,
+    MAX_INTEREST_TAGS_PER_POST, NON_CATEGORIZABLE_HIDDEN_REASONS,
 )
-from .models import Post, PositiveOnlySocialUser
+from .models import Post, PositiveOnlySocialUser, InterestCategory
 from . import push
 from .s3 import delete_image
 
@@ -42,6 +43,7 @@ from .s3 import delete_image
 # `user_system.views.text_classifier_class` pattern.
 image_classifier_class = image_classifier
 text_classifier_class = text_classifier
+interest_classifier_class = interest_classifier
 # Aliased here for the same reason (patchable in tests) and so the (best-effort)
 # BlurHash computation lives behind one name at its single call site.
 compute_blurhash = compute_blurhash_for_image_url
@@ -57,6 +59,10 @@ _CLASSIFICATION_EXECUTOR = ThreadPoolExecutor(max_workers=8, thread_name_prefix=
 # a callable, and RQ retries provider failures with growing backoff.
 CLASSIFY_JOB_PATH = 'user_system.tasks.classify_post'
 CLASSIFY_PROFILE_PHOTO_JOB_PATH = 'user_system.tasks.classify_profile_photo'
+# Offline interest categorization (issues #446/#35). Best-effort topic tagging
+# of an already-approved post, so — unlike classification — it carries no retry
+# budget: a miss is harmless and the `categorize_posts` command re-runs it.
+POST_CATEGORIZE_JOB_PATH = 'user_system.tasks.categorize_post'
 RETRY_INTERVALS_SECONDS = [60, 300, 900]
 
 # RQ kills jobs that exceed this. Worst case is two sequential cascades of
@@ -113,6 +119,94 @@ def enqueue_classification(post_identifier):
             logger.exception("Failed to enqueue classification for post %s; the sweep will retry it.", post_identifier)
 
     transaction.on_commit(_enqueue)
+
+
+def enqueue_post_categorization(post_identifier):
+    """Schedule offline interest categorization for an approved post.
+
+    Mirrors enqueue_classification's eager/queue split, but best-effort: no
+    Retry budget (a categorization miss is harmless; the `categorize_posts`
+    command is the backstop) and eager failures are swallowed. In queue mode the
+    enqueue is deferred to on_commit so the worker can't run before the post's
+    approval transition is visible.
+    """
+    post_identifier = str(post_identifier)
+    if settings.CLASSIFICATION_EAGER:
+        try:
+            categorize_post(post_identifier)
+        except Exception:
+            logger.exception("Eager categorization failed for post %s; a later sweep can retry it.", post_identifier)
+        return
+
+    def _enqueue():
+        try:
+            _queue().enqueue(POST_CATEGORIZE_JOB_PATH, post_identifier, job_timeout=JOB_TIMEOUT_SECONDS)
+        except Exception:
+            logger.exception("Failed to enqueue categorization for post %s; the categorize_posts command will retry it.",
+                             post_identifier)
+
+    transaction.on_commit(_enqueue)
+
+
+def categorize_post(post_identifier):
+    """Assign interest buckets to one approved post (issues #446/#35).
+
+    Best-effort and idempotent: runs the interest categorizer over the caption
+    and image, unions/caps the results, and replaces the post's
+    interest_categories — except that an empty result never clears existing
+    buckets, since the categorizer cannot distinguish "matches nothing" from
+    "could not run" (see below). A post that never passed classification
+    (pending or rejected) is skipped — there is nothing to surface. The
+    categorizer helpers never raise, so this only fails on a DB error, which
+    RQ/the command treats as a retryable miss.
+    """
+    post_identifier = str(post_identifier)
+    try:
+        post = Post.objects.get(post_identifier=post_identifier)
+    except Post.DoesNotExist:
+        logger.info("categorize_post: post %s no longer exists; nothing to do.", post_identifier)
+        return
+    if post.hidden_reason in NON_CATEGORIZABLE_HIDDEN_REASONS:
+        logger.info("categorize_post: post %s is not approved (%s); skipping categorization.",
+                    post_identifier, post.hidden_reason)
+        return
+
+    text_slugs = interest_classifier_class.categorize_text_interests(post.caption or "")
+    image_slugs = (interest_classifier_class.categorize_image_interests(post.image_url)
+                   if post.image_url else [])
+
+    # Union in text-first order, capped — a post gets a handful of "what this is
+    # about" buckets, not an exhaustive labeling. The order decides *which*
+    # buckets survive the cap (caption beats image); it carries no meaning once
+    # stored, since interest_categories is an unordered M2M.
+    slugs = []
+    for slug in list(text_slugs) + list(image_slugs):
+        if slug not in slugs:
+            slugs.append(slug)
+        if len(slugs) >= MAX_INTEREST_TAGS_PER_POST:
+            break
+
+    if not slugs:
+        # The categorizer is best-effort: it returns nothing both when the
+        # content genuinely matches no bucket AND when it could not run at all
+        # (no provider configured, provider down, unparseable reply). Those are
+        # indistinguishable here, so never let an empty result *clear* tags a
+        # previous run found — a redelivered job during an outage would
+        # otherwise silently strip a post's buckets and degrade its feed
+        # weighting. Leaving them is the safe reading of an empty result, and
+        # for a post with no tags this is a no-op either way.
+        logger.info("categorize_post: post %s produced no interest buckets; "
+                    "leaving any existing ones untouched.", post_identifier)
+        return
+
+    # Re-order the fetched rows back into slug order (the queryset returns them
+    # in the model's default ordering, by name) so the log below reports them by
+    # priority rather than alphabetically.
+    by_slug = {c.slug: c for c in InterestCategory.objects.filter(slug__in=slugs)}
+    categories = [by_slug[s] for s in slugs if s in by_slug]
+    post.interest_categories.set(categories)
+    logger.info("categorize_post: post %s tagged with interests %s",
+                post_identifier, [c.slug for c in categories])
 
 
 def _blocked_parts(text_result, image_result):
@@ -300,6 +394,12 @@ def classify_post(post_identifier):
     # can neither fire twice nor fire for a rolled-back transition.
     if allowed:
         logger.info("classify_post: post %s approved and visible.", post_identifier)
+        # Now that the post is public, tag it with interest buckets for feed
+        # weighting (issues #446/#35). Best-effort and off the approval's
+        # critical path: enqueue_post_categorization swallows eager failures and
+        # carries no retry budget, so a categorization hiccup never disturbs the
+        # (already committed) approval.
+        enqueue_post_categorization(post_identifier)
         return
     logger.info("classify_post: post %s rejected (final=%s, reason=%s).",
                 post_identifier, final, reason_result.public_reason_code())
