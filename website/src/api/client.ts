@@ -35,12 +35,16 @@ import type {
   LoginWithRememberMeResponse,
   MessageResponse,
   MyAppeal,
+  NotificationPreference,
+  NotificationPreferencesResponse,
   PostAudience,
   PostDetails,
   PostStatusResponse,
   ProfileDetails,
+  RegisterDeviceRequest,
   RegisterRequest,
   RemoveProfilePhotoResponse,
+  SetNotificationPreferenceResponse,
   ReplyResponse,
   RequestResetRequest,
   ResendVerificationEmailRequest,
@@ -735,6 +739,25 @@ export class ApiClient implements PositiveOnlySocialAPI {
 
   setBio(body: SetBioRequest): Promise<SetBioResponse> {
     return this.request<SetBioResponse>('POST', '/profile/bio/', { auth: true, body })
+  }
+
+  // ===========================================================================
+  // PUSH NOTIFICATIONS (issues #342/#343)
+  // ===========================================================================
+
+  registerDevice(body: RegisterDeviceRequest): Promise<MessageResponse> {
+    return this.request<MessageResponse>('POST', '/devices/register/', { auth: true, body })
+  }
+
+  async getNotificationPreferences(): Promise<NotificationPreference[]> {
+    const response = await this.request<NotificationPreferencesResponse>(
+      'GET', '/notifications/preferences/', { auth: true })
+    return response.preferences
+  }
+
+  setNotificationPreference(type: string, enabled: boolean): Promise<SetNotificationPreferenceResponse> {
+    return this.request<SetNotificationPreferenceResponse>(
+      'POST', '/notifications/preferences/', { auth: true, body: { type, enabled } })
   }
 
   // ===========================================================================

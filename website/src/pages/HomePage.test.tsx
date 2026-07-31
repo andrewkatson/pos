@@ -30,6 +30,8 @@ vi.mock('../api/client', () => ({
     verifyIdentity: vi.fn().mockResolvedValue({ message: 'ok' }),
     getCurrentUser: vi.fn().mockResolvedValue({ username: 'ada', email: 'ada@example.com' }),
     changePassword: vi.fn().mockResolvedValue({ message: 'ok' }),
+    getNotificationPreferences: vi.fn().mockResolvedValue([]),
+    setNotificationPreference: vi.fn().mockResolvedValue({ type: 'post_rejected', enabled: false }),
     setToken: vi.fn(),
     likePost: vi.fn(),
     unlikePost: vi.fn(),

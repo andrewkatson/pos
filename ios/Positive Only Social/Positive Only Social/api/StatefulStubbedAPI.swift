@@ -1807,6 +1807,44 @@ final class StatefulStubbedAPI: Networking {
         return try createSerializedResponse(fields: Fields(bio: bio, message: "Your bio has been updated."))
     }
 
+    // MARK: - Push notifications (issue #342/#343)
+
+    func registerDevice(sessionManagementToken: String, platform: String, token: String) async throws -> Data {
+        await simulateNetwork()
+        // The stub keeps no device table; registration just "succeeds" for a
+        // valid session so the push bootstrap can be exercised in UI mode.
+        guard findUser(bySessionToken: sessionManagementToken) != nil else {
+            throw APIError.badServerResponse(statusCode: 401)
+        }
+        struct Fields: Codable { let message: String }
+        return try createSerializedResponse(fields: Fields(message: "Device registered."))
+    }
+
+    // Per-type push preferences, mirroring the backend's PUSH_TYPE_CHOICES.
+    // Defaults to enabled; toggling stores an override in this map.
+    private var notificationOverrides: [String: Bool] = [:]
+
+    func getNotificationPreferences(sessionManagementToken: String) async throws -> Data {
+        await simulateNetwork()
+        guard findUser(bySessionToken: sessionManagementToken) != nil else {
+            throw APIError.badServerResponse(statusCode: 401)
+        }
+        let prefs = [NotificationPreference(
+            type: "post_rejected", label: "Post moderation",
+            enabled: notificationOverrides["post_rejected"] ?? true)]
+        return try createSerializedResponse(fields: NotificationPreferencesResponse(preferences: prefs))
+    }
+
+    func setNotificationPreference(sessionManagementToken: String, notificationType: String, enabled: Bool) async throws -> Data {
+        await simulateNetwork()
+        guard findUser(bySessionToken: sessionManagementToken) != nil else {
+            throw APIError.badServerResponse(statusCode: 401)
+        }
+        notificationOverrides[notificationType] = enabled
+        struct Fields: Codable { let type: String; let enabled: Bool }
+        return try createSerializedResponse(fields: Fields(type: notificationType, enabled: enabled))
+    }
+
     // MARK: - Appeals
 
     private func hasAppeal(forTarget id: String) -> Bool {

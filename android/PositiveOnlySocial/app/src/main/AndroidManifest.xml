@@ -8,6 +8,8 @@
          presigned-URL upload) dies with a SecurityException. -->
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+    <!-- Runtime-requested on Android 13+ (API 33) for push (issues #342/#343). -->
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
 
     <application
         android:allowBackup="true"
@@ -29,6 +31,16 @@
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>
+
+        <!-- Receives FCM push (issues #342/#343). onNewToken re-registers the
+             device; onMessageReceived surfaces a foreground notification. -->
+        <service
+            android:name=".fcm.PosFirebaseMessagingService"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="com.google.firebase.MESSAGING_EVENT" />
+            </intent-filter>
+        </service>
     </application>
 
 </manifest>

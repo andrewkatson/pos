@@ -346,6 +346,23 @@ struct PostStatusResponse: Codable {
     }
 }
 
+// MARK: - Push notification preferences (issues #342/#343)
+
+/// One push type the user can toggle in Settings → Notifications. `label` is
+/// human-facing; the view renders a toggle per row, so a new backend type shows
+/// up with no client change. Identifiable by `type` for SwiftUI ForEach.
+struct NotificationPreference: Codable, Identifiable {
+    let type: String
+    let label: String
+    let enabled: Bool
+
+    var id: String { type }
+}
+
+struct NotificationPreferencesResponse: Codable {
+    let preferences: [NotificationPreference]?
+}
+
 // MARK: - Appeals (backend appeal endpoints)
 
 /// One of the signed-in user's hidden posts, from the appeals endpoint.

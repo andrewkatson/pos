@@ -227,6 +227,19 @@ protocol Networking {
     /// is rejected inline and never stored; there is no pending/approved state.
     func setBio(sessionManagementToken: String, bio: String) async throws -> Data
 
+    // MARK: - Push notifications (issue #342/#343)
+
+    /// Registers (or refreshes) this device's APNs token so the backend can send
+    /// best-effort push notifications (e.g. a post rejected off the request
+    /// path). Upserts on (platform, token) server-side; `platform` is "ios".
+    func registerDevice(sessionManagementToken: String, platform: String, token: String) async throws -> Data
+
+    /// The per-type push toggles shown in Settings → Notifications.
+    func getNotificationPreferences(sessionManagementToken: String) async throws -> Data
+
+    /// Turns one push type on or off.
+    func setNotificationPreference(sessionManagementToken: String, notificationType: String, enabled: Bool) async throws -> Data
+
     // MARK: - Appeals
 
     /// Gets a batch of the signed-in user's own hidden posts.

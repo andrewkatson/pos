@@ -812,6 +812,20 @@
   color: #ff6b6b;
 }
 
+/* A settings row that shows a label on the left and an On/Off state on the
+   right (the Notifications toggles). */
+.settings-row--toggle {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+}
+
+.settings-row__value {
+  color: #5ba4dc;
+  font-weight: 600;
+}
+
 /* ---- Modal overlay (shared by Settings dialogs) ---- */
 
 .modal-overlay {

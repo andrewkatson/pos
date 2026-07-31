@@ -425,6 +425,21 @@ struct MockedAPI: Networking {
         return try encode(BioResponse(bio: bio, message: "Your bio has been updated."))
     }
 
+    func registerDevice(sessionManagementToken: String, platform: String, token: String) async throws -> Data {
+        struct DeviceResponse: Codable { let message: String }
+        return try encode(DeviceResponse(message: "Device registered."))
+    }
+
+    func getNotificationPreferences(sessionManagementToken: String) async throws -> Data {
+        let prefs = [NotificationPreference(type: "post_rejected", label: "Post moderation", enabled: true)]
+        return try encode(NotificationPreferencesResponse(preferences: prefs))
+    }
+
+    func setNotificationPreference(sessionManagementToken: String, notificationType: String, enabled: Bool) async throws -> Data {
+        struct PrefResponse: Codable { let type: String; let enabled: Bool }
+        return try encode(PrefResponse(type: notificationType, enabled: enabled))
+    }
+
     // MARK: - Appeals
 
     func getHiddenPosts(sessionManagementToken: String, batch: Int) async throws -> Data {

@@ -3,6 +3,7 @@ package com.example.positiveonlysocial
 import android.app.Application
 import com.example.positiveonlysocial.api.APIProvider
 import com.example.positiveonlysocial.di.DependencyProvider
+import com.example.positiveonlysocial.fcm.PushRegistrar
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -16,6 +17,12 @@ class PositiveOnlySocialApp : Application() {
         super.onCreate()
 
         DependencyProvider.initialize(this)
+
+        // Initialize FCM (issues #342/#343) and register the current device if a
+        // session already exists (returning user). A no-op when push isn't
+        // configured; onNewToken + the Home screen cover the other cases.
+        PushRegistrar.initialize(this)
+        PushRegistrar.registerCurrentToken()
 
         // A banned account has its sessions revoked server-side; drop the
         // local session and let the navigation layer return to Welcome.
