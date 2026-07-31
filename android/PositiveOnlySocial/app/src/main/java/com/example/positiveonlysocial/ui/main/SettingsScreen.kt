@@ -23,6 +23,9 @@ import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.DialogProperties
 import com.example.positiveonlysocial.data.model.TotpSetupResponse
+import com.example.positiveonlysocial.data.model.InterestOption
+import com.example.positiveonlysocial.data.model.RejectedInterest
+import com.example.positiveonlysocial.ui.components.InterestPicker
 import com.google.zxing.BarcodeFormat
 import com.google.zxing.qrcode.QRCodeWriter
 import androidx.lifecycle.viewmodel.compose.viewModel
@@ -112,6 +115,53 @@ fun SettingsScreen(
         val isChangingPassword by viewModel.isChangingPassword.collectAsState()
         val passwordChangeMessage by viewModel.passwordChangeMessage.collectAsState()
         val currentUser by viewModel.currentUser.collectAsState()
+
+        // Interests dialog (issues #446/#35).
+        var showingInterests by remember { mutableStateOf(false) }
+        var showingInterestsSavedDialog by remember { mutableStateOf(false) }
+        val interestOptions by viewModel.interestOptions.collectAsState()
+        val selectedInterestSlugs by viewModel.selectedInterestSlugs.collectAsState()
+        val freeformInterests by viewModel.freeformInterests.collectAsState()
+        val rejectedInterests by viewModel.rejectedInterests.collectAsState()
+        val isLoadingInterests by viewModel.isLoadingInterests.collectAsState()
+        val isSavingInterests by viewModel.isSavingInterests.collectAsState()
+        val interestsSaved by viewModel.interestsSaved.collectAsState()
+
+        // A clean save closes the dialog and raises the confirmation.
+        LaunchedEffect(interestsSaved) {
+            if (interestsSaved) {
+                showingInterests = false
+                showingInterestsSavedDialog = true
+                viewModel.clearInterestsSaved()
+            }
+        }
+
+        if (showingInterestsSavedDialog) {
+            AlertDialog(
+                onDismissRequest = { showingInterestsSavedDialog = false },
+                title = { Text("Interests") },
+                text = { Text("Your interests have been updated.") },
+                confirmButton = {
+                    Button(onClick = { showingInterestsSavedDialog = false }) { Text("OK") }
+                }
+            )
+        }
+
+        if (showingInterests) {
+            InterestsDialog(
+                options = interestOptions,
+                selectedSlugs = selectedInterestSlugs,
+                freeformTerms = freeformInterests,
+                rejected = rejectedInterests,
+                isLoading = isLoadingInterests,
+                isSaving = isSavingInterests,
+                onToggle = { viewModel.toggleInterest(it) },
+                onAddFreeform = { viewModel.addFreeformInterests(it) },
+                onRemoveFreeform = { viewModel.removeFreeformInterest(it) },
+                onSave = { viewModel.saveInterests() },
+                onCancel = { showingInterests = false }
+            )
+        }
 
         // Load the signed-in account's own username + email once, on mount.
         LaunchedEffect(Unit) { viewModel.loadCurrentUser() }
@@ -486,6 +536,19 @@ fun SettingsScreen(
             HorizontalDivider()
 
             Text(
+                text = "Feed",
+                style = MaterialTheme.typography.titleMedium,
+                modifier = Modifier.padding(16.dp)
+            )
+
+            ListListItem(text = "Interests", textColor = Color.Blue) {
+                viewModel.loadInterests()
+                showingInterests = true
+            }
+
+            HorizontalDivider()
+
+            Text(
                 text = "Security",
                 style = MaterialTheme.typography.titleMedium,
                 modifier = Modifier.padding(16.dp)
@@ -830,6 +893,68 @@ private fun ChangePasswordDialog(
         },
         dismissButton = {
             Button(onClick = onCancel, enabled = !isChanging) {
+                Text("Cancel")
+            }
+        }
+    )
+}
+
+/**
+ * The Settings "Interests" dialog (issues #446/#35). Prefilled by the view model
+ * so preset buckets show selected and freeform terms show as removable chips;
+ * saving the full remaining set removes anything deselected.
+ */
+@Composable
+fun InterestsDialog(
+    options: List<InterestOption>,
+    selectedSlugs: List<String>,
+    freeformTerms: List<String>,
+    rejected: List<RejectedInterest>,
+    isLoading: Boolean,
+    isSaving: Boolean,
+    onToggle: (String) -> Unit,
+    onAddFreeform: (List<String>) -> Unit,
+    onRemoveFreeform: (String) -> Unit,
+    onSave: () -> Unit,
+    onCancel: () -> Unit
+) {
+    AlertDialog(
+        properties = DialogProperties(
+            dismissOnBackPress = !isSaving,
+            dismissOnClickOutside = !isSaving,
+        ),
+        onDismissRequest = { if (!isSaving) onCancel() },
+        title = { Text("Your Interests") },
+        text = {
+            Column(modifier = Modifier.verticalScroll(rememberScrollState())) {
+                Text(
+                    "Pick topics you enjoy to see more of them in your feed. " +
+                        "You can remove any anytime."
+                )
+                Spacer(modifier = Modifier.height(12.dp))
+                if (isLoading) {
+                    CircularProgressIndicator()
+                } else {
+                    InterestPicker(
+                        options = options,
+                        selectedSlugs = selectedSlugs,
+                        freeformTerms = freeformTerms,
+                        rejected = rejected,
+                        isBusy = isSaving,
+                        onToggle = onToggle,
+                        onAddFreeform = onAddFreeform,
+                        onRemoveFreeform = onRemoveFreeform
+                    )
+                }
+            }
+        },
+        confirmButton = {
+            Button(onClick = onSave, enabled = !isLoading && !isSaving) {
+                Text("Save")
+            }
+        },
+        dismissButton = {
+            Button(onClick = onCancel, enabled = !isSaving) {
                 Text("Cancel")
             }
         }

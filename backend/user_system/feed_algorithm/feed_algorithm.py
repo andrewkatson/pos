@@ -1,7 +1,12 @@
-from django.db.models import Q, Count, F, ExpressionWrapper, FloatField, DurationField
-from django.db.models.functions import Power, Now
+from django.db.models import (
+    Q, Count, F, ExpressionWrapper, FloatField, DurationField,
+    IntegerField, OuterRef, Subquery,
+)
+from django.db.models.functions import Power, Now, Coalesce
 from django.db.models import Func
 import logging
+
+from ..constants import INTEREST_BOOST
 
 logger = logging.getLogger(__name__)
 
@@ -31,7 +36,7 @@ class DurationToSeconds(Func):
         )
 
 
-def calculate_weights(qs, like_field, G=1.8, user=None):
+def calculate_weights(qs, like_field, G=1.8, user=None, interest_category_ids=None):
     logger.debug(f"Calculating feed weights with gravity G={G}")
     # 1. Annotate the like count for each post
     qs = qs.annotate(
@@ -51,15 +56,44 @@ def calculate_weights(qs, like_field, G=1.8, user=None):
         )
     )
 
-    # 3. Annotate the final score using the hot rank formula
-    qs = qs.annotate(
-        score=ExpressionWrapper(
-            (F('like_count') + 1) / Power(F('age_in_hours') + 2.0, G),
-            output_field=FloatField()
-        )
+    # 3. The base "hot" score.
+    base_score = ExpressionWrapper(
+        (F('like_count') + 1) / Power(F('age_in_hours') + 2.0, G),
+        output_field=FloatField()
     )
 
-    # 4. Filter out the user's own posts and order by the new score
+    # 3b. Personalization (issues #446/#35): boost posts that share interest
+    #     buckets with the viewer. Each shared bucket multiplies the hot score
+    #     by (1 + INTEREST_BOOST), so a fresh, liked, on-topic post rises while
+    #     an ancient on-topic post still decays — the boost scales the rank, it
+    #     doesn't replace it. When the viewer has no interests this branch is
+    #     skipped entirely and the ranking is byte-for-byte the old hot rank.
+    #
+    #     The match count comes from a correlated Subquery over the M2M through
+    #     table rather than a second Count annotation: two Counts over different
+    #     multi-valued relations would multiply each other's join rows and
+    #     corrupt like_count. The subquery counts join rows for this post whose
+    #     category is one the viewer wants, coalesced to 0.
+    if interest_category_ids:
+        through = qs.model.interest_categories.through
+        matched = through.objects.filter(
+            post_id=OuterRef('pk'),
+            interestcategory_id__in=list(interest_category_ids),
+        ).order_by().values('post_id').annotate(c=Count('*')).values('c')[:1]
+        qs = qs.annotate(
+            interest_matches=Coalesce(
+                Subquery(matched, output_field=IntegerField()), 0
+            )
+        )
+        score = ExpressionWrapper(
+            base_score * (1.0 + INTEREST_BOOST * F('interest_matches')),
+            output_field=FloatField()
+        )
+    else:
+        score = base_score
+
+    # 4. Annotate the final score, filter out the user's own posts, and order.
+    qs = qs.annotate(score=score)
     if user:
         return qs.filter(~Q(author=user)).order_by('-score')
     else:
@@ -75,7 +109,12 @@ def get_posts_weighted(user, posts_model):
     # Gravity constant. Higher value = time matters more.
     G = 1.8
     logger.debug("Ranking all posts for feed via hot algorithm")
-    return calculate_weights(posts_model.objects.all(), 'postlike', G, user)
+    # The viewer's interest buckets personalize the ranking (issues #446/#35).
+    # Anonymous or interest-less viewers get None -> the plain hot rank.
+    interest_category_ids = None
+    if user is not None and getattr(user, 'is_authenticated', False):
+        interest_category_ids = list(user.interest_categories.values_list('id', flat=True))
+    return calculate_weights(posts_model.objects.all(), 'postlike', G, user, interest_category_ids)
 
 
 def get_posts_weighted_for_user(user, posts_model):

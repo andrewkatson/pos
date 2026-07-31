@@ -6,6 +6,9 @@ import type { ApiError } from '../api/client'
 import { clearSession } from '../api/session'
 import RequirementHints from '../auth/RequirementHints'
 import { getPasswordRequirements, getUsernameRequirements, allMet } from '../auth/requirements'
+import { MAX_FREEFORM_INTERESTS } from '../api/interestVocabulary'
+import InterestPicker from '../components/InterestPicker'
+import type { InterestOption } from '../api/types'
 import { PRIVACY_POLICY_TEXT } from '../privacyPolicy'
 import './LoginPage.css'
 
@@ -23,7 +26,54 @@ function RegisterPage() {
   // memberNumber is null in the rare case the backend couldn't assign one.
   const [showWelcome, setShowWelcome] = useState(false)
   const [memberNumber, setMemberNumber] = useState<number | null>(null)
+  // Optional positive-interest picks collected during sign-up (issues #446/#35),
+  // sent along in the register call since the account has no session yet.
+  const [interestOptions, setInterestOptions] = useState<InterestOption[]>([])
+  const [selectedInterests, setSelectedInterests] = useState<string[]>([])
+  const [freeformInterests, setFreeformInterests] = useState<string[]>([])
   const continueButtonRef = useRef<HTMLButtonElement>(null)
+
+  // Load the preset bucket vocabulary (public endpoint). Best-effort: if it
+  // fails the picker simply shows no presets and freeform entry still works.
+  useEffect(() => {
+    let cancelled = false
+    apiClient
+      .getInterestOptions()
+      .then(res => {
+        if (!cancelled) setInterestOptions(res.options)
+      })
+      .catch(() => {
+        // Non-fatal — interests are optional at sign-up.
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [])
+
+  function toggleInterest(slug: string) {
+    setSelectedInterests(prev =>
+      prev.includes(slug) ? prev.filter(s => s !== slug) : [...prev, slug],
+    )
+  }
+
+  function addFreeformInterests(terms: string[]) {
+    setFreeformInterests(prev => {
+      const seen = new Set(prev.map(t => t.toLowerCase()))
+      const next = [...prev]
+      for (const term of terms) {
+        const key = term.toLowerCase()
+        if (!seen.has(key) && next.length < MAX_FREEFORM_INTERESTS) {
+          seen.add(key)
+          next.push(term)
+        }
+      }
+      return next
+    })
+  }
+
+  function removeFreeformInterest(term: string) {
+    setFreeformInterests(prev => prev.filter(t => t !== term))
+  }
 
   useEffect(() => {
     if (!showPrivacyPolicy) return
@@ -55,6 +105,8 @@ function RegisterPage() {
         password,
         remember_me: false,
         date_of_birth: dateOfBirth,
+        interest_categories: selectedInterests,
+        interest_freeform: freeformInterests,
       })
       // Drop the registration session and any persisted session/remember-me
       // tokens right away: the account can't act until email verification, and
@@ -288,6 +340,19 @@ function RegisterPage() {
               Passwords do not match.
             </p>
           )}
+
+          <div className="auth-field">
+            <span className="auth-label">Interests (optional)</span>
+            <InterestPicker
+              options={interestOptions}
+              selectedSlugs={selectedInterests}
+              onToggleSlug={toggleInterest}
+              freeformTerms={freeformInterests}
+              onAddFreeform={addFreeformInterests}
+              onRemoveFreeform={removeFreeformInterest}
+              disabled={isLoading}
+            />
+          </div>
 
           {isLoading ? (
             <div className="auth-spinner" aria-label="Registering…">

@@ -308,6 +308,20 @@ class Fields:
     recovery_codes = "recovery_codes"
     totp_enabled = "totp_enabled"
     tags = "tags"
+    # Positive interest tags (issues #446/#35). `categories`/`freeform` are the
+    # POST /interests/set/ and GET /interests/ body keys; `interest_categories`/
+    # `interest_freeform` are the distinct keys interests ride under in the
+    # register payload (so they don't collide with anything else there).
+    categories = "categories"
+    freeform = "freeform"
+    interest_categories = "interest_categories"
+    interest_freeform = "interest_freeform"
+    options = "options"
+    slug = "slug"
+    name = "name"
+    accepted = "accepted"
+    rejected = "rejected"
+    text = "text"
 
 # Lengths of things
 LEN_LOGIN_COOKIE_TOKEN = 32
@@ -336,6 +350,64 @@ MAX_BIO_LENGTH = 500
 # MAX_CAPTION_LENGTH, so this is a belt-and-suspenders bound on abuse.
 MAX_TAG_LENGTH = 100
 MAX_TAGS_PER_POST = 30
+
+# =============================================================================
+# POSITIVE INTEREST TAGS (issues #446 / #35)
+# =============================================================================
+# The curated, closed vocabulary of "positive interest" buckets a user can pick
+# from (in Settings and at registration) and that the offline categorizer
+# assigns to posts. This is the single source of truth: the seed data migration
+# and the GET /interests/options/ endpoint both read it, and both the freeform
+# mapper and the post categorizer intersect the model's output against these
+# slugs. `slug` is the stable machine key (sent over the wire, stored on the
+# InterestCategory row); the name is the human label the clients display.
+#
+# Kept deliberately separate from the open-vocabulary hashtag Tag table: a
+# hashtag is whatever a user typed in a caption, whereas an interest bucket is a
+# controlled label the feed-weighting join relies on being finite and stable.
+INTEREST_CATEGORY_CHOICES = [
+    ("nature", "Nature"),
+    ("animals", "Animals"),
+    ("sports", "Sports"),
+    ("art", "Art"),
+    ("music", "Music"),
+    ("food", "Food"),
+    ("travel", "Travel"),
+    ("science", "Science"),
+    ("technology", "Technology"),
+    ("fitness", "Fitness"),
+    ("family", "Family"),
+    ("friends", "Friends"),
+    ("humor", "Humor"),
+    ("gratitude", "Gratitude"),
+    ("kindness", "Kindness"),
+    ("community", "Community"),
+    ("learning", "Learning"),
+    ("achievement", "Achievement"),
+    ("faith", "Faith"),
+    ("wellness", "Wellness"),
+    ("outdoors", "Outdoors"),
+    ("books", "Books"),
+    ("gaming", "Gaming"),
+    ("photography", "Photography"),
+]
+# Frozenset of the valid slugs, for cheap membership checks when validating an
+# incoming payload or a model's raw output.
+INTEREST_CATEGORY_SLUGS = frozenset(slug for slug, _ in INTEREST_CATEGORY_CHOICES)
+
+# A user keeps at most this many freeform interest terms (each a short phrase
+# they typed that passed the positivity check). Bounds the synchronous
+# classifier work a single /interests/ write can trigger.
+MAX_FREEFORM_INTERESTS = 20
+# Max length (unicode code points) of a single freeform interest term.
+MAX_FREEFORM_INTEREST_LENGTH = 100
+# Most interest buckets the offline categorizer assigns to one post — a handful
+# of "what this is about" labels, not an exhaustive tagging.
+MAX_INTEREST_TAGS_PER_POST = 3
+# Feed weighting: each interest bucket a post shares with the viewer multiplies
+# its hot-rank score by (1 + INTEREST_BOOST). 0 would disable the feature; a
+# larger value surfaces on-interest posts more aggressively. Tunable.
+INTEREST_BOOST = 0.5
 
 # Number of reports before hiding
 MAX_BEFORE_HIDING_POST = 10

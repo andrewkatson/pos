@@ -521,6 +521,154 @@ struct RegisterResponse: Codable {
     }
 }
 
+// MARK: - Positive interest tags (issues #446/#35)
+
+/// One preset interest bucket the user can pick.
+struct InterestOption: Codable, Identifiable, Hashable {
+    let slug: String
+    let name: String
+    var id: String { slug }
+}
+
+/// GET /interests/options/ — the public bucket vocabulary. `options` is decoded
+/// leniently (defaults to empty) so a partial payload never fails the decode.
+struct InterestOptionsResponse: Codable {
+    let options: [InterestOption]
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        options = try container.decodeIfPresent([InterestOption].self, forKey: .options) ?? []
+    }
+
+    enum CodingKeys: String, CodingKey { case options }
+}
+
+/// GET /interests/ — the caller's current selection.
+struct InterestsResponse: Codable {
+    let categories: [String]
+    let freeform: [String]
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        categories = try container.decodeIfPresent([String].self, forKey: .categories) ?? []
+        freeform = try container.decodeIfPresent([String].self, forKey: .freeform) ?? []
+    }
+
+    enum CodingKeys: String, CodingKey { case categories, freeform }
+}
+
+/// A freeform term the classifier rejected, for inline display.
+struct RejectedInterest: Codable, Identifiable, Hashable {
+    let text: String
+    let reasonCode: String?
+    let reason: String?
+    var id: String { text }
+
+    enum CodingKeys: String, CodingKey {
+        case text
+        case reasonCode = "reason_code"
+        case reason
+    }
+}
+
+struct InterestFreeformResult: Codable {
+    let accepted: [String]
+    let rejected: [RejectedInterest]
+
+    init(accepted: [String], rejected: [RejectedInterest]) {
+        self.accepted = accepted
+        self.rejected = rejected
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        accepted = try container.decodeIfPresent([String].self, forKey: .accepted) ?? []
+        rejected = try container.decodeIfPresent([RejectedInterest].self, forKey: .rejected) ?? []
+    }
+
+    enum CodingKeys: String, CodingKey { case accepted, rejected }
+}
+
+/// POST /interests/set/ response.
+struct SetInterestsResponse: Codable {
+    let categories: [String]
+    let freeform: InterestFreeformResult
+    let message: String?
+
+    init(categories: [String], freeform: InterestFreeformResult, message: String?) {
+        self.categories = categories
+        self.freeform = freeform
+        self.message = message
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        categories = try container.decodeIfPresent([String].self, forKey: .categories) ?? []
+        freeform = try container.decode(InterestFreeformResult.self, forKey: .freeform)
+        message = try container.decodeIfPresent(String.self, forKey: .message)
+    }
+
+    enum CodingKeys: String, CodingKey { case categories, freeform, message }
+}
+
+/// The curated interest-bucket vocabulary and limits (issues #446/#35),
+/// mirroring backend/user_system/constants.py. The backend's
+/// GET /interests/options/ is the source of truth at runtime; this local copy
+/// backs the in-memory StatefulStubbedAPI and the picker's freeform helpers.
+enum InterestVocabulary {
+    static let options: [InterestOption] = [
+        InterestOption(slug: "nature", name: "Nature"),
+        InterestOption(slug: "animals", name: "Animals"),
+        InterestOption(slug: "sports", name: "Sports"),
+        InterestOption(slug: "art", name: "Art"),
+        InterestOption(slug: "music", name: "Music"),
+        InterestOption(slug: "food", name: "Food"),
+        InterestOption(slug: "travel", name: "Travel"),
+        InterestOption(slug: "science", name: "Science"),
+        InterestOption(slug: "technology", name: "Technology"),
+        InterestOption(slug: "fitness", name: "Fitness"),
+        InterestOption(slug: "family", name: "Family"),
+        InterestOption(slug: "friends", name: "Friends"),
+        InterestOption(slug: "humor", name: "Humor"),
+        InterestOption(slug: "gratitude", name: "Gratitude"),
+        InterestOption(slug: "kindness", name: "Kindness"),
+        InterestOption(slug: "community", name: "Community"),
+        InterestOption(slug: "learning", name: "Learning"),
+        InterestOption(slug: "achievement", name: "Achievement"),
+        InterestOption(slug: "faith", name: "Faith"),
+        InterestOption(slug: "wellness", name: "Wellness"),
+        InterestOption(slug: "outdoors", name: "Outdoors"),
+        InterestOption(slug: "books", name: "Books"),
+        InterestOption(slug: "gaming", name: "Gaming"),
+        InterestOption(slug: "photography", name: "Photography"),
+    ]
+
+    static let slugs: Set<String> = Set(options.map { $0.slug })
+
+    /// Split a freeform entry (possibly a comma-separated list) into trimmed,
+    /// non-empty terms, deduped case-insensitively, preserving order.
+    static func parseFreeform(_ raw: String) -> [String] {
+        var out: [String] = []
+        var seen: Set<String> = []
+        for piece in raw.split(separator: ",", omittingEmptySubsequences: false) {
+            let term = piece.trimmingCharacters(in: .whitespacesAndNewlines)
+            if term.isEmpty { continue }
+            let key = term.lowercased()
+            if seen.contains(key) { continue }
+            seen.insert(key)
+            out.append(term)
+        }
+        return out
+    }
+
+    /// Deterministic keyword mapper mirroring the backend TESTING categorizer:
+    /// a bucket matches when its slug appears as a word in the text.
+    static func matchSlugs(_ text: String) -> [String] {
+        let words = Set(text.lowercased().split { !($0.isLetter || $0.isNumber) }.map(String.init))
+        return options.map { $0.slug }.filter { words.contains($0) }
+    }
+}
+
 /// Relationship category a follower assigns to someone they follow (issue
 /// #392). Drives feed filtering and post audience; a plain follow is
 /// `.following`. Raw values match the backend.

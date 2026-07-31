@@ -23,7 +23,7 @@ from django_ratelimit.decorators import ratelimit
 from django_ratelimit.exceptions import Ratelimited
 
 from . import tasks
-from .classifiers import image_classifier, text_classifier
+from .classifiers import image_classifier, text_classifier, interest_classifier
 from .classifiers.classifier_constants import REASON_PHRASES, GENERIC_REASON_CODE
 from .classifiers.prefilter import prefilter_text
 from .constants import Patterns, Params, POST_BATCH_SIZE, MAX_BEFORE_HIDING_POST, MAX_BEFORE_HIDING_COMMENT, \
@@ -42,11 +42,14 @@ from .constants import Patterns, Params, POST_BATCH_SIZE, MAX_BEFORE_HIDING_POST
     PROFILE_IMAGE_STATUS_NONE, PROFILE_IMAGE_STATUS_PENDING, \
     DEFAULT_STYLE_KEY, ALLOWED_CAPTION_FONTS, ALLOWED_BACKGROUND_COLORS, \
     ALLOWED_TEXT_SIZES, MAX_COMMENT_FORMAT_SPANS, \
-    MINIMUM_AGE, ADULT_AGE, AGE_RESTRICTED
+    MINIMUM_AGE, ADULT_AGE, AGE_RESTRICTED, \
+    INTEREST_CATEGORY_CHOICES, INTEREST_CATEGORY_SLUGS, \
+    MAX_FREEFORM_INTERESTS, MAX_FREEFORM_INTEREST_LENGTH
 from .feed_algorithm import feed_algorithm
 from .input_validator import is_valid_pattern
 from .models import LoginCookie, Session, Post, CommentThread, PositiveOnlySocialUser, Comment, CommentLike, \
-    PostLike, SavedPost, UserBlock, UserBan, UserFollow, KnownDevice, Appeal, TwoFactorChallenge, RecoveryCode
+    PostLike, SavedPost, UserBlock, UserBan, UserFollow, KnownDevice, Appeal, TwoFactorChallenge, RecoveryCode, \
+    InterestCategory, UserFreeformInterest
 from .utils import convert_to_bool, generate_login_cookie_token, generate_management_token, generate_series_identifier, \
     get_batch, get_queryset_batch
 from .cloudfront import sign_compressed_url, sign_original_url
@@ -64,6 +67,7 @@ def _age_from_dob(dob):
 
 image_classifier_class = image_classifier
 text_classifier_class = text_classifier
+interest_classifier_class = interest_classifier
 feed_algorithm_class = feed_algorithm
 
 logger = logging.getLogger(__name__)
@@ -722,6 +726,19 @@ def register(request):
     # Stamp their join number now, in creation order, so the client can greet
     # them with "You're member #n!" (issue #198).
     _assign_membership_number(new_user)
+
+    # Positive interests picked during sign-up (issues #446/#35), applied here
+    # rather than via a follow-up call because the account has no usable session
+    # until email verification. Best-effort: interests are optional, so any
+    # failure (including a classifier hiccup on a freeform term) must never sink
+    # an otherwise-good registration.
+    interest_categories = data.get(Fields.interest_categories)
+    interest_freeform = data.get(Fields.interest_freeform)
+    if interest_categories or interest_freeform:
+        try:
+            apply_user_interests(new_user, interest_categories or [], interest_freeform or [])
+        except Exception:
+            logger.exception("Failed to apply registration interests for user_id: %s", new_user.id)
 
     verification_token = _issue_email_verification_token(new_user)
     try:
@@ -3482,6 +3499,193 @@ def set_bio(request):
         Fields.bio: user.bio,
         'message': "Your bio has been updated.",
     })
+
+
+def _normalize_freeform_terms(raw_terms):
+    """Clean an incoming freeform list into (terms, rejected).
+
+    Terms are stripped, lowercased (so "Hiking" and "hiking" are one), deduped
+    preserving order, and capped at MAX_FREEFORM_INTERESTS. A term over the
+    length limit is dropped into `rejected` with a reason so the client can tell
+    the user which entry was too long; anything past the count cap is silently
+    ignored (the clients enforce the same cap).
+    """
+    terms = []
+    rejected = []
+    seen = set()
+    if not isinstance(raw_terms, list):
+        return terms, rejected
+    for raw in raw_terms:
+        if not isinstance(raw, str):
+            continue
+        term = raw.strip()
+        if not term:
+            continue
+        if len(term) > MAX_FREEFORM_INTEREST_LENGTH:
+            rejected.append({
+                Fields.text: term[:MAX_FREEFORM_INTEREST_LENGTH],
+                Fields.reason_code: 'too_long',
+                'reason': f"is longer than {MAX_FREEFORM_INTEREST_LENGTH} characters",
+            })
+            continue
+        key = term.lower()
+        if key in seen:
+            continue
+        seen.add(key)
+        terms.append(key)
+        if len(terms) >= MAX_FREEFORM_INTERESTS:
+            break
+    return terms, rejected
+
+
+def apply_user_interests(user, category_slugs, freeform_terms):
+    """Replace a user's positive-interest selection (issues #446/#35).
+
+    Full-replace/set semantics: `category_slugs` and `freeform_terms` are the
+    user's complete desired state, so anything absent is removed. Preset slugs
+    are validated against the vocabulary. Each freeform term is checked for
+    positivity (is_text_positive) and mapped to preset bucket(s)
+    (categorize_text_interests); a term already stored is kept without
+    re-classifying it. The user's interest_categories M2M is rebuilt as the
+    union of picked presets and every bucket a freeform term mapped to, so feed
+    weighting never has to walk the freeform rows.
+
+    Returns a dict describing the applied state and any rejected freeform terms.
+    Best-effort on the classifier calls (categorize_* never raise); a classifier
+    that reports a positivity provider-failure rejects the term (fail closed),
+    matching how a bio/username is treated.
+    """
+    # Preset picks: keep known slugs, deduped, order-preserving.
+    picked = []
+    if isinstance(category_slugs, list):
+        for raw in category_slugs:
+            if isinstance(raw, str):
+                slug = raw.strip().lower()
+                if slug in INTEREST_CATEGORY_SLUGS and slug not in picked:
+                    picked.append(slug)
+
+    terms, rejected = _normalize_freeform_terms(freeform_terms)
+
+    with transaction.atomic():
+        existing = {f.text: f for f in
+                    user.freeform_interests.select_related('category').all()}
+        accepted_terms = []
+        union_slugs = set(picked)
+        keep_texts = set()
+        new_rows = []  # (text, representative_slug_or_None)
+
+        for term in terms:
+            row = existing.get(term)
+            if row is not None:
+                # Already accepted before — keep as-is, don't re-classify.
+                accepted_terms.append(term)
+                keep_texts.add(term)
+                if row.category_id:
+                    union_slugs.add(row.category.slug)
+                continue
+            result = text_classifier_class.is_text_positive(term)
+            if not result:
+                rejected.append({
+                    Fields.text: term,
+                    Fields.reason_code: result.public_reason_code(),
+                    'reason': result.public_reason(),
+                })
+                continue
+            mapped = interest_classifier_class.categorize_text_interests(term)
+            union_slugs.update(mapped)
+            accepted_terms.append(term)
+            new_rows.append((term, mapped[0] if mapped else None))
+
+        # Remove freeform rows the user no longer lists.
+        stale = [t for t in existing if t not in keep_texts]
+        if stale:
+            user.freeform_interests.filter(text__in=stale).delete()
+
+        # Resolve every slug we need (union + representative categories) once.
+        cats_by_slug = {c.slug: c for c in
+                        InterestCategory.objects.filter(slug__in=union_slugs)}
+
+        for term, rep_slug in new_rows:
+            UserFreeformInterest.objects.create(
+                user=user, text=term, category=cats_by_slug.get(rep_slug))
+
+        user.interest_categories.set(
+            [cats_by_slug[s] for s in union_slugs if s in cats_by_slug])
+
+    return {
+        Fields.categories: sorted(user.interest_categories.values_list('slug', flat=True)),
+        Fields.freeform: {
+            Fields.accepted: accepted_terms,
+            Fields.rejected: rejected,
+        },
+    }
+
+
+@csrf_exempt
+@require_GET
+def get_interest_options(request):
+    """The curated positive-interest bucket vocabulary (issues #446/#35).
+
+    Public (no auth) because the registration screen — which has no session yet
+    — needs it to render the picker. Static reference data, so it is cacheable.
+    """
+    logger.info("Endpoint get_interest_options invoked by IP or User")
+    options = [{Fields.slug: slug, Fields.name: name}
+               for slug, name in INTEREST_CATEGORY_CHOICES]
+    response = log_and_return_json("get_interest_options", {Fields.options: options})
+    response['Cache-Control'] = 'public, max-age=3600'
+    return response
+
+
+@api_login_required
+@ratelimit(key='user', rate='60/m', block=True)
+@require_GET
+def get_interests(request):
+    """The signed-in user's current interest selection (issues #446/#35):
+    the preset bucket slugs they want to see and the freeform terms they
+    entered, so the Settings picker can prefill and allow removal."""
+    logger.info("Endpoint get_interests invoked by User")
+    user = request.user
+    data = {
+        Fields.categories: sorted(user.interest_categories.values_list('slug', flat=True)),
+        Fields.freeform: list(
+            user.freeform_interests.order_by('creation_time').values_list('text', flat=True)),
+    }
+    return log_and_return_json("get_interests", data)
+
+
+@csrf_exempt
+@api_login_required
+@ratelimit(key='user', rate='20/h', block=True)
+@require_POST
+def set_interests(request):
+    """Replace the signed-in user's positive-interest selection (issues #446/#35).
+
+    Body: {"CATEGORIES": [slug, ...], "FREEFORM": [text, ...]}. Full-replace
+    semantics power removal in Settings — anything omitted is dropped, empty
+    arrays clear everything. Rate limited per user like set_bio since each
+    non-stored freeform term runs a billable positivity + mapping classification.
+    """
+    logger.info("Endpoint set_interests invoked by User")
+    data = _get_json_body(request)
+    if data is None:
+        return log_and_return_json("set_interests", {'error': "Invalid JSON data"}, status=400)
+
+    categories = data.get(Fields.categories, [])
+    freeform = data.get(Fields.freeform, [])
+    if categories is None:
+        categories = []
+    if freeform is None:
+        freeform = []
+    if not isinstance(categories, list) or not isinstance(freeform, list):
+        return log_and_return_json("set_interests", {
+            'error': f"Invalid fields ['{Fields.categories}', '{Fields.freeform}']"},
+            status=400)
+
+    result = apply_user_interests(request.user, categories, freeform)
+    logger.info(f"Interests updated for user_id: {request.user.id}")
+    result['message'] = "Your interests have been updated."
+    return log_and_return_json("set_interests", result)
 
 
 @api_login_required

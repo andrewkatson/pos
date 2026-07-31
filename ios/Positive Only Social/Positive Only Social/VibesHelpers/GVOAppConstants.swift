@@ -20,6 +20,10 @@ import Foundation
     static let maxCaptionLength = 125
     static let maxCommentLength = 500
     static let maxBioLength = 500
+    // Positive interest tags (issues #446/#35), mirroring
+    // MAX_FREEFORM_INTEREST_LENGTH / MAX_FREEFORM_INTERESTS in the backend.
+    static let maxFreeformInterestLength = 100
+    static let maxFreeformInterests = 20
     static let baseURL = "https://api.smiling.social/user_index/"
     static let bearer = "Bearer"
     static let decodingError = "Failed to decode the server response: "
@@ -109,6 +113,10 @@ import Foundation
     static let pathSegmentVerifyEmail = "verify-email"
     static let pathSegmentVerifyIdentity = "verify-identity"
     static let pathSegmentVerifyReset = "verify-reset"
+    // Positive interest tags (issues #446/#35).
+    static let pathSegmentInterests = "interests"
+    static let pathSegmentOptions = "options"
+    static let pathSegmentSet = "set"
     static let pathSregmenFeed = "feed"
     static let post = "POST"
     static let requesrFailed = "The network request failed."

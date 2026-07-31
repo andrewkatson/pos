@@ -48,6 +48,10 @@ import type {
   SetProfilePhotoResponse,
   SetBioRequest,
   SetBioResponse,
+  InterestOptionsResponse,
+  InterestsResponse,
+  SetInterestsRequest,
+  SetInterestsResponse,
   SubmitAppealRequest,
   SubmitAppealResponse,
   TwoFactorSetupResponse,
@@ -701,6 +705,23 @@ export class ApiClient implements PositiveOnlySocialAPI {
 
   setBio(body: SetBioRequest): Promise<SetBioResponse> {
     return this.request<SetBioResponse>('POST', '/profile/bio/', { auth: true, body })
+  }
+
+  // ===========================================================================
+  // POSITIVE INTEREST TAGS (issues #446/#35)
+  // ===========================================================================
+
+  getInterestOptions(): Promise<InterestOptionsResponse> {
+    // Public endpoint — the registration screen has no session yet.
+    return this.request<InterestOptionsResponse>('GET', '/interests/options/')
+  }
+
+  getInterests(): Promise<InterestsResponse> {
+    return this.request<InterestsResponse>('GET', '/interests/', { auth: true })
+  }
+
+  setInterests(body: SetInterestsRequest): Promise<SetInterestsResponse> {
+    return this.request<SetInterestsResponse>('POST', '/interests/set/', { auth: true, body })
   }
 
   // ===========================================================================

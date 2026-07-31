@@ -19,6 +19,7 @@ from .constants import (
     FOLLOW_CATEGORY_CHOICES, FOLLOW_CATEGORY_FOLLOWING,
     POST_AUDIENCE_CHOICES, POST_AUDIENCE_PUBLIC,
     MAX_TAG_LENGTH,
+    MAX_FREEFORM_INTEREST_LENGTH,
     PROFILE_IMAGE_STATUS_NONE,
     DEFAULT_STYLE_KEY,
 )
@@ -205,6 +206,14 @@ class PositiveOnlySocialUser(AbstractUser):
     blocked = models.ManyToManyField('self', through=UserBlock, through_fields=('user_blocker', 'user_blocked'),
                                        symmetrical=False, related_name='blocked_by')
 
+    # Positive interest buckets this user wants to see more of (issues #446/#35).
+    # The union of the preset buckets they explicitly picked and the buckets
+    # their freeform interest terms mapped to (see UserFreeformInterest). The
+    # feed weighting intersects this set against each post's interest_categories,
+    # so it is stored denormalized here to keep ranking a single DB join with no
+    # per-request classifier work. Rebuilt wholesale on every /interests/ write.
+    interest_categories = models.ManyToManyField('InterestCategory', related_name='interested_users', blank=True)
+
     def __str__(self):
         return self.username
 
@@ -389,6 +398,14 @@ class Post(models.Model):
     # a pending or hidden post's tags never leak into another user's tag feed.
     tags = models.ManyToManyField('Tag', related_name='posts', blank=True)
 
+    # Positive interest buckets assigned to this post by the offline categorizer
+    # (issues #446/#35), drawn from the curated INTEREST_CATEGORY vocabulary.
+    # Distinct from `tags` (open-vocabulary caption hashtags): these are the
+    # controlled labels the feed weighting joins the viewer's interests against.
+    # Assigned asynchronously once a post is approved (tasks.categorize_post),
+    # so a fresh post simply has none until the worker runs.
+    interest_categories = models.ManyToManyField('InterestCategory', related_name='posts', blank=True)
+
     # Async classification bookkeeping (issue #282). classification_attempts
     # counts worker runs so retries stay bounded and the sweep can alert on a
     # stuck post; classification_reason_code stores the public reason code of a
@@ -455,6 +472,53 @@ class Tag(models.Model):
 
     def __str__(self):
         return self.name
+
+
+# A curated "positive interest" bucket (issues #446/#35). Unlike the open-vocab
+# Tag above (harvested from whatever a user typed), the InterestCategory set is
+# a fixed vocabulary seeded from constants.INTEREST_CATEGORY_CHOICES by a data
+# migration. `slug` is the stable machine key sent over the wire; `name` is the
+# human label clients display. Users point at these (interest_categories on the
+# user), the offline categorizer tags posts with them, and the feed weighting
+# joins the two — so the vocabulary staying finite and stable is load-bearing.
+class InterestCategory(models.Model):
+    slug = models.CharField(max_length=MAX_TAG_LENGTH, unique=True)
+    name = models.CharField(max_length=MAX_TAG_LENGTH)
+
+    class Meta:
+        # Deterministic ordering for the options endpoint / admin listings.
+        ordering = ['name']
+
+    def __str__(self):
+        return self.slug
+
+
+# A single freeform interest term a user typed (issues #446/#35). Kept so the
+# Settings/registration picker can show and let them remove what they entered
+# ("hiking", "jazz"), distinct from the preset buckets. Each term passed the
+# positive classifier on write; `category` is the preset bucket the freeform
+# mapper matched it to (nullable when the mapper found no match — the term is
+# still stored and shown, it just contributes nothing to feed weighting). The
+# user's interest_categories M2M is the union of picked presets and these
+# mapped categories, so ranking never has to walk these rows.
+class UserFreeformInterest(models.Model):
+    user = models.ForeignKey(settings.AUTH_USER_MODEL, related_name='freeform_interests',
+                             on_delete=models.CASCADE)
+    text = models.CharField(max_length=MAX_FREEFORM_INTEREST_LENGTH)
+    category = models.ForeignKey(InterestCategory, null=True, blank=True,
+                                 on_delete=models.SET_NULL)
+    creation_time = models.DateTimeField(auto_now_add=True, null=True, blank=True)
+
+    class Meta:
+        constraints = [
+            # One row per (user, term). `text` is stored already normalized
+            # (lowercased/stripped) by the write path, so this is a genuine
+            # case-insensitive dedupe.
+            models.UniqueConstraint(fields=['user', 'text'], name='unique_user_freeform_interest')
+        ]
+
+    def __str__(self):
+        return f"{self.user_id}:{self.text}"
 
 
 # A post the user has saved to look back on later (issue #193)

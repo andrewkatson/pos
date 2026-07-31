@@ -192,6 +192,14 @@ urlpatterns = [
     # POST /profile/bio/ (Token in header) — set or clear the caller's bio
     path('profile/bio/', views.set_bio, name='set_bio'),
 
+    # Positive interest tags (issues #446/#35).
+    # GET /interests/options/ — public: the curated bucket vocabulary (registration needs it).
+    path('interests/options/', views.get_interest_options, name='get_interest_options'),
+    # GET /interests/ (Token in header) — the caller's current interest selection.
+    path('interests/', views.get_interests, name='get_interests'),
+    # POST /interests/set/ (Token in header) — replace the caller's interest selection.
+    path('interests/set/', views.set_interests, name='set_interests'),
+
     # GET /users/followers/ (Token in header) — the requester's own followers
     path('users/followers/', views.get_followers, name='get_followers'),
 

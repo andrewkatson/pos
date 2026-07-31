@@ -246,6 +246,23 @@ def call_text_openrouter(text, prompt_template, model):
     return parse_probability_and_rule(response.choices[0].message.content)
 
 
+def call_text_openrouter_raw(prompt, model, max_tokens=64):
+    """Send a fully-formed text prompt and return the raw model reply string.
+
+    Unlike call_text_openrouter this does no probability parsing — it is the
+    plumbing for callers (interest categorization) whose reply is a list of
+    labels rather than a score. A slightly larger max_tokens leaves room for a
+    short comma-separated list.
+    """
+    client = _openrouter_client()
+    response = client.chat.completions.create(
+        model=model,
+        max_tokens=max_tokens,
+        messages=[{"role": "user", "content": prompt}]
+    )
+    return response.choices[0].message.content
+
+
 def _image_to_base64_png(image):
     buffer = BytesIO()
     image.save(buffer, format='PNG')
@@ -267,6 +284,24 @@ def call_image_openrouter(image, prompt, model):
         }]
     )
     return parse_probability_and_rule(response.choices[0].message.content)
+
+
+def call_image_openrouter_raw(image, prompt, model, max_tokens=64):
+    """Image counterpart to call_text_openrouter_raw: returns the raw reply."""
+    client = _openrouter_client()
+    image_data = _image_to_base64_png(image)
+    response = client.chat.completions.create(
+        model=model,
+        max_tokens=max_tokens,
+        messages=[{
+            "role": "user",
+            "content": [
+                {"type": "image_url", "image_url": {"url": f"data:image/png;base64,{image_data}"}},
+                {"type": "text", "text": prompt}
+            ]
+        }]
+    )
+    return response.choices[0].message.content
 
 
 # One entry per cascade tier. Each binds its tier's OpenRouter model (resolved

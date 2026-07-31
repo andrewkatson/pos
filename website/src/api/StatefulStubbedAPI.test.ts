@@ -879,3 +879,62 @@ test('a comment with no formatting reports null spans (#318)', async () => {
   const comments = await api.getCommentsForThread(comment.comment_thread_identifier, 0)
   expect(comments[0].body_formatting).toBeNull()
 })
+
+test('interest options expose the preset vocabulary', async () => {
+  const api = new StatefulStubbedAPI()
+  const { options } = await api.getInterestOptions()
+  expect(options.length).toBeGreaterThan(0)
+  expect(options.map((o) => o.slug)).toContain('nature')
+})
+
+test('setInterests stores presets and maps positive freeform to buckets (#446)', async () => {
+  const api = new StatefulStubbedAPI()
+  await register(api, 'ada')
+
+  const result = await api.setInterests({ categories: ['nature'], freeform: ['music', 'hiking'] })
+  // "music" maps to the music bucket; "hiking" maps to none but is still kept.
+  expect(result.categories).toEqual(['music', 'nature'])
+  expect(result.freeform.accepted).toEqual(['music', 'hiking'])
+  expect(result.freeform.rejected).toEqual([])
+
+  const current = await api.getInterests()
+  expect(current.categories).toEqual(['music', 'nature'])
+  expect(current.freeform).toEqual(['music', 'hiking'])
+})
+
+test('setInterests rejects non-positive freeform terms (#446)', async () => {
+  const api = new StatefulStubbedAPI()
+  await register(api, 'ada')
+
+  const result = await api.setInterests({ categories: [], freeform: ['negative energy'] })
+  expect(result.freeform.accepted).toEqual([])
+  expect(result.freeform.rejected).toHaveLength(1)
+  const current = await api.getInterests()
+  expect(current.freeform).toEqual([])
+})
+
+test('setInterests full-replace removes omitted selections (#446)', async () => {
+  const api = new StatefulStubbedAPI()
+  await register(api, 'ada')
+  await api.setInterests({ categories: ['nature', 'music'], freeform: ['sports'] })
+
+  // Resubmit with less: dropped preset and freeform are gone.
+  const result = await api.setInterests({ categories: ['music'], freeform: [] })
+  expect(result.categories).toEqual(['music'])
+  const current = await api.getInterests()
+  expect(current.categories).toEqual(['music'])
+  expect(current.freeform).toEqual([])
+})
+
+test('interests picked at registration are applied (#446)', async () => {
+  const api = new StatefulStubbedAPI()
+  await api.register({
+    username: 'grace',
+    email: 'grace@example.com',
+    password: 'password123',
+    interest_categories: ['nature'],
+    interest_freeform: ['music'],
+  })
+  const current = await api.getInterests()
+  expect(current.categories).toEqual(['music', 'nature'])
+})

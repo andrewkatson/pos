@@ -42,6 +42,22 @@ final class SettingsViewModel: ObservableObject {
     @Published var showingPasswordChangeStatusAlert = false
     @Published var isChangingPassword = false
 
+    // Positive interest tags state (issues #446/#35). `interestOptions` is the
+    // preset vocabulary; `selectedInterestSlugs`/`freeformInterests` are the
+    // working selection (prefilled from the server, editable, removable);
+    // `rejectedInterests` surfaces freeform terms the classifier dropped on the
+    // last save. `interestsSaved` signals the sheet to dismiss on a clean save.
+    @Published var interestOptions: [InterestOption] = []
+    @Published var selectedInterestSlugs: [String] = []
+    @Published var freeformInterests: [String] = []
+    @Published var rejectedInterests: [RejectedInterest] = []
+    @Published var isLoadingInterests = false
+    @Published var isSavingInterests = false
+    @Published var interestsErrorMessage: String?
+    @Published var interestsSaved = false
+    @Published var interestsStatusMessage = ""
+    @Published var showingInterestsStatusAlert = false
+
     // Two-factor authentication state (issue #348). `totpSetup` drives the
     // scan/confirm steps of the enrollment sheet; `recoveryCodes` (set once
     // confirm succeeds) drives the final save-your-codes step.
@@ -194,6 +210,98 @@ final class SettingsViewModel: ObservableObject {
         passwordChangeSucceeded = false
         passwordChangeErrorMessage = nil
         isChangingPassword = false
+    }
+
+    // MARK: - Positive interest tags (issues #446/#35)
+
+    /// Loads the preset vocabulary and the user's current selection to prefill
+    /// the Interests sheet. A failure surfaces inline; the sheet stays usable.
+    func loadInterests() {
+        isLoadingInterests = true
+        interestsErrorMessage = nil
+        rejectedInterests = []
+        Task {
+            defer { isLoadingInterests = false }
+            do {
+                let optionsData = try await api.getInterestOptions()
+                interestOptions = try JSONDecoder().decode(InterestOptionsResponse.self, from: optionsData).options
+                guard let userSession = try keychainHelper.load(UserSession.self, from: keychainService, account: account) else {
+                    interestsErrorMessage = "Session not found."
+                    return
+                }
+                let data = try await api.getInterests(sessionManagementToken: userSession.sessionToken)
+                let current = try JSONDecoder().decode(InterestsResponse.self, from: data)
+                selectedInterestSlugs = current.categories
+                freeformInterests = current.freeform
+            } catch {
+                interestsErrorMessage = error.userFacingMessage
+            }
+        }
+    }
+
+    /// Toggle a preset bucket on/off (deselecting removes it on save).
+    func toggleInterest(_ slug: String) {
+        if let index = selectedInterestSlugs.firstIndex(of: slug) {
+            selectedInterestSlugs.remove(at: index)
+        } else {
+            selectedInterestSlugs.append(slug)
+        }
+    }
+
+    /// Add one or more freeform terms (a comma-separated entry is split), deduped
+    /// and capped, mirroring the backend limit.
+    func addFreeformInterests(_ terms: [String]) {
+        var seen = Set(freeformInterests.map { $0.lowercased() })
+        for term in terms {
+            let key = term.lowercased()
+            if !seen.contains(key) && freeformInterests.count < GVOAppConstants.maxFreeformInterests {
+                seen.insert(key)
+                freeformInterests.append(term)
+            }
+        }
+    }
+
+    func removeFreeformInterest(_ term: String) {
+        freeformInterests.removeAll { $0 == term }
+    }
+
+    /// Save the full remaining selection (full-replace semantics). On a clean
+    /// save the sheet dismisses; if the server rejected any freeform term the
+    /// sheet stays open showing which were dropped.
+    func saveInterests() {
+        isSavingInterests = true
+        interestsErrorMessage = nil
+        rejectedInterests = []
+        Task {
+            defer { isSavingInterests = false }
+            do {
+                guard let userSession = try keychainHelper.load(UserSession.self, from: keychainService, account: account) else {
+                    interestsErrorMessage = "Session not found."
+                    return
+                }
+                let data = try await api.setInterests(sessionManagementToken: userSession.sessionToken,
+                                                      categories: selectedInterestSlugs,
+                                                      freeform: freeformInterests)
+                let result = try JSONDecoder().decode(SetInterestsResponse.self, from: data)
+                // Reflect server truth for freeform (some terms may be dropped),
+                // but keep the user's own preset picks as their working set.
+                freeformInterests = result.freeform.accepted
+                rejectedInterests = result.freeform.rejected
+                if result.freeform.rejected.isEmpty {
+                    interestsSaved = true
+                }
+            } catch {
+                interestsErrorMessage = error.userFacingMessage
+            }
+        }
+    }
+
+    /// Called after the Interests sheet dismisses on a clean save: raises the
+    /// confirmation alert and resets the flag.
+    func finishInterestsSave() {
+        interestsSaved = false
+        interestsStatusMessage = "Your interests have been updated."
+        showingInterestsStatusAlert = true
     }
 
     // MARK: - Two-Factor Authentication (issue #348)
