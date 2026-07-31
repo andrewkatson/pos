@@ -161,6 +161,11 @@ function PostDetailView({ postId }: { postId: string }) {
   // The active comment-list filter — the followed-feed toggle applied to
   // comments (issue #445). 'all' means no filter.
   const [commentGroup, setCommentGroup] = useState<CommentGroup>('all')
+  // The filter a load should apply. loadAll writes the current commentGroup here
+  // when it is invoked (in an effect/handler, never during render), and
+  // performLoad reads it — so a coalesced re-run driven by pendingReloadRef uses
+  // the latest requested group instead of a stale captured value (issue #445).
+  const requestedGroupRef = useRef<CommentGroup>(commentGroup)
   const [reportTarget, setReportTarget] = useState<ReportTarget | null>(null)
   const [reportReason, setReportReason] = useState('')
   const [deleteTarget, setDeleteTarget] = useState<DeleteTarget | null>(null)
@@ -206,6 +211,10 @@ function PostDetailView({ postId }: { postId: string }) {
   const pendingReloadRef = useRef(false)
 
   const loadAll = useCallback(async () => {
+    // Record the group this (and any coalesced follow-up) load should apply.
+    // Set here rather than during render, and read in performLoad, so a re-run
+    // triggered by pendingReloadRef always uses the latest group (issue #445).
+    requestedGroupRef.current = commentGroup
     // A load is already running: request a follow-up run instead of dropping
     // this call, then let the in-flight load pick it up when it finishes.
     if (isLoadingRef.current) {
@@ -256,7 +265,10 @@ function PostDetailView({ postId }: { postId: string }) {
 
       // The comment filter (issue #445): 'all' sends no category, otherwise the
       // followed-feed category narrows the threads and their comments alike.
-      const groupFilter = commentGroup === 'all' ? undefined : commentGroup
+      // Read from the ref (not a captured value) so a coalesced re-run always
+      // uses the latest requested group rather than a stale closure value.
+      const group = requestedGroupRef.current
+      const groupFilter = group === 'all' ? undefined : group
       try {
         const refs = await apiClient.getCommentsForPost(postId, 0, groupFilter)
         const threadLists = await Promise.all(
