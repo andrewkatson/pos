@@ -2094,13 +2094,22 @@ def get_saved_posts(request, batch):
     saved_time = SavedPost.objects.filter(
         user=request.user, post=OuterRef('pk')
     ).values('creation_time')[:1]
+    # Tie-breaker: creation_time only has second/millisecond resolution, so two
+    # posts saved in the same instant would otherwise tie and order arbitrarily.
+    # SavedPost's auto-increment id is monotonic with save order and unique per
+    # (user, post), so it resolves those ties in favor of the more-recently-saved
+    # post and makes the ordering fully deterministic.
+    saved_id = SavedPost.objects.filter(
+        user=request.user, post=OuterRef('pk')
+    ).values('id')[:1]
     saved_posts = Post.objects.filter(savedpost__user=request.user).annotate(
-        saved_time=Subquery(saved_time))
+        saved_time=Subquery(saved_time), saved_id=Subquery(saved_id))
     # Drop posts by users on either side of a block, mirroring the feed, so a
     # post saved before a block doesn't keep surfacing afterward.
     saved_posts = saved_posts.exclude(author__in=request.user.blocked.all()).exclude(
         author__in=request.user.blocked_by.all())
-    saved_posts = visible_posts(saved_posts, request.user).order_by('-saved_time').select_related('author').prefetch_related('tags')
+    saved_posts = visible_posts(saved_posts, request.user).order_by(
+        '-saved_time', '-saved_id').select_related('author').prefetch_related('tags')
 
     if saved_posts.exists():
         batched_posts = get_queryset_batch(saved_posts, batch, POST_BATCH_SIZE)
