@@ -167,10 +167,10 @@ class GetSavedPostsTests(PositiveOnlySocialTestCase):
         )
 
     def test_tie_broken_by_save_order_when_save_times_equal(self):
-        # Regression: SavedPost.creation_time has only coarse resolution, so two
-        # saves can land on the identical timestamp. Force that tie and assert the
-        # order is still most-recently-saved-first (post 1 before post 0), which
-        # only holds because the query breaks ties on SavedPost's monotonic id.
+        # Regression: SavedPost.creation_time isn't guaranteed unique, so two
+        # saves can share a timestamp. Force that tie and assert the order is
+        # still most-recently-saved-first (post 1 before post 0), which only
+        # holds because the query breaks ties on SavedPost's monotonic id.
         self._save(self.posts[0])
         self._save(self.posts[1])
         SavedPost.objects.update(creation_time=timezone.now())

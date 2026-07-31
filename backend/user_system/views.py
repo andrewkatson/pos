@@ -2094,8 +2094,9 @@ def get_saved_posts(request, batch):
     saved_time = SavedPost.objects.filter(
         user=request.user, post=OuterRef('pk')
     ).values('creation_time')[:1]
-    # Tie-breaker: creation_time only has second/millisecond resolution, so two
-    # posts saved in the same instant would otherwise tie and order arbitrarily.
+    # Tie-breaker: creation_time isn't guaranteed unique (two posts saved close
+    # together can share a value; the timestamp resolution varies by DB backend),
+    # so ordering on it alone would leave those ties to resolve arbitrarily.
     # SavedPost's auto-increment id is monotonic with save order and unique per
     # (user, post), so it resolves those ties in favor of the more-recently-saved
     # post and makes the ordering fully deterministic.
