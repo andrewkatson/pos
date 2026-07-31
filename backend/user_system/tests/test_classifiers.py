@@ -113,14 +113,14 @@ class TestClassifiers(PositiveOnlySocialTestCase):
 
     @patch.dict(os.environ, _OPENROUTER_KEY, clear=True)
     def test_get_available_apis_is_full_priority_order_with_key(self):
-        # Free model first, Claude last (issue #393).
+        # Cheapest model first, Claude last (issue #393).
         self.assertEqual(get_available_apis(), list(CASCADE_ORDER))
         self.assertEqual(get_available_apis()[0], API_GEMMA)
         self.assertEqual(get_available_apis()[-1], API_CLAUDE)
 
     @patch.dict(os.environ, {}, clear=True)
     def test_model_for_uses_defaults(self):
-        self.assertEqual(model_for(API_GEMMA), 'google/gemma-3-12b-it:free')
+        self.assertEqual(model_for(API_GEMMA), 'google/gemma-3-12b-it')
         self.assertEqual(model_for(API_CLAUDE), 'anthropic/claude-haiku-4-5')
 
     @patch.dict(os.environ, {"OPENROUTER_MODEL_GEMMA": "vendor/some-other-model"}, clear=True)
