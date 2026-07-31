@@ -403,6 +403,40 @@ class ProfileViewModelTest {
     }
 
     @Test
+    fun `refreshProfile picks up the incremented post count after a new post`() = runTest {
+        // Android has no post-created event; a new post reconciles on the next
+        // mount / pull-to-refresh reload. Because the Posts stat is backed by the
+        // backend's post_count (not the paginated grid size), that reload reflects
+        // the new post even though the first page is unchanged in length (#437).
+        whenever(api.getProfileDetails("token123", "user1"))
+            .thenReturn(Response.success(ProfileDetailsResponse("user1", 1, 0, 0, false)))
+        whenever(api.getPostsForUser("token123", "user1", 0))
+            .thenReturn(Response.success(listOf(Post("1", "url1", "cap1", "user1", 1))))
+
+        viewModel.fetchProfile("user1")
+        advanceUntilIdle()
+        assertEquals(1, viewModel.profileDetails.value?.postCount)
+
+        // The user posts elsewhere; the backend now reports 2 (an author's own
+        // pending posts are counted). A pull-to-refresh reload reflects it.
+        whenever(api.getProfileDetails("token123", "user1"))
+            .thenReturn(Response.success(ProfileDetailsResponse("user1", 2, 0, 0, false)))
+        whenever(api.getPostsForUser("token123", "user1", 0))
+            .thenReturn(
+                Response.success(
+                    listOf(
+                        Post("2", "url2", "cap2", "user1", 1),
+                        Post("1", "url1", "cap1", "user1", 1),
+                    )
+                )
+            )
+
+        viewModel.refreshProfile("user1")
+        advanceUntilIdle()
+        assertEquals(2, viewModel.profileDetails.value?.postCount)
+    }
+
+    @Test
     fun `deleting a post not on this grid leaves the post count unchanged`() = runTest {
         val mockProfile = ProfileDetailsResponse("user1", 2, 0, 0, false)
         val posts = listOf(
