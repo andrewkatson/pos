@@ -182,8 +182,10 @@ def categorize_post(post_identifier):
     image_slugs = (interest_classifier_class.categorize_image_interests(post.image_url)
                    if post.image_url else [])
 
-    # Union preserving order (text first), capped — a post gets a handful of
-    # "what this is about" buckets, not an exhaustive labeling.
+    # Union in text-first order, capped — a post gets a handful of "what this is
+    # about" buckets, not an exhaustive labeling. The order decides *which*
+    # buckets survive the cap (caption beats image); it carries no meaning once
+    # stored, since interest_categories is an unordered M2M.
     slugs = []
     for slug in list(text_slugs) + list(image_slugs):
         if slug not in slugs:
@@ -191,7 +193,11 @@ def categorize_post(post_identifier):
         if len(slugs) >= MAX_INTEREST_TAGS_PER_POST:
             break
 
-    categories = list(InterestCategory.objects.filter(slug__in=slugs))
+    # Re-order the fetched rows back into slug order (the queryset returns them
+    # in the model's default ordering, by name) so the log below reports them by
+    # priority rather than alphabetically.
+    by_slug = {c.slug: c for c in InterestCategory.objects.filter(slug__in=slugs)}
+    categories = [by_slug[s] for s in slugs if s in by_slug]
     post.interest_categories.set(categories)
     logger.info("categorize_post: post %s tagged with interests %s",
                 post_identifier, [c.slug for c in categories])

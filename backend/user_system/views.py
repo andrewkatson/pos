@@ -3583,37 +3583,50 @@ def apply_user_interests(user, category_slugs, freeform_terms):
 
     terms, rejected = _normalize_freeform_terms(freeform_terms)
 
-    with transaction.atomic():
-        existing = {f.text: f for f in
-                    user.freeform_interests.prefetch_related('categories').all()}
-        accepted_terms = []
-        union_slugs = set(picked)
-        keep_texts = set()
-        new_rows = []  # (text, [mapped_slug, ...])
+    # --- Phase 1: classification, deliberately OUTSIDE any transaction. ---
+    # is_text_positive and categorize_text_interests call external providers and
+    # can take seconds each, so running them inside the atomic block below would
+    # pin a transaction open across slow network I/O. Same rule the async
+    # classification worker follows ("the cascades run outside any DB
+    # transaction/lock", tasks.classify_post). A term already stored is skipped
+    # here, so the usual re-save does no provider work at all.
+    existing = {f.text: f for f in
+                user.freeform_interests.prefetch_related('categories').all()}
+    accepted_terms = []
+    union_slugs = set(picked)
+    keep_texts = set()
+    new_rows = []  # (text, [mapped_slug, ...])
 
-        for term in terms:
-            row = existing.get(term)
-            if row is not None:
-                # Already accepted before — keep as-is, don't re-classify. Its
-                # full set of mapped buckets rebuilds the union deterministically
-                # (a term that mapped to several keeps them all across saves).
-                accepted_terms.append(term)
-                keep_texts.add(term)
-                union_slugs.update(c.slug for c in row.categories.all())
-                continue
-            result = text_classifier_class.is_text_positive(term)
-            if not result:
-                rejected.append({
-                    Fields.text: term,
-                    Fields.reason_code: result.public_reason_code(),
-                    'reason': result.public_reason(),
-                })
-                continue
-            mapped = interest_classifier_class.categorize_text_interests(term)
-            union_slugs.update(mapped)
+    for term in terms:
+        row = existing.get(term)
+        if row is not None:
+            # Already accepted before — keep as-is, don't re-classify. Its
+            # full set of mapped buckets rebuilds the union deterministically
+            # (a term that mapped to several keeps them all across saves).
             accepted_terms.append(term)
-            new_rows.append((term, mapped))
+            keep_texts.add(term)
+            union_slugs.update(c.slug for c in row.categories.all())
+            continue
+        result = text_classifier_class.is_text_positive(term)
+        if not result:
+            rejected.append({
+                Fields.text: term,
+                Fields.reason_code: result.public_reason_code(),
+                'reason': result.public_reason(),
+            })
+            continue
+        mapped = interest_classifier_class.categorize_text_interests(term)
+        union_slugs.update(mapped)
+        accepted_terms.append(term)
+        new_rows.append((term, mapped))
 
+    # --- Phase 2: the writes, in one short transaction. ---
+    # Every write is last-writer-wins by design (this endpoint replaces the
+    # user's whole interest state), so a concurrent save racing between the two
+    # phases can't corrupt anything: the delete targets only the specific terms
+    # this request dropped, get_or_create absorbs a duplicate insert, and set()
+    # replaces the M2M wholesale.
+    with transaction.atomic():
         # Remove freeform rows the user no longer lists.
         stale = [t for t in existing if t not in keep_texts]
         if stale:

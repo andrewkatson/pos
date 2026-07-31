@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useId, useState } from 'react'
 import type { InterestOption, RejectedInterest } from '../api/types'
 import { MAX_FREEFORM_INTEREST_LENGTH, parseFreeformInput } from '../api/interestVocabulary'
 import CharacterCounter from './CharacterCounter'
@@ -43,6 +43,11 @@ function InterestPicker({
 }: InterestPickerProps) {
   const [input, setInput] = useState('')
   const selected = new Set(selectedSlugs)
+  // Per-instance ids (same approach as Modal): hard-coded ones would collide if
+  // two pickers ever mount together, breaking the label / aria-describedby
+  // association for assistive tech.
+  const inputId = useId()
+  const hintId = useId()
 
   function commitFreeform() {
     const terms = parseFreeformInput(input)
@@ -73,7 +78,7 @@ function InterestPicker({
       </fieldset>
 
       <div className="interest-picker__group">
-        <label className="interest-picker__legend" htmlFor="interest-freeform-input">
+        <label className="interest-picker__legend" htmlFor={inputId}>
           Add your own
         </label>
         {freeformTerms.length > 0 && (
@@ -96,13 +101,13 @@ function InterestPicker({
         )}
         <div className="interest-freeform-entry">
           <input
-            id="interest-freeform-input"
+            id={inputId}
             className="search-bar"
             type="text"
             placeholder="e.g. hiking, jazz, baking"
             value={input}
             disabled={disabled}
-            aria-describedby="interest-freeform-hint"
+            aria-describedby={hintId}
             onChange={e => setInput(e.target.value)}
             onKeyDown={e => {
               if (e.key === 'Enter') {
@@ -120,7 +125,7 @@ function InterestPicker({
             Add
           </button>
         </div>
-        <p id="interest-freeform-hint" className="interest-picker__hint">
+        <p id={hintId} className="interest-picker__hint">
           Separate multiple with commas. Each is checked to keep things positive.
         </p>
         {input.length > 0 && <CharacterCounter value={input} max={MAX_FREEFORM_INTEREST_LENGTH} />}
