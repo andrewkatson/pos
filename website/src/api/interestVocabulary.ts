@@ -38,6 +38,10 @@ export const INTEREST_SLUGS: ReadonlySet<string> = new Set(INTEREST_OPTIONS.map(
 export const MAX_FREEFORM_INTERESTS = 20
 /** Max length (code points) of a single freeform interest term. */
 export const MAX_FREEFORM_INTEREST_LENGTH = 100
+/** How much of a rejected (over-length) term the backend echoes back, so the
+ * stub can bound it the same way. Well above the length limit, so an elided
+ * term still reads as clearly too long. */
+export const REJECTED_TEXT_ECHO_LIMIT = MAX_FREEFORM_INTEREST_LENGTH * 2
 
 /** Split a freeform entry (which may be a comma-separated list) into trimmed,
  * non-empty terms, deduped case-insensitively, preserving order. */

@@ -4,6 +4,7 @@ import com.example.positiveonlysocial.MainDispatcherRule
 import com.example.positiveonlysocial.api.PositiveOnlySocialAPI
 import com.example.positiveonlysocial.api.StatefulStubbedAPI
 import com.example.positiveonlysocial.data.model.InterestOptionsResponse
+import com.example.positiveonlysocial.data.model.InterestVocabulary
 import retrofit2.Response
 import com.example.positiveonlysocial.data.auth.AuthenticationManager
 import com.example.positiveonlysocial.data.model.RegisterRequest
@@ -130,6 +131,27 @@ class SettingsViewModelInterestsTest {
         reload.loadInterests()
         advanceUntilIdle()
         assertEquals(setOf("music", "nature"), reload.selectedInterestSlugs.value.toSet())
+    }
+
+    @Test
+    fun `repeated rejected term is reported once and the list is bounded`() = runTest {
+        // The stub must mirror the backend's _normalize_freeform_terms: dedupe
+        // before deciding a term's fate, and bound the rejected list. Otherwise
+        // stub-backed tests and previews see behavior production doesn't have.
+        val api = StatefulStubbedAPI()
+        val vm = buildViewModelFor(api, "noether")
+        vm.loadInterests()
+        advanceUntilIdle()
+
+        val bad = "negative energy"
+        val tooLong = "z".repeat(InterestVocabulary.MAX_FREEFORM_INTEREST_LENGTH + 1)
+        vm.addFreeformInterests(listOf(bad, bad.uppercase(), tooLong, tooLong))
+        vm.saveInterests()
+        advanceUntilIdle()
+
+        // Four entries, two distinct problems.
+        assertEquals(2, vm.rejectedInterests.value.size)
+        assertTrue(vm.rejectedInterests.value.size <= InterestVocabulary.MAX_FREEFORM_INTERESTS)
     }
 
     @Test

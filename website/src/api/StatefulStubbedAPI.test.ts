@@ -938,3 +938,45 @@ test('interests picked at registration are applied (#446)', async () => {
   const current = await api.getInterests()
   expect(current.categories).toEqual(['music', 'nature'])
 })
+
+test('setInterests reports a repeated rejected term once and bounds the list (#446)', async () => {
+  // The stub must mirror the backend's _normalize_freeform_terms: dedupe before
+  // deciding a term's fate, and bound the rejected list. Otherwise stub-backed
+  // tests and offline mode see behavior production doesn't have.
+  const api = new StatefulStubbedAPI()
+  await register(api, 'ada')
+
+  const bad = 'negative energy'
+  const tooLong = 'z'.repeat(101)
+  const result = await api.setInterests({
+    categories: [],
+    freeform: [bad, bad.toUpperCase(), tooLong, tooLong],
+  })
+
+  // Four entries, two distinct problems.
+  expect(result.freeform.rejected).toHaveLength(2)
+  // Keys the UI builds from these must be distinct.
+  expect(new Set(result.freeform.rejected.map((r) => r.text)).size).toBe(2)
+})
+
+test('setInterests bounds a flood of rejected terms (#446)', async () => {
+  const api = new StatefulStubbedAPI()
+  await register(api, 'grace')
+
+  const flood = Array.from({ length: 200 }, (_, i) => 'z'.repeat(101) + i)
+  const result = await api.setInterests({ categories: [], freeform: flood })
+  expect(result.freeform.rejected.length).toBeLessThanOrEqual(20)
+})
+
+test('setInterests bounds the echoed text of a huge rejected term (#446)', async () => {
+  const api = new StatefulStubbedAPI()
+  await register(api, 'hopper')
+
+  const huge = 'y'.repeat(500)
+  const result = await api.setInterests({ categories: [], freeform: [huge] })
+  const echoed = result.freeform.rejected[0].text
+  expect(echoed.length).toBeLessThanOrEqual(201) // 200 + the ellipsis
+  expect(echoed.endsWith('…')).toBe(true)
+  // Still clearly over the per-term limit.
+  expect(echoed.length).toBeGreaterThan(100)
+})

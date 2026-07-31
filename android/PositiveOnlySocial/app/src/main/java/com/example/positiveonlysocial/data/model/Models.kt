@@ -558,6 +558,10 @@ object InterestVocabulary {
 
     const val MAX_FREEFORM_INTERESTS = 20
     const val MAX_FREEFORM_INTEREST_LENGTH = 100
+    /** How much of a rejected (over-length) term the backend echoes back, so the
+     * stub can bound it identically. Well above the length limit, so an elided
+     * term still reads as clearly too long. */
+    const val REJECTED_TEXT_ECHO_LIMIT = MAX_FREEFORM_INTEREST_LENGTH * 2
 
     /** Split a freeform entry (possibly comma-separated) into trimmed, non-empty
      * terms, deduped case-insensitively, preserving order. */

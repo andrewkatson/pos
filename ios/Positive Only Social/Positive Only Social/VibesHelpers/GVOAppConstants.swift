@@ -24,6 +24,10 @@ import Foundation
     // MAX_FREEFORM_INTEREST_LENGTH / MAX_FREEFORM_INTERESTS in the backend.
     static let maxFreeformInterestLength = 100
     static let maxFreeformInterests = 20
+    // How much of a rejected (over-length) term the backend echoes back, so
+    // the stub can bound it identically. Well above the length limit, so an
+    // elided term still reads as clearly too long.
+    static let rejectedTextEchoLimit = 200
     static let baseURL = "https://api.smiling.social/user_index/"
     static let bearer = "Bearer"
     static let decodingError = "Failed to decode the server response: "

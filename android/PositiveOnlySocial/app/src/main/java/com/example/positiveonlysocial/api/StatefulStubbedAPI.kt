@@ -1382,18 +1382,33 @@ class StatefulStubbedAPI : PositiveOnlySocialAPI {
         for (raw in freeform) {
             val term = raw.trim()
             if (term.isEmpty()) continue
-            if (term.codePointCount(0, term.length) > InterestVocabulary.MAX_FREEFORM_INTEREST_LENGTH) {
-                rejected.add(RejectedInterest(term, "too_long",
-                    "is longer than ${InterestVocabulary.MAX_FREEFORM_INTEREST_LENGTH} characters"))
-                continue
-            }
+            // Dedupe before deciding the term's fate and bound the rejected
+            // list, mirroring the backend's _normalize_freeform_terms: deduping
+            // only accepted terms let a repeated bad term be reported once per
+            // occurrence, and an unbounded list diverges from the real API
+            // (duplicate list keys, inflated responses).
             val key = term.lowercase()
             if (seen.contains(key)) continue
-            if (key.contains("negative")) {
-                rejected.add(RejectedInterest(key, "guidelines", "did not meet our positivity guidelines"))
+            seen.add(key)
+            if (term.codePointCount(0, term.length) > InterestVocabulary.MAX_FREEFORM_INTEREST_LENGTH) {
+                if (rejected.size < InterestVocabulary.MAX_FREEFORM_INTERESTS) {
+                    // Echo bounded like the backend bounds it, so a huge term
+                    // can't produce a huge response.
+                    val echo =
+                        if (term.codePointCount(0, term.length) > InterestVocabulary.REJECTED_TEXT_ECHO_LIMIT)
+                            term.take(InterestVocabulary.REJECTED_TEXT_ECHO_LIMIT) + "…"
+                        else term
+                    rejected.add(RejectedInterest(echo, "too_long",
+                        "is longer than ${InterestVocabulary.MAX_FREEFORM_INTEREST_LENGTH} characters"))
+                }
                 continue
             }
-            seen.add(key)
+            if (key.contains("negative")) {
+                if (rejected.size < InterestVocabulary.MAX_FREEFORM_INTERESTS) {
+                    rejected.add(RejectedInterest(key, "guidelines", "did not meet our positivity guidelines"))
+                }
+                continue
+            }
             accepted.add(key)
             union.addAll(InterestVocabulary.matchSlugs(key))
             if (accepted.size >= InterestVocabulary.MAX_FREEFORM_INTERESTS) break

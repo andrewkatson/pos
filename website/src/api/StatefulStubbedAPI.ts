@@ -11,6 +11,7 @@ import {
   INTEREST_SLUGS,
   MAX_FREEFORM_INTERESTS,
   MAX_FREEFORM_INTEREST_LENGTH,
+  REJECTED_TEXT_ECHO_LIMIT,
   matchInterestSlugs,
 } from './interestVocabulary'
 import type { PositiveOnlySocialAPI } from './PositiveOnlySocialAPI'
@@ -1562,25 +1563,41 @@ export class StatefulStubbedAPI implements PositiveOnlySocialAPI {
         if (typeof raw !== 'string') continue
         const term = raw.trim()
         if (!term) continue
-        if (characterCount(term) > MAX_FREEFORM_INTEREST_LENGTH) {
-          rejected.push({
-            text: term,
-            reason_code: 'too_long',
-            reason: `is longer than ${MAX_FREEFORM_INTEREST_LENGTH} characters`,
-          })
-          continue
-        }
+        // Dedupe before deciding the term's fate and bound the rejected list,
+        // mirroring the backend's _normalize_freeform_terms: deduping only the
+        // accepted terms let a repeated bad term be reported once per
+        // occurrence, and an unbounded list diverges from what the real API
+        // returns (duplicate React keys, inflated responses).
         const key = term.toLowerCase()
         if (seen.has(key)) continue
-        if (key.includes('negative')) {
-          rejected.push({
-            text: key,
-            reason_code: 'guidelines',
-            reason: 'did not meet our positivity guidelines',
-          })
+        seen.add(key)
+        if (characterCount(term) > MAX_FREEFORM_INTEREST_LENGTH) {
+          if (rejected.length < MAX_FREEFORM_INTERESTS) {
+            // Echo bounded the same way the backend bounds it, so a huge term
+            // doesn't produce a huge response. Still well over the limit, so an
+            // elided term reads as too long.
+            const echo =
+              characterCount(term) > REJECTED_TEXT_ECHO_LIMIT
+                ? [...term].slice(0, REJECTED_TEXT_ECHO_LIMIT).join('') + '…'
+                : term
+            rejected.push({
+              text: echo,
+              reason_code: 'too_long',
+              reason: `is longer than ${MAX_FREEFORM_INTEREST_LENGTH} characters`,
+            })
+          }
           continue
         }
-        seen.add(key)
+        if (key.includes('negative')) {
+          if (rejected.length < MAX_FREEFORM_INTERESTS) {
+            rejected.push({
+              text: key,
+              reason_code: 'guidelines',
+              reason: 'did not meet our positivity guidelines',
+            })
+          }
+          continue
+        }
         accepted.push(key)
         for (const slug of matchInterestSlugs(key)) union.add(slug)
         if (accepted.length >= MAX_FREEFORM_INTERESTS) break

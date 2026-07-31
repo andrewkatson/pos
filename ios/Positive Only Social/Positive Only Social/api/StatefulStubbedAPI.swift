@@ -1778,19 +1778,33 @@ final class StatefulStubbedAPI: Networking {
         for raw in freeform {
             let term = raw.trimmingCharacters(in: .whitespacesAndNewlines)
             if term.isEmpty { continue }
-            if term.unicodeScalars.count > GVOAppConstants.maxFreeformInterestLength {
-                rejected.append(RejectedInterest(text: term, reasonCode: "too_long",
-                    reason: "is longer than \(GVOAppConstants.maxFreeformInterestLength) characters"))
-                continue
-            }
+            // Dedupe before deciding the term's fate and bound the rejected
+            // list, mirroring the backend's _normalize_freeform_terms: deduping
+            // only accepted terms let a repeated bad term be reported once per
+            // occurrence, and an unbounded list diverges from the real API
+            // (duplicate ForEach ids, inflated responses).
             let key = term.lowercased()
             if seen.contains(key) { continue }
-            if key.contains("negative") {
-                rejected.append(RejectedInterest(text: key, reasonCode: "guidelines",
-                    reason: "did not meet our positivity guidelines"))
+            seen.insert(key)
+            if term.unicodeScalars.count > GVOAppConstants.maxFreeformInterestLength {
+                if rejected.count < GVOAppConstants.maxFreeformInterests {
+                    // Echo bounded like the backend bounds it, so a huge term
+                    // can't produce a huge response.
+                    let echo = term.unicodeScalars.count > GVOAppConstants.rejectedTextEchoLimit
+                        ? String(term.prefix(GVOAppConstants.rejectedTextEchoLimit)) + "…"
+                        : term
+                    rejected.append(RejectedInterest(text: echo, reasonCode: "too_long",
+                        reason: "is longer than \(GVOAppConstants.maxFreeformInterestLength) characters"))
+                }
                 continue
             }
-            seen.insert(key)
+            if key.contains("negative") {
+                if rejected.count < GVOAppConstants.maxFreeformInterests {
+                    rejected.append(RejectedInterest(text: key, reasonCode: "guidelines",
+                        reason: "did not meet our positivity guidelines"))
+                }
+                continue
+            }
             accepted.append(key)
             for slug in InterestVocabulary.matchSlugs(key) { union.insert(slug) }
             if accepted.count >= GVOAppConstants.maxFreeformInterests { break }
