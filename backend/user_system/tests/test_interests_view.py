@@ -174,6 +174,17 @@ class InterestsViewTests(PositiveOnlySocialTestCase):
         rejected = response.json()[Fields.freeform][Fields.rejected]
         self.assertLessEqual(len(rejected), MAX_FREEFORM_INTERESTS)
 
+    def test_rejected_list_bounded_across_both_rejection_sources(self):
+        # Over-length terms are rejected during parsing and non-positive ones by
+        # the classifier, but both land in the same list — bounding only the
+        # first let a payload of 20 of each return 40 entries, twice what the
+        # response is documented to carry.
+        too_long = ['a' * (MAX_FREEFORM_INTEREST_LENGTH + 1) + str(i) for i in range(25)]
+        not_positive = [f'negative {i}' for i in range(25)]
+        response = self._set(freeform=too_long + not_positive)
+        rejected = response.json()[Fields.freeform][Fields.rejected]
+        self.assertLessEqual(len(rejected), MAX_FREEFORM_INTERESTS)
+
     def test_rejected_text_echo_is_bounded(self):
         # A single term can be as large as the request body allows; the echo is
         # truncated but stays clearly over the limit and is marked as elided.

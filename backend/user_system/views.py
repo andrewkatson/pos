@@ -3529,7 +3529,9 @@ def _normalize_freeform_terms(raw_terms):
     the user which entry was too long; anything past the count cap is silently
     ignored (the clients enforce the same cap). Both lists are bounded, and each
     echoed term is truncated at REJECTED_TEXT_ECHO_LIMIT, so a crafted payload
-    cannot inflate the response.
+    cannot inflate the response. Note the caller appends its own classifier
+    rejections to the same `rejected` list and applies the same cap, so the
+    bound holds across both sources rather than per-source.
     """
     terms = []
     rejected = []
@@ -3649,11 +3651,16 @@ def apply_user_interests(user, category_slugs, freeform_terms):
             continue
         result, mapped = classified[term]
         if not result:
-            rejected.append({
-                Fields.text: term,
-                Fields.reason_code: result.public_reason_code(),
-                'reason': result.public_reason(),
-            })
+            # Bounded against the same cap the over-length rejections use — they
+            # share this one list, so bounding only there let a payload of 20
+            # too-long plus 20 non-positive terms return 40 entries, twice what
+            # the response is documented to carry.
+            if len(rejected) < MAX_FREEFORM_INTERESTS:
+                rejected.append({
+                    Fields.text: term,
+                    Fields.reason_code: result.public_reason_code(),
+                    'reason': result.public_reason(),
+                })
             continue
         union_slugs.update(mapped)
         accepted_terms.append(term)
