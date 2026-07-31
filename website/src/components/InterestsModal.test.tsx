@@ -2,7 +2,10 @@ import { render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { vi, beforeEach, test, expect } from 'vitest'
 import InterestsModal from './InterestsModal'
-import { MAX_FREEFORM_INTEREST_LENGTH } from '../api/interestVocabulary'
+import {
+  MAX_FREEFORM_INTEREST_LENGTH,
+  MAX_FREEFORM_INTERESTS,
+} from '../api/interestVocabulary'
 
 vi.mock('../api/client', () => ({
   apiClient: {
@@ -148,6 +151,62 @@ test('shows rejected freeform terms and keeps the dialog open', async () => {
 
   expect(await screen.findByRole('alert')).toHaveTextContent('bad vibes')
   expect(onSaved).not.toHaveBeenCalled()
+})
+
+test('blocks adding once the freeform cap is reached, without eating the input', async () => {
+  const user = userEvent.setup()
+  // Start at the cap.
+  const atCap = Array.from({ length: MAX_FREEFORM_INTERESTS }, (_, i) => `term${i}`)
+  mockGet.mockResolvedValue({ categories: [], freeform: atCap })
+  renderModal()
+  await screen.findByRole('button', { name: 'Nature' })
+
+  const input = screen.getByRole('textbox')
+  await user.type(input, 'onemore')
+  const addButton = screen.getByRole('button', { name: 'Add' })
+  expect(addButton).toBeDisabled()
+  expect(screen.getByRole('status')).toHaveTextContent(
+    `maximum of ${MAX_FREEFORM_INTERESTS} interests`,
+  )
+
+  // Enter must not slip past the disabled button, and the text is kept.
+  await user.type(input, '{Enter}')
+  expect(input).toHaveValue('onemore')
+  expect(screen.queryByRole('button', { name: 'Remove onemore' })).not.toBeInTheDocument()
+
+  // Freeing a slot re-enables it.
+  await user.click(screen.getByRole('button', { name: 'Remove term0' }))
+  expect(screen.getByRole('button', { name: 'Add' })).toBeEnabled()
+})
+
+test('blocks a comma list that would overflow the cap rather than dropping part of it', async () => {
+  const user = userEvent.setup()
+  // One slot free, but two new terms entered: adding would silently drop one.
+  const nearCap = Array.from({ length: MAX_FREEFORM_INTERESTS - 1 }, (_, i) => `term${i}`)
+  mockGet.mockResolvedValue({ categories: [], freeform: nearCap })
+  renderModal()
+  await screen.findByRole('button', { name: 'Nature' })
+
+  const input = screen.getByRole('textbox')
+  await user.type(input, 'alpha, beta')
+  expect(screen.getByRole('button', { name: 'Add' })).toBeDisabled()
+
+  // One term fits.
+  await user.clear(input)
+  await user.type(input, 'alpha')
+  expect(screen.getByRole('button', { name: 'Add' })).toBeEnabled()
+})
+
+test('re-typing an already-listed term at the cap is still allowed', async () => {
+  const user = userEvent.setup()
+  const atCap = Array.from({ length: MAX_FREEFORM_INTERESTS }, (_, i) => `term${i}`)
+  mockGet.mockResolvedValue({ categories: [], freeform: atCap })
+  renderModal()
+  await screen.findByRole('button', { name: 'Nature' })
+
+  // A duplicate consumes no room, so it must not be blocked by the cap.
+  await user.type(screen.getByRole('textbox'), 'TERM0')
+  expect(screen.getByRole('button', { name: 'Add' })).toBeEnabled()
 })
 
 test('re-seeds the chip selection from the response when the dialog stays open', async () => {

@@ -1,6 +1,10 @@
 import { useId, useState } from 'react'
 import type { InterestOption, RejectedInterest } from '../api/types'
-import { MAX_FREEFORM_INTEREST_LENGTH, parseFreeformInput } from '../api/interestVocabulary'
+import {
+  MAX_FREEFORM_INTEREST_LENGTH,
+  MAX_FREEFORM_INTERESTS,
+  parseFreeformInput,
+} from '../api/interestVocabulary'
 import { isWithinLimit } from '../auth/requirements'
 import CharacterCounter from './CharacterCounter'
 import './InterestPicker.css'
@@ -56,7 +60,14 @@ function InterestPicker({
   // accepted into the list only to be dropped server-side — and at registration
   // the rejection isn't surfaced at all, so it would vanish silently.
   const isEveryTermWithinLimit = parsed.every(t => isWithinLimit(t, MAX_FREEFORM_INTEREST_LENGTH))
-  const canAdd = parsed.length > 0 && isEveryTermWithinLimit
+  // Gate on the count cap too. The parent silently drops anything past it while
+  // commitFreeform clears the input regardless, so without this the user's text
+  // just disappears. Count only terms not already listed, matching the parent's
+  // case-insensitive dedupe — re-typing an existing term shouldn't consume room.
+  const alreadyListed = new Set(freeformTerms.map(t => t.toLowerCase()))
+  const newTermCount = parsed.filter(t => !alreadyListed.has(t.toLowerCase())).length
+  const hasRoom = freeformTerms.length + newTermCount <= MAX_FREEFORM_INTERESTS
+  const canAdd = parsed.length > 0 && isEveryTermWithinLimit && hasRoom
   // Falls back to the raw input when nothing parses (e.g. only commas/spaces).
   const longestTerm = parsed.reduce((a, b) => (b.length > a.length ? b : a), parsed[0] ?? input)
 
@@ -141,6 +152,15 @@ function InterestPicker({
         <p id={hintId} className="interest-picker__hint">
           Separate multiple with commas. Each is checked to keep things positive.
         </p>
+        {/* Inline guidance so the disabled Add button isn't a dead end (the
+            counter plays that role for the length limit). */}
+        {!hasRoom && (
+          <p className="interest-picker__hint" role="status">
+            {freeformTerms.length >= MAX_FREEFORM_INTERESTS
+              ? `You've added the maximum of ${MAX_FREEFORM_INTERESTS} interests. Remove one to add another.`
+              : `That's more than the ${MAX_FREEFORM_INTERESTS}-interest maximum. Remove one, or add fewer at once.`}
+          </p>
+        )}
         {input.length > 0 && (
           // The limit is per term, not per entry, so count the longest parsed
           // term — otherwise a comma-separated list of short terms would read as

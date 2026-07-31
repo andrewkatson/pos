@@ -56,7 +56,15 @@ fun InterestPicker(
     // a too-long term is accepted into the list only to be dropped server-side —
     // and at registration the rejection isn't surfaced at all, so it would
     // vanish silently.
-    val canAdd = parsed.isNotEmpty() &&
+    // Also gate on the count cap: the parent silently drops anything past it
+    // while commit() clears the input regardless, so without this the user's
+    // text just disappears. Counts only terms not already listed, matching the
+    // parent's case-insensitive dedupe — re-typing an existing term shouldn't
+    // consume room.
+    val alreadyListed = freeformTerms.map { it.lowercase() }.toSet()
+    val newTermCount = parsed.count { !alreadyListed.contains(it.lowercase()) }
+    val hasRoom = freeformTerms.size + newTermCount <= InterestVocabulary.MAX_FREEFORM_INTERESTS
+    val canAdd = parsed.isNotEmpty() && hasRoom &&
         parsed.all { isWithinLength(it, InterestVocabulary.MAX_FREEFORM_INTEREST_LENGTH) }
     // The limit is per term, not per entry, so the counter tracks the longest
     // parsed term — otherwise a comma-separated list of short terms would read
@@ -125,6 +133,19 @@ fun InterestPicker(
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant
         )
+
+        // Inline guidance so the disabled Add button isn't a dead end (the
+        // counter plays that role for the length limit).
+        if (!hasRoom) {
+            Text(
+                if (freeformTerms.size >= InterestVocabulary.MAX_FREEFORM_INTERESTS)
+                    "You've added the maximum of ${InterestVocabulary.MAX_FREEFORM_INTERESTS} interests. Remove one to add another."
+                else
+                    "That's more than the ${InterestVocabulary.MAX_FREEFORM_INTERESTS}-interest maximum. Remove one, or add fewer at once.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        }
 
         if (input.isNotEmpty()) {
             CharacterCounter(text = longestTerm, max = InterestVocabulary.MAX_FREEFORM_INTEREST_LENGTH)

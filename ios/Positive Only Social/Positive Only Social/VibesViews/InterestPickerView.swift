@@ -34,9 +34,20 @@ struct InterestPickerView: View {
     /// so it would vanish silently.
     private var canAdd: Bool {
         let terms = parsedInput
-        return !terms.isEmpty && terms.allSatisfy {
+        return !terms.isEmpty && hasRoom && terms.allSatisfy {
             isWithinLength($0, max: GVOAppConstants.maxFreeformInterestLength)
         }
+    }
+
+    /// The count cap. The parent silently drops anything past it while
+    /// commitFreeform clears the input regardless, so without this the user's
+    /// text just disappears. Counts only terms not already listed, matching the
+    /// parent's case-insensitive dedupe — re-typing an existing term shouldn't
+    /// consume room.
+    private var hasRoom: Bool {
+        let listed = Set(freeformTerms.map { $0.lowercased() })
+        let newCount = parsedInput.filter { !listed.contains($0.lowercased()) }.count
+        return freeformTerms.count + newCount <= GVOAppConstants.maxFreeformInterests
     }
 
     /// The limit is per term, not per entry, so the counter tracks the longest
@@ -127,6 +138,16 @@ struct InterestPickerView: View {
                 Text("Separate multiple with commas. Each is checked to keep things positive.")
                     .font(.caption)
                     .foregroundColor(.secondary)
+
+                // Inline guidance so the disabled Add button isn't a dead end
+                // (the counter plays that role for the length limit).
+                if !hasRoom {
+                    Text(freeformTerms.count >= GVOAppConstants.maxFreeformInterests
+                         ? "You've added the maximum of \(GVOAppConstants.maxFreeformInterests) interests. Remove one to add another."
+                         : "That's more than the \(GVOAppConstants.maxFreeformInterests)-interest maximum. Remove one, or add fewer at once.")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                }
 
                 if input.count > 0 {
                     CharacterCounter(text: longestTerm, max: GVOAppConstants.maxFreeformInterestLength)
