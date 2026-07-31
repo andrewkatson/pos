@@ -8,17 +8,22 @@
 import SwiftUI
 import Kingfisher
 import UIKit
+import Combine
 
 struct HomeView: View {
-    
+
     let api: Networking
     let keychainHelper: KeychainHelperProtocol
-    
+
     // The ViewModel is the single source of truth for this view's state.
     @StateObject private var viewModel: HomeViewModel
-    
+
     @State private var currentTab = 0
-    
+    // The Profile tab's navigation stack path. A tapped push notification pushes
+    // the rejected post onto it (issues #342/#343).
+    @State private var profilePath: [String] = []
+    @ObservedObject private var pushRouter = PushRouter.shared
+
     init(api: Networking, keychainHelper: KeychainHelperProtocol) {
         // We use _viewModel because we are initializing a @StateObject property
         _viewModel = StateObject(wrappedValue: HomeViewModel(api: api, keychainHelper: keychainHelper))
@@ -32,7 +37,7 @@ struct HomeView: View {
         TabView(selection: $currentTab){
             // Tab 1: The signed-in user's own profile — the same profile view
             // other users' profiles use, plus the user-search bar (issue #347).
-            MyProfileTabView(api: api, keychainHelper: keychainHelper)
+            MyProfileTabView(api: api, keychainHelper: keychainHelper, path: $profilePath)
                 .tabItem {
                     Label("Profile", systemImage: "person.crop.circle")
                 }.tag(0)
@@ -59,6 +64,22 @@ struct HomeView: View {
         // Lets anything below select a tab — tapping your own username anywhere
         // in the app lands on the Profile tab (issue #347).
         .environment(\.selectTab, { currentTab = $0 })
+        // Now that a session exists (this view only shows when logged in), ask
+        // for notification permission and register this device (issues
+        // #342/#343). Best-effort; the OS prompts at most once.
+        .task {
+            PushNotifications.shared.requestAuthorizationAndRegister()
+            PushNotifications.shared.uploadCachedTokenIfAvailable()
+        }
+        // A tapped "post rejected" notification asks us to open that post: jump
+        // to the Profile tab and push its detail. onReceive fires with the
+        // current (nil) value on subscribe too, hence the guard.
+        .onReceive(pushRouter.$pendingPostIdentifier) { postIdentifier in
+            guard let postIdentifier else { return }
+            currentTab = GVOAppConstants.profileTabIndex
+            profilePath = [postIdentifier]
+            pushRouter.pendingPostIdentifier = nil
+        }
     }
 }
 
@@ -125,18 +146,23 @@ struct MyProfileTabView: View {
     // Owned by HomeView and shared with this tab: it drives the user search.
     @EnvironmentObject private var homeViewModel: HomeViewModel
 
+    // The navigation path, owned by HomeView so a tapped push notification can
+    // push the rejected post's detail onto this stack (issues #342/#343).
+    @Binding private var path: [String]
+
     @StateObject private var viewModel: ProfileViewModel
     @StateObject private var postActions: PostActionsViewModel
 
-    init(api: Networking, keychainHelper: KeychainHelperProtocol) {
+    init(api: Networking, keychainHelper: KeychainHelperProtocol, path: Binding<[String]>) {
         self.api = api
         self.keychainHelper = keychainHelper
+        _path = path
         _viewModel = StateObject(wrappedValue: ProfileViewModel.forCurrentUser(api: api, keychainHelper: keychainHelper))
         _postActions = StateObject(wrappedValue: PostActionsViewModel(api: api, keychainHelper: keychainHelper))
     }
 
     var body: some View {
-        NavigationStack {
+        NavigationStack(path: $path) {
             Group {
                 // If the user is searching, show the user list. Otherwise, show
                 // their own profile.
@@ -159,6 +185,11 @@ struct MyProfileTabView: View {
             .searchable(text: $homeViewModel.searchText, prompt: "Search for Users")
             .navigationDestination(for: Post.self) { post in
                 PostDetailView(postIdentifier: post.id, api: api, keychainHelper: keychainHelper)
+            }
+            // A push notification pushes a post by its identifier (String), since
+            // the payload carries only the id, not a full Post (issues #342/#343).
+            .navigationDestination(for: String.self) { postIdentifier in
+                PostDetailView(postIdentifier: postIdentifier, api: api, keychainHelper: keychainHelper)
             }
             .navigationDestination(for: User.self) { user in
                 ProfileView(user: user, api: api, keychainHelper: keychainHelper)

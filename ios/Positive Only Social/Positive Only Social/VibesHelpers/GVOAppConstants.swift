@@ -61,6 +61,8 @@ import Foundation
     static let pathSegmentComments = "comments"
     static let pathSegmentCreate = "create"
     static let pathSegmentDelete = "delete"
+    // POST devices/register/ registers this device's APNs token (issue #342).
+    static let pathSegmentDevices = "devices"
     static let pathSegmentDetails = "details"
     static let pathSegmentFollow = "follow"
     static let pathSegmentFollowed = "followed"

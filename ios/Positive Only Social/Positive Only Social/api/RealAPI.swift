@@ -178,6 +178,11 @@ final class RealAPI: Networking {
         let bio: String
     }
 
+    private struct RegisterDeviceBody: Encodable {
+        let platform: String
+        let token: String
+    }
+
     // MARK: - Private Helpers
     
     /// Encodes an `Encodable` value into `Data`.
@@ -882,6 +887,18 @@ final class RealAPI: Networking {
         let requestBody = try encode(body)
         return try await performRequest(
             pathSegments: [GVOAppConstants.pathSegmenProfile, GVOAppConstants.pathSegmentBio],
+            method: .post,
+            body: requestBody,
+            authToken: sessionManagementToken
+        )
+    }
+
+    // MARK: - Push notifications (issue #342/#343)
+
+    func registerDevice(sessionManagementToken: String, platform: String, token: String) async throws -> Data {
+        let requestBody = try encode(RegisterDeviceBody(platform: platform, token: token))
+        return try await performRequest(
+            pathSegments: [GVOAppConstants.pathSegmentDevices, GVOAppConstants.pathSegmentRegister],
             method: .post,
             body: requestBody,
             authToken: sessionManagementToken
