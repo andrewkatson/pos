@@ -268,9 +268,27 @@ final class Positive_Only_SocialUITests: XCTestCase {
         XCTAssertTrue(app.buttons["AddACommentButton"].waitForExistence(timeout: TestConstants.shortTimeout), "Add a comment button not present")
     }
     
-    private func ifOnHomeDeleteAccount(app: XCUIApplication) throws {
-        if (app.buttons["Profile"].exists) {
-            try deleteAccountFromHome(app: app)
+    /// Gets back to the Welcome view when the app launched already signed in.
+    ///
+    /// The keychain session outlives the app process and is keyed by test name,
+    /// so a retried test (either xcodebuild's `-test-iterations` or the
+    /// workflow's whole-run retry) relaunches into Home rather than Welcome.
+    ///
+    /// This logs out rather than deleting the account. Deleting used to be
+    /// fine because every caller followed it by *registering* the account it
+    /// needed; now that callers sign in to a pre-seeded account instead
+    /// (issue #377), deleting would destroy the very account the following
+    /// `loginUser` depends on and the retry could never pass. Logging out
+    /// clears the persisted session and leaves the seeded account intact — and
+    /// it needs no scrolling, so it is quicker too. Nothing else needs
+    /// resetting: the stub's database is in-memory and is rebuilt, reseeded,
+    /// on every launch.
+    private func returnToWelcomeIfSignedIn(app: XCUIApplication) throws {
+        // A plain `exists` here would race the launch on a slow runner, so give
+        // the app a moment to settle before deciding which screen it is on.
+        let profileTab = app.buttons["Profile"]
+        if poll(timeout: TestConstants.shortTimeout, until: { profileTab.exists }) {
+            try logoutUserFromHome(app: app)
         }
     }
     
@@ -691,10 +709,10 @@ final class Positive_Only_SocialUITests: XCTestCase {
     /// keyboard so the buttons it was covering (Register, Login, …) become
     /// reachable again. Exercised on the Register screen; the dismissal itself
     /// is purely a UI behavior, though the test first clears any signed-in
-    /// state via `ifOnHomeDeleteAccount` to reach the Welcome → Register flow.
+    /// state via `returnToWelcomeIfSignedIn` to reach the Welcome → Register flow.
     @MainActor
     func testTappingOutsideFieldDismissesKeyboard() throws {
-        try ifOnHomeDeleteAccount(app: app)
+        try returnToWelcomeIfSignedIn(app: app)
 
         // Navigate to the Register screen.
         let welcomeText = app.staticTexts["Welcome! 👋"]
@@ -733,7 +751,7 @@ final class Positive_Only_SocialUITests: XCTestCase {
     @MainActor
     func testAutomaticLoginAfterRememberMe() throws {
         
-        try ifOnHomeDeleteAccount(app: app)
+        try returnToWelcomeIfSignedIn(app: app)
         
         try loginUser(app: app, username: testUsername, password: strongPassword, rememberMe: true)
         
@@ -746,32 +764,14 @@ final class Positive_Only_SocialUITests: XCTestCase {
     @MainActor
     func testDeleteAccount() throws {
         
-        try ifOnHomeDeleteAccount(app: app)
+        try returnToWelcomeIfSignedIn(app: app)
         
         // Remember me is true here so we can test that the deleting clears the token
         try loginUser(app: app, username: testUsername, password: strongPassword, rememberMe: true)
 
-        let settingsTab = app.buttons["Settings"]
-        XCTAssertTrue(settingsTab.waitForExistence(timeout: TestConstants.shortTimeout))
-        settingsTab.tap()
-        
-        assertOnSettingsView(app: app)
-        
-        // Settings now runs past a single screen (Blocked Users, Security), and
-        // Delete Account is in the last section. SwiftUI's List only
-        // materializes rows near the viewport, so scroll first — the row may
-        // not exist (or be hittable) until then.
-        let deleteAccountButton = app.buttons["DeleteAccountButton"]
-        scrollIntoView(app: app, element: deleteAccountButton)
-        XCTAssertTrue(deleteAccountButton.waitForExistence(timeout: TestConstants.shortTimeout))
-        deleteAccountButton.tap()
-        
-        let confirmDeleteAccountButton = app.buttons["ConfirmDeleteAccountButton"].firstMatch
-        XCTAssertTrue(confirmDeleteAccountButton.waitForExistence(timeout: TestConstants.shortTimeout))
-        confirmDeleteAccountButton.tap()
-        
-        assertOnWelcomeView(app: app)
-        
+        // The same Settings → scroll → Delete → confirm walk the helper does.
+        try deleteAccountFromHome(app: app)
+
         let loginButton = app.buttons["LoginText"]
         XCTAssertTrue(loginButton.waitForExistence(timeout: TestConstants.shortTimeout))
         loginButton.tap()
@@ -813,7 +813,7 @@ final class Positive_Only_SocialUITests: XCTestCase {
     @MainActor
     func testResetPassword() throws {
         
-        try ifOnHomeDeleteAccount(app: app)
+        try returnToWelcomeIfSignedIn(app: app)
 
         // The account is seeded (issue #377), so go straight to the login form
         // and start the forgot-password flow from there.
@@ -924,7 +924,7 @@ final class Positive_Only_SocialUITests: XCTestCase {
     @MainActor
     func testFollowAndUnfollowFromSearch() throws {
         
-        try ifOnHomeDeleteAccount(app: app)
+        try returnToWelcomeIfSignedIn(app: app)
 
         // The other user is seeded (issue #377), so there is no need to create
         // it through the registration UI and log back out first.
@@ -985,7 +985,7 @@ final class Positive_Only_SocialUITests: XCTestCase {
     @MainActor
     func testFollowAndUnfollowFromPost() throws {
         
-        try ifOnHomeDeleteAccount(app: app)
+        try returnToWelcomeIfSignedIn(app: app)
         
         try loginUser(app: app, username: testUsername, password: strongPassword, rememberMe: false)
         
@@ -1112,7 +1112,7 @@ final class Positive_Only_SocialUITests: XCTestCase {
     @MainActor
     func testLikeAndUnlikePost() throws {
         
-        try ifOnHomeDeleteAccount(app: app)
+        try returnToWelcomeIfSignedIn(app: app)
 
         try loginUser(app: app, username: testUsername, password: strongPassword, rememberMe: false)
         
@@ -1183,7 +1183,7 @@ final class Positive_Only_SocialUITests: XCTestCase {
     @MainActor
     func testOpenPostDetailFromHomeGrid() throws {
 
-        try ifOnHomeDeleteAccount(app: app)
+        try returnToWelcomeIfSignedIn(app: app)
 
         try loginUser(app: app, username: testUsername, password: strongPassword, rememberMe: false)
 
@@ -1208,7 +1208,7 @@ final class Positive_Only_SocialUITests: XCTestCase {
     @MainActor
     func testOpenPostDetailFromProfileGrid() throws {
 
-        try ifOnHomeDeleteAccount(app: app)
+        try returnToWelcomeIfSignedIn(app: app)
 
         try loginUser(app: app, username: testUsername, password: strongPassword, rememberMe: false)
         try makePost(app: app, postText: "Profile Grid Post")
@@ -1243,7 +1243,7 @@ final class Positive_Only_SocialUITests: XCTestCase {
     @MainActor
     func testOpenPostDetailFromFollowingFeed() throws {
 
-        try ifOnHomeDeleteAccount(app: app)
+        try returnToWelcomeIfSignedIn(app: app)
 
         try loginUser(app: app, username: testUsername, password: strongPassword, rememberMe: false)
         try makePost(app: app, postText: "Following Feed Post")
@@ -1302,7 +1302,7 @@ final class Positive_Only_SocialUITests: XCTestCase {
     @MainActor
     func testVerifyIdentity() throws {
 
-        try ifOnHomeDeleteAccount(app: app)
+        try returnToWelcomeIfSignedIn(app: app)
 
         try loginUser(app: app, username: testUsername, password: strongPassword, rememberMe: false)
 
@@ -1343,7 +1343,7 @@ final class Positive_Only_SocialUITests: XCTestCase {
     @MainActor
     func testEnableTwoFactorAuthentication() throws {
 
-        try ifOnHomeDeleteAccount(app: app)
+        try returnToWelcomeIfSignedIn(app: app)
 
         try loginUser(app: app, username: testUsername, password: strongPassword, rememberMe: false)
 
@@ -1390,7 +1390,7 @@ final class Positive_Only_SocialUITests: XCTestCase {
     @MainActor
     func testChangePassword() throws {
 
-        try ifOnHomeDeleteAccount(app: app)
+        try returnToWelcomeIfSignedIn(app: app)
 
         try loginUser(app: app, username: testUsername, password: strongPassword, rememberMe: false)
 
@@ -1439,7 +1439,7 @@ final class Positive_Only_SocialUITests: XCTestCase {
     @MainActor
     func testLikeAndUnlikeCommentOnPostAndThread() throws {
         
-        try ifOnHomeDeleteAccount(app: app)
+        try returnToWelcomeIfSignedIn(app: app)
 
         try loginUser(app: app, username: testUsername, password: strongPassword, rememberMe: false)
         
@@ -1573,7 +1573,7 @@ final class Positive_Only_SocialUITests: XCTestCase {
     @MainActor
     func testReportPost() throws {
         
-        try ifOnHomeDeleteAccount(app: app)
+        try returnToWelcomeIfSignedIn(app: app)
         
         try loginUser(app: app, username: testUsername, password: strongPassword, rememberMe: false)
         
@@ -1663,7 +1663,7 @@ final class Positive_Only_SocialUITests: XCTestCase {
     @MainActor
     func testDeleteOwnPost() throws {
 
-        try ifOnHomeDeleteAccount(app: app)
+        try returnToWelcomeIfSignedIn(app: app)
 
         try loginUser(app: app, username: testUsername, password: strongPassword, rememberMe: false)
 
@@ -1700,7 +1700,7 @@ final class Positive_Only_SocialUITests: XCTestCase {
     @MainActor
     func testDeleteOwnComment() throws {
 
-        try ifOnHomeDeleteAccount(app: app)
+        try returnToWelcomeIfSignedIn(app: app)
 
         try loginUser(app: app, username: testUsername, password: strongPassword, rememberMe: false)
 
@@ -1745,7 +1745,7 @@ final class Positive_Only_SocialUITests: XCTestCase {
     @MainActor
     func testReportComment() throws {
         
-        try ifOnHomeDeleteAccount(app: app)
+        try returnToWelcomeIfSignedIn(app: app)
         
         try loginUser(app: app, username: testUsername, password: strongPassword, rememberMe: false)
         
@@ -1870,9 +1870,9 @@ final class Positive_Only_SocialUITests: XCTestCase {
             app.launch()
 
             do {
-                try ifOnHomeDeleteAccount(app: app)
+                try returnToWelcomeIfSignedIn(app: app)
             } catch {
-                XCTFail("ifOnHomeDeleteAccount threw error: \(error)")
+                XCTFail("returnToWelcomeIfSignedIn threw error: \(error)")
             }
             
         }
@@ -1885,7 +1885,7 @@ final class Positive_Only_SocialUITests: XCTestCase {
     @MainActor
     func testBlockAndUnblockUser() throws {
         
-        try ifOnHomeDeleteAccount(app: app)
+        try returnToWelcomeIfSignedIn(app: app)
         
         // The other user is seeded (issue #377), so login as the main user directly.
         try loginUser(app: app, username: testUsername, password: strongPassword, rememberMe: false)

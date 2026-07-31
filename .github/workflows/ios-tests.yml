@@ -119,11 +119,16 @@ jobs:
       - name: Install xcpretty
         run: gem install xcpretty
 
-      - name: Boot Simulators
+      - name: Boot Simulator
         run: |
-          # Two independent simulators so a group's tests can run in two shards
-          # in parallel on the same runner (issue #377). We keep the fixed macOS
-          # runner count and instead use both simulator slots each runner has.
+          # One simulator per runner. Running two concurrently was tried for
+          # issue #377 and measurably backfired on the standard 3-vCPU / 7 GB
+          # macos-15 runner: app launch went from a few seconds to ~16 s under
+          # the contention, which blows the 3 s element timeouts the UI tests
+          # are written against, and one group still took 45 minutes for 3
+          # tests. The remaining changes in that issue (in-process test retry,
+          # AutoFill suppression, polling helpers, seeded accounts) carry the
+          # win and none of them need a second simulator.
           #
           # Pin the same runtime the build job builds against (IOS_RUNTIME /
           # IOS_OS below) rather than "newest installed": simctl lists
@@ -136,14 +141,10 @@ jobs:
             xcrun simctl list runtimes available
             exit 1
           fi
-          SIM_A=$(xcrun simctl create "PosTest-A" "iPhone 16" "$IOS_RUNTIME")
-          SIM_B=$(xcrun simctl create "PosTest-B" "iPhone 16" "$IOS_RUNTIME")
-          echo "SIM_A=$SIM_A" >> "$GITHUB_ENV"
-          echo "SIM_B=$SIM_B" >> "$GITHUB_ENV"
-          xcrun simctl boot "$SIM_A"
-          xcrun simctl boot "$SIM_B"
-          xcrun simctl bootstatus "$SIM_A" -b
-          xcrun simctl bootstatus "$SIM_B" -b
+          SIM_ID=$(xcrun simctl create "PosTest" "iPhone 16" "$IOS_RUNTIME")
+          echo "SIM_ID=$SIM_ID" >> "$GITHUB_ENV"
+          xcrun simctl boot "$SIM_ID"
+          xcrun simctl bootstatus "$SIM_ID" -b
 
       - name: Download Test Bundle
         uses: actions/download-artifact@v4
@@ -162,7 +163,7 @@ jobs:
         shell: bash
         run: |
             cd "ios/Positive Only Social"
-            rm -rf TestResults-A.xcresult TestResults-B.xcresult xcodebuild-A.log xcodebuild-B.log
+            rm -rf TestResults.xcresult xcodebuild.log
             case "${{ matrix.test-group }}" in
               Unit_Tests)
                 TESTS=(
@@ -225,123 +226,73 @@ jobs:
             XCTESTRUN=${XCTESTRUN:-$(find build/Build/Products -name "*.xctestrun" | head -1)}
             echo "Using xctestrun: $XCTESTRUN"
 
-            # Split this group's tests into two shards and run them on the two
-            # simulators concurrently (issue #377). -retry-tests-on-failure with
-            # -test-iterations 3 retries only the *failed test* in-process, so a
-            # flaky test costs one rerun instead of re-running the whole group
-            # (which the old shell-level retry did). This keeps the 3-attempt
-            # retry budget while removing its compounding cost.
-            COUNT=${#TESTS[@]}
-            HALF=$(( (COUNT + 1) / 2 ))
-            SHARD_A=("${TESTS[@]:0:HALF}")
-            SHARD_B=("${TESTS[@]:HALF}")
+            ONLY_TESTING_ARGS=()
+            for t in "${TESTS[@]}"; do ONLY_TESTING_ARGS+=("-only-testing:$t"); done
 
-            # One xcodebuild attempt against a single, already-booted simulator.
+            # One xcodebuild attempt against the single booted simulator.
             #
-            # -parallel-testing-enabled NO matters: the default test plan marks
-            # the UI target parallelizable, so xcodebuild would CLONE its
-            # destination simulator and run several at once. With two shards
-            # already running that would put up to four simulators on a 3-vCPU /
-            # 7 GB runner — memory pressure, launch timeouts, and a net loss.
-            # Sharding is our parallelism; each shard gets exactly one device.
+            # -retry-tests-on-failure with -test-iterations 3 retries only the
+            # *failed test*, in-process, so a flaky test costs one rerun instead
+            # of re-running the whole group from a cold boot (which the old
+            # shell-level retry did). That keeps the 3-attempt budget while
+            # removing its compounding cost.
             #
-            # Each shard also gets its own derived-data dir so the two
-            # concurrent xcodebuild processes don't share scratch state. The
-            # products themselves come from the (read-only) xctestrun.
-            run_shard_once() {
-              local sim_id="$1"; local result="$2"; local log="$3"; local ddp="$4"; shift 4
-              local args=()
-              local t
-              for t in "$@"; do args+=("-only-testing:$t"); done
-              # Clear both per-attempt outputs: xcodebuild refuses to overwrite
-              # an existing result bundle, and a retry should not inherit
-              # scratch state from the attempt that just failed.
-              rm -rf "$result" "$ddp"
-              # The explicit `|| return $?` is not about errexit — errexit is
-              # suppressed here anyway, because this function is called as an
-              # `if` condition and that suppression extends into the body. It
-              # pins the function's exit status to xcodebuild's, so that adding
-              # any command below this line can never silently mask a failure
-              # and make a failed shard look successful.
+            # -parallel-testing-enabled NO matters even with one destination:
+            # the default test plan marks the UI target parallelizable, so
+            # xcodebuild would otherwise CLONE the simulator and run several at
+            # once. That is the contention this job was just measured to lose
+            # badly to. All UI tests live in one class, so it buys nothing here.
+            run_tests_once() {
+              # Clear per-attempt outputs: xcodebuild refuses to overwrite an
+              # existing result bundle, and a retry should not inherit scratch
+              # state from the attempt that just failed.
+              rm -rf TestResults.xcresult dd
+              # Report xcodebuild's own status via PIPESTATUS, matching the
+              # build job above: xcpretty is the last stage and is known to
+              # swallow the real exit code. errexit does not abort the pipeline
+              # before the return, because this function runs as an `if`
+              # condition and that suppression extends into the body.
               xcodebuild test-without-building \
                 -xctestrun "$XCTESTRUN" \
-                -destination "id=$sim_id" \
-                -resultBundlePath "$result" \
-                -derivedDataPath "$ddp" \
+                -destination "id=$SIM_ID" \
+                -resultBundlePath TestResults.xcresult \
+                -derivedDataPath dd \
                 -parallel-testing-enabled NO \
                 -retry-tests-on-failure \
                 -test-iterations 3 \
-                "${args[@]}" \
-                > "$log" 2>&1 || return $?
+                "${ONLY_TESTING_ARGS[@]}" \
+                2>&1 | tee xcodebuild.log | xcpretty
+              return "${PIPESTATUS[0]}"
             }
 
             # In-process retry only covers *test* failures. It cannot recover
             # from the infrastructure flakes the old shell-level retry did —
             # simulator failing to boot, "Test runner never began executing",
             # install failures, xcodebuild dying. Those were the reason retries
-            # existed, so keep a shard-level retry on top; it reruns half a
-            # group at most, rather than the whole group as before.
-            run_shard() {
-              local attempt=1
-              local max=2
-              while :; do
-                if run_shard_once "$@"; then return 0; fi
-                if [ "$attempt" -ge "$max" ]; then return 1; fi
-                echo "Shard attempt $attempt failed; retrying (infrastructure flake?)" >&2
-                attempt=$(( attempt + 1 ))
-              done
-            }
-
-            echo "Shard A (${#SHARD_A[@]} tests) on $SIM_A; Shard B (${#SHARD_B[@]} tests) on $SIM_B"
-
-            RC_A=0
-            RC_B=0
-            run_shard "$SIM_A" TestResults-A.xcresult xcodebuild-A.log dd-A "${SHARD_A[@]}" &
-            PID_A=$!
-            if [ ${#SHARD_B[@]} -gt 0 ]; then
-              run_shard "$SIM_B" TestResults-B.xcresult xcodebuild-B.log dd-B "${SHARD_B[@]}" &
-              PID_B=$!
-            else
-              PID_B=""
-            fi
-
-            wait "$PID_A" || RC_A=$?
-            if [ -n "$PID_B" ]; then wait "$PID_B" || RC_B=$?; fi
-
-            # Output is only printed once both shards finish — interleaving two
-            # live xcodebuild streams would be unreadable.
-            for SHARD in A B; do
-              LOG="xcodebuild-$SHARD.log"
-              [ -f "$LOG" ] || continue
-              echo "===== Shard $SHARD output ====="
-              if command -v xcpretty >/dev/null 2>&1; then
-                xcpretty < "$LOG" || true
-              else
-                cat "$LOG"
-              fi
+            # existed, so keep one whole-run retry on top of it.
+            attempt=1
+            max=2
+            RC=1
+            while :; do
+              if run_tests_once; then RC=0; break; fi
+              if [ "$attempt" -ge "$max" ]; then RC=1; break; fi
+              echo "Attempt $attempt failed; retrying (infrastructure flake?)" >&2
+              attempt=$(( attempt + 1 ))
             done
-
-            echo "Shard A rc=$RC_A, Shard B rc=$RC_B"
-            [ "$RC_A" -eq 0 ] && [ "$RC_B" -eq 0 ]
+            exit "$RC"
 
       - name: Show failed tests
         if: failure()
         working-directory: "ios/Positive Only Social"
         run: |
-          # Collect whichever shard logs exist: shard B does not run for a
-          # single-entry group, and naming a missing file makes grep exit 2,
-          # which would print "(none found)" right after real failures. The
-          # array also keeps an unmatched glob from reaching grep as a literal
-          # when a failure happens before any log is written.
-          SHARD_LOGS=()
-          for SHARD in A B; do
-            [ -f "xcodebuild-$SHARD.log" ] && SHARD_LOGS+=("xcodebuild-$SHARD.log")
-          done
-          echo "=== Failed test cases (shard logs) ==="
-          if [ ${#SHARD_LOGS[@]} -eq 0 ]; then
-            echo "(no shard logs were produced — the run failed before testing started)"
+          # Guard on the log existing: a failure before testing starts leaves no
+          # log, and naming a missing file makes grep exit 2, which would print
+          # the "(none found)" fallback right after real failures.
+          echo "=== Failed test cases ==="
+          if [ ! -f xcodebuild.log ]; then
+            echo "(no log was produced — the run failed before testing started)"
           else
-            grep -iE "test case .* failed|test suite .* failed" "${SHARD_LOGS[@]}" || echo "(no test-case lines found)"
+            grep -iE "test case .* failed|test suite .* failed" xcodebuild.log || echo "(no test-case lines found)"
           fi
           echo ""
           echo "=== Assertion failures (xcresult) ==="
@@ -375,10 +326,8 @@ jobs:
           except Exception as e:
               print("(xcresult parse error: " + str(e) + ")")
           PYEOF
-          for BUNDLE in TestResults-A.xcresult TestResults-B.xcresult; do
-            [ -d "$BUNDLE" ] || continue
-            echo "--- $BUNDLE ---"
-            xcrun xcresulttool get object --legacy --path "$BUNDLE" --format json \
+          if [ -d TestResults.xcresult ]; then
+            xcrun xcresulttool get object --legacy --path TestResults.xcresult --format json \
               > /tmp/xcresult.json 2>/tmp/xcresult_err.txt || true
             if [ -s /tmp/xcresult.json ]; then
               python3 /tmp/parse_xcresult.py < /tmp/xcresult.json
@@ -386,21 +335,19 @@ jobs:
               echo "(xcresulttool produced no JSON — stderr below)"
               cat /tmp/xcresult_err.txt || true
             fi
-          done
+          else
+            echo "(no result bundle was produced)"
+          fi
           echo ""
           echo "=== Compiler errors ==="
-          if [ ${#SHARD_LOGS[@]} -eq 0 ]; then
-            echo "(no shard logs)"
+          if [ ! -f xcodebuild.log ]; then
+            echo "(no log)"
           else
-            grep -E "error:" "${SHARD_LOGS[@]}" | grep -v "^▸" | head -50 || echo "(none)"
-          fi
-          for SHARD in A B; do
-            LOG="xcodebuild-$SHARD.log"
-            [ -f "$LOG" ] || continue
+            grep -E "error:" xcodebuild.log | grep -v "^▸" | head -50 || echo "(none)"
             echo ""
-            echo "=== Last 500 lines of shard $SHARD log ==="
-            tail -500 "$LOG"
-          done
+            echo "=== Last 500 lines of raw log ==="
+            tail -500 xcodebuild.log
+          fi
 
       - name: Upload test artifacts
         if: failure()
@@ -408,7 +355,5 @@ jobs:
         with:
           name: test-artifacts-${{ matrix.test-group }}
           path: |
-            ios/Positive Only Social/xcodebuild-A.log
-            ios/Positive Only Social/xcodebuild-B.log
-            ios/Positive Only Social/TestResults-A.xcresult
-            ios/Positive Only Social/TestResults-B.xcresult
+            ios/Positive Only Social/xcodebuild.log
+            ios/Positive Only Social/TestResults.xcresult
