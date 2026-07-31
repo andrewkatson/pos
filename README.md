@@ -615,6 +615,16 @@ posts (their image is deleted) and for text-only posts (which have no image), an
 is serialized as `image_blurhash` alongside `image_url` in every listing/detail
 payload. Older clients that don't know the field simply ignore it.
 
+Posts published before this feature shipped have no hash and still flash a grey
+tile. The `backfill_blurhash` management command (issue #438) is the one-off
+repair: it walks every post that has an `image_url` but a null `image_blurhash`
+and runs the same encoder the worker uses. It is safe to re-run — it only touches
+null hashes and never overwrites one the worker may have set — and a post whose
+image can't be fetched/encoded is left null (still grey) and examined at most
+once per run (so a broken object never loops the command); a later run
+re-attempts it, letting a transient failure recover. Supports `--dry-run`,
+`--limit`, and `--batch-size`.
+
 ## Profile photos
 
 A user's profile photo is stored on the user (`profile_image_url`) and served
