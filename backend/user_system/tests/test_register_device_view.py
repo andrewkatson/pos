@@ -99,6 +99,13 @@ class RegisterDeviceViewTests(PositiveOnlySocialTestCase):
         self.assertEqual(response.status_code, 400)
         self.assertFalse(DeviceToken.objects.exists())
 
+    def test_rejects_non_ascii_token(self):
+        # Real APNs/FCM tokens are ASCII; a multibyte token could pass a
+        # character-length check yet exceed the unique index's byte limit.
+        response = self._post({'platform': DEVICE_PLATFORM_IOS, 'token': 'tökén-café-🚀'})
+        self.assertEqual(response.status_code, 400)
+        self.assertFalse(DeviceToken.objects.exists())
+
     def test_rejects_invalid_json(self):
         header = {'HTTP_AUTHORIZATION': f'Bearer {self.token}'}
         response = self.client.post(self.url, data='not json', content_type='application/json', **header)

@@ -3518,7 +3518,12 @@ def register_device(request):
     invalid_fields = []
     if platform not in DEVICE_PLATFORMS:
         invalid_fields.append(Params.platform)
-    if not isinstance(token, str) or not token or len(token) > MAX_DEVICE_TOKEN_LENGTH:
+    # Real APNs/FCM tokens are ASCII, so require it: besides rejecting junk, it
+    # keeps len(token) == the UTF-8 byte size, so the length cap actually bounds
+    # what lands in the (platform, token) UNIQUE index (a multibyte 1024-char
+    # string could otherwise blow past PostgreSQL's btree row limit at insert).
+    if (not isinstance(token, str) or not token or not token.isascii()
+            or len(token) > MAX_DEVICE_TOKEN_LENGTH):
         invalid_fields.append(Params.token)
     if invalid_fields:
         return log_and_return_json(
