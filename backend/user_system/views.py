@@ -42,11 +42,13 @@ from .constants import Patterns, Params, POST_BATCH_SIZE, MAX_BEFORE_HIDING_POST
     PROFILE_IMAGE_STATUS_NONE, PROFILE_IMAGE_STATUS_PENDING, \
     DEFAULT_STYLE_KEY, ALLOWED_CAPTION_FONTS, ALLOWED_BACKGROUND_COLORS, \
     ALLOWED_TEXT_SIZES, MAX_COMMENT_FORMAT_SPANS, \
-    MINIMUM_AGE, ADULT_AGE, AGE_RESTRICTED
+    MINIMUM_AGE, ADULT_AGE, AGE_RESTRICTED, \
+    DEVICE_PLATFORMS, MAX_DEVICE_TOKEN_LENGTH
 from .feed_algorithm import feed_algorithm
 from .input_validator import is_valid_pattern
 from .models import LoginCookie, Session, Post, CommentThread, PositiveOnlySocialUser, Comment, CommentLike, \
-    PostLike, SavedPost, UserBlock, UserBan, UserFollow, KnownDevice, Appeal, TwoFactorChallenge, RecoveryCode
+    PostLike, SavedPost, UserBlock, UserBan, UserFollow, KnownDevice, Appeal, TwoFactorChallenge, RecoveryCode, \
+    DeviceToken
 from .utils import convert_to_bool, generate_login_cookie_token, generate_management_token, generate_series_identifier, \
     get_batch, get_queryset_batch
 from .cloudfront import sign_compressed_url, sign_original_url
@@ -3482,6 +3484,47 @@ def set_bio(request):
         Fields.bio: user.bio,
         'message': "Your bio has been updated.",
     })
+
+
+@csrf_exempt
+@api_login_required
+@ratelimit(key='user', rate='30/h', block=True)
+@require_POST
+def register_device(request):
+    """Register (or refresh) the caller's native push-notification token (issue #342).
+
+    The client calls this after the OS grants notification permission, and again
+    whenever the provider rotates the token. Upsert on the device's natural key
+    (platform, token): re-registering a token that already exists just repoints
+    it at the current user and bumps updated_at, so a device that changed
+    accounts is moved rather than duplicated. Push is best-effort and never the
+    source of truth (#282 reconciliation is), so this endpoint only records the
+    token — delivery and dead-token pruning happen off the request path in the
+    worker send path. Rate limited per user since a client should register a
+    device at most a handful of times a day.
+    """
+    logger.info("Endpoint register_device invoked by User")
+    data = _get_json_body(request)
+    if data is None:
+        return log_and_return_json("register_device", {'error': "Invalid JSON data"}, status=400)
+
+    platform = data.get(Fields.platform)
+    token = data.get(Fields.token)
+    invalid_fields = []
+    if platform not in DEVICE_PLATFORMS:
+        invalid_fields.append(Params.platform)
+    if not isinstance(token, str) or not token.strip() or len(token) > MAX_DEVICE_TOKEN_LENGTH:
+        invalid_fields.append(Params.token)
+    if invalid_fields:
+        return log_and_return_json(
+            "register_device", {'error': f"Invalid fields {invalid_fields}"}, status=400)
+
+    DeviceToken.objects.update_or_create(
+        platform=platform, token=token.strip(),
+        defaults={'user': request.user},
+    )
+    logger.info(f"Device registered ({platform}) for user_id: {request.user.id}")
+    return log_and_return_json("register_device", {'message': "Device registered."})
 
 
 @api_login_required

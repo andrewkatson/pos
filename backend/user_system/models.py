@@ -21,6 +21,7 @@ from .constants import (
     MAX_TAG_LENGTH,
     PROFILE_IMAGE_STATUS_NONE,
     DEFAULT_STYLE_KEY,
+    DEVICE_PLATFORM_CHOICES,
 )
 
 logger = logging.getLogger(__name__)
@@ -280,6 +281,28 @@ class KnownDevice(models.Model):
 
     def __str__(self):
         return f"{self.user} @ {self.ip}/{self.user_agent[:80]}"
+
+
+# A device a user has registered to receive native push notifications on
+# (issues #342/#343). A user has many devices; a device can move between
+# accounts, so the natural key is (platform, token) and re-registering an
+# existing token repoints user/updated_at rather than duplicating. Push is
+# best-effort (see user_system.push): a stale row here is cheap because the send
+# path deletes any token a provider reports as unregistered.
+class DeviceToken(models.Model):
+    user = models.ForeignKey(PositiveOnlySocialUser, related_name='device_tokens', on_delete=models.CASCADE)
+    platform = models.CharField(max_length=16, choices=DEVICE_PLATFORM_CHOICES)
+    token = models.TextField()
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        app_label = 'user_system'
+        constraints = [
+            models.UniqueConstraint(fields=['platform', 'token'], name='unique_platform_token')
+        ]
+
+    def __str__(self):
+        return f"{self.user} [{self.platform}] {self.token[:16]}"
 
 
 class UserBanManager(models.Manager):

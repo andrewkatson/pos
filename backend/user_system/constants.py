@@ -99,6 +99,32 @@ PROFILE_IMAGE_STATUS_PENDING = "pending"
 PROFILE_IMAGE_STATUS_APPROVED = "approved"
 PROFILE_IMAGE_STATUS_REJECTED = "rejected"
 
+# Native push notifications (issues #342/#343). A DeviceToken row is one device
+# a user has registered to receive pop-up notifications on. The platform picks
+# the delivery provider: iOS goes through APNs directly, Android and web through
+# FCM. Push is best-effort and never the source of truth — a user who never
+# receives it still learns the outcome via in-app reconciliation (#282).
+DEVICE_PLATFORM_IOS = "ios"
+DEVICE_PLATFORM_ANDROID = "android"
+DEVICE_PLATFORM_WEB = "web"
+DEVICE_PLATFORM_CHOICES = [
+    (DEVICE_PLATFORM_IOS, "iOS"),
+    (DEVICE_PLATFORM_ANDROID, "Android"),
+    (DEVICE_PLATFORM_WEB, "Web"),
+]
+DEVICE_PLATFORMS = frozenset(value for value, _ in DEVICE_PLATFORM_CHOICES)
+
+# Upper bound on a stored device token. APNs tokens are 64 hex chars; FCM
+# registration tokens (Android and FCM-for-web) run ~150–350 chars. The cap is
+# generous so no legitimate provider token is rejected, while still bounding
+# what a crafted /devices/register call can persist.
+MAX_DEVICE_TOKEN_LENGTH = 4096
+
+# Machine-readable "type" on a push payload's data dict so a client can branch
+# on why it was notified and deep-link accordingly. The only kind today is a
+# post rejection resolved off the request path.
+PUSH_TYPE_POST_REJECTED = "post_rejected"
+
 # Lifecycle of an appeal a user files against hidden content or a ban.
 APPEAL_STATUS_PENDING = "pending"
 APPEAL_STATUS_APPROVED = "approved"
@@ -220,6 +246,8 @@ class Params:
     totp_code = "TOTP_CODE"
     recovery_code = "RECOVERY_CODE"
     bio = "BIO"
+    platform = "PLATFORM"
+    token = "TOKEN"
 
 class Fields:
     is_adult = 'is_adult'
@@ -308,6 +336,8 @@ class Fields:
     recovery_codes = "recovery_codes"
     totp_enabled = "totp_enabled"
     tags = "tags"
+    platform = "platform"
+    token = "token"
 
 # Lengths of things
 LEN_LOGIN_COOKIE_TOKEN = 32

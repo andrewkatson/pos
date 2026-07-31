@@ -227,8 +227,9 @@ The flow is:
      everyone, its author included) only so clients can reconcile the
      outcome, and the sweep purges it after a few days.
    On either rejection the author is emailed (with the public reason and,
-   when appealable, how to appeal). Approval sends no email — the post simply
-   appears.
+   when appealable, how to appeal) and, best-effort, sent a native push
+   notification (see [Push notifications](#push-notifications)). Approval sends
+   neither — the post simply appears.
 4. Provider failures (no usable score from any AI, unreachable S3) are not
    verdicts: the job retries with backoff and, if retries are exhausted, the
    post **fails closed** — it stays hidden-pending rather than ever publishing
@@ -262,6 +263,49 @@ as systemd units (see [Deploying and restarting services](#deploying-and-restart
 
 Comments are still classified inline in the request (text-only, much smaller
 worst case); moving them to the same async flow is a tracked follow-up.
+
+## Push notifications
+
+Because async classification decides a rejection *after* `make_post` has
+already returned `201`, the author is told out-of-band. Alongside the rejection
+email, the worker fires a **best-effort native push notification** (issues #342
+/ #343) so the pop-up reaches the user even with the app closed.
+
+Push is a **nudge, never the source of truth.** Permissions get denied and
+tokens go stale, so a user who never receives the push must still see the
+correct outcome via in-app reconciliation (the authoritative `GET
+posts/<id>/status/` path above). Push and email never carry state; they only
+bring the user back to look.
+
+- **Device tokens.** Each client, after the OS grants notification permission,
+  uploads its provider token to authenticated `POST /devices/register/`
+  (`{platform, token}`, `platform ∈ {ios, android, web}`) and re-uploads on
+  rotation. A `DeviceToken` row is keyed by `(platform, token)`, so
+  re-registering an existing token repoints it at the current user rather than
+  duplicating (a device can change accounts).
+- **Send path.** `user_system.push.send_push(user, payload)` fans out to all a
+  user's tokens, called by `classify_post` on a resolved rejection — off the
+  request path, on the same durable queue, best-effort. The payload's `data`
+  carries the `post_identifier`, a `type` (`post_rejected`), whether it is
+  `appealable`, and a `deep_link` so the client can open the rejected post and
+  its appeal UI.
+- **Providers.** iOS delivers through **APNs** directly (token-based `.p8`
+  auth); Android and web both go through **FCM** (web uses FCM-for-web, so it
+  registers with `platform: web` and needs no separate Web Push/VAPID path).
+- **Dead-token pruning.** When a provider reports a token as gone (`410` /
+  `Unregistered` on APNs, `404` / `NOT_FOUND` / `UNREGISTERED` on FCM), the send
+  path deletes that `DeviceToken` row so we neither leak rows nor keep paying to
+  send to it.
+
+**Secrets** (all optional — an unconfigured provider is a logged no-op, so
+local dev, tests, and a not-yet-provisioned deploy send nothing and still import
+cleanly; set them like the `EMAIL_*` / `CLOUDFRONT_*` credentials):
+
+- **APNs (iOS):** `APNS_AUTH_KEY` (the `.p8` PEM inline) or `APNS_AUTH_KEY_PATH`
+  (a mounted file), plus `APNS_KEY_ID`, `APNS_TEAM_ID`, `APNS_TOPIC` (the app
+  bundle id), and `APNS_USE_SANDBOX=true` for development app builds.
+- **FCM (Android + web):** `FCM_CREDENTIALS` (the service-account JSON inline)
+  or `FCM_CREDENTIALS_PATH` (a mounted file).
 
 ## Age and identity
 

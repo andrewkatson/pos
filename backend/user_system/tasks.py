@@ -35,6 +35,7 @@ from .constants import (
     PROFILE_IMAGE_STATUS_REJECTED,
 )
 from .models import Post, PositiveOnlySocialUser
+from . import push
 from .s3 import delete_image
 
 # Module-level aliases so tests can patch the classifiers here, mirroring the
@@ -155,6 +156,23 @@ def _notify_author_of_rejection(post, text_result, image_result, final):
         )
     except Exception:
         logger.exception("Failed to send rejection email for post %s", post.post_identifier)
+
+
+def _push_author_of_rejection(post, final):
+    """Fire a best-effort native push that the author's post was rejected.
+
+    Rides the same one-time pending -> rejected transition as the rejection
+    email, so it notifies exactly once per post. Push is a nudge, never the
+    source of truth (#282 in-app reconciliation is), so a failure — no device
+    registered, provider down, permission denied — is logged and swallowed and
+    never blocks recording the outcome. There is deliberately no push on
+    approval; the post simply appears.
+    """
+    try:
+        payload = push.build_rejection_payload(post, final)
+        push.send_push(post.author, payload)
+    except Exception:
+        logger.exception("Failed to send rejection push for post %s", post.post_identifier)
 
 
 def classify_post(post_identifier):
@@ -286,6 +304,7 @@ def classify_post(post_identifier):
     logger.info("classify_post: post %s rejected (final=%s, reason=%s).",
                 post_identifier, final, reason_result.public_reason_code())
     _notify_author_of_rejection(claimed, text_result, image_result, final)
+    _push_author_of_rejection(claimed, final)
     if image_url_to_delete:
         # Best-effort: delete_image never raises, and cleanup_orphan_images is
         # the backstop for a missed delete (the row no longer references the
