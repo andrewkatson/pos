@@ -11,6 +11,7 @@ function renderWithRouter(initialPath = '/') {
         <Route path="/login" element={<div>Login page</div>} />
         <Route path="/register" element={<div>Register page</div>} />
         <Route path="/privacy-policy" element={<div>Privacy policy page</div>} />
+        <Route path="/delete-account" element={<div>Delete account page</div>} />
       </Routes>
     </MemoryRouter>,
   )
@@ -41,4 +42,10 @@ test('Privacy Policy link navigates to /privacy-policy', async () => {
   renderWithRouter()
   await userEvent.click(screen.getByRole('link', { name: 'Privacy Policy' }))
   expect(screen.getByText('Privacy policy page')).toBeInTheDocument()
+})
+
+test('Delete Account link navigates to /delete-account', async () => {
+  renderWithRouter()
+  await userEvent.click(screen.getByRole('link', { name: 'Delete Account' }))
+  expect(screen.getByText('Delete account page')).toBeInTheDocument()
 })

@@ -404,6 +404,26 @@ policy as registration and must differ from the current one. On success every
 should evict other devices), while the caller's current session is preserved so
 they stay logged in on the device they just used.
 
+## Account & data deletion
+
+Every client can **delete the account** from the Settings tab (a confirmation
+dialog, then `POST /user/delete/`), which cascades to the user's posts (and
+their S3 images), comments, likes, saved posts, follows, blocks, appeals,
+sessions, and remembered devices.
+
+Google Play additionally requires a **stable, publicly reachable web URL** where
+a user can request account and data deletion without going through the app, so
+the website serves a standalone page at `https://smiling.social/delete-account`
+(issue #439). It is reachable without an existing session — linked from the
+landing-page footer and the public privacy-policy page — and walks the visitor
+through three steps: sign in (username/email + password, plus the two-factor
+step for enrolled accounts, so no one else can delete an account that isn't
+theirs), an explicit acknowledgement of what will be removed, and the permanent
+delete. It reuses the same `POST /user/delete/` endpoint, so the deleted data is
+exactly the cascade above; on success the local session is cleared and a
+confirmation is shown. A session already restored on page load skips straight to
+the confirmation step.
+
 ## Email verification
 
 Registering does not prove you own the email address you signed up with, so

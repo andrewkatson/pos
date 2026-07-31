@@ -20,6 +20,13 @@ function PrivacyPolicyPage() {
       <main className="privacy-page__main">
         <h1 className="privacy-page__title">Privacy Policy</h1>
         <p className="privacy-page__body">{PRIVACY_POLICY_TEXT}</p>
+        <p className="privacy-page__body privacy-page__deletion">
+          To permanently delete your account and all associated data, visit the{' '}
+          <Link to="/delete-account" className="privacy-page__deletion-link">
+            account &amp; data deletion page
+          </Link>
+          .
+        </p>
       </main>
     </div>
   )

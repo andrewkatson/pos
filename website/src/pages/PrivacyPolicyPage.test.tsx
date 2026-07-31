@@ -9,6 +9,7 @@ function renderWithRouter(initialPath = '/privacy-policy') {
       <Routes>
         <Route path="/" element={<div>Landing page</div>} />
         <Route path="/privacy-policy" element={<PrivacyPolicyPage />} />
+        <Route path="/delete-account" element={<div>Delete account page</div>} />
       </Routes>
     </MemoryRouter>,
   )
@@ -26,4 +27,11 @@ test('logo links back to the landing page', () => {
 
   const homeLink = screen.getByRole('link', { name: 'Good Vibes Only smiley logo' })
   expect(homeLink).toHaveAttribute('href', '/')
+})
+
+test('links to the account & data deletion page', () => {
+  renderWithRouter()
+
+  const deletionLink = screen.getByRole('link', { name: 'account & data deletion page' })
+  expect(deletionLink).toHaveAttribute('href', '/delete-account')
 })

@@ -36,6 +36,9 @@ function LandingPage() {
         <Link to="/privacy-policy" className="landing__footer-link">
           Privacy Policy
         </Link>
+        <Link to="/delete-account" className="landing__footer-link">
+          Delete Account
+        </Link>
       </footer>
     </div>
   )
