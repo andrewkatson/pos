@@ -22,6 +22,7 @@ module importable — and the test suite, which patches ``_send_apns`` /
 import json
 import logging
 import time
+from urllib.parse import quote
 
 from django.conf import settings
 
@@ -224,7 +225,12 @@ def _send_apns(tokens, payload):
     with httpx.Client(http2=True, timeout=10.0) as client:
         for token in tokens:
             try:
-                response = client.post(f"{host}/3/device/{token}", headers=headers, content=body)
+                # Percent-encode the token as a single path segment so a token
+                # containing reserved URL characters (/, ?, #, %) can never
+                # reshape the request path — defense in depth over the
+                # registration-time format validation.
+                response = client.post(
+                    f"{host}/3/device/{quote(token, safe='')}", headers=headers, content=body)
             except Exception:
                 # Transport hiccup: not evidence the token is dead, so leave it.
                 logger.exception("APNs send errored for a token; leaving it registered.")
