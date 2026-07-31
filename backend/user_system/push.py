@@ -307,17 +307,22 @@ def _send_fcm(tokens, payload):
 
 
 def _fcm_token_is_dead(response):
-    """A 404, or an UNREGISTERED / INVALID_ARGUMENT error, means it is gone."""
+    """Whether a token is genuinely gone (and should be pruned).
+
+    Only UNREGISTERED / NOT_FOUND (HTTP 404) mean the token no longer exists.
+    INVALID_ARGUMENT is deliberately NOT treated as dead: it can signal a
+    malformed request or a project-config problem rather than a bad token, so
+    pruning on it risks deleting every valid row when the real fault is ours.
+    """
     if response.status_code == 404:
         return True
     try:
         error = response.json().get("error", {})
     except Exception:
         return False
-    status = error.get("status", "")
-    if status == "NOT_FOUND":
+    if error.get("status", "") == "NOT_FOUND":
         return True
     for detail in error.get("details", []):
-        if detail.get("errorCode") in ("UNREGISTERED", "INVALID_ARGUMENT"):
+        if detail.get("errorCode") == "UNREGISTERED":
             return True
     return False
