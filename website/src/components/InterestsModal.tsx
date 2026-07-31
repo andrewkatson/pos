@@ -76,8 +76,13 @@ function InterestsModal({ onClose, onSaved }: InterestsModalProps) {
     setRejected([])
     try {
       const result = await apiClient.setInterests({ categories: selected, freeform })
-      // Reflect server truth: some freeform terms may have been rejected.
+      // Reflect server truth: some freeform terms may have been rejected, and
+      // the stored buckets are the union of picks and whatever the accepted
+      // terms mapped to. Re-seed both from the response, exactly as the initial
+      // load does — otherwise a dialog left open after a partial rejection
+      // would show different chips than the same dialog reopened.
       setFreeform(result.freeform.accepted)
+      setSelected(result.categories)
       if (result.freeform.rejected.length > 0) {
         // Keep the dialog open so the user sees which terms were dropped.
         setRejected(result.freeform.rejected)

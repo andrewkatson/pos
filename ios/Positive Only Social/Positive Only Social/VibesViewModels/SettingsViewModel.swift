@@ -283,9 +283,13 @@ final class SettingsViewModel: ObservableObject {
                                                       categories: selectedInterestSlugs,
                                                       freeform: freeformInterests)
                 let result = try JSONDecoder().decode(SetInterestsResponse.self, from: data)
-                // Reflect server truth for freeform (some terms may be dropped),
-                // but keep the user's own preset picks as their working set.
+                // Re-seed both from the response, exactly as loadInterests does:
+                // some terms may have been dropped, and the stored buckets are
+                // the union of picks and what the accepted terms mapped to.
+                // Otherwise a sheet left open after a partial rejection shows
+                // different chips than the same sheet reopened.
                 freeformInterests = result.freeform.accepted
+                selectedInterestSlugs = result.categories
                 rejectedInterests = result.freeform.rejected
                 if result.freeform.rejected.isEmpty {
                     interestsSaved = true

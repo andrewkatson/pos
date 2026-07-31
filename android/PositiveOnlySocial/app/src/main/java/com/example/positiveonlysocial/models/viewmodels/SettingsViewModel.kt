@@ -488,7 +488,13 @@ class SettingsViewModel(
                 )
                 if (response.isSuccessful) {
                     val body = response.body()
+                    // Re-seed both from the response, exactly as loadInterests
+                    // does: some terms may have been rejected, and the stored
+                    // buckets are the union of picks and what the accepted terms
+                    // mapped to. Otherwise a dialog left open after a partial
+                    // rejection shows different chips than one reopened.
                     _freeformInterests.value = body?.freeform?.accepted.orEmpty()
+                    _selectedInterestSlugs.value = body?.categories.orEmpty()
                     val rejected = body?.freeform?.rejected.orEmpty()
                     _rejectedInterests.value = rejected
                     if (rejected.isEmpty()) {

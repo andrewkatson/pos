@@ -149,3 +149,27 @@ test('shows rejected freeform terms and keeps the dialog open', async () => {
   expect(await screen.findByRole('alert')).toHaveTextContent('bad vibes')
   expect(onSaved).not.toHaveBeenCalled()
 })
+
+test('re-seeds the chip selection from the response when the dialog stays open', async () => {
+  const user = userEvent.setup()
+  // One term is rejected (so the dialog stays open) and the server reports a
+  // union that includes a bucket an accepted term mapped to.
+  mockSet.mockResolvedValue({
+    categories: ['nature', 'music'],
+    freeform: {
+      accepted: ['jazz'],
+      rejected: [{ text: 'bad vibes', reason: 'did not meet our positivity guidelines' }],
+    },
+  })
+  renderModal()
+  await screen.findByRole('button', { name: 'Nature' })
+  await user.click(screen.getByRole('button', { name: 'Save' }))
+
+  // 'Music' was never ticked by hand — it came back in the stored union, so the
+  // still-open dialog must show it selected, matching what a reopen would show.
+  await waitFor(() =>
+    expect(screen.getByRole('button', { name: 'Music' })).toHaveAttribute('aria-pressed', 'true'),
+  )
+  expect(screen.getByRole('button', { name: 'Nature' })).toHaveAttribute('aria-pressed', 'true')
+  expect(screen.getByRole('button', { name: 'Sports' })).toHaveAttribute('aria-pressed', 'false')
+})
