@@ -114,6 +114,24 @@ export interface RegisterDeviceRequest {
   token: string
 }
 
+/** One push notification type the user can toggle in Settings (issues
+ * #342/#343). `label` is human-facing; the client renders a toggle per row, so
+ * new types added on the backend appear here automatically. */
+export interface NotificationPreference {
+  type: string
+  label: string
+  enabled: boolean
+}
+
+export interface NotificationPreferencesResponse {
+  preferences: NotificationPreference[]
+}
+
+export interface SetNotificationPreferenceResponse {
+  type: string
+  enabled: boolean
+}
+
 export interface RequestResetRequest {
   username_or_email: string
 }

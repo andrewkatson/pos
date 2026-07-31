@@ -137,6 +137,36 @@ describe('push device registration (#342/#343)', () => {
     await expect(client.registerDevice({ platform: 'web', token: 't' })).rejects.toThrow(ApiError)
     expect(fetchFn).not.toHaveBeenCalled()
   })
+
+  test('getNotificationPreferences unwraps the preferences list', async () => {
+    const prefs = [{ type: 'post_rejected', label: 'Post moderation', enabled: true }]
+    const fetchFn = vi.fn().mockResolvedValue(jsonResponse(200, { preferences: prefs }))
+    const client = new ApiClient({ token: 'sometoken', fetchFn })
+
+    const result = await client.getNotificationPreferences()
+
+    expect(fetchFn).toHaveBeenCalledWith(
+      'https://api.smiling.social/user_index/notifications/preferences/',
+      expect.objectContaining({ method: 'GET' }),
+    )
+    expect(result).toEqual(prefs)
+  })
+
+  test('setNotificationPreference posts the type + enabled flag', async () => {
+    const fetchFn = vi.fn().mockResolvedValue(jsonResponse(200, { type: 'post_rejected', enabled: false }))
+    const client = new ApiClient({ token: 'sometoken', fetchFn })
+
+    const result = await client.setNotificationPreference('post_rejected', false)
+
+    expect(fetchFn).toHaveBeenCalledWith(
+      'https://api.smiling.social/user_index/notifications/preferences/',
+      expect.objectContaining({
+        method: 'POST',
+        body: JSON.stringify({ type: 'post_rejected', enabled: false }),
+      }),
+    )
+    expect(result).toEqual({ type: 'post_rejected', enabled: false })
+  })
 })
 
 describe('friendly error messages', () => {

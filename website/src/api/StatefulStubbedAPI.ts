@@ -37,12 +37,14 @@ import type {
   MyAppeal,
   PostAudience,
   PostDetails,
+  NotificationPreference,
   PostStatusResponse,
   ProfileDetails,
   ProfileImageStatus,
   RegisterDeviceRequest,
   RegisterRequest,
   RemoveProfilePhotoResponse,
+  SetNotificationPreferenceResponse,
   ReplyResponse,
   RequestResetRequest,
   ResendVerificationEmailRequest,
@@ -1508,6 +1510,29 @@ export class StatefulStubbedAPI implements PositiveOnlySocialAPI {
     // push bootstrap flow can be exercised in UI mode without a real backend.
     this.requireUser()
     return { message: 'Device registered.' }
+  }
+
+  // The push types the stub knows about, mirroring the backend's
+  // PUSH_TYPE_CHOICES. Preferences default to enabled; toggling stores an
+  // override in this map.
+  private notificationOverrides: Record<string, boolean> = {}
+
+  async getNotificationPreferences(): Promise<NotificationPreference[]> {
+    this.requireUser()
+    return [{
+      type: 'post_rejected',
+      label: 'Post moderation',
+      enabled: this.notificationOverrides['post_rejected'] ?? true,
+    }]
+  }
+
+  async setNotificationPreference(
+    type: string,
+    enabled: boolean,
+  ): Promise<SetNotificationPreferenceResponse> {
+    this.requireUser()
+    this.notificationOverrides[type] = enabled
+    return { type, enabled }
   }
 
   // ---------------------------------------------------------------------------

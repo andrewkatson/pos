@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router'
 import { apiClient } from '../api/client'
 import { clearSession } from '../api/session'
-import type { CurrentUser } from '../api/types'
+import type { CurrentUser, NotificationPreference } from '../api/types'
 import { PRIVACY_POLICY_TEXT } from '../privacyPolicy'
 import Modal from './Modal'
 import {
@@ -36,6 +36,7 @@ function SettingsTab() {
   const [errorMessage, setErrorMessage] = useState<string | null>(null)
   const [infoMessage, setInfoMessage] = useState<string | null>(null)
   const [currentUser, setCurrentUser] = useState<CurrentUser | null>(null)
+  const [notifPrefs, setNotifPrefs] = useState<NotificationPreference[]>([])
 
   // Load the signed-in account's own username + email for the Contact
   // Information section (load-on-mount, matching the rest of the app).
@@ -53,6 +54,35 @@ function SettingsTab() {
       cancelled = true
     }
   }, [])
+
+  // Load the push notification toggles (issues #342/#343). One row per type the
+  // backend reports, so a new type appears here with no client change.
+  useEffect(() => {
+    let cancelled = false
+    apiClient
+      .getNotificationPreferences()
+      .then(prefs => {
+        if (!cancelled) setNotifPrefs(prefs)
+      })
+      .catch(() => {
+        // Non-fatal: the section just doesn't render if this fails.
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [])
+
+  async function toggleNotification(pref: NotificationPreference) {
+    const next = !pref.enabled
+    // Optimistic: flip immediately, revert on failure.
+    setNotifPrefs(prev => prev.map(p => (p.type === pref.type ? { ...p, enabled: next } : p)))
+    try {
+      await apiClient.setNotificationPreference(pref.type, next)
+    } catch {
+      setNotifPrefs(prev => prev.map(p => (p.type === pref.type ? { ...p, enabled: !next } : p)))
+      setErrorMessage('Could not update notification settings. Please try again.')
+    }
+  }
 
   const close = () => setActiveModal(null)
 
@@ -170,6 +200,24 @@ function SettingsTab() {
           Privacy Policy
         </button>
       </div>
+
+      {notifPrefs.length > 0 && (
+        <div className="settings-group">
+          <span className="settings-group__header">Notifications</span>
+          {notifPrefs.map(pref => (
+            <button
+              key={pref.type}
+              type="button"
+              className="settings-row settings-row--toggle"
+              aria-pressed={pref.enabled}
+              onClick={() => toggleNotification(pref)}
+            >
+              <span>{pref.label}</span>
+              <span className="settings-row__value">{pref.enabled ? 'On' : 'Off'}</span>
+            </button>
+          ))}
+        </div>
+      )}
 
       <div className="settings-group">
         <span className="settings-group__header">Security</span>
