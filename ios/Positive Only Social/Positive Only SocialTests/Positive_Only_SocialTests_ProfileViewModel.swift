@@ -403,8 +403,10 @@ struct Positive_Only_SocialTests_ProfileViewModel {
 
         _ = try await stubAPI.makePost(sessionManagementToken: token, imageURL: "own.image/1", caption: "Post 1")
         sut.fetchUserPosts()
+        sut.fetchProfileDetails()
         await yield()
         #expect(sut.userPosts.count == 1)
+        #expect(sut.profileDetails?.postCount == 1)
 
         // When: a new post is created elsewhere in the app
         _ = try await stubAPI.makePost(sessionManagementToken: token, imageURL: "own.image/2", caption: "Post 2")
@@ -414,6 +416,9 @@ struct Positive_Only_SocialTests_ProfileViewModel {
         // Then: it shows up without a manual pull-to-refresh
         #expect(sut.userPosts.count == 2)
         #expect(sut.userPosts.first?.imageUrl == "own.image/2", "Newest first")
+        // And the Posts stat (backed by the backend's post_count) increments too,
+        // not just the grid — the whole point of issue #437.
+        #expect(sut.profileDetails?.postCount == 2)
     }
 
     @Test func testPostCreatedNotification_IgnoredOnSomeoneElsesProfile() async throws {
@@ -451,8 +456,10 @@ struct Positive_Only_SocialTests_ProfileViewModel {
         _ = try await stubAPI.makePost(sessionManagementToken: token, imageURL: "del.image/1", caption: "Post 1")
         _ = try await stubAPI.makePost(sessionManagementToken: token, imageURL: "del.image/2", caption: "Post 2")
         sut.fetchUserPosts()
+        sut.fetchProfileDetails()
         await yield()
         #expect(sut.userPosts.count == 2)
+        #expect(sut.profileDetails?.postCount == 2)
 
         // When: one of the loaded posts is deleted (announced by whichever list
         // or detail view deleted it)
@@ -464,6 +471,98 @@ struct Positive_Only_SocialTests_ProfileViewModel {
         #expect(sut.userPosts.count == 1)
         #expect(!sut.userPosts.contains { $0.id == deletedId })
         #expect(stubAPI.getPostsForUserCallCount == 1)
+        // And the Posts stat (backed by post_count) drops with the tile, so the
+        // count doesn't contradict the grid until the next reload (issue #437).
+        #expect(sut.profileDetails?.postCount == 1)
+    }
+
+    @Test func testPostDeletedNotification_OnAnotherUsersProfile_LeavesCountUnchanged() async throws {
+        // Viewing someone else's profile: a delete announced elsewhere is for one
+        // of your own posts (you can only delete your own), which isn't counted
+        // here, so the count must not move and the stats aren't reloaded.
+        stubAPI.pageSize = 10
+        let (viewerToken, viewer) = try await registerUser(username: "otherDeleteViewer")
+        let (profileToken, profileUser) = try await registerUser(username: "otherDeleteOwner")
+        let account = "otherDeleteViewer_account"
+        try await setupLoggedInUser(user: viewer, token: viewerToken, account: account)
+
+        _ = try await stubAPI.makePost(sessionManagementToken: profileToken, imageURL: "pu.image/1", caption: "Post 1")
+
+        let center = NotificationCenter()
+        let sut = ProfileViewModel(user: profileUser, api: stubAPI, keychainHelper: keychainHelper, account: account,
+                                   notificationCenter: center)
+        sut.fetchUserPosts()
+        sut.fetchProfileDetails()
+        await yield()
+        #expect(sut.isOwnProfile == false)
+        #expect(sut.profileDetails?.postCount == 1)
+
+        center.post(name: .postDeleted, object: "some-own-post-deleted-elsewhere")
+        await yield()
+
+        #expect(sut.profileDetails?.postCount == 1, "A delete on another user's profile must not move the count")
+    }
+
+    @Test func testPostDeletedNotification_OwnPostOffPage_ReloadsCountFromBackend() async throws {
+        // On your own profile, deleting one of your posts from another screen —
+        // one that isn't on the loaded page — doesn't change userPosts here, but
+        // the backend post_count drops. The stats are reloaded so the Posts count
+        // stays consistent with the backend total rather than going stale (#437).
+        stubAPI.pageSize = 2
+        let (token, user) = try await registerUser(username: "ownDeleteOffPage")
+        let account = "ownDeleteOffPage_account"
+        try await setupLoggedInUser(user: user, token: token, account: account)
+
+        // Three posts: the grid loads the two newest; the oldest is off-page.
+        struct MadePost: Decodable { let post_identifier: String }
+        let oldestData = try await stubAPI.makePost(sessionManagementToken: token, imageURL: "off.image/1", caption: "Oldest")
+        let oldestId = try JSONDecoder().decode(MadePost.self, from: oldestData).post_identifier
+        _ = try await stubAPI.makePost(sessionManagementToken: token, imageURL: "off.image/2", caption: "Middle")
+        _ = try await stubAPI.makePost(sessionManagementToken: token, imageURL: "off.image/3", caption: "Newest")
+
+        let center = NotificationCenter()
+        let sut = ProfileViewModel(user: user, api: stubAPI, keychainHelper: keychainHelper, account: account,
+                                   notificationCenter: center)
+        sut.fetchUserPosts()
+        sut.fetchProfileDetails()
+        await yield()
+        #expect(sut.isOwnProfile == true)
+        #expect(sut.userPosts.count == 2, "Only the first page is loaded")
+        #expect(sut.profileDetails?.postCount == 3)
+        #expect(!sut.userPosts.contains { $0.id == oldestId }, "The oldest post is off-page")
+
+        // The off-page post is deleted from another screen; the backend drops to 2.
+        _ = try await stubAPI.deletePost(sessionManagementToken: token, postIdentifier: oldestId)
+        center.post(name: .postDeleted, object: oldestId)
+        await yield()
+
+        // The grid is unchanged (that post wasn't loaded), but the count reloaded.
+        #expect(sut.userPosts.count == 2)
+        #expect(sut.profileDetails?.postCount == 2)
+    }
+
+    @Test func testPostCount_ReflectsBackendTotal_NotPaginatedGridSize() async throws {
+        // The Posts stat reads the backend's post_count, so it shows the true
+        // total even when only the first page of the grid is loaded — the bug
+        // in issue #437 was that it tracked the loaded-grid size instead.
+        stubAPI.pageSize = 2
+        let (token, user) = try await registerUser(username: "paginatedOwner")
+        let account = "paginatedOwner_account"
+        try await setupLoggedInUser(user: user, token: token, account: account)
+
+        for index in 1...5 {
+            _ = try await stubAPI.makePost(sessionManagementToken: token, imageURL: "page.image/\(index)", caption: "Post \(index)")
+        }
+
+        let sut = ProfileViewModel(user: user, api: stubAPI, keychainHelper: keychainHelper, account: account)
+        sut.fetchUserPosts()
+        sut.fetchProfileDetails()
+        await yield()
+
+        // Only the first page is loaded into the grid...
+        #expect(sut.userPosts.count == 2)
+        // ...but the count reflects all five posts.
+        #expect(sut.profileDetails?.postCount == 5)
     }
 
     // --- Async Classification Reconciliation Tests (#282) ---
