@@ -454,9 +454,11 @@ MAX_FREEFORM_INTEREST_LENGTH = 100
 # Most interest buckets the offline categorizer assigns to one post — a handful
 # of "what this is about" labels, not an exhaustive tagging.
 MAX_INTEREST_TAGS_PER_POST = 3
-# Feed weighting: each interest bucket a post shares with the viewer multiplies
-# its hot-rank score by (1 + INTEREST_BOOST). 0 would disable the feature; a
-# larger value surfaces on-interest posts more aggressively. Tunable.
+# Feed weighting: a post's hot-rank score is multiplied by
+# (1 + INTEREST_BOOST * overlap), where overlap is the number of interest
+# buckets the post shares with the viewer — a LINEAR boost in the overlap, not
+# (1 + INTEREST_BOOST) applied per bucket. 0 would disable the feature; a larger
+# value surfaces on-interest posts more aggressively. Tunable.
 INTEREST_BOOST = 0.5
 
 # Number of reports before hiding
