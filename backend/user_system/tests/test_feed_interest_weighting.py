@@ -44,7 +44,8 @@ class FeedInterestWeightingTests(TestCase):
         self.assertEqual(ordered[1].pk, plain.pk)
 
     def test_no_interests_is_plain_hot_rank(self):
-        # With no viewer interests both posts score identically (old behavior).
+        # With no viewer interests no boost is applied, so an on-topic post and
+        # an off-topic one of the same age and likes score identically.
         self._post("off topic")
         self._post("on topic", categories=['nature'])
         scores = [round(p.score, 6) for p in self._ordered()]

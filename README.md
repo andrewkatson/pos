@@ -174,8 +174,10 @@ interest buckets the post shares with the viewer. The boost is **linear** in the
 overlap (not `(1 + INTEREST_BOOST)` per bucket), so it *scales* the hot rank
 rather than replacing it: a fresh, liked,
 on-topic post rises, but an ancient on-topic post still decays. When the viewer
-has no interests the branch is skipped entirely and the ranking is byte-for-byte
-the old hot rank. The match count is computed with a correlated subquery over the
+has no interests the branch is skipped entirely, so no boost is applied and the
+score is the plain hot rank — though not identical to what the feed returned
+before this feature, since the distinct like count described below corrects
+scores that were previously inflated. The match count is computed with a correlated subquery over the
 post↔bucket join (not a second aggregate) so it can never corrupt the like count.
 Interest weighting composes on top of the existing `visible_posts` and block
 filters — it only reorders posts the viewer was already allowed to see.

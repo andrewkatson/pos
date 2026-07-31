@@ -77,8 +77,11 @@ def calculate_weights(qs, like_field, G=1.8, user=None, interest_category_ids=No
     #     (NOT (1 + INTEREST_BOOST) per bucket — no exponential compounding), so
     #     a fresh, liked, on-topic post rises while an ancient on-topic post
     #     still decays — the boost scales the rank, it doesn't replace it. When
-    #     the viewer has no interests this branch is skipped entirely and the
-    #     ranking is byte-for-byte the old hot rank.
+    #     the viewer has no interests this branch is skipped entirely, so no
+    #     boost is applied and the score is the plain hot rank. (Not identical
+    #     to what shipped before this feature, though: the distinct fix above
+    #     corrects like counts the audience join used to inflate, so scores can
+    #     move for posts by authors who follow a lot of people.)
     #
     #     The match count comes from a correlated Subquery over the M2M through
     #     table rather than a second Count annotation: two Counts over different
