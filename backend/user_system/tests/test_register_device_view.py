@@ -1,4 +1,7 @@
+from datetime import timedelta
+
 from django.urls import reverse
+from django.utils import timezone
 
 from .test_parent_case import PositiveOnlySocialTestCase
 from ..constants import (
@@ -33,6 +36,21 @@ class RegisterDeviceViewTests(PositiveOnlySocialTestCase):
         self._post({'platform': DEVICE_PLATFORM_IOS, 'token': 'dupe'})
         self._post({'platform': DEVICE_PLATFORM_IOS, 'token': 'dupe'})
         self.assertEqual(DeviceToken.objects.filter(token='dupe').count(), 1)
+
+    def test_reregistering_bumps_updated_at(self):
+        """Re-registering refreshes updated_at so "last seen" stays meaningful
+        for pruning/monitoring. Backdate the row, then re-register and assert the
+        timestamp advanced (update_or_create re-adds auto_now fields to
+        update_fields, so the upsert does bump it)."""
+        self._post({'platform': DEVICE_PLATFORM_IOS, 'token': 'refresh'})
+        row = DeviceToken.objects.get(token='refresh')
+        past = timezone.now() - timedelta(hours=1)
+        DeviceToken.objects.filter(pk=row.pk).update(updated_at=past)
+
+        self._post({'platform': DEVICE_PLATFORM_IOS, 'token': 'refresh'})
+
+        row.refresh_from_db()
+        self.assertGreater(row.updated_at, past)
 
     def test_reregistering_token_repoints_it_to_the_new_user(self):
         """A device that changes accounts moves rather than duplicating: the

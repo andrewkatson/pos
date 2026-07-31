@@ -15,6 +15,44 @@ FCM = 'user_system.push._send_fcm'
 PAYLOAD = {'title': 't', 'body': 'b', 'data': {'type': PUSH_TYPE_POST_REJECTED}}
 
 
+class _FakeResponse:
+    """Minimal stand-in for the provider HTTP responses the dead-token helpers
+    inspect (status_code + json())."""
+    def __init__(self, status_code, body):
+        self.status_code = status_code
+        self._body = body
+
+    def json(self):
+        return self._body
+
+
+class DeadTokenDetectionTests(TestCase):
+    """Only an unambiguous "token no longer exists" signal prunes a row; a
+    config/payload/topic error must never delete a live token (#342)."""
+
+    def test_apns_dead_on_410_and_bad_device_token(self):
+        self.assertTrue(push._apns_token_is_dead(_FakeResponse(410, {})))
+        self.assertTrue(push._apns_token_is_dead(_FakeResponse(400, {'reason': 'BadDeviceToken'})))
+        self.assertTrue(push._apns_token_is_dead(_FakeResponse(400, {'reason': 'Unregistered'})))
+
+    def test_apns_not_dead_on_topic_mismatch(self):
+        # An apns-topic/environment misconfig — must not prune valid tokens.
+        self.assertFalse(push._apns_token_is_dead(_FakeResponse(400, {'reason': 'DeviceTokenNotForTopic'})))
+        self.assertFalse(push._apns_token_is_dead(_FakeResponse(403, {'reason': 'ExpiredProviderToken'})))
+
+    def test_fcm_dead_only_on_explicit_unregistered(self):
+        self.assertTrue(push._fcm_token_is_dead(_FakeResponse(404, {'error': {'status': 'NOT_FOUND'}})))
+        self.assertTrue(push._fcm_token_is_dead(_FakeResponse(
+            404, {'error': {'details': [{'errorCode': 'UNREGISTERED'}]}})))
+
+    def test_fcm_not_dead_on_bare_404_or_invalid_argument(self):
+        # A wrong project_id/URL 404s without the unregistered signal; pruning on
+        # a bare 404 would wipe every token over a config mistake.
+        self.assertFalse(push._fcm_token_is_dead(_FakeResponse(404, {})))
+        self.assertFalse(push._fcm_token_is_dead(_FakeResponse(
+            400, {'error': {'status': 'INVALID_ARGUMENT'}})))
+
+
 class SendPushFanOutTests(TestCase):
     """send_push routes tokens to the right provider and prunes dead ones (#342)."""
 
