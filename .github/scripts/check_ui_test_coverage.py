@@ -28,7 +28,10 @@ UI_TARGET = "Positive Only SocialUITests"
 def declared_tests():
     """Every `Target/Class/method` the UI test sources define."""
     found = set()
-    for path in sorted(UI_TEST_DIR.glob("*.swift")):
+    # rglob, not glob: Xcode groups often become real subdirectories, and a
+    # check that silently ignores them would recreate the very hole it exists
+    # to close.
+    for path in sorted(UI_TEST_DIR.rglob("*.swift")):
         src = path.read_text(encoding="utf-8")
         # Track where each XCTestCase subclass starts so methods are attributed
         # to the right class even when a file declares more than one.
@@ -46,35 +49,50 @@ def declared_tests():
 
 
 def scheduled_tests():
-    """Every UI test the workflow names in an `-only-testing:` entry."""
+    """Every UI test the workflow names, in order, keeping duplicates.
+
+    A list rather than a set: the same test named in two groups would run
+    twice, quietly paying for itself again on a job whose whole point is
+    runtime. That is invisible to a set-based comparison.
+    """
     text = WORKFLOW.read_text(encoding="utf-8")
-    return set(re.findall(rf'"({re.escape(UI_TARGET)}/\w+/\w+)"', text))
+    return re.findall(rf'"({re.escape(UI_TARGET)}/\w+/\w+)"', text)
 
 
 def main():
     declared = declared_tests()
     scheduled = scheduled_tests()
+    scheduled_set = set(scheduled)
 
     if not declared:
-        print(f"error: no UI tests found under {UI_TEST_DIR} — has the layout moved?")
+        print(f"error: no UI tests found under {UI_TEST_DIR} - has the layout moved?")
         return 1
 
-    unscheduled = sorted(declared - scheduled)
-    stale = sorted(scheduled - declared)
+    unscheduled = sorted(declared - scheduled_set)
+    stale = sorted(scheduled_set - declared)
+    duplicated = sorted(
+        {name for name in scheduled if scheduled.count(name) > 1}
+    )
 
     for name in unscheduled:
         print(f"error: {name} is never run - add it to a test-group in ios-tests.yml")
     for name in stale:
         print(f"error: {name} is scheduled but no longer exists - remove it from ios-tests.yml")
-
-    if unscheduled or stale:
+    for name in duplicated:
         print(
-            f"\n{len(declared)} UI tests declared, {len(scheduled)} scheduled. "
+            f"error: {name} is scheduled {scheduled.count(name)} times - "
+            "it would run once per group; leave it in only one"
+        )
+
+    if unscheduled or stale or duplicated:
+        print(
+            f"\n{len(declared)} UI tests declared, {len(scheduled)} scheduled "
+            f"({len(scheduled_set)} distinct). "
             "Every UI test must appear in exactly one matrix group."
         )
         return 1
 
-    print(f"All {len(declared)} UI tests are scheduled by the matrix.")
+    print(f"All {len(declared)} UI tests are scheduled exactly once by the matrix.")
     return 0
 
 
