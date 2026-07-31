@@ -67,13 +67,17 @@ def build_rejection_payload(post, final):
     return {
         "title": title,
         "body": body,
+        # Every value is a string: FCM's data map only carries strings, so the
+        # contract is uniform across providers (clients parse "true"/"false")
+        # rather than a boolean on APNs and a string on FCM. See _send_apns /
+        # _send_fcm, which both deliver this map verbatim under a "data" key.
         "data": {
             "type": PUSH_TYPE_POST_REJECTED,
             "post_identifier": post_id,
-            "appealable": appealable,
-            # A web-openable link to the post; native clients route off
-            # post_identifier + type, web opens this directly on tap.
-            "deep_link": f"{settings.FRONTEND_BASE_URL}/posts/{post_id}",
+            "appealable": "true" if appealable else "false",
+            # A web-openable link to the post (the web route is singular
+            # /post/<id>); native clients route off post_identifier + type.
+            "deep_link": f"{settings.FRONTEND_BASE_URL}/post/{post_id}",
         },
     }
 
@@ -98,20 +102,32 @@ def send_push(user, payload):
     fcm_tokens = (by_platform.get(DEVICE_PLATFORM_ANDROID, [])
                   + by_platform.get(DEVICE_PLATFORM_WEB, []))
 
-    dead = set()
     if apns_tokens:
         try:
-            dead.update(_send_apns(apns_tokens, payload))
+            dead = _send_apns(apns_tokens, payload)
         except Exception:
             logger.exception("APNs push failed for user %s", user.id)
+        else:
+            # Scope the prune to iOS: uniqueness is on (platform, token), so the
+            # same token string can legitimately exist on another platform, and
+            # an APNs "gone" verdict must not delete an Android/web row.
+            _prune_dead(user, [DEVICE_PLATFORM_IOS], dead)
     if fcm_tokens:
         try:
-            dead.update(_send_fcm(fcm_tokens, payload))
+            dead = _send_fcm(fcm_tokens, payload)
         except Exception:
             logger.exception("FCM push failed for user %s", user.id)
+        else:
+            _prune_dead(user, [DEVICE_PLATFORM_ANDROID, DEVICE_PLATFORM_WEB], dead)
 
-    if dead:
-        deleted, _ = DeviceToken.objects.filter(user=user, token__in=dead).delete()
+
+def _prune_dead(user, platforms, dead_tokens):
+    """Delete the user's dead tokens, scoped to the platforms that reported them."""
+    if not dead_tokens:
+        return
+    deleted, _ = DeviceToken.objects.filter(
+        user=user, platform__in=platforms, token__in=dead_tokens).delete()
+    if deleted:
         logger.info("Pruned %d dead device token(s) for user %s", deleted, user.id)
 
 
@@ -154,6 +170,9 @@ def _apns_jwt():
         algorithm="ES256",
         headers={"kid": settings.APNS_KEY_ID},
     )
+    # PyJWT < 2 returns bytes; APNs needs a str Authorization value.
+    if isinstance(token, bytes):
+        token = token.decode("ascii")
     _apns_jwt_cache["token"] = token
     _apns_jwt_cache["minted_at"] = now
     return token
@@ -174,9 +193,11 @@ def _send_apns(tokens, payload):
         "apns-topic": settings.APNS_TOPIC,
         "apns-push-type": "alert",
     }
+    # Custom keys go under "data" (not flattened to the top level) so iOS reads
+    # them at userInfo["data"], matching the FCM data map exactly.
     body = json.dumps({
         "aps": {"alert": {"title": payload["title"], "body": payload["body"]}, "sound": "default"},
-        **payload.get("data", {}),
+        "data": payload.get("data", {}),
     })
 
     dead = []
@@ -249,8 +270,10 @@ def _send_fcm(tokens, payload):
     project_id = service_account["project_id"]
     url = f"https://fcm.googleapis.com/v1/projects/{project_id}/messages:send"
 
-    # FCM v1 data values must be strings.
-    data = {k: (v if isinstance(v, str) else json.dumps(v)) for k, v in payload.get("data", {}).items()}
+    # FCM v1 data values must be strings. build_rejection_payload already emits
+    # only strings; str() is a defensive coerce so a caller passing a non-string
+    # never sends a JSON-typed value FCM would reject.
+    data = {k: str(v) for k, v in payload.get("data", {}).items()}
 
     dead = []
     for token in tokens:

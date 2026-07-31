@@ -286,9 +286,12 @@ bring the user back to look.
 - **Send path.** `user_system.push.send_push(user, payload)` fans out to all a
   user's tokens, called by `classify_post` on a resolved rejection — off the
   request path, on the same durable queue, best-effort. The payload's `data`
-  carries the `post_identifier`, a `type` (`post_rejected`), whether it is
-  `appealable`, and a `deep_link` so the client can open the rejected post and
-  its appeal UI.
+  map carries the `post_identifier`, a `type` (`post_rejected`), whether it is
+  `appealable`, and a `deep_link` (`<FRONTEND_BASE_URL>/post/<id>`) so the client
+  can open the rejected post and its appeal UI. **All `data` values are strings**
+  — FCM's data map only carries strings, so the shape is identical across
+  providers (both APNs and FCM deliver it under a `data` key) and clients parse
+  `appealable` as `"true"`/`"false"` rather than a boolean.
 - **Providers.** iOS delivers through **APNs** directly (token-based `.p8`
   auth); Android and web both go through **FCM** (web uses FCM-for-web, so it
   registers with `platform: web` and needs no separate Web Push/VAPID path).

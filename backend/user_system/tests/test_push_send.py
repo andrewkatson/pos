@@ -138,9 +138,17 @@ class RejectionPayloadTests(TestCase):
         payload = push.build_rejection_payload(self.post, final=False)
         self.assertEqual(payload['data']['type'], PUSH_TYPE_POST_REJECTED)
         self.assertEqual(payload['data']['post_identifier'], str(self.post.post_identifier))
-        self.assertTrue(payload['data']['appealable'])
-        self.assertIn(str(self.post.post_identifier), payload['data']['deep_link'])
+        # data values are strings (FCM constraint), so appealable is "true"/"false".
+        self.assertEqual(payload['data']['appealable'], 'true')
+        self.assertIn(f'/post/{self.post.post_identifier}', payload['data']['deep_link'])
 
     def test_final_payload_is_not_appealable(self):
         payload = push.build_rejection_payload(self.post, final=True)
-        self.assertFalse(payload['data']['appealable'])
+        self.assertEqual(payload['data']['appealable'], 'false')
+
+    def test_all_data_values_are_strings(self):
+        """FCM's data map only carries strings; the contract is uniform so
+        clients parse the same shape from both providers."""
+        payload = push.build_rejection_payload(self.post, final=False)
+        for key, value in payload['data'].items():
+            self.assertIsInstance(value, str, f"{key} must be a string")

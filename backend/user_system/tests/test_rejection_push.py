@@ -43,7 +43,7 @@ class RejectionPushWiringTests(TestCase):
         user_arg, payload = send_push.call_args.args
         self.assertEqual(user_arg, self.user)
         self.assertEqual(payload['data']['type'], PUSH_TYPE_POST_REJECTED)
-        self.assertTrue(payload['data']['appealable'])
+        self.assertEqual(payload['data']['appealable'], 'true')
 
     @patch(SEND_PUSH)
     @patch(IMAGE, return_value=ALLOWED)
@@ -52,7 +52,7 @@ class RejectionPushWiringTests(TestCase):
         self._run()
         send_push.assert_called_once()
         _user, payload = send_push.call_args.args
-        self.assertFalse(payload['data']['appealable'])
+        self.assertEqual(payload['data']['appealable'], 'false')
 
     @patch(SEND_PUSH)
     @patch(IMAGE, return_value=ALLOWED)
