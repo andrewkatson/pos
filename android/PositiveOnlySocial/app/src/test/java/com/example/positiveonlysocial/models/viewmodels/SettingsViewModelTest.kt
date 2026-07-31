@@ -199,6 +199,22 @@ class SettingsViewModelTest {
     }
 
     @Test
+    fun `clearError dismisses the error alert - both message and flag`() = runTest {
+        // Drive an error into the state via a failing preference update.
+        whenever(api.setNotificationPreference(eq("token123"), any())).thenReturn(
+            Response.error(500, "".toResponseBody())
+        )
+        viewModel.updateNotificationPreference("post_rejected", false)
+        assertTrue(viewModel.showingErrorAlert.value)
+
+        viewModel.clearError()
+
+        assertNull(viewModel.errorMessage.value)
+        // The alert flag must reset too, or the dialog can't be dismissed.
+        assertEquals(false, viewModel.showingErrorAlert.value)
+    }
+
+    @Test
     fun `finishTotpEnrollment clears state and sets status message`() = runTest {
         whenever(api.setupTotp("token123")).thenReturn(
             Response.success(TotpSetupResponse("SECRET", "otpauth://totp/x"))

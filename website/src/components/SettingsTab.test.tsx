@@ -15,6 +15,8 @@ vi.mock('../api/client', () => ({
     disableTotp: vi.fn(),
     getCurrentUser: vi.fn(),
     changePassword: vi.fn(),
+    getNotificationPreferences: vi.fn(),
+    setNotificationPreference: vi.fn(),
   },
 }))
 
@@ -27,6 +29,8 @@ const mockConfirmTotp = vi.mocked(apiClient.confirmTotp)
 const mockDisableTotp = vi.mocked(apiClient.disableTotp)
 const mockGetCurrentUser = vi.mocked(apiClient.getCurrentUser)
 const mockChangePassword = vi.mocked(apiClient.changePassword)
+const mockGetNotifPrefs = vi.mocked(apiClient.getNotificationPreferences)
+const mockSetNotifPref = vi.mocked(apiClient.setNotificationPreference)
 
 function renderTab() {
   return render(
@@ -59,6 +63,10 @@ beforeEach(() => {
     .mockReset()
     .mockResolvedValue({ username: 'ada', email: 'ada@example.com' })
   mockChangePassword.mockReset().mockResolvedValue({ message: 'ok' })
+  // Default: no notification types, so the Notifications section stays hidden
+  // for the existing tests; the toggle test overrides this.
+  mockGetNotifPrefs.mockReset().mockResolvedValue([])
+  mockSetNotifPref.mockReset().mockResolvedValue({ type: 'post_rejected', enabled: false })
   vi.stubGlobal('localStorage', {
     getItem: vi.fn(),
     setItem: vi.fn(),
@@ -257,4 +265,69 @@ test('opens the saved posts page', async () => {
   renderTab()
   await userEvent.click(screen.getByRole('button', { name: 'Saved Posts' }))
   expect(await screen.findByText('Saved posts page')).toBeInTheDocument()
+})
+
+test('notification toggle flips the preference and persists it (#342/#343)', async () => {
+  mockGetNotifPrefs.mockResolvedValue([
+    { type: 'post_rejected', label: 'Post moderation', enabled: true },
+  ])
+  renderTab()
+
+  const toggle = await screen.findByRole('button', { name: /Post moderation/ })
+  expect(toggle).toHaveTextContent('On')
+
+  await userEvent.click(toggle)
+
+  expect(mockSetNotifPref).toHaveBeenCalledWith('post_rejected', false)
+  expect(toggle).toHaveTextContent('Off')
+})
+
+test('a failed notification toggle reverts and surfaces an error', async () => {
+  mockGetNotifPrefs.mockResolvedValue([
+    { type: 'post_rejected', label: 'Post moderation', enabled: true },
+  ])
+  mockSetNotifPref.mockRejectedValue(new Error('nope'))
+  renderTab()
+
+  const toggle = await screen.findByRole('button', { name: /Post moderation/ })
+  await userEvent.click(toggle)
+
+  expect(await screen.findByRole('alert')).toHaveTextContent('Could not update notification settings')
+  expect(toggle).toHaveTextContent('On')
+})
+
+test('a second click while a toggle save is in flight is ignored', async () => {
+  mockGetNotifPrefs.mockResolvedValue([
+    { type: 'post_rejected', label: 'Post moderation', enabled: true },
+  ])
+  // Never resolves: the first save stays in flight for the whole test.
+  mockSetNotifPref.mockImplementation(() => new Promise(() => {}))
+  renderTab()
+
+  const toggle = await screen.findByRole('button', { name: /Post moderation/ })
+  await userEvent.click(toggle)
+  expect(mockSetNotifPref).toHaveBeenCalledTimes(1)
+
+  // The row is disabled while saving, so a rapid re-click can't race.
+  expect(toggle).toBeDisabled()
+  await userEvent.click(toggle)
+  expect(mockSetNotifPref).toHaveBeenCalledTimes(1)
+})
+
+test('a later successful toggle clears a previous toggle error', async () => {
+  mockGetNotifPrefs.mockResolvedValue([
+    { type: 'post_rejected', label: 'Post moderation', enabled: true },
+  ])
+  mockSetNotifPref.mockRejectedValueOnce(new Error('nope')).mockResolvedValue({
+    type: 'post_rejected',
+    enabled: false,
+  })
+  renderTab()
+
+  const toggle = await screen.findByRole('button', { name: /Post moderation/ })
+  await userEvent.click(toggle) // fails -> error banner
+  expect(await screen.findByRole('alert')).toBeInTheDocument()
+
+  await userEvent.click(toggle) // succeeds -> banner cleared
+  expect(screen.queryByRole('alert')).not.toBeInTheDocument()
 })

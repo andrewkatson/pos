@@ -1348,6 +1348,45 @@ class StatefulStubbedAPI : PositiveOnlySocialAPI {
     }
 
     // ============================================================================================
+    // push notifications (issues #342/#343)
+    // ============================================================================================
+
+    override suspend fun registerDevice(
+        token: String,
+        request: RegisterDeviceRequest
+    ): Response<GenericResponse> {
+        // The stub keeps no device table; registration just "succeeds" for a
+        // valid session so the push bootstrap can be exercised in UI mode.
+        getAuthorizedUser(token) ?: return errorGeneric(401, "Unauthorized")
+        return Response.success(GenericResponse(message = "Device registered.", error = null))
+    }
+
+    // Per-type push preferences, mirroring the backend's PUSH_TYPE_CHOICES.
+    // Defaults to enabled; toggling stores an override.
+    private val notificationOverrides = mutableMapOf<String, Boolean>()
+
+    override suspend fun getNotificationPreferences(
+        token: String
+    ): Response<NotificationPreferencesResponse> {
+        getAuthorizedUser(token) ?: return errorGeneric(401, "Unauthorized")
+        val prefs = listOf(
+            NotificationPreference(
+                type = "post_rejected", label = "Post moderation",
+                enabled = notificationOverrides["post_rejected"] ?: true)
+        )
+        return Response.success(NotificationPreferencesResponse(preferences = prefs))
+    }
+
+    override suspend fun setNotificationPreference(
+        token: String,
+        request: SetNotificationPreferenceRequest
+    ): Response<GenericResponse> {
+        getAuthorizedUser(token) ?: return errorGeneric(401, "Unauthorized")
+        notificationOverrides[request.type] = request.enabled
+        return Response.success(GenericResponse(message = "Preference saved.", error = null))
+    }
+
+    // ============================================================================================
     // appeals
     // ============================================================================================
 

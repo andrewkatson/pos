@@ -10,6 +10,7 @@ import {
   loadRememberMeTokens,
   saveRememberMeTokens,
 } from './api/session'
+import { registerForPush } from './push/webPush'
 import './index.css'
 
 // Restore the session token persisted at login so a page reload keeps the user
@@ -58,7 +59,13 @@ async function refreshRememberMeSession(): Promise<void> {
     clearRememberMeTokens()
   }
 }
-void refreshRememberMeSession()
+// Refresh a remembered session, then (whether or not it rotated) refresh this
+// browser's push token if we're signed in. promptIfNeeded is left false so a
+// returning user isn't asked for notification permission on every load — that
+// prompt happens at login. Best-effort; never blocks startup.
+void refreshRememberMeSession().finally(() => {
+  void registerForPush()
+})
 
 // A banned account has its sessions revoked server-side; drop the local
 // session and land on the login page, which explains the suspension.

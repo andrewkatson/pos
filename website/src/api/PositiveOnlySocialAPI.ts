@@ -29,10 +29,13 @@ import type {
   LoginWithRememberMeResponse,
   MessageResponse,
   MyAppeal,
+  NotificationPreference,
   PostDetails,
   PostStatusResponse,
   ProfileDetails,
+  RegisterDeviceRequest,
   RegisterRequest,
+  SetNotificationPreferenceResponse,
   RemoveProfilePhotoResponse,
   ReplyResponse,
   RequestResetRequest,
@@ -175,6 +178,14 @@ export interface PositiveOnlySocialAPI {
    * The text is moderated synchronously; a non-positive bio is rejected and not
    * stored. Returns the stored bio. */
   setBio(body: SetBioRequest): Promise<SetBioResponse>
+
+  // Push notifications (issues #342/#343). Register or refresh this browser's
+  // Web-push token so the backend can notify the user of async outcomes.
+  registerDevice(body: RegisterDeviceRequest): Promise<MessageResponse>
+  /** The per-type push toggles shown in Settings → Notifications. */
+  getNotificationPreferences(): Promise<NotificationPreference[]>
+  /** Turn one push type on or off. */
+  setNotificationPreference(type: string, enabled: boolean): Promise<SetNotificationPreferenceResponse>
 
   // Appeals
   getHiddenPosts(batch: number): Promise<HiddenPost[]>

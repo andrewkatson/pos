@@ -59,7 +59,17 @@ print_status "Installing dependencies (npm ci)..."
 npm ci
 
 print_status "Building SPA with VITE_API_BASE_URL=$API_BASE_URL ..."
-VITE_API_BASE_URL="$API_BASE_URL" npm run build
+# Web push (issues #342/#343) is opt-in: export the VITE_FIREBASE_* vars (public
+# Firebase Web config + VAPID key) in the deploy environment to enable it. When
+# they are unset the build still succeeds and push is simply a no-op client-side.
+VITE_API_BASE_URL="$API_BASE_URL" \
+  VITE_FIREBASE_API_KEY="${VITE_FIREBASE_API_KEY:-}" \
+  VITE_FIREBASE_AUTH_DOMAIN="${VITE_FIREBASE_AUTH_DOMAIN:-}" \
+  VITE_FIREBASE_PROJECT_ID="${VITE_FIREBASE_PROJECT_ID:-}" \
+  VITE_FIREBASE_MESSAGING_SENDER_ID="${VITE_FIREBASE_MESSAGING_SENDER_ID:-}" \
+  VITE_FIREBASE_APP_ID="${VITE_FIREBASE_APP_ID:-}" \
+  VITE_FIREBASE_VAPID_KEY="${VITE_FIREBASE_VAPID_KEY:-}" \
+  npm run build
 
 if [ ! -d dist ]; then
     print_error "Build did not produce a dist/ directory."
