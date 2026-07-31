@@ -156,6 +156,15 @@ class InterestsViewTests(PositiveOnlySocialTestCase):
         self.assertEqual(len(rejected), 1)
         self.assertEqual(rejected[0][Fields.reason_code], 'too_long')
 
+    def test_repeated_rejected_term_reported_once(self):
+        # A repeated over-length term is one problem, not three: reporting it
+        # per occurrence padded the response and handed the clients duplicate
+        # list keys (unstable React/SwiftUI diffing).
+        long_term = 'z' * (MAX_FREEFORM_INTEREST_LENGTH + 1)
+        response = self._set(freeform=[long_term, long_term, long_term.upper()])
+        rejected = response.json()[Fields.freeform][Fields.rejected]
+        self.assertEqual(len(rejected), 1)
+
     def test_rejected_list_is_bounded(self):
         # Over-length terms never reach the term cap that ends the parse loop,
         # so a crafted payload of many of them must not build an unbounded

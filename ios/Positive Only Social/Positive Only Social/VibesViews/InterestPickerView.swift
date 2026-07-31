@@ -155,7 +155,11 @@ struct InterestPickerView: View {
 
                 if !rejected.isEmpty {
                     VStack(alignment: .leading, spacing: 4) {
-                        ForEach(rejected) { item in
+                        // Keyed by position rather than RejectedInterest.id
+                        // (its text): the text alone isn't guaranteed unique —
+                        // an elided over-length term can collide with another —
+                        // and duplicate IDs make SwiftUI's diffing misbehave.
+                        ForEach(Array(rejected.enumerated()), id: \.offset) { _, item in
                             Text("“\(item.text)” \(item.reason ?? "was not added").")
                                 .font(.caption)
                                 .foregroundColor(.red)

@@ -3542,6 +3542,14 @@ def _normalize_freeform_terms(raw_terms):
         term = raw.strip()
         if not term:
             continue
+        # Dedupe before deciding the term's fate, so a repeated entry is
+        # considered once whatever the outcome. Doing this only for accepted
+        # terms let the same over-length term be reported several times, which
+        # both padded the response and handed the clients duplicate list keys.
+        key = term.lower()
+        if key in seen:
+            continue
+        seen.add(key)
         if len(term) > MAX_FREEFORM_INTEREST_LENGTH:
             # Over-length terms never reach the `terms` cap that ends this loop,
             # so bound them separately: a crafted payload of thousands of
@@ -3564,10 +3572,6 @@ def _normalize_freeform_terms(raw_terms):
                     'reason': f"is longer than {MAX_FREEFORM_INTEREST_LENGTH} characters",
                 })
             continue
-        key = term.lower()
-        if key in seen:
-            continue
-        seen.add(key)
         terms.append(key)
         if len(terms) >= MAX_FREEFORM_INTERESTS:
             break

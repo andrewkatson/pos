@@ -169,8 +169,11 @@ function InterestPicker({
         )}
         {rejected.length > 0 && (
           <ul className="interest-rejected" role="alert">
-            {rejected.map(r => (
-              <li key={r.text}>
+            {/* Keyed by position: the text alone isn't guaranteed unique (an
+                elided over-length term can collide with another), and a
+                duplicate key would make React's reconciliation unstable. */}
+            {rejected.map((r, index) => (
+              <li key={`${index}-${r.text}`}>
                 “{r.text}” {r.reason ?? 'was not added'}.
               </li>
             ))}
