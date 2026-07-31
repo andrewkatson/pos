@@ -275,15 +275,23 @@ def _send_fcm(tokens, payload):
     # never sends a JSON-typed value FCM would reject.
     data = {k: str(v) for k, v in payload.get("data", {}).items()}
 
+    # On web the notification block is auto-displayed by the browser, so the
+    # service worker's background handler never runs; webpush.fcm_options.link is
+    # what carries the click through to the rejected post. Android reads the same
+    # target from the data map instead, so this is harmless there.
+    deep_link = data.get("deep_link")
+    webpush = {"fcm_options": {"link": deep_link}} if deep_link else None
+
     dead = []
     for token in tokens:
-        message = {
-            "message": {
-                "token": token,
-                "notification": {"title": payload["title"], "body": payload["body"]},
-                "data": data,
-            }
+        message_body = {
+            "token": token,
+            "notification": {"title": payload["title"], "body": payload["body"]},
+            "data": data,
         }
+        if webpush:
+            message_body["webpush"] = webpush
+        message = {"message": message_body}
         try:
             response = session.post(url, json=message, timeout=10.0)
         except Exception:
