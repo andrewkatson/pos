@@ -3594,7 +3594,6 @@ def apply_user_interests(user, category_slugs, freeform_terms):
                 user.freeform_interests.prefetch_related('categories').all()}
     accepted_terms = []
     union_slugs = set(picked)
-    keep_texts = set()
     new_rows = []  # (text, [mapped_slug, ...])
 
     for term in terms:
@@ -3604,7 +3603,6 @@ def apply_user_interests(user, category_slugs, freeform_terms):
             # full set of mapped buckets rebuilds the union deterministically
             # (a term that mapped to several keeps them all across saves).
             accepted_terms.append(term)
-            keep_texts.add(term)
             union_slugs.update(c.slug for c in row.categories.all())
             continue
         result = text_classifier_class.is_text_positive(term)
@@ -3622,15 +3620,19 @@ def apply_user_interests(user, category_slugs, freeform_terms):
 
     # --- Phase 2: the writes, in one short transaction. ---
     # Every write is last-writer-wins by design (this endpoint replaces the
-    # user's whole interest state), so a concurrent save racing between the two
-    # phases can't corrupt anything: the delete targets only the specific terms
-    # this request dropped, get_or_create absorbs a duplicate insert, and set()
-    # replaces the M2M wholesale.
+    # user's whole interest state), and each is expressed against *this
+    # request's* desired state rather than the Phase 1 snapshot, so a concurrent
+    # save landing in between cannot leave the account in a state neither
+    # request asked for: the delete keeps exactly the accepted terms,
+    # get_or_create absorbs a duplicate insert, and set() replaces the M2M
+    # wholesale.
     with transaction.atomic():
-        # Remove freeform rows the user no longer lists.
-        stale = [t for t in existing if t not in keep_texts]
-        if stale:
-            user.freeform_interests.filter(text__in=stale).delete()
+        # Keep exactly the terms this request accepted — deleting by the Phase 1
+        # snapshot instead would miss a row a concurrent save inserted during
+        # the (slow, transaction-free) classification above, stranding a term
+        # the caller never asked for. An empty accepted set clears them all,
+        # which is what an empty payload means.
+        user.freeform_interests.exclude(text__in=accepted_terms).delete()
 
         # Resolve every slug we need (the whole union) once.
         cats_by_slug = {c.slug: c for c in

@@ -171,6 +171,24 @@ class InterestsViewTests(PositiveOnlySocialTestCase):
         self.assertEqual(self._slugs(), [])
         self.assertFalse(UserFreeformInterest.objects.filter(user=self.user).exists())
 
+    def test_concurrent_insert_during_classification_is_replaced(self):
+        # Classification runs outside the write transaction (it calls external
+        # providers), so another save can land in that window. Full-replace must
+        # still hold: the term this request never asked for is gone afterwards.
+        # Simulated by inserting a row from inside the classifier call, which is
+        # exactly when the real race would occur.
+        def insert_concurrent_row(term, *args, **kwargs):
+            UserFreeformInterest.objects.get_or_create(user=self.user, text='ghost')
+            return []
+
+        with patch('user_system.views.interest_classifier_class.categorize_text_interests',
+                   side_effect=insert_concurrent_row):
+            self._set(freeform=['music'])
+
+        stored = sorted(UserFreeformInterest.objects.filter(user=self.user)
+                        .values_list('text', flat=True))
+        self.assertEqual(stored, ['music'])
+
     def test_kept_freeform_not_reclassified(self):
         self._set(freeform=['nature'])
         with patch('user_system.views.text_classifier_class.is_text_positive') as positive:
