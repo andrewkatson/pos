@@ -297,8 +297,17 @@ final class Positive_Only_SocialUITests: XCTestCase {
         // to show either screen (already a failure).
         let profileTab = app.buttons["Profile"]
         let welcomeText = app.staticTexts["Welcome! 👋"]
-        poll(timeout: TestConstants.longTimeout,
-             until: { profileTab.exists || welcomeText.exists })
+        // Assert rather than discard the result: if the app reaches neither
+        // screen, saying so here points at the launch, which is where the
+        // problem actually is. Falling through instead would surface as a
+        // confusing "Welcome did not appear" from whatever the caller does
+        // next — and a slow or stuck launch is precisely the failure this
+        // suite has hit on a loaded runner.
+        XCTAssertTrue(
+            poll(timeout: TestConstants.longTimeout,
+                 until: { profileTab.exists || welcomeText.exists }),
+            "App showed neither Home nor Welcome within \(TestConstants.longTimeout)s of launching."
+        )
 
         if profileTab.exists {
             try logoutUserFromHome(app: app)
