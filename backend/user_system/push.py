@@ -29,7 +29,7 @@ from .constants import (
     DEVICE_PLATFORM_IOS, DEVICE_PLATFORM_ANDROID, DEVICE_PLATFORM_WEB,
     PUSH_TYPE_POST_REJECTED,
 )
-from .models import DeviceToken
+from .models import DeviceToken, NotificationPreference
 
 logger = logging.getLogger(__name__)
 
@@ -82,13 +82,27 @@ def build_rejection_payload(post, final):
     }
 
 
-def send_push(user, payload):
+def is_push_type_enabled(user, notification_type):
+    """Whether the user wants push for this type. Defaults to enabled — a row
+    exists only once the user has toggled the type off (or back on) in Settings,
+    so its absence means on."""
+    pref = NotificationPreference.objects.filter(
+        user=user, notification_type=notification_type).first()
+    return pref.enabled if pref is not None else True
+
+
+def send_push(user, payload, notification_type):
     """Fan a payload out to every device the user has registered.
 
-    Best-effort: a provider that is unconfigured or errors is logged and
-    skipped, and dead tokens the providers report are pruned so we stop sending
-    to them. Returns nothing — callers must not depend on delivery.
+    Respects the user's per-type preference (Settings toggle): a type the user
+    turned off is skipped entirely. Otherwise best-effort — a provider that is
+    unconfigured or errors is logged and skipped, and dead tokens the providers
+    report are pruned. Returns nothing; callers must not depend on delivery.
     """
+    if not is_push_type_enabled(user, notification_type):
+        logger.info("Push type %s disabled for user %s; skipping.", notification_type, user.id)
+        return
+
     tokens = list(DeviceToken.objects.filter(user=user))
     if not tokens:
         return

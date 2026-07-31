@@ -170,7 +170,7 @@ def _push_author_of_rejection(post, final):
     """
     try:
         payload = push.build_rejection_payload(post, final)
-        push.send_push(post.author, payload)
+        push.send_push(post.author, payload, push.PUSH_TYPE_POST_REJECTED)
     except Exception:
         logger.exception("Failed to send rejection push for post %s", post.post_identifier)
 

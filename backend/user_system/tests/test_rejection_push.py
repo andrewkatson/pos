@@ -40,8 +40,9 @@ class RejectionPushWiringTests(TestCase):
     def test_appealable_rejection_sends_push(self, _text, _image, send_push):
         self._run()
         send_push.assert_called_once()
-        user_arg, payload = send_push.call_args.args
+        user_arg, payload, notification_type = send_push.call_args.args
         self.assertEqual(user_arg, self.user)
+        self.assertEqual(notification_type, PUSH_TYPE_POST_REJECTED)
         self.assertEqual(payload['data']['type'], PUSH_TYPE_POST_REJECTED)
         self.assertEqual(payload['data']['appealable'], 'true')
 
@@ -51,7 +52,7 @@ class RejectionPushWiringTests(TestCase):
     def test_final_rejection_sends_non_appealable_push(self, _text, _image, send_push):
         self._run()
         send_push.assert_called_once()
-        _user, payload = send_push.call_args.args
+        _user, payload, _type = send_push.call_args.args
         self.assertEqual(payload['data']['appealable'], 'false')
 
     @patch(SEND_PUSH)

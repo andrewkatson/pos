@@ -285,7 +285,19 @@ bring the user back to look.
   row is keyed by `(platform, token)`, so re-registering an existing token
   repoints it at the current user rather than duplicating (a device can change
   accounts).
-- **Send path.** `user_system.push.send_push(user, payload)` fans out to all of
+- **Per-type preferences (Settings toggles).** Every push type is listed in
+  `PUSH_TYPE_CHOICES` (currently just `post_rejected`, "Post moderation"; more
+  are planned). A user can turn a type off in the app's Settings →
+  **Notifications**: `GET/POST /notifications/preferences/` reads/writes them,
+  returning one `{type, label, enabled}` row per known type, and `send_push`
+  skips a type a user has disabled before contacting any provider. Preferences
+  default to enabled (a `NotificationPreference` row exists only once toggled),
+  and the clients render a toggle per returned row generically — so a **new push
+  type shows up in every client's Settings with no client change**, just a new
+  `PUSH_TYPE_CHOICES` entry and a `send_push` call that passes its type. (This is
+  separate from the OS-level notification switch, which the user can also flip.)
+- **Send path.** `user_system.push.send_push(user, payload, notification_type)`
+  fans out to all of
   a user's tokens, called by `classify_post` on a resolved rejection — off the
   request path, on the same durable queue, best-effort. The payload's `data`
   map carries the `post_identifier`, a `type` (`post_rejected`), whether it is

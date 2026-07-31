@@ -43,12 +43,13 @@ from .constants import Patterns, Params, POST_BATCH_SIZE, MAX_BEFORE_HIDING_POST
     DEFAULT_STYLE_KEY, ALLOWED_CAPTION_FONTS, ALLOWED_BACKGROUND_COLORS, \
     ALLOWED_TEXT_SIZES, MAX_COMMENT_FORMAT_SPANS, \
     MINIMUM_AGE, ADULT_AGE, AGE_RESTRICTED, \
-    DEVICE_PLATFORMS, MAX_DEVICE_TOKEN_LENGTH
+    DEVICE_PLATFORMS, MAX_DEVICE_TOKEN_LENGTH, \
+    PUSH_TYPE_CHOICES, PUSH_TYPES
 from .feed_algorithm import feed_algorithm
 from .input_validator import is_valid_pattern
 from .models import LoginCookie, Session, Post, CommentThread, PositiveOnlySocialUser, Comment, CommentLike, \
     PostLike, SavedPost, UserBlock, UserBan, UserFollow, KnownDevice, Appeal, TwoFactorChallenge, RecoveryCode, \
-    DeviceToken
+    DeviceToken, NotificationPreference
 from .utils import convert_to_bool, generate_login_cookie_token, generate_management_token, generate_series_identifier, \
     get_batch, get_queryset_batch
 from .cloudfront import sign_compressed_url, sign_original_url
@@ -3529,6 +3530,54 @@ def register_device(request):
     )
     logger.info(f"Device registered ({platform}) for user_id: {request.user.id}")
     return log_and_return_json("register_device", {'message': "Device registered."})
+
+
+@csrf_exempt
+@api_login_required
+@ratelimit(key='user', rate='60/h', block=True)
+def notification_preferences(request):
+    """Read or update the caller's push notification preferences (issues
+    #342/#343; the Settings "Notifications" toggles).
+
+    GET returns one {type, label, enabled} row per known push type — the clients
+    render a toggle per row generically, so a new type shows up everywhere with
+    no client change. Preferences default to enabled. POST {type, enabled}
+    upserts one type's preference; send_push consults these before sending, so a
+    type toggled off is never delivered on any device.
+    """
+    if request.method == 'GET':
+        overrides = {p.notification_type: p.enabled
+                     for p in NotificationPreference.objects.filter(user=request.user)}
+        prefs = [{
+            Fields.notification_type: notification_type,
+            Fields.label: label,
+            Fields.enabled: overrides.get(notification_type, True),
+        } for notification_type, label in PUSH_TYPE_CHOICES]
+        return log_and_return_json("notification_preferences", {Fields.preferences: prefs})
+
+    if request.method == 'POST':
+        data = _get_json_body(request)
+        if data is None:
+            return log_and_return_json(
+                "notification_preferences", {'error': "Invalid JSON data"}, status=400)
+        notification_type = data.get(Fields.notification_type)
+        enabled = data.get(Fields.enabled)
+        invalid_fields = []
+        if notification_type not in PUSH_TYPES:
+            invalid_fields.append(Params.notification_type)
+        if not isinstance(enabled, bool):
+            invalid_fields.append(Params.enabled)
+        if invalid_fields:
+            return log_and_return_json(
+                "notification_preferences", {'error': f"Invalid fields {invalid_fields}"}, status=400)
+        NotificationPreference.objects.update_or_create(
+            user=request.user, notification_type=notification_type, defaults={'enabled': enabled})
+        logger.info(f"Notification pref {notification_type}={enabled} for user_id: {request.user.id}")
+        return log_and_return_json("notification_preferences", {
+            Fields.notification_type: notification_type, Fields.enabled: enabled})
+
+    return log_and_return_json(
+        "notification_preferences", {'error': "Method not allowed"}, status=405)
 
 
 @api_login_required

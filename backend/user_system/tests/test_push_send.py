@@ -7,7 +7,7 @@ from ..constants import (
     DEVICE_PLATFORM_IOS, DEVICE_PLATFORM_ANDROID, DEVICE_PLATFORM_WEB,
     PUSH_TYPE_POST_REJECTED,
 )
-from ..models import DeviceToken, PositiveOnlySocialUser
+from ..models import DeviceToken, NotificationPreference, PositiveOnlySocialUser
 
 APNS = 'user_system.push._send_apns'
 FCM = 'user_system.push._send_fcm'
@@ -71,7 +71,7 @@ class SendPushFanOutTests(TestCase):
         self._add(DEVICE_PLATFORM_ANDROID, 'android-1')
         self._add(DEVICE_PLATFORM_WEB, 'web-1')
 
-        push.send_push(self.user, PAYLOAD)
+        push.send_push(self.user, PAYLOAD, PUSH_TYPE_POST_REJECTED)
 
         apns.assert_called_once()
         self.assertEqual(sorted(apns.call_args.args[0]), ['ios-1'])
@@ -81,7 +81,7 @@ class SendPushFanOutTests(TestCase):
     @patch(FCM)
     @patch(APNS)
     def test_no_tokens_calls_no_provider(self, apns, fcm):
-        push.send_push(self.user, PAYLOAD)
+        push.send_push(self.user, PAYLOAD, PUSH_TYPE_POST_REJECTED)
         apns.assert_not_called()
         fcm.assert_not_called()
 
@@ -89,9 +89,34 @@ class SendPushFanOutTests(TestCase):
     @patch(APNS, return_value=[])
     def test_only_calls_provider_for_platforms_present(self, apns, fcm):
         self._add(DEVICE_PLATFORM_IOS, 'ios-only')
-        push.send_push(self.user, PAYLOAD)
+        push.send_push(self.user, PAYLOAD, PUSH_TYPE_POST_REJECTED)
         apns.assert_called_once()
         fcm.assert_not_called()
+
+    @patch(FCM)
+    @patch(APNS)
+    def test_disabled_type_is_not_sent(self, apns, fcm):
+        """A type the user has toggled off in Settings is skipped entirely — no
+        provider is even contacted."""
+        self._add(DEVICE_PLATFORM_IOS, 'ios-1')
+        NotificationPreference.objects.create(
+            user=self.user, notification_type=PUSH_TYPE_POST_REJECTED, enabled=False)
+
+        push.send_push(self.user, PAYLOAD, PUSH_TYPE_POST_REJECTED)
+
+        apns.assert_not_called()
+        fcm.assert_not_called()
+
+    @patch(FCM, return_value=[])
+    @patch(APNS, return_value=[])
+    def test_reenabled_type_is_sent(self, apns, fcm):
+        self._add(DEVICE_PLATFORM_IOS, 'ios-1')
+        NotificationPreference.objects.create(
+            user=self.user, notification_type=PUSH_TYPE_POST_REJECTED, enabled=True)
+
+        push.send_push(self.user, PAYLOAD, PUSH_TYPE_POST_REJECTED)
+
+        apns.assert_called_once()
 
     @patch(FCM, return_value=['android-dead'])
     @patch(APNS, return_value=['ios-dead'])
@@ -101,7 +126,7 @@ class SendPushFanOutTests(TestCase):
         self._add(DEVICE_PLATFORM_ANDROID, 'android-dead')
         self._add(DEVICE_PLATFORM_ANDROID, 'android-live')
 
-        push.send_push(self.user, PAYLOAD)
+        push.send_push(self.user, PAYLOAD, PUSH_TYPE_POST_REJECTED)
 
         remaining = set(DeviceToken.objects.values_list('token', flat=True))
         self.assertEqual(remaining, {'ios-live', 'android-live'})
@@ -117,7 +142,7 @@ class SendPushFanOutTests(TestCase):
         self._add(DEVICE_PLATFORM_IOS, 'ios-dead')
         self._add(DEVICE_PLATFORM_ANDROID, 'other-live', user=other)
 
-        push.send_push(self.user, PAYLOAD)
+        push.send_push(self.user, PAYLOAD, PUSH_TYPE_POST_REJECTED)
 
         self.assertFalse(DeviceToken.objects.filter(token='ios-dead').exists())
         self.assertTrue(DeviceToken.objects.filter(token='other-live').exists())
@@ -130,7 +155,7 @@ class SendPushFanOutTests(TestCase):
         self._add(DEVICE_PLATFORM_IOS, 'ios-live')
         self._add(DEVICE_PLATFORM_ANDROID, 'android-dead')
 
-        push.send_push(self.user, PAYLOAD)  # must not raise
+        push.send_push(self.user, PAYLOAD, PUSH_TYPE_POST_REJECTED)  # must not raise
 
         fcm.assert_called_once()
         self.assertFalse(DeviceToken.objects.filter(token='android-dead').exists())
@@ -159,7 +184,7 @@ class UnconfiguredProviderTests(TestCase):
         DeviceToken.objects.create(user=self.user, platform=DEVICE_PLATFORM_IOS, token='keep-me')
         with self.settings(APNS_AUTH_KEY='', APNS_AUTH_KEY_PATH='', APNS_KEY_ID='',
                            APNS_TEAM_ID='', APNS_TOPIC='', FCM_CREDENTIALS='', FCM_CREDENTIALS_PATH=''):
-            push.send_push(self.user, PAYLOAD)
+            push.send_push(self.user, PAYLOAD, PUSH_TYPE_POST_REJECTED)
         self.assertTrue(DeviceToken.objects.filter(token='keep-me').exists())
 
 

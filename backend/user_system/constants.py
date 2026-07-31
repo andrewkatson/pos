@@ -127,6 +127,17 @@ MAX_DEVICE_TOKEN_LENGTH = 1024
 # post rejection resolved off the request path.
 PUSH_TYPE_POST_REJECTED = "post_rejected"
 
+# Registry of user-toggleable push notification types. Each entry's label is
+# what the clients' Settings "Notifications" toggles show; the preferences
+# endpoint returns one {type, label, enabled} row per entry and every client
+# renders a toggle per row generically — so a NEW push type needs only an entry
+# here plus a send_push call that passes its type, with no client changes.
+# Preferences default to enabled; send_push skips a type a user has turned off.
+PUSH_TYPE_CHOICES = [
+    (PUSH_TYPE_POST_REJECTED, "Post moderation"),
+]
+PUSH_TYPES = frozenset(value for value, _ in PUSH_TYPE_CHOICES)
+
 # Lifecycle of an appeal a user files against hidden content or a ban.
 APPEAL_STATUS_PENDING = "pending"
 APPEAL_STATUS_APPROVED = "approved"
@@ -250,6 +261,8 @@ class Params:
     bio = "BIO"
     platform = "PLATFORM"
     token = "TOKEN"
+    notification_type = "TYPE"
+    enabled = "ENABLED"
 
 class Fields:
     is_adult = 'is_adult'
@@ -340,6 +353,11 @@ class Fields:
     tags = "tags"
     platform = "platform"
     token = "token"
+    # Push notification preferences (Settings toggles).
+    notification_type = "type"
+    enabled = "enabled"
+    label = "label"
+    preferences = "preferences"
 
 # Lengths of things
 LEN_LOGIN_COOKIE_TOKEN = 32

@@ -305,6 +305,26 @@ class DeviceToken(models.Model):
         return f"{self.user} [{self.platform}] {self.token[:16]}"
 
 
+# A user's opt-out of one push notification type (issues #342/#343). Preferences
+# default to enabled, so a row exists only once the user has toggled a type in
+# Settings; its absence means "on". notification_type is validated against
+# PUSH_TYPES at the view layer (kept a plain CharField here so adding a new type
+# needs no migration). send_push consults is_push_type_enabled before sending.
+class NotificationPreference(models.Model):
+    user = models.ForeignKey(PositiveOnlySocialUser, related_name='notification_preferences', on_delete=models.CASCADE)
+    notification_type = models.CharField(max_length=32)
+    enabled = models.BooleanField(default=True)
+
+    class Meta:
+        app_label = 'user_system'
+        constraints = [
+            models.UniqueConstraint(fields=['user', 'notification_type'], name='unique_user_notification_type')
+        ]
+
+    def __str__(self):
+        return f"{self.user} {self.notification_type}={self.enabled}"
+
+
 class UserBanManager(models.Manager):
     def active(self):
         """Bans that are currently in effect (no expiry, or expiry in the future)."""
