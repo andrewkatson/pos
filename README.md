@@ -600,8 +600,10 @@ tile. The `backfill_blurhash` management command (issue #438) is the one-off
 repair: it walks every post that has an `image_url` but a null `image_blurhash`
 and runs the same encoder the worker uses. It is safe to re-run — it only touches
 null hashes and never overwrites one the worker may have set — and a post whose
-image can't be fetched/encoded is simply left null (still grey) rather than
-retried forever. Supports `--dry-run`, `--limit`, and `--batch-size`.
+image can't be fetched/encoded is left null (still grey) and examined at most
+once per run (so a broken object never loops the command); a later run
+re-attempts it, letting a transient failure recover. Supports `--dry-run`,
+`--limit`, and `--batch-size`.
 
 ## Profile photos
 

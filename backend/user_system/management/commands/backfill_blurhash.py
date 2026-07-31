@@ -23,7 +23,8 @@ class Command(BaseCommand):
         "Safe to re-run: it only touches posts whose image_blurhash is still null "
         "and never overwrites a hash the worker may have set concurrently. Posts "
         "whose image can't be fetched/encoded are left null (still grey) and "
-        "skipped on the next run, so a broken object never wedges the command."
+        "examined only once per run, so a broken object never wedges the command; "
+        "a later run re-attempts them, which lets a transient failure recover."
     )
 
     def add_arguments(self, parser):
@@ -62,8 +63,10 @@ class Command(BaseCommand):
         processed = 0
         # Cursor by primary key (a UUID) rather than re-selecting "still null"
         # rows: a post whose image can't be encoded stays null, so a null-only
-        # filter would hand it back every batch and loop forever. Advancing past
-        # each pk guarantees termination and never reprocesses a failure.
+        # filter would hand it back every batch and loop forever within this run.
+        # Advancing past each pk guarantees this run terminates and processes each
+        # failure at most once. (A later run still re-examines any remaining nulls,
+        # which is intended: a transient S3/encode failure gets another attempt.)
         last_pk = None
         while True:
             if limit is not None and processed >= limit:
