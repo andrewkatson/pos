@@ -69,13 +69,18 @@ struct LoginView: View {
 
     @ViewBuilder
     private var loginSection: some View {
-        // Under UI testing, drop the credential content types on both fields:
-        // a `.username`/`.password` pairing makes iOS surface the AutoFill /
+        // Under UI testing, drop the `.username` content type: a
+        // `.username`/`.password` pairing makes iOS surface the AutoFill /
         // strong-password QuickType panel, which steals focus and breaks typing.
         TextField("Username or Email", text: $usernameOrEmail).padding().background(Color(.systemGray6)).cornerRadius(10).textContentType(isUITesting() ? nil : .username).autocapitalization(.none).keyboardType(.emailAddress)
             .focused($focusedField, equals: .usernameOrEmail)
             .accessibilityIdentifier("UsernameOrEmailTextField")
-        SecureField("Password", text: $password).padding().background(Color(.systemGray6)).cornerRadius(10).textContentType(isUITesting() ? nil : .password)
+        // Under UI testing use .oneTimeCode rather than nil: a nil content type
+        // still lets iOS treat a secure field as a password and float the "Use
+        // Strong Password" / "Save Password" panels, which steal focus and slow
+        // every auth flow. .oneTimeCode opts the field out of password AutoFill
+        // entirely (issue #377) while keeping secure entry.
+        SecureField("Password", text: $password).padding().background(Color(.systemGray6)).cornerRadius(10).textContentType(isUITesting() ? .oneTimeCode : .password)
             .focused($focusedField, equals: .password)
             .accessibilityIdentifier("PasswordSecureField")
         Toggle("Remember Me", isOn: $rememberMe)

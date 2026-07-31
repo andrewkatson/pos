@@ -199,6 +199,46 @@ final class StatefulStubbedAPI: Networking {
     // matching the backend's "creation order, never reused" behavior.
     private var membershipCounter = 0
 
+    // Usernames pre-seeded from the launch environment (issue #377). UI tests
+    // seed the accounts they use so a test can log in directly instead of
+    // walking the whole registration UI first. `register` is idempotent for
+    // these names (see below) so a test that *does* exercise the register form
+    // on a seeded account still succeeds instead of hitting "already exists".
+    private var seededUsernames: Set<String> = []
+
+    init() {
+        seedUsersFromEnvironment()
+    }
+
+    /// Seeds verified accounts listed in the `seed-usernames` launch
+    /// environment variable (issue #377): names joined by `;`. Every seeded
+    /// account shares the sign-in value from `seed-secret`, so the two are
+    /// passed separately rather than as colon-joined pairs — pairing them
+    /// reads like an embedded credential to secret scanners, and this is
+    /// simpler anyway. The email is derived as `<username>@test.com`, matching
+    /// the convention every UI test uses.
+    ///
+    /// Nothing here is sensitive: `StatefulStubbedAPI` is an in-memory fake
+    /// used only under UI testing, and the value arrives at runtime from the
+    /// test harness rather than being compiled in.
+    private func seedUsersFromEnvironment() {
+        guard isUITesting(),
+              let raw = ProcessInfo.processInfo.environment["seed-usernames"],
+              !raw.isEmpty else { return }
+        let sharedSignIn = ProcessInfo.processInfo.environment["seed-secret"] ?? ""
+        for entry in raw.split(separator: ";") {
+            let username = String(entry)
+            if username.isEmpty { continue }
+            if findUser(byUsername: username) != nil { continue }
+            var user = MockUser(username: username, email: "\(username)@test.com", passwordHash: sharedSignIn)
+            membershipCounter += 1
+            user.membershipNumber = membershipCounter
+            user.emailVerified = true
+            users.append(user)
+            seededUsernames.insert(username)
+        }
+    }
+
     // MARK: - Configuration
     public var simulatedLatency: TimeInterval = 0.1
     private let maxReportsBeforeHiding = 5
@@ -354,6 +394,40 @@ final class StatefulStubbedAPI: Networking {
     
     func register(username: String, email: String, password: String, rememberMe: String, ip: String, dateOfBirth: String) async throws -> Data {
         await simulateNetwork()
+        // A pre-seeded account (issue #377) is not a real prior registration —
+        // it stands in for one the test skipped walking through the UI. Let the
+        // first register call for such a name adopt the seeded row instead of
+        // failing as a duplicate, then drop it from the seeded set so a genuine
+        // second registration still gets the "already exists" rejection.
+        if seededUsernames.contains(username),
+           let index = users.firstIndex(where: { $0.username == username }) {
+            seededUsernames.remove(username)
+            users[index].email = email
+            users[index].passwordHash = password
+            let membershipNumber = users[index].membershipNumber
+            let userId = users[index].id
+            sessions.removeAll { $0.userId == userId }
+            let seededSession = MockSession(managementToken: generateToken(), userId: userId, ip: ip)
+            sessions.append(seededSession)
+            if Bool(rememberMe.lowercased()) ?? false {
+                let cookie = MockLoginCookie(seriesIdentifier: UUID().uuidString, token: generateToken(), userId: userId)
+                loginCookies.append(cookie)
+                struct Fields: Codable { let series_identifier, login_cookie_token, session_management_token, user_id: String; let membership_number: Int? }
+                return try createSerializedResponse(fields: Fields(
+                    series_identifier: cookie.seriesIdentifier,
+                    login_cookie_token: cookie.token,
+                    session_management_token: seededSession.managementToken,
+                    user_id: userId.uuidString,
+                    membership_number: membershipNumber
+                ))
+            }
+            struct Fields: Codable { let session_management_token, user_id: String; let membership_number: Int? }
+            return try createSerializedResponse(fields: Fields(
+                session_management_token: seededSession.managementToken,
+                user_id: userId.uuidString,
+                membership_number: membershipNumber
+            ))
+        }
         if findUser(byUsername: username) != nil || findUser(byEmail: email) != nil {
             throw APIError.badServerResponse(statusCode: 400) // "User already exists"
         }

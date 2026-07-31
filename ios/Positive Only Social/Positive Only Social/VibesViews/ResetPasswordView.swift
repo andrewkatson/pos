@@ -52,7 +52,7 @@ struct ResetPasswordView: View {
                     SecureInputField(
                         "New Password",
                         text: $newPassword,
-                        textContentType: isUITesting() ? nil : .newPassword,
+                        textContentType: isUITesting() ? .oneTimeCode : .newPassword,
                         accessibilityIdentifier: "NewPasswordSecureField"
                     )
                     if !newPassword.isEmpty {
@@ -61,7 +61,7 @@ struct ResetPasswordView: View {
                     SecureInputField(
                         "Confirm Password",
                         text: $confirmPassword,
-                        textContentType: isUITesting() ? nil : .newPassword,
+                        textContentType: isUITesting() ? .oneTimeCode : .newPassword,
                         accessibilityIdentifier: "ConfirmNewPasswordSecureField"
                     )
                     if !confirmPassword.isEmpty && newPassword != confirmPassword {
