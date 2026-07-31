@@ -318,7 +318,10 @@ data class Post(
 data class CommentRequest(
     @SerializedName("comment_text") val commentText: String,
     // Inline formatting spans (issue #318); null omits the field from the body.
-    @SerializedName("body_formatting") val bodyFormatting: List<CommentFormatSpan>? = null
+    @SerializedName("body_formatting") val bodyFormatting: List<CommentFormatSpan>? = null,
+    // Who may see the comment (issue #445); null omits the field so the backend
+    // defaults to public. Values: "public"/"following"/"friends"/"family".
+    @SerializedName("audience") val audience: String? = null
 )
 
 data class CommentResponse(
@@ -348,7 +351,11 @@ data class CommentDto(
     @SerializedName("author_profile_image_original_url") val authorProfileImageOriginalUrl: String? = null,
     // Inline formatting spans over `body` (issue #318); null = plain text. At
     // the end with a default so existing positional constructions are unaffected.
-    @SerializedName("body_formatting") val bodyFormatting: List<CommentFormatSpan>? = null
+    @SerializedName("body_formatting") val bodyFormatting: List<CommentFormatSpan>? = null,
+    // Who may see this comment (issue #445); null/absent is treated as public.
+    // Nullable so responses that predate the field still deserialize (Gson
+    // ignores Kotlin defaults for absent JSON).
+    @SerializedName("audience") val audience: String? = null
 )
 
 // --- User/Profile DTOs ---
@@ -479,7 +486,14 @@ enum class PostAudience(val value: String, val displayName: String, val hint: St
     PUBLIC("public", "Public", "Anyone can see this post"),
     FOLLOWING("following", "People I follow", "Everyone you follow"),
     FRIENDS("friends", "Friends", "Friends and family only"),
-    FAMILY("family", "Family", "Family only")
+    FAMILY("family", "Family", "Family only");
+
+    companion object {
+        /** The tier for a raw backend value, or null when unknown/absent (issue
+         * #445), so a comment with no audience shows no scope badge. */
+        fun fromValue(value: String?): PostAudience? =
+            entries.firstOrNull { it.value == value }
+    }
 }
 
 // A CreatePostRequest body's audience, and a set-category request body.
@@ -547,7 +561,9 @@ data class CommentViewData(
     val authorProfileImageOriginalUrl: String? = null,
     // Inline formatting spans over `body` (issue #318); null = plain text. At
     // the end with a default so existing positional constructions are unaffected.
-    val formatting: List<CommentFormatSpan>? = null
+    val formatting: List<CommentFormatSpan>? = null,
+    // Who may see this comment (issue #445); null/"public" shows no scope badge.
+    val audience: String? = null
 )
 
 data class CommentThreadViewData(

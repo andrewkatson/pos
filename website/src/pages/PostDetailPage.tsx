@@ -2,7 +2,14 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { Navigate, useNavigate, useParams } from 'react-router'
 import { apiClient } from '../api/client'
 import { getCurrentUsername } from '../api/session'
-import type { Comment, CommentFormatSpan, PostDetails, TextSize } from '../api/types'
+import type {
+  Comment,
+  CommentFormatSpan,
+  FollowCategory,
+  PostAudience,
+  PostDetails,
+  TextSize,
+} from '../api/types'
 import { isWithinLimit, MAX_COMMENT_LENGTH } from '../auth/requirements'
 import PostThumbnail from '../components/PostThumbnail'
 import CharacterCounter from '../components/CharacterCounter'
@@ -34,6 +41,8 @@ interface CommentView {
   body: string
   /** Inline formatting spans over `body` (issue #318); null = plain text. */
   formatting: CommentFormatSpan[] | null
+  /** Who may see this comment (issue #445); 'public' when unspecified. */
+  audience: PostAudience
   createdTime: string
   likeCount: number
   isLiked: boolean
@@ -49,6 +58,33 @@ interface CommentView {
 interface ThreadView {
   threadId: string
   comments: CommentView[]
+}
+
+// Who may see a comment (issue #445), mirroring the post audience picker. The
+// values match the backend/PostAudience tiers.
+const COMMENT_AUDIENCE_OPTIONS: { value: PostAudience; label: string }[] = [
+  { value: 'public', label: 'Public — anyone can see this comment' },
+  { value: 'following', label: 'People I follow' },
+  { value: 'friends', label: 'Friends and family' },
+  { value: 'family', label: 'Family only' },
+]
+
+// The comment-list filter chips, the same toggles the Following feed offers
+// (issue #445). 'all' clears the filter; the rest are relationship categories.
+type CommentGroup = 'all' | FollowCategory
+const COMMENT_GROUP_OPTIONS: { value: CommentGroup; label: string }[] = [
+  { value: 'all', label: 'Everyone' },
+  { value: 'following', label: 'Following' },
+  { value: 'friend', label: 'Friends' },
+  { value: 'family', label: 'Family' },
+]
+
+// Short badge shown on a comment whose audience is narrower than public, so the
+// scope is visible at a glance (issue #445). Public comments show no badge.
+const COMMENT_AUDIENCE_BADGE: Partial<Record<PostAudience, string>> = {
+  following: 'Following',
+  friends: 'Friends',
+  family: 'Family',
 }
 
 type ReportTarget = { type: 'post' } | { type: 'comment'; comment: CommentView }
@@ -118,7 +154,13 @@ function PostDetailView({ postId }: { postId: string }) {
   // a per-character attribute array aligned to composerText. The textarea ref
   // lets the toolbar read the current selection to style.
   const [composerAttrs, setComposerAttrs] = useState<CharAttrs>([])
+  // Who the comment being composed is shared with (issue #445); reset to public
+  // each time the composer opens.
+  const [composerAudience, setComposerAudience] = useState<PostAudience>('public')
   const composerRef = useRef<HTMLTextAreaElement>(null)
+  // The active comment-list filter — the followed-feed toggle applied to
+  // comments (issue #445). 'all' means no filter.
+  const [commentGroup, setCommentGroup] = useState<CommentGroup>('all')
   const [reportTarget, setReportTarget] = useState<ReportTarget | null>(null)
   const [reportReason, setReportReason] = useState('')
   const [deleteTarget, setDeleteTarget] = useState<DeleteTarget | null>(null)
@@ -181,6 +223,7 @@ function PostDetailView({ postId }: { postId: string }) {
         authorAvatarOriginalUrl: c.author_profile_image_original_url ?? null,
         body: c.body,
         formatting: c.body_formatting ?? null,
+        audience: c.audience ?? 'public',
         createdTime: c.creation_time,
         likeCount: c.comment_likes,
         isLiked: c.is_liked ?? likedCommentIds.current.has(c.comment_identifier),
@@ -211,13 +254,17 @@ function PostDetailView({ postId }: { postId: string }) {
       if (details.is_reported !== undefined) setPostReported(details.is_reported)
       if (details.report_reason !== undefined) setPostReportReason(details.report_reason)
 
+      // The comment filter (issue #445): 'all' sends no category, otherwise the
+      // followed-feed category narrows the threads and their comments alike.
+      const groupFilter = commentGroup === 'all' ? undefined : commentGroup
       try {
-        const refs = await apiClient.getCommentsForPost(postId, 0)
+        const refs = await apiClient.getCommentsForPost(postId, 0, groupFilter)
         const threadLists = await Promise.all(
           refs.map(async ref => {
             const comments = await apiClient.getCommentsForThread(
               ref.comment_thread_identifier,
               0,
+              groupFilter,
             )
             return { threadId: ref.comment_thread_identifier, comments }
           }),
@@ -256,7 +303,7 @@ function PostDetailView({ postId }: { postId: string }) {
     } finally {
       isLoadingRef.current = false
     }
-  }, [postId, currentUsername])
+  }, [postId, currentUsername, commentGroup])
 
   // Kick the initial load off a microtask so the fetch's setState calls don't
   // run synchronously inside the effect (React flags that as cascading renders).
@@ -337,6 +384,7 @@ function PostDetailView({ postId }: { postId: string }) {
   function openComposer(target: ComposerTarget) {
     setComposerText('')
     setComposerAttrs([])
+    setComposerAudience('public')
     setComposer(target)
   }
 
@@ -371,14 +419,21 @@ function PostDetailView({ postId }: { postId: string }) {
     // Compress the per-character attributes into API spans, aligned to the
     // trimmed text we actually send (issue #318).
     const formatting = spansForTrimmedComment(composerText, composerAttrs)
+    const audience = composerAudience
     setComposer(null)
     setComposerText('')
     setComposerAttrs([])
     try {
       if (target.type === 'reply') {
-        await apiClient.replyToCommentThread(postId, target.thread.threadId, text, formatting)
+        await apiClient.replyToCommentThread(
+          postId,
+          target.thread.threadId,
+          text,
+          formatting,
+          audience,
+        )
       } else {
-        await apiClient.commentOnPost(postId, text, formatting)
+        await apiClient.commentOnPost(postId, text, formatting, audience)
       }
       await loadAll()
     } catch (err) {
@@ -631,6 +686,27 @@ function PostDetailView({ postId }: { postId: string }) {
           Comments
         </h2>
 
+        {/* Filter the comment list by relationship group — the same toggles the
+            Following feed offers (issue #445). */}
+        <label className="comment-group-filter">
+          Show
+          <select
+            className="select-input"
+            aria-label="Filter comments by group"
+            value={commentGroup}
+            onChange={e => {
+              const next = e.target.value as CommentGroup
+              if (next !== commentGroup) setCommentGroup(next)
+            }}
+          >
+            {COMMENT_GROUP_OPTIONS.map(opt => (
+              <option key={opt.value} value={opt.value}>
+                {opt.label}
+              </option>
+            ))}
+          </select>
+        </label>
+
         <button
           type="button"
           className="refresh-button"
@@ -772,6 +848,23 @@ function PostDetailView({ postId }: { postId: string }) {
                 />
               </p>
             )}
+            {/* Who may see this comment (issue #445), mirroring the post
+                audience picker. */}
+            <label className="composer-audience">
+              Who can see this?
+              <select
+                className="select-input"
+                aria-label="Comment audience"
+                value={composerAudience}
+                onChange={e => setComposerAudience(e.target.value as PostAudience)}
+              >
+                {COMMENT_AUDIENCE_OPTIONS.map(opt => (
+                  <option key={opt.value} value={opt.value}>
+                    {opt.label}
+                  </option>
+                ))}
+              </select>
+            </label>
             <CharacterCounter value={composerText} max={MAX_COMMENT_LENGTH} />
             <div className="modal__actions">
               <button
@@ -1024,6 +1117,11 @@ function CommentRow({
             <span className="comment-row__author">{comment.authorUsername}</span>
           </button>
           <span className="comment-row__time">{formatRelativeTime(comment.createdTime)}</span>
+          {COMMENT_AUDIENCE_BADGE[comment.audience] && (
+            <span className="comment-row__audience muted" aria-label={`Audience: ${COMMENT_AUDIENCE_BADGE[comment.audience]}`}>
+              · {COMMENT_AUDIENCE_BADGE[comment.audience]}
+            </span>
+          )}
           {/* Three-dots menu next to the timestamp: Delete for your own
               comment, Report / Retract Report for someone else's (issue #304). */}
           <button

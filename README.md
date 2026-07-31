@@ -377,6 +377,22 @@ returns the whole following feed, as before). Feed filtering is an exact-categor
 match — "show me my family" means just family — while post audience nests, since
 sharing with a wider circle should naturally include the closer ones.
 
+**Comments** carry the same mechanics (issue #445). A comment or reply is
+created with an optional `audience` (`comment_on_post` / `reply_to_comment_thread`
+accept it, defaulting to `public` so older clients are unaffected), scoped by the
+identical nested-circle rule enforced in `visibility.py`
+(`visible_comments` / `audience_admits`): a non-public comment reaches a viewer
+only when its author labeled that viewer closely enough, the author always sees
+their own, and a comment the audience excludes is treated as absent for likes and
+reports too (not just hidden from the list). The comment listings
+(`GET /posts/<id>/comments/<batch>/` and
+`GET /threads/<id>/comments/<batch>/`) take the same optional
+`?category=following|friend|family` toggle the followed feed offers, narrowing the
+shown comments to authors you labeled with exactly that category (the thread
+listing keeps only threads with a matching visible comment). Like the feed filter
+it is an exact-category match and naturally drops your own comments, since you do
+not follow yourself.
+
 ## Blocking
 
 Users can block each other from a profile. Blocking is a toggle

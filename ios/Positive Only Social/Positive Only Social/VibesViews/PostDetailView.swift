@@ -170,7 +170,22 @@ struct PostDetailView: View {
                     Text("Comments")
                         .font(.headline)
                         .padding(.horizontal)
-                    
+
+                    // Filter the comment list by relationship group — the same
+                    // toggle the Following feed offers (issue #445).
+                    Picker("Group", selection: Binding(
+                        get: { viewModel.selectedCommentCategory },
+                        set: { viewModel.selectCommentCategory($0) }
+                    )) {
+                        Text("Everyone").tag(FollowCategory?.none)
+                        ForEach(FollowCategory.allCases) { category in
+                            Text(category.displayName).tag(FollowCategory?.some(category))
+                        }
+                    }
+                    .pickerStyle(.segmented)
+                    .padding(.horizontal)
+                    .accessibilityIdentifier("CommentGroupPicker")
+
                     LazyVStack(spacing: 16) {
                         ForEach(viewModel.commentThreads) { thread in
                             CommentThreadView(thread: thread, onAuthorTap: { username in
@@ -328,14 +343,14 @@ struct PostDetailView: View {
         }
         // The "Add a comment" composer for a brand new comment on the post.
         .sheet(isPresented: $viewModel.showAddCommentSheet) {
-            CommentComposerView(title: "Add Comment") { commentText, formatting in
-                viewModel.commentOnPost(commentText: commentText, formatting: formatting)
+            CommentComposerView(title: "Add Comment") { commentText, formatting, audience in
+                viewModel.commentOnPost(commentText: commentText, formatting: formatting, audience: audience)
             }
         }
         // The same composer, reused for replying to an existing thread.
         .sheet(item: $viewModel.threadToReplyTo) { thread in
-            CommentComposerView(title: "Post Reply") { commentText, formatting in
-                viewModel.replyToCommentThread(thread: thread, commentText: commentText, formatting: formatting)
+            CommentComposerView(title: "Post Reply") { commentText, formatting, audience in
+                viewModel.replyToCommentThread(thread: thread, commentText: commentText, formatting: formatting, audience: audience)
             }
         }
         .alert(isPresented: .constant(viewModel.alertMessage != nil), content: {

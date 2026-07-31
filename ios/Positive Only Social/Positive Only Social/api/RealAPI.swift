@@ -162,6 +162,8 @@ final class RealAPI: Networking {
         let comment_text: String
         // Inline formatting spans (issue #318); nil omits the field.
         let body_formatting: [CommentFormatSpan]?
+        // Nil defaults to public on the backend (issue #445); omitted when nil.
+        let audience: String?
     }
 
     private struct SubmitAppealBody: Codable {
@@ -703,8 +705,8 @@ final class RealAPI: Networking {
     // MARK: - Comment Management
     
     /// Adds a direct comment to a post.
-    func commentOnPost(sessionManagementToken: String, postIdentifier: String, commentText: String, formatting: [CommentFormatSpan]? = nil) async throws -> Data {
-        let body = CommentBody(comment_text: commentText, body_formatting: formatting)
+    func commentOnPost(sessionManagementToken: String, postIdentifier: String, commentText: String, formatting: [CommentFormatSpan]? = nil, audience: String? = nil) async throws -> Data {
+        let body = CommentBody(comment_text: commentText, body_formatting: formatting, audience: audience)
         let requestBody = try encode(body)
         
         return try await performRequest(
@@ -768,28 +770,33 @@ final class RealAPI: Networking {
     }
     
     /// Gets a batch of comment threads for a post.
-    func getCommentsForPost(sessionManagementToken: String, postIdentifier: String, batch: Int) async throws -> Data {
-        // Authenticated GET. ID/Batch are in path.
+    func getCommentsForPost(sessionManagementToken: String, postIdentifier: String, batch: Int, category: String? = nil) async throws -> Data {
+        // Authenticated GET. ID/Batch are in path; an optional category (issue
+        // #445) rides in the query string, mirroring the followed feed.
+        let query = category.map { [URLQueryItem(name: GVOAppConstants.queryKeyCategory, value: $0)] }
         return try await performRequest(
             pathSegments: [GVOAppConstants.pathSegmentPosts, postIdentifier, GVOAppConstants.pathSegmentComments, String(batch)],
             method: .get,
-            authToken: sessionManagementToken
+            authToken: sessionManagementToken,
+            queryItems: query
         )
     }
 
     /// Gets a batch of comments for a specific comment thread.
-    func getCommentsForThread(sessionManagementToken: String, commentThreadIdentifier: String, batch: Int) async throws -> Data {
+    func getCommentsForThread(sessionManagementToken: String, commentThreadIdentifier: String, batch: Int, category: String? = nil) async throws -> Data {
         // Authenticated GET so each comment can include the current user's like state. ID/Batch are in path.
+        let query = category.map { [URLQueryItem(name: GVOAppConstants.queryKeyCategory, value: $0)] }
         return try await performRequest(
             pathSegments: [GVOAppConstants.pathSegmentThreads, commentThreadIdentifier, GVOAppConstants.pathSegmentComments, String(batch)],
             method: .get,
-            authToken: sessionManagementToken
+            authToken: sessionManagementToken,
+            queryItems: query
         )
     }
-    
+
     /// Replies to a comment thread.
-    func replyToCommentThread(sessionManagementToken: String, postIdentifier: String, commentThreadIdentifier: String, commentText: String, formatting: [CommentFormatSpan]? = nil) async throws -> Data {
-        let body = CommentBody(comment_text: commentText, body_formatting: formatting)
+    func replyToCommentThread(sessionManagementToken: String, postIdentifier: String, commentThreadIdentifier: String, commentText: String, formatting: [CommentFormatSpan]? = nil, audience: String? = nil) async throws -> Data {
+        let body = CommentBody(comment_text: commentText, body_formatting: formatting, audience: audience)
         let requestBody = try encode(body)
         
         return try await performRequest(

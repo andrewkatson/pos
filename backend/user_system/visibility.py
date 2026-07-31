@@ -110,39 +110,85 @@ def visible_posts(posts, viewer):
     ).distinct()
 
 
-def visible_comments(comments, viewer):
-    """Same visibility rule as visible_posts, for comments."""
-    return comments.filter(
+def _labeled_author_ids(viewer, category):
+    """User ids the viewer has labeled with exactly `category` on their outgoing
+    follow edges — the "show me my family" set behind the followed-feed toggle,
+    reused for the comment toggle (issue #445)."""
+    return UserFollow.objects.filter(
+        user_from=viewer, category=category).values_list('user_to_id', flat=True)
+
+
+def visible_comments(comments, viewer, category=None):
+    """Same visibility rule as visible_posts, for comments (issue #392/#445): a
+    viewer always sees their own comments, and otherwise only comments that are
+    not hidden, whose author is not shadow banned, whose audience admits them,
+    and whose author is in the viewer's age band.
+
+    An optional `category` narrows the result to comments whose author the viewer
+    labeled with exactly that relationship category — the followed-feed toggle
+    applied to comments. Like the feed filter it is an exact-category match (and
+    so naturally drops the viewer's own comments, since you do not follow
+    yourself), independent of how the comments' own audiences nest.
+    """
+    visible = comments.filter(
         Q(author=viewer) | (
             Q(hidden=False)
             & ~Q(author__in=_shadow_banned_user_ids())
+            & _audience_q(viewer)
             & _same_age_band_q(viewer, 'author')
         )
-    )
+    # .distinct() collapses the audience-join fan-out from _audience_q exactly as
+    # in visible_posts: the author-owns-it branch leaves the follow-edge join
+    # unrestricted, so a viewer's own comments would otherwise come back once per
+    # account they follow.
+    ).distinct()
+    if category:
+        visible = visible.filter(author__in=_labeled_author_ids(viewer, category))
+    return visible
 
 
-def visible_comment_threads(threads, viewer):
+def visible_comment_threads(threads, viewer, category=None):
     """
     Threads that contain at least one comment visible to the viewer. Filters
     via a subquery on thread ids rather than joining through comments so the
     like-count annotations applied later are not inflated by duplicate rows.
+
+    An optional `category` applies the followed-feed toggle: a thread survives
+    only when it has a visible comment by an author the viewer labeled with
+    exactly that category.
     """
     visible_thread_ids = visible_comments(
-        Comment.objects.filter(comment_thread__in=threads), viewer
+        Comment.objects.filter(comment_thread__in=threads), viewer, category
     ).values_list('comment_thread_id', flat=True).distinct()
     return threads.filter(pk__in=visible_thread_ids)
 
 
-def _audience_allows(post, viewer):
-    """Single-object mirror of _audience_q: whether this post's audience admits
-    the viewer (the author-owns-it rule is checked separately)."""
-    if post.audience == POST_AUDIENCE_PUBLIC:
+def _audience_allows(content, viewer):
+    """Single-object mirror of _audience_q: whether this post's or comment's
+    audience admits the viewer (the author-owns-it rule is checked separately)."""
+    if content.audience == POST_AUDIENCE_PUBLIC:
         return True
-    categories = AUDIENCE_ALLOWED_CATEGORIES.get(post.audience, [])
+    categories = AUDIENCE_ALLOWED_CATEGORIES.get(content.audience, [])
     if not categories or viewer is None or not getattr(viewer, 'is_authenticated', False):
         return False
     return UserFollow.objects.filter(
-        user_from=post.author, user_to=viewer, category__in=categories).exists()
+        user_from=content.author, user_to=viewer, category__in=categories).exists()
+
+
+def audience_admits(content, viewer):
+    """Whether a single post's or comment's audience tier admits the viewer
+    (issue #392/#445), ignoring hidden/ban/age — callers check those separately.
+    The author is always admitted to their own content.
+
+    Used to gate interactions with a comment reached by a known id (like,
+    report, and their retractions): a comment whose audience excludes the caller
+    is treated as absent, the same way a cross-age-band comment already is. It is
+    audience-only on purpose — report retraction legitimately targets an
+    already-hidden comment, so a full visibility check (which rejects hidden
+    content) would break that flow."""
+    if content.author == viewer:
+        return True
+    return _audience_allows(content, viewer)
 
 
 def can_view_post(post, viewer):

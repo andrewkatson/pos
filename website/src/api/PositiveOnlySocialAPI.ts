@@ -29,6 +29,7 @@ import type {
   LoginWithRememberMeResponse,
   MessageResponse,
   MyAppeal,
+  PostAudience,
   PostDetails,
   PostStatusResponse,
   ProfileDetails,
@@ -111,20 +112,36 @@ export interface PositiveOnlySocialAPI {
   /** Classification status of one of the caller's own posts (issue #282). */
   getPostStatus(postIdentifier: string): Promise<PostStatusResponse>
 
-  // Comments. `formatting` carries optional inline styling spans (issue #318).
+  // Comments. `formatting` carries optional inline styling spans (issue #318);
+  // `audience` scopes who may see the comment (issue #445, omitted = 'public').
   commentOnPost(
     postIdentifier: string,
     commentText: string,
     formatting?: CommentFormatSpan[],
+    audience?: PostAudience,
   ): Promise<CommentOnPostResponse>
   replyToCommentThread(
     postIdentifier: string,
     commentThreadIdentifier: string,
     commentText: string,
     formatting?: CommentFormatSpan[],
+    audience?: PostAudience,
   ): Promise<ReplyResponse>
-  getCommentsForPost(postIdentifier: string, batch: number): Promise<CommentThreadRef[]>
-  getCommentsForThread(commentThreadIdentifier: string, batch: number): Promise<Comment[]>
+  /** Top-level comment threads for a post, optionally narrowed to one
+   * relationship category (issue #445). Omitting `category` returns all
+   * threads the viewer may see. */
+  getCommentsForPost(
+    postIdentifier: string,
+    batch: number,
+    category?: FollowCategory,
+  ): Promise<CommentThreadRef[]>
+  /** Comments within a thread, optionally narrowed to one relationship
+   * category (issue #445). Omitting `category` returns all visible comments. */
+  getCommentsForThread(
+    commentThreadIdentifier: string,
+    batch: number,
+    category?: FollowCategory,
+  ): Promise<Comment[]>
   likeComment(
     postIdentifier: string,
     commentThreadIdentifier: string,

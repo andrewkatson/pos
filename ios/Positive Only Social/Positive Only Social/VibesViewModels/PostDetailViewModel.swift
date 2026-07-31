@@ -61,6 +61,18 @@ final class PostDetailViewModel: ObservableObject {
     /// When a user taps "Reply", this is set, which triggers the reply sheet
     @Published var threadToReplyTo: CommentThreadViewData?
 
+    /// The active comment-list filter — the followed-feed toggle applied to
+    /// comments (issue #445). `nil` means no filter (all visible comments).
+    @Published private(set) var selectedCommentCategory: FollowCategory?
+
+    /// Switch the comment filter and reload. A no-op when unchanged so tapping
+    /// the active chip doesn't refetch, mirroring the following feed.
+    func selectCommentCategory(_ category: FollowCategory?) {
+        guard category != selectedCommentCategory else { return }
+        selectedCommentCategory = category
+        loadAllData()
+    }
+
     /// Ids of comments whose thread below them is collapsed. Tapping a comment's
     /// username/time header toggles its presence here (issue #243).
     @Published var collapsedCommentIds: Set<String> = []
@@ -182,8 +194,11 @@ final class PostDetailViewModel: ObservableObject {
                 // Server truth for the reported flag, so it survives reloads.
                 self.isPostReported = postFields.is_reported ?? false
 
-                // 2. Fetch the list of comment thread IDs for this post
-                let threadListData = try await api.getCommentsForPost(sessionManagementToken: token, postIdentifier: postIdentifier, batch: 0)
+                // 2. Fetch the list of comment thread IDs for this post. The
+                // optional category applies the followed-feed toggle to comments
+                // (issue #445): nil returns all visible threads.
+                let categoryFilter = self.selectedCommentCategory?.rawValue
+                let threadListData = try await api.getCommentsForPost(sessionManagementToken: token, postIdentifier: postIdentifier, batch: 0, category: categoryFilter)
                 let threadIDFields = try self.decodeList(from: threadListData, type: ThreadIDFields.self)
                 let threadIdentifiers = threadIDFields.map { $0.comment_thread_identifier }
 
@@ -193,7 +208,7 @@ final class PostDetailViewModel: ObservableObject {
                 try await withThrowingTaskGroup(of: [CommentViewData].self) { group in
                     for threadId in threadIdentifiers {
                         group.addTask {
-                            let commentsData = try await self.api.getCommentsForThread(sessionManagementToken: token, commentThreadIdentifier: threadId, batch: 0)
+                            let commentsData = try await self.api.getCommentsForThread(sessionManagementToken: token, commentThreadIdentifier: threadId, batch: 0, category: categoryFilter)
 
                             // *** FIXED: Removed 'await' here, as decodeList is not async ***
                             let commentFields = try await self.decodeList(from: commentsData, type: CommentFields.self)
@@ -208,6 +223,7 @@ final class PostDetailViewModel: ObservableObject {
                                     authorProfileImageOriginalURL: field.author_profile_image_original_url,
                                     body: field.body,
                                     formatting: field.body_formatting,
+                                    audience: field.audience,
                                     likeCount: field.comment_likes,
                                     isLiked: field.is_liked,
                                     createdDate: Self.parseDate(field.creation_time),
@@ -599,8 +615,9 @@ final class PostDetailViewModel: ObservableObject {
     }
 
     /// Creates a new comment (and thus a new thread) on the post.
-    /// `formatting` carries optional inline styling spans (issue #318).
-    func commentOnPost(commentText: String, formatting: [CommentFormatSpan]? = nil) {
+    /// `formatting` carries optional inline styling spans (issue #318);
+    /// `audience` scopes who may see the comment (issue #445).
+    func commentOnPost(commentText: String, formatting: [CommentFormatSpan]? = nil, audience: PostAudience = .public) {
         guard !commentText.isEmpty else { return }
 
         NSLog("%@", "ACTION: Commenting on post \(postIdentifier)")
@@ -617,7 +634,8 @@ final class PostDetailViewModel: ObservableObject {
                     sessionManagementToken: token,
                     postIdentifier: postIdentifier,
                     commentText: commentText,
-                    formatting: formatting
+                    formatting: formatting,
+                    audience: audience.rawValue
                 )
                 
                 // Success! Clear the text field and reload all data to show the new comment.
@@ -631,8 +649,9 @@ final class PostDetailViewModel: ObservableObject {
     }
     
     /// Replies to an existing comment thread.
-    /// `formatting` carries optional inline styling spans (issue #318).
-    func replyToCommentThread(thread: CommentThreadViewData, commentText: String, formatting: [CommentFormatSpan]? = nil) {
+    /// `formatting` carries optional inline styling spans (issue #318);
+    /// `audience` scopes who may see the reply (issue #445).
+    func replyToCommentThread(thread: CommentThreadViewData, commentText: String, formatting: [CommentFormatSpan]? = nil, audience: PostAudience = .public) {
         guard !commentText.isEmpty else { return }
 
         NSLog("%@", "ACTION: Replying to thread \(thread.id)")
@@ -650,7 +669,8 @@ final class PostDetailViewModel: ObservableObject {
                     postIdentifier: postIdentifier,
                     commentThreadIdentifier: thread.id,
                     commentText: commentText,
-                    formatting: formatting
+                    formatting: formatting,
+                    audience: audience.rawValue
                 )
                 
                 // Success! Reload all data to show the new reply.
@@ -721,6 +741,9 @@ final class PostDetailViewModel: ObservableObject {
         let body: String
         /// Inline formatting spans over `body` (issue #318); nil = plain text.
         let body_formatting: [CommentFormatSpan]?
+        /// Who may see this comment (issue #445); optional so older responses
+        /// still decode (treated as public).
+        let audience: String?
         let author_username: String
         /// The comment author's approved profile photo (issue #7); nil when they
         /// have none or on older responses.

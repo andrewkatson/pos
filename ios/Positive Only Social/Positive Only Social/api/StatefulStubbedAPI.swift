@@ -156,6 +156,8 @@ fileprivate struct MockComment {
     var body: String
     /// Inline formatting spans over `body` (issue #318); nil = plain.
     var bodyFormatting: [CommentFormatSpan]? = nil
+    /// Who may see this comment (issue #445).
+    var audience: String = PostAudience.public.rawValue
     var likes: [String] = []
     var reports: [(username: String, reason: String)] = []
     var isHidden: Bool = false
@@ -299,6 +301,57 @@ final class StatefulStubbedAPI: Networking {
         let rank: [FollowCategory: Int] = [.following: 1, .friend: 2, .family: 3]
         let required: [PostAudience: Int] = [.following: 1, .friends: 2, .family: 3]
         return (rank[category] ?? 0) >= (required[audience] ?? 0)
+    }
+
+    /// Comment mirror of `audienceAdmits` (issue #445): whether the comment's
+    /// audience admits `viewer`. Resolves the author by username since comments
+    /// carry a username rather than an id.
+    fileprivate func audienceAdmits(comment: MockComment, viewer: MockUser) -> Bool {
+        if comment.audience == PostAudience.public.rawValue || comment.authorUsername == viewer.username {
+            return true
+        }
+        guard let author = users.first(where: { $0.username == comment.authorUsername }),
+              let follow = userFollows.first(where: {
+                  $0.userFromId == author.id && $0.userToId == viewer.id
+              }), let category = FollowCategory(rawValue: follow.category),
+              let audience = PostAudience(rawValue: comment.audience) else {
+            return false
+        }
+        let rank: [FollowCategory: Int] = [.following: 1, .friend: 2, .family: 3]
+        let required: [PostAudience: Int] = [.following: 1, .friends: 2, .family: 3]
+        return (rank[category] ?? 0) >= (required[audience] ?? 0)
+    }
+
+    /// The followed-feed toggle applied to a comment author (issue #445):
+    /// whether `viewer` labeled the comment's author with exactly `category`. A
+    /// plain follow counts as `.following`; the viewer's own comments never
+    /// match (you do not follow yourself).
+    fileprivate func commentMatchesCategory(_ comment: MockComment, viewer: MockUser, category: FollowCategory) -> Bool {
+        guard let author = users.first(where: { $0.username == comment.authorUsername }),
+              let follow = userFollows.first(where: {
+                  $0.userFromId == viewer.id && $0.userToId == author.id
+              }) else {
+            return false
+        }
+        return (FollowCategory(rawValue: follow.category) ?? .following) == category
+    }
+
+    /// Comments in a thread the `viewer` may see (issue #445): not hidden
+    /// (unless their own), audience-admitted, and — when `category` is set — by
+    /// an author the viewer labeled with exactly that category.
+    fileprivate func visibleComments(inThread threadId: String, viewer: MockUser, category: FollowCategory?) -> [MockComment] {
+        comments.filter { comment in
+            guard comment.threadId == threadId else { return false }
+            let isOwn = comment.authorUsername == viewer.username
+            if let category = category {
+                // The exact-category toggle drops your own comments.
+                return !isOwn && !comment.isHidden
+                    && audienceAdmits(comment: comment, viewer: viewer)
+                    && commentMatchesCategory(comment, viewer: viewer, category: category)
+            }
+            if isOwn { return true }
+            return !comment.isHidden && audienceAdmits(comment: comment, viewer: viewer)
+        }
     }
 
     /// Parses #hashtags from a caption the same way the backend does (issue
@@ -1186,7 +1239,7 @@ final class StatefulStubbedAPI: Networking {
         return try createSerializedListResponse(fieldsList: fieldObjects)
     }
 
-    func commentOnPost(sessionManagementToken: String, postIdentifier: String, commentText: String, formatting: [CommentFormatSpan]? = nil) async throws -> Data {
+    func commentOnPost(sessionManagementToken: String, postIdentifier: String, commentText: String, formatting: [CommentFormatSpan]? = nil, audience: String? = nil) async throws -> Data {
         await simulateNetwork()
         guard let user = findUser(bySessionToken: sessionManagementToken) else { throw APIError.badServerResponse(statusCode: 400) }
         guard findPost(byIdentifier: postIdentifier) != nil else { throw APIError.badServerResponse(statusCode: 400) }
@@ -1194,6 +1247,7 @@ final class StatefulStubbedAPI: Networking {
         var newThread = MockCommentThread(postId: postIdentifier)
         var newComment = MockComment(threadId: newThread.commentThreadIdentifier, authorUsername: user.username, body: commentText)
         newComment.bodyFormatting = formatting
+        newComment.audience = audience ?? PostAudience.public.rawValue
         newThread.comments.append(newComment)
         
         comments.append(newComment)
@@ -1204,13 +1258,14 @@ final class StatefulStubbedAPI: Networking {
         return try createSerializedResponse(fields: fields)
     }
 
-    func replyToCommentThread(sessionManagementToken: String, postIdentifier: String, commentThreadIdentifier: String, commentText: String, formatting: [CommentFormatSpan]? = nil) async throws -> Data {
+    func replyToCommentThread(sessionManagementToken: String, postIdentifier: String, commentThreadIdentifier: String, commentText: String, formatting: [CommentFormatSpan]? = nil, audience: String? = nil) async throws -> Data {
         await simulateNetwork()
         guard let user = findUser(bySessionToken: sessionManagementToken) else { throw APIError.badServerResponse(statusCode: 400) }
         guard let threadIndex = commentThreads.firstIndex(where: { $0.commentThreadIdentifier == commentThreadIdentifier }) else { throw APIError.badServerResponse(statusCode: 400) }
 
         var newComment = MockComment(threadId: commentThreadIdentifier, authorUsername: user.username, body: commentText)
         newComment.bodyFormatting = formatting
+        newComment.audience = audience ?? PostAudience.public.rawValue
         commentThreads[threadIndex].comments.append(newComment)
         comments.append(newComment)
         
@@ -1283,11 +1338,17 @@ final class StatefulStubbedAPI: Networking {
         return try createEmptySuccessResponse()
     }
 
-    func getCommentsForPost(sessionManagementToken: String, postIdentifier: String, batch: Int) async throws -> Data {
+    func getCommentsForPost(sessionManagementToken: String, postIdentifier: String, batch: Int, category: String? = nil) async throws -> Data {
         await simulateNetwork()
-        guard findUser(bySessionToken: sessionManagementToken) != nil else { throw APIError.badServerResponse(statusCode: 401) }
-        let relevantThreads = commentThreads.filter { $0.postId == postIdentifier }
-        
+        guard let user = findUser(bySessionToken: sessionManagementToken) else { throw APIError.badServerResponse(statusCode: 401) }
+        let categoryFilter = category.flatMap { FollowCategory(rawValue: $0) }
+        // Only threads with a comment the viewer may see under the current filter
+        // survive (issue #445), mirroring visible_comment_threads.
+        let relevantThreads = commentThreads.filter {
+            $0.postId == postIdentifier
+                && !visibleComments(inThread: $0.commentThreadIdentifier, viewer: user, category: categoryFilter).isEmpty
+        }
+
         // If there are no threads return gracefully
         if relevantThreads.isEmpty {
             return try createSerializedListResponse(fieldsList: [Fields]())
@@ -1298,10 +1359,12 @@ final class StatefulStubbedAPI: Networking {
         return try createSerializedListResponse(fieldsList: fieldObjects)
     }
 
-    func getCommentsForThread(sessionManagementToken: String, commentThreadIdentifier: String, batch: Int) async throws -> Data {
+    func getCommentsForThread(sessionManagementToken: String, commentThreadIdentifier: String, batch: Int, category: String? = nil) async throws -> Data {
         await simulateNetwork()
         guard let user = findUser(bySessionToken: sessionManagementToken) else { throw APIError.badServerResponse(statusCode: 401) }
-        let relevantComments = comments.filter { $0.threadId == commentThreadIdentifier && !$0.isHidden }.sorted { $0.createdDate < $1.createdDate }
+        let categoryFilter = category.flatMap { FollowCategory(rawValue: $0) }
+        let relevantComments = visibleComments(inThread: commentThreadIdentifier, viewer: user, category: categoryFilter)
+            .sorted { $0.createdDate < $1.createdDate }
 
         if relevantComments.isEmpty {
             // If there are no comments return gracefully
@@ -1313,6 +1376,7 @@ final class StatefulStubbedAPI: Networking {
             let author_profile_image_url: String?
             let author_profile_image_original_url: String?
             let body_formatting: [CommentFormatSpan]?
+            let audience: String
             let creation_time, updated_time: String
             let comment_likes: Int
             let is_liked: Bool
@@ -1328,6 +1392,7 @@ final class StatefulStubbedAPI: Networking {
                    author_profile_image_url: authorAvatar,
                    author_profile_image_original_url: authorAvatar,
                    body_formatting: comment.bodyFormatting,
+                   audience: comment.audience,
                    creation_time: dateFormatter.string(from: comment.createdDate),
                    updated_time: dateFormatter.string(from: comment.updatedDate),
                    comment_likes: comment.likes.count,

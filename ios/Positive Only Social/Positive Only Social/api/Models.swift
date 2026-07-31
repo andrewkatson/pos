@@ -637,6 +637,8 @@ struct CommentViewData: Identifiable, Equatable {
     let body: String
     /// Inline formatting spans over `body` (issue #318); nil = plain text.
     var formatting: [CommentFormatSpan]? = nil
+    /// Who may see this comment (issue #445); nil/absent is treated as public.
+    var audience: String? = nil
     let likeCount: Int
     let isLiked: Bool // Whether the current user has liked this comment
     let createdDate: Date

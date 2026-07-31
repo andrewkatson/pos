@@ -53,8 +53,8 @@ from .cloudfront import sign_compressed_url, sign_original_url
 from .s3 import delete_image, generate_presigned_upload, image_url_to_key, is_source_bucket_url, \
     strip_query_and_fragment
 from .tags import set_post_tags
-from .visibility import can_view_post, in_same_age_band, searchable_users, visible_comment_threads, \
-    visible_comments, visible_posts
+from .visibility import audience_admits, can_view_post, in_same_age_band, searchable_users, \
+    visible_comment_threads, visible_comments, visible_posts
 
 
 def _age_from_dob(dob):
@@ -217,6 +217,20 @@ def _normalize_caption_style(data):
         invalid_fields.append(Params.background_color)
 
     return font, color, invalid_fields
+
+
+def _normalize_audience(data):
+    """Read the optional audience from a make_post / comment payload (issue
+    #392/#445). Returns (audience, is_valid): absent/null/"" keeps the historical
+    public default (so older clients that never send it are unaffected), a known
+    tier is used as-is, and anything else falls back to public but flags the
+    field so the caller can reject the request."""
+    raw_audience = data.get(Fields.audience)
+    if raw_audience in (None, ""):
+        return POST_AUDIENCE_PUBLIC, True
+    if raw_audience in POST_AUDIENCES:
+        return raw_audience, True
+    return POST_AUDIENCE_PUBLIC, False
 
 
 def _utf16_length(text):
@@ -1752,13 +1766,8 @@ def make_post(request):
 
     # Who may see the post (issue #392). Absent/null/"" keep the historical
     # public default, so older clients that never send it are unaffected.
-    raw_audience = data.get(Fields.audience)
-    if raw_audience in (None, ""):
-        audience = POST_AUDIENCE_PUBLIC
-    elif raw_audience in POST_AUDIENCES:
-        audience = raw_audience
-    else:
-        audience = POST_AUDIENCE_PUBLIC
+    audience, audience_valid = _normalize_audience(data)
+    if not audience_valid:
         invalid_fields.append(Fields.audience)
 
     if len(invalid_fields) > 0:
@@ -2281,10 +2290,13 @@ def build_post_interaction_state(user, posts):
         )
         # Comment counts respect the same visibility rule as the thread listing,
         # so a row never advertises comments the viewer would not be shown (#249).
+        # count is distinct because visible_comments carries the audience-join
+        # fan-out (issue #445): a viewer's own comment is emitted once per account
+        # they follow, so a plain Count would over-report the total.
         comment_counts = dict(
             visible_comments(Comment.objects.filter(comment_thread__post__in=posts), user)
             .values('comment_thread__post_id')
-            .annotate(count=Count('comment_identifier'))
+            .annotate(count=Count('comment_identifier', distinct=True))
             .values_list('comment_thread__post_id', 'count')
         )
 
@@ -2620,6 +2632,11 @@ def comment_on_post(request, post_identifier):
     if formatting_error is not None:
         return log_and_return_json("comment_on_post", {'error': f"Invalid formatting: {formatting_error}"}, status=400)
 
+    # Who may see the comment (issue #445). Defaults to public, mirroring posts.
+    audience, audience_valid = _normalize_audience(data)
+    if not audience_valid:
+        return log_and_return_json("comment_on_post", {'error': f"Invalid fields {[Fields.audience]}"}, status=400)
+
     # Resolve and visibility-check the post before running the (expensive) AI
     # classifier, so a leaked/guessed UUID for a missing or hidden post cannot
     # trigger classifier calls (avoidable cost / billing amplification). Treat a
@@ -2647,6 +2664,7 @@ def comment_on_post(request, post_identifier):
     comment_thread = post.commentthread_set.create()
     new_comment = comment_thread.comment_set.create(
         author=request.user, body=comment_text, body_formatting=body_formatting,
+        audience=audience,
         hidden=hidden,
         hidden_reason=HIDDEN_REASON_CLASSIFIER if hidden else HIDDEN_REASON_NONE)
 
@@ -2701,6 +2719,11 @@ def reply_to_comment_thread(request, post_identifier, comment_thread_identifier)
     if formatting_error is not None:
         return log_and_return_json("reply_to_comment_thread", {'error': f"Invalid formatting: {formatting_error}"}, status=400)
 
+    # Who may see the reply (issue #445). Defaults to public, mirroring posts.
+    audience, audience_valid = _normalize_audience(data)
+    if not audience_valid:
+        return log_and_return_json("reply_to_comment_thread", {'error': f"Invalid fields {[Fields.audience]}"}, status=400)
+
     # Resolve and visibility-check the thread/parent post before running the
     # (expensive) AI classifier, so a leaked/guessed UUID for a missing or
     # hidden thread cannot trigger classifier calls (avoidable cost / billing
@@ -2731,6 +2754,7 @@ def reply_to_comment_thread(request, post_identifier, comment_thread_identifier)
     hidden = not text_result
     new_comment = comment_thread.comment_set.create(
         author=request.user, body=comment_text, body_formatting=body_formatting,
+        audience=audience,
         hidden=hidden,
         hidden_reason=HIDDEN_REASON_CLASSIFIER if hidden else HIDDEN_REASON_NONE)
 
@@ -2782,7 +2806,8 @@ def like_comment(request, post_identifier, comment_thread_identifier, comment_id
     # even an inconsistent legacy record (a cross-band comment on a post) stays
     # unreachable.
     if not in_same_age_band(comment.author, request.user) \
-            or not in_same_age_band(comment.comment_thread.post.author, request.user):
+            or not in_same_age_band(comment.comment_thread.post.author, request.user) \
+            or not audience_admits(comment, request.user):
         logger.warning(f"Like comment failed: Comment {comment_identifier} not visible to user_id: {request.user.id}")
         return log_and_return_json("like_comment", {'error': "Comment not found"}, status=400)
 
@@ -2829,7 +2854,8 @@ def unlike_comment(request, post_identifier, comment_thread_identifier, comment_
     # Treat a cross-band comment as absent (issue #329) so the "not liked yet"
     # vs "no such comment" responses cannot be used as an existence oracle.
     if not in_same_age_band(comment.author, request.user) \
-            or not in_same_age_band(comment.comment_thread.post.author, request.user):
+            or not in_same_age_band(comment.comment_thread.post.author, request.user) \
+            or not audience_admits(comment, request.user):
         logger.warning(f"Unlike comment failed: Comment {comment_identifier} not visible to user_id: {request.user.id}")
         return log_and_return_json("unlike_comment", {'error': "Comment not found"}, status=400)
 
@@ -2923,7 +2949,8 @@ def report_comment(request, post_identifier, comment_thread_identifier, comment_
     # even an inconsistent legacy record (a cross-band comment on a post) stays
     # unreachable.
     if not in_same_age_band(comment.author, request.user) \
-            or not in_same_age_band(comment.comment_thread.post.author, request.user):
+            or not in_same_age_band(comment.comment_thread.post.author, request.user) \
+            or not audience_admits(comment, request.user):
         logger.warning(f"Report comment failed: Comment {comment_identifier} not visible to user_id: {request.user.id}")
         return log_and_return_json("report_comment", {'error': "Comment not found"}, status=400)
 
@@ -2979,7 +3006,8 @@ def retract_report_comment(request, post_identifier, comment_thread_identifier, 
     # Treat a cross-band comment as absent (issue #329) so the "not reported
     # yet" vs "no such comment" responses cannot be used as an existence oracle.
     if not in_same_age_band(comment.author, request.user) \
-            or not in_same_age_band(comment.comment_thread.post.author, request.user):
+            or not in_same_age_band(comment.comment_thread.post.author, request.user) \
+            or not audience_admits(comment, request.user):
         logger.warning(f"Retract report comment failed: Comment {comment_identifier} not visible to user_id: {request.user.id}")
         return log_and_return_json("retract_report_comment", {'error': "Comment not found"}, status=400)
 
@@ -3013,12 +3041,19 @@ def get_comments_for_post(request, post_identifier, batch):
     if batch < 0:
         return log_and_return_json("get_comments_for_post", {'error': "Invalid batch parameter"}, status=400)
 
+    # Optional group filter (issue #445): ?category=following|friend|family keeps
+    # only threads with a visible comment by an author the viewer labeled with
+    # exactly that category — the followed-feed toggle applied to comments.
+    category_filter = request.GET.get(Fields.category) or None
+    if category_filter is not None and category_filter not in FOLLOW_CATEGORIES:
+        return log_and_return_json("get_comments_for_post", {'error': "Invalid category"}, status=400)
+
     post = get_post_with_identifier(post_identifier)
     if not post or not can_view_post(post, request.user):
         logger.warning(f"Get comments for post failed: Post {post_identifier} not found or not visible")
         return log_and_return_json("get_comments_for_post", {'error': "No post with that identifier"}, status=400)
 
-    comment_threads = visible_comment_threads(post.commentthread_set.all(), request.user)
+    comment_threads = visible_comment_threads(post.commentthread_set.all(), request.user, category_filter)
 
     relevant_comment_threads = feed_algorithm_class.get_comment_threads_weighted_for_post(comment_threads)
 
@@ -3040,16 +3075,32 @@ def get_comments_for_thread(request, comment_thread_identifier, batch):
     if batch < 0:
         return log_and_return_json("get_comments_for_thread", {'error': "Invalid batch parameter"}, status=400)
 
+    # Optional group filter (issue #445): ?category=following|friend|family
+    # narrows the comments to authors the viewer labeled with exactly that
+    # category — the same toggle the followed feed offers. Absent/empty means the
+    # whole (audience-permitted) comment list, matching the feed's behavior.
+    category_filter = request.GET.get(Fields.category) or None
+    if category_filter is not None and category_filter not in FOLLOW_CATEGORIES:
+        return log_and_return_json("get_comments_for_thread", {'error': "Invalid category"}, status=400)
+
     comment_thread = get_comment_thread_with_identifier(comment_thread_identifier)
     if not comment_thread or not can_view_post(comment_thread.post, request.user):
         logger.warning(f"Get comments for thread failed: Thread {comment_thread_identifier} not found or not visible")
         return log_and_return_json("get_comments_for_thread", {'error': "No comment thread with that identifier"}, status=400)
 
+    # Resolve the ids the viewer may see first, then rank a clean queryset built
+    # from those ids. Feeding the visible_comments queryset (which carries the
+    # audience-join fan-out) straight into the like-count weighting would inflate
+    # the counts, so we go through ids exactly like visible_comment_threads does.
+    visible_comment_ids = list(
+        visible_comments(comment_thread.comment_set.all(), request.user, category_filter)
+        .values_list('comment_identifier', flat=True)
+    )
     # select_related('author') so serializing author_username and the author's
     # profile photo per comment does not fan out into a query per row.
-    comments = visible_comments(
-        comment_thread.comment_set.select_related('author'), request.user
-    ).order_by('creation_time')
+    comments = Comment.objects.filter(
+        comment_identifier__in=visible_comment_ids
+    ).select_related('author')
     relevant_comments = feed_algorithm_class.get_comments_weighted_for_thread(comments)
 
     if not relevant_comments.count() > 0:
@@ -3085,6 +3136,7 @@ def get_comments_for_thread(request, comment_thread_identifier, batch):
             Fields.comment_identifier: comment.comment_identifier,
             Fields.body: comment.body,
             Fields.body_formatting: comment.body_formatting,
+            Fields.audience: comment.audience,
             Fields.author_username: comment.author.username,
             **_author_avatar_fields(comment.author),
             Fields.creation_time: comment.creation_time,

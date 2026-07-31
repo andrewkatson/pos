@@ -472,7 +472,8 @@ class MockPositiveOnlySocialAPI : PositiveOnlySocialAPI {
     override suspend fun getCommentsForPost(
         token: String,
         postId: String,
-        batch: Int
+        batch: Int,
+        category: String?
     ): Response<List<CommentThreadDto>> {
         return Response.success(
             listOf(
@@ -485,7 +486,8 @@ class MockPositiveOnlySocialAPI : PositiveOnlySocialAPI {
     override suspend fun getCommentsForThread(
         token: String,
         threadId: String,
-        batch: Int
+        batch: Int,
+        category: String?
     ): Response<List<CommentDto>> {
         return Response.success(
             listOf(
