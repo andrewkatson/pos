@@ -100,7 +100,7 @@ class ProfileViewModel(
         PostEvents.deletedPostIds.collect { deletedId ->
             if (_userPosts.value.any { it.postIdentifier == deletedId }) {
                 _profileDetails.update { details ->
-                    details?.copy(postCount = maxOf(0, details.postCount - 1))
+                    details?.let { it.copy(postCount = maxOf(0, it.postCount - 1)) }
                 }
             }
         }
