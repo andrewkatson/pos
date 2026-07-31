@@ -338,19 +338,18 @@ def _send_fcm(tokens, payload):
 def _fcm_token_is_dead(response):
     """Whether a token is genuinely gone (and should be pruned).
 
-    Only an explicit UNREGISTERED errorCode / NOT_FOUND status in the response
-    body means the registration token no longer exists. A bare HTTP 404 is NOT
-    enough: a wrong project_id or URL 404s too, and pruning on that would wipe
-    every registered token over a config mistake. INVALID_ARGUMENT is likewise
-    not treated as dead — it can signal a malformed request/config rather than a
-    bad token. Everything ambiguous is left registered and logged by the caller.
+    Prune only on the explicit UNREGISTERED FcmError detail. Neither a bare HTTP
+    404 nor a NOT_FOUND status alone is enough — a wrong project_id or URL also
+    404s with status NOT_FOUND, so pruning on that would wipe every registered
+    token over a config mistake (FCM's real unregistered-token response carries
+    both NOT_FOUND *and* the UNREGISTERED detail). INVALID_ARGUMENT is likewise
+    not treated as dead. Everything ambiguous is left registered and logged by
+    the caller.
     """
     try:
         error = response.json().get("error", {})
     except Exception:
         return False
-    if error.get("status", "") == "NOT_FOUND":
-        return True
     for detail in error.get("details", []):
         if detail.get("errorCode") == "UNREGISTERED":
             return True

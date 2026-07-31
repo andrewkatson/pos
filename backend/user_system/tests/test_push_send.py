@@ -41,14 +41,17 @@ class DeadTokenDetectionTests(TestCase):
         self.assertFalse(push._apns_token_is_dead(_FakeResponse(403, {'reason': 'ExpiredProviderToken'})))
 
     def test_fcm_dead_only_on_explicit_unregistered(self):
-        self.assertTrue(push._fcm_token_is_dead(_FakeResponse(404, {'error': {'status': 'NOT_FOUND'}})))
+        # FCM's real unregistered response carries both NOT_FOUND and the
+        # UNREGISTERED detail; the detail is what we key on.
         self.assertTrue(push._fcm_token_is_dead(_FakeResponse(
-            404, {'error': {'details': [{'errorCode': 'UNREGISTERED'}]}})))
+            404, {'error': {'status': 'NOT_FOUND', 'details': [{'errorCode': 'UNREGISTERED'}]}})))
 
-    def test_fcm_not_dead_on_bare_404_or_invalid_argument(self):
-        # A wrong project_id/URL 404s without the unregistered signal; pruning on
-        # a bare 404 would wipe every token over a config mistake.
+    def test_fcm_not_dead_without_unregistered_detail(self):
+        # A bare 404, or a NOT_FOUND status with no UNREGISTERED detail (a wrong
+        # project_id/URL), or INVALID_ARGUMENT must never prune — else a config
+        # mistake would wipe every token.
         self.assertFalse(push._fcm_token_is_dead(_FakeResponse(404, {})))
+        self.assertFalse(push._fcm_token_is_dead(_FakeResponse(404, {'error': {'status': 'NOT_FOUND'}})))
         self.assertFalse(push._fcm_token_is_dead(_FakeResponse(
             400, {'error': {'status': 'INVALID_ARGUMENT'}})))
 
