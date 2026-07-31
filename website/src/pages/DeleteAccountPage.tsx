@@ -32,7 +32,8 @@ import './DeleteAccountPage.css'
  *
  * The actual deletion reuses `POST /user/delete/` (apiClient.deleteAccount),
  * the same endpoint the Settings tab and native clients use, which cascades to
- * the user's posts, comments, likes, saved posts, follows, blocks, and images.
+ * the user's posts, comments, likes, saved posts, appeals, follows, blocks, and
+ * images.
  */
 type Step = 'auth' | 'confirm' | 'done'
 
@@ -109,6 +110,10 @@ function DeleteAccountPage() {
           ? { challenge_token: challengeToken, recovery_code: code.toLowerCase() }
           : { challenge_token: challengeToken, totp_code: code },
       )
+      // Drop the challenge state now that it's exchanged for a session, so the
+      // confirmation step's Back button doesn't behave as if we're still in the
+      // 2FA step.
+      backToLogin()
       setStep('confirm')
     } catch (err) {
       const apiErr = err as ApiError
@@ -295,6 +300,7 @@ function DeleteAccountPage() {
               <li>All of your posts and their images</li>
               <li>Your comments and replies</li>
               <li>Your likes and saved posts</li>
+              <li>Your appeals</li>
               <li>Who you follow and who follows you, and your blocks</li>
               <li>Your login sessions and remembered devices</li>
             </ul>
