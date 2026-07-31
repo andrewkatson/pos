@@ -64,8 +64,13 @@ object PushRegistrar {
 
         CoroutineScope(Dispatchers.IO).launch {
             try {
-                DependencyProvider.api.registerDevice(
+                val response = DependencyProvider.api.registerDevice(
                     session.sessionToken, RegisterDeviceRequest(platform = PLATFORM, token = token))
+                // Best-effort — we don't retry — but log a non-2xx so a server-side
+                // problem isn't silently swallowed as success.
+                if (!response.isSuccessful) {
+                    Log.w(TAG, "Device token registration returned ${response.code()}")
+                }
             } catch (e: Exception) {
                 // Best-effort: push is never the source of truth (#282).
                 Log.w(TAG, "Device token upload failed", e)
