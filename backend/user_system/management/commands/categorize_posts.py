@@ -3,6 +3,7 @@ import logging
 from django.core.management.base import BaseCommand, CommandError
 
 from user_system import tasks
+from user_system.constants import NON_CATEGORIZABLE_HIDDEN_REASONS
 from user_system.models import Post
 
 logger = logging.getLogger(__name__)
@@ -47,7 +48,7 @@ class Command(BaseCommand):
         # and the job is handled correctly.
         candidates = (
             Post.objects
-            .exclude(hidden_reason__in=tasks._NON_CATEGORIZABLE_HIDDEN_REASONS)
+            .exclude(hidden_reason__in=NON_CATEGORIZABLE_HIDDEN_REASONS)
             .filter(interest_categories__isnull=True)
             .order_by('creation_time')
             .values_list('post_identifier', flat=True)[:limit]

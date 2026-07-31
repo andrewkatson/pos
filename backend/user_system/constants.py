@@ -27,6 +27,17 @@ NON_APPEALABLE_HIDDEN_REASONS = (
     HIDDEN_REASON_CLASSIFIER_FINAL,
 )
 
+# Hidden reasons in which a post has NOT (yet) passed classification, so there
+# is nothing meaningful to categorize into interest buckets (issues #446/#35):
+# it is still pending, or it was rejected — its content will never surface, and
+# a final rejection has had its image deleted. Report-hiding is deliberately
+# absent: such a post already passed classification and can return to the feed.
+NON_CATEGORIZABLE_HIDDEN_REASONS = frozenset({
+    HIDDEN_REASON_PENDING_CLASSIFICATION,
+    HIDDEN_REASON_CLASSIFIER,
+    HIDDEN_REASON_CLASSIFIER_FINAL,
+})
+
 # Classification lifecycle of a post as reported to its author (the `status`
 # field of make_post/get_post_status). Derived from hidden_reason; see
 # Post.classification_status.

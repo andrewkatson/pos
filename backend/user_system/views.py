@@ -4,6 +4,7 @@ import json
 import logging
 import secrets
 import uuid
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, date, timedelta
 
 from functools import wraps
@@ -73,6 +74,12 @@ interest_classifier_class = interest_classifier
 feed_algorithm_class = feed_algorithm
 
 logger = logging.getLogger(__name__)
+
+# Bounded pool for the freeform-interest classifier calls (issues #446/#35), so
+# a save carrying several new terms overlaps their provider round trips instead
+# of paying their sum. Mirrors tasks._CLASSIFICATION_EXECUTOR; kept separate so
+# request-path work and worker work never contend for the same slots.
+_INTEREST_EXECUTOR = ThreadPoolExecutor(max_workers=8, thread_name_prefix="interests")
 
 
 def log_and_return_json(view_name, data, **kwargs):
@@ -3608,6 +3615,25 @@ def apply_user_interests(user, category_slugs, freeform_terms):
     union_slugs = set(picked)
     new_rows = []  # (text, [mapped_slug, ...])
 
+    # Classify the genuinely new terms concurrently. Each costs up to two
+    # sequential provider round trips (positivity, then mapping), and a single
+    # save may carry MAX_FREEFORM_INTERESTS of them — run back to back that is
+    # dozens of calls on the request path, and registration runs it inline.
+    # Overlapping them makes the wait roughly one chain rather than their sum,
+    # the same trick tasks.classify_post uses for its text/image cascades. The
+    # pool is bounded so a traffic spike can't spawn unbounded threads, and the
+    # work is pure network I/O — no DB access happens on these threads.
+    def _classify(term):
+        result = text_classifier_class.is_text_positive(term)
+        if not result:
+            return term, result, []
+        return term, result, interest_classifier_class.categorize_text_interests(term)
+
+    to_classify = [t for t in terms if t not in existing]
+    # .map keeps input order, though the loop below reads results by key.
+    classified = {term: (result, mapped)
+                  for term, result, mapped in _INTEREST_EXECUTOR.map(_classify, to_classify)}
+
     for term in terms:
         row = existing.get(term)
         if row is not None:
@@ -3617,7 +3643,7 @@ def apply_user_interests(user, category_slugs, freeform_terms):
             accepted_terms.append(term)
             union_slugs.update(c.slug for c in row.categories.all())
             continue
-        result = text_classifier_class.is_text_positive(term)
+        result, mapped = classified[term]
         if not result:
             rejected.append({
                 Fields.text: term,
@@ -3625,7 +3651,6 @@ def apply_user_interests(user, category_slugs, freeform_terms):
                 'reason': result.public_reason(),
             })
             continue
-        mapped = interest_classifier_class.categorize_text_interests(term)
         union_slugs.update(mapped)
         accepted_terms.append(term)
         new_rows.append((term, mapped))

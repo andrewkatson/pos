@@ -11,6 +11,21 @@ from ..constants import (
 from ..models import InterestCategory, PositiveOnlySocialUser, UserFreeformInterest
 
 
+class _InlineExecutor:
+    """Stand-in for the interest classifier pool that runs on the caller's thread.
+
+    The races below are simulated by having the patched classifier write a row —
+    i.e. a second request landing between the classification phase and the write
+    phase. That is about *timing*, not threading, and a real pool thread would
+    use its own DB connection, outside the test's transaction. Running inline
+    keeps the simulated write on the test's connection while exercising the
+    same code path.
+    """
+
+    def map(self, fn, iterable):
+        return [fn(item) for item in iterable]
+
+
 @patch.dict(os.environ, {"TESTING": "True"}, clear=True)
 class InterestOptionsTests(PositiveOnlySocialTestCase):
     """GET /interests/options/ — the public bucket vocabulary."""
@@ -207,7 +222,7 @@ class InterestsViewTests(PositiveOnlySocialTestCase):
             UserFreeformInterest.objects.get_or_create(user=self.user, text='ghost')
             return []
 
-        with patch('user_system.views.interest_classifier_class.categorize_text_interests',
+        with patch('user_system.views._INTEREST_EXECUTOR', _InlineExecutor()),              patch('user_system.views.interest_classifier_class.categorize_text_interests',
                    side_effect=insert_concurrent_row):
             self._set(freeform=['music'])
 
@@ -228,7 +243,7 @@ class InterestsViewTests(PositiveOnlySocialTestCase):
             row.categories.set([nature])
             return []  # this request maps 'jazz' to no bucket
 
-        with patch('user_system.views.interest_classifier_class.categorize_text_interests',
+        with patch('user_system.views._INTEREST_EXECUTOR', _InlineExecutor()),              patch('user_system.views.interest_classifier_class.categorize_text_interests',
                    side_effect=insert_row_with_bucket):
             self._set(freeform=['jazz'])
 

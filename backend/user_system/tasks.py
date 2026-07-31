@@ -33,7 +33,7 @@ from .constants import (
     HIDDEN_REASON_PENDING_CLASSIFICATION, HIDDEN_REASON_CLASSIFIER_FINAL,
     PROFILE_IMAGE_STATUS_PENDING, PROFILE_IMAGE_STATUS_APPROVED,
     PROFILE_IMAGE_STATUS_REJECTED,
-    MAX_INTEREST_TAGS_PER_POST,
+    MAX_INTEREST_TAGS_PER_POST, NON_CATEGORIZABLE_HIDDEN_REASONS,
 )
 from .models import Post, PositiveOnlySocialUser, InterestCategory
 from . import push
@@ -44,15 +44,6 @@ from .s3 import delete_image
 image_classifier_class = image_classifier
 text_classifier_class = text_classifier
 interest_classifier_class = interest_classifier
-
-# Hidden states in which a post has NOT (yet) passed classification, so there is
-# nothing meaningful to categorize: it is still pending, or it was rejected (its
-# content will never surface, and a final rejection has had its image deleted).
-_NON_CATEGORIZABLE_HIDDEN_REASONS = frozenset({
-    HIDDEN_REASON_PENDING_CLASSIFICATION,
-    HIDDEN_REASON_CLASSIFIER,
-    HIDDEN_REASON_CLASSIFIER_FINAL,
-})
 # Aliased here for the same reason (patchable in tests) and so the (best-effort)
 # BlurHash computation lives behind one name at its single call site.
 compute_blurhash = compute_blurhash_for_image_url
@@ -173,7 +164,7 @@ def categorize_post(post_identifier):
     except Post.DoesNotExist:
         logger.info("categorize_post: post %s no longer exists; nothing to do.", post_identifier)
         return
-    if post.hidden_reason in _NON_CATEGORIZABLE_HIDDEN_REASONS:
+    if post.hidden_reason in NON_CATEGORIZABLE_HIDDEN_REASONS:
         logger.info("categorize_post: post %s is not approved (%s); skipping categorization.",
                     post_identifier, post.hidden_reason)
         return
