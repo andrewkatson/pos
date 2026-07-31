@@ -1314,16 +1314,23 @@ final class Positive_Only_SocialUITests: XCTestCase {
         let codeField = app.textFields["TwoFactorConfirmCodeTextField"]
         XCTAssertTrue(codeField.waitForExistence(timeout: TestConstants.shortTimeout), "Confirm-code field should appear on the enrollment sheet")
         XCTAssertTrue(app.staticTexts["TwoFactorSecretText"].exists, "The scannable secret should be shown")
-        codeField.tap()
+        // Type through the shared helper rather than calling typeText on the
+        // element directly. These were the only two raw calls left in the file,
+        // and they are why this test cannot pass as written: the helper is what
+        // dismisses the "Use Strong Password" panel, and without it the panel
+        // opens over the enrollment sheet and takes the focus. Confirmed from
+        // the recorded run. The sheet is a Form/Section, which is exactly the
+        // context where suppressing that panel through textContentType alone
+        // was found unreliable (2f07f7b), so dismissing it is the fix that
+        // holds.
         // The stubbed API accepts this fixed code (StatefulStubbedAPI.stubTotpCode).
-        codeField.typeText("123456")
+        typeText(element: codeField, text: "123456")
 
         // Confirming also takes the account password, so a stolen session alone
         // cannot bind an authenticator to the account.
         let passwordField = app.secureTextFields["TwoFactorConfirmPasswordSecureField"]
         XCTAssertTrue(passwordField.waitForExistence(timeout: TestConstants.shortTimeout), "Confirm-password field should appear on the enrollment sheet")
-        passwordField.tap()
-        passwordField.typeText(strongPassword)
+        typeText(element: passwordField, text: strongPassword)
 
         app.buttons["ConfirmTwoFactorButton"].tap()
 
