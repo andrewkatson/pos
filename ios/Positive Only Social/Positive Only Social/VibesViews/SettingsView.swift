@@ -538,6 +538,12 @@ struct SettingsView: View {
 
             SecureField("Password", text: $disablePassword)
                 .padding().background(Color(.systemGray6)).cornerRadius(10)
+                // Declared for the same reason as the other secure fields: a
+                // SecureField with no content type is still treated as a
+                // password by iOS, so it can float the AutoFill panel. No test
+                // drives the disable flow today, but leaving the one field out
+                // is how that panel creeps back in later.
+                .textContentType(isUITesting() ? .oneTimeCode : .password)
                 .accessibilityIdentifier("DisableTwoFactorPasswordField")
             TextField(disableUsesRecoveryCode ? "Recovery code" : "Authenticator code", text: $disableCode)
                 .padding().background(Color(.systemGray6)).cornerRadius(10)
