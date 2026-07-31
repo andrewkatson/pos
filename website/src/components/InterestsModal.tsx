@@ -94,7 +94,7 @@ function InterestsModal({ onClose, onSaved }: InterestsModalProps) {
   return (
     <Modal
       title="Your Interests"
-      body="Pick topics you enjoy to see more of them in your feed. You can remove any anytime."
+      body="Pick topics you enjoy to see more of them in your feed. You can remove any at any time."
     >
       {isLoading ? (
         <p className="interest-picker__hint">Loading…</p>

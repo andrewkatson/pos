@@ -3681,7 +3681,7 @@ def get_interests(request):
 def set_interests(request):
     """Replace the signed-in user's positive-interest selection (issues #446/#35).
 
-    Body: {"CATEGORIES": [slug, ...], "FREEFORM": [text, ...]}. Full-replace
+    Body: {"categories": [slug, ...], "freeform": [text, ...]}. Full-replace
     semantics power removal in Settings — anything omitted is dropped, empty
     arrays clear everything. Rate limited per user like set_bio since each
     non-stored freeform term runs a billable positivity + mapping classification.

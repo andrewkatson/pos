@@ -349,7 +349,7 @@ struct SettingsView: View {
                 } else {
                     ScrollView {
                         VStack(alignment: .leading, spacing: 16) {
-                            Text("Pick topics you enjoy to see more of them in your feed. You can remove any anytime.")
+                            Text("Pick topics you enjoy to see more of them in your feed. You can remove any at any time.")
                                 .font(.subheadline)
                                 .foregroundColor(.secondary)
                             if let error = viewModel.interestsErrorMessage {

@@ -929,7 +929,7 @@ fun InterestsDialog(
             Column(modifier = Modifier.verticalScroll(rememberScrollState())) {
                 Text(
                     "Pick topics you enjoy to see more of them in your feed. " +
-                        "You can remove any anytime."
+                        "You can remove any at any time."
                 )
                 Spacer(modifier = Modifier.height(12.dp))
                 if (isLoading) {
