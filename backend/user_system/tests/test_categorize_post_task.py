@@ -72,6 +72,22 @@ class CategorizePostTaskTests(TestCase):
         tasks.categorize_post(post.post_identifier)
         self.assertEqual(self._slugs(post), ['nature'])
 
+    def test_provider_outage_does_not_clear_existing_buckets(self):
+        # The categorizer returns [] both when nothing matches and when it could
+        # not run (no provider, provider down). A redelivered job during an
+        # outage must not strip buckets an earlier run found.
+        post = self._post("nature and animals")
+        tasks.categorize_post(post.post_identifier)
+        self.assertEqual(self._slugs(post), ['animals', 'nature'])
+
+        with patch('user_system.tasks.interest_classifier_class.categorize_text_interests',
+                   return_value=[]), \
+             patch('user_system.tasks.interest_classifier_class.categorize_image_interests',
+                   return_value=[]):
+            tasks.categorize_post(post.post_identifier)
+
+        self.assertEqual(self._slugs(post), ['animals', 'nature'])
+
     def test_missing_post_is_noop(self):
         # Should not raise for a post that no longer exists.
         tasks.categorize_post("00000000-0000-0000-0000-000000000000")

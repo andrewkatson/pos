@@ -153,10 +153,12 @@ def categorize_post(post_identifier):
 
     Best-effort and idempotent: runs the interest categorizer over the caption
     and image, unions/caps the results, and replaces the post's
-    interest_categories. A post that never passed classification (pending or
-    rejected) is skipped — there is nothing to surface. The categorizer helpers
-    never raise, so this only fails on a DB error, which RQ/the command treats
-    as a retryable miss.
+    interest_categories — except that an empty result never clears existing
+    buckets, since the categorizer cannot distinguish "matches nothing" from
+    "could not run" (see below). A post that never passed classification
+    (pending or rejected) is skipped — there is nothing to surface. The
+    categorizer helpers never raise, so this only fails on a DB error, which
+    RQ/the command treats as a retryable miss.
     """
     post_identifier = str(post_identifier)
     try:
@@ -183,6 +185,19 @@ def categorize_post(post_identifier):
             slugs.append(slug)
         if len(slugs) >= MAX_INTEREST_TAGS_PER_POST:
             break
+
+    if not slugs:
+        # The categorizer is best-effort: it returns nothing both when the
+        # content genuinely matches no bucket AND when it could not run at all
+        # (no provider configured, provider down, unparseable reply). Those are
+        # indistinguishable here, so never let an empty result *clear* tags a
+        # previous run found — a redelivered job during an outage would
+        # otherwise silently strip a post's buckets and degrade its feed
+        # weighting. Leaving them is the safe reading of an empty result, and
+        # for a post with no tags this is a no-op either way.
+        logger.info("categorize_post: post %s produced no interest buckets; "
+                    "leaving any existing ones untouched.", post_identifier)
+        return
 
     # Re-order the fetched rows back into slug order (the queryset returns them
     # in the model's default ordering, by name) so the log below reports them by
