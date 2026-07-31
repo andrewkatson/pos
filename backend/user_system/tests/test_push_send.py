@@ -30,13 +30,13 @@ class DeadTokenDetectionTests(TestCase):
     """Only an unambiguous "token no longer exists" signal prunes a row; a
     config/payload/topic error must never delete a live token (#342)."""
 
-    def test_apns_dead_on_410_and_bad_device_token(self):
+    def test_apns_dead_only_on_410(self):
         self.assertTrue(push._apns_token_is_dead(_FakeResponse(410, {})))
-        self.assertTrue(push._apns_token_is_dead(_FakeResponse(400, {'reason': 'BadDeviceToken'})))
-        self.assertTrue(push._apns_token_is_dead(_FakeResponse(400, {'reason': 'Unregistered'})))
 
-    def test_apns_not_dead_on_topic_mismatch(self):
-        # An apns-topic/environment misconfig — must not prune valid tokens.
+    def test_apns_not_dead_on_400_or_config_errors(self):
+        # BadDeviceToken / DeviceTokenNotForTopic can be an env/topic misconfig
+        # (sandbox vs prod), not a dead token, so a 400 must never prune.
+        self.assertFalse(push._apns_token_is_dead(_FakeResponse(400, {'reason': 'BadDeviceToken'})))
         self.assertFalse(push._apns_token_is_dead(_FakeResponse(400, {'reason': 'DeviceTokenNotForTopic'})))
         self.assertFalse(push._apns_token_is_dead(_FakeResponse(403, {'reason': 'ExpiredProviderToken'})))
 

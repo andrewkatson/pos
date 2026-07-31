@@ -242,22 +242,16 @@ def _apns_token_is_dead(response):
     """Whether an APNs response means the token itself is gone (and should be
     pruned).
 
-    A 410, or a 400 whose reason is BadDeviceToken/Unregistered — the token is
-    malformed or no longer registered. DeviceTokenNotForTopic is deliberately
-    NOT treated as dead: it signals an apns-topic / environment misconfiguration
-    (e.g. a bad APNS_TOPIC or sandbox-vs-prod mismatch), so pruning on it would
-    wipe valid tokens during a deploy misconfig; the caller logs it as a warning
-    instead.
+    Only HTTP 410 (reason "Unregistered" — the device unregistered, e.g. the app
+    was uninstalled) is an unambiguous "this token is gone". A 400 is deliberately
+    NOT pruned: BadDeviceToken / DeviceTokenNotForTopic can signal an environment
+    or apns-topic misconfiguration (sandbox vs prod, a bad APNS_TOPIC) rather than
+    a truly dead token, so pruning on it would wipe valid tokens en masse on a
+    deploy misconfig. The caller logs those as warnings instead — and the token
+    format is already validated at registration, so genuinely malformed tokens
+    rarely reach APNs.
     """
-    if response.status_code == 410:
-        return True
-    if response.status_code == 400:
-        try:
-            reason = response.json().get("reason", "")
-        except Exception:
-            reason = ""
-        return reason in ("BadDeviceToken", "Unregistered")
-    return False
+    return response.status_code == 410
 
 
 # ---------------------------------------------------------------------------
