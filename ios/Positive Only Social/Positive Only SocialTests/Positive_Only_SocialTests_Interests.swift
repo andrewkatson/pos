@@ -56,6 +56,10 @@ struct Positive_Only_SocialTests_Interests {
     @Test func testSaveInterests_appliesPicksAndMappedFreeform() async throws {
         _ = try await setupLoggedInUser(username: "grace")
         let sut = makeViewModel(username: "grace")
+        // The sheet always loads before the user can save, and saveInterests
+        // refuses to replace state it never loaded.
+        sut.loadInterests()
+        await yield()
         sut.toggleInterest("nature")
         sut.addFreeformInterests(["music", "hiking"])
         sut.saveInterests()
@@ -76,6 +80,8 @@ struct Positive_Only_SocialTests_Interests {
     @Test func testSaveInterests_rejectsDisallowedFreeform() async throws {
         _ = try await setupLoggedInUser(username: "hopper")
         let sut = makeViewModel(username: "hopper")
+        sut.loadInterests()
+        await yield()
         sut.addFreeformInterests(["negative energy"])
         sut.saveInterests()
         await yield()
@@ -87,6 +93,8 @@ struct Positive_Only_SocialTests_Interests {
     @Test func testSaveInterests_removesDeselected() async throws {
         _ = try await setupLoggedInUser(username: "lovelace")
         let sut = makeViewModel(username: "lovelace")
+        sut.loadInterests()
+        await yield()
         sut.toggleInterest("nature")
         sut.toggleInterest("music")
         sut.saveInterests()

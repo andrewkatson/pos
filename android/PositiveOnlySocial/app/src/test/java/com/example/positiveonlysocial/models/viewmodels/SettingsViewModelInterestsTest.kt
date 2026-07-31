@@ -57,6 +57,10 @@ class SettingsViewModelInterestsTest {
     fun `saveInterests applies picks and mapped freeform`() = runTest {
         val api = StatefulStubbedAPI()
         val vm = buildViewModelFor(api, "grace")
+        // The dialog always loads before the user can save, and saveInterests
+        // refuses to replace state it never loaded.
+        vm.loadInterests()
+        advanceUntilIdle()
         vm.toggleInterest("nature")
         vm.addFreeformInterests(listOf("music", "hiking"))
         vm.saveInterests()
@@ -79,6 +83,8 @@ class SettingsViewModelInterestsTest {
         val keychain: KeychainHelperProtocol = mock()
         whenever(keychain.load(any<Class<UserSession>>(), any(), any())).thenReturn(session)
         val vm = SettingsViewModel(api, mock<AuthenticationManager>(), keychain)
+        vm.loadInterests()
+        advanceUntilIdle()
 
         vm.toggleInterest("nature")
         vm.addFreeformInterests(listOf("music"))
@@ -95,6 +101,8 @@ class SettingsViewModelInterestsTest {
     fun `saveInterests rejects disallowed freeform`() = runTest {
         val api = StatefulStubbedAPI()
         val vm = buildViewModelFor(api, "curie")
+        vm.loadInterests()
+        advanceUntilIdle()
         vm.addFreeformInterests(listOf("negative energy"))
         vm.saveInterests()
         advanceUntilIdle()
@@ -113,6 +121,8 @@ class SettingsViewModelInterestsTest {
         val keychain: KeychainHelperProtocol = mock()
         whenever(keychain.load(any<Class<UserSession>>(), any(), any())).thenReturn(session)
         val vm = SettingsViewModel(api, mock<AuthenticationManager>(), keychain)
+        vm.loadInterests()
+        advanceUntilIdle()
 
         vm.toggleInterest("nature")
         vm.toggleInterest("music")
