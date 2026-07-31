@@ -109,12 +109,16 @@ function InterestsModal({ onClose, onSaved }: InterestsModalProps) {
       if (result.freeform.rejected.length > 0) {
         // Keep the dialog open so the user sees which terms were dropped.
         setRejected(result.freeform.rejected)
-        setIsSaving(false)
         return
       }
       onSaved('Your interests have been updated.')
     } catch {
       setError('Could not save your interests. Please try again.')
+    } finally {
+      // Always clear, including the success path. Today onSaved unmounts this
+      // dialog so a leftover flag was invisible, but relying on the caller to
+      // unmount would leave the controls permanently disabled the moment one
+      // didn't. iOS and Android already clear unconditionally (defer/finally).
       setIsSaving(false)
     }
   }

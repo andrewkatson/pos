@@ -134,6 +134,19 @@ test('allows a comma list whose combined length exceeds the per-term limit', asy
   await waitFor(() => expect(onSaved).toHaveBeenCalled())
 })
 
+test('re-enables the controls after a successful save', async () => {
+  const user = userEvent.setup()
+  // renderModal's onSaved is a spy that does not unmount, standing in for a
+  // caller that keeps the dialog open — the controls must not stay disabled.
+  const { onSaved } = renderModal()
+  await screen.findByRole('button', { name: 'Nature' })
+
+  await user.click(screen.getByRole('button', { name: 'Save' }))
+  await waitFor(() => expect(onSaved).toHaveBeenCalled())
+  await waitFor(() => expect(screen.getByRole('button', { name: 'Save' })).toBeEnabled())
+  expect(screen.getByRole('button', { name: 'Cancel' })).toBeEnabled()
+})
+
 test('shows rejected freeform terms and keeps the dialog open', async () => {
   const user = userEvent.setup()
   mockSet.mockResolvedValue({
