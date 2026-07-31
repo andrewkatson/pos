@@ -145,7 +145,17 @@ function DeleteAccountPage() {
       setStep('done')
     } catch (err) {
       const apiErr = err as ApiError
-      setErrorMessage(apiErr.message ?? 'Failed to delete your account. Please try again.')
+      // A 401 means the session we started on (restored on page load) is
+      // revoked or expired, so there's nothing to retry from the confirmation
+      // step — drop the stale session and send the user back to sign in.
+      if (apiErr.status === 401) {
+        clearSession()
+        setAcknowledged(false)
+        setStep('auth')
+        setErrorMessage('Your session has expired. Please sign in again to delete your account.')
+      } else {
+        setErrorMessage(apiErr.message ?? 'Failed to delete your account. Please try again.')
+      }
     } finally {
       setIsLoading(false)
     }

@@ -172,6 +172,28 @@ test('a failed deletion surfaces the error and keeps the session', async () => {
   ).toBeInTheDocument()
 })
 
+test('an expired session (401) sends the user back to sign in', async () => {
+  // Started on the confirmation step from a restored token that turns out to be
+  // revoked; the delete 401s, so we must drop the session and re-auth.
+  mockGetStoredSessionToken.mockReturnValue('stale-token')
+  renderPage()
+  await userEvent.click(
+    await screen.findByRole('checkbox', {
+      name: /permanently deletes my account and data/i,
+    }),
+  )
+  mockDeleteAccount.mockRejectedValueOnce({ status: 401, message: 'Not authenticated' })
+  await userEvent.click(screen.getByRole('button', { name: 'Delete my account and data' }))
+
+  expect(mockClearSession).toHaveBeenCalled()
+  expect(await screen.findByRole('alert')).toHaveTextContent(/session has expired/i)
+  // Back on the sign-in form, not stuck on a confirmation step with no way in.
+  expect(screen.getByLabelText('Username or Email')).toBeInTheDocument()
+  expect(
+    screen.queryByRole('button', { name: 'Delete my account and data' }),
+  ).not.toBeInTheDocument()
+})
+
 test('Cancel returns to the landing page', async () => {
   mockGetStoredSessionToken.mockReturnValue('existing-token')
   renderPage()

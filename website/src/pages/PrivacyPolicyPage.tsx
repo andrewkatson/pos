@@ -24,8 +24,7 @@ function PrivacyPolicyPage() {
           To permanently delete your account and all associated data, visit the{' '}
           <Link to="/delete-account" className="privacy-page__deletion-link">
             account &amp; data deletion page
-          </Link>
-          .
+          </Link>.
         </p>
       </main>
     </div>
