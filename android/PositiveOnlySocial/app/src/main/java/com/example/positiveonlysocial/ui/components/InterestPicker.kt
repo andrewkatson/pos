@@ -51,9 +51,23 @@ fun InterestPicker(
 ) {
     var input by remember { mutableStateOf("") }
     val parsed = InterestVocabulary.parseFreeform(input)
+    // Gate on the backend's per-term limit like the other length-limited inputs
+    // (ProfileScreen's bio editor uses isWithinLength the same way). Without it
+    // a too-long term is accepted into the list only to be dropped server-side —
+    // and at registration the rejection isn't surfaced at all, so it would
+    // vanish silently.
+    val canAdd = parsed.isNotEmpty() &&
+        parsed.all { isWithinLength(it, InterestVocabulary.MAX_FREEFORM_INTEREST_LENGTH) }
+    // The limit is per term, not per entry, so the counter tracks the longest
+    // parsed term — otherwise a comma-separated list of short terms would read
+    // as over the limit while Add (correctly) stayed enabled.
+    val longestTerm = parsed.maxByOrNull { it.length } ?: input
 
     fun commit() {
-        if (parsed.isNotEmpty()) onAddFreeform(parsed)
+        // Guarded here too, not just on the button: the Done key reaches this
+        // directly. A blocked commit keeps the input so the user can shorten it.
+        if (!canAdd) return
+        onAddFreeform(parsed)
         input = ""
     }
 
@@ -101,7 +115,7 @@ fun InterestPicker(
                 keyboardActions = KeyboardActions(onDone = { commit() }),
                 modifier = Modifier.weight(1f)
             )
-            Button(onClick = { commit() }, enabled = !isBusy && parsed.isNotEmpty()) {
+            Button(onClick = { commit() }, enabled = !isBusy && canAdd) {
                 Text("Add")
             }
         }
@@ -113,7 +127,7 @@ fun InterestPicker(
         )
 
         if (input.isNotEmpty()) {
-            CharacterCounter(text = input, max = InterestVocabulary.MAX_FREEFORM_INTEREST_LENGTH)
+            CharacterCounter(text = longestTerm, max = InterestVocabulary.MAX_FREEFORM_INTEREST_LENGTH)
         }
 
         if (rejected.isNotEmpty()) {

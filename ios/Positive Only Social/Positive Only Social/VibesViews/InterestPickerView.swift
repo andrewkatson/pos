@@ -27,9 +27,30 @@ struct InterestPickerView: View {
 
     private var parsedInput: [String] { InterestVocabulary.parseFreeform(input) }
 
-    private func commitFreeform() {
+    /// Gate on the backend's per-term limit like the other length-limited
+    /// composers here (BioComposerView uses isWithinLength the same way).
+    /// Without it a too-long term is accepted into the list only to be dropped
+    /// server-side — and at registration the rejection isn't surfaced at all,
+    /// so it would vanish silently.
+    private var canAdd: Bool {
         let terms = parsedInput
-        if !terms.isEmpty { onAddFreeform(terms) }
+        return !terms.isEmpty && terms.allSatisfy {
+            isWithinLength($0, max: GVOAppConstants.maxFreeformInterestLength)
+        }
+    }
+
+    /// The limit is per term, not per entry, so the counter tracks the longest
+    /// parsed term — otherwise a comma-separated list of short terms would read
+    /// as over the limit while Add (correctly) stayed enabled.
+    private var longestTerm: String {
+        parsedInput.max(by: { $0.count < $1.count }) ?? input
+    }
+
+    private func commitFreeform() {
+        // Guarded here too, not just on the button: onSubmit reaches this
+        // directly. A blocked commit keeps the input so the user can shorten it.
+        guard canAdd else { return }
+        onAddFreeform(parsedInput)
         input = ""
     }
 
@@ -100,7 +121,7 @@ struct InterestPickerView: View {
                         .disabled(isBusy)
                         .onSubmit(commitFreeform)
                     Button("Add", action: commitFreeform)
-                        .disabled(isBusy || parsedInput.isEmpty)
+                        .disabled(isBusy || !canAdd)
                 }
 
                 Text("Separate multiple with commas. Each is checked to keep things positive.")
@@ -108,7 +129,7 @@ struct InterestPickerView: View {
                     .foregroundColor(.secondary)
 
                 if input.count > 0 {
-                    CharacterCounter(text: input, max: GVOAppConstants.maxFreeformInterestLength)
+                    CharacterCounter(text: longestTerm, max: GVOAppConstants.maxFreeformInterestLength)
                 }
 
                 if !rejected.isEmpty {

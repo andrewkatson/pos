@@ -1,6 +1,7 @@
 import { useId, useState } from 'react'
 import type { InterestOption, RejectedInterest } from '../api/types'
 import { MAX_FREEFORM_INTEREST_LENGTH, parseFreeformInput } from '../api/interestVocabulary'
+import { isWithinLimit } from '../auth/requirements'
 import CharacterCounter from './CharacterCounter'
 import './InterestPicker.css'
 
@@ -49,9 +50,21 @@ function InterestPicker({
   const inputId = useId()
   const hintId = useId()
 
+  const parsed = parseFreeformInput(input)
+  // Gate on the backend's per-term limit like every other length-limited input
+  // here (see NewPostTab's isWithinLimit use). Without this a too-long term is
+  // accepted into the list only to be dropped server-side — and at registration
+  // the rejection isn't surfaced at all, so it would vanish silently.
+  const isEveryTermWithinLimit = parsed.every(t => isWithinLimit(t, MAX_FREEFORM_INTEREST_LENGTH))
+  const canAdd = parsed.length > 0 && isEveryTermWithinLimit
+  // Falls back to the raw input when nothing parses (e.g. only commas/spaces).
+  const longestTerm = parsed.reduce((a, b) => (b.length > a.length ? b : a), parsed[0] ?? input)
+
   function commitFreeform() {
-    const terms = parseFreeformInput(input)
-    if (terms.length > 0) onAddFreeform(terms)
+    // Guard here too, not just on the button: Enter reaches this directly.
+    // A blocked commit keeps the input so the user can shorten it.
+    if (!canAdd) return
+    onAddFreeform(parsed)
     setInput('')
   }
 
@@ -119,7 +132,7 @@ function InterestPicker({
           <button
             type="button"
             className="modal__confirm"
-            disabled={disabled || parseFreeformInput(input).length === 0}
+            disabled={disabled || !canAdd}
             onClick={commitFreeform}
           >
             Add
@@ -128,7 +141,12 @@ function InterestPicker({
         <p id={hintId} className="interest-picker__hint">
           Separate multiple with commas. Each is checked to keep things positive.
         </p>
-        {input.length > 0 && <CharacterCounter value={input} max={MAX_FREEFORM_INTEREST_LENGTH} />}
+        {input.length > 0 && (
+          // The limit is per term, not per entry, so count the longest parsed
+          // term — otherwise a comma-separated list of short terms would read as
+          // over the limit while Add (correctly) stayed enabled.
+          <CharacterCounter value={longestTerm} max={MAX_FREEFORM_INTEREST_LENGTH} />
+        )}
         {rejected.length > 0 && (
           <ul className="interest-rejected" role="alert">
             {rejected.map(r => (

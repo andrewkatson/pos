@@ -2,6 +2,7 @@ import { render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { vi, beforeEach, test, expect } from 'vitest'
 import InterestsModal from './InterestsModal'
+import { MAX_FREEFORM_INTEREST_LENGTH } from '../api/interestVocabulary'
 
 vi.mock('../api/client', () => ({
   apiClient: {
@@ -80,6 +81,54 @@ test('deselecting a bucket removes it from the saved set', async () => {
   await user.click(screen.getByRole('button', { name: 'Remove hiking' }))
   await user.click(screen.getByRole('button', { name: 'Save' }))
   await waitFor(() => expect(mockSet).toHaveBeenCalledWith({ categories: [], freeform: [] }))
+})
+
+test('blocks adding a freeform term over the length limit', async () => {
+  const user = userEvent.setup()
+  renderModal()
+  await screen.findByRole('button', { name: 'Nature' })
+
+  const input = screen.getByRole('textbox')
+  const tooLong = 'a'.repeat(MAX_FREEFORM_INTEREST_LENGTH + 1)
+  await user.type(input, tooLong)
+
+  // Add stays disabled and the text is kept so the user can shorten it, rather
+  // than being accepted here only to be dropped by the backend.
+  const addButton = screen.getByRole('button', { name: 'Add' })
+  expect(addButton).toBeDisabled()
+  await user.click(addButton)
+  expect(screen.queryByRole('button', { name: `Remove ${tooLong}` })).not.toBeInTheDocument()
+  expect(input).toHaveValue(tooLong)
+
+  // A term within the limit is still addable.
+  await user.clear(input)
+  await user.type(input, 'jazz')
+  expect(screen.getByRole('button', { name: 'Add' })).toBeEnabled()
+})
+
+test('allows a comma list whose combined length exceeds the per-term limit', async () => {
+  const user = userEvent.setup()
+  const { onSaved } = renderModal()
+  await screen.findByRole('button', { name: 'Nature' })
+
+  // Each term is comfortably under the limit but the whole entry is well over
+  // it. The limit is per term, so this must stay addable — gating on the raw
+  // input length would wrongly block it.
+  const half = 'a'.repeat(60)
+  const other = 'b'.repeat(60)
+  await user.type(screen.getByRole('textbox'), `${half}, ${other}`)
+  expect(screen.getByRole('button', { name: 'Add' })).toBeEnabled()
+
+  await user.click(screen.getByRole('button', { name: 'Add' }))
+  await user.click(screen.getByRole('button', { name: 'Save' }))
+  // 'hiking' is the prefilled term from getInterests.
+  await waitFor(() =>
+    expect(mockSet).toHaveBeenCalledWith({
+      categories: ['nature'],
+      freeform: ['hiking', half, other],
+    }),
+  )
+  await waitFor(() => expect(onSaved).toHaveBeenCalled())
 })
 
 test('shows rejected freeform terms and keeps the dialog open', async () => {
