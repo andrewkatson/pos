@@ -4,7 +4,7 @@ from django.db import migrations, models
 class Migration(migrations.Migration):
 
     dependencies = [
-        ('user_system', '0027_post_image_blurhash'),
+        ('user_system', '0029_notificationpreference'),
     ]
 
     operations = [
