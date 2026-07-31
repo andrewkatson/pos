@@ -210,8 +210,9 @@ final class PostDetailViewModel: ObservableObject {
                         group.addTask {
                             let commentsData = try await self.api.getCommentsForThread(sessionManagementToken: token, commentThreadIdentifier: threadId, batch: 0, category: categoryFilter)
 
-                            // *** FIXED: Removed 'await' here, as decodeList is not async ***
-                            let commentFields = try await self.decodeList(from: commentsData, type: CommentFields.self)
+                            // decodeList is synchronous, so no `await` (an await
+                            // here would warn "no async operations occur").
+                            let commentFields = try self.decodeList(from: commentsData, type: CommentFields.self)
 
                             // 4. Convert network models to View Models
                             return commentFields.map { field in
