@@ -14,3 +14,8 @@ django-ratelimit
 redis
 pyotp
 rq
+pyjwt
+google-auth
+requests
+httpx
+h2
