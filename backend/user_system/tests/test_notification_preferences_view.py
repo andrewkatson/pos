@@ -58,6 +58,13 @@ class NotificationPreferencesViewTests(PositiveOnlySocialTestCase):
         self.assertEqual(response.status_code, 400)
         self.assertFalse(NotificationPreference.objects.exists())
 
+    def test_post_non_string_type_is_400_not_500(self):
+        # A non-string (unhashable) type must not blow the set-membership check
+        # into a 500.
+        response = self._post({'type': ['x'], 'enabled': True})
+        self.assertEqual(response.status_code, 400)
+        self.assertFalse(NotificationPreference.objects.exists())
+
     def test_post_rejects_non_boolean_enabled(self):
         response = self._post({'type': PUSH_TYPE_POST_REJECTED, 'enabled': 'yes'})
         self.assertEqual(response.status_code, 400)

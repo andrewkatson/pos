@@ -83,6 +83,13 @@ class RegisterDeviceViewTests(PositiveOnlySocialTestCase):
         self.assertEqual(response.status_code, 400)
         self.assertFalse(DeviceToken.objects.exists())
 
+    def test_non_string_platform_is_400_not_500(self):
+        # A non-string (unhashable) value must not blow up the set-membership
+        # check into a 500.
+        response = self._post({'platform': ['ios'], 'token': 'abc'})
+        self.assertEqual(response.status_code, 400)
+        self.assertFalse(DeviceToken.objects.exists())
+
     def test_rejects_missing_token(self):
         response = self._post({'platform': DEVICE_PLATFORM_IOS})
         self.assertEqual(response.status_code, 400)

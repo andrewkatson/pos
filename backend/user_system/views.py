@@ -3516,7 +3516,9 @@ def register_device(request):
     if isinstance(token, str):
         token = token.strip()
     invalid_fields = []
-    if platform not in DEVICE_PLATFORMS:
+    # isinstance guard first: a non-string JSON value (list/object) is unhashable,
+    # so `x not in <frozenset>` would raise TypeError -> 500 instead of a 400.
+    if not isinstance(platform, str) or platform not in DEVICE_PLATFORMS:
         invalid_fields.append(Params.platform)
     # Real APNs/FCM tokens are ASCII, so require it: besides rejecting junk, it
     # keeps len(token) == the UTF-8 byte size, so the length cap actually bounds
@@ -3568,7 +3570,9 @@ def notification_preferences(request):
         notification_type = data.get(Fields.notification_type)
         enabled = data.get(Fields.enabled)
         invalid_fields = []
-        if notification_type not in PUSH_TYPES:
+        # isinstance guard first: a non-string (unhashable) type value would make
+        # `x not in <frozenset>` raise TypeError -> 500 instead of a 400.
+        if not isinstance(notification_type, str) or notification_type not in PUSH_TYPES:
             invalid_fields.append(Params.notification_type)
         if not isinstance(enabled, bool):
             invalid_fields.append(Params.enabled)
