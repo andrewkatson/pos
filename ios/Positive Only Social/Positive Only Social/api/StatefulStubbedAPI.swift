@@ -410,9 +410,14 @@ final class StatefulStubbedAPI: Networking {
         // first register call for such a name adopt the seeded row instead of
         // failing as a duplicate, then drop it from the seeded set so a genuine
         // second registration still gets the "already exists" rejection.
-        if seededUsernames.contains(username),
+        // Consume the marker up front, whichever path this call takes. Removing
+        // it only inside the adoption branch left it set when the seeded row had
+        // already been deleted — the name would then register for real, still be
+        // flagged as seeded, and a later duplicate registration would adopt that
+        // real account instead of being rejected.
+        let wasSeeded = seededUsernames.remove(username) != nil
+        if wasSeeded,
            let index = users.firstIndex(where: { $0.username == username }) {
-            seededUsernames.remove(username)
             users[index].email = email
             users[index].passwordHash = password
             let membershipNumber = users[index].membershipNumber

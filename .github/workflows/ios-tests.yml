@@ -253,7 +253,16 @@ jobs:
               local args=()
               local t
               for t in "$@"; do args+=("-only-testing:$t"); done
-              rm -rf "$result"
+              # Clear both per-attempt outputs: xcodebuild refuses to overwrite
+              # an existing result bundle, and a retry should not inherit
+              # scratch state from the attempt that just failed.
+              rm -rf "$result" "$ddp"
+              # The explicit `|| return $?` is not about errexit — errexit is
+              # suppressed here anyway, because this function is called as an
+              # `if` condition and that suppression extends into the body. It
+              # pins the function's exit status to xcodebuild's, so that adding
+              # any command below this line can never silently mask a failure
+              # and make a failed shard look successful.
               xcodebuild test-without-building \
                 -xctestrun "$XCTESTRUN" \
                 -destination "id=$sim_id" \
@@ -263,7 +272,7 @@ jobs:
                 -retry-tests-on-failure \
                 -test-iterations 3 \
                 "${args[@]}" \
-                > "$log" 2>&1
+                > "$log" 2>&1 || return $?
             }
 
             # In-process retry only covers *test* failures. It cannot recover
