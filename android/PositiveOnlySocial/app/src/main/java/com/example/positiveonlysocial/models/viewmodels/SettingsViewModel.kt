@@ -416,11 +416,22 @@ class SettingsViewModel(
         _rejectedInterests.value = emptyList()
         _hasLoadedInterests.value = false
         viewModelScope.launch {
+            // The preset vocabulary is public reference data, so fetch it
+            // best-effort and on its own: sharing a try with the call below
+            // meant a thrown network error here skipped loading the selection
+            // entirely, leaving the dialog unusable (Save gates on
+            // hasLoadedInterests). Losing it just costs the preset chips.
             try {
                 val optionsResponse = api.getInterestOptions()
                 if (optionsResponse.isSuccessful) {
                     _interestOptions.value = optionsResponse.body()?.options.orEmpty()
                 }
+            } catch (e: Exception) {
+                Log.w(TAG, "Could not load interest options; continuing without preset chips.", e)
+            }
+            // The current selection is what Save replaces, so this is the call
+            // that gates saving.
+            try {
                 val userSession = keychainHelper.load(UserSession::class.java, service, account)
                 if (userSession == null) {
                     _errorMessage.value = "Session not found."

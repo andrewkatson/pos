@@ -1,7 +1,10 @@
 package com.example.positiveonlysocial.models.viewmodels
 
 import com.example.positiveonlysocial.MainDispatcherRule
+import com.example.positiveonlysocial.api.PositiveOnlySocialAPI
 import com.example.positiveonlysocial.api.StatefulStubbedAPI
+import com.example.positiveonlysocial.data.model.InterestOptionsResponse
+import retrofit2.Response
 import com.example.positiveonlysocial.data.auth.AuthenticationManager
 import com.example.positiveonlysocial.data.model.RegisterRequest
 import com.example.positiveonlysocial.data.model.UserSession
@@ -51,6 +54,38 @@ class SettingsViewModelInterestsTest {
         assertTrue(vm.interestOptions.value.any { it.slug == "nature" })
         assertTrue(vm.selectedInterestSlugs.value.isEmpty())
         assertTrue(vm.freeformInterests.value.isEmpty())
+    }
+
+    @Test
+    fun `loadInterests still loads the selection when options fail`() = runTest {
+        // The options endpoint is public reference data; losing it must not take
+        // the dialog down, since the selection is what Save replaces.
+        val api = StatefulStubbedAPI()
+        val auth = api.register(
+            RegisterRequest("marie", "marie@test.com", "pw12345", "false", "127.0.0.1", "1970-01-01")
+        ).body()!!
+        val session = UserSession(auth.sessionToken, "marie", auth.userId!!, false, null, null)
+        val keychain: KeychainHelperProtocol = mock()
+        whenever(keychain.load(any<Class<UserSession>>(), any(), any())).thenReturn(session)
+
+        // Seed a stored term, then reload through an API whose options call throws.
+        val seed = SettingsViewModel(api, mock<AuthenticationManager>(), keychain)
+        seed.loadInterests(); advanceUntilIdle()
+        seed.addFreeformInterests(listOf("music"))
+        seed.saveInterests(); advanceUntilIdle()
+
+        val failingOptions = object : PositiveOnlySocialAPI by api {
+            override suspend fun getInterestOptions(): Response<InterestOptionsResponse> =
+                throw java.io.IOException("network")
+        }
+        val vm = SettingsViewModel(failingOptions, mock<AuthenticationManager>(), keychain)
+        vm.loadInterests()
+        advanceUntilIdle()
+
+        assertTrue(vm.interestOptions.value.isEmpty())
+        // The selection still loaded, so the dialog stays usable and can save.
+        assertTrue(vm.hasLoadedInterests.value)
+        assertEquals(listOf("music"), vm.freeformInterests.value)
     }
 
     @Test

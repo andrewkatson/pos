@@ -938,6 +938,16 @@ fun InterestsDialog(
                 if (isLoading) {
                     CircularProgressIndicator()
                 } else {
+                    // Say why the preset chips are missing rather than leaving
+                    // an unexplained empty section.
+                    if (hasLoaded && options.isEmpty()) {
+                        Text(
+                            "Topic suggestions couldn't be loaded. You can still add your own below.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                        Spacer(modifier = Modifier.height(8.dp))
+                    }
                     InterestPicker(
                         options = options,
                         selectedSlugs = selectedSlugs,

@@ -227,9 +227,18 @@ final class SettingsViewModel: ObservableObject {
         hasLoadedInterests = false
         Task {
             defer { isLoadingInterests = false }
+            // The preset vocabulary is public reference data, so fetch it
+            // best-effort and on its own: sharing a `do` with the call below
+            // meant a failure here skipped loading the selection entirely,
+            // leaving the sheet unusable (Save gates on hasLoadedInterests).
+            // Losing it just costs the preset chips.
+            if let optionsData = try? await api.getInterestOptions(),
+               let decoded = try? JSONDecoder().decode(InterestOptionsResponse.self, from: optionsData) {
+                interestOptions = decoded.options
+            }
+            // The current selection is what Save replaces, so this is the call
+            // that gates saving.
             do {
-                let optionsData = try await api.getInterestOptions()
-                interestOptions = try JSONDecoder().decode(InterestOptionsResponse.self, from: optionsData).options
                 guard let userSession = try keychainHelper.load(UserSession.self, from: keychainService, account: account) else {
                     interestsErrorMessage = "Session not found."
                     return

@@ -355,6 +355,13 @@ struct SettingsView: View {
                             if let error = viewModel.interestsErrorMessage {
                                 Text(error).font(.subheadline).foregroundColor(.red)
                             }
+                            // Say why the preset chips are missing rather than
+                            // leaving an unexplained empty section.
+                            if viewModel.hasLoadedInterests && viewModel.interestOptions.isEmpty {
+                                Text("Topic suggestions couldn't be loaded. You can still add your own below.")
+                                    .font(.subheadline)
+                                    .foregroundColor(.secondary)
+                            }
                             InterestPickerView(
                                 options: viewModel.interestOptions,
                                 selectedSlugs: viewModel.selectedInterestSlugs,
