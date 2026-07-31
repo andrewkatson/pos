@@ -192,6 +192,8 @@ interface CommentMock {
   body: string
   /** Inline formatting spans over `body` (issue #318); null = plain. */
   bodyFormatting: CommentFormatSpan[] | null
+  /** Who may see this comment (issue #445). */
+  audience: PostAudience
   creationTime: number
   hidden: boolean
   hiddenReason: string
@@ -910,17 +912,20 @@ export class StatefulStubbedAPI implements PositiveOnlySocialAPI {
   }
 
   /**
-   * Mirrors visibility._audience_allows (issue #392): whether the post's
-   * audience admits `viewerId`. Public admits everyone and the author always
-   * sees their own posts; otherwise the author must have labeled the viewer
-   * with a category close enough for the audience's nested tier — a "friends"
-   * post reaches friends and family, "family" only family.
+   * Mirrors visibility._audience_allows (issue #392/#445): whether a post's or
+   * comment's audience admits `viewerId`. Public admits everyone and the author
+   * always sees their own content; otherwise the author must have labeled the
+   * viewer with a category close enough for the audience's nested tier — a
+   * "friends" tier reaches friends and family, "family" only family.
    */
-  private audienceAdmits(post: PostMock, viewerId: string): boolean {
-    if (post.audience === 'public' || post.authorId === viewerId) {
+  private audienceAdmits(
+    content: { audience: PostAudience; authorId: string },
+    viewerId: string,
+  ): boolean {
+    if (content.audience === 'public' || content.authorId === viewerId) {
       return true
     }
-    const author = this.users.find((u) => u.id === post.authorId)
+    const author = this.users.find((u) => u.id === content.authorId)
     const category = author?.followCategories.get(viewerId)
     if (!category) {
       return false
@@ -931,7 +936,17 @@ export class StatefulStubbedAPI implements PositiveOnlySocialAPI {
       friends: 2,
       family: 3,
     }
-    return rank[category] >= required[post.audience]
+    return rank[category] >= required[content.audience]
+  }
+
+  /** The followed-feed toggle applied to a comment author (issue #445): whether
+   * the viewer follows `authorId` and labeled them with exactly `category`. A
+   * plain follow counts as 'following'. Mirrors visibility._labeled_author_ids. */
+  private labeledAs(viewer: UserMock, authorId: string, category: FollowCategory): boolean {
+    if (!viewer.following.has(authorId)) {
+      return false
+    }
+    return (viewer.followCategories.get(authorId) ?? 'following') === category
   }
 
   /** Whether a post is visible to a viewer, mirroring backend can_view_post:
@@ -1089,6 +1104,7 @@ export class StatefulStubbedAPI implements PositiveOnlySocialAPI {
     postIdentifier: string,
     commentText: string,
     formatting?: CommentFormatSpan[],
+    audience?: PostAudience,
   ): Promise<CommentOnPostResponse> {
     const user = this.requireUser()
     this.findPost(postIdentifier)
@@ -1103,6 +1119,7 @@ export class StatefulStubbedAPI implements PositiveOnlySocialAPI {
       authorId: user.id,
       body: commentText,
       bodyFormatting: formatting && formatting.length > 0 ? formatting : null,
+      audience: audience ?? 'public',
       creationTime: Date.now(),
       hidden: false,
       hiddenReason: '',
@@ -1121,6 +1138,7 @@ export class StatefulStubbedAPI implements PositiveOnlySocialAPI {
     commentThreadIdentifier: string,
     commentText: string,
     formatting?: CommentFormatSpan[],
+    audience?: PostAudience,
   ): Promise<ReplyResponse> {
     const user = this.requireUser()
     const thread = this.commentThreads.find(
@@ -1134,6 +1152,7 @@ export class StatefulStubbedAPI implements PositiveOnlySocialAPI {
       authorId: user.id,
       body: commentText,
       bodyFormatting: formatting && formatting.length > 0 ? formatting : null,
+      audience: audience ?? 'public',
       creationTime: Date.now(),
       hidden: false,
       hiddenReason: '',
@@ -1144,12 +1163,35 @@ export class StatefulStubbedAPI implements PositiveOnlySocialAPI {
     return { comment_identifier: comment.commentIdentifier }
   }
 
+  /** Comments in a thread the viewer may see: not hidden (unless their own),
+   * audience-admitted, and — when a `category` filter is on — by an author the
+   * viewer labeled with exactly that category (issue #445). */
+  private visibleComments(
+    thread: CommentThreadMock,
+    viewer: UserMock,
+    category?: FollowCategory,
+  ): CommentMock[] {
+    return thread.comments.filter((c) => {
+      if (c.authorId === viewer.id) {
+        // The exact-category toggle drops your own comments, since you do not
+        // follow yourself — matching the followed-feed filter.
+        return category ? false : true
+      }
+      if (c.hidden) return false
+      if (!this.audienceAdmits(c, viewer.id)) return false
+      return !category || this.labeledAs(viewer, c.authorId, category)
+    })
+  }
+
   async getCommentsForPost(
     postIdentifier: string,
     batch: number,
+    category?: FollowCategory,
   ): Promise<CommentThreadRef[]> {
-    this.requireUser()
-    const threads = this.commentThreads.filter((t) => t.postId === postIdentifier)
+    const user = this.requireUser()
+    const threads = this.commentThreads
+      .filter((t) => t.postId === postIdentifier)
+      .filter((t) => this.visibleComments(t, user, category).length > 0)
     return this.batch(threads, batch, COMMENT_BATCH_SIZE).map((t) => ({
       comment_thread_identifier: t.threadIdentifier,
     }))
@@ -1158,6 +1200,7 @@ export class StatefulStubbedAPI implements PositiveOnlySocialAPI {
   async getCommentsForThread(
     commentThreadIdentifier: string,
     batch: number,
+    category?: FollowCategory,
   ): Promise<Comment[]> {
     const user = this.requireUser()
     const thread = this.commentThreads.find(
@@ -1166,9 +1209,9 @@ export class StatefulStubbedAPI implements PositiveOnlySocialAPI {
     if (!thread) {
       throw new ApiError(400, 'No comment thread with that identifier')
     }
-    const visible = thread.comments
-      .filter((c) => !c.hidden)
-      .sort((a, b) => a.creationTime - b.creationTime)
+    const visible = this.visibleComments(thread, user, category).sort(
+      (a, b) => a.creationTime - b.creationTime,
+    )
     return this.batch(visible, batch, COMMENT_BATCH_SIZE).map((c) => {
       const author = this.users.find((u) => u.id === c.authorId)
       const time = new Date(c.creationTime).toISOString()
@@ -1176,6 +1219,7 @@ export class StatefulStubbedAPI implements PositiveOnlySocialAPI {
         comment_identifier: c.commentIdentifier,
         body: c.body,
         body_formatting: c.bodyFormatting,
+        audience: c.audience,
         author_username: author ? author.username : '',
         ...this.authorAvatarFields(c.authorId),
         creation_time: time,

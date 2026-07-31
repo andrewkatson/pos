@@ -544,6 +544,13 @@ class Comment(models.Model):
     creation_time = models.DateTimeField(auto_now_add=True, null=True,
                                          blank=True)
     updated_time = models.DateTimeField(auto_now=True, null=True, blank=True)
+    # Who may see this comment (issue #445). Mirrors Post.audience: the same
+    # nested-circle tiers, defaulting to public so comments created before the
+    # feature — and by clients that never send an audience — stay visible to
+    # everyone. Enforced centrally in visibility.visible_comments (listings) and
+    # visibility.audience_admits (single-comment interaction gate), like posts.
+    audience = models.CharField(max_length=16, choices=POST_AUDIENCE_CHOICES,
+                                default=POST_AUDIENCE_PUBLIC)
     hidden = models.BooleanField(default=False)
     hidden_reason = models.TextField(choices=HIDDEN_REASON_CHOICES, default=HIDDEN_REASON_NONE, blank=True)
 

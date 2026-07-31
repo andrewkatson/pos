@@ -153,8 +153,9 @@ protocol Networking {
     // MARK: - Comment Management
 
     /// Adds a direct comment to a post. `formatting` carries optional inline
-    /// styling spans (issue #318).
-    func commentOnPost(sessionManagementToken: String, postIdentifier: String, commentText: String, formatting: [CommentFormatSpan]?) async throws -> Data
+    /// styling spans (issue #318); `audience` scopes who may see it (issue #445,
+    /// nil = public).
+    func commentOnPost(sessionManagementToken: String, postIdentifier: String, commentText: String, formatting: [CommentFormatSpan]?, audience: String?) async throws -> Data
 
     /// Likes a specific comment within a post.
     func likeComment(sessionManagementToken: String, postIdentifier: String, commentThreadIdentifier: String, commentIdentifier: String) async throws -> Data
@@ -172,16 +173,20 @@ protocol Networking {
     /// Retracts the current user's report against a comment (issue #176).
     func retractReportComment(sessionManagementToken: String, postIdentifier: String, commentThreadIdentifier: String, commentIdentifier: String) async throws -> Data
 
-    /// Gets a batch of comment threads for a post. Requires auth.
-    func getCommentsForPost(sessionManagementToken: String, postIdentifier: String, batch: Int) async throws -> Data
+    /// Gets a batch of comment threads for a post. Requires auth. `category`
+    /// optionally narrows to authors the viewer labeled with exactly that
+    /// relationship category (issue #445); nil returns all visible threads.
+    func getCommentsForPost(sessionManagementToken: String, postIdentifier: String, batch: Int, category: String?) async throws -> Data
 
     /// Gets a batch of comments for a specific comment thread (i.e., replies to a comment).
     /// Requires auth so each comment can include whether the current user has liked it.
-    func getCommentsForThread(sessionManagementToken: String, commentThreadIdentifier: String, batch: Int) async throws -> Data
+    /// `category` optionally narrows to that relationship group (issue #445).
+    func getCommentsForThread(sessionManagementToken: String, commentThreadIdentifier: String, batch: Int, category: String?) async throws -> Data
 
     /// Replies to a comment thread. `formatting` carries optional inline
-    /// styling spans (issue #318).
-    func replyToCommentThread(sessionManagementToken: String, postIdentifier: String, commentThreadIdentifier: String, commentText: String, formatting: [CommentFormatSpan]?) async throws -> Data
+    /// styling spans (issue #318); `audience` scopes who may see it (issue #445,
+    /// nil = public).
+    func replyToCommentThread(sessionManagementToken: String, postIdentifier: String, commentThreadIdentifier: String, commentText: String, formatting: [CommentFormatSpan]?, audience: String?) async throws -> Data
 
     // MARK: - User Discovery
 

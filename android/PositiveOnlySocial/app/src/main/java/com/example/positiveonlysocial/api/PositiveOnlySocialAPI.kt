@@ -265,14 +265,19 @@ interface PositiveOnlySocialAPI {
     suspend fun getCommentsForPost(
         @Header("Authorization") token: String,
         @Path("post_id") postId: String,
-        @Path("batch") batch: Int
+        @Path("batch") batch: Int,
+        // Optional group filter (issue #445), mirroring the followed feed.
+        // Retrofit omits the query when null, returning all visible threads.
+        @Query("category") category: String? = null
     ): Response<List<CommentThreadDto>>
 
     @GET("threads/{thread_id}/comments/{batch}/")
     suspend fun getCommentsForThread(
         @Header("Authorization") token: String,
         @Path("thread_id") threadId: String,
-        @Path("batch") batch: Int
+        @Path("batch") batch: Int,
+        // Optional group filter (issue #445); null returns all visible comments.
+        @Query("category") category: String? = null
     ): Response<List<CommentDto>>
 
     // ============================================================================================

@@ -287,7 +287,7 @@ struct MockedAPI: Networking {
     
     // MARK: - Comment Management
 
-    func commentOnPost(sessionManagementToken: String, postIdentifier: String, commentText: String, formatting: [CommentFormatSpan]? = nil) async throws -> Data {
+    func commentOnPost(sessionManagementToken: String, postIdentifier: String, commentText: String, formatting: [CommentFormatSpan]? = nil, audience: String? = nil) async throws -> Data {
         return try encodeGenericSuccess()
     }
 
@@ -311,7 +311,7 @@ struct MockedAPI: Networking {
         return try encodeGenericSuccess()
     }
 
-    func getCommentsForPost(sessionManagementToken: String, postIdentifier: String, batch: Int) async throws -> Data {
+    func getCommentsForPost(sessionManagementToken: String, postIdentifier: String, batch: Int, category: String? = nil) async throws -> Data {
         // Matches PostDetailViewModel.ThreadIDFields
         struct ThreadIDResponse: Codable {
             let comment_thread_identifier: String
@@ -324,7 +324,7 @@ struct MockedAPI: Networking {
         return try encode(threads)
     }
 
-    func getCommentsForThread(sessionManagementToken: String, commentThreadIdentifier: String, batch: Int) async throws -> Data {
+    func getCommentsForThread(sessionManagementToken: String, commentThreadIdentifier: String, batch: Int, category: String? = nil) async throws -> Data {
         // Matches PostDetailViewModel.CommentFields
         struct CommentResponse: Codable {
             let comment_identifier: String
@@ -359,7 +359,7 @@ struct MockedAPI: Networking {
         return try encode(comments)
     }
 
-    func replyToCommentThread(sessionManagementToken: String, postIdentifier: String, commentThreadIdentifier: String, commentText: String, formatting: [CommentFormatSpan]? = nil) async throws -> Data {
+    func replyToCommentThread(sessionManagementToken: String, postIdentifier: String, commentThreadIdentifier: String, commentText: String, formatting: [CommentFormatSpan]? = nil, audience: String? = nil) async throws -> Data {
         return try encodeGenericSuccess()
     }
 

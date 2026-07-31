@@ -167,6 +167,8 @@ class StatefulStubbedAPI : PositiveOnlySocialAPI {
         val body: String,
         // Inline formatting spans over `body` (issue #318); null = plain.
         val bodyFormatting: List<CommentFormatSpan>? = null,
+        // Who may see this comment (issue #445).
+        val audience: String = PostAudience.PUBLIC.value,
         val creationTime: Long = System.currentTimeMillis(),
         var hidden: Boolean = false,
         var hiddenReason: String = "",
@@ -634,6 +636,41 @@ class StatefulStubbedAPI : PositiveOnlySocialAPI {
         return (rank[category] ?: 0) >= (required[post.audience] ?: 0)
     }
 
+    /** Comment mirror of [audienceAdmits] (issue #445): whether the comment's
+     * audience admits [viewerId]. */
+    private fun commentAudienceAdmits(comment: CommentMock, viewerId: String): Boolean {
+        if (comment.audience == PostAudience.PUBLIC.value || comment.authorId == viewerId) return true
+        val author = users.find { it.id == comment.authorId } ?: return false
+        val category = author.followCategories[viewerId] ?: return false
+        val rank = mapOf("following" to 1, "friend" to 2, "family" to 3)
+        val required = mapOf("following" to 1, "friends" to 2, "family" to 3)
+        return (rank[category] ?: 0) >= (required[comment.audience] ?: 0)
+    }
+
+    /** The followed-feed toggle applied to a comment author (issue #445):
+     * whether [viewer] labeled the comment's author with exactly [category]. A
+     * plain follow counts as "following"; own comments never match. */
+    private fun commentMatchesCategory(comment: CommentMock, viewer: UserMock, category: String): Boolean {
+        if (!viewer.following.contains(comment.authorId)) return false
+        return (viewer.followCategories[comment.authorId] ?: "following") == category
+    }
+
+    /** Comments in [thread] the [viewer] may see (issue #445): not hidden
+     * (unless their own), audience-admitted, and — when [category] is set — by
+     * an author the viewer labeled with exactly that category. */
+    private fun visibleComments(thread: CommentThreadMock, viewer: UserMock, category: String?): List<CommentMock> {
+        return thread.comments.filter { c ->
+            val isOwn = c.authorId == viewer.id
+            if (category != null) {
+                // The exact-category toggle drops your own comments.
+                !isOwn && !c.hidden && commentAudienceAdmits(c, viewer.id) &&
+                    commentMatchesCategory(c, viewer, category)
+            } else {
+                isOwn || (!c.hidden && commentAudienceAdmits(c, viewer.id))
+            }
+        }
+    }
+
     override suspend fun makePost(token: String, request: CreatePostRequest): Response<CreatePostResponse> {
         val user = getAuthorizedUser(token) ?: return errorGeneric(401, "Unauthorized")
 
@@ -1000,7 +1037,9 @@ class StatefulStubbedAPI : PositiveOnlySocialAPI {
         commentThreads.add(thread)
 
         // Create Comment
-        val comment = CommentMock(authorId = user.id, body = request.commentText, bodyFormatting = request.bodyFormatting)
+        val comment = CommentMock(
+            authorId = user.id, body = request.commentText, bodyFormatting = request.bodyFormatting,
+            audience = request.audience ?: PostAudience.PUBLIC.value)
         thread.comments.add(comment)
 
         return Response.success(CommentResponse(thread.threadIdentifier, comment.commentIdentifier))
@@ -1011,7 +1050,9 @@ class StatefulStubbedAPI : PositiveOnlySocialAPI {
         val thread = commentThreads.find { it.threadIdentifier == threadId && it.postId == postId }
             ?: return errorGeneric(404, "Thread not found")
 
-        val comment = CommentMock(authorId = user.id, body = request.commentText, bodyFormatting = request.bodyFormatting)
+        val comment = CommentMock(
+            authorId = user.id, body = request.commentText, bodyFormatting = request.bodyFormatting,
+            audience = request.audience ?: PostAudience.PUBLIC.value)
         thread.comments.add(comment)
 
         return Response.success(CommentResponse(null, comment.commentIdentifier))
@@ -1081,19 +1122,23 @@ class StatefulStubbedAPI : PositiveOnlySocialAPI {
         return Response.success(GenericResponse("Comment report retracted", null))
     }
 
-    override suspend fun getCommentsForPost(token: String, postId: String, batch: Int): Response<List<CommentThreadDto>> {
-        getAuthorizedUser(token) ?: return errorGeneric(401, "Unauthorized")
-        val threads = commentThreads.filter { it.postId == postId }
+    override suspend fun getCommentsForPost(token: String, postId: String, batch: Int, category: String?): Response<List<CommentThreadDto>> {
+        val user = getAuthorizedUser(token) ?: return errorGeneric(401, "Unauthorized")
+        // Only threads with a comment the viewer may see under the current filter
+        // survive (issue #445), mirroring visible_comment_threads.
+        val threads = commentThreads.filter {
+            it.postId == postId && visibleComments(it, user, category).isNotEmpty()
+        }
         val batched = getBatch(threads, batch, COMMENT_BATCH_SIZE)
         return Response.success(batched.map { CommentThreadDto(it.threadIdentifier) })
     }
 
-    override suspend fun getCommentsForThread(token: String, threadId: String, batch: Int): Response<List<CommentDto>> {
+    override suspend fun getCommentsForThread(token: String, threadId: String, batch: Int, category: String?): Response<List<CommentDto>> {
         val user = getAuthorizedUser(token) ?: return errorGeneric(401, "Unauthorized")
         val thread = commentThreads.find { it.threadIdentifier == threadId }
             ?: return errorGeneric(404, "Thread not found")
 
-        val comments = thread.comments.filter { !it.hidden }.sortedBy { it.creationTime }
+        val comments = visibleComments(thread, user, category).sortedBy { it.creationTime }
         val batched = getBatch(comments, batch, COMMENT_BATCH_SIZE)
 
         val dtos = batched.map { c ->
@@ -1111,7 +1156,8 @@ class StatefulStubbedAPI : PositiveOnlySocialAPI {
                 reportReason = c.reports[user.id],
                 authorProfileImageUrl = avatar,
                 authorProfileImageOriginalUrl = avatar,
-                bodyFormatting = c.bodyFormatting
+                bodyFormatting = c.bodyFormatting,
+                audience = c.audience
             )
         }
         return Response.success(dtos)

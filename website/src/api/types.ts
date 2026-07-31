@@ -449,6 +449,8 @@ export interface Comment extends AuthorAvatarFields {
   body: string
   /** Inline formatting spans over `body` (issue #318). Absent/null = plain. */
   body_formatting?: CommentFormatSpan[] | null
+  /** Who may see this comment (issue #445). Omitted means 'public'. */
+  audience?: PostAudience
   author_username: string
   creation_time: string
   updated_time: string
