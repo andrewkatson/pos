@@ -58,15 +58,19 @@ async function doRegister({ promptIfNeeded = false }: RegisterOptions): Promise<
       if (permission !== 'granted') return
     }
 
+    // Import the SDK lazily so the guards above (and the whole non-push app) pay
+    // nothing for Firebase when push is off or unsupported.
+    const { isSupported, getMessaging, getToken, onMessage } = await import('firebase/messaging')
+    // Check messaging support BEFORE registering the worker, so a browser that
+    // has Service Workers but not FCM never gets a root-scope worker installed
+    // for nothing.
+    if (!(await isSupported())) return
+
     // The worker can't read import.meta.env, so pass the (public) Firebase
     // config in the registration URL's query string for it to initialize with.
     const swUrl = `${SERVICE_WORKER_URL}?config=${encodeURIComponent(JSON.stringify(firebaseConfig))}`
     const registration = await navigator.serviceWorker.register(swUrl)
 
-    // Import the SDK lazily so the guards above (and the whole non-push app) pay
-    // nothing for Firebase when push is off or unsupported.
-    const { isSupported, getMessaging, getToken, onMessage } = await import('firebase/messaging')
-    if (!(await isSupported())) return
     const { initializeApp, getApps } = await import('firebase/app')
     const app = getApps()[0] ?? initializeApp(firebaseConfig)
     const messaging = getMessaging(app)
