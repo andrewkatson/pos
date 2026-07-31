@@ -91,7 +91,10 @@ async function doRegister({ promptIfNeeded = false }: RegisterOptions): Promise<
       const title = payload.notification?.title ?? 'Good Vibes Only'
       const body = payload.notification?.body ?? ''
       const deepLink = payload.data?.deep_link
-      void registration.showNotification(title, { body, data: { deep_link: deepLink } })
+      // showNotification returns a Promise; swallow a rejection explicitly (a
+      // bare `void` still surfaces an unhandled rejection) — this module is
+      // best-effort and must never throw.
+      registration.showNotification(title, { body, data: { deep_link: deepLink } }).catch(() => {})
     })
   } catch {
     // Best-effort: push is a nudge, never the source of truth (#282).

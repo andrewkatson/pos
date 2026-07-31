@@ -80,11 +80,15 @@ class MainActivity : ComponentActivity() {
      * FCM delivers the payload's data keys as string extras (issues #342/#343). */
     private fun handleNotificationIntent(intent: Intent?) {
         val postId = intent?.getStringExtra(PosFirebaseMessagingService.KEY_POST_IDENTIFIER)
-        if (!postId.isNullOrEmpty()) {
+        val type = intent?.getStringExtra(PosFirebaseMessagingService.KEY_TYPE)
+        // Gate on the payload's type (like iOS) so a future push kind that also
+        // carries post_identifier can't misroute to a post.
+        if (!postId.isNullOrEmpty() && type == PosFirebaseMessagingService.TYPE_POST_REJECTED) {
             PushNavigator.openPost(postId)
-            // Consume it so an Activity recreation (rotation / process death)
-            // doesn't re-read the same extra and navigate again.
+            // Consume them so an Activity recreation (rotation / process death)
+            // doesn't re-read the same extras and navigate again.
             intent.removeExtra(PosFirebaseMessagingService.KEY_POST_IDENTIFIER)
+            intent.removeExtra(PosFirebaseMessagingService.KEY_TYPE)
         }
     }
 }

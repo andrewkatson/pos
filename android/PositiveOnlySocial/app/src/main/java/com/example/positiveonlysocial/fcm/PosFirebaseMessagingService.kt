@@ -42,8 +42,12 @@ class PosFirebaseMessagingService : FirebaseMessagingService() {
         val intent = Intent(this, MainActivity::class.java).apply {
             flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
             // Android routes by post_identifier only (the web deep_link isn't
-            // used here), matching the extra FCM places on a background tap.
+            // used here), matching the extras FCM places on a background tap.
+            // `type` rides along so the tap handler can gate on it, the way iOS
+            // does — a future push type carrying post_identifier for another
+            // reason must not deep-link to a post.
             if (postId != null) putExtra(KEY_POST_IDENTIFIER, postId)
+            message.data[KEY_TYPE]?.let { putExtra(KEY_TYPE, it) }
         }
         val pendingIntent = PendingIntent.getActivity(
             this, 0, intent,
@@ -79,9 +83,13 @@ class PosFirebaseMessagingService : FirebaseMessagingService() {
     }
 
     companion object {
-        // Data key from the backend payload (user_system/push.build_rejection_payload).
+        // Data keys from the backend payload (user_system/push.build_rejection_payload).
         // Android routes by post_identifier; the web-only deep_link is ignored here.
         const val KEY_POST_IDENTIFIER = "post_identifier"
+        const val KEY_TYPE = "type"
+        // The only push type that deep-links to a post today; the tap handler
+        // gates on it so a future type can't misroute.
+        const val TYPE_POST_REJECTED = "post_rejected"
         private const val CHANNEL_ID = "post_moderation"
         private const val NOTIFICATION_ID = 342
     }

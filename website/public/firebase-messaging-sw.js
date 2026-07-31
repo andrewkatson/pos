@@ -5,8 +5,9 @@
  * the (public) Firebase config is passed in this worker's registration URL
  * query string (see src/push/webPush.ts) and parsed below.
  *
- * The compat SDK is loaded from gstatic; keep the version in step with the
- * `firebase` dependency in package.json.
+ * The compat SDK is loaded from gstatic and must match the `firebase` dependency
+ * in package.json, which is pinned to an exact version (not a ^range) for that
+ * reason — bump both together.
  */
 importScripts('https://www.gstatic.com/firebasejs/12.17.0/firebase-app-compat.js')
 importScripts('https://www.gstatic.com/firebasejs/12.17.0/firebase-messaging-compat.js')
