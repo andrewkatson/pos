@@ -358,6 +358,19 @@ interface PositiveOnlySocialAPI {
         @Body request: SetBioRequest
     ): Response<SetBioResponse>
 
+    // =============================================================================
+    // PUSH NOTIFICATIONS (issues #342/#343)
+    // =============================================================================
+
+    // Registers (or refreshes) this device's FCM token so the backend can send
+    // best-effort push notifications (e.g. a post rejected off the request path).
+    // Upserts on (platform, token) server-side; platform is "android".
+    @POST("devices/register/")
+    suspend fun registerDevice(
+        @Header("Authorization") token: String,
+        @Body request: RegisterDeviceRequest
+    ): Response<GenericResponse>
+
     // ============================================================================================
     // APPEALS
     // ============================================================================================

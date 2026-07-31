@@ -435,6 +435,13 @@ data class SetBioRequest(
     @SerializedName("bio") val bio: String
 )
 
+// Body of POST devices/register/ — registers this device's FCM token for push
+// (issues #342/#343). `platform` is always "android" from this client.
+data class RegisterDeviceRequest(
+    @SerializedName("platform") val platform: String,
+    @SerializedName("token") val token: String
+)
+
 /**
  * Response of `POST profile/bio/` (HTTP 200). The bio is moderated synchronously,
  * so this carries the stored bio directly (a non-positive bio is a 4xx and is

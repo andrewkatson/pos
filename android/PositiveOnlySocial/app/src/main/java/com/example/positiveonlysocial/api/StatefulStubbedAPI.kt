@@ -1348,6 +1348,20 @@ class StatefulStubbedAPI : PositiveOnlySocialAPI {
     }
 
     // ============================================================================================
+    // push notifications (issues #342/#343)
+    // ============================================================================================
+
+    override suspend fun registerDevice(
+        token: String,
+        request: RegisterDeviceRequest
+    ): Response<GenericResponse> {
+        // The stub keeps no device table; registration just "succeeds" for a
+        // valid session so the push bootstrap can be exercised in UI mode.
+        getAuthorizedUser(token) ?: return errorGeneric(401, "Unauthorized")
+        return Response.success(GenericResponse(message = "Device registered.", error = null))
+    }
+
+    // ============================================================================================
     // appeals
     // ============================================================================================
 

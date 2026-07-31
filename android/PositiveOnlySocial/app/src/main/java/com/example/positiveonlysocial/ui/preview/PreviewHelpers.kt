@@ -646,6 +646,13 @@ class MockPositiveOnlySocialAPI : PositiveOnlySocialAPI {
         return Response.success(SetBioResponse(bio = request.bio, message = "Your bio has been updated."))
     }
 
+    override suspend fun registerDevice(
+        token: String,
+        request: RegisterDeviceRequest
+    ): Response<GenericResponse> {
+        return Response.success(GenericResponse(message = "Device registered.", error = null))
+    }
+
     override suspend fun getHiddenPosts(token: String, batch: Int): Response<List<HiddenPost>> =
         Response.success(emptyList())
 

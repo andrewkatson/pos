@@ -16,6 +16,8 @@ import androidx.navigation.navArgument
 import com.example.positiveonlysocial.api.PositiveOnlySocialAPI
 import com.example.positiveonlysocial.data.auth.AuthenticationManager
 import com.example.positiveonlysocial.data.security.KeychainHelperProtocol
+import com.example.positiveonlysocial.fcm.PushNavigator
+import com.example.positiveonlysocial.fcm.PushRegistrar
 import com.example.positiveonlysocial.models.viewmodels.FollowListMode
 import com.example.positiveonlysocial.ui.auth.*
 import com.example.positiveonlysocial.ui.main.*
@@ -43,6 +45,18 @@ fun NavGraph(
                 popUpTo(Screen.Welcome.route) { inclusive = true }
                 launchSingleTop = true
             }
+        }
+    }
+
+    // A tapped "post rejected" notification asks us to open that post (issues
+    // #342/#343). Navigate to its detail and clear the request. Mirrors the
+    // forcedLogout handoff above.
+    val pendingPostId by PushNavigator.pendingPostId.collectAsState()
+    LaunchedEffect(pendingPostId) {
+        val postId = pendingPostId ?: return@LaunchedEffect
+        PushNavigator.clearRequest()
+        navController.navigate(Screen.PostDetail.createRoute(postId)) {
+            launchSingleTop = true
         }
     }
 
@@ -113,6 +127,9 @@ fun NavGraph(
 
         // Main App Flow
         composable(Screen.Home.route) {
+            // Reaching Home means the user is signed in, so this reliably covers
+            // the just-logged-in case for push registration (issues #342/#343).
+            LaunchedEffect(Unit) { PushRegistrar.registerCurrentToken() }
             MainScreen(navController, api, keychainHelper, authManager)
         }
         
