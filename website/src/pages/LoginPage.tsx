@@ -1,4 +1,4 @@
-import { useState, type FormEvent } from 'react'
+import { useEffect, useState, type FormEvent } from 'react'
 import { useNavigate, useSearchParams } from 'react-router'
 import Logo from '../components/Logo'
 import {
@@ -43,6 +43,17 @@ function LoginPage() {
   const [challengeToken, setChallengeToken] = useState<string | null>(null)
   const [twoFactorCode, setTwoFactorCode] = useState('')
   const [useRecoveryCode, setUseRecoveryCode] = useState(false)
+
+  // If a remembered session was restored on startup (see main.tsx), a returning
+  // user who lands here is already signed in — send them into the app instead of
+  // asking them to log in (and clear 2FA) again (issue #411). The forced-logout
+  // entries (?suspended / ?verify_email) arrive with the session already
+  // cleared, so this never fires over their explanatory banner.
+  useEffect(() => {
+    if (apiClient.isAuthenticated()) {
+      navigate('/home', { replace: true })
+    }
+  }, [navigate])
 
   const isFormValid = usernameOrEmail.trim().length > 0 && password.length > 0
   // Authenticator codes are 6 digits; recovery codes are 10 hex characters
