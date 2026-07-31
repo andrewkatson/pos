@@ -3647,8 +3647,13 @@ def apply_user_interests(user, category_slugs, freeform_terms):
             # transaction.
             new_row, _ = UserFreeformInterest.objects.get_or_create(user=user, text=term)
             mapped_cats = [cats_by_slug[s] for s in mapped_slugs if s in cats_by_slug]
-            if mapped_cats:
-                new_row.categories.set(mapped_cats)
+            # Set unconditionally, including to empty. Skipping the empty case
+            # would leave a row get_or_create *found* (one a concurrent save
+            # inserted) carrying that writer's buckets, and the next save — which
+            # treats a stored term as already-accepted and folds its buckets back
+            # into the union — would reintroduce buckets this request mapped to
+            # nothing. set([]) clears, which is what last-writer-wins means here.
+            new_row.categories.set(mapped_cats)
 
         user.interest_categories.set(
             [cats_by_slug[s] for s in union_slugs if s in cats_by_slug])

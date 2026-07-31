@@ -8,7 +8,7 @@ from ..constants import (
     Fields, INTEREST_CATEGORY_CHOICES, INTEREST_CATEGORY_SLUGS,
     MAX_FREEFORM_INTEREST_LENGTH,
 )
-from ..models import PositiveOnlySocialUser, UserFreeformInterest
+from ..models import InterestCategory, PositiveOnlySocialUser, UserFreeformInterest
 
 
 @patch.dict(os.environ, {"TESTING": "True"}, clear=True)
@@ -188,6 +188,30 @@ class InterestsViewTests(PositiveOnlySocialTestCase):
         stored = sorted(UserFreeformInterest.objects.filter(user=self.user)
                         .values_list('text', flat=True))
         self.assertEqual(stored, ['music'])
+
+    def test_concurrent_row_buckets_do_not_survive_this_requests_mapping(self):
+        # get_or_create can *find* a row a concurrent save inserted, already
+        # carrying that writer's buckets. This request mapped the term to
+        # nothing, so those buckets must be cleared — otherwise the next save
+        # (which treats a stored term as already-accepted and folds its buckets
+        # back into the union) would reintroduce them.
+        nature = InterestCategory.objects.get(slug='nature')
+
+        def insert_row_with_bucket(term, *args, **kwargs):
+            row, _ = UserFreeformInterest.objects.get_or_create(user=self.user, text='jazz')
+            row.categories.set([nature])
+            return []  # this request maps 'jazz' to no bucket
+
+        with patch('user_system.views.interest_classifier_class.categorize_text_interests',
+                   side_effect=insert_row_with_bucket):
+            self._set(freeform=['jazz'])
+
+        row = UserFreeformInterest.objects.get(user=self.user, text='jazz')
+        self.assertEqual(row.categories.count(), 0)
+
+        # The real damage would show up here: re-saving must not resurrect it.
+        self._set(freeform=['jazz'])
+        self.assertEqual(self._slugs(), [])
 
     def test_kept_freeform_not_reclassified(self):
         self._set(freeform=['nature'])
