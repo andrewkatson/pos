@@ -487,17 +487,15 @@ final class Positive_Only_SocialUITests: XCTestCase {
     /// window is still wide enough for the SpringBoard alert to present if it
     /// ever does, since missing it leaves a modal blocking every later tap.
     private func dismissSavePassword(app: XCUIApplication) {
-        let notNowButton = app.buttons["Not Now"]
-        // Full shortTimeout, matching the original. The window was trimmed to
-        // 1.5s while secure fields declared .oneTimeCode, which kept iOS from
-        // offering to save anything — that is no longer true, so the prompt can
-        // appear again and missing it leaves a SpringBoard alert covering the
-        // screen. testDeleteAccount failed exactly that way: the prompt landed
-        // after a failed sign-in, the tap on Register went to the alert
-        // instead, and the register screen never came up.
-        if poll(timeout: TestConstants.shortTimeout, until: { notNowButton.exists }) {
-            notNowButton.tap()
-        }
+        // Waits for the prompt rather than probing once, and delegates the tap
+        // to `dismissSavePasswordNow` so both paths share one rule about when
+        // the button is safe to touch. That rule matters: the alert can be in
+        // the tree while still animating in, and tapping a control that exists
+        // but is not yet hittable is a hard failure rather than a no-op.
+        //
+        // Costs the full window only when nothing appears, since polling stops
+        // the moment the dismissal succeeds.
+        poll(timeout: TestConstants.shortTimeout, until: { dismissSavePasswordNow() })
     }
 
     /// Signs in through the login form, starting from the Welcome view.
