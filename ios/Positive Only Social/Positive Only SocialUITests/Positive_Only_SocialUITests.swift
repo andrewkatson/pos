@@ -234,9 +234,9 @@ final class Positive_Only_SocialUITests: XCTestCase {
         XCTAssertTrue(app.buttons["LoginText"].waitForExistence(timeout: TestConstants.shortTimeout), "Login button not present")
     }
     
-    /// Taps "Not Now" on the system Save Password prompt if it is on screen at
-    /// this instant, reporting whether it did. No waiting: this is for use
-    /// inside loops that are already retrying something else.
+    /// Dismisses the system Save Password prompt if it is on screen, reporting
+    /// whether it did. Returns immediately when there is nothing to dismiss, so
+    /// it is safe inside loops that are already retrying something else.
     ///
     /// iOS raises this prompt asynchronously some time after a password is
     /// submitted — often after whatever window a one-shot dismissal gave it,
@@ -249,7 +249,20 @@ final class Positive_Only_SocialUITests: XCTestCase {
     @discardableResult
     private func dismissSavePasswordNow() -> Bool {
         let notNowButton = app.buttons["Not Now"]
-        guard notNowButton.exists && notNowButton.isHittable else { return false }
+        // Nothing there: leave at once. This is the common case and runs inside
+        // polling loops, so it must not cost a wait.
+        guard notNowButton.exists else { return false }
+
+        // Present, but an alert animating in is in the tree before it can be
+        // touched. Returning false here would be the worst outcome: the caller
+        // would tap into an alert that is about to be fully up, and SpringBoard
+        // swallows that tap silently. Tapping it early is no better - a tap on
+        // a control that is not hittable is a hard failure. So having found a
+        // prompt, wait for it to settle; this wait is only ever reached when
+        // there is genuinely something to dismiss.
+        guard poll(timeout: TestConstants.shortTimeout, until: { notNowButton.isHittable }) else {
+            return false
+        }
         notNowButton.tap()
         return true
     }
