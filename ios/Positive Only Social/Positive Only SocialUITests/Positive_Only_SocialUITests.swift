@@ -220,22 +220,67 @@ final class Positive_Only_SocialUITests: XCTestCase {
     private func assertOnWelcomeView(app: XCUIApplication) {
         // We wait until the "Welcome! 👋" text (which is in NeedsAuthView) appears.
         let welcomeText = app.staticTexts["Welcome! 👋"]
-        
-        // Use a robust existence check with a reasonable timeout.
-        XCTAssertTrue(welcomeText.waitForExistence(timeout: TestConstants.shortTimeout), "The Welcome! 👋 text (NeedsAuthView) did not appear in time.")
+
+        // Clears system alerts while waiting: reaching Welcome usually follows
+        // a logout, a delete or a failed sign-in, and the Save Password prompt
+        // lands asynchronously after any of them — covering this screen rather
+        // than preventing it, so a plain wait times out on a screen that is
+        // actually there.
+        XCTAssertTrue(
+            waitForExistenceClearingSystemAlerts(welcomeText, timeout: TestConstants.timeout),
+            "The Welcome! 👋 text (NeedsAuthView) did not appear in time.")
 
         XCTAssertTrue(app.buttons["RegisterText"].waitForExistence(timeout: TestConstants.shortTimeout), "Register button is not empty")
         XCTAssertTrue(app.buttons["LoginText"].waitForExistence(timeout: TestConstants.shortTimeout), "Login button is not empty")
     }
     
+    /// Taps "Not Now" on the system Save Password prompt if it is on screen at
+    /// this instant, reporting whether it did. No waiting: this is for use
+    /// inside loops that are already retrying something else.
+    ///
+    /// iOS raises this prompt asynchronously some time after a password is
+    /// submitted — often after whatever window a one-shot dismissal gave it,
+    /// and observed arriving only once a later screen had already been
+    /// reached. Being a SpringBoard alert, it leaves the app's elements in the
+    /// tree while making them untappable, so the symptom is never "alert
+    /// present"; it is an element that exists but cannot be hit, or a screen
+    /// that never seems to arrive. Hence checking at the point of use rather
+    /// than at one fixed moment.
+    @discardableResult
+    private func dismissSavePasswordNow() -> Bool {
+        let notNowButton = app.buttons["Not Now"]
+        guard notNowButton.exists && notNowButton.isHittable else { return false }
+        notNowButton.tap()
+        return true
+    }
+
+    /// Waits for `element`, clearing a Save Password prompt that appears
+    /// part-way through the wait. A plain `waitForExistence` can time out
+    /// against a screen that is genuinely there but covered.
+    private func waitForExistenceClearingSystemAlerts(
+        _ element: XCUIElement,
+        timeout: TimeInterval
+    ) -> Bool {
+        poll(timeout: timeout) {
+            if element.exists { return true }
+            dismissSavePasswordNow()
+            return element.exists
+        }
+    }
+
     private func assertOnRegisterView(app: XCUIApplication) {
         // The first check doubles as the "did we arrive?" wait, so it gets the
-        // longer timeout: it has to cover a navigation push, not just a render.
-        // testDeleteAccount reaches this screen ~210s into the test, after a
-        // delete, a deliberately failed sign-in and a back navigation, and the
-        // push took longer than the 3s this used to allow. The checks below it
-        // stay short - once the screen is up, its fields are all there at once.
-        XCTAssertTrue(app.textFields["UsernameTextField"].waitForExistence(timeout: TestConstants.timeout), "Username field not present")
+        // longer timeout and clears system alerts while waiting: it has to
+        // cover a navigation push, and testDeleteAccount arrives here right
+        // after a failed sign-in, which is when iOS raises the Save Password
+        // prompt. That prompt was observed appearing only after the back
+        // navigation had completed, covering this screen so it read as never
+        // having arrived. The checks below stay short — once the screen is up,
+        // its fields are all there at once.
+        XCTAssertTrue(
+            waitForExistenceClearingSystemAlerts(app.textFields["UsernameTextField"],
+                                                 timeout: TestConstants.timeout),
+            "Username field not present")
         XCTAssertTrue(app.textFields["EmailTextField"].waitForExistence(timeout: TestConstants.shortTimeout), "Email field not present")
         XCTAssertTrue(app.secureTextFields["PasswordSecureField"].waitForExistence(timeout: TestConstants.shortTimeout), "Password field not present")
         XCTAssertTrue(app.secureTextFields["ConfirmPasswordSecureField"].waitForExistence(timeout: TestConstants.shortTimeout), "Confirm Password field not present")
@@ -544,6 +589,11 @@ final class Positive_Only_SocialUITests: XCTestCase {
     ) {
         var swipes = 0
         while !element.isHittable && swipes < maxSwipes {
+            // A Save Password prompt sitting over the screen leaves everything
+            // beneath it in the accessibility tree but untappable, so the row
+            // reads as present-but-unreachable and no amount of swiping helps.
+            // Clear it first, and don't spend a swipe doing so.
+            if dismissSavePasswordNow() { continue }
             app.swipeUp()
             swipes += 1
         }
