@@ -201,10 +201,14 @@ struct CommentComposerView: View {
       let title: String
 
       /// The action to perform when the confirm button is tapped, carrying the
-      /// text and any inline formatting spans (issue #318).
-      let onSubmit: (String, [CommentFormatSpan]?) -> Void
+      /// text, any inline formatting spans (issue #318), and the chosen audience
+      /// (issue #445).
+      let onSubmit: (String, [CommentFormatSpan]?, PostAudience) -> Void
 
       @StateObject private var controller = CommentFormatController()
+
+      /// Who may see the comment being written (issue #445); defaults to public.
+      @State private var selectedAudience: PostAudience = .public
 
       var body: some View {
           NavigationView {
@@ -244,6 +248,17 @@ struct CommentComposerView: View {
                           .foregroundColor(.secondary)
                       CharacterCounter(text: controller.text, max: GVOAppConstants.maxCommentLength)
                   }
+
+                  // Who may see this comment (issue #445), mirroring the post
+                  // audience picker in NewPostView.
+                  Section {
+                      Picker("Who can see this?", selection: $selectedAudience) {
+                          ForEach(PostAudience.allCases) { audience in
+                              Text(audience.displayName).tag(audience)
+                          }
+                      }
+                      .accessibilityIdentifier("CommentAudiencePicker")
+                  }
               }
               .navigationTitle(title)
               .navigationBarTitleDisplayMode(.inline)
@@ -256,7 +271,7 @@ struct CommentComposerView: View {
                   }
                   ToolbarItem(placement: .confirmationAction) {
                       Button("Post") {
-                          onSubmit(controller.text, controller.spans)
+                          onSubmit(controller.text, controller.spans, selectedAudience)
                           dismiss()
                       }
                       .disabled(!controller.isSubmittable)

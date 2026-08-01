@@ -5,10 +5,22 @@ on:
     paths:
       - 'ios/**'
       - '.github/workflows/ios-tests.yml'
+      # The coverage guard this workflow runs. Without it listed, a change to
+      # the guard alone would not trigger CI, so a broken guard could sit
+      # unexercised until some unrelated iOS change happened along - the same
+      # silent-gap failure the guard exists to prevent.
+      - '.github/scripts/check_ui_test_coverage.py'
   pull_request:
     paths:
       - 'ios/**'
       - '.github/workflows/ios-tests.yml'
+      - '.github/scripts/check_ui_test_coverage.py'
+
+# Single source of truth for the simulator OS, so the job that builds and the
+# job that creates simulators to run on can never drift apart.
+env:
+  IOS_OS: "26.2"
+  IOS_RUNTIME: "com.apple.CoreSimulator.SimRuntime.iOS-26-2"
 
 jobs:
   build:
@@ -21,6 +33,11 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
+
+      # Runs before the (slow) build so a forgotten test fails in seconds
+      # rather than after a full build-and-test cycle.
+      - name: Verify every UI test is scheduled by the matrix
+        run: python3 .github/scripts/check_ui_test_coverage.py
 
       - name: List Xcode versions
         run: ls /Applications/ | grep Xcode
@@ -61,7 +78,7 @@ jobs:
           xcodebuild build-for-testing \
             -project "Positive Only Social.xcodeproj" \
             -scheme "Positive Only Social" \
-            -destination "platform=iOS Simulator,name=iPhone 16,OS=26.2" \
+            -destination "platform=iOS Simulator,name=iPhone 16,OS=$IOS_OS" \
             -derivedDataPath build \
             CODE_SIGN_IDENTITY="" \
             CODE_SIGNING_REQUIRED=NO \
@@ -95,6 +112,13 @@ jobs:
     name: Test (${{ matrix.test-group }})
     needs: build
     runs-on: macos-15
+    # Without this the job inherits the 360-minute default; a job cancelled at
+    # that limit skips the if: failure() steps, so we'd get no logs at all.
+    # Sized off measured runs: a single attempt of the heaviest group has taken
+    # ~35 min, plus setup and a ~200 MB result-bundle upload. The step cap below
+    # is deliberately lower so the step, not the job, is what trips - a job
+    # cancelled at its limit skips the log-collecting steps entirely.
+    timeout-minutes: 90
     strategy:
       fail-fast: false
       matrix:
@@ -112,8 +136,58 @@ jobs:
 
       - name: Boot Simulator
         run: |
-          xcrun simctl boot "iPhone 16" || true
-          xcrun simctl bootstatus "iPhone 16" -b
+          # One simulator per runner. Running two concurrently was tried for
+          # issue #377 and measurably backfired on the standard 3-vCPU / 7 GB
+          # macos-15 runner: app launch went from a few seconds to ~16 s under
+          # the contention, which blows the 3 s element timeouts the UI tests
+          # are written against, and one group still took 45 minutes for 3
+          # tests. The remaining changes in that issue (in-process test retry,
+          # AutoFill suppression, polling helpers, seeded accounts) carry the
+          # win and none of them need a second simulator.
+          #
+          # Verify the runtime the build job builds against is actually present,
+          # rather than discovering a mismatch as a confusing test failure.
+          # -F: the identifier contains dots, which would otherwise be regex
+          # wildcards and could match a runtime that isn't the one we want.
+          if ! xcrun simctl list runtimes available | grep -qF -- "$IOS_RUNTIME"; then
+            echo "Runtime $IOS_RUNTIME is not available on this runner. Available:"
+            xcrun simctl list runtimes available
+            exit 1
+          fi
+
+          # Use the image's existing iPhone 16 rather than creating a device.
+          # Creating one was only ever needed to give each of two shards its own
+          # simulator, and that sharding is gone, so this is simply the
+          # configuration the suite has always passed against.
+          #
+          # A created device was once suspected of coming up without a software
+          # keyboard, which would have explained a run of "Element did not gain
+          # keyboard focus" failures. That turned out to be wrong - the failures
+          # continued on the existing device and had three unrelated causes in
+          # the test helpers. Kept anyway for being the smaller deviation.
+          # Kept to one line: a multi-line -c script would have to sit at column
+          # zero to satisfy Python, which ends this block scalar and breaks the
+          # YAML. Error reporting lives in the shell below instead.
+          SIM_ID=$(xcrun simctl list devices available --json \
+            | python3 -c "import json,sys;ds=json.load(sys.stdin)['devices'].get('$IOS_RUNTIME',[]);m=[d['udid'] for d in ds if d['name']=='iPhone 16'];print(m[0] if m else '')")
+          if [ -z "$SIM_ID" ]; then
+            echo "No available 'iPhone 16' for $IOS_RUNTIME. Devices present:"
+            xcrun simctl list devices available
+            exit 1
+          fi
+          echo "Using simulator $SIM_ID"
+          echo "SIM_ID=$SIM_ID" >> "$GITHUB_ENV"
+
+          # Force the software keyboard on. With the hardware keyboard attached
+          # iOS shows no on-screen keyboard, text fields never report focus, and
+          # every typing helper fails. This was not the cause of the failures
+          # above, but it removes a per-image default we would otherwise be
+          # trusting. Defaulted per-device, so set it before boot.
+          defaults write com.apple.iphonesimulator DevicePreferences -dict-add \
+            "$SIM_ID" '{ConnectHardwareKeyboard = 0;}' || true
+
+          xcrun simctl boot "$SIM_ID" || true
+          xcrun simctl bootstatus "$SIM_ID" -b
 
       - name: Download Test Bundle
         uses: actions/download-artifact@v4
@@ -128,12 +202,13 @@ jobs:
           find build/Build/Products -name "*.xctestrun"
 
       - name: Run Tests
-        uses: nick-fields/retry@v3
-        with:
-          timeout_minutes: 60
-          max_attempts: 3
-          shell: bash
-          command: |
+        # Covers a retried run: two attempts of the heaviest group, measured at
+        # ~35 min each. The old 60 was a combined cap across both attempts, so a
+        # slow second attempt was killed mid-flight and the retry bought
+        # nothing. Kept under the job cap so failures still reach the log steps.
+        timeout-minutes: 75
+        shell: bash
+        run: |
             cd "ios/Positive Only Social"
             rm -rf TestResults.xcresult xcodebuild.log
             case "${{ matrix.test-group }}" in
@@ -150,6 +225,7 @@ jobs:
                   "Positive Only SocialUITests/Positive_Only_SocialUITests/testDeleteAccount"
                   "Positive Only SocialUITests/Positive_Only_SocialUITests/testResetPassword"
                   "Positive Only SocialUITests/Positive_Only_SocialUITests/testTappingOutsideFieldDismissesKeyboard"
+                  "Positive Only SocialUITests/Positive_Only_SocialUITests/testChangePassword"
                 )
                 # "Positive Only Social" (default) plan covers both unit and UI tests
                 XCTESTRUN=$(find build/Build/Products -name "*.xctestrun" | grep -v "Unit Tests" | head -1)
@@ -159,6 +235,7 @@ jobs:
                   "Positive Only SocialUITests/Positive_Only_SocialUITests/testFollowAndUnfollowFromSearch"
                   "Positive Only SocialUITests/Positive_Only_SocialUITests/testFollowAndUnfollowFromPost"
                   "Positive Only SocialUITests/Positive_Only_SocialUITests/testLikeAndUnlikePost"
+                  "Positive Only SocialUITests/Positive_Only_SocialUITestsLaunchTests/testLaunch"
                 )
                 # "Positive Only Social" (default) plan covers both unit and UI tests
                 XCTESTRUN=$(find build/Build/Products -name "*.xctestrun" | grep -v "Unit Tests" | head -1)
@@ -188,6 +265,7 @@ jobs:
                   "Positive Only SocialUITests/Positive_Only_SocialUITests/testOpenPostDetailFromHomeGrid"
                   "Positive Only SocialUITests/Positive_Only_SocialUITests/testOpenPostDetailFromProfileGrid"
                   "Positive Only SocialUITests/Positive_Only_SocialUITests/testOpenPostDetailFromFollowingFeed"
+                  "Positive Only SocialUITests/Positive_Only_SocialUITests/testEnableTwoFactorAuthentication"
                 )
                 # "Positive Only Social" (default) plan covers both unit and UI tests
                 XCTESTRUN=$(find build/Build/Products -name "*.xctestrun" | grep -v "Unit Tests" | head -1)
@@ -199,24 +277,102 @@ jobs:
             echo "Using xctestrun: $XCTESTRUN"
 
             ONLY_TESTING_ARGS=()
-            for t in "${TESTS[@]}"; do
-              ONLY_TESTING_ARGS+=("-only-testing:$t")
-            done
+            for t in "${TESTS[@]}"; do ONLY_TESTING_ARGS+=("-only-testing:$t"); done
 
-            xcodebuild test-without-building \
-              -xctestrun "$XCTESTRUN" \
-              -destination "platform=iOS Simulator,name=iPhone 16,OS=26.2" \
-              -resultBundlePath TestResults.xcresult \
-              "${ONLY_TESTING_ARGS[@]}" \
-            | tee xcodebuild.log | xcpretty
-            exit ${PIPESTATUS[0]}
+            # One xcodebuild attempt against the single booted simulator.
+            #
+            # -retry-tests-on-failure with -test-iterations 3 retries only the
+            # *failed test*, in-process, so a flaky test costs one rerun instead
+            # of re-running the whole group from a cold boot (which the old
+            # shell-level retry did). That keeps the 3-attempt budget while
+            # removing its compounding cost.
+            #
+            # -parallel-testing-enabled NO matters even with one destination:
+            # the default test plan marks the UI target parallelizable, so
+            # xcodebuild would otherwise CLONE the simulator and run several at
+            # once. That is the contention this job was just measured to lose
+            # badly to. All UI tests live in one class, so it buys nothing here.
+            run_tests_once() {
+              # Clear per-attempt outputs: xcodebuild refuses to overwrite an
+              # existing result bundle, and a retry should not inherit scratch
+              # state from the attempt that just failed.
+              rm -rf TestResults.xcresult dd
+              # Report xcodebuild's own status via PIPESTATUS, matching the
+              # build job above: xcpretty is the last stage and is known to
+              # swallow the real exit code. errexit does not abort the pipeline
+              # before the return, because this function runs as an `if`
+              # condition and that suppression extends into the body.
+              #
+              # Declared before the pipeline so capturing PIPESTATUS afterwards
+              # cannot be disturbed by the assignment itself.
+              local -a stages
+              xcodebuild test-without-building \
+                -xctestrun "$XCTESTRUN" \
+                -destination "id=$SIM_ID" \
+                -resultBundlePath TestResults.xcresult \
+                -derivedDataPath dd \
+                -parallel-testing-enabled NO \
+                -retry-tests-on-failure \
+                -test-iterations 3 \
+                "${ONLY_TESTING_ARGS[@]}" \
+                2>&1 | tee xcodebuild.log | xcpretty
+              stages=("${PIPESTATUS[@]}")
+
+              # Surface a broken log pipeline without failing on it. Whether the
+              # tests passed is xcodebuild's answer alone; tee or xcpretty dying
+              # costs us the log or the formatting, not the result. Failing here
+              # would turn a green suite red and burn another scarce macOS
+              # runner on a rerun, so warn loudly and let the result stand.
+              if [ "${stages[1]}" -ne 0 ]; then
+                echo "::warning::tee exited ${stages[1]} - xcodebuild.log may be truncated or missing"
+              fi
+              if [ "${stages[2]}" -ne 0 ]; then
+                echo "::warning::xcpretty exited ${stages[2]} - console output may be unformatted; the raw log is still uploaded on failure"
+              fi
+              return "${stages[0]}"
+            }
+
+            # In-process retry only covers *test* failures. It cannot recover
+            # from the infrastructure flakes the old shell-level retry did —
+            # simulator failing to boot, "Test runner never began executing",
+            # install failures, xcodebuild dying. Those were the reason retries
+            # existed, so keep one whole-run retry on top of it.
+            #
+            # But retry ONLY those. If a test case actually failed, xcodebuild
+            # has already re-run it three times in-process, so running the whole
+            # group again cannot change the outcome — it just doubles the job
+            # for a result we already have. That doubling is not theoretical:
+            # groups have taken 60-65 minutes against a 60 minute step cap,
+            # which both wasted a runner and truncated the retry it was
+            # supposedly buying.
+            attempt=1
+            max=2
+            RC=1
+            while :; do
+              if run_tests_once; then RC=0; break; fi
+              if [ "$attempt" -ge "$max" ]; then RC=1; break; fi
+              if grep -qiE "Test [Cc]ase .* failed" xcodebuild.log 2>/dev/null; then
+                echo "A test case failed and was already retried in-process; not re-running the group." >&2
+                RC=1; break
+              fi
+              echo "Attempt $attempt failed with no failing test case, so the run itself broke; retrying." >&2
+              attempt=$(( attempt + 1 ))
+            done
+            exit "$RC"
 
       - name: Show failed tests
         if: failure()
         working-directory: "ios/Positive Only Social"
         run: |
-          echo "=== Failed test cases (xcodebuild.log) ==="
-          grep -iE "test case .* failed|test suite .* failed" xcodebuild.log || echo "(no test-case lines found)"
+          # Guard on the log existing: a failure before testing starts leaves no
+          # log, and naming a missing file makes grep exit 2, which would print
+          # the "(none found)" fallback right after real failures.
+          echo "=== Failed test cases ==="
+          if [ ! -f xcodebuild.log ]; then
+            echo "(no log was produced — the run failed before testing started)"
+          else
+            grep -iE "test case .* failed|test suite .* failed" xcodebuild.log || echo "(no test-case lines found)"
+          fi
           echo ""
           echo "=== Assertion failures (xcresult) ==="
           cat > /tmp/parse_xcresult.py << 'PYEOF'
@@ -249,25 +405,28 @@ jobs:
           except Exception as e:
               print("(xcresult parse error: " + str(e) + ")")
           PYEOF
-          xcrun xcresulttool get object --legacy --path TestResults.xcresult --format json \
-            > /tmp/xcresult.json 2>/tmp/xcresult_err.txt || true
-          if [ -s /tmp/xcresult.json ]; then
-            python3 /tmp/parse_xcresult.py < /tmp/xcresult.json
+          if [ -d TestResults.xcresult ]; then
+            xcrun xcresulttool get object --legacy --path TestResults.xcresult --format json \
+              > /tmp/xcresult.json 2>/tmp/xcresult_err.txt || true
+            if [ -s /tmp/xcresult.json ]; then
+              python3 /tmp/parse_xcresult.py < /tmp/xcresult.json
+            else
+              echo "(xcresulttool produced no JSON — stderr below)"
+              cat /tmp/xcresult_err.txt || true
+            fi
           else
-            echo "(xcresulttool produced no JSON — stderr below)"
-            cat /tmp/xcresult_err.txt || true
-            echo ""
-            echo "--- Trying legacy invocation ---"
-            xcrun xcresulttool get object --legacy --path TestResults.xcresult \
-              > /tmp/xcresult_legacy.txt 2>&1 || true
-            head -30 /tmp/xcresult_legacy.txt || true
+            echo "(no result bundle was produced)"
           fi
           echo ""
           echo "=== Compiler errors ==="
-          grep -E "error:" xcodebuild.log | grep -v "^▸" | head -50 || echo "(none)"
-          echo ""
-          echo "=== Last 500 lines of raw log ==="
-          tail -500 xcodebuild.log
+          if [ ! -f xcodebuild.log ]; then
+            echo "(no log)"
+          else
+            grep -E "error:" xcodebuild.log | grep -v "^▸" | head -50 || echo "(none)"
+            echo ""
+            echo "=== Last 500 lines of raw log ==="
+            tail -500 xcodebuild.log
+          fi
 
       - name: Upload test artifacts
         if: failure()

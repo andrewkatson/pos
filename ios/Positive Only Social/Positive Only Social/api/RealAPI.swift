@@ -59,6 +59,10 @@ final class RealAPI: Networking {
         let remember_me: String
         let ip: String
         let date_of_birth: String
+        // Positive interest picks (issues #446/#35). Empty arrays encode
+        // harmlessly — the backend skips them when both are empty.
+        let interest_categories: [String]
+        let interest_freeform: [String]
     }
 
     private struct VerifyIdentityBody: Encodable {
@@ -162,6 +166,8 @@ final class RealAPI: Networking {
         let comment_text: String
         // Inline formatting spans (issue #318); nil omits the field.
         let body_formatting: [CommentFormatSpan]?
+        // Nil defaults to public on the backend (issue #445); omitted when nil.
+        let audience: String?
     }
 
     private struct SubmitAppealBody: Codable {
@@ -176,6 +182,21 @@ final class RealAPI: Networking {
 
     private struct SetBioBody: Encodable {
         let bio: String
+    }
+
+    private struct SetInterestsBody: Encodable {
+        let categories: [String]
+        let freeform: [String]
+    }
+
+    private struct RegisterDeviceBody: Encodable {
+        let platform: String
+        let token: String
+    }
+
+    private struct SetNotificationPreferenceBody: Encodable {
+        let type: String
+        let enabled: Bool
     }
 
     // MARK: - Private Helpers
@@ -285,10 +306,10 @@ final class RealAPI: Networking {
     // MARK: - User & Session Management
     
     /// Creates a user if they do not exist.
-    func register(username: String, email: String, password: String, rememberMe: String, ip: String, dateOfBirth: String) async throws -> Data {
-        let body = RegisterBody(username: username, email: email, password: password, remember_me: rememberMe, ip: ip, date_of_birth: dateOfBirth)
+    func register(username: String, email: String, password: String, rememberMe: String, ip: String, dateOfBirth: String, interestCategories: [String], interestFreeform: [String]) async throws -> Data {
+        let body = RegisterBody(username: username, email: email, password: password, remember_me: rememberMe, ip: ip, date_of_birth: dateOfBirth, interest_categories: interestCategories, interest_freeform: interestFreeform)
         let requestBody = try encode(body)
-        
+
         return try await performRequest(
             pathSegments: [GVOAppConstants.pathSegmentRegister],
             method: .post,
@@ -703,8 +724,8 @@ final class RealAPI: Networking {
     // MARK: - Comment Management
     
     /// Adds a direct comment to a post.
-    func commentOnPost(sessionManagementToken: String, postIdentifier: String, commentText: String, formatting: [CommentFormatSpan]? = nil) async throws -> Data {
-        let body = CommentBody(comment_text: commentText, body_formatting: formatting)
+    func commentOnPost(sessionManagementToken: String, postIdentifier: String, commentText: String, formatting: [CommentFormatSpan]? = nil, audience: String? = nil) async throws -> Data {
+        let body = CommentBody(comment_text: commentText, body_formatting: formatting, audience: audience)
         let requestBody = try encode(body)
         
         return try await performRequest(
@@ -768,28 +789,33 @@ final class RealAPI: Networking {
     }
     
     /// Gets a batch of comment threads for a post.
-    func getCommentsForPost(sessionManagementToken: String, postIdentifier: String, batch: Int) async throws -> Data {
-        // Authenticated GET. ID/Batch are in path.
+    func getCommentsForPost(sessionManagementToken: String, postIdentifier: String, batch: Int, category: String? = nil) async throws -> Data {
+        // Authenticated GET. ID/Batch are in path; an optional category (issue
+        // #445) rides in the query string, mirroring the followed feed.
+        let query = category.map { [URLQueryItem(name: GVOAppConstants.queryKeyCategory, value: $0)] }
         return try await performRequest(
             pathSegments: [GVOAppConstants.pathSegmentPosts, postIdentifier, GVOAppConstants.pathSegmentComments, String(batch)],
             method: .get,
-            authToken: sessionManagementToken
+            authToken: sessionManagementToken,
+            queryItems: query
         )
     }
 
     /// Gets a batch of comments for a specific comment thread.
-    func getCommentsForThread(sessionManagementToken: String, commentThreadIdentifier: String, batch: Int) async throws -> Data {
+    func getCommentsForThread(sessionManagementToken: String, commentThreadIdentifier: String, batch: Int, category: String? = nil) async throws -> Data {
         // Authenticated GET so each comment can include the current user's like state. ID/Batch are in path.
+        let query = category.map { [URLQueryItem(name: GVOAppConstants.queryKeyCategory, value: $0)] }
         return try await performRequest(
             pathSegments: [GVOAppConstants.pathSegmentThreads, commentThreadIdentifier, GVOAppConstants.pathSegmentComments, String(batch)],
             method: .get,
-            authToken: sessionManagementToken
+            authToken: sessionManagementToken,
+            queryItems: query
         )
     }
-    
+
     /// Replies to a comment thread.
-    func replyToCommentThread(sessionManagementToken: String, postIdentifier: String, commentThreadIdentifier: String, commentText: String, formatting: [CommentFormatSpan]? = nil) async throws -> Data {
-        let body = CommentBody(comment_text: commentText, body_formatting: formatting)
+    func replyToCommentThread(sessionManagementToken: String, postIdentifier: String, commentThreadIdentifier: String, commentText: String, formatting: [CommentFormatSpan]? = nil, audience: String? = nil) async throws -> Data {
+        let body = CommentBody(comment_text: commentText, body_formatting: formatting, audience: audience)
         let requestBody = try encode(body)
         
         return try await performRequest(
@@ -882,6 +908,64 @@ final class RealAPI: Networking {
         let requestBody = try encode(body)
         return try await performRequest(
             pathSegments: [GVOAppConstants.pathSegmenProfile, GVOAppConstants.pathSegmentBio],
+            method: .post,
+            body: requestBody,
+            authToken: sessionManagementToken
+        )
+    }
+
+    // MARK: - Positive interest tags (issues #446/#35)
+
+    func getInterestOptions() async throws -> Data {
+        return try await performRequest(
+            pathSegments: [GVOAppConstants.pathSegmentInterests, GVOAppConstants.pathSegmentOptions],
+            method: .get
+        )
+    }
+
+    func getInterests(sessionManagementToken: String) async throws -> Data {
+        return try await performRequest(
+            pathSegments: [GVOAppConstants.pathSegmentInterests],
+            method: .get,
+            authToken: sessionManagementToken
+        )
+    }
+
+    // MARK: - Push notifications (issue #342/#343)
+
+    func registerDevice(sessionManagementToken: String, platform: String, token: String) async throws -> Data {
+        let requestBody = try encode(RegisterDeviceBody(platform: platform, token: token))
+        return try await performRequest(
+            pathSegments: [GVOAppConstants.pathSegmentDevices, GVOAppConstants.pathSegmentRegister],
+            method: .post,
+            body: requestBody,
+            authToken: sessionManagementToken
+        )
+    }
+
+    func getNotificationPreferences(sessionManagementToken: String) async throws -> Data {
+        return try await performRequest(
+            pathSegments: [GVOAppConstants.pathSegmentNotifications, GVOAppConstants.pathSegmentPreferences],
+            method: .get,
+            authToken: sessionManagementToken
+        )
+    }
+
+    func setInterests(sessionManagementToken: String, categories: [String], freeform: [String]) async throws -> Data {
+        let body = SetInterestsBody(categories: categories, freeform: freeform)
+        let requestBody = try encode(body)
+        return try await performRequest(
+            pathSegments: [GVOAppConstants.pathSegmentInterests, GVOAppConstants.pathSegmentSet],
+            method: .post,
+            body: requestBody,
+            authToken: sessionManagementToken
+        )
+    }
+
+    func setNotificationPreference(sessionManagementToken: String, notificationType: String, enabled: Bool) async throws -> Data {
+        let requestBody = try encode(SetNotificationPreferenceBody(type: notificationType, enabled: enabled))
+        return try await performRequest(
+            pathSegments: [GVOAppConstants.pathSegmentNotifications, GVOAppConstants.pathSegmentPreferences],
             method: .post,
             body: requestBody,
             authToken: sessionManagementToken

@@ -472,7 +472,8 @@ class MockPositiveOnlySocialAPI : PositiveOnlySocialAPI {
     override suspend fun getCommentsForPost(
         token: String,
         postId: String,
-        batch: Int
+        batch: Int,
+        category: String?
     ): Response<List<CommentThreadDto>> {
         return Response.success(
             listOf(
@@ -485,7 +486,8 @@ class MockPositiveOnlySocialAPI : PositiveOnlySocialAPI {
     override suspend fun getCommentsForThread(
         token: String,
         threadId: String,
-        batch: Int
+        batch: Int,
+        category: String?
     ): Response<List<CommentDto>> {
         return Response.success(
             listOf(
@@ -644,6 +646,48 @@ class MockPositiveOnlySocialAPI : PositiveOnlySocialAPI {
 
     override suspend fun setBio(token: String, request: SetBioRequest): Response<SetBioResponse> {
         return Response.success(SetBioResponse(bio = request.bio, message = "Your bio has been updated."))
+    }
+
+    override suspend fun getInterestOptions(): Response<InterestOptionsResponse> =
+        Response.success(InterestOptionsResponse(options = InterestVocabulary.options))
+
+    override suspend fun getInterests(token: String): Response<InterestsResponse> =
+        Response.success(InterestsResponse(categories = emptyList(), freeform = emptyList()))
+
+    override suspend fun setInterests(
+        token: String,
+        request: SetInterestsRequest
+    ): Response<SetInterestsResponse> = Response.success(
+        SetInterestsResponse(
+            categories = request.categories,
+            freeform = InterestFreeformResult(accepted = request.freeform, rejected = emptyList()),
+            message = "Your interests have been updated."
+        )
+    )
+    override suspend fun registerDevice(
+        token: String,
+        request: RegisterDeviceRequest
+    ): Response<GenericResponse> {
+        return Response.success(GenericResponse(message = "Device registered.", error = null))
+    }
+
+    override suspend fun getNotificationPreferences(
+        token: String
+    ): Response<NotificationPreferencesResponse> {
+        return Response.success(
+            NotificationPreferencesResponse(
+                preferences = listOf(
+                    NotificationPreference(type = "post_rejected", label = "Post moderation", enabled = true)
+                )
+            )
+        )
+    }
+
+    override suspend fun setNotificationPreference(
+        token: String,
+        request: SetNotificationPreferenceRequest
+    ): Response<GenericResponse> {
+        return Response.success(GenericResponse(message = "Preference saved.", error = null))
     }
 
     override suspend fun getHiddenPosts(token: String, batch: Int): Response<List<HiddenPost>> =

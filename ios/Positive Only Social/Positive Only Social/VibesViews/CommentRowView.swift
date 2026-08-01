@@ -166,6 +166,16 @@ struct CommentRowView: View {
                     Text(RelativeTime.string(from: comment.createdDate))
                         .font(.caption)
                         .foregroundColor(.secondary)
+                    // A short scope badge for a comment shared with less than the
+                    // public (issue #445); nothing shown for a public comment.
+                    if let badge = comment.audience
+                        .flatMap({ PostAudience(rawValue: $0) })
+                        .flatMap({ $0 == .public ? nil : $0.displayName }) {
+                        Text("· \(badge)")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                            .accessibilityLabel("Audience: \(badge)")
+                    }
                     // Three-dots menu next to the timestamp: the discoverable
                     // alternative to long-pressing the comment (issue #304).
                     // Opens the same action menu (Report / Retract Report /

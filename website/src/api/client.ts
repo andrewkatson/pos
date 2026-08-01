@@ -35,11 +35,16 @@ import type {
   LoginWithRememberMeResponse,
   MessageResponse,
   MyAppeal,
+  NotificationPreference,
+  NotificationPreferencesResponse,
+  PostAudience,
   PostDetails,
   PostStatusResponse,
   ProfileDetails,
+  RegisterDeviceRequest,
   RegisterRequest,
   RemoveProfilePhotoResponse,
+  SetNotificationPreferenceResponse,
   ReplyResponse,
   RequestResetRequest,
   ResendVerificationEmailRequest,
@@ -48,6 +53,10 @@ import type {
   SetProfilePhotoResponse,
   SetBioRequest,
   SetBioResponse,
+  InterestOptionsResponse,
+  InterestsResponse,
+  SetInterestsRequest,
+  SetInterestsResponse,
   SubmitAppealRequest,
   SubmitAppealResponse,
   TwoFactorSetupResponse,
@@ -64,6 +73,18 @@ const DEFAULT_BASE_URL = 'https://api.smiling.social/user_index'
  * keep sending exactly the old payload (issue #318). */
 function formattingBody(formatting?: CommentFormatSpan[]): { body_formatting?: CommentFormatSpan[] } {
   return formatting && formatting.length > 0 ? { body_formatting: formatting } : {}
+}
+
+/** Only send `audience` when it is a non-default (non-public) tier, so a plain
+ * comment keeps sending exactly the old payload (issue #445). */
+function audienceBody(audience?: PostAudience): { audience?: PostAudience } {
+  return audience && audience !== 'public' ? { audience } : {}
+}
+
+/** Build a `?category=` query string for the comment toggle, empty when the
+ * filter is off (issue #445). */
+function categoryQuery(category?: FollowCategory): string {
+  return category ? `?category=${encodeURIComponent(category)}` : ''
 }
 
 /** Error code the backend returns when the account has an active outright ban. */
@@ -544,10 +565,15 @@ export class ApiClient implements PositiveOnlySocialAPI {
     postIdentifier: string,
     commentText: string,
     formatting?: CommentFormatSpan[],
+    audience?: PostAudience,
   ): Promise<CommentOnPostResponse> {
     return this.request<CommentOnPostResponse>('POST', `/posts/${postIdentifier}/comment/`, {
       auth: true,
-      body: { comment_text: commentText, ...formattingBody(formatting) },
+      body: {
+        comment_text: commentText,
+        ...formattingBody(formatting),
+        ...audienceBody(audience),
+      },
     })
   }
 
@@ -556,26 +582,42 @@ export class ApiClient implements PositiveOnlySocialAPI {
     commentThreadIdentifier: string,
     commentText: string,
     formatting?: CommentFormatSpan[],
+    audience?: PostAudience,
   ): Promise<ReplyResponse> {
     return this.request<ReplyResponse>(
       'POST',
       `/posts/${postIdentifier}/threads/${commentThreadIdentifier}/reply/`,
-      { auth: true, body: { comment_text: commentText, ...formattingBody(formatting) } },
+      {
+        auth: true,
+        body: {
+          comment_text: commentText,
+          ...formattingBody(formatting),
+          ...audienceBody(audience),
+        },
+      },
     )
   }
 
-  getCommentsForPost(postIdentifier: string, batch: number): Promise<CommentThreadRef[]> {
+  getCommentsForPost(
+    postIdentifier: string,
+    batch: number,
+    category?: FollowCategory,
+  ): Promise<CommentThreadRef[]> {
     return this.request<CommentThreadRef[]>(
       'GET',
-      `/posts/${postIdentifier}/comments/${batch}/`,
+      `/posts/${postIdentifier}/comments/${batch}/${categoryQuery(category)}`,
       { auth: true },
     )
   }
 
-  getCommentsForThread(commentThreadIdentifier: string, batch: number): Promise<Comment[]> {
+  getCommentsForThread(
+    commentThreadIdentifier: string,
+    batch: number,
+    category?: FollowCategory,
+  ): Promise<Comment[]> {
     return this.request<Comment[]>(
       'GET',
-      `/threads/${commentThreadIdentifier}/comments/${batch}/`,
+      `/threads/${commentThreadIdentifier}/comments/${batch}/${categoryQuery(category)}`,
       { auth: true },
     )
   }
@@ -701,6 +743,42 @@ export class ApiClient implements PositiveOnlySocialAPI {
 
   setBio(body: SetBioRequest): Promise<SetBioResponse> {
     return this.request<SetBioResponse>('POST', '/profile/bio/', { auth: true, body })
+  }
+
+  // ===========================================================================
+  // POSITIVE INTEREST TAGS (issues #446/#35)
+  // ===========================================================================
+
+  getInterestOptions(): Promise<InterestOptionsResponse> {
+    // Public endpoint — the registration screen has no session yet.
+    return this.request<InterestOptionsResponse>('GET', '/interests/options/')
+  }
+
+  getInterests(): Promise<InterestsResponse> {
+    return this.request<InterestsResponse>('GET', '/interests/', { auth: true })
+  }
+
+  setInterests(body: SetInterestsRequest): Promise<SetInterestsResponse> {
+    return this.request<SetInterestsResponse>('POST', '/interests/set/', { auth: true, body })
+  }
+
+  // ===========================================================================
+  // PUSH NOTIFICATIONS (issues #342/#343)
+  // ===========================================================================
+
+  registerDevice(body: RegisterDeviceRequest): Promise<MessageResponse> {
+    return this.request<MessageResponse>('POST', '/devices/register/', { auth: true, body })
+  }
+
+  async getNotificationPreferences(): Promise<NotificationPreference[]> {
+    const response = await this.request<NotificationPreferencesResponse>(
+      'GET', '/notifications/preferences/', { auth: true })
+    return response.preferences
+  }
+
+  setNotificationPreference(type: string, enabled: boolean): Promise<SetNotificationPreferenceResponse> {
+    return this.request<SetNotificationPreferenceResponse>(
+      'POST', '/notifications/preferences/', { auth: true, body: { type, enabled } })
   }
 
   // ===========================================================================

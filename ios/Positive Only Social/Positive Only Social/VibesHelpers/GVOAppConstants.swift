@@ -20,6 +20,14 @@ import Foundation
     static let maxCaptionLength = 125
     static let maxCommentLength = 500
     static let maxBioLength = 500
+    // Positive interest tags (issues #446/#35), mirroring
+    // MAX_FREEFORM_INTEREST_LENGTH / MAX_FREEFORM_INTERESTS in the backend.
+    static let maxFreeformInterestLength = 100
+    static let maxFreeformInterests = 20
+    // How much of a rejected (over-length) term the backend echoes back, so
+    // the stub can bound it identically. Well above the length limit, so an
+    // elided term still reads as clearly too long.
+    static let rejectedTextEchoLimit = 200
     static let baseURL = "https://api.smiling.social/user_index/"
     static let bearer = "Bearer"
     static let decodingError = "Failed to decode the server response: "
@@ -61,6 +69,8 @@ import Foundation
     static let pathSegmentComments = "comments"
     static let pathSegmentCreate = "create"
     static let pathSegmentDelete = "delete"
+    // POST devices/register/ registers this device's APNs token (issue #342).
+    static let pathSegmentDevices = "devices"
     static let pathSegmentDetails = "details"
     static let pathSegmentFollow = "follow"
     static let pathSegmentFollowed = "followed"
@@ -76,6 +86,8 @@ import Foundation
     static let pathSegmentMe = "me"
     static let pathSegmentNotification = "notification"
     static let pathSegmentNotifications = "notifications"
+    // GET/POST notifications/preferences/ — the Settings push toggles (#342/#343).
+    static let pathSegmentPreferences = "preferences"
     static let pathSegmentPassword = "password"
     // Profile photo endpoints (issue #7): POST profile/photo/ sets the photo,
     // POST profile/photo/remove/ clears it. `pathSegmenProfile` supplies the
@@ -109,6 +121,10 @@ import Foundation
     static let pathSegmentVerifyEmail = "verify-email"
     static let pathSegmentVerifyIdentity = "verify-identity"
     static let pathSegmentVerifyReset = "verify-reset"
+    // Positive interest tags (issues #446/#35).
+    static let pathSegmentInterests = "interests"
+    static let pathSegmentOptions = "options"
+    static let pathSegmentSet = "set"
     static let pathSregmenFeed = "feed"
     static let post = "POST"
     static let requesrFailed = "The network request failed."

@@ -147,7 +147,24 @@ class ProfileViewModel: ObservableObject {
             .receive(on: RunLoop.main)
             .sink { [weak self] notification in
                 guard let postIdentifier = notification.object as? String else { return }
-                self?.userPosts.removeAll { $0.id == postIdentifier }
+                guard let self else { return }
+                // The Posts stat reads profileDetails.postCount (issue #437), so a
+                // delete has to keep it in step with the backend total.
+                let wasPresent = self.userPosts.contains { $0.id == postIdentifier }
+                self.userPosts.removeAll { $0.id == postIdentifier }
+                if wasPresent {
+                    // Fast path: the tile was on the loaded grid, so just drop the
+                    // count locally.
+                    self.adjustPostCount(by: -1)
+                } else if self.isOwnProfile {
+                    // Your own post was deleted from another screen (a feed, or a
+                    // detail view for a post not on the loaded page): userPosts
+                    // didn't change here, but the backend's post_count did. Reload
+                    // the stats so the Posts count doesn't go stale until a manual
+                    // refresh. A user can only delete their own posts, so this only
+                    // matters on your own profile.
+                    Task { @MainActor in await self.refreshProfileDetails() }
+                }
             }
 
         // A newly created post only ever belongs on the author's own profile.
@@ -157,6 +174,10 @@ class ProfileViewModel: ObservableObject {
                 Task { @MainActor in
                     guard let self, self.isOwnProfile else { return }
                     await self.refreshUserPosts()
+                    // Refresh the stats too, so the Posts count (which now reads
+                    // the backend's post_count rather than the paginated grid
+                    // size) reflects the new post right away (issue #437).
+                    await self.refreshProfileDetails()
                 }
             }
     }
@@ -347,6 +368,18 @@ class ProfileViewModel: ObservableObject {
     private func adjustFollowerCount(by delta: Int) {
         guard var details = profileDetails else { return }
         details.followerCount = max(0, details.followerCount + delta)
+        profileDetails = details
+    }
+
+    /// Adjusts the post count by `delta`, clamped at zero, using the same
+    /// copy-and-reassign pattern as `adjustFollowerCount` (a read+write of
+    /// `profileDetails` in one expression is an exclusive-access violation).
+    /// Keeps the Posts stat — now backed by the backend's `post_count` (issue
+    /// #437) — in step when a post is deleted from the grid before the next
+    /// authoritative reload.
+    private func adjustPostCount(by delta: Int) {
+        guard var details = profileDetails else { return }
+        details.postCount = max(0, details.postCount + delta)
         profileDetails = details
     }
 

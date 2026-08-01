@@ -19,8 +19,10 @@ from .constants import (
     FOLLOW_CATEGORY_CHOICES, FOLLOW_CATEGORY_FOLLOWING,
     POST_AUDIENCE_CHOICES, POST_AUDIENCE_PUBLIC,
     MAX_TAG_LENGTH,
+    MAX_FREEFORM_INTEREST_LENGTH,
     PROFILE_IMAGE_STATUS_NONE,
     DEFAULT_STYLE_KEY,
+    DEVICE_PLATFORM_CHOICES, MAX_DEVICE_TOKEN_LENGTH,
 )
 
 logger = logging.getLogger(__name__)
@@ -205,6 +207,14 @@ class PositiveOnlySocialUser(AbstractUser):
     blocked = models.ManyToManyField('self', through=UserBlock, through_fields=('user_blocker', 'user_blocked'),
                                        symmetrical=False, related_name='blocked_by')
 
+    # Positive interest buckets this user wants to see more of (issues #446/#35).
+    # The union of the preset buckets they explicitly picked and the buckets
+    # their freeform interest terms mapped to (see UserFreeformInterest). The
+    # feed weighting intersects this set against each post's interest_categories,
+    # so it is stored denormalized here to keep ranking a single DB join with no
+    # per-request classifier work. Rebuilt wholesale on every /interests/ write.
+    interest_categories = models.ManyToManyField('InterestCategory', related_name='interested_users', blank=True)
+
     def __str__(self):
         return self.username
 
@@ -280,6 +290,53 @@ class KnownDevice(models.Model):
 
     def __str__(self):
         return f"{self.user} @ {self.ip}/{self.user_agent[:80]}"
+
+
+# A device a user has registered to receive native push notifications on
+# (issues #342/#343). A user has many devices; a device can move between
+# accounts, so the natural key is (platform, token) and re-registering an
+# existing token repoints user/updated_at rather than duplicating. Push is
+# best-effort (see user_system.push): a stale row here is cheap because the send
+# path deletes any token a provider reports as unregistered.
+class DeviceToken(models.Model):
+    user = models.ForeignKey(PositiveOnlySocialUser, related_name='device_tokens', on_delete=models.CASCADE)
+    platform = models.CharField(max_length=16, choices=DEVICE_PLATFORM_CHOICES)
+    # Bounded at the DB layer (not just the view) so no insertion path — admin,
+    # a fixture, future code — can store a value too long for the (platform,
+    # token) UNIQUE btree index.
+    token = models.CharField(max_length=MAX_DEVICE_TOKEN_LENGTH)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        app_label = 'user_system'
+        constraints = [
+            models.UniqueConstraint(fields=['platform', 'token'], name='unique_platform_token')
+        ]
+
+    def __str__(self):
+        # A device token is effectively a credential; keep it out of admin UIs,
+        # logs, and error reports — identify the row by user + platform + pk only.
+        return f"{self.user} [{self.platform}] #{self.pk}"
+
+
+# A user's opt-out of one push notification type (issues #342/#343). Preferences
+# default to enabled, so a row exists only once the user has toggled a type in
+# Settings; its absence means "on". notification_type is validated against
+# PUSH_TYPES at the view layer (kept a plain CharField here so adding a new type
+# needs no migration). send_push consults is_push_type_enabled before sending.
+class NotificationPreference(models.Model):
+    user = models.ForeignKey(PositiveOnlySocialUser, related_name='notification_preferences', on_delete=models.CASCADE)
+    notification_type = models.CharField(max_length=32)
+    enabled = models.BooleanField(default=True)
+
+    class Meta:
+        app_label = 'user_system'
+        constraints = [
+            models.UniqueConstraint(fields=['user', 'notification_type'], name='unique_user_notification_type')
+        ]
+
+    def __str__(self):
+        return f"{self.user} {self.notification_type}={self.enabled}"
 
 
 class UserBanManager(models.Manager):
@@ -389,6 +446,14 @@ class Post(models.Model):
     # a pending or hidden post's tags never leak into another user's tag feed.
     tags = models.ManyToManyField('Tag', related_name='posts', blank=True)
 
+    # Positive interest buckets assigned to this post by the offline categorizer
+    # (issues #446/#35), drawn from the curated INTEREST_CATEGORY vocabulary.
+    # Distinct from `tags` (open-vocabulary caption hashtags): these are the
+    # controlled labels the feed weighting joins the viewer's interests against.
+    # Assigned asynchronously once a post is approved (tasks.categorize_post),
+    # so a fresh post simply has none until the worker runs.
+    interest_categories = models.ManyToManyField('InterestCategory', related_name='posts', blank=True)
+
     # Async classification bookkeeping (issue #282). classification_attempts
     # counts worker runs so retries stay bounded and the sweep can alert on a
     # stuck post; classification_reason_code stores the public reason code of a
@@ -457,6 +522,56 @@ class Tag(models.Model):
         return self.name
 
 
+# A curated "positive interest" bucket (issues #446/#35). Unlike the open-vocab
+# Tag above (harvested from whatever a user typed), the InterestCategory set is
+# a fixed vocabulary seeded from constants.INTEREST_CATEGORY_CHOICES by a data
+# migration. `slug` is the stable machine key sent over the wire; `name` is the
+# human label clients display. Users point at these (interest_categories on the
+# user), the offline categorizer tags posts with them, and the feed weighting
+# joins the two — so the vocabulary staying finite and stable is load-bearing.
+class InterestCategory(models.Model):
+    slug = models.CharField(max_length=MAX_TAG_LENGTH, unique=True)
+    name = models.CharField(max_length=MAX_TAG_LENGTH)
+
+    class Meta:
+        # Deterministic ordering for the options endpoint / admin listings.
+        ordering = ['name']
+
+    def __str__(self):
+        return self.slug
+
+
+# A single freeform interest term a user typed (issues #446/#35). Kept so the
+# Settings/registration picker can show and let them remove what they entered
+# ("hiking", "jazz"), distinct from the preset buckets. Each term passed the
+# positive classifier on write; `categories` are ALL the preset buckets the
+# freeform mapper matched it to (empty when the mapper found no match — the term
+# is still stored and shown, it just contributes nothing to feed weighting).
+# Storing every mapped bucket (not just one) means the user's interest_categories
+# union can be rebuilt deterministically from these rows without re-classifying,
+# so a term that maps to several buckets ("hiking" -> nature, outdoors) keeps
+# them all across saves.
+class UserFreeformInterest(models.Model):
+    user = models.ForeignKey(settings.AUTH_USER_MODEL, related_name='freeform_interests',
+                             on_delete=models.CASCADE)
+    text = models.CharField(max_length=MAX_FREEFORM_INTEREST_LENGTH)
+    # related_name='+': we never need to walk from a category back to the
+    # freeform terms that mapped to it, so skip the reverse accessor.
+    categories = models.ManyToManyField(InterestCategory, related_name='+', blank=True)
+    creation_time = models.DateTimeField(auto_now_add=True, null=True, blank=True)
+
+    class Meta:
+        constraints = [
+            # One row per (user, term). `text` is stored already normalized
+            # (lowercased/stripped) by the write path, so this is a genuine
+            # case-insensitive dedupe.
+            models.UniqueConstraint(fields=['user', 'text'], name='unique_user_freeform_interest')
+        ]
+
+    def __str__(self):
+        return f"{self.user_id}:{self.text}"
+
+
 # A post the user has saved to look back on later (issue #193)
 class SavedPost(models.Model):
     user = models.ForeignKey(settings.AUTH_USER_MODEL,
@@ -496,6 +611,13 @@ class Comment(models.Model):
     creation_time = models.DateTimeField(auto_now_add=True, null=True,
                                          blank=True)
     updated_time = models.DateTimeField(auto_now=True, null=True, blank=True)
+    # Who may see this comment (issue #445). Mirrors Post.audience: the same
+    # nested-circle tiers, defaulting to public so comments created before the
+    # feature — and by clients that never send an audience — stay visible to
+    # everyone. Enforced centrally in visibility.visible_comments (listings) and
+    # visibility.audience_admits (single-comment interaction gate), like posts.
+    audience = models.CharField(max_length=16, choices=POST_AUDIENCE_CHOICES,
+                                default=POST_AUDIENCE_PUBLIC)
     hidden = models.BooleanField(default=False)
     hidden_reason = models.TextField(choices=HIDDEN_REASON_CHOICES, default=HIDDEN_REASON_NONE, blank=True)
 

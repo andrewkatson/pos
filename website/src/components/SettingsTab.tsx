@@ -2,9 +2,10 @@ import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router'
 import { apiClient } from '../api/client'
 import { clearSession } from '../api/session'
-import type { CurrentUser } from '../api/types'
+import type { CurrentUser, NotificationPreference } from '../api/types'
 import { PRIVACY_POLICY_TEXT } from '../privacyPolicy'
 import Modal from './Modal'
+import InterestsModal from './InterestsModal'
 import {
   ChangePasswordModal,
   DisableTwoFactorModal,
@@ -19,6 +20,7 @@ type ActiveModal =
   | 'enable2fa'
   | 'disable2fa'
   | 'changePassword'
+  | 'interests'
   | null
 
 /** Support address shown under "Contact Us" for feedback and help (issue #194). */
@@ -36,6 +38,10 @@ function SettingsTab() {
   const [errorMessage, setErrorMessage] = useState<string | null>(null)
   const [infoMessage, setInfoMessage] = useState<string | null>(null)
   const [currentUser, setCurrentUser] = useState<CurrentUser | null>(null)
+  const [notifPrefs, setNotifPrefs] = useState<NotificationPreference[]>([])
+  // Types with a save in flight (#342/#343): their row is disabled and a
+  // re-click is ignored, so concurrent saves for one type can't race.
+  const [savingTypes, setSavingTypes] = useState<string[]>([])
 
   // Load the signed-in account's own username + email for the Contact
   // Information section (load-on-mount, matching the rest of the app).
@@ -53,6 +59,45 @@ function SettingsTab() {
       cancelled = true
     }
   }, [])
+
+  // Load the push notification toggles (issues #342/#343). One row per type the
+  // backend reports, so a new type appears here with no client change.
+  useEffect(() => {
+    let cancelled = false
+    apiClient
+      .getNotificationPreferences()
+      .then(prefs => {
+        if (!cancelled) setNotifPrefs(prefs)
+      })
+      .catch(() => {
+        // Non-fatal: the section just doesn't render if this fails.
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [])
+
+  async function toggleNotification(pref: NotificationPreference) {
+    // Serialize per type: ignore a re-click while this type's save is in flight
+    // (the row is also disabled), so out-of-order responses can't leave the UI
+    // or the backend on an unintended value.
+    if (savingTypes.includes(pref.type)) return
+    const next = !pref.enabled
+    // Clear any error from a previous failed toggle so the banner only ever
+    // reflects the most recent attempt.
+    setErrorMessage(null)
+    // Optimistic: flip immediately, revert on failure.
+    setNotifPrefs(prev => prev.map(p => (p.type === pref.type ? { ...p, enabled: next } : p)))
+    setSavingTypes(prev => [...prev, pref.type])
+    try {
+      await apiClient.setNotificationPreference(pref.type, next)
+    } catch {
+      setNotifPrefs(prev => prev.map(p => (p.type === pref.type ? { ...p, enabled: !next } : p)))
+      setErrorMessage('Could not update notification settings. Please try again.')
+    } finally {
+      setSavingTypes(prev => prev.filter(t => t !== pref.type))
+    }
+  }
 
   const close = () => setActiveModal(null)
 
@@ -171,6 +216,36 @@ function SettingsTab() {
         </button>
       </div>
 
+      {notifPrefs.length > 0 && (
+        <div className="settings-group">
+          <span className="settings-group__header">Notifications</span>
+          {notifPrefs.map(pref => (
+            <button
+              key={pref.type}
+              type="button"
+              className="settings-row settings-row--toggle"
+              aria-pressed={pref.enabled}
+              disabled={savingTypes.includes(pref.type)}
+              onClick={() => toggleNotification(pref)}
+            >
+              <span>{pref.label}</span>
+              <span className="settings-row__value">{pref.enabled ? 'On' : 'Off'}</span>
+            </button>
+          ))}
+        </div>
+      )}
+
+      <div className="settings-group">
+        <span className="settings-group__header">Feed</span>
+        <button
+          type="button"
+          className="settings-row settings-row--action"
+          onClick={() => setActiveModal('interests')}
+        >
+          Interests
+        </button>
+      </div>
+
       <div className="settings-group">
         <span className="settings-group__header">Security</span>
         <button
@@ -284,6 +359,16 @@ function SettingsTab() {
           onChanged={() => {
             close()
             setInfoMessage('Your password has been changed.')
+          }}
+        />
+      )}
+
+      {activeModal === 'interests' && (
+        <InterestsModal
+          onClose={close}
+          onSaved={message => {
+            close()
+            setInfoMessage(message)
           }}
         />
       )}

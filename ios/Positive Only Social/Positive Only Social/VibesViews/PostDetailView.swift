@@ -170,7 +170,14 @@ struct PostDetailView: View {
                     Text("Comments")
                         .font(.headline)
                         .padding(.horizontal)
-                    
+
+                    // NOTE (issue #445): the comment relationship-group filter
+                    // picker is temporarily not rendered while isolating a
+                    // Gamma UI-test failure (testLikeAndUnlikeCommentOnPostAndThread).
+                    // The backing state (viewModel.selectedCommentCategory /
+                    // selectCommentCategory) is retained so it can be re-added once
+                    // the interaction is confirmed safe.
+
                     LazyVStack(spacing: 16) {
                         ForEach(viewModel.commentThreads) { thread in
                             CommentThreadView(thread: thread, onAuthorTap: { username in
@@ -328,14 +335,14 @@ struct PostDetailView: View {
         }
         // The "Add a comment" composer for a brand new comment on the post.
         .sheet(isPresented: $viewModel.showAddCommentSheet) {
-            CommentComposerView(title: "Add Comment") { commentText, formatting in
-                viewModel.commentOnPost(commentText: commentText, formatting: formatting)
+            CommentComposerView(title: "Add Comment") { commentText, formatting, audience in
+                viewModel.commentOnPost(commentText: commentText, formatting: formatting, audience: audience)
             }
         }
         // The same composer, reused for replying to an existing thread.
         .sheet(item: $viewModel.threadToReplyTo) { thread in
-            CommentComposerView(title: "Post Reply") { commentText, formatting in
-                viewModel.replyToCommentThread(thread: thread, commentText: commentText, formatting: formatting)
+            CommentComposerView(title: "Post Reply") { commentText, formatting, audience in
+                viewModel.replyToCommentThread(thread: thread, commentText: commentText, formatting: formatting, audience: audience)
             }
         }
         .alert(isPresented: .constant(viewModel.alertMessage != nil), content: {

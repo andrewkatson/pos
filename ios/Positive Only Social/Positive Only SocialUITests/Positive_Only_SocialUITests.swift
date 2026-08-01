@@ -13,6 +13,10 @@ final class Positive_Only_SocialUITests: XCTestCase {
     var testUsername: String = ""
     var otherTestUsername: String = ""
     var newTestUsername: String = ""
+    /// Deliberately NOT pre-seeded, so the tests that walk the registration
+    /// form still exercise the stub's real "create a brand new account" path
+    /// rather than the seeded-account adoption shortcut (issue #377).
+    var unseededTestUsername: String = ""
     let strongPassword: String = "StrongPassword123-"
     let newStrongPassword: String = "NewStrongPassword456-"
 
@@ -34,12 +38,25 @@ final class Positive_Only_SocialUITests: XCTestCase {
         baseName = baseName.replacingOccurrences(of: " ", with: "_")
         
         app.launchEnvironment["test-name"] = baseName
-        app.launch()
 
         // In UI tests it’s important to set the initial state - such as interface orientation - required for your tests before they run. The setUp method is a good place to do this.
         testUsername = "\(baseName)_user"
         otherTestUsername = "\(baseName)_other_user"
         newTestUsername = "\(baseName)_new_user"
+        unseededTestUsername = "\(baseName)_fresh_user"
+
+        // Pre-seed the three accounts these tests use into the stub's in-memory
+        // database (issue #377). Walking the registration form was by far the
+        // most expensive part of every flow — several fields typed per account,
+        // up to three accounts per test — and almost no test is actually
+        // asserting registration. `loginUser` now signs in directly against
+        // these; the tests that *do* exercise the register form still work,
+        // because the stub lets the first register call adopt the seeded row.
+        app.launchEnvironment["seed-usernames"] = [testUsername, otherTestUsername, newTestUsername]
+            .joined(separator: ";")
+        app.launchEnvironment["seed-secret"] = strongPassword
+
+        app.launch()
 
         // Automatically dismiss any "Save Password" / "Update Password" system
         // dialogs (presented by SpringBoard, not the app) that would otherwise
@@ -71,68 +88,118 @@ final class Positive_Only_SocialUITests: XCTestCase {
         try? await Task.sleep(for: duration)
     }
     
-    private func dismissKeyboardIfPresent(_ app: XCUIApplication) {
-        let maxAttempts = 5
-        var attempt = 0
-        while (true && attempt < maxAttempts) {
-            RunLoop.current.run(until: NSDate(timeIntervalSinceNow: 1.0) as Date)
-            if app.keyboards.buttons["Return"].exists {
-                XCTAssertTrue(app.keyboards.buttons["Return"].waitForExistence(timeout: TestConstants.shortTimeout))
-                app.keyboards.buttons["Return"].tap()
-                break
-            }
-            attempt += 1
+    /// Spins the run loop in short slices until `condition` holds or `timeout`
+    /// elapses, returning whether it held. Polling rather than sleeping a fixed
+    /// interval means the happy path costs one slice instead of the full wait —
+    /// these helpers run dozens of times per test, so the fixed sleeps they
+    /// replaced dominated the suite's runtime (issue #377).
+    @discardableResult
+    private func poll(
+        timeout: TimeInterval = TestConstants.shortTimeout,
+        interval: TimeInterval = 0.1,
+        until condition: () -> Bool
+    ) -> Bool {
+        let deadline = Date().addingTimeInterval(timeout)
+        while Date() < deadline {
+            if condition() { return true }
+            RunLoop.current.run(until: Date().addingTimeInterval(interval))
         }
+        return condition()
     }
 
-    /// Dismisses the iOS "Use Strong Password" AutoFill panel/sheet if it is showing.
-    /// In newer iOS the suggestion appears as a floating panel above the keyboard with
-    /// an "xmark" close button (SF Symbol); older iOS uses an action sheet with text
-    /// buttons. We try both styles.
+    private func dismissKeyboardIfPresent(_ app: XCUIApplication) {
+        let returnKey = app.keyboards.buttons["Return"]
+        // Deliberately a short timeout, not the 3 s default: this is called in
+        // states where no keyboard is up at all, and that case would otherwise
+        // pay the full default wait every time for nothing. If a keyboard is
+        // up, its Return key is already in the tree — there is nothing to wait
+        // for beyond a render.
+        guard poll(timeout: 0.5, until: { returnKey.exists }) else { return }
+        returnKey.tap()
+        // Let the dismissal animation finish so a following tap isn't swallowed
+        // by the keyboard on its way out.
+        poll(until: { app.keyboards.count == 0 })
+    }
+
+    /// Dismisses the iOS "Use Strong Password" AutoFill panel/sheet if showing.
     ///
-    /// - Parameter shouldWait: Pass `true` for password fields where the panel takes a
-    ///   couple of seconds to appear (adds ~2 s to the first probe); pass `false` for
-    ///   regular text fields where the panel never shows (stays at 0.5 s so tests stay fast).
-    private func dismissStrongPasswordIfPresent(shouldWait: Bool) {
-        let firstProbeTimeout: TimeInterval = shouldWait ? 2.0 : 0.5
-        // Newer iOS (17+): floating AutoFill panel has an X / xmark close button.
-        for (index, title) in ["xmark", "Close", "close"].enumerated() {
-            let timeout = index == 0 ? firstProbeTimeout : 0.5
-            if app.buttons[title].waitForExistence(timeout: timeout) {
-                app.buttons[title].tap()
-                return
-            }
-        }
-        // Older iOS / action-sheet style: text buttons on a sheet.
-        for title in ["Choose My Own Password", "Choose My Own…", "Don't Use"] {
-            if app.buttons[title].waitForExistence(timeout: 0.5) {
-                app.buttons[title].tap()
+    /// This is the primary defence, not a fallback. The app drops the
+    /// credential content type on these fields under UI testing, which makes
+    /// the panel less likely but does not prevent it — 2f07f7b recorded that
+    /// suppression alone is unreliable inside a Form/Section, which is why this
+    /// helper exists. Declaring `.oneTimeCode` to opt out of AutoFill outright
+    /// was tried for issue #377 and abandoned: it stopped secure fields taking
+    /// keyboard focus at all in CI. Dismissing the panel is what works.
+    ///
+    /// Each call is a single immediate probe with no waiting, unlike the old
+    /// multi-second `waitForExistence` chain: the panel appears asynchronously,
+    /// so `typeText` calls this again on every focus-retry attempt and the
+    /// waiting happens in that loop's `poll`. Waiting here instead would charge
+    /// every field for a panel that normally never appears.
+    private func dismissStrongPasswordIfPresent(for element: XCUIElement) {
+        // Only secure fields raise the password panel, and this must not run
+        // anywhere else: "Close" and "xmark" are generic enough to match an
+        // unrelated control, and tapping one cancels whatever the test was
+        // doing. That is not hypothetical - searching for a user tapped a
+        // "Close" button on the search screen once per retry, undoing the
+        // focus the tap had just established, and the field could never be
+        // typed into.
+        guard element.elementType == .secureTextField else { return }
+
+        // Newer iOS: floating AutoFill panel with an X / xmark close button.
+        // Older iOS: an action sheet with text buttons.
+        for title in ["xmark", "Close", "close",
+                      "Choose My Own Password", "Choose My Own…", "Don't Use"] {
+            let button = app.buttons[title]
+            // Hittable, not merely existing: a panel that is still animating in
+            // is in the tree but not yet interactable, and tapping it then is a
+            // hard failure rather than a no-op. There is no need to gamble on
+            // the timing, because typeText calls this again on every retry — so
+            // a panel that is not ready yet is simply caught on the next pass.
+            if button.exists && button.isHittable {
+                button.tap()
                 return
             }
         }
     }
 
     private func typeText(element: XCUIElement, text: String) {
-        // Generous retry budget: on loaded CI simulators a secure field can
-        // ignore several taps before finally taking focus.
+        // A field normally takes focus on the first tap now that the AutoFill
+        // panel is suppressed; the retry budget stays as a safety net for a
+        // loaded CI simulator dropping a tap, but each attempt polls rather
+        // than sleeping a fixed second (issue #377).
         let maxAttempts = 10
         var attempt = 0
 
         element.tap()
 
-        // The "Use Strong Password" AutoFill panel appears immediately on the
-        // first tap and prevents the field from ever gaining focus.  Dismiss it
-        // right here — before the focus-check loop — so the loop can succeed.
-        // Only password (secure) fields trigger the panel, so we only wait for
-        // it on those fields; plain text fields use a fast 0.5 s probe.
-        dismissStrongPasswordIfPresent(shouldWait: element.elementType == .secureTextField)
+        dismissStrongPasswordIfPresent(for: element)
 
-        while (!element.hasFocus || app.keyboards.count == 0) && attempt < maxAttempts {
+        // Require focus *and* a keyboard, which is the condition this suite has
+        // always passed under. Focus alone is not enough: the keyboard can lag
+        // behind it, and typing before it arrives drops characters.
+        //
+        // The budget is deliberately generous. Because `poll` returns the
+        // instant the condition holds, waiting longer is free whenever the
+        // field is ready quickly - it only costs time in the case that used to
+        // fail outright. It needs to be generous: seeding removed the
+        // registration walk, so the login form is now the *first* field typed
+        // into after launch, and the first keyboard presentation of a process
+        // is the slowest. An earlier revision trimmed this budget from roughly
+        // twelve seconds to five and that is precisely what broke - tests
+        // failed here on "did not gain keyboard focus" with no keyboard ever
+        // appearing.
+        while !poll(timeout: 2.0, until: { element.hasFocus && app.keyboards.count > 0 })
+                && attempt < maxAttempts {
             element.tap()
-            RunLoop.current.run(until: NSDate(timeIntervalSinceNow: 1.0) as Date)
+            dismissStrongPasswordIfPresent(for: element)
             attempt += 1
         }
 
+        // Kept deliberately lenient, matching the original: after the loop has
+        // tried hard for real focus, an up keyboard is accepted as evidence
+        // that some field is editable, so a simulator quirk in reporting
+        // `hasFocus` doesn't fail an otherwise working test.
         XCTAssertTrue(element.hasFocus || app.keyboards.count > 0, "Element did not gain keyboard focus.")
 
         // Clear any pre-existing content so that a retry never appends to
@@ -141,7 +208,10 @@ final class Positive_Only_SocialUITests: XCTestCase {
         let existing = (element.value as? String) ?? ""
         if !existing.isEmpty {
             element.tap(withNumberOfTaps: 3, numberOfTouches: 1)
-            RunLoop.current.run(until: NSDate(timeIntervalSinceNow: 0.3) as Date)
+            // Let the selection settle before typing over it. This branch only
+            // runs on a retry, so the short fixed wait costs nothing on the
+            // happy path and keeps the replace reliable.
+            RunLoop.current.run(until: Date().addingTimeInterval(0.3))
         }
 
         element.typeText(text)
@@ -150,16 +220,96 @@ final class Positive_Only_SocialUITests: XCTestCase {
     private func assertOnWelcomeView(app: XCUIApplication) {
         // We wait until the "Welcome! 👋" text (which is in NeedsAuthView) appears.
         let welcomeText = app.staticTexts["Welcome! 👋"]
-        
-        // Use a robust existence check with a reasonable timeout.
-        XCTAssertTrue(welcomeText.waitForExistence(timeout: TestConstants.shortTimeout), "The Welcome! 👋 text (NeedsAuthView) did not appear in time.")
 
-        XCTAssertTrue(app.buttons["RegisterText"].waitForExistence(timeout: TestConstants.shortTimeout), "Register button is not empty")
-        XCTAssertTrue(app.buttons["LoginText"].waitForExistence(timeout: TestConstants.shortTimeout), "Login button is not empty")
+        // Clears system alerts while waiting: reaching Welcome usually follows
+        // a logout, a delete or a failed sign-in, and the Save Password prompt
+        // lands asynchronously after any of them — covering this screen rather
+        // than preventing it, so a plain wait times out on a screen that is
+        // actually there.
+        XCTAssertTrue(
+            waitForExistenceClearingSystemAlerts(welcomeText, timeout: TestConstants.timeout),
+            "The Welcome! 👋 text (NeedsAuthView) did not appear in time.")
+
+        XCTAssertTrue(app.buttons["RegisterText"].waitForExistence(timeout: TestConstants.shortTimeout), "Register button not present")
+        XCTAssertTrue(app.buttons["LoginText"].waitForExistence(timeout: TestConstants.shortTimeout), "Login button not present")
     }
     
+    /// Dismisses the system Save Password prompt if it is on screen, reporting
+    /// whether it did. Returns immediately when there is nothing to dismiss, so
+    /// it is safe inside loops that are already retrying something else.
+    ///
+    /// iOS raises this prompt asynchronously some time after a password is
+    /// submitted — often after whatever window a one-shot dismissal gave it,
+    /// and observed arriving only once a later screen had already been
+    /// reached. Being a SpringBoard alert, it leaves the app's elements in the
+    /// tree while making them untappable, so the symptom is never "alert
+    /// present"; it is an element that exists but cannot be hit, or a screen
+    /// that never seems to arrive. Hence checking at the point of use rather
+    /// than at one fixed moment.
+    @discardableResult
+    private func dismissSavePasswordNow() -> Bool {
+        let notNowButton = app.buttons["Not Now"]
+        // Nothing there: leave at once. This is the common case and runs inside
+        // polling loops, so it must not cost a wait.
+        guard notNowButton.exists else { return false }
+
+        // Present, but an alert animating in is in the tree before it can be
+        // touched. Returning false here would be the worst outcome: the caller
+        // would tap into an alert that is about to be fully up, and SpringBoard
+        // swallows that tap silently. Tapping it early is no better - a tap on
+        // a control that is not hittable is a hard failure. So having found a
+        // prompt, wait for it to settle; this wait is only ever reached when
+        // there is genuinely something to dismiss.
+        guard poll(timeout: TestConstants.shortTimeout, until: { notNowButton.isHittable }) else {
+            return false
+        }
+        notNowButton.tap()
+        return true
+    }
+
+    /// Waits for `element`, clearing a Save Password prompt that appears
+    /// part-way through the wait. A plain `waitForExistence` can time out
+    /// against a screen that is genuinely there but covered.
+    private func waitForExistenceClearingSystemAlerts(
+        _ element: XCUIElement,
+        timeout: TimeInterval
+    ) -> Bool {
+        poll(timeout: timeout) {
+            // Clear first, then check. Checking first and returning early would
+            // defeat the purpose: the prompt leaves elements in the tree, so
+            // the element can "exist" while the alert is still covering it, and
+            // the caller would proceed to a tap that goes to the alert. Doing
+            // it in this order means that whenever this returns true, any
+            // prompt has just been dismissed.
+            dismissSavePasswordNow()
+            return element.exists
+        }
+    }
+
+    /// Taps `element` after clearing any system prompt that would intercept it.
+    ///
+    /// A SpringBoard alert swallows the tap silently — the control stays in the
+    /// tree, the tap reports success, and the screen simply never changes — so
+    /// every tap that follows a password submission goes through here rather
+    /// than relying on the alert having been dismissed earlier.
+    private func tapClearingSystemAlerts(_ element: XCUIElement) {
+        dismissSavePasswordNow()
+        element.tap()
+    }
+
     private func assertOnRegisterView(app: XCUIApplication) {
-        XCTAssertTrue(app.textFields["UsernameTextField"].waitForExistence(timeout: TestConstants.shortTimeout), "Username field not present")
+        // The first check doubles as the "did we arrive?" wait, so it gets the
+        // longer timeout and clears system alerts while waiting: it has to
+        // cover a navigation push, and testDeleteAccount arrives here right
+        // after a failed sign-in, which is when iOS raises the Save Password
+        // prompt. That prompt was observed appearing only after the back
+        // navigation had completed, covering this screen so it read as never
+        // having arrived. The checks below stay short — once the screen is up,
+        // its fields are all there at once.
+        XCTAssertTrue(
+            waitForExistenceClearingSystemAlerts(app.textFields["UsernameTextField"],
+                                                 timeout: TestConstants.timeout),
+            "Username field not present")
         XCTAssertTrue(app.textFields["EmailTextField"].waitForExistence(timeout: TestConstants.shortTimeout), "Email field not present")
         XCTAssertTrue(app.secureTextFields["PasswordSecureField"].waitForExistence(timeout: TestConstants.shortTimeout), "Password field not present")
         XCTAssertTrue(app.secureTextFields["ConfirmPasswordSecureField"].waitForExistence(timeout: TestConstants.shortTimeout), "Confirm Password field not present")
@@ -210,7 +360,7 @@ final class Positive_Only_SocialUITests: XCTestCase {
     private func assertOnNewPostView(app: XCUIApplication) {
         XCTAssertTrue(app.buttons["SelectAPhotoPicker"].waitForExistence(timeout: TestConstants.shortTimeout), "Select a photo picker not present")
         XCTAssertTrue(app.textViews["CaptionTextEditor"].waitForExistence(timeout: TestConstants.shortTimeout), "Caption text editor not present")
-        XCTAssertTrue(app.buttons["SharePostButton"].waitForExistence(timeout: TestConstants.shortTimeout), "Share post button is not empty")
+        XCTAssertTrue(app.buttons["SharePostButton"].waitForExistence(timeout: TestConstants.shortTimeout), "Share post button not present")
     }
     
     private func assertOnFeedView(app: XCUIApplication) {
@@ -222,23 +372,67 @@ final class Positive_Only_SocialUITests: XCTestCase {
         XCTAssertTrue(app.buttons["AddACommentButton"].waitForExistence(timeout: TestConstants.shortTimeout), "Add a comment button not present")
     }
     
-    private func ifOnHomeDeleteAccount(app: XCUIApplication) throws {
-        if (app.buttons["Profile"].exists) {
-            try deleteAccountFromHome(app: app)
+    /// Gets back to the Welcome view when the app launched already signed in.
+    ///
+    /// The keychain session outlives the app process and is keyed by test name,
+    /// so a retried test (either xcodebuild's `-test-iterations` or the
+    /// workflow's whole-run retry) relaunches into Home rather than Welcome.
+    ///
+    /// This logs out rather than deleting the account. Deleting used to be
+    /// fine because every caller followed it by *registering* the account it
+    /// needed; now that callers sign in to a pre-seeded account instead
+    /// (issue #377), deleting would destroy the very account the following
+    /// `loginUser` depends on and the retry could never pass. Logging out
+    /// clears the persisted session and leaves the seeded account intact — and
+    /// it needs no scrolling, so it is quicker too. Nothing else needs
+    /// resetting: the stub's database is in-memory and is rebuilt, reseeded,
+    /// on every launch.
+    private func returnToWelcomeIfSignedIn(app: XCUIApplication) throws {
+        // Wait for whichever screen the launch settles on, rather than only for
+        // the signed-in one. Polling for Home alone would mean the common
+        // signed-out case never satisfies the condition and always pays the
+        // full timeout — a per-test cost on a suite whose point is runtime.
+        // Waiting for either signal returns as soon as the app renders.
+        //
+        // A plain `exists` would instead race the launch and mis-read a
+        // still-launching app as signed out, so the wait itself is needed; app
+        // launch has been observed taking double-digit seconds on a loaded CI
+        // runner, hence longTimeout, which is only ever paid when the app fails
+        // to show either screen (already a failure).
+        let profileTab = app.buttons["Profile"]
+        let welcomeText = app.staticTexts["Welcome! 👋"]
+        // Assert rather than discard the result: if the app reaches neither
+        // screen, saying so here points at the launch, which is where the
+        // problem actually is. Falling through instead would surface as a
+        // confusing "Welcome did not appear" from whatever the caller does
+        // next — and a slow or stuck launch is precisely the failure this
+        // suite has hit on a loaded runner.
+        XCTAssertTrue(
+            poll(timeout: TestConstants.longTimeout,
+                 until: { profileTab.exists || welcomeText.exists }),
+            "App showed neither Home nor Welcome within \(TestConstants.longTimeout)s of launching."
+        )
+
+        if profileTab.exists {
+            try logoutUserFromHome(app: app)
         }
     }
     
     private func registerUser(app: XCUIApplication, username: String, password: String) throws {
-        // We wait until the "Welcome! 👋" text (which is in NeedsAuthView) appears.
-        let welcomeText = app.staticTexts["Welcome! 👋"]
-        
-        // Use a robust existence check with a reasonable timeout.
-        XCTAssertTrue(welcomeText.waitForExistence(timeout: TestConstants.shortTimeout), "The Welcome! 👋 text (NeedsAuthView) did not appear in time.")
-        
+        // Use the shared assertion rather than repeating the Welcome check
+        // here: this copy waited a plain shortTimeout and did not clear system
+        // alerts, so it missed the Save Password prompt that the shared one
+        // handles. Every route onto Welcome runs through one behaviour now.
+        assertOnWelcomeView(app: app)
+
         let registerButton = app.buttons["RegisterText"]
         XCTAssertTrue(registerButton.waitForExistence(timeout: TestConstants.shortTimeout))
-        registerButton.tap()
-        
+        // Clear a prompt that landed between arriving and tapping. Without
+        // this the tap goes to the alert instead, the push never happens, and
+        // the failure surfaces as the register screen "not appearing" — which
+        // is how testDeleteAccount presented.
+        tapClearingSystemAlerts(registerButton)
+
         assertOnRegisterView(app: app)
         
         dismissKeyboardIfPresent(app)
@@ -269,7 +463,7 @@ final class Positive_Only_SocialUITests: XCTestCase {
 
         let otherRegisterButton = app.buttons["RegisterButton"]
         XCTAssertTrue(otherRegisterButton.waitForExistence(timeout: TestConstants.shortTimeout))
-        otherRegisterButton.tap()
+        tapClearingSystemAlerts(otherRegisterButton)
         
         let privacyPolicyAlert = app.alerts["Privacy Policy"]
         XCTAssertTrue(privacyPolicyAlert.waitForExistence(timeout: TestConstants.shortTimeout))
@@ -309,71 +503,87 @@ final class Positive_Only_SocialUITests: XCTestCase {
 
         let loginButton = app.buttons["LoginButton"]
         XCTAssertTrue(loginButton.waitForExistence(timeout: TestConstants.shortTimeout))
-        loginButton.tap()
+        tapClearingSystemAlerts(loginButton)
 
         assertOnHomeView(app: app)
 
         dismissSavePassword(app: app)
     }
     
+    /// Waits briefly for the system "Save Password" prompt and dismisses it.
+    ///
+    /// The prompt is common, not incidental: iOS raises it after a password is
+    /// submitted, and the auth screens no longer suppress it. Declaring
+    /// `.oneTimeCode` did suppress it, but stopped secure fields taking
+    /// keyboard focus at all, so that was reverted.
+    ///
+    /// The full window is deliberate. It was once trimmed to 1.5s on the
+    /// reasoning that nothing ever appeared here, and that directly caused
+    /// testDeleteAccount to fail — the prompt landed just after the shortened
+    /// window closed and then covered the screen. The wait is short in practice
+    /// whenever the prompt does appear, because polling stops the moment it is
+    /// dismissed; the full cost is only paid when there is nothing to dismiss.
+    ///
+    /// This is not the only defence. The prompt can arrive later still, after
+    /// this has already returned, so `scrollIntoView` and the screen-arrival
+    /// checks clear it at the point of use as well.
     private func dismissSavePassword(app: XCUIApplication) {
-        let notNowButton = app.buttons["Not Now"]
-        if notNowButton.waitForExistence(timeout: TestConstants.shortTimeout) {
-            notNowButton.tap()
-        }
+        // Delegates the tap so both paths share one rule about when the button
+        // is safe to touch: the alert can be in the tree while still animating
+        // in, and tapping a control that is not yet hittable is a hard failure.
+        poll(timeout: TestConstants.shortTimeout, until: { dismissSavePasswordNow() })
     }
-    
+
+    /// Signs in through the login form, starting from the Welcome view.
+    ///
+    /// The account is expected to already exist — `setUpWithError` seeds the
+    /// three usernames these tests use into the stub (issue #377). This used to
+    /// register the account through the full UI first (and, for remember-me,
+    /// then log out and back in), which cost several typed fields per account
+    /// and dominated the suite's runtime. Tests that specifically exercise
+    /// registration still call `registerUser` directly.
     private func loginUser(app: XCUIApplication, username: String, password: String, rememberMe: Bool) throws {
-        try registerUser(app: app, username: username, password: password)
-
-        // registerUser already finishes with a real login through the login
-        // form (registration parks the user on the check-email screen, so the
-        // helper signs in to reach Home). Only remember-me needs another
-        // logout/login cycle to flip the toggle; skipping the redundant cycle
-        // keeps these long tests inside the CI simulator's patience.
-        if !rememberMe {
-            return
-        }
-
-        try logoutUserFromHome(app: app)
+        assertOnWelcomeView(app: app)
 
         let loginButton = app.buttons["LoginText"]
         XCTAssertTrue(loginButton.waitForExistence(timeout: TestConstants.shortTimeout))
-        loginButton.tap()
-        
+        tapClearingSystemAlerts(loginButton)
+
         assertOnLoginView(app: app)
-        
+
         dismissKeyboardIfPresent(app)
-        
+
         let usernameOrEmailTextField = app.textFields["UsernameOrEmailTextField"]
         XCTAssertTrue(usernameOrEmailTextField.waitForExistence(timeout: TestConstants.shortTimeout))
         usernameOrEmailTextField.tap()
         typeText(element: usernameOrEmailTextField, text: username)
-        
+
         let passwordSecureField = app.secureTextFields["PasswordSecureField"]
         XCTAssertTrue(passwordSecureField.waitForExistence(timeout: TestConstants.shortTimeout))
         passwordSecureField.tap()
         typeText(element: passwordSecureField, text: password)
-        
+
         if (rememberMe) {
             dismissKeyboardIfPresent(app)
-            
+
             let rememberMeSwitch = app.switches["RememberMeToggle"]
             if let value = rememberMeSwitch.value as? String, value == "0" {
                 // We don't always get the tap to work so we have to do this
                 let knob = rememberMeSwitch.coordinate(withNormalizedOffset: CGVector(dx: 0.9, dy: 0.5))
                 knob.tap()
             }
-            
+
             XCTAssertEqual(rememberMeSwitch.value as? String, "1", "Remember me toggle should now be on")
         }
-        
+
+        dismissKeyboardIfPresent(app)
+
         let loginButton2 = app.buttons["LoginButton"]
         XCTAssertTrue(loginButton2.waitForExistence(timeout: TestConstants.shortTimeout))
-        loginButton2.tap()
-        
+        tapClearingSystemAlerts(loginButton2)
+
         assertOnHomeView(app: app)
-        
+
         dismissSavePassword(app: app)
     }
     
@@ -413,6 +623,11 @@ final class Positive_Only_SocialUITests: XCTestCase {
     ) {
         var swipes = 0
         while !element.isHittable && swipes < maxSwipes {
+            // A Save Password prompt sitting over the screen leaves everything
+            // beneath it in the accessibility tree but untappable, so the row
+            // reads as present-but-unreachable and no amount of swiping helps.
+            // Clear it first, and don't spend a swipe doing so.
+            if dismissSavePasswordNow() { continue }
             app.swipeUp()
             swipes += 1
         }
@@ -637,18 +852,18 @@ final class Positive_Only_SocialUITests: XCTestCase {
     /// keyboard so the buttons it was covering (Register, Login, …) become
     /// reachable again. Exercised on the Register screen; the dismissal itself
     /// is purely a UI behavior, though the test first clears any signed-in
-    /// state via `ifOnHomeDeleteAccount` to reach the Welcome → Register flow.
+    /// state via `returnToWelcomeIfSignedIn` to reach the Welcome → Register flow.
     @MainActor
     func testTappingOutsideFieldDismissesKeyboard() throws {
-        try ifOnHomeDeleteAccount(app: app)
+        try returnToWelcomeIfSignedIn(app: app)
 
-        // Navigate to the Register screen.
-        let welcomeText = app.staticTexts["Welcome! 👋"]
-        XCTAssertTrue(welcomeText.waitForExistence(timeout: TestConstants.shortTimeout),
-                      "Welcome view did not appear")
+        // Navigate to the Register screen. Same shared assertion and
+        // alert-clearing as registerUser: this test reaches Welcome after a
+        // possible logout, so the Save Password prompt can land here too.
+        assertOnWelcomeView(app: app)
         let registerButton = app.buttons["RegisterText"]
         XCTAssertTrue(registerButton.waitForExistence(timeout: TestConstants.shortTimeout))
-        registerButton.tap()
+        tapClearingSystemAlerts(registerButton)
         assertOnRegisterView(app: app)
 
         // Focus a field so the keyboard appears. The simulator occasionally
@@ -679,7 +894,7 @@ final class Positive_Only_SocialUITests: XCTestCase {
     @MainActor
     func testAutomaticLoginAfterRememberMe() throws {
         
-        try ifOnHomeDeleteAccount(app: app)
+        try returnToWelcomeIfSignedIn(app: app)
         
         try loginUser(app: app, username: testUsername, password: strongPassword, rememberMe: true)
         
@@ -692,35 +907,17 @@ final class Positive_Only_SocialUITests: XCTestCase {
     @MainActor
     func testDeleteAccount() throws {
         
-        try ifOnHomeDeleteAccount(app: app)
+        try returnToWelcomeIfSignedIn(app: app)
         
         // Remember me is true here so we can test that the deleting clears the token
         try loginUser(app: app, username: testUsername, password: strongPassword, rememberMe: true)
 
-        let settingsTab = app.buttons["Settings"]
-        XCTAssertTrue(settingsTab.waitForExistence(timeout: TestConstants.shortTimeout))
-        settingsTab.tap()
-        
-        assertOnSettingsView(app: app)
-        
-        // Settings now runs past a single screen (Blocked Users, Security), and
-        // Delete Account is in the last section. SwiftUI's List only
-        // materializes rows near the viewport, so scroll first — the row may
-        // not exist (or be hittable) until then.
-        let deleteAccountButton = app.buttons["DeleteAccountButton"]
-        scrollIntoView(app: app, element: deleteAccountButton)
-        XCTAssertTrue(deleteAccountButton.waitForExistence(timeout: TestConstants.shortTimeout))
-        deleteAccountButton.tap()
-        
-        let confirmDeleteAccountButton = app.buttons["ConfirmDeleteAccountButton"].firstMatch
-        XCTAssertTrue(confirmDeleteAccountButton.waitForExistence(timeout: TestConstants.shortTimeout))
-        confirmDeleteAccountButton.tap()
-        
-        assertOnWelcomeView(app: app)
-        
+        // The same Settings → scroll → Delete → confirm walk the helper does.
+        try deleteAccountFromHome(app: app)
+
         let loginButton = app.buttons["LoginText"]
         XCTAssertTrue(loginButton.waitForExistence(timeout: TestConstants.shortTimeout))
-        loginButton.tap()
+        tapClearingSystemAlerts(loginButton)
         
         assertOnLoginView(app: app)
         
@@ -736,7 +933,7 @@ final class Positive_Only_SocialUITests: XCTestCase {
         
         let loginButton2 = app.buttons["LoginButton"]
         XCTAssertTrue(loginButton2.waitForExistence(timeout: TestConstants.shortTimeout))
-        loginButton2.tap()
+        tapClearingSystemAlerts(loginButton2)
         
         XCTAssertTrue(app.buttons["LoginFailedOkButton"].waitForExistence(timeout: TestConstants.shortTimeout), "Login should have failed")
         
@@ -750,27 +947,27 @@ final class Positive_Only_SocialUITests: XCTestCase {
         backButton.tap()
         
         dismissSavePassword(app: app)
-        
-        try registerUser(app: app, username: newTestUsername, password: strongPassword)
+
+        // Register an account that was NOT pre-seeded, so this still covers
+        // creating a genuinely new account end to end.
+        try registerUser(app: app, username: unseededTestUsername, password: strongPassword)
     }
-    
+
     @MainActor
     func testResetPassword() throws {
         
-        try ifOnHomeDeleteAccount(app: app)
+        try returnToWelcomeIfSignedIn(app: app)
 
-        try registerUser(app: app, username: testUsername, password: strongPassword)
-        
-        try logoutUserFromHome(app: app)
-        
+        // The account is seeded (issue #377), so go straight to the login form
+        // and start the forgot-password flow from there.
         assertOnWelcomeView(app: app)
-        
+
         let loginButton = app.buttons["LoginText"]
         XCTAssertTrue(loginButton.waitForExistence(timeout: TestConstants.shortTimeout))
-        loginButton.tap()
-        
+        tapClearingSystemAlerts(loginButton)
+
         assertOnLoginView(app: app)
-        
+
         let forgotPasswordButton = app.buttons["ForgotPasswordButton"]
         XCTAssertTrue(forgotPasswordButton.waitForExistence(timeout: TestConstants.shortTimeout))
         forgotPasswordButton.tap()
@@ -844,7 +1041,7 @@ final class Positive_Only_SocialUITests: XCTestCase {
         
         let loginButton2 = app.buttons["LoginText"]
         XCTAssertTrue(loginButton2.waitForExistence(timeout: TestConstants.shortTimeout))
-        loginButton2.tap()
+        tapClearingSystemAlerts(loginButton2)
         
         assertOnLoginView(app: app)
         
@@ -860,7 +1057,7 @@ final class Positive_Only_SocialUITests: XCTestCase {
         
         let loginButton3 = app.buttons["LoginButton"]
         XCTAssertTrue(loginButton3.waitForExistence(timeout: TestConstants.shortTimeout))
-        loginButton3.tap()
+        tapClearingSystemAlerts(loginButton3)
         
         dismissSavePassword(app: app)
         
@@ -870,16 +1067,12 @@ final class Positive_Only_SocialUITests: XCTestCase {
     @MainActor
     func testFollowAndUnfollowFromSearch() throws {
         
-        try ifOnHomeDeleteAccount(app: app)
-        
-        try registerUser(app: app, username: otherTestUsername, password: strongPassword)
-        
-        try logoutUserFromHome(app: app)
-        
-        assertOnWelcomeView(app: app)
-        
+        try returnToWelcomeIfSignedIn(app: app)
+
+        // The other user is seeded (issue #377), so there is no need to create
+        // it through the registration UI and log back out first.
         try loginUser(app: app, username: testUsername, password: strongPassword, rememberMe: false)
-        
+
         let userSearchField = app.searchFields["Search for Users"]
         XCTAssertTrue(userSearchField.waitForExistence(timeout: TestConstants.shortTimeout))
         userSearchField.tap()
@@ -935,7 +1128,7 @@ final class Positive_Only_SocialUITests: XCTestCase {
     @MainActor
     func testFollowAndUnfollowFromPost() throws {
         
-        try ifOnHomeDeleteAccount(app: app)
+        try returnToWelcomeIfSignedIn(app: app)
         
         try loginUser(app: app, username: testUsername, password: strongPassword, rememberMe: false)
         
@@ -1062,7 +1255,7 @@ final class Positive_Only_SocialUITests: XCTestCase {
     @MainActor
     func testLikeAndUnlikePost() throws {
         
-        try ifOnHomeDeleteAccount(app: app)
+        try returnToWelcomeIfSignedIn(app: app)
 
         try loginUser(app: app, username: testUsername, password: strongPassword, rememberMe: false)
         
@@ -1133,7 +1326,7 @@ final class Positive_Only_SocialUITests: XCTestCase {
     @MainActor
     func testOpenPostDetailFromHomeGrid() throws {
 
-        try ifOnHomeDeleteAccount(app: app)
+        try returnToWelcomeIfSignedIn(app: app)
 
         try loginUser(app: app, username: testUsername, password: strongPassword, rememberMe: false)
 
@@ -1158,7 +1351,7 @@ final class Positive_Only_SocialUITests: XCTestCase {
     @MainActor
     func testOpenPostDetailFromProfileGrid() throws {
 
-        try ifOnHomeDeleteAccount(app: app)
+        try returnToWelcomeIfSignedIn(app: app)
 
         try loginUser(app: app, username: testUsername, password: strongPassword, rememberMe: false)
         try makePost(app: app, postText: "Profile Grid Post")
@@ -1193,7 +1386,7 @@ final class Positive_Only_SocialUITests: XCTestCase {
     @MainActor
     func testOpenPostDetailFromFollowingFeed() throws {
 
-        try ifOnHomeDeleteAccount(app: app)
+        try returnToWelcomeIfSignedIn(app: app)
 
         try loginUser(app: app, username: testUsername, password: strongPassword, rememberMe: false)
         try makePost(app: app, postText: "Following Feed Post")
@@ -1252,7 +1445,7 @@ final class Positive_Only_SocialUITests: XCTestCase {
     @MainActor
     func testVerifyIdentity() throws {
 
-        try ifOnHomeDeleteAccount(app: app)
+        try returnToWelcomeIfSignedIn(app: app)
 
         try loginUser(app: app, username: testUsername, password: strongPassword, rememberMe: false)
 
@@ -1293,7 +1486,7 @@ final class Positive_Only_SocialUITests: XCTestCase {
     @MainActor
     func testEnableTwoFactorAuthentication() throws {
 
-        try ifOnHomeDeleteAccount(app: app)
+        try returnToWelcomeIfSignedIn(app: app)
 
         try loginUser(app: app, username: testUsername, password: strongPassword, rememberMe: false)
 
@@ -1314,18 +1507,34 @@ final class Positive_Only_SocialUITests: XCTestCase {
         let codeField = app.textFields["TwoFactorConfirmCodeTextField"]
         XCTAssertTrue(codeField.waitForExistence(timeout: TestConstants.shortTimeout), "Confirm-code field should appear on the enrollment sheet")
         XCTAssertTrue(app.staticTexts["TwoFactorSecretText"].exists, "The scannable secret should be shown")
-        codeField.tap()
+        // Type through the shared helper rather than calling typeText on the
+        // element directly. These were the only two raw calls left in the file,
+        // and they are why this test cannot pass as written: the helper is what
+        // dismisses the "Use Strong Password" panel, and without it the panel
+        // opens over the enrollment sheet and takes the focus. Confirmed from
+        // the recorded run. The sheet is a Form/Section, which is exactly the
+        // context where suppressing that panel through textContentType alone
+        // was found unreliable (2f07f7b), so dismissing it is the fix that
+        // holds.
         // The stubbed API accepts this fixed code (StatefulStubbedAPI.stubTotpCode).
-        codeField.typeText("123456")
+        typeText(element: codeField, text: "123456")
 
         // Confirming also takes the account password, so a stolen session alone
         // cannot bind an authenticator to the account.
         let passwordField = app.secureTextFields["TwoFactorConfirmPasswordSecureField"]
         XCTAssertTrue(passwordField.waitForExistence(timeout: TestConstants.shortTimeout), "Confirm-password field should appear on the enrollment sheet")
-        passwordField.tap()
-        passwordField.typeText(strongPassword)
+        typeText(element: passwordField, text: strongPassword)
 
         app.buttons["ConfirmTwoFactorButton"].tap()
+
+        // Confirming submits the account password, so iOS offers to save it.
+        // That prompt is a SpringBoard alert drawn over the recovery-codes
+        // screen: the Done button below is visible but not tappable until it is
+        // gone, and a tap on it is simply swallowed. Dismiss it first.
+        // This is why the test fails without it while testChangePassword passes
+        // on the same screen with the same fields - that flow never submits a
+        // password iOS considers worth offering to save.
+        dismissSavePassword(app: app)
 
         // Recovery codes are shown once; finishing reports 2FA enabled.
         let finishButton = app.buttons["FinishTwoFactorEnrollmentButton"]
@@ -1340,7 +1549,7 @@ final class Positive_Only_SocialUITests: XCTestCase {
     @MainActor
     func testChangePassword() throws {
 
-        try ifOnHomeDeleteAccount(app: app)
+        try returnToWelcomeIfSignedIn(app: app)
 
         try loginUser(app: app, username: testUsername, password: strongPassword, rememberMe: false)
 
@@ -1389,7 +1598,7 @@ final class Positive_Only_SocialUITests: XCTestCase {
     @MainActor
     func testLikeAndUnlikeCommentOnPostAndThread() throws {
         
-        try ifOnHomeDeleteAccount(app: app)
+        try returnToWelcomeIfSignedIn(app: app)
 
         try loginUser(app: app, username: testUsername, password: strongPassword, rememberMe: false)
         
@@ -1523,7 +1732,7 @@ final class Positive_Only_SocialUITests: XCTestCase {
     @MainActor
     func testReportPost() throws {
         
-        try ifOnHomeDeleteAccount(app: app)
+        try returnToWelcomeIfSignedIn(app: app)
         
         try loginUser(app: app, username: testUsername, password: strongPassword, rememberMe: false)
         
@@ -1613,7 +1822,7 @@ final class Positive_Only_SocialUITests: XCTestCase {
     @MainActor
     func testDeleteOwnPost() throws {
 
-        try ifOnHomeDeleteAccount(app: app)
+        try returnToWelcomeIfSignedIn(app: app)
 
         try loginUser(app: app, username: testUsername, password: strongPassword, rememberMe: false)
 
@@ -1650,7 +1859,7 @@ final class Positive_Only_SocialUITests: XCTestCase {
     @MainActor
     func testDeleteOwnComment() throws {
 
-        try ifOnHomeDeleteAccount(app: app)
+        try returnToWelcomeIfSignedIn(app: app)
 
         try loginUser(app: app, username: testUsername, password: strongPassword, rememberMe: false)
 
@@ -1695,7 +1904,7 @@ final class Positive_Only_SocialUITests: XCTestCase {
     @MainActor
     func testReportComment() throws {
         
-        try ifOnHomeDeleteAccount(app: app)
+        try returnToWelcomeIfSignedIn(app: app)
         
         try loginUser(app: app, username: testUsername, password: strongPassword, rememberMe: false)
         
@@ -1820,27 +2029,24 @@ final class Positive_Only_SocialUITests: XCTestCase {
             app.launch()
 
             do {
-                try ifOnHomeDeleteAccount(app: app)
+                try returnToWelcomeIfSignedIn(app: app)
             } catch {
-                XCTFail("ifOnHomeDeleteAccount threw error: \(error)")
+                XCTFail("returnToWelcomeIfSignedIn threw error: \(error)")
             }
             
         }
         
-        try registerUser(app: app, username: newTestUsername, password: strongPassword)
+        // Not pre-seeded, so this exercises real account creation.
+        try registerUser(app: app, username: unseededTestUsername, password: strongPassword)
         assertOnHomeView(app: app)
     }
 
     @MainActor
     func testBlockAndUnblockUser() throws {
         
-        try ifOnHomeDeleteAccount(app: app)
+        try returnToWelcomeIfSignedIn(app: app)
         
-        // Setup: Create other user
-        try registerUser(app: app, username: otherTestUsername, password: strongPassword)
-        try logoutUserFromHome(app: app)
-        
-        // Login as main user
+        // The other user is seeded (issue #377), so login as the main user directly.
         try loginUser(app: app, username: testUsername, password: strongPassword, rememberMe: false)
         
         // Search for user

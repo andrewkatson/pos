@@ -3,6 +3,8 @@ package com.example.positiveonlysocial.ui.main
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -33,6 +35,8 @@ import androidx.navigation.NavController
 import com.example.positiveonlysocial.api.PositiveOnlySocialAPI
 import com.example.positiveonlysocial.data.constants.Constants
 import com.example.positiveonlysocial.data.model.CommentThreadViewData
+import com.example.positiveonlysocial.data.model.FollowCategory
+import com.example.positiveonlysocial.data.model.PostAudience
 import com.example.positiveonlysocial.ui.components.CaptionTile
 import com.example.positiveonlysocial.ui.components.CharacterCounter
 import com.example.positiveonlysocial.ui.components.TaggedCaptionText
@@ -77,6 +81,9 @@ fun PostDetailScreen(
         // The signed-in user; used to hide the like control on their own
         // post/comments since the backend rejects liking your own content.
         val currentUsername by viewModel.currentUsername.collectAsState()
+        // The active comment-list filter — the followed-feed toggle applied to
+        // comments (issue #445).
+        val selectedCommentCategory by viewModel.selectedCategory.collectAsState()
 
         // Sheets
         val showReportSheetForPost by viewModel.showReportSheetForPost.collectAsState()
@@ -185,7 +192,7 @@ fun PostDetailScreen(
             CommentComposerDialog(
                 title = "Add a comment",
                 onDismiss = { viewModel.setShowAddCommentDialog(false) },
-                onSubmit = { text, formatting -> viewModel.commentOnPost(text, formatting) }
+                onSubmit = { text, formatting, audience -> viewModel.commentOnPost(text, formatting, audience) }
             )
         }
 
@@ -193,7 +200,7 @@ fun PostDetailScreen(
             CommentComposerDialog(
                 title = "Reply to ${thread.comments.firstOrNull()?.authorUsername ?: "Comment"}",
                 onDismiss = { viewModel.setThreadToReplyTo(null) },
-                onSubmit = { text, formatting -> viewModel.replyToCommentThread(thread, text, formatting) }
+                onSubmit = { text, formatting, audience -> viewModel.replyToCommentThread(thread, text, formatting, audience) }
             )
         }
 
@@ -366,10 +373,33 @@ fun PostDetailScreen(
 
                             Spacer(modifier = Modifier.height(16.dp))
                             Text("Comments", fontWeight = FontWeight.Bold)
+
+                            // Filter the comment list by relationship group — the
+                            // same toggle the Following feed offers (issue #445).
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .horizontalScroll(rememberScrollState())
+                                    .padding(top = 8.dp),
+                                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                FilterChip(
+                                    selected = selectedCommentCategory == null,
+                                    onClick = { viewModel.selectCategory(null) },
+                                    label = { Text("Everyone") }
+                                )
+                                FollowCategory.entries.forEach { category ->
+                                    FilterChip(
+                                        selected = selectedCommentCategory == category,
+                                        onClick = { viewModel.selectCategory(category) },
+                                        label = { Text(category.displayName) }
+                                    )
+                                }
+                            }
                         }
                     }
                 }
-                
+
                 items(commentThreads) { thread ->
                     CommentThreadView(
                         thread = thread,
@@ -529,6 +559,16 @@ fun CommentRow(
                 )
                 Spacer(modifier = Modifier.width(8.dp))
                 Text(RelativeTime.format(comment.createdDate), fontSize = 12.sp, color = Color.Gray)
+                // A short scope badge for a comment shared with less than the
+                // public (issue #445); nothing shown for a public comment.
+                val audienceBadge = comment.audience
+                    ?.let { PostAudience.fromValue(it) }
+                    ?.takeIf { it != PostAudience.PUBLIC }
+                    ?.displayName
+                if (audienceBadge != null) {
+                    Spacer(modifier = Modifier.width(4.dp))
+                    Text("· $audienceBadge", fontSize = 12.sp, color = Color.Gray)
+                }
                 Spacer(modifier = Modifier.width(4.dp))
                 // Three-dots menu next to the timestamp: the discoverable
                 // alternative to long-pressing the comment (issue #304). Opens
@@ -735,7 +775,7 @@ fun ReportDialog(onDismiss: () -> Unit, onSubmit: (String) -> Unit) {
 fun CommentComposerDialog(
     title: String,
     onDismiss: () -> Unit,
-    onSubmit: (String, List<com.example.positiveonlysocial.data.model.CommentFormatSpan>?) -> Unit
+    onSubmit: (String, List<com.example.positiveonlysocial.data.model.CommentFormatSpan>?, PostAudience) -> Unit
 ) {
     // TextFieldValue exposes the selection, so the toolbar can style the
     // selected range (issue #318). `styles` is the per-character attribute
@@ -743,6 +783,9 @@ fun CommentComposerDialog(
     var value by remember { mutableStateOf(androidx.compose.ui.text.input.TextFieldValue("")) }
     var styles by remember { mutableStateOf(emptyList<CharStyle>()) }
     var sizeMenuExpanded by remember { mutableStateOf(false) }
+    // Who may see the comment being written (issue #445); defaults to public.
+    var selectedAudience by remember { mutableStateOf(PostAudience.PUBLIC) }
+    var audienceMenuExpanded by remember { mutableStateOf(false) }
 
     fun selectionRange(): Pair<Int, Int>? {
         val start = minOf(value.selection.start, value.selection.end)
@@ -800,13 +843,35 @@ fun CommentComposerDialog(
                     Text(TextFormatting.annotatedComment(value.text, CommentFormatting.toSpans(styles)))
                 }
                 CharacterCounter(text = value.text, max = Constants.MAX_COMMENT_LENGTH)
+
+                // Who may see this comment (issue #445), mirroring the post
+                // audience picker in NewPostScreen.
+                Box {
+                    OutlinedButton(onClick = { audienceMenuExpanded = true }) {
+                        Text("Who can see this? ${selectedAudience.displayName}")
+                    }
+                    DropdownMenu(
+                        expanded = audienceMenuExpanded,
+                        onDismissRequest = { audienceMenuExpanded = false }
+                    ) {
+                        PostAudience.entries.forEach { audience ->
+                            DropdownMenuItem(
+                                text = { Text("${audience.displayName} — ${audience.hint}") },
+                                onClick = {
+                                    selectedAudience = audience
+                                    audienceMenuExpanded = false
+                                }
+                            )
+                        }
+                    }
+                }
             }
         },
         confirmButton = {
             Button(
                 onClick = {
                     if (value.text.isNotEmpty()) {
-                        onSubmit(value.text, CommentFormatting.toSpans(styles))
+                        onSubmit(value.text, CommentFormatting.toSpans(styles), selectedAudience)
                         onDismiss()
                     }
                 },

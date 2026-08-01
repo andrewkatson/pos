@@ -154,7 +154,12 @@ struct ProfileBodyView: View {
             // Placeholder for profile stats (you can build this out)
             HStack {
                 Spacer()
-                StatItem(count: viewModel.userPosts.count, label: "Posts")
+                // The backend's authoritative post_count, not the loaded-grid
+                // size: the grid is paginated, so its count is only the posts
+                // fetched so far — a new post pushes the oldest off the first
+                // page and the size never moves (issue #437). Falls back to the
+                // grid size only until profile details load.
+                StatItem(count: viewModel.profileDetails?.postCount ?? viewModel.userPosts.count, label: "Posts")
                 Spacer()
                 // Only your own follow lists are viewable, so the counts tap
                 // through on your own profile and are plain stats on anyone

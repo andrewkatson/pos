@@ -8,6 +8,13 @@ export interface RegisterRequest {
   remember_me?: boolean
   /** YYYY-MM-DD. When provided, the account is identity-verified on creation. */
   date_of_birth?: string
+  /** Positive interest buckets picked during sign-up (issues #446/#35). Ride
+   * along here because the account has no usable session until email
+   * verification. Best-effort — never blocks registration. */
+  interest_categories?: string[]
+  /** Freeform interest terms typed during sign-up; each is positivity-checked
+   * server-side and silently dropped if rejected. */
+  interest_freeform?: string[]
 }
 
 export interface AuthResponse {
@@ -104,6 +111,32 @@ export interface MessageResponse {
   message: string
   /** Echoed by the follow / set-category endpoints (issue #392). */
   follow_category?: FollowCategory
+}
+
+/** Register (or refresh) this browser's Web-push token (issues #342/#343).
+ * `platform` is always 'web' from this client; the backend keys the device on
+ * (platform, token) and upserts. */
+export interface RegisterDeviceRequest {
+  platform: 'web'
+  token: string
+}
+
+/** One push notification type the user can toggle in Settings (issues
+ * #342/#343). `label` is human-facing; the client renders a toggle per row, so
+ * new types added on the backend appear here automatically. */
+export interface NotificationPreference {
+  type: string
+  label: string
+  enabled: boolean
+}
+
+export interface NotificationPreferencesResponse {
+  preferences: NotificationPreference[]
+}
+
+export interface SetNotificationPreferenceResponse {
+  type: string
+  enabled: boolean
 }
 
 export interface RequestResetRequest {
@@ -247,6 +280,50 @@ export interface SetBioRequest {
 export interface SetBioResponse {
   /** The stored bio after the update (empty string when cleared). */
   bio: string
+  message?: string
+}
+
+// --- Positive interest tags (issues #446/#35) -----------------------------
+
+/** One preset interest bucket the user can pick from. */
+export interface InterestOption {
+  slug: string
+  name: string
+}
+
+export interface InterestOptionsResponse {
+  options: InterestOption[]
+}
+
+/** The user's current interest selection (Settings picker prefill). */
+export interface InterestsResponse {
+  /** Preset bucket slugs contributing to feed weighting. */
+  categories: string[]
+  /** Freeform terms the user typed, lowercased. */
+  freeform: string[]
+}
+
+/** A freeform term the classifier rejected, for inline display. */
+export interface RejectedInterest {
+  text: string
+  reason_code?: string
+  reason?: string
+}
+
+/** Full-replace: the complete desired interest state. Anything omitted is
+ * removed (empty arrays clear everything). */
+export interface SetInterestsRequest {
+  categories: string[]
+  freeform: string[]
+}
+
+export interface SetInterestsResponse {
+  /** The weighting bucket slugs after the update (picks ∪ mapped freeform). */
+  categories: string[]
+  freeform: {
+    accepted: string[]
+    rejected: RejectedInterest[]
+  }
   message?: string
 }
 
@@ -423,6 +500,8 @@ export interface Comment extends AuthorAvatarFields {
   body: string
   /** Inline formatting spans over `body` (issue #318). Absent/null = plain. */
   body_formatting?: CommentFormatSpan[] | null
+  /** Who may see this comment (issue #445). Omitted means 'public'. */
+  audience?: PostAudience
   author_username: string
   creation_time: string
   updated_time: string

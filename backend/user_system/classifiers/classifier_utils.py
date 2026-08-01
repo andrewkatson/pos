@@ -14,8 +14,8 @@ from .classifier_constants import (
 
 logger = logging.getLogger(__name__)
 
-# Logical cascade tiers, consulted in this order: a free model first and Claude
-# only as a last resort (issue #393). Every call is routed through OpenRouter
+# Logical cascade tiers, consulted in this order: the cheapest model first and
+# Claude only as a last resort (issue #393). Every call is routed through OpenRouter
 # (one OPENROUTER_API_KEY), so the concrete model behind each tier can be
 # swapped via env without a code change. All four defaults are vision-capable,
 # so the same tiers serve both the text and image cascades.
@@ -24,7 +24,7 @@ API_GEMINI = 'gemini'
 API_OPENAI = 'openai'
 API_CLAUDE = 'claude'
 
-# Priority order: cheapest/free first, most expensive last.
+# Priority order: cheapest first, most expensive last.
 #
 # NOTE: classify_with_thresholds consults at most THREE tiers (it decides by the
 # 3rd usable score), so on the normal path where the first three tiers all
@@ -38,8 +38,15 @@ CASCADE_ORDER = (API_GEMMA, API_GEMINI, API_OPENAI, API_CLAUDE)
 # Default OpenRouter model ID per tier. Override any one of them with the env
 # var OPENROUTER_MODEL_<TIER> (e.g. OPENROUTER_MODEL_GEMMA) to switch models
 # without touching code.
+#
+# The Gemma tier uses the paid `google/gemma-3-12b-it` slug, not the
+# `:free` variant: OpenRouter retired the free Gemma 3 12B (it now 404s with
+# "unavailable for free"), which made the whole first tier fail on every call
+# and fall through to the pricier Gemini tier. The paid slug is still very
+# cheap, so it keeps the cheapest-first ordering intact. Don't reintroduce a
+# `:free` slug here — those tiers get rate-limited and deprecated.
 _DEFAULT_MODELS = {
-    API_GEMMA:  'google/gemma-3-12b-it:free',
+    API_GEMMA:  'google/gemma-3-12b-it',
     API_GEMINI: 'google/gemini-2.5-flash',
     API_OPENAI: 'openai/gpt-4o-mini',
     API_CLAUDE: 'anthropic/claude-haiku-4-5',
@@ -56,7 +63,7 @@ def model_for(api_name):
 
 
 def get_available_apis():
-    """Cascade tiers to consult, in priority order (free first, Claude last).
+    """Cascade tiers to consult, in priority order (cheapest first, Claude last).
 
     Everything routes through OpenRouter, so the whole cascade is available
     when OPENROUTER_API_KEY is set, and nothing is otherwise.
@@ -179,7 +186,7 @@ def classify_with_thresholds(available_apis, call_fn):
     - If the cascade needs another AI and none is available, the content is
       rejected; it is appealable only if the last score was in the middle zone.
 
-    APIs are consulted in the given priority order (free models first, Claude
+    APIs are consulted in the given priority order (cheapest models first, Claude
     last — issue #393), so clear content is usually settled by the cheap tier
     and only ambiguous content escalates to the pricier ones. An API that
     errors or returns an unparseable score is skipped as if unavailable. With
@@ -246,6 +253,23 @@ def call_text_openrouter(text, prompt_template, model):
     return parse_probability_and_rule(response.choices[0].message.content)
 
 
+def call_text_openrouter_raw(prompt, model, max_tokens=64):
+    """Send a fully-formed text prompt and return the raw model reply string.
+
+    Unlike call_text_openrouter this does no probability parsing — it is the
+    plumbing for callers (interest categorization) whose reply is a list of
+    labels rather than a score. A slightly larger max_tokens leaves room for a
+    short comma-separated list.
+    """
+    client = _openrouter_client()
+    response = client.chat.completions.create(
+        model=model,
+        max_tokens=max_tokens,
+        messages=[{"role": "user", "content": prompt}]
+    )
+    return response.choices[0].message.content
+
+
 def _image_to_base64_png(image):
     buffer = BytesIO()
     image.save(buffer, format='PNG')
@@ -267,6 +291,24 @@ def call_image_openrouter(image, prompt, model):
         }]
     )
     return parse_probability_and_rule(response.choices[0].message.content)
+
+
+def call_image_openrouter_raw(image, prompt, model, max_tokens=64):
+    """Image counterpart to call_text_openrouter_raw: returns the raw reply."""
+    client = _openrouter_client()
+    image_data = _image_to_base64_png(image)
+    response = client.chat.completions.create(
+        model=model,
+        max_tokens=max_tokens,
+        messages=[{
+            "role": "user",
+            "content": [
+                {"type": "image_url", "image_url": {"url": f"data:image/png;base64,{image_data}"}},
+                {"type": "text", "text": prompt}
+            ]
+        }]
+    )
+    return response.choices[0].message.content
 
 
 # One entry per cascade tier. Each binds its tier's OpenRouter model (resolved

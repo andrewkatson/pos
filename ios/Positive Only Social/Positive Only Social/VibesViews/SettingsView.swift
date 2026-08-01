@@ -38,6 +38,9 @@ struct SettingsView: View {
     @State private var changePasswordNew = ""
     @State private var changePasswordConfirm = ""
 
+    // Interests sheet (issues #446/#35).
+    @State private var showingInterests = false
+
     /// The support address shown under "Contact Us" (issue #194). Constant,
     /// unlike the Contact Information section which now shows the signed-in
     /// user's own username and email.
@@ -127,6 +130,33 @@ struct SettingsView: View {
                     }.accessibilityIdentifier("BlockedUsersButton")
                 }
 
+                // MARK: - Feed / Interests Section (issues #446/#35)
+                Section(header: Text("Feed")) {
+                    Button {
+                        viewModel.loadInterests()
+                        showingInterests = true
+                    } label: {
+                        Text("Interests")
+                            .foregroundColor(.blue)
+                    }.accessibilityIdentifier("InterestsButton")
+                }
+
+                // MARK: - Notifications Section (issues #342/#343)
+                if !viewModel.notificationPreferences.isEmpty {
+                    Section(header: Text("Notifications")) {
+                        ForEach(viewModel.notificationPreferences) { pref in
+                            Toggle(pref.label, isOn: Binding(
+                                get: { pref.enabled },
+                                set: { viewModel.updateNotificationPreference(pref, enabled: $0) }
+                            ))
+                            // Disabled while its save is in flight, so a rapid
+                            // re-toggle can't race (#342/#343).
+                            .disabled(viewModel.savingPreferences.contains(pref.type))
+                            .accessibilityIdentifier("NotificationToggle_\(pref.type)")
+                        }
+                    }
+                }
+
                 // MARK: - Security Section (issues #348 / #197)
                 Section(header: Text("Security")) {
                     Button {
@@ -177,6 +207,7 @@ struct SettingsView: View {
             // Information section (load-on-mount, matching the rest of the app).
             .onAppear {
                 viewModel.loadCurrentUser()
+                viewModel.loadNotificationPreferences()
             }
             // MARK: - Confirmation Alerts
             .alert("Are you sure you want to log out?", isPresented: $viewModel.showingLogoutConfirm) {
@@ -217,6 +248,11 @@ struct SettingsView: View {
                 Button("OK", role: .cancel) { }
             } message: {
                 Text(viewModel.passwordChangeStatusMessage)
+            }
+            .alert("Interests", isPresented: $viewModel.showingInterestsStatusAlert) {
+                Button("OK", role: .cancel) { }
+            } message: {
+                Text(viewModel.interestsStatusMessage)
             }
             .sheet(isPresented: $showingEnrollTwoFactor, onDismiss: {
                 // A swipe-down (or the Done/Cancel buttons, which just close the
@@ -268,6 +304,19 @@ struct SettingsView: View {
                     // backend may already have rotated the password.
                     .interactiveDismissDisabled(viewModel.isChangingPassword)
             }
+            .sheet(isPresented: $showingInterests, onDismiss: {
+                // A clean save (no rejected terms) closes the sheet and raises
+                // the confirmation alert; otherwise it was cancelled.
+                if viewModel.interestsSaved {
+                    viewModel.finishInterestsSave()
+                }
+            }) {
+                interestsSheet
+                    .onChange(of: viewModel.interestsSaved) { _, saved in
+                        if saved { showingInterests = false }
+                    }
+                    .interactiveDismissDisabled(viewModel.isSavingInterests)
+            }
             .sheet(isPresented: $showingDatePicker) {
                 VStack(spacing: 20) {
                     Text("Verify Identity")
@@ -303,6 +352,64 @@ struct SettingsView: View {
         }
     }
 
+    // MARK: - Interests Sheet (issues #446/#35)
+
+    /// Pick topics you enjoy to weight your feed toward them. Prefilled from the
+    /// current selection so buckets show selected and freeform terms show as
+    /// removable pills; saving the remaining set removes anything deselected.
+    @ViewBuilder
+    private var interestsSheet: some View {
+        NavigationStack {
+            Group {
+                if viewModel.isLoadingInterests {
+                    ProgressView()
+                } else {
+                    ScrollView {
+                        VStack(alignment: .leading, spacing: 16) {
+                            Text("Pick topics you enjoy to see more of them in your feed. You can remove any at any time.")
+                                .font(.subheadline)
+                                .foregroundColor(.secondary)
+                            if let error = viewModel.interestsErrorMessage {
+                                Text(error).font(.subheadline).foregroundColor(.red)
+                            }
+                            // Say why the preset chips are missing rather than
+                            // leaving an unexplained empty section.
+                            if viewModel.hasLoadedInterests && viewModel.interestOptions.isEmpty {
+                                Text("Topic suggestions couldn't be loaded. You can still add your own below.")
+                                    .font(.subheadline)
+                                    .foregroundColor(.secondary)
+                            }
+                            InterestPickerView(
+                                options: viewModel.interestOptions,
+                                selectedSlugs: viewModel.selectedInterestSlugs,
+                                freeformTerms: viewModel.freeformInterests,
+                                rejected: viewModel.rejectedInterests,
+                                isBusy: viewModel.isSavingInterests,
+                                onToggle: { viewModel.toggleInterest($0) },
+                                onAddFreeform: { viewModel.addFreeformInterests($0) },
+                                onRemoveFreeform: { viewModel.removeFreeformInterest($0) }
+                            )
+                        }
+                        .padding()
+                    }
+                }
+            }
+            .navigationTitle("Your Interests")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Cancel") { showingInterests = false }
+                        .disabled(viewModel.isSavingInterests)
+                }
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Save") { viewModel.saveInterests() }
+                        .disabled(viewModel.isLoadingInterests || viewModel.isSavingInterests
+                                  || !viewModel.hasLoadedInterests)
+                }
+            }
+        }
+    }
+
     // MARK: - Change Password Sheet (issue #197)
 
     /// Changing the password asks for the current one as well: the current
@@ -327,17 +434,23 @@ struct SettingsView: View {
                     .multilineTextAlignment(.center)
             }
 
+            // Under UI testing these drop their content type so iOS is less
+            // likely to offer the "Use Strong Password" panel, which steals
+            // focus and makes every password field slow to type into (issue
+            // #377). Real users keep the credential content types. The test
+            // helper still dismisses the panel actively, which is the part that
+            // is reliable inside a Form/Section (see 2f07f7b).
             SecureField("Current password", text: $changePasswordCurrent)
                 .padding().background(Color(.systemGray6)).cornerRadius(10)
-                .textContentType(.password)
+                .textContentType(isUITesting() ? nil : .password)
                 .accessibilityIdentifier("ChangePasswordCurrentField")
             SecureField("New password", text: $changePasswordNew)
                 .padding().background(Color(.systemGray6)).cornerRadius(10)
-                .textContentType(.newPassword)
+                .textContentType(isUITesting() ? nil : .newPassword)
                 .accessibilityIdentifier("ChangePasswordNewField")
             SecureField("Confirm new password", text: $changePasswordConfirm)
                 .padding().background(Color(.systemGray6)).cornerRadius(10)
-                .textContentType(.newPassword)
+                .textContentType(isUITesting() ? nil : .newPassword)
                 .accessibilityIdentifier("ChangePasswordConfirmField")
 
             // Inline guidance so the disabled Change button isn't a dead end.
@@ -478,7 +591,7 @@ struct SettingsView: View {
                 // real owner out permanently.
                 SecureField("Account password", text: $twoFactorConfirmPassword)
                     .padding().background(Color(.systemGray6)).cornerRadius(10)
-                    .textContentType(.password)
+                    .textContentType(isUITesting() ? nil : .password)
                     .accessibilityIdentifier("TwoFactorConfirmPasswordSecureField")
                 Button("Verify") {
                     viewModel.confirmTotp(password: twoFactorConfirmPassword,
@@ -534,6 +647,12 @@ struct SettingsView: View {
 
             SecureField("Password", text: $disablePassword)
                 .padding().background(Color(.systemGray6)).cornerRadius(10)
+                // Declared for the same reason as the other secure fields: a
+                // SecureField with no content type is still treated as a
+                // password by iOS, so it can float the AutoFill panel. No test
+                // drives the disable flow today, but leaving the one field out
+                // is how that panel creeps back in later.
+                .textContentType(isUITesting() ? nil : .password)
                 .accessibilityIdentifier("DisableTwoFactorPasswordField")
             TextField(disableUsesRecoveryCode ? "Recovery code" : "Authenticator code", text: $disableCode)
                 .padding().background(Color(.systemGray6)).cornerRadius(10)

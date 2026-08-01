@@ -334,7 +334,16 @@ fun ProfileBody(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceEvenly
             ) {
-                StatItem(count = userPosts.size, label = "Posts", modifier = Modifier.testTag("tag_Posts"))
+                // The backend's authoritative post_count, not the loaded-grid
+                // size: the grid is paginated, so its size is only the posts
+                // fetched so far — a new post pushes the oldest off the first
+                // page and the size never moves (issue #437). Falls back to the
+                // grid size only until profile details load.
+                StatItem(
+                    count = profileDetails?.postCount ?: userPosts.size,
+                    label = "Posts",
+                    modifier = Modifier.testTag("tag_Posts")
+                )
                 // Only your own follow lists are viewable, so the counts tap
                 // through on your own profile and are plain stats on anyone
                 // else's (issue #8).

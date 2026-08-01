@@ -265,14 +265,19 @@ interface PositiveOnlySocialAPI {
     suspend fun getCommentsForPost(
         @Header("Authorization") token: String,
         @Path("post_id") postId: String,
-        @Path("batch") batch: Int
+        @Path("batch") batch: Int,
+        // Optional group filter (issue #445), mirroring the followed feed.
+        // Retrofit omits the query when null, returning all visible threads.
+        @Query("category") category: String? = null
     ): Response<List<CommentThreadDto>>
 
     @GET("threads/{thread_id}/comments/{batch}/")
     suspend fun getCommentsForThread(
         @Header("Authorization") token: String,
         @Path("thread_id") threadId: String,
-        @Path("batch") batch: Int
+        @Path("batch") batch: Int,
+        // Optional group filter (issue #445); null returns all visible comments.
+        @Query("category") category: String? = null
     ): Response<List<CommentDto>>
 
     // ============================================================================================
@@ -357,6 +362,54 @@ interface PositiveOnlySocialAPI {
         @Header("Authorization") token: String,
         @Body request: SetBioRequest
     ): Response<SetBioResponse>
+
+    // =============================================================================
+    // PUSH NOTIFICATIONS (issues #342/#343)
+    // =============================================================================
+
+    // Registers (or refreshes) this device's FCM token so the backend can send
+    // best-effort push notifications (e.g. a post rejected off the request path).
+    // Upserts on (platform, token) server-side; platform is "android".
+    @POST("devices/register/")
+    suspend fun registerDevice(
+        @Header("Authorization") token: String,
+        @Body request: RegisterDeviceRequest
+    ): Response<GenericResponse>
+
+    // The per-type push toggles shown in Settings → Notifications.
+    @GET("notifications/preferences/")
+    suspend fun getNotificationPreferences(
+        @Header("Authorization") token: String
+    ): Response<NotificationPreferencesResponse>
+
+    // Turns one push type on or off. The {type, enabled} body is echoed back;
+    // the caller only needs success/failure, so GenericResponse suffices.
+    @POST("notifications/preferences/")
+    suspend fun setNotificationPreference(
+        @Header("Authorization") token: String,
+        @Body request: SetNotificationPreferenceRequest
+    ): Response<GenericResponse>
+
+    // ============================================================================================
+    // POSITIVE INTEREST TAGS (issues #446/#35)
+    // ============================================================================================
+
+    // Public (no auth): the curated preset bucket vocabulary the picker renders.
+    @GET("interests/options/")
+    suspend fun getInterestOptions(): Response<InterestOptionsResponse>
+
+    // The signed-in user's current interest selection, to prefill the picker.
+    @GET("interests/")
+    suspend fun getInterests(@Header("Authorization") token: String): Response<InterestsResponse>
+
+    // Replace the signed-in user's interest selection (full-replace/set
+    // semantics — anything omitted is removed). Freeform terms are
+    // positivity-checked and mapped to buckets server-side.
+    @POST("interests/set/")
+    suspend fun setInterests(
+        @Header("Authorization") token: String,
+        @Body request: SetInterestsRequest
+    ): Response<SetInterestsResponse>
 
     // ============================================================================================
     // APPEALS

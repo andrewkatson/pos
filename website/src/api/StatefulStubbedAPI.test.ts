@@ -879,3 +879,104 @@ test('a comment with no formatting reports null spans (#318)', async () => {
   const comments = await api.getCommentsForThread(comment.comment_thread_identifier, 0)
   expect(comments[0].body_formatting).toBeNull()
 })
+
+test('interest options expose the preset vocabulary', async () => {
+  const api = new StatefulStubbedAPI()
+  const { options } = await api.getInterestOptions()
+  expect(options.length).toBeGreaterThan(0)
+  expect(options.map((o) => o.slug)).toContain('nature')
+})
+
+test('setInterests stores presets and maps positive freeform to buckets (#446)', async () => {
+  const api = new StatefulStubbedAPI()
+  await register(api, 'ada')
+
+  const result = await api.setInterests({ categories: ['nature'], freeform: ['music', 'hiking'] })
+  // "music" maps to the music bucket; "hiking" maps to none but is still kept.
+  expect(result.categories).toEqual(['music', 'nature'])
+  expect(result.freeform.accepted).toEqual(['music', 'hiking'])
+  expect(result.freeform.rejected).toEqual([])
+
+  const current = await api.getInterests()
+  expect(current.categories).toEqual(['music', 'nature'])
+  expect(current.freeform).toEqual(['music', 'hiking'])
+})
+
+test('setInterests rejects non-positive freeform terms (#446)', async () => {
+  const api = new StatefulStubbedAPI()
+  await register(api, 'ada')
+
+  const result = await api.setInterests({ categories: [], freeform: ['negative energy'] })
+  expect(result.freeform.accepted).toEqual([])
+  expect(result.freeform.rejected).toHaveLength(1)
+  const current = await api.getInterests()
+  expect(current.freeform).toEqual([])
+})
+
+test('setInterests full-replace removes omitted selections (#446)', async () => {
+  const api = new StatefulStubbedAPI()
+  await register(api, 'ada')
+  await api.setInterests({ categories: ['nature', 'music'], freeform: ['sports'] })
+
+  // Resubmit with less: dropped preset and freeform are gone.
+  const result = await api.setInterests({ categories: ['music'], freeform: [] })
+  expect(result.categories).toEqual(['music'])
+  const current = await api.getInterests()
+  expect(current.categories).toEqual(['music'])
+  expect(current.freeform).toEqual([])
+})
+
+test('interests picked at registration are applied (#446)', async () => {
+  const api = new StatefulStubbedAPI()
+  await api.register({
+    username: 'grace',
+    email: 'grace@example.com',
+    password: 'password123',
+    interest_categories: ['nature'],
+    interest_freeform: ['music'],
+  })
+  const current = await api.getInterests()
+  expect(current.categories).toEqual(['music', 'nature'])
+})
+
+test('setInterests reports a repeated rejected term once and bounds the list (#446)', async () => {
+  // The stub must mirror the backend's _normalize_freeform_terms: dedupe before
+  // deciding a term's fate, and bound the rejected list. Otherwise stub-backed
+  // tests and offline mode see behavior production doesn't have.
+  const api = new StatefulStubbedAPI()
+  await register(api, 'ada')
+
+  const bad = 'negative energy'
+  const tooLong = 'z'.repeat(101)
+  const result = await api.setInterests({
+    categories: [],
+    freeform: [bad, bad.toUpperCase(), tooLong, tooLong],
+  })
+
+  // Four entries, two distinct problems.
+  expect(result.freeform.rejected).toHaveLength(2)
+  // Keys the UI builds from these must be distinct.
+  expect(new Set(result.freeform.rejected.map((r) => r.text)).size).toBe(2)
+})
+
+test('setInterests bounds a flood of rejected terms (#446)', async () => {
+  const api = new StatefulStubbedAPI()
+  await register(api, 'grace')
+
+  const flood = Array.from({ length: 200 }, (_, i) => 'z'.repeat(101) + i)
+  const result = await api.setInterests({ categories: [], freeform: flood })
+  expect(result.freeform.rejected.length).toBeLessThanOrEqual(20)
+})
+
+test('setInterests bounds the echoed text of a huge rejected term (#446)', async () => {
+  const api = new StatefulStubbedAPI()
+  await register(api, 'hopper')
+
+  const huge = 'y'.repeat(500)
+  const result = await api.setInterests({ categories: [], freeform: [huge] })
+  const echoed = result.freeform.rejected[0].text
+  expect(echoed.length).toBeLessThanOrEqual(201) // 200 + the ellipsis
+  expect(echoed.endsWith('…')).toBe(true)
+  // Still clearly over the per-term limit.
+  expect(echoed.length).toBeGreaterThan(100)
+})

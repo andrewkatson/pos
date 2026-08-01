@@ -96,7 +96,11 @@ class StatefulStubbedAPI : PositiveOnlySocialAPI {
         var profileImageStatus: String = "none",
         var profileImageReasonCode: String? = null,
         // Free-text bio (issue #380); "" when unset.
-        var bio: String = ""
+        var bio: String = "",
+        // Positive interest tags (issues #446/#35): weighting buckets (picks ∪
+        // mapped freeform) and the freeform terms the user typed.
+        val interestCategories: MutableList<String> = mutableListOf(),
+        val freeformInterests: MutableList<String> = mutableListOf()
     )
 
     // A pending two-factor login, issued by loginUser when the account has
@@ -167,6 +171,8 @@ class StatefulStubbedAPI : PositiveOnlySocialAPI {
         val body: String,
         // Inline formatting spans over `body` (issue #318); null = plain.
         val bodyFormatting: List<CommentFormatSpan>? = null,
+        // Who may see this comment (issue #445).
+        val audience: String = PostAudience.PUBLIC.value,
         val creationTime: Long = System.currentTimeMillis(),
         var hidden: Boolean = false,
         var hiddenReason: String = "",
@@ -218,6 +224,12 @@ class StatefulStubbedAPI : PositiveOnlySocialAPI {
             membershipNumber = ++membershipCounter
         )
         users.add(newUser)
+
+        // Interests picked during sign-up ride along in the register payload
+        // (issues #446/#35). Best-effort, exactly like the backend.
+        if (!request.interestCategories.isNullOrEmpty() || !request.interestFreeform.isNullOrEmpty()) {
+            applyInterests(newUser, request.interestCategories.orEmpty(), request.interestFreeform.orEmpty())
+        }
 
         // Create Session
         val sessionToken = UUID.randomUUID().toString()
@@ -634,6 +646,41 @@ class StatefulStubbedAPI : PositiveOnlySocialAPI {
         return (rank[category] ?: 0) >= (required[post.audience] ?: 0)
     }
 
+    /** Comment mirror of [audienceAdmits] (issue #445): whether the comment's
+     * audience admits [viewerId]. */
+    private fun commentAudienceAdmits(comment: CommentMock, viewerId: String): Boolean {
+        if (comment.audience == PostAudience.PUBLIC.value || comment.authorId == viewerId) return true
+        val author = users.find { it.id == comment.authorId } ?: return false
+        val category = author.followCategories[viewerId] ?: return false
+        val rank = mapOf("following" to 1, "friend" to 2, "family" to 3)
+        val required = mapOf("following" to 1, "friends" to 2, "family" to 3)
+        return (rank[category] ?: 0) >= (required[comment.audience] ?: 0)
+    }
+
+    /** The followed-feed toggle applied to a comment author (issue #445):
+     * whether [viewer] labeled the comment's author with exactly [category]. A
+     * plain follow counts as "following"; own comments never match. */
+    private fun commentMatchesCategory(comment: CommentMock, viewer: UserMock, category: String): Boolean {
+        if (!viewer.following.contains(comment.authorId)) return false
+        return (viewer.followCategories[comment.authorId] ?: "following") == category
+    }
+
+    /** Comments in [thread] the [viewer] may see (issue #445): not hidden
+     * (unless their own), audience-admitted, and — when [category] is set — by
+     * an author the viewer labeled with exactly that category. */
+    private fun visibleComments(thread: CommentThreadMock, viewer: UserMock, category: String?): List<CommentMock> {
+        return thread.comments.filter { c ->
+            val isOwn = c.authorId == viewer.id
+            if (category != null) {
+                // The exact-category toggle drops your own comments.
+                !isOwn && !c.hidden && commentAudienceAdmits(c, viewer.id) &&
+                    commentMatchesCategory(c, viewer, category)
+            } else {
+                isOwn || (!c.hidden && commentAudienceAdmits(c, viewer.id))
+            }
+        }
+    }
+
     override suspend fun makePost(token: String, request: CreatePostRequest): Response<CreatePostResponse> {
         val user = getAuthorizedUser(token) ?: return errorGeneric(401, "Unauthorized")
 
@@ -1000,7 +1047,9 @@ class StatefulStubbedAPI : PositiveOnlySocialAPI {
         commentThreads.add(thread)
 
         // Create Comment
-        val comment = CommentMock(authorId = user.id, body = request.commentText, bodyFormatting = request.bodyFormatting)
+        val comment = CommentMock(
+            authorId = user.id, body = request.commentText, bodyFormatting = request.bodyFormatting,
+            audience = request.audience ?: PostAudience.PUBLIC.value)
         thread.comments.add(comment)
 
         return Response.success(CommentResponse(thread.threadIdentifier, comment.commentIdentifier))
@@ -1011,7 +1060,9 @@ class StatefulStubbedAPI : PositiveOnlySocialAPI {
         val thread = commentThreads.find { it.threadIdentifier == threadId && it.postId == postId }
             ?: return errorGeneric(404, "Thread not found")
 
-        val comment = CommentMock(authorId = user.id, body = request.commentText, bodyFormatting = request.bodyFormatting)
+        val comment = CommentMock(
+            authorId = user.id, body = request.commentText, bodyFormatting = request.bodyFormatting,
+            audience = request.audience ?: PostAudience.PUBLIC.value)
         thread.comments.add(comment)
 
         return Response.success(CommentResponse(null, comment.commentIdentifier))
@@ -1081,19 +1132,23 @@ class StatefulStubbedAPI : PositiveOnlySocialAPI {
         return Response.success(GenericResponse("Comment report retracted", null))
     }
 
-    override suspend fun getCommentsForPost(token: String, postId: String, batch: Int): Response<List<CommentThreadDto>> {
-        getAuthorizedUser(token) ?: return errorGeneric(401, "Unauthorized")
-        val threads = commentThreads.filter { it.postId == postId }
+    override suspend fun getCommentsForPost(token: String, postId: String, batch: Int, category: String?): Response<List<CommentThreadDto>> {
+        val user = getAuthorizedUser(token) ?: return errorGeneric(401, "Unauthorized")
+        // Only threads with a comment the viewer may see under the current filter
+        // survive (issue #445), mirroring visible_comment_threads.
+        val threads = commentThreads.filter {
+            it.postId == postId && visibleComments(it, user, category).isNotEmpty()
+        }
         val batched = getBatch(threads, batch, COMMENT_BATCH_SIZE)
         return Response.success(batched.map { CommentThreadDto(it.threadIdentifier) })
     }
 
-    override suspend fun getCommentsForThread(token: String, threadId: String, batch: Int): Response<List<CommentDto>> {
+    override suspend fun getCommentsForThread(token: String, threadId: String, batch: Int, category: String?): Response<List<CommentDto>> {
         val user = getAuthorizedUser(token) ?: return errorGeneric(401, "Unauthorized")
         val thread = commentThreads.find { it.threadIdentifier == threadId }
             ?: return errorGeneric(404, "Thread not found")
 
-        val comments = thread.comments.filter { !it.hidden }.sortedBy { it.creationTime }
+        val comments = visibleComments(thread, user, category).sortedBy { it.creationTime }
         val batched = getBatch(comments, batch, COMMENT_BATCH_SIZE)
 
         val dtos = batched.map { c ->
@@ -1111,7 +1166,8 @@ class StatefulStubbedAPI : PositiveOnlySocialAPI {
                 reportReason = c.reports[user.id],
                 authorProfileImageUrl = avatar,
                 authorProfileImageOriginalUrl = avatar,
-                bodyFormatting = c.bodyFormatting
+                bodyFormatting = c.bodyFormatting,
+                audience = c.audience
             )
         }
         return Response.success(dtos)
@@ -1345,6 +1401,130 @@ class StatefulStubbedAPI : PositiveOnlySocialAPI {
         }
         user.bio = bio
         return Response.success(SetBioResponse(bio = bio, message = "Your bio has been updated."))
+    }
+
+    // ============================================================================================
+    // positive interest tags (issues #446/#35)
+    // ============================================================================================
+
+    /** Mirrors the backend apply_user_interests: full-replace of a user's
+     * interest state. Known preset slugs are kept; each freeform term is
+     * positivity-checked (reject anything containing "negative", like the
+     * backend TESTING classifier) and mapped to buckets; the weighting set is
+     * the union of picks and mapped buckets. Returns the applied result. */
+    private fun applyInterests(user: UserMock, categories: List<String>, freeform: List<String>): SetInterestsResponse {
+        // Normalize before matching, mirroring the backend's strip().lower().
+        val picked = mutableListOf<String>()
+        for (raw in categories) {
+            val slug = raw.trim().lowercase()
+            if (InterestVocabulary.slugs.contains(slug) && !picked.contains(slug)) picked.add(slug)
+        }
+
+        val accepted = mutableListOf<String>()
+        val rejected = mutableListOf<RejectedInterest>()
+        val union = picked.toMutableSet()
+        val seen = mutableSetOf<String>()
+
+        for (raw in freeform) {
+            val term = raw.trim()
+            if (term.isEmpty()) continue
+            // Dedupe before deciding the term's fate and bound the rejected
+            // list, mirroring the backend's _normalize_freeform_terms: deduping
+            // only accepted terms let a repeated bad term be reported once per
+            // occurrence, and an unbounded list diverges from the real API
+            // (duplicate list keys, inflated responses).
+            val key = term.lowercase()
+            if (seen.contains(key)) continue
+            seen.add(key)
+            if (term.codePointCount(0, term.length) > InterestVocabulary.MAX_FREEFORM_INTEREST_LENGTH) {
+                if (rejected.size < InterestVocabulary.MAX_FREEFORM_INTERESTS) {
+                    // Echo bounded like the backend bounds it, so a huge term
+                    // can't produce a huge response.
+                    val echo =
+                        if (term.codePointCount(0, term.length) > InterestVocabulary.REJECTED_TEXT_ECHO_LIMIT)
+                            term.take(InterestVocabulary.REJECTED_TEXT_ECHO_LIMIT) + "…"
+                        else term
+                    rejected.add(RejectedInterest(echo, "too_long",
+                        "is longer than ${InterestVocabulary.MAX_FREEFORM_INTEREST_LENGTH} characters"))
+                }
+                continue
+            }
+            if (key.contains("negative")) {
+                if (rejected.size < InterestVocabulary.MAX_FREEFORM_INTERESTS) {
+                    rejected.add(RejectedInterest(key, "guidelines", "did not meet our positivity guidelines"))
+                }
+                continue
+            }
+            accepted.add(key)
+            union.addAll(InterestVocabulary.matchSlugs(key))
+            if (accepted.size >= InterestVocabulary.MAX_FREEFORM_INTERESTS) break
+        }
+
+        user.freeformInterests.clear()
+        user.freeformInterests.addAll(accepted)
+        user.interestCategories.clear()
+        user.interestCategories.addAll(union.sorted())
+        return SetInterestsResponse(
+            categories = union.sorted(),
+            freeform = InterestFreeformResult(accepted = accepted, rejected = rejected),
+            message = "Your interests have been updated."
+        )
+    }
+
+    override suspend fun getInterestOptions(): Response<InterestOptionsResponse> {
+        return Response.success(InterestOptionsResponse(options = InterestVocabulary.options))
+    }
+
+    override suspend fun getInterests(token: String): Response<InterestsResponse> {
+        val user = getAuthorizedUser(token) ?: return errorGeneric(401, "Unauthorized")
+        return Response.success(InterestsResponse(
+            categories = user.interestCategories.toList(),
+            freeform = user.freeformInterests.toList()
+        ))
+    }
+
+    override suspend fun setInterests(token: String, request: SetInterestsRequest): Response<SetInterestsResponse> {
+        val user = getAuthorizedUser(token) ?: return errorGeneric(401, "Unauthorized")
+        return Response.success(applyInterests(user, request.categories, request.freeform))
+    }
+
+    // ============================================================================================
+    // push notifications (issues #342/#343)
+    // ============================================================================================
+
+    override suspend fun registerDevice(
+        token: String,
+        request: RegisterDeviceRequest
+    ): Response<GenericResponse> {
+        // The stub keeps no device table; registration just "succeeds" for a
+        // valid session so the push bootstrap can be exercised in UI mode.
+        getAuthorizedUser(token) ?: return errorGeneric(401, "Unauthorized")
+        return Response.success(GenericResponse(message = "Device registered.", error = null))
+    }
+
+    // Per-type push preferences, mirroring the backend's PUSH_TYPE_CHOICES.
+    // Defaults to enabled; toggling stores an override.
+    private val notificationOverrides = mutableMapOf<String, Boolean>()
+
+    override suspend fun getNotificationPreferences(
+        token: String
+    ): Response<NotificationPreferencesResponse> {
+        getAuthorizedUser(token) ?: return errorGeneric(401, "Unauthorized")
+        val prefs = listOf(
+            NotificationPreference(
+                type = "post_rejected", label = "Post moderation",
+                enabled = notificationOverrides["post_rejected"] ?: true)
+        )
+        return Response.success(NotificationPreferencesResponse(preferences = prefs))
+    }
+
+    override suspend fun setNotificationPreference(
+        token: String,
+        request: SetNotificationPreferenceRequest
+    ): Response<GenericResponse> {
+        getAuthorizedUser(token) ?: return errorGeneric(401, "Unauthorized")
+        notificationOverrides[request.type] = request.enabled
+        return Response.success(GenericResponse(message = "Preference saved.", error = null))
     }
 
     // ============================================================================================

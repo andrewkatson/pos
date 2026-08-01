@@ -11,7 +11,11 @@ data class RegisterRequest(
     val password: String,
     @SerializedName("remember_me") val rememberMe: String,
     val ip: String,
-    @SerializedName("date_of_birth") val dateOfBirth: String
+    @SerializedName("date_of_birth") val dateOfBirth: String,
+    // Positive interest picks collected during sign-up (issues #446/#35).
+    // Nullable so Gson omits them when absent; the backend skips empty picks.
+    @SerializedName("interest_categories") val interestCategories: List<String>? = null,
+    @SerializedName("interest_freeform") val interestFreeform: List<String>? = null
 )
 
 data class IdentityVerificationRequest(
@@ -318,7 +322,10 @@ data class Post(
 data class CommentRequest(
     @SerializedName("comment_text") val commentText: String,
     // Inline formatting spans (issue #318); null omits the field from the body.
-    @SerializedName("body_formatting") val bodyFormatting: List<CommentFormatSpan>? = null
+    @SerializedName("body_formatting") val bodyFormatting: List<CommentFormatSpan>? = null,
+    // Who may see the comment (issue #445); null omits the field so the backend
+    // defaults to public. Values: "public"/"following"/"friends"/"family".
+    @SerializedName("audience") val audience: String? = null
 )
 
 data class CommentResponse(
@@ -348,7 +355,11 @@ data class CommentDto(
     @SerializedName("author_profile_image_original_url") val authorProfileImageOriginalUrl: String? = null,
     // Inline formatting spans over `body` (issue #318); null = plain text. At
     // the end with a default so existing positional constructions are unaffected.
-    @SerializedName("body_formatting") val bodyFormatting: List<CommentFormatSpan>? = null
+    @SerializedName("body_formatting") val bodyFormatting: List<CommentFormatSpan>? = null,
+    // Who may see this comment (issue #445); null/absent is treated as public.
+    // Nullable so responses that predate the field still deserialize (Gson
+    // ignores Kotlin defaults for absent JSON).
+    @SerializedName("audience") val audience: String? = null
 )
 
 // --- User/Profile DTOs ---
@@ -435,6 +446,32 @@ data class SetBioRequest(
     @SerializedName("bio") val bio: String
 )
 
+// Body of POST devices/register/ — registers this device's FCM token for push
+// (issues #342/#343). `platform` is always "android" from this client.
+data class RegisterDeviceRequest(
+    @SerializedName("platform") val platform: String,
+    @SerializedName("token") val token: String
+)
+
+// One push type the user can toggle in Settings → Notifications (#342/#343).
+// Fields are nullable because Gson ignores Kotlin defaults for absent JSON keys
+// (see the other DTOs in this file); callers treat a null as its safe default.
+data class NotificationPreference(
+    @SerializedName("type") val type: String? = null,
+    @SerializedName("label") val label: String? = null,
+    @SerializedName("enabled") val enabled: Boolean? = null
+)
+
+data class NotificationPreferencesResponse(
+    @SerializedName("preferences") val preferences: List<NotificationPreference>? = null
+)
+
+// Body of POST notifications/preferences/ — turn one type on or off.
+data class SetNotificationPreferenceRequest(
+    @SerializedName("type") val type: String,
+    @SerializedName("enabled") val enabled: Boolean
+)
+
 /**
  * Response of `POST profile/bio/` (HTTP 200). The bio is moderated synchronously,
  * so this carries the stored bio directly (a non-positive bio is a 4xx and is
@@ -444,6 +481,118 @@ data class SetBioResponse(
     @SerializedName("bio") val bio: String,
     val message: String? = null
 )
+
+// --- Positive interest tags (issues #446/#35) ---
+
+/** One preset interest bucket the user can pick. slug/name are always present
+ * in the vocabulary endpoint's response, so they are non-null. */
+data class InterestOption(
+    @SerializedName("slug") val slug: String,
+    @SerializedName("name") val name: String
+)
+
+/** GET interests/options/. `options` nullable per the Gson-default rule; read
+ * via `.orEmpty()`. */
+data class InterestOptionsResponse(
+    @SerializedName("options") val options: List<InterestOption>? = null
+)
+
+/** GET interests/ — the caller's current selection. */
+data class InterestsResponse(
+    @SerializedName("categories") val categories: List<String>? = null,
+    @SerializedName("freeform") val freeform: List<String>? = null
+)
+
+/** A freeform term the classifier rejected, for inline display. */
+data class RejectedInterest(
+    @SerializedName("text") val text: String,
+    @SerializedName("reason_code") val reasonCode: String? = null,
+    @SerializedName("reason") val reason: String? = null
+)
+
+data class InterestFreeformResult(
+    @SerializedName("accepted") val accepted: List<String>? = null,
+    @SerializedName("rejected") val rejected: List<RejectedInterest>? = null
+)
+
+/** Full-replace: the complete desired interest state. */
+data class SetInterestsRequest(
+    @SerializedName("categories") val categories: List<String>,
+    @SerializedName("freeform") val freeform: List<String>
+)
+
+data class SetInterestsResponse(
+    @SerializedName("categories") val categories: List<String>? = null,
+    @SerializedName("freeform") val freeform: InterestFreeformResult? = null,
+    val message: String? = null
+)
+
+/**
+ * The curated interest-bucket vocabulary and limits (issues #446/#35),
+ * mirroring backend/user_system/constants.py. The backend's
+ * GET interests/options/ is the source of truth at runtime; this local copy
+ * backs the in-memory StatefulStubbedAPI and the picker's freeform helpers.
+ */
+object InterestVocabulary {
+    val options: List<InterestOption> = listOf(
+        InterestOption("nature", "Nature"),
+        InterestOption("animals", "Animals"),
+        InterestOption("sports", "Sports"),
+        InterestOption("art", "Art"),
+        InterestOption("music", "Music"),
+        InterestOption("food", "Food"),
+        InterestOption("travel", "Travel"),
+        InterestOption("science", "Science"),
+        InterestOption("technology", "Technology"),
+        InterestOption("fitness", "Fitness"),
+        InterestOption("family", "Family"),
+        InterestOption("friends", "Friends"),
+        InterestOption("humor", "Humor"),
+        InterestOption("gratitude", "Gratitude"),
+        InterestOption("kindness", "Kindness"),
+        InterestOption("community", "Community"),
+        InterestOption("learning", "Learning"),
+        InterestOption("achievement", "Achievement"),
+        InterestOption("faith", "Faith"),
+        InterestOption("wellness", "Wellness"),
+        InterestOption("outdoors", "Outdoors"),
+        InterestOption("books", "Books"),
+        InterestOption("gaming", "Gaming"),
+        InterestOption("photography", "Photography"),
+    )
+
+    val slugs: Set<String> = options.map { it.slug }.toSet()
+
+    const val MAX_FREEFORM_INTERESTS = 20
+    const val MAX_FREEFORM_INTEREST_LENGTH = 100
+    /** How much of a rejected (over-length) term the backend echoes back, so the
+     * stub can bound it identically. Well above the length limit, so an elided
+     * term still reads as clearly too long. */
+    const val REJECTED_TEXT_ECHO_LIMIT = MAX_FREEFORM_INTEREST_LENGTH * 2
+
+    /** Split a freeform entry (possibly comma-separated) into trimmed, non-empty
+     * terms, deduped case-insensitively, preserving order. */
+    fun parseFreeform(raw: String): List<String> {
+        val out = mutableListOf<String>()
+        val seen = mutableSetOf<String>()
+        for (piece in raw.split(",")) {
+            val term = piece.trim()
+            if (term.isEmpty()) continue
+            val key = term.lowercase()
+            if (seen.contains(key)) continue
+            seen.add(key)
+            out.add(term)
+        }
+        return out
+    }
+
+    /** Deterministic keyword mapper mirroring the backend TESTING categorizer:
+     * a bucket matches when its slug appears as a word in the text. */
+    fun matchSlugs(text: String): List<String> {
+        val words = text.lowercase().split(Regex("[^a-z0-9]+")).toSet()
+        return options.map { it.slug }.filter { words.contains(it) }
+    }
+}
 
 // Generic success/error response
 data class GenericResponse(
@@ -479,7 +628,14 @@ enum class PostAudience(val value: String, val displayName: String, val hint: St
     PUBLIC("public", "Public", "Anyone can see this post"),
     FOLLOWING("following", "People I follow", "Everyone you follow"),
     FRIENDS("friends", "Friends", "Friends and family only"),
-    FAMILY("family", "Family", "Family only")
+    FAMILY("family", "Family", "Family only");
+
+    companion object {
+        /** The tier for a raw backend value, or null when unknown/absent (issue
+         * #445), so a comment with no audience shows no scope badge. */
+        fun fromValue(value: String?): PostAudience? =
+            entries.firstOrNull { it.value == value }
+    }
 }
 
 // A CreatePostRequest body's audience, and a set-category request body.
@@ -547,7 +703,9 @@ data class CommentViewData(
     val authorProfileImageOriginalUrl: String? = null,
     // Inline formatting spans over `body` (issue #318); null = plain text. At
     // the end with a default so existing positional constructions are unaffected.
-    val formatting: List<CommentFormatSpan>? = null
+    val formatting: List<CommentFormatSpan>? = null,
+    // Who may see this comment (issue #445); null/"public" shows no scope badge.
+    val audience: String? = null
 )
 
 data class CommentThreadViewData(

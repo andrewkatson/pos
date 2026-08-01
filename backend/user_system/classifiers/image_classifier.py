@@ -16,13 +16,103 @@ from ..utils import convert_to_bool
 logger = logging.getLogger(__name__)
 
 
+def _testing_mode():
+    testing = os.environ.get("TESTING", False)
+    return testing if isinstance(testing, bool) else convert_to_bool(testing)
+
+
+def load_image_from_url(image_url):
+    """Fetch an S3-backed image URL and return it as a PIL Image.
+
+    Extracted from is_image_positive so the same S3-URL parsing + fetch serves
+    both the moderation cascade and the interest categorizer. Raises on any
+    problem (missing AWS credentials, an undeterminable bucket, a failed fetch,
+    unreadable bytes) — callers treat that as infrastructure failure, never a
+    content verdict. Contains no probability/verdict logic of its own.
+    """
+    aws_access_key = os.environ.get("AWS_ACCESS_KEY_ID")
+    aws_secret_key = os.environ.get("AWS_SECRET_ACCESS_KEY")
+    if not aws_access_key or not aws_secret_key:
+        raise ValueError("Missing AWS credentials for image fetch")
+
+    region = os.environ.get("AWS_REGION", "us-east-1")
+    logger.debug("Creating S3 client in region: %s", region)
+    # Bound the S3 fetch so a slow/unreachable bucket can't hang the caller.
+    s3 = boto3.client(
+        's3',
+        aws_access_key_id=aws_access_key,
+        aws_secret_access_key=aws_secret_key,
+        region_name=region,
+        config=Config(connect_timeout=5, read_timeout=10, retries={'max_attempts': 2})
+    )
+
+    bucket_name = os.environ.get("AWS_STORAGE_BUCKET_NAME")
+    key = image_url
+
+    parsed = urlparse(image_url)
+    logger.debug("Parsing image URL — scheme=%s netloc=%s path=%s", parsed.scheme, parsed.netloc, parsed.path)
+
+    if parsed.scheme == 's3':
+        bucket_name = parsed.netloc
+        key = parsed.path.lstrip('/')
+        logger.debug("s3:// URL — bucket=%s key=%s", bucket_name, key)
+    elif parsed.scheme in ['http', 'https'] and 's3' in parsed.netloc:
+        parts = parsed.netloc.split('.')
+        # Path-style hosts (s3.amazonaws.com, s3.<region>.amazonaws.com,
+        # s3-<region>.amazonaws.com) carry the bucket as the first path
+        # segment. A virtual-hosted bucket whose own name starts with "s3-"
+        # (e.g. s3-my-bucket.s3.amazonaws.com,
+        # s3-my-bucket.s3-accelerate.amazonaws.com) is NOT path-style — there
+        # the second label is the S3 endpoint label, which always starts with
+        # "s3" (s3, s3-accelerate, s3-website-<region>, ...), and the path is
+        # already just the key — so exclude it. In a genuine path-style host
+        # the second label is a region or "amazonaws", which never starts
+        # with "s3".
+        is_path_style = (parts[0] == 's3' or parts[0].startswith('s3-')) and (len(parts) < 2 or not parts[1].startswith('s3'))
+        if is_path_style:
+            # Path-style: s3[.region].amazonaws.com/bucket/key
+            # or dashed-region: s3-region.amazonaws.com/bucket/key
+            path_parts = parsed.path.lstrip('/').split('/', 1)
+            if not bucket_name and len(path_parts) >= 2:
+                bucket_name = path_parts[0]
+                key = path_parts[1]
+                logger.debug("Derived bucket/key from path-style URL — bucket=%s key=%s", bucket_name, key)
+            elif len(path_parts) >= 2:
+                key = path_parts[1]
+                logger.debug("Using env-var bucket; extracted key from path-style URL: %s", key)
+        else:
+            # Virtual-hosted-style: bucket.s3[.region].amazonaws.com/key
+            if not bucket_name:
+                bucket_name = parts[0]
+                logger.debug("Derived bucket from virtual-hosted URL host: %s", bucket_name)
+            else:
+                logger.debug("Using env-var bucket name: %s", bucket_name)
+            # Always extract key from path for virtual-hosted-style URLs
+            key = parsed.path.lstrip('/')
+            logger.debug("Extracted key from path: %s", key)
+    else:
+        logger.warning("Unrecognized URL scheme or non-S3 host — scheme=%s netloc=%s; will use key=%s as-is", parsed.scheme, parsed.netloc, key)
+
+    if not bucket_name:
+        raise ValueError(
+            f"Could not determine S3 bucket name from URL={image_url} and AWS_STORAGE_BUCKET_NAME is unset")
+
+    logger.info("Fetching image from S3 — bucket=%s key=%s", bucket_name, key)
+    response = s3.get_object(Bucket=bucket_name, Key=key)
+    content_length = response.get('ContentLength', 'unknown')
+    content_type = response.get('ContentType', 'unknown')
+    logger.debug("S3 object fetched — ContentLength=%s ContentType=%s", content_length, content_type)
+    image_data = response['Body'].read()
+    image = Image.open(BytesIO(image_data))
+    logger.debug("PIL image opened — size=%s mode=%s", image.size, image.mode)
+    return image
+
+
 def is_image_positive(image_url):
     _p = urlparse(image_url)
     logger.debug("is_image_positive called with URL: %s", _p._replace(query='', fragment='').geturl())
-    testing = os.environ.get("TESTING", False)
-    testing = testing if isinstance(testing, bool) else convert_to_bool(testing)
 
-    if testing:
+    if _testing_mode():
         parsed_url = urlparse(image_url)
         allowed = parsed_url.path.endswith(POSITIVE_IMAGE_FILENAME)
         logger.debug("Testing mode - path=%s endswith %s -> %s", parsed_url.path, POSITIVE_IMAGE_FILENAME, allowed)
@@ -36,87 +126,17 @@ def is_image_positive(image_url):
         logger.error("No AI API keys available.")
         return ClassificationResult(allowed=False, provider_failure=True)
 
-    aws_access_key = os.environ.get("AWS_ACCESS_KEY_ID")
-    aws_secret_key = os.environ.get("AWS_SECRET_ACCESS_KEY")
-
-    if not aws_access_key or not aws_secret_key:
-        logger.error("Missing AWS credentials — AWS_ACCESS_KEY_ID present=%s, AWS_SECRET_ACCESS_KEY present=%s",
-                     bool(aws_access_key), bool(aws_secret_key))
+    try:
+        image = load_image_from_url(image_url)
+    except Exception:
+        # The image could not even be fetched/opened (missing creds, bad URL,
+        # S3 fetch failed, unreadable bytes). Infrastructure, not content: mark
+        # it a provider failure so the async worker retries instead of recording
+        # a rejection.
+        logger.exception("Error fetching image for classification: %s", image_url)
         return ClassificationResult(allowed=False, provider_failure=True)
 
     try:
-        region = os.environ.get("AWS_REGION", "us-east-1")
-        logger.debug("Creating S3 client in region: %s", region)
-        # Bound the S3 fetch so a slow/unreachable bucket can't hang the
-        # post-creation request (which would surface to the client as a 504).
-        s3 = boto3.client(
-            's3',
-            aws_access_key_id=aws_access_key,
-            aws_secret_access_key=aws_secret_key,
-            region_name=region,
-            config=Config(connect_timeout=5, read_timeout=10, retries={'max_attempts': 2})
-        )
-
-        bucket_name = os.environ.get("AWS_STORAGE_BUCKET_NAME")
-        key = image_url
-
-        parsed = urlparse(image_url)
-        logger.debug("Parsing image URL — scheme=%s netloc=%s path=%s", parsed.scheme, parsed.netloc, parsed.path)
-
-        if parsed.scheme == 's3':
-            bucket_name = parsed.netloc
-            key = parsed.path.lstrip('/')
-            logger.debug("s3:// URL — bucket=%s key=%s", bucket_name, key)
-        elif parsed.scheme in ['http', 'https'] and 's3' in parsed.netloc:
-            parts = parsed.netloc.split('.')
-            # Path-style hosts (s3.amazonaws.com, s3.<region>.amazonaws.com,
-            # s3-<region>.amazonaws.com) carry the bucket as the first path
-            # segment. A virtual-hosted bucket whose own name starts with "s3-"
-            # (e.g. s3-my-bucket.s3.amazonaws.com,
-            # s3-my-bucket.s3-accelerate.amazonaws.com) is NOT path-style — there
-            # the second label is the S3 endpoint label, which always starts with
-            # "s3" (s3, s3-accelerate, s3-website-<region>, ...), and the path is
-            # already just the key — so exclude it. In a genuine path-style host
-            # the second label is a region or "amazonaws", which never starts
-            # with "s3".
-            is_path_style = (parts[0] == 's3' or parts[0].startswith('s3-')) and (len(parts) < 2 or not parts[1].startswith('s3'))
-            if is_path_style:
-                # Path-style: s3[.region].amazonaws.com/bucket/key
-                # or dashed-region: s3-region.amazonaws.com/bucket/key
-                path_parts = parsed.path.lstrip('/').split('/', 1)
-                if not bucket_name and len(path_parts) >= 2:
-                    bucket_name = path_parts[0]
-                    key = path_parts[1]
-                    logger.debug("Derived bucket/key from path-style URL — bucket=%s key=%s", bucket_name, key)
-                elif len(path_parts) >= 2:
-                    key = path_parts[1]
-                    logger.debug("Using env-var bucket; extracted key from path-style URL: %s", key)
-            else:
-                # Virtual-hosted-style: bucket.s3[.region].amazonaws.com/key
-                if not bucket_name:
-                    bucket_name = parts[0]
-                    logger.debug("Derived bucket from virtual-hosted URL host: %s", bucket_name)
-                else:
-                    logger.debug("Using env-var bucket name: %s", bucket_name)
-                # Always extract key from path for virtual-hosted-style URLs
-                key = parsed.path.lstrip('/')
-                logger.debug("Extracted key from path: %s", key)
-        else:
-            logger.warning("Unrecognized URL scheme or non-S3 host — scheme=%s netloc=%s; will use key=%s as-is", parsed.scheme, parsed.netloc, key)
-
-        if not bucket_name:
-            logger.error("Could not determine S3 bucket name from URL=%s and AWS_STORAGE_BUCKET_NAME is unset", image_url)
-            return ClassificationResult(allowed=False, provider_failure=True)
-
-        logger.info("Fetching image from S3 — bucket=%s key=%s", bucket_name, key)
-        response = s3.get_object(Bucket=bucket_name, Key=key)
-        content_length = response.get('ContentLength', 'unknown')
-        content_type = response.get('ContentType', 'unknown')
-        logger.debug("S3 object fetched — ContentLength=%s ContentType=%s", content_length, content_type)
-        image_data = response['Body'].read()
-        image = Image.open(BytesIO(image_data))
-        logger.debug("PIL image opened — size=%s mode=%s", image.size, image.mode)
-
         # Blunt, zero-API local pre-filter (issue #393) runs before the paid
         # cascade: a confident nudity/gore hit is a final rejection, exactly
         # like the text pre-filter. It fails open (allows) when its optional
@@ -124,8 +144,8 @@ def is_image_positive(image_url):
         # might also have made — never fail the image on infrastructure.
         prefilter_result = image_prefilter.prefilter_image(image)
         if not prefilter_result:
-            logger.info("Image rejected by local pre-filter (reason=%s) for key=%s; skipping AI cascade.",
-                        prefilter_result.public_reason_code(), key)
+            logger.info("Image rejected by local pre-filter (reason=%s); skipping AI cascade.",
+                        prefilter_result.public_reason_code())
             return prefilter_result
 
         def call_api(api_name):
@@ -144,12 +164,9 @@ def is_image_positive(image_url):
 
         logger.info("Starting image classification cascade with APIs: %s", available_apis)
         result = classify_with_thresholds(available_apis, call_api)
-        logger.info("Image classification result for key=%s: %s", key, result)
+        logger.info("Image classification result: %s", result)
         return result
 
     except Exception:
-        # The image could not even be evaluated (S3 fetch failed, unreadable
-        # bytes, ...). Infrastructure, not content: mark it a provider failure
-        # so the async worker retries instead of recording a rejection.
         logger.exception("Error in image classifier for URL: %s", image_url)
         return ClassificationResult(allowed=False, provider_failure=True)

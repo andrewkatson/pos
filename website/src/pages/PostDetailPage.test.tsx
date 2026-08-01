@@ -174,10 +174,44 @@ test('posting a comment opens the dialog, calls the API, and dismisses', async (
   await userEvent.click(screen.getByRole('button', { name: 'Add a comment...' }))
   await userEvent.type(screen.getByLabelText('Comment text'), 'nice!')
   await userEvent.click(screen.getByRole('button', { name: 'Post' }))
-  // No formatting was applied, so the spans argument is undefined (#318).
-  await waitFor(() => expect(mockCommentOnPost).toHaveBeenCalledWith('p1', 'nice!', undefined))
+  // No formatting was applied, so the spans argument is undefined (#318); the
+  // audience defaults to 'public' (#445).
+  await waitFor(() =>
+    expect(mockCommentOnPost).toHaveBeenCalledWith('p1', 'nice!', undefined, 'public'),
+  )
   // The dialog closes immediately on submit so repeated taps can't double-post.
   expect(screen.queryByRole('dialog', { name: 'Add comment' })).not.toBeInTheDocument()
+})
+
+test('selecting a non-public audience threads it into commentOnPost (#445)', async () => {
+  renderDetail()
+  await screen.findByText('sunshine')
+  await userEvent.click(screen.getByRole('button', { name: 'Add a comment...' }))
+  await userEvent.type(screen.getByLabelText('Comment text'), 'family only!')
+  await userEvent.selectOptions(screen.getByLabelText('Comment audience'), 'family')
+  await userEvent.click(screen.getByRole('button', { name: 'Post' }))
+  await waitFor(() =>
+    expect(mockCommentOnPost).toHaveBeenCalledWith('p1', 'family only!', undefined, 'family'),
+  )
+})
+
+test('changing the comment group filter threads the category into the listing (#445)', async () => {
+  mockGetThreadRefs.mockResolvedValue([{ comment_thread_identifier: 't1' }])
+  mockGetThreadComments.mockResolvedValue([comment])
+  renderDetail()
+  await screen.findByText('love this')
+  // The initial load sends no category (the whole comment list).
+  expect(mockGetThreadRefs).toHaveBeenCalledWith('p1', 0, undefined)
+  expect(mockGetThreadComments).toHaveBeenCalledWith('t1', 0, undefined)
+
+  await userEvent.selectOptions(
+    screen.getByLabelText('Filter comments by group'),
+    'friend',
+  )
+  // Switching the toggle reloads with the selected category threaded through
+  // both the thread listing and the per-thread comment fetch.
+  await waitFor(() => expect(mockGetThreadRefs).toHaveBeenCalledWith('p1', 0, 'friend'))
+  await waitFor(() => expect(mockGetThreadComments).toHaveBeenCalledWith('t1', 0, 'friend'))
 })
 
 test('collapsing a comment hides the replies below it, expanding restores them', async () => {

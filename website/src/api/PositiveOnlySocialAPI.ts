@@ -29,10 +29,14 @@ import type {
   LoginWithRememberMeResponse,
   MessageResponse,
   MyAppeal,
+  NotificationPreference,
+  PostAudience,
   PostDetails,
   PostStatusResponse,
   ProfileDetails,
+  RegisterDeviceRequest,
   RegisterRequest,
+  SetNotificationPreferenceResponse,
   RemoveProfilePhotoResponse,
   ReplyResponse,
   RequestResetRequest,
@@ -42,6 +46,10 @@ import type {
   SetProfilePhotoResponse,
   SetBioRequest,
   SetBioResponse,
+  InterestOptionsResponse,
+  InterestsResponse,
+  SetInterestsRequest,
+  SetInterestsResponse,
   SubmitAppealRequest,
   SubmitAppealResponse,
   TwoFactorSetupResponse,
@@ -111,20 +119,36 @@ export interface PositiveOnlySocialAPI {
   /** Classification status of one of the caller's own posts (issue #282). */
   getPostStatus(postIdentifier: string): Promise<PostStatusResponse>
 
-  // Comments. `formatting` carries optional inline styling spans (issue #318).
+  // Comments. `formatting` carries optional inline styling spans (issue #318);
+  // `audience` scopes who may see the comment (issue #445, omitted = 'public').
   commentOnPost(
     postIdentifier: string,
     commentText: string,
     formatting?: CommentFormatSpan[],
+    audience?: PostAudience,
   ): Promise<CommentOnPostResponse>
   replyToCommentThread(
     postIdentifier: string,
     commentThreadIdentifier: string,
     commentText: string,
     formatting?: CommentFormatSpan[],
+    audience?: PostAudience,
   ): Promise<ReplyResponse>
-  getCommentsForPost(postIdentifier: string, batch: number): Promise<CommentThreadRef[]>
-  getCommentsForThread(commentThreadIdentifier: string, batch: number): Promise<Comment[]>
+  /** Top-level comment threads for a post, optionally narrowed to one
+   * relationship category (issue #445). Omitting `category` returns all
+   * threads the viewer may see. */
+  getCommentsForPost(
+    postIdentifier: string,
+    batch: number,
+    category?: FollowCategory,
+  ): Promise<CommentThreadRef[]>
+  /** Comments within a thread, optionally narrowed to one relationship
+   * category (issue #445). Omitting `category` returns all visible comments. */
+  getCommentsForThread(
+    commentThreadIdentifier: string,
+    batch: number,
+    category?: FollowCategory,
+  ): Promise<Comment[]>
   likeComment(
     postIdentifier: string,
     commentThreadIdentifier: string,
@@ -175,6 +199,26 @@ export interface PositiveOnlySocialAPI {
    * The text is moderated synchronously; a non-positive bio is rejected and not
    * stored. Returns the stored bio. */
   setBio(body: SetBioRequest): Promise<SetBioResponse>
+
+  // Positive interest tags (issues #446/#35)
+  /** The curated preset bucket vocabulary. Public — the registration screen
+   * (no session) renders the picker from it. */
+  getInterestOptions(): Promise<InterestOptionsResponse>
+  /** The signed-in user's current interest selection, to prefill the picker. */
+  getInterests(): Promise<InterestsResponse>
+  /** Replace the signed-in user's interest selection (full-replace/set
+   * semantics — anything omitted is removed). Freeform terms are
+   * positivity-checked and mapped to buckets server-side; the response reports
+   * which were accepted/rejected. */
+  setInterests(body: SetInterestsRequest): Promise<SetInterestsResponse>
+
+  // Push notifications (issues #342/#343). Register or refresh this browser's
+  // Web-push token so the backend can notify the user of async outcomes.
+  registerDevice(body: RegisterDeviceRequest): Promise<MessageResponse>
+  /** The per-type push toggles shown in Settings → Notifications. */
+  getNotificationPreferences(): Promise<NotificationPreference[]>
+  /** Turn one push type on or off. */
+  setNotificationPreference(type: string, enabled: boolean): Promise<SetNotificationPreferenceResponse>
 
   // Appeals
   getHiddenPosts(batch: number): Promise<HiddenPost[]>

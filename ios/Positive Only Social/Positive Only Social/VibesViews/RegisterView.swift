@@ -31,6 +31,12 @@ struct RegisterView: View {
     @State private var showingErrorAlert = false
     @State private var showingPrivacyPolicy = false
 
+    // Optional positive interests collected during sign-up (issues #446/#35),
+    // sent along in the register call since the account has no session yet.
+    @State private var interestOptions: [InterestOption] = []
+    @State private var selectedInterestSlugs: [String] = []
+    @State private var freeformInterests: [String] = []
+
     // Which field currently owns the keyboard. Cleared (set to nil) to dismiss
     // the keyboard through SwiftUI's focus system — the only dismissal that
     // sticks; see KeyboardDismiss.swift (issue #205).
@@ -143,6 +149,23 @@ struct RegisterView: View {
                     .frame(maxWidth: .infinity, alignment: .leading)
             }
 
+            // MARK: - Interests (optional, issues #446/#35)
+            VStack(alignment: .leading, spacing: 8) {
+                Text("Interests (optional)")
+                    .font(.headline)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                InterestPickerView(
+                    options: interestOptions,
+                    selectedSlugs: selectedInterestSlugs,
+                    freeformTerms: freeformInterests,
+                    rejected: [],
+                    isBusy: isLoading,
+                    onToggle: { toggleInterest($0) },
+                    onAddFreeform: { addFreeformInterests($0) },
+                    onRemoveFreeform: { removeFreeformInterest($0) }
+                )
+            }
+
             Spacer()
 
             if isLoading {
@@ -171,6 +194,7 @@ struct RegisterView: View {
             .scrollDismissesKeyboard(.interactively)
             .dismissKeyboardOnTap { focusedField = nil }
             .onSubmit { focusedField = nil }
+            .task { await loadInterestOptions() }
             .navigationTitle("Register")
             .navigationBarTitleDisplayMode(.inline)
             .alert("Registration Failed", isPresented: $showingErrorAlert) {
@@ -190,6 +214,39 @@ struct RegisterView: View {
     }
 
     // MARK: - Registration Action
+    /// Load the preset bucket vocabulary (public endpoint). Best-effort: on
+    /// failure the picker just shows no presets and freeform entry still works.
+    private func loadInterestOptions() async {
+        guard interestOptions.isEmpty else { return }
+        if let data = try? await api.getInterestOptions(),
+           let response = try? JSONDecoder().decode(InterestOptionsResponse.self, from: data) {
+            interestOptions = response.options
+        }
+    }
+
+    private func toggleInterest(_ slug: String) {
+        if let index = selectedInterestSlugs.firstIndex(of: slug) {
+            selectedInterestSlugs.remove(at: index)
+        } else {
+            selectedInterestSlugs.append(slug)
+        }
+    }
+
+    private func addFreeformInterests(_ terms: [String]) {
+        var seen = Set(freeformInterests.map { $0.lowercased() })
+        for term in terms {
+            let key = term.lowercased()
+            if !seen.contains(key) && freeformInterests.count < GVOAppConstants.maxFreeformInterests {
+                seen.insert(key)
+                freeformInterests.append(term)
+            }
+        }
+    }
+
+    private func removeFreeformInterest(_ term: String) {
+        freeformInterests.removeAll { $0 == term }
+    }
+
     private func register() {
         Task {
             isLoading = true
@@ -209,7 +266,9 @@ struct RegisterView: View {
                     password: password,
                     rememberMe: "false", // We don't need remember me on registration
                     ip: "127.0.0.1",
-                    dateOfBirth: dateString
+                    dateOfBirth: dateString,
+                    interestCategories: selectedInterestSlugs,
+                    interestFreeform: freeformInterests
                 )
                 // `flatMap` keeps the result a plain `Int?` (the decode is
                 // optional and so is the field) rather than a nested optional.

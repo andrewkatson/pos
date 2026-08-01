@@ -15,8 +15,11 @@ protocol Networking {
 
     // MARK: - User & Session Management
 
-    /// Creates a user if they do not exist.
-    func register(username: String, email: String, password: String, rememberMe: String, ip: String, dateOfBirth: String) async throws -> Data
+    /// Creates a user if they do not exist. `interestCategories` and
+    /// `interestFreeform` (issues #446/#35) are optional positive-interest
+    /// picks that ride along in the register payload, since the account has no
+    /// usable session until email verification.
+    func register(username: String, email: String, password: String, rememberMe: String, ip: String, dateOfBirth: String, interestCategories: [String], interestFreeform: [String]) async throws -> Data
 
     /// Logs the user in if they exist.
     func loginUser(usernameOrEmail: String, password: String, rememberMe: String, ip: String) async throws -> Data
@@ -153,8 +156,9 @@ protocol Networking {
     // MARK: - Comment Management
 
     /// Adds a direct comment to a post. `formatting` carries optional inline
-    /// styling spans (issue #318).
-    func commentOnPost(sessionManagementToken: String, postIdentifier: String, commentText: String, formatting: [CommentFormatSpan]?) async throws -> Data
+    /// styling spans (issue #318); `audience` scopes who may see it (issue #445,
+    /// nil = public).
+    func commentOnPost(sessionManagementToken: String, postIdentifier: String, commentText: String, formatting: [CommentFormatSpan]?, audience: String?) async throws -> Data
 
     /// Likes a specific comment within a post.
     func likeComment(sessionManagementToken: String, postIdentifier: String, commentThreadIdentifier: String, commentIdentifier: String) async throws -> Data
@@ -172,16 +176,20 @@ protocol Networking {
     /// Retracts the current user's report against a comment (issue #176).
     func retractReportComment(sessionManagementToken: String, postIdentifier: String, commentThreadIdentifier: String, commentIdentifier: String) async throws -> Data
 
-    /// Gets a batch of comment threads for a post. Requires auth.
-    func getCommentsForPost(sessionManagementToken: String, postIdentifier: String, batch: Int) async throws -> Data
+    /// Gets a batch of comment threads for a post. Requires auth. `category`
+    /// optionally narrows to authors the viewer labeled with exactly that
+    /// relationship category (issue #445); nil returns all visible threads.
+    func getCommentsForPost(sessionManagementToken: String, postIdentifier: String, batch: Int, category: String?) async throws -> Data
 
     /// Gets a batch of comments for a specific comment thread (i.e., replies to a comment).
     /// Requires auth so each comment can include whether the current user has liked it.
-    func getCommentsForThread(sessionManagementToken: String, commentThreadIdentifier: String, batch: Int) async throws -> Data
+    /// `category` optionally narrows to that relationship group (issue #445).
+    func getCommentsForThread(sessionManagementToken: String, commentThreadIdentifier: String, batch: Int, category: String?) async throws -> Data
 
     /// Replies to a comment thread. `formatting` carries optional inline
-    /// styling spans (issue #318).
-    func replyToCommentThread(sessionManagementToken: String, postIdentifier: String, commentThreadIdentifier: String, commentText: String, formatting: [CommentFormatSpan]?) async throws -> Data
+    /// styling spans (issue #318); `audience` scopes who may see it (issue #445,
+    /// nil = public).
+    func replyToCommentThread(sessionManagementToken: String, postIdentifier: String, commentThreadIdentifier: String, commentText: String, formatting: [CommentFormatSpan]?, audience: String?) async throws -> Data
 
     // MARK: - User Discovery
 
@@ -222,6 +230,34 @@ protocol Networking {
     /// is rejected inline and never stored; there is no pending/approved state.
     func setBio(sessionManagementToken: String, bio: String) async throws -> Data
 
+    // MARK: - Positive interest tags (issues #446/#35)
+
+    /// The curated preset interest-bucket vocabulary. Public (no session) so the
+    /// registration screen can render the picker.
+    func getInterestOptions() async throws -> Data
+
+    /// The signed-in user's current interest selection (preset slugs + freeform
+    /// terms), for prefilling the Settings picker.
+    func getInterests(sessionManagementToken: String) async throws -> Data
+
+    /// Replaces the signed-in user's interest selection (full-replace/set
+    /// semantics — anything omitted is removed). Freeform terms are
+    /// positivity-checked and mapped to buckets on the backend; the response
+    /// reports which were accepted/rejected.
+    func setInterests(sessionManagementToken: String, categories: [String], freeform: [String]) async throws -> Data
+    // MARK: - Push notifications (issue #342/#343)
+
+    /// Registers (or refreshes) this device's APNs token so the backend can send
+    /// best-effort push notifications (e.g. a post rejected off the request
+    /// path). Upserts on (platform, token) server-side; `platform` is "ios".
+    func registerDevice(sessionManagementToken: String, platform: String, token: String) async throws -> Data
+
+    /// The per-type push toggles shown in Settings → Notifications.
+    func getNotificationPreferences(sessionManagementToken: String) async throws -> Data
+
+    /// Turns one push type on or off.
+    func setNotificationPreference(sessionManagementToken: String, notificationType: String, enabled: Bool) async throws -> Data
+
     // MARK: - Appeals
 
     /// Gets a batch of the signed-in user's own hidden posts.
@@ -236,4 +272,13 @@ protocol Networking {
     /// Files an appeal against a hidden post or comment. `targetType` is
     /// "post" or "comment"; ban appeals go through the email-reply flow.
     func submitAppeal(sessionManagementToken: String, targetType: String, targetIdentifier: String, reason: String) async throws -> Data
+}
+
+extension Networking {
+    /// Backward-compatible register without interests (issues #446/#35): existing
+    /// call sites and tests that don't collect interests keep working while the
+    /// registration screen uses the full method. Defaults to empty picks.
+    func register(username: String, email: String, password: String, rememberMe: String, ip: String, dateOfBirth: String) async throws -> Data {
+        try await register(username: username, email: email, password: password, rememberMe: rememberMe, ip: ip, dateOfBirth: dateOfBirth, interestCategories: [], interestFreeform: [])
+    }
 }

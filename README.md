@@ -116,6 +116,79 @@ other listing, so a post that is hidden or whose author is shadow-banned after
 you saved it silently drops off rather than rendering as an empty tile.
 Unsaving a post from that screen removes its tile.
 
+## Positive interest tags (issues #446 / #35)
+
+The discovery feed (`get_posts_in_feed`) is a "hot" ranking —
+`score = (likes + 1) / (age_hours + 2)^G` — and now personalizes that ranking to
+what each user has told us they find positive.
+
+**The vocabulary.** A curated, closed set of interest *buckets* (nature, animals,
+sports, music, food, …) lives in `INTEREST_CATEGORY_CHOICES`
+(`backend/user_system/constants.py`) and is seeded into the `InterestCategory`
+table by a data migration. It is the single source of truth: the picker options,
+the buckets posts are tagged with, and the buckets users pick all come from it.
+It is deliberately separate from the open-vocabulary `#hashtag` `Tag` table — a
+hashtag is whatever a user typed in a caption, whereas an interest bucket is a
+controlled label the feed-weighting join relies on being finite and stable.
+`GET /interests/options/` returns the vocabulary and is **public**, because the
+registration screen (which has no session yet) renders the picker from it.
+
+**Choosing interests.** A user sets interests both **during registration** (the
+values ride along in the register payload, since the account has no usable
+session until email verification) and any time from the **Settings** picker. Two
+inputs feed it:
+
+- **Preset buckets** — multi-select from the vocabulary.
+- **Freeform** — terms the user types (repeatedly, or as a comma-separated list).
+  Each term is checked by the positive text classifier (`is_text_positive`,
+  synchronously, exactly like a bio/username); a term that is not positive is
+  rejected and reported back, never stored. Each accepted term is then mapped to
+  the nearest preset bucket(s) by an interest categorizer, so "hiking" can pull
+  in *nature*/*outdoors*. The term itself is kept (lowercased, deduped) so the
+  picker can show it and let the user remove it; a term that maps to no bucket is
+  still stored and shown, it just adds nothing to ranking.
+
+`POST /interests/set/` (auth) has **full-replace/set semantics**: the payload is
+the user's complete desired state, so anything omitted is removed. That is what
+powers *removal* in Settings — deselect a bucket or delete a freeform term and
+save, and it is gone; empty arrays clear everything. `GET /interests/` returns
+the current selection so the picker prefills. A term already stored is kept
+without re-running the classifier. The user's `interest_categories` M2M is stored
+denormalized as the union of picked presets and every bucket their freeform terms
+mapped to, so ranking never has to walk the freeform rows.
+
+**Tagging posts.** An offline job assigns up to `MAX_INTEREST_TAGS_PER_POST`
+buckets to each post from its **caption and image**
+(`tasks.categorize_post`, using the interest categorizer over both the text and
+the S3 image). It is best-effort — a post has already passed moderation by the
+time it is categorized, so a provider failure just yields no buckets, never
+blocking anything — and idempotent. It runs automatically the moment a post is
+approved (enqueued from the approval branch of `classify_post`), and the
+`categorize_posts` management command backfills existing posts and any the
+approval hook missed (safe to run from cron alongside `sweep_classifications`).
+
+**Weighting the feed.** In `calculate_weights`
+(`backend/user_system/feed_algorithm/feed_algorithm.py`), the hot score is
+multiplied by `(1 + INTEREST_BOOST × overlap)`, where `overlap` is the number of
+interest buckets the post shares with the viewer. The boost is **linear** in the
+overlap (not `(1 + INTEREST_BOOST)` per bucket), so it *scales* the hot rank
+rather than replacing it: a fresh, liked,
+on-topic post rises, but an ancient on-topic post still decays. When the viewer
+has no interests the branch is skipped entirely, so no boost is applied and the
+score is the plain hot rank — though not identical to what the feed returned
+before this feature, since the distinct like count described below corrects
+scores that were previously inflated. The match count is computed with a correlated subquery over the
+post↔bucket join (not a second aggregate) so it can never corrupt the like count.
+Interest weighting composes on top of the existing `visible_posts` and block
+filters — it only reorders posts the viewer was already allowed to see.
+
+The like count itself is counted `distinct`. `visible_posts`' audience filter
+LEFT JOINs the author's follow edges and deliberately fans out (see
+`visibility._audience_q`), so a plain count would tally each like once per edge
+— scoring a post by an author who follows 200 people as though it had 200× the
+likes. The `.distinct()` that filter applies collapses duplicate rows but does
+not undo an aggregate computed over them.
+
 ## Sharing
 
 Every post's options menu offers **Share**, and every comment's options menu on
@@ -226,9 +299,10 @@ The flow is:
      tombstone: the S3 image is deleted, the row is kept (invisible to
      everyone, its author included) only so clients can reconcile the
      outcome, and the sweep purges it after a few days.
-   On either rejection the author is emailed (with the public reason and,
-   when appealable, how to appeal). Approval sends no email — the post simply
-   appears.
+   On either rejection the author receives an email (with the public reason
+   and, when appealable, how to appeal) and, best-effort, a native push
+   notification (see [Push notifications](#push-notifications)). Approval sends
+   neither — the post simply appears.
 4. Provider failures (no usable score from any AI, unreachable S3) are not
    verdicts: the job retries with backoff and, if retries are exhausted, the
    post **fails closed** — it stays hidden-pending rather than ever publishing
@@ -262,6 +336,66 @@ as systemd units (see [Deploying and restarting services](#deploying-and-restart
 
 Comments are still classified inline in the request (text-only, much smaller
 worst case); moving them to the same async flow is a tracked follow-up.
+
+## Push notifications
+
+Because async classification decides a rejection *after* `make_post` has
+already returned `201`, the author is told out-of-band. Alongside the rejection
+email, the worker fires a **best-effort native push notification** (issues #342
+/ #343) so the pop-up reaches the user even with the app closed.
+
+Push is a **nudge, never the source of truth.** Permissions get denied and
+tokens go stale, so a user who never receives the push must still see the
+correct outcome via in-app reconciliation (the authoritative `GET
+posts/<id>/status/` path above). Push and email never carry state; they only
+bring the user back to look.
+
+- **Device tokens.** Each client, after the OS grants notification permission,
+  uploads its provider token to authenticated `POST /devices/register/`
+  (`{platform, token}`, `platform ∈ {ios, android, web}`, `token` at most
+  `MAX_DEVICE_TOKEN_LENGTH` = 1024 chars — bounded so it stays within the
+  `(platform, token)` unique index) and re-uploads on rotation. A `DeviceToken`
+  row is keyed by `(platform, token)`, so re-registering an existing token
+  repoints it at the current user rather than duplicating (a device can change
+  accounts).
+- **Per-type preferences (Settings toggles).** Every push type is listed in
+  `PUSH_TYPE_CHOICES` (currently just `post_rejected`, "Post moderation"; more
+  are planned). A user can turn a type off in the app's Settings →
+  **Notifications**: `GET/POST /notifications/preferences/` reads/writes them,
+  returning one `{type, label, enabled}` row per known type, and `send_push`
+  skips a type a user has disabled before contacting any provider. Preferences
+  default to enabled (a `NotificationPreference` row exists only once toggled),
+  and the clients render a toggle per returned row generically — so a **new push
+  type shows up in every client's Settings with no client change**, just a new
+  `PUSH_TYPE_CHOICES` entry and a `send_push` call that passes its type. (This is
+  separate from the OS-level notification switch, which the user can also flip.)
+- **Send path.** `user_system.push.send_push(user, payload, notification_type)`
+  fans out to all of
+  a user's tokens, called by `classify_post` on a resolved rejection — off the
+  request path, on the same durable queue, best-effort. The payload's `data`
+  map carries the `post_identifier`, a `type` (`post_rejected`), whether it is
+  `appealable`, and a `deep_link` (`<FRONTEND_BASE_URL>/post/<id>`) so the client
+  can open the rejected post and its appeal UI. **All `data` values are strings**
+  — FCM's data map only carries strings, so the shape is identical across
+  providers (both APNs and FCM deliver it under a `data` key) and clients parse
+  `appealable` as `"true"`/`"false"` rather than a boolean.
+- **Providers.** iOS delivers through **APNs** directly (token-based `.p8`
+  auth); Android and web both go through **FCM** (web uses FCM-for-web, so it
+  registers with `platform: web` and needs no separate Web Push/VAPID path).
+- **Dead-token pruning.** When a provider reports a token as gone (`410` /
+  `Unregistered` on APNs, `404` / `NOT_FOUND` / `UNREGISTERED` on FCM), the send
+  path deletes that `DeviceToken` row so we neither leak rows nor keep paying to
+  send to it.
+
+**Secrets** (all optional — an unconfigured provider is a logged no-op, so
+local dev, tests, and a not-yet-provisioned deploy send nothing and still import
+cleanly; set them like the `EMAIL_*` / `CLOUDFRONT_*` credentials):
+
+- **APNs (iOS):** `APNS_AUTH_KEY` (the `.p8` PEM inline) or `APNS_AUTH_KEY_PATH`
+  (a mounted file), plus `APNS_KEY_ID`, `APNS_TEAM_ID`, `APNS_TOPIC` (the app
+  bundle id), and `APNS_USE_SANDBOX=true` for development app builds.
+- **FCM (Android + web):** `FCM_CREDENTIALS` (the service-account JSON inline)
+  or `FCM_CREDENTIALS_PATH` (a mounted file).
 
 ## Age and identity
 
@@ -377,6 +511,22 @@ returns the whole following feed, as before). Feed filtering is an exact-categor
 match — "show me my family" means just family — while post audience nests, since
 sharing with a wider circle should naturally include the closer ones.
 
+**Comments** carry the same mechanics (issue #445). A comment or reply is
+created with an optional `audience` (`comment_on_post` / `reply_to_comment_thread`
+accept it, defaulting to `public` so older clients are unaffected), scoped by the
+identical nested-circle rule enforced in `visibility.py`
+(`visible_comments` / `audience_admits`): a non-public comment reaches a viewer
+only when its author labeled that viewer closely enough, the author always sees
+their own, and a comment the audience excludes is treated as absent for likes and
+reports too (not just hidden from the list). The comment listings
+(`GET /posts/<id>/comments/<batch>/` and
+`GET /threads/<id>/comments/<batch>/`) take the same optional
+`?category=following|friend|family` toggle the followed feed offers, narrowing the
+shown comments to authors you labeled with exactly that category (the thread
+listing keeps only threads with a matching visible comment). Like the feed filter
+it is an exact-category match and naturally drops your own comments, since you do
+not follow yourself.
+
 ## Blocking
 
 Users can block each other from a profile. Blocking is a toggle
@@ -403,6 +553,26 @@ policy as registration and must differ from the current one. On success every
 *other* session and all remember-me cookies are invalidated (a password change
 should evict other devices), while the caller's current session is preserved so
 they stay logged in on the device they just used.
+
+## Account & data deletion
+
+Every client can **delete the account** from the Settings tab (a confirmation
+dialog, then `POST /user/delete/`), which cascades to the user's posts (and
+their S3 images), comments, likes, saved posts, follows, blocks, appeals,
+sessions, and remembered devices.
+
+Google Play additionally requires a **stable, publicly reachable web URL** where
+a user can request account and data deletion without going through the app, so
+the website serves a standalone page at `https://smiling.social/delete-account`
+(issue #439). It is reachable without an existing session — linked from the
+landing-page footer and the public privacy-policy page — and walks the visitor
+through three steps: sign in (username/email + password, plus the two-factor
+step for enrolled accounts, so no one else can delete an account that isn't
+theirs), an explicit acknowledgement of what will be removed, and the permanent
+delete. It reuses the same `POST /user/delete/` endpoint, so the deleted data is
+exactly the cascade above; on success the local session is cleared and a
+confirmation is shown. A session already restored on page load skips straight to
+the confirmation step.
 
 ## Email verification
 
@@ -594,6 +764,16 @@ can never block a post from being published. It is skipped for final-rejected
 posts (their image is deleted) and for text-only posts (which have no image), and
 is serialized as `image_blurhash` alongside `image_url` in every listing/detail
 payload. Older clients that don't know the field simply ignore it.
+
+Posts published before this feature shipped have no hash and still flash a grey
+tile. The `backfill_blurhash` management command (issue #438) is the one-off
+repair: it walks every post that has an `image_url` but a null `image_blurhash`
+and runs the same encoder the worker uses. It is safe to re-run — it only touches
+null hashes and never overwrites one the worker may have set — and a post whose
+image can't be fetched/encoded is left null (still grey) and examined at most
+once per run (so a broken object never loops the command); a later run
+re-attempts it, letting a transient failure recover. Supports `--dry-run`,
+`--limit`, and `--batch-size`.
 
 ## Profile photos
 

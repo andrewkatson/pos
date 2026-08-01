@@ -1,0 +1,130 @@
+/* Positive-interest picker (issues #446/#35). The web app is dark-only, so
+   these mirror the app's dark palette (accent #5ba4dc) rather than theming. */
+
+.interest-picker {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  text-align: left;
+}
+
+.interest-picker__group {
+  border: none;
+  margin: 0;
+  padding: 0;
+  min-width: 0;
+}
+
+.interest-picker__legend {
+  display: block;
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: rgba(255, 255, 255, 0.8);
+  margin-bottom: 8px;
+  padding: 0;
+}
+
+.interest-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.interest-chip {
+  border: 1px solid rgba(255, 255, 255, 0.25);
+  background: transparent;
+  color: rgba(255, 255, 255, 0.85);
+  border-radius: 999px;
+  padding: 6px 14px;
+  font-size: 0.9rem;
+  cursor: pointer;
+  transition: background-color 0.15s, border-color 0.15s, color 0.15s;
+}
+
+.interest-chip:hover {
+  border-color: #5ba4dc;
+}
+
+.interest-chip--selected {
+  background: #5ba4dc;
+  border-color: #5ba4dc;
+  color: #ffffff;
+}
+
+.interest-chip:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.interest-freeform-list {
+  list-style: none;
+  margin: 0 0 10px;
+  padding: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.interest-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  background: #1a1a1a;
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  border-radius: 999px;
+  padding: 4px 6px 4px 12px;
+  font-size: 0.9rem;
+  color: #ffffff;
+}
+
+.interest-pill__remove {
+  border: none;
+  background: rgba(255, 255, 255, 0.1);
+  color: #ffffff;
+  border-radius: 50%;
+  width: 20px;
+  height: 20px;
+  line-height: 1;
+  font-size: 0.7rem;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.interest-pill__remove:hover {
+  background: #c0392b;
+}
+
+.interest-pill__remove:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.interest-freeform-entry {
+  display: flex;
+  gap: 8px;
+  align-items: stretch;
+}
+
+.interest-freeform-entry .search-bar {
+  flex: 1;
+  min-width: 0;
+}
+
+.interest-picker__hint {
+  font-size: 0.78rem;
+  color: rgba(255, 255, 255, 0.5);
+  margin: 6px 0 0;
+}
+
+.interest-rejected {
+  list-style: none;
+  margin: 8px 0 0;
+  padding: 8px 12px;
+  border-radius: 8px;
+  background: rgba(192, 57, 43, 0.15);
+  border: 1px solid rgba(192, 57, 43, 0.4);
+  color: #f5b7b1;
+  font-size: 0.82rem;
+}

@@ -9,6 +9,7 @@ import com.example.positiveonlysocial.data.model.ProfileDetailsResponse
 import com.example.positiveonlysocial.data.model.SetBioResponse
 import com.example.positiveonlysocial.data.model.UserSession
 import com.example.positiveonlysocial.data.security.KeychainHelperProtocol
+import com.example.positiveonlysocial.util.PostEvents
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.test.advanceTimeBy
@@ -356,5 +357,111 @@ class ProfileViewModelTest {
         assertFalse(succeeded)
         // The rejected edit never overwrote the loaded bio.
         assertEquals("Kindness matters.", viewModel.profileDetails.value!!.bio)
+    }
+
+    // --- Posts stat backed by the backend post_count (issue #437) ---
+
+    @Test
+    fun `post count reflects the backend total not the loaded grid size`() = runTest {
+        // The backend reports 5 posts but only the first page (2) is loaded into
+        // the grid; the Posts stat must show 5, not 2.
+        val mockProfile = ProfileDetailsResponse("user1", 5, 0, 0, false)
+        val firstPage = listOf(
+            Post("1", "url1", "cap1", "user1", 1),
+            Post("2", "url2", "cap2", "user1", 1),
+        )
+        whenever(api.getProfileDetails("token123", "user1")).thenReturn(Response.success(mockProfile))
+        whenever(api.getPostsForUser("token123", "user1", 0)).thenReturn(Response.success(firstPage))
+
+        viewModel.fetchProfile("user1")
+        advanceUntilIdle()
+
+        assertEquals(2, viewModel.userPosts.value.size)
+        assertEquals(5, viewModel.profileDetails.value?.postCount)
+    }
+
+    @Test
+    fun `deleting a post from your own profile grid decrements the post count`() = runTest {
+        // The session user ("testuser") is viewing their own profile, so a delete
+        // is for one of their posts and must drop the count. Driven through the
+        // real UI path (postActions.deletePost) — PostListActions removes the tile
+        // from the shared list *before* it emits PostEvents.postDeleted, so the
+        // decrement must not depend on the grid still holding the id (#437).
+        val mockProfile = ProfileDetailsResponse("testuser", 2, 0, 0, false)
+        val posts = listOf(
+            Post("1", "url1", "cap1", "testuser", 1),
+            Post("2", "url2", "cap2", "testuser", 1),
+        )
+        whenever(api.getProfileDetails("token123", "testuser")).thenReturn(Response.success(mockProfile))
+        whenever(api.getPostsForUser("token123", "testuser", 0)).thenReturn(Response.success(posts))
+        whenever(api.deletePost("token123", "1")).thenReturn(Response.success(GenericResponse("Deleted", null)))
+
+        viewModel.fetchProfile("testuser")
+        advanceUntilIdle()
+        assertTrue(viewModel.isOwnProfile.value)
+        assertEquals(2, viewModel.profileDetails.value?.postCount)
+
+        viewModel.postActions.deletePost(posts[0])
+        advanceUntilIdle()
+
+        assertEquals(1, viewModel.userPosts.value.size)
+        assertEquals(1, viewModel.profileDetails.value?.postCount)
+    }
+
+    @Test
+    fun `refreshProfile picks up the incremented post count after a new post`() = runTest {
+        // Android has no post-created event; a new post reconciles on the next
+        // mount / pull-to-refresh reload. Because the Posts stat is backed by the
+        // backend's post_count (not the paginated grid size), that reload reflects
+        // the new post even though the first page is unchanged in length (#437).
+        whenever(api.getProfileDetails("token123", "user1"))
+            .thenReturn(Response.success(ProfileDetailsResponse("user1", 1, 0, 0, false)))
+        whenever(api.getPostsForUser("token123", "user1", 0))
+            .thenReturn(Response.success(listOf(Post("1", "url1", "cap1", "user1", 1))))
+
+        viewModel.fetchProfile("user1")
+        advanceUntilIdle()
+        assertEquals(1, viewModel.profileDetails.value?.postCount)
+
+        // The user posts elsewhere; the backend now reports 2 (an author's own
+        // pending posts are counted). A pull-to-refresh reload reflects it.
+        whenever(api.getProfileDetails("token123", "user1"))
+            .thenReturn(Response.success(ProfileDetailsResponse("user1", 2, 0, 0, false)))
+        whenever(api.getPostsForUser("token123", "user1", 0))
+            .thenReturn(
+                Response.success(
+                    listOf(
+                        Post("2", "url2", "cap2", "user1", 1),
+                        Post("1", "url1", "cap1", "user1", 1),
+                    )
+                )
+            )
+
+        viewModel.refreshProfile("user1")
+        advanceUntilIdle()
+        assertEquals(2, viewModel.profileDetails.value?.postCount)
+    }
+
+    @Test
+    fun `a delete while viewing another user's profile leaves the post count unchanged`() = runTest {
+        // The session user ("testuser") is viewing someone else's profile
+        // ("user1"). A user can only delete their own posts, so a delete event
+        // here is for a post not counted on this profile and must not move it.
+        val mockProfile = ProfileDetailsResponse("user1", 2, 0, 0, false)
+        val posts = listOf(
+            Post("1", "url1", "cap1", "user1", 1),
+            Post("2", "url2", "cap2", "user1", 1),
+        )
+        whenever(api.getProfileDetails("token123", "user1")).thenReturn(Response.success(mockProfile))
+        whenever(api.getPostsForUser("token123", "user1", 0)).thenReturn(Response.success(posts))
+
+        viewModel.fetchProfile("user1")
+        advanceUntilIdle()
+        assertFalse(viewModel.isOwnProfile.value)
+
+        PostEvents.postDeleted("some-own-post-deleted-elsewhere")
+        advanceUntilIdle()
+
+        assertEquals(2, viewModel.profileDetails.value?.postCount)
     }
 }

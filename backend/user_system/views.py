@@ -4,6 +4,7 @@ import json
 import logging
 import secrets
 import uuid
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, date, timedelta
 
 from functools import wraps
@@ -18,12 +19,12 @@ from django.db.models import Count, Max, OuterRef, Subquery
 from django.http import JsonResponse
 from django.utils import timezone
 from django.views.decorators.csrf import csrf_exempt
-from django.views.decorators.http import require_POST, require_GET
+from django.views.decorators.http import require_POST, require_GET, require_http_methods
 from django_ratelimit.decorators import ratelimit
 from django_ratelimit.exceptions import Ratelimited
 
 from . import tasks
-from .classifiers import image_classifier, text_classifier
+from .classifiers import image_classifier, text_classifier, interest_classifier
 from .classifiers.classifier_constants import REASON_PHRASES, GENERIC_REASON_CODE
 from .classifiers.prefilter import prefilter_text
 from .constants import Patterns, Params, POST_BATCH_SIZE, MAX_BEFORE_HIDING_POST, MAX_BEFORE_HIDING_COMMENT, \
@@ -42,19 +43,24 @@ from .constants import Patterns, Params, POST_BATCH_SIZE, MAX_BEFORE_HIDING_POST
     PROFILE_IMAGE_STATUS_NONE, PROFILE_IMAGE_STATUS_PENDING, \
     DEFAULT_STYLE_KEY, ALLOWED_CAPTION_FONTS, ALLOWED_BACKGROUND_COLORS, \
     ALLOWED_TEXT_SIZES, MAX_COMMENT_FORMAT_SPANS, \
-    MINIMUM_AGE, ADULT_AGE, AGE_RESTRICTED
+    MINIMUM_AGE, ADULT_AGE, AGE_RESTRICTED, \
+    INTEREST_CATEGORY_CHOICES, INTEREST_CATEGORY_SLUGS, \
+    MAX_FREEFORM_INTERESTS, MAX_FREEFORM_INTEREST_LENGTH, REJECTED_TEXT_ECHO_LIMIT, \
+    DEVICE_PLATFORMS, MAX_DEVICE_TOKEN_LENGTH, \
+    PUSH_TYPE_CHOICES, PUSH_TYPES
 from .feed_algorithm import feed_algorithm
 from .input_validator import is_valid_pattern
 from .models import LoginCookie, Session, Post, CommentThread, PositiveOnlySocialUser, Comment, CommentLike, \
-    PostLike, SavedPost, UserBlock, UserBan, UserFollow, KnownDevice, Appeal, TwoFactorChallenge, RecoveryCode
+    PostLike, SavedPost, UserBlock, UserBan, UserFollow, KnownDevice, Appeal, TwoFactorChallenge, RecoveryCode, \
+    InterestCategory, UserFreeformInterest, DeviceToken, NotificationPreference
 from .utils import convert_to_bool, generate_login_cookie_token, generate_management_token, generate_series_identifier, \
     get_batch, get_queryset_batch
 from .cloudfront import sign_compressed_url, sign_original_url
 from .s3 import delete_image, generate_presigned_upload, image_url_to_key, is_source_bucket_url, \
     strip_query_and_fragment
 from .tags import set_post_tags
-from .visibility import can_view_post, in_same_age_band, searchable_users, visible_comment_threads, \
-    visible_comments, visible_posts
+from .visibility import audience_admits, can_view_post, in_same_age_band, searchable_users, \
+    visible_comment_threads, visible_comments, visible_posts
 
 
 def _age_from_dob(dob):
@@ -64,9 +70,16 @@ def _age_from_dob(dob):
 
 image_classifier_class = image_classifier
 text_classifier_class = text_classifier
+interest_classifier_class = interest_classifier
 feed_algorithm_class = feed_algorithm
 
 logger = logging.getLogger(__name__)
+
+# Bounded pool for the freeform-interest classifier calls (issues #446/#35), so
+# a save carrying several new terms overlaps their provider round trips instead
+# of paying their sum. Mirrors tasks._CLASSIFICATION_EXECUTOR; kept separate so
+# request-path work and worker work never contend for the same slots.
+_INTEREST_EXECUTOR = ThreadPoolExecutor(max_workers=8, thread_name_prefix="interests")
 
 
 def log_and_return_json(view_name, data, **kwargs):
@@ -217,6 +230,20 @@ def _normalize_caption_style(data):
         invalid_fields.append(Params.background_color)
 
     return font, color, invalid_fields
+
+
+def _normalize_audience(data):
+    """Read the optional audience from a make_post / comment payload (issue
+    #392/#445). Returns (audience, is_valid): absent/null/"" keeps the historical
+    public default (so older clients that never send it are unaffected), a known
+    tier is used as-is, and anything else falls back to public but flags the
+    field so the caller can reject the request."""
+    raw_audience = data.get(Fields.audience)
+    if raw_audience in (None, ""):
+        return POST_AUDIENCE_PUBLIC, True
+    if raw_audience in POST_AUDIENCES:
+        return raw_audience, True
+    return POST_AUDIENCE_PUBLIC, False
 
 
 def _utf16_length(text):
@@ -722,6 +749,19 @@ def register(request):
     # Stamp their join number now, in creation order, so the client can greet
     # them with "You're member #n!" (issue #198).
     _assign_membership_number(new_user)
+
+    # Positive interests picked during sign-up (issues #446/#35), applied here
+    # rather than via a follow-up call because the account has no usable session
+    # until email verification. Best-effort: interests are optional, so any
+    # failure (including a classifier hiccup on a freeform term) must never sink
+    # an otherwise-good registration.
+    interest_categories = data.get(Fields.interest_categories)
+    interest_freeform = data.get(Fields.interest_freeform)
+    if interest_categories or interest_freeform:
+        try:
+            apply_user_interests(new_user, interest_categories or [], interest_freeform or [])
+        except Exception:
+            logger.exception("Failed to apply registration interests for user_id: %s", new_user.id)
 
     verification_token = _issue_email_verification_token(new_user)
     try:
@@ -1752,13 +1792,8 @@ def make_post(request):
 
     # Who may see the post (issue #392). Absent/null/"" keep the historical
     # public default, so older clients that never send it are unaffected.
-    raw_audience = data.get(Fields.audience)
-    if raw_audience in (None, ""):
-        audience = POST_AUDIENCE_PUBLIC
-    elif raw_audience in POST_AUDIENCES:
-        audience = raw_audience
-    else:
-        audience = POST_AUDIENCE_PUBLIC
+    audience, audience_valid = _normalize_audience(data)
+    if not audience_valid:
         invalid_fields.append(Fields.audience)
 
     if len(invalid_fields) > 0:
@@ -2094,13 +2129,23 @@ def get_saved_posts(request, batch):
     saved_time = SavedPost.objects.filter(
         user=request.user, post=OuterRef('pk')
     ).values('creation_time')[:1]
+    # Tie-breaker: creation_time isn't guaranteed unique (two posts saved close
+    # together can share a value; the timestamp resolution varies by DB backend),
+    # so ordering on it alone would leave those ties to resolve arbitrarily.
+    # SavedPost's auto-increment id is monotonic with save order and unique per
+    # (user, post), so it resolves those ties in favor of the more-recently-saved
+    # post and makes the ordering fully deterministic.
+    saved_id = SavedPost.objects.filter(
+        user=request.user, post=OuterRef('pk')
+    ).values('id')[:1]
     saved_posts = Post.objects.filter(savedpost__user=request.user).annotate(
-        saved_time=Subquery(saved_time))
+        saved_time=Subquery(saved_time), saved_id=Subquery(saved_id))
     # Drop posts by users on either side of a block, mirroring the feed, so a
     # post saved before a block doesn't keep surfacing afterward.
     saved_posts = saved_posts.exclude(author__in=request.user.blocked.all()).exclude(
         author__in=request.user.blocked_by.all())
-    saved_posts = visible_posts(saved_posts, request.user).order_by('-saved_time').select_related('author').prefetch_related('tags')
+    saved_posts = visible_posts(saved_posts, request.user).order_by(
+        '-saved_time', '-saved_id').select_related('author').prefetch_related('tags')
 
     if saved_posts.exists():
         batched_posts = get_queryset_batch(saved_posts, batch, POST_BATCH_SIZE)
@@ -2281,10 +2326,13 @@ def build_post_interaction_state(user, posts):
         )
         # Comment counts respect the same visibility rule as the thread listing,
         # so a row never advertises comments the viewer would not be shown (#249).
+        # count is distinct because visible_comments carries the audience-join
+        # fan-out (issue #445): a viewer's own comment is emitted once per account
+        # they follow, so a plain Count would over-report the total.
         comment_counts = dict(
             visible_comments(Comment.objects.filter(comment_thread__post__in=posts), user)
             .values('comment_thread__post_id')
-            .annotate(count=Count('comment_identifier'))
+            .annotate(count=Count('comment_identifier', distinct=True))
             .values_list('comment_thread__post_id', 'count')
         )
 
@@ -2620,6 +2668,11 @@ def comment_on_post(request, post_identifier):
     if formatting_error is not None:
         return log_and_return_json("comment_on_post", {'error': f"Invalid formatting: {formatting_error}"}, status=400)
 
+    # Who may see the comment (issue #445). Defaults to public, mirroring posts.
+    audience, audience_valid = _normalize_audience(data)
+    if not audience_valid:
+        return log_and_return_json("comment_on_post", {'error': f"Invalid fields {[Fields.audience]}"}, status=400)
+
     # Resolve and visibility-check the post before running the (expensive) AI
     # classifier, so a leaked/guessed UUID for a missing or hidden post cannot
     # trigger classifier calls (avoidable cost / billing amplification). Treat a
@@ -2647,6 +2700,7 @@ def comment_on_post(request, post_identifier):
     comment_thread = post.commentthread_set.create()
     new_comment = comment_thread.comment_set.create(
         author=request.user, body=comment_text, body_formatting=body_formatting,
+        audience=audience,
         hidden=hidden,
         hidden_reason=HIDDEN_REASON_CLASSIFIER if hidden else HIDDEN_REASON_NONE)
 
@@ -2701,6 +2755,11 @@ def reply_to_comment_thread(request, post_identifier, comment_thread_identifier)
     if formatting_error is not None:
         return log_and_return_json("reply_to_comment_thread", {'error': f"Invalid formatting: {formatting_error}"}, status=400)
 
+    # Who may see the reply (issue #445). Defaults to public, mirroring posts.
+    audience, audience_valid = _normalize_audience(data)
+    if not audience_valid:
+        return log_and_return_json("reply_to_comment_thread", {'error': f"Invalid fields {[Fields.audience]}"}, status=400)
+
     # Resolve and visibility-check the thread/parent post before running the
     # (expensive) AI classifier, so a leaked/guessed UUID for a missing or
     # hidden thread cannot trigger classifier calls (avoidable cost / billing
@@ -2731,6 +2790,7 @@ def reply_to_comment_thread(request, post_identifier, comment_thread_identifier)
     hidden = not text_result
     new_comment = comment_thread.comment_set.create(
         author=request.user, body=comment_text, body_formatting=body_formatting,
+        audience=audience,
         hidden=hidden,
         hidden_reason=HIDDEN_REASON_CLASSIFIER if hidden else HIDDEN_REASON_NONE)
 
@@ -2782,7 +2842,8 @@ def like_comment(request, post_identifier, comment_thread_identifier, comment_id
     # even an inconsistent legacy record (a cross-band comment on a post) stays
     # unreachable.
     if not in_same_age_band(comment.author, request.user) \
-            or not in_same_age_band(comment.comment_thread.post.author, request.user):
+            or not in_same_age_band(comment.comment_thread.post.author, request.user) \
+            or not audience_admits(comment, request.user):
         logger.warning(f"Like comment failed: Comment {comment_identifier} not visible to user_id: {request.user.id}")
         return log_and_return_json("like_comment", {'error': "Comment not found"}, status=400)
 
@@ -2829,7 +2890,8 @@ def unlike_comment(request, post_identifier, comment_thread_identifier, comment_
     # Treat a cross-band comment as absent (issue #329) so the "not liked yet"
     # vs "no such comment" responses cannot be used as an existence oracle.
     if not in_same_age_band(comment.author, request.user) \
-            or not in_same_age_band(comment.comment_thread.post.author, request.user):
+            or not in_same_age_band(comment.comment_thread.post.author, request.user) \
+            or not audience_admits(comment, request.user):
         logger.warning(f"Unlike comment failed: Comment {comment_identifier} not visible to user_id: {request.user.id}")
         return log_and_return_json("unlike_comment", {'error': "Comment not found"}, status=400)
 
@@ -2923,7 +2985,8 @@ def report_comment(request, post_identifier, comment_thread_identifier, comment_
     # even an inconsistent legacy record (a cross-band comment on a post) stays
     # unreachable.
     if not in_same_age_band(comment.author, request.user) \
-            or not in_same_age_band(comment.comment_thread.post.author, request.user):
+            or not in_same_age_band(comment.comment_thread.post.author, request.user) \
+            or not audience_admits(comment, request.user):
         logger.warning(f"Report comment failed: Comment {comment_identifier} not visible to user_id: {request.user.id}")
         return log_and_return_json("report_comment", {'error': "Comment not found"}, status=400)
 
@@ -2979,7 +3042,8 @@ def retract_report_comment(request, post_identifier, comment_thread_identifier, 
     # Treat a cross-band comment as absent (issue #329) so the "not reported
     # yet" vs "no such comment" responses cannot be used as an existence oracle.
     if not in_same_age_band(comment.author, request.user) \
-            or not in_same_age_band(comment.comment_thread.post.author, request.user):
+            or not in_same_age_band(comment.comment_thread.post.author, request.user) \
+            or not audience_admits(comment, request.user):
         logger.warning(f"Retract report comment failed: Comment {comment_identifier} not visible to user_id: {request.user.id}")
         return log_and_return_json("retract_report_comment", {'error': "Comment not found"}, status=400)
 
@@ -3013,12 +3077,19 @@ def get_comments_for_post(request, post_identifier, batch):
     if batch < 0:
         return log_and_return_json("get_comments_for_post", {'error': "Invalid batch parameter"}, status=400)
 
+    # Optional group filter (issue #445): ?category=following|friend|family keeps
+    # only threads with a visible comment by an author the viewer labeled with
+    # exactly that category — the followed-feed toggle applied to comments.
+    category_filter = request.GET.get(Fields.category) or None
+    if category_filter is not None and category_filter not in FOLLOW_CATEGORIES:
+        return log_and_return_json("get_comments_for_post", {'error': "Invalid category"}, status=400)
+
     post = get_post_with_identifier(post_identifier)
     if not post or not can_view_post(post, request.user):
         logger.warning(f"Get comments for post failed: Post {post_identifier} not found or not visible")
         return log_and_return_json("get_comments_for_post", {'error': "No post with that identifier"}, status=400)
 
-    comment_threads = visible_comment_threads(post.commentthread_set.all(), request.user)
+    comment_threads = visible_comment_threads(post.commentthread_set.all(), request.user, category_filter)
 
     relevant_comment_threads = feed_algorithm_class.get_comment_threads_weighted_for_post(comment_threads)
 
@@ -3040,16 +3111,33 @@ def get_comments_for_thread(request, comment_thread_identifier, batch):
     if batch < 0:
         return log_and_return_json("get_comments_for_thread", {'error': "Invalid batch parameter"}, status=400)
 
+    # Optional group filter (issue #445): ?category=following|friend|family
+    # narrows the comments to authors the viewer labeled with exactly that
+    # category — the same toggle the followed feed offers. Absent/empty means the
+    # whole (audience-permitted) comment list, matching the feed's behavior.
+    category_filter = request.GET.get(Fields.category) or None
+    if category_filter is not None and category_filter not in FOLLOW_CATEGORIES:
+        return log_and_return_json("get_comments_for_thread", {'error': "Invalid category"}, status=400)
+
     comment_thread = get_comment_thread_with_identifier(comment_thread_identifier)
     if not comment_thread or not can_view_post(comment_thread.post, request.user):
         logger.warning(f"Get comments for thread failed: Thread {comment_thread_identifier} not found or not visible")
         return log_and_return_json("get_comments_for_thread", {'error': "No comment thread with that identifier"}, status=400)
 
+    # Resolve the ids the viewer may see first, then rank a clean queryset built
+    # from those ids. Feeding the visible_comments queryset (which carries the
+    # audience-join fan-out) straight into the like-count weighting would inflate
+    # the counts, so we go through ids exactly like visible_comment_threads does.
+    # The values_list is passed straight into __in as a subquery (not
+    # materialized), so the ids never round-trip through Python.
+    visible_comment_ids = visible_comments(
+        comment_thread.comment_set.all(), request.user, category_filter
+    ).values_list('comment_identifier', flat=True)
     # select_related('author') so serializing author_username and the author's
     # profile photo per comment does not fan out into a query per row.
-    comments = visible_comments(
-        comment_thread.comment_set.select_related('author'), request.user
-    ).order_by('creation_time')
+    comments = Comment.objects.filter(
+        comment_identifier__in=visible_comment_ids
+    ).select_related('author')
     relevant_comments = feed_algorithm_class.get_comments_weighted_for_thread(comments)
 
     if not relevant_comments.count() > 0:
@@ -3085,6 +3173,7 @@ def get_comments_for_thread(request, comment_thread_identifier, batch):
             Fields.comment_identifier: comment.comment_identifier,
             Fields.body: comment.body,
             Fields.body_formatting: comment.body_formatting,
+            Fields.audience: comment.audience,
             Fields.author_username: comment.author.username,
             **_author_avatar_fields(comment.author),
             Fields.creation_time: comment.creation_time,
@@ -3482,6 +3571,380 @@ def set_bio(request):
         Fields.bio: user.bio,
         'message': "Your bio has been updated.",
     })
+
+
+def _normalize_freeform_terms(raw_terms):
+    """Clean an incoming freeform list into (terms, rejected).
+
+    Terms are stripped, lowercased (so "Hiking" and "hiking" are one), deduped
+    preserving order, and capped at MAX_FREEFORM_INTERESTS. A term over the
+    length limit is dropped into `rejected` with a reason so the client can tell
+    the user which entry was too long; anything past the count cap is silently
+    ignored (the clients enforce the same cap). Both lists are bounded, and each
+    echoed term is truncated at REJECTED_TEXT_ECHO_LIMIT, so a crafted payload
+    cannot inflate the response. Note the caller appends its own classifier
+    rejections to the same `rejected` list and applies the same cap, so the
+    bound holds across both sources rather than per-source.
+    """
+    terms = []
+    rejected = []
+    seen = set()
+    if not isinstance(raw_terms, list):
+        return terms, rejected
+    for raw in raw_terms:
+        if not isinstance(raw, str):
+            continue
+        term = raw.strip()
+        if not term:
+            continue
+        # Dedupe before deciding the term's fate, so a repeated entry is
+        # considered once whatever the outcome. Doing this only for accepted
+        # terms let the same over-length term be reported several times, which
+        # both padded the response and handed the clients duplicate list keys.
+        key = term.lower()
+        if key in seen:
+            continue
+        seen.add(key)
+        if len(term) > MAX_FREEFORM_INTEREST_LENGTH:
+            # Over-length terms never reach the `terms` cap that ends this loop,
+            # so bound them separately: a crafted payload of thousands of
+            # over-length entries would otherwise build an arbitrarily large
+            # response. Past the bound they are simply ignored.
+            if len(rejected) < MAX_FREEFORM_INTERESTS:
+                # Echo the term back so the client can show the user what they
+                # typed (truncating to exactly the limit would display a value
+                # that is no longer "too long"), but bound the echo — a single
+                # term can be as large as the request body allows, and neither
+                # we nor the client should render megabytes of it. The bound
+                # stays well over the limit, so an elided term still reads as
+                # too long.
+                echo = term[:REJECTED_TEXT_ECHO_LIMIT]
+                if len(term) > REJECTED_TEXT_ECHO_LIMIT:
+                    echo += "…"
+                rejected.append({
+                    Fields.text: echo,
+                    Fields.reason_code: 'too_long',
+                    'reason': f"is longer than {MAX_FREEFORM_INTEREST_LENGTH} characters",
+                })
+            continue
+        terms.append(key)
+        if len(terms) >= MAX_FREEFORM_INTERESTS:
+            break
+    return terms, rejected
+
+
+def apply_user_interests(user, category_slugs, freeform_terms):
+    """Replace a user's positive-interest selection (issues #446/#35).
+
+    Full-replace/set semantics: `category_slugs` and `freeform_terms` are the
+    user's complete desired state, so anything absent is removed. Preset slugs
+    are validated against the vocabulary. Each freeform term is checked for
+    positivity (is_text_positive) and mapped to preset bucket(s)
+    (categorize_text_interests); a term already stored is kept without
+    re-classifying it. The user's interest_categories M2M is rebuilt as the
+    union of picked presets and every bucket a freeform term mapped to, so feed
+    weighting never has to walk the freeform rows.
+
+    Returns a dict describing the applied state and any rejected freeform terms.
+    Best-effort on the classifier calls (categorize_* never raise); a classifier
+    that reports a positivity provider-failure rejects the term (fail closed),
+    matching how a bio/username is treated.
+    """
+    # Preset picks: keep known slugs, deduped, order-preserving.
+    picked = []
+    if isinstance(category_slugs, list):
+        for raw in category_slugs:
+            if isinstance(raw, str):
+                slug = raw.strip().lower()
+                if slug in INTEREST_CATEGORY_SLUGS and slug not in picked:
+                    picked.append(slug)
+
+    terms, rejected = _normalize_freeform_terms(freeform_terms)
+
+    # --- Phase 1: classification, deliberately OUTSIDE any transaction. ---
+    # is_text_positive and categorize_text_interests call external providers and
+    # can take seconds each, so running them inside the atomic block below would
+    # pin a transaction open across slow network I/O. Same rule the async
+    # classification worker follows ("the cascades run outside any DB
+    # transaction/lock", tasks.classify_post). A term already stored is skipped
+    # here, so the usual re-save does no provider work at all.
+    existing = {f.text: f for f in
+                user.freeform_interests.prefetch_related('categories').all()}
+    accepted_terms = []
+    union_slugs = set(picked)
+    new_rows = []  # (text, [mapped_slug, ...])
+
+    # Classify the genuinely new terms concurrently. Each costs up to two
+    # sequential provider round trips (positivity, then mapping), and a single
+    # save may carry MAX_FREEFORM_INTERESTS of them — run back to back that is
+    # dozens of calls on the request path, and registration runs it inline.
+    # Overlapping them makes the wait roughly one chain rather than their sum,
+    # the same trick tasks.classify_post uses for its text/image cascades. The
+    # pool is bounded so a traffic spike can't spawn unbounded threads, and the
+    # work is pure network I/O — no DB access happens on these threads.
+    def _classify(term):
+        result = text_classifier_class.is_text_positive(term)
+        if not result:
+            return term, result, []
+        return term, result, interest_classifier_class.categorize_text_interests(term)
+
+    to_classify = [t for t in terms if t not in existing]
+    # .map keeps input order, though the loop below reads results by key.
+    classified = {term: (result, mapped)
+                  for term, result, mapped in _INTEREST_EXECUTOR.map(_classify, to_classify)}
+
+    for term in terms:
+        row = existing.get(term)
+        if row is not None:
+            # Already accepted before — keep as-is, don't re-classify. Its
+            # full set of mapped buckets rebuilds the union deterministically
+            # (a term that mapped to several keeps them all across saves).
+            accepted_terms.append(term)
+            union_slugs.update(c.slug for c in row.categories.all())
+            continue
+        result, mapped = classified[term]
+        if not result:
+            # Bounded against the same cap the over-length rejections use — they
+            # share this one list, so bounding only there let a payload of 20
+            # too-long plus 20 non-positive terms return 40 entries, twice what
+            # the response is documented to carry.
+            if len(rejected) < MAX_FREEFORM_INTERESTS:
+                rejected.append({
+                    Fields.text: term,
+                    Fields.reason_code: result.public_reason_code(),
+                    'reason': result.public_reason(),
+                })
+            continue
+        union_slugs.update(mapped)
+        accepted_terms.append(term)
+        new_rows.append((term, mapped))
+
+    # --- Phase 2: the writes, in one short transaction. ---
+    # Every write is last-writer-wins by design (this endpoint replaces the
+    # user's whole interest state), and each is expressed against *this
+    # request's* desired state rather than the Phase 1 snapshot, so a concurrent
+    # save landing in between cannot leave the account in a state neither
+    # request asked for: the delete keeps exactly the accepted terms,
+    # get_or_create absorbs a duplicate insert, and set() replaces the M2M
+    # wholesale.
+    with transaction.atomic():
+        # Keep exactly the terms this request accepted — deleting by the Phase 1
+        # snapshot instead would miss a row a concurrent save inserted during
+        # the (slow, transaction-free) classification above, stranding a term
+        # the caller never asked for. An empty accepted set clears them all,
+        # which is what an empty payload means.
+        user.freeform_interests.exclude(text__in=accepted_terms).delete()
+
+        # Resolve every slug we need (the whole union) once.
+        cats_by_slug = {c.slug: c for c in
+                        InterestCategory.objects.filter(slug__in=union_slugs)}
+
+        for term, mapped_slugs in new_rows:
+            # get_or_create, not create: (user, text) is UNIQUE, and two
+            # concurrent saves that both introduce the same new term would race
+            # — one insert wins and the other would raise IntegrityError (a 500).
+            # get_or_create runs its insert in a nested atomic block, so losing
+            # the race falls back to the existing row without poisoning this
+            # transaction.
+            new_row, _ = UserFreeformInterest.objects.get_or_create(user=user, text=term)
+            mapped_cats = [cats_by_slug[s] for s in mapped_slugs if s in cats_by_slug]
+            # Set unconditionally, including to empty. Skipping the empty case
+            # would leave a row get_or_create *found* (one a concurrent save
+            # inserted) carrying that writer's buckets, and the next save — which
+            # treats a stored term as already-accepted and folds its buckets back
+            # into the union — would reintroduce buckets this request mapped to
+            # nothing. set([]) clears, which is what last-writer-wins means here.
+            new_row.categories.set(mapped_cats)
+
+        user.interest_categories.set(
+            [cats_by_slug[s] for s in union_slugs if s in cats_by_slug])
+
+    return {
+        Fields.categories: sorted(user.interest_categories.values_list('slug', flat=True)),
+        Fields.freeform: {
+            Fields.accepted: accepted_terms,
+            Fields.rejected: rejected,
+        },
+    }
+
+
+@csrf_exempt
+@require_GET
+def get_interest_options(request):
+    """The curated positive-interest bucket vocabulary (issues #446/#35).
+
+    Public (no auth) because the registration screen — which has no session yet
+    — needs it to render the picker. Static reference data, so it is cacheable.
+    """
+    logger.info("Endpoint get_interest_options invoked by IP or User")
+    options = [{Fields.slug: slug, Fields.name: name}
+               for slug, name in INTEREST_CATEGORY_CHOICES]
+    response = log_and_return_json("get_interest_options", {Fields.options: options})
+    response['Cache-Control'] = 'public, max-age=3600'
+    return response
+
+
+@api_login_required
+@ratelimit(key='user', rate='60/m', block=True)
+@require_GET
+def get_interests(request):
+    """The signed-in user's current interest selection (issues #446/#35):
+    the preset bucket slugs they want to see and the freeform terms they
+    entered, so the Settings picker can prefill and allow removal."""
+    logger.info("Endpoint get_interests invoked by User")
+    user = request.user
+    data = {
+        Fields.categories: sorted(user.interest_categories.values_list('slug', flat=True)),
+        Fields.freeform: list(
+            user.freeform_interests.order_by('creation_time').values_list('text', flat=True)),
+    }
+    return log_and_return_json("get_interests", data)
+
+
+@csrf_exempt
+@api_login_required
+@ratelimit(key='user', rate='20/h', block=True)
+@require_POST
+def set_interests(request):
+    """Replace the signed-in user's positive-interest selection (issues #446/#35).
+
+    Body: {"categories": [slug, ...], "freeform": [text, ...]}. Full-replace
+    semantics power removal in Settings — anything omitted is dropped, empty
+    arrays clear everything. Rate limited per user like set_bio since each
+    non-stored freeform term runs a billable positivity + mapping classification.
+    """
+    logger.info("Endpoint set_interests invoked by User")
+    data = _get_json_body(request)
+    if data is None:
+        return log_and_return_json("set_interests", {'error': "Invalid JSON data"}, status=400)
+
+    categories = data.get(Fields.categories, [])
+    freeform = data.get(Fields.freeform, [])
+    if categories is None:
+        categories = []
+    if freeform is None:
+        freeform = []
+    if not isinstance(categories, list) or not isinstance(freeform, list):
+        return log_and_return_json("set_interests", {
+            'error': f"Invalid fields ['{Fields.categories}', '{Fields.freeform}']"},
+            status=400)
+
+    result = apply_user_interests(request.user, categories, freeform)
+    logger.info(f"Interests updated for user_id: {request.user.id}")
+    result['message'] = "Your interests have been updated."
+    return log_and_return_json("set_interests", result)
+
+
+@csrf_exempt
+@api_login_required
+@ratelimit(key='user', rate='30/h', block=True)
+@require_POST
+def register_device(request):
+    """Register (or refresh) the caller's native push-notification token (issue #342).
+
+    The client calls this after the OS grants notification permission, and again
+    whenever the provider rotates the token. Upsert on the device's natural key
+    (platform, token): re-registering a token that already exists just repoints
+    it at the current user and bumps updated_at, so a device that changed
+    accounts is moved rather than duplicated. Push is best-effort and never the
+    source of truth (#282 reconciliation is), so this endpoint only records the
+    token — delivery and dead-token pruning happen off the request path in the
+    worker send path. Rate limited per user since a client should register a
+    device at most a handful of times a day.
+    """
+    logger.info("Endpoint register_device invoked by User")
+    data = _get_json_body(request)
+    # _get_json_body returns any valid JSON; a non-object (e.g. a JSON array)
+    # would make data.get(...) raise -> 500, so require a dict up front.
+    if not isinstance(data, dict):
+        return log_and_return_json("register_device", {'error': "Invalid JSON data"}, status=400)
+
+    platform = data.get(Fields.platform)
+    token = data.get(Fields.token)
+    # Strip first, then validate and store the same value — so length is checked
+    # against what actually gets persisted (and indexed), not the raw input.
+    if isinstance(token, str):
+        token = token.strip()
+    invalid_fields = []
+    # isinstance guard first: a non-string JSON value (list/object) is unhashable,
+    # so `x not in <frozenset>` would raise TypeError -> 500 instead of a 400.
+    if not isinstance(platform, str) or platform not in DEVICE_PLATFORMS:
+        invalid_fields.append(Params.platform)
+    # Real APNs/FCM tokens are printable, non-space ASCII (hex / base64url-ish).
+    # Requiring that rejects junk — control chars or embedded whitespace that
+    # would break a provider request (APNs URL path, FCM INVALID_ARGUMENT) — and
+    # keeps len(token) == the UTF-8 byte size, so the length cap actually bounds
+    # what lands in the (platform, token) UNIQUE index (a multibyte 1024-char
+    # string could otherwise blow past PostgreSQL's btree row limit at insert).
+    if (not isinstance(token, str) or not token or not token.isascii()
+            or not token.isprintable() or ' ' in token
+            or len(token) > MAX_DEVICE_TOKEN_LENGTH):
+        invalid_fields.append(Params.token)
+    if invalid_fields:
+        return log_and_return_json(
+            "register_device", {'error': f"Invalid fields {invalid_fields}"}, status=400)
+
+    DeviceToken.objects.update_or_create(
+        platform=platform, token=token,
+        defaults={'user': request.user},
+    )
+    logger.info(f"Device registered ({platform}) for user_id: {request.user.id}")
+    return log_and_return_json("register_device", {'message': "Device registered."})
+
+
+@csrf_exempt
+@api_login_required
+@ratelimit(key='user', rate='60/h', block=True)
+@require_http_methods(["GET", "POST"])
+def notification_preferences(request):
+    """Read or update the caller's push notification preferences (issues
+    #342/#343; the Settings "Notifications" toggles).
+
+    GET returns one {type, label, enabled} row per known push type — the clients
+    render a toggle per row generically, so a new type shows up everywhere with
+    no client change. Preferences default to enabled. POST {type, enabled}
+    upserts one type's preference; send_push consults these before sending, so a
+    type toggled off is never delivered on any device.
+    """
+    if request.method == 'GET':
+        overrides = {p.notification_type: p.enabled
+                     for p in NotificationPreference.objects.filter(user=request.user)}
+        prefs = [{
+            Fields.notification_type: notification_type,
+            Fields.label: label,
+            Fields.enabled: overrides.get(notification_type, True),
+        } for notification_type, label in PUSH_TYPE_CHOICES]
+        return log_and_return_json("notification_preferences", {Fields.preferences: prefs})
+
+    if request.method == 'POST':
+        data = _get_json_body(request)
+        # Require a JSON object: a non-object (e.g. a JSON array) would make
+        # data.get(...) raise -> 500.
+        if not isinstance(data, dict):
+            return log_and_return_json(
+                "notification_preferences", {'error': "Invalid JSON data"}, status=400)
+        notification_type = data.get(Fields.notification_type)
+        enabled = data.get(Fields.enabled)
+        invalid_fields = []
+        # isinstance guard first: a non-string (unhashable) type value would make
+        # `x not in <frozenset>` raise TypeError -> 500 instead of a 400.
+        if not isinstance(notification_type, str) or notification_type not in PUSH_TYPES:
+            invalid_fields.append(Params.notification_type)
+        if not isinstance(enabled, bool):
+            invalid_fields.append(Params.enabled)
+        if invalid_fields:
+            return log_and_return_json(
+                "notification_preferences", {'error': f"Invalid fields {invalid_fields}"}, status=400)
+        NotificationPreference.objects.update_or_create(
+            user=request.user, notification_type=notification_type, defaults={'enabled': enabled})
+        logger.info(f"Notification pref {notification_type}={enabled} for user_id: {request.user.id}")
+        return log_and_return_json("notification_preferences", {
+            Fields.notification_type: notification_type, Fields.enabled: enabled})
+
+    # Unreachable: @require_http_methods already 405s any other verb (with the
+    # Allow header). Kept as a defensive default so the view always returns.
+    return log_and_return_json(
+        "notification_preferences", {'error': "Method not allowed"}, status=405)
 
 
 @api_login_required

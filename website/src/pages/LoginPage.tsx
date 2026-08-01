@@ -1,4 +1,4 @@
-import { useState, type FormEvent } from 'react'
+import { useEffect, useState, type FormEvent } from 'react'
 import { useNavigate, useSearchParams } from 'react-router'
 import Logo from '../components/Logo'
 import {
@@ -18,6 +18,7 @@ import {
   persistSession,
   saveRememberMeTokens,
 } from '../api/session'
+import { registerForPush } from '../push/webPush'
 import './LoginPage.css'
 
 function LoginPage() {
@@ -44,6 +45,17 @@ function LoginPage() {
   const [twoFactorCode, setTwoFactorCode] = useState('')
   const [useRecoveryCode, setUseRecoveryCode] = useState(false)
 
+  // If a remembered session was restored on startup (see main.tsx), a returning
+  // user who lands here is already signed in — send them into the app instead of
+  // asking them to log in (and clear 2FA) again (issue #411). The forced-logout
+  // entries (?suspended / ?verify_email) arrive with the session already
+  // cleared, so this never fires over their explanatory banner.
+  useEffect(() => {
+    if (apiClient.isAuthenticated()) {
+      navigate('/home', { replace: true })
+    }
+  }, [navigate])
+
   const isFormValid = usernameOrEmail.trim().length > 0 && password.length > 0
   // Authenticator codes are 6 digits; recovery codes are 10 hex characters
   // (backend/user_system/constants.py Patterns).
@@ -67,6 +79,10 @@ function LoginPage() {
     } else {
       clearRememberMeTokens()
     }
+    // Now that we have a session, ask for notification permission and register
+    // this browser for push (issues #342/#343). Best-effort and non-blocking —
+    // it never affects entering the app.
+    void registerForPush({ promptIfNeeded: true })
     navigate('/home')
   }
 

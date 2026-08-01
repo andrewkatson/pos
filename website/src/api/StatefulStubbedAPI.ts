@@ -6,6 +6,14 @@
 import { ApiError, INVALID_TWO_FACTOR_CHALLENGE } from './client'
 import { characterCount, MAX_BIO_LENGTH } from '../auth/requirements'
 import { extractTags } from '../utils/tags'
+import {
+  INTEREST_OPTIONS,
+  INTEREST_SLUGS,
+  MAX_FREEFORM_INTERESTS,
+  MAX_FREEFORM_INTEREST_LENGTH,
+  REJECTED_TEXT_ECHO_LIMIT,
+  matchInterestSlugs,
+} from './interestVocabulary'
 import type { PositiveOnlySocialAPI } from './PositiveOnlySocialAPI'
 import type {
   AuthResponse,
@@ -37,11 +45,14 @@ import type {
   MyAppeal,
   PostAudience,
   PostDetails,
+  NotificationPreference,
   PostStatusResponse,
   ProfileDetails,
   ProfileImageStatus,
+  RegisterDeviceRequest,
   RegisterRequest,
   RemoveProfilePhotoResponse,
+  SetNotificationPreferenceResponse,
   ReplyResponse,
   RequestResetRequest,
   ResendVerificationEmailRequest,
@@ -50,6 +61,10 @@ import type {
   SetProfilePhotoResponse,
   SetBioRequest,
   SetBioResponse,
+  InterestOptionsResponse,
+  InterestsResponse,
+  SetInterestsRequest,
+  SetInterestsResponse,
   SubmitAppealRequest,
   SubmitAppealResponse,
   TwoFactorSetupResponse,
@@ -141,6 +156,11 @@ interface UserMock {
   membershipNumber: number
   /** Free-text bio shown on the profile (issue #380); '' when unset. */
   bio: string
+  /** Positive interest weighting buckets (issues #446/#35): picks ∪ mapped
+   * freeform. */
+  interestCategories: Set<string>
+  /** Freeform interest terms the user typed, lowercased, in entry order. */
+  freeformInterests: string[]
 }
 
 interface TwoFactorChallengeMock {
@@ -189,6 +209,8 @@ interface CommentMock {
   body: string
   /** Inline formatting spans over `body` (issue #318); null = plain. */
   bodyFormatting: CommentFormatSpan[] | null
+  /** Who may see this comment (issue #445). */
+  audience: PostAudience
   creationTime: number
   hidden: boolean
   hiddenReason: string
@@ -353,8 +375,16 @@ export class StatefulStubbedAPI implements PositiveOnlySocialAPI {
       // Next join number, one past the current highest (#198).
       membershipNumber: this.users.reduce((max, u) => Math.max(max, u.membershipNumber), 0) + 1,
       bio: '',
+      interestCategories: new Set(),
+      freeformInterests: [],
     }
     this.users.push(user)
+
+    // Interests picked during sign-up ride along in the register payload
+    // (issues #446/#35). Best-effort, exactly like the backend.
+    if (body.interest_categories?.length || body.interest_freeform?.length) {
+      this.applyInterests(user, body.interest_categories ?? [], body.interest_freeform ?? [])
+    }
 
     const sessionToken = newId()
     this.sessions.push({ managementToken: sessionToken, userId: user.id })
@@ -907,17 +937,20 @@ export class StatefulStubbedAPI implements PositiveOnlySocialAPI {
   }
 
   /**
-   * Mirrors visibility._audience_allows (issue #392): whether the post's
-   * audience admits `viewerId`. Public admits everyone and the author always
-   * sees their own posts; otherwise the author must have labeled the viewer
-   * with a category close enough for the audience's nested tier — a "friends"
-   * post reaches friends and family, "family" only family.
+   * Mirrors visibility._audience_allows (issue #392/#445): whether a post's or
+   * comment's audience admits `viewerId`. Public admits everyone and the author
+   * always sees their own content; otherwise the author must have labeled the
+   * viewer with a category close enough for the audience's nested tier — a
+   * "friends" tier reaches friends and family, "family" only family.
    */
-  private audienceAdmits(post: PostMock, viewerId: string): boolean {
-    if (post.audience === 'public' || post.authorId === viewerId) {
+  private audienceAdmits(
+    content: { audience: PostAudience; authorId: string },
+    viewerId: string,
+  ): boolean {
+    if (content.audience === 'public' || content.authorId === viewerId) {
       return true
     }
-    const author = this.users.find((u) => u.id === post.authorId)
+    const author = this.users.find((u) => u.id === content.authorId)
     const category = author?.followCategories.get(viewerId)
     if (!category) {
       return false
@@ -928,7 +961,17 @@ export class StatefulStubbedAPI implements PositiveOnlySocialAPI {
       friends: 2,
       family: 3,
     }
-    return rank[category] >= required[post.audience]
+    return rank[category] >= required[content.audience]
+  }
+
+  /** The followed-feed toggle applied to a comment author (issue #445): whether
+   * the viewer follows `authorId` and labeled them with exactly `category`. A
+   * plain follow counts as 'following'. Mirrors visibility._labeled_author_ids. */
+  private labeledAs(viewer: UserMock, authorId: string, category: FollowCategory): boolean {
+    if (!viewer.following.has(authorId)) {
+      return false
+    }
+    return (viewer.followCategories.get(authorId) ?? 'following') === category
   }
 
   /** Whether a post is visible to a viewer, mirroring backend can_view_post:
@@ -1086,6 +1129,7 @@ export class StatefulStubbedAPI implements PositiveOnlySocialAPI {
     postIdentifier: string,
     commentText: string,
     formatting?: CommentFormatSpan[],
+    audience?: PostAudience,
   ): Promise<CommentOnPostResponse> {
     const user = this.requireUser()
     this.findPost(postIdentifier)
@@ -1100,6 +1144,7 @@ export class StatefulStubbedAPI implements PositiveOnlySocialAPI {
       authorId: user.id,
       body: commentText,
       bodyFormatting: formatting && formatting.length > 0 ? formatting : null,
+      audience: audience ?? 'public',
       creationTime: Date.now(),
       hidden: false,
       hiddenReason: '',
@@ -1118,6 +1163,7 @@ export class StatefulStubbedAPI implements PositiveOnlySocialAPI {
     commentThreadIdentifier: string,
     commentText: string,
     formatting?: CommentFormatSpan[],
+    audience?: PostAudience,
   ): Promise<ReplyResponse> {
     const user = this.requireUser()
     const thread = this.commentThreads.find(
@@ -1131,6 +1177,7 @@ export class StatefulStubbedAPI implements PositiveOnlySocialAPI {
       authorId: user.id,
       body: commentText,
       bodyFormatting: formatting && formatting.length > 0 ? formatting : null,
+      audience: audience ?? 'public',
       creationTime: Date.now(),
       hidden: false,
       hiddenReason: '',
@@ -1141,12 +1188,35 @@ export class StatefulStubbedAPI implements PositiveOnlySocialAPI {
     return { comment_identifier: comment.commentIdentifier }
   }
 
+  /** Comments in a thread the viewer may see: not hidden (unless their own),
+   * audience-admitted, and — when a `category` filter is on — by an author the
+   * viewer labeled with exactly that category (issue #445). */
+  private visibleComments(
+    thread: CommentThreadMock,
+    viewer: UserMock,
+    category?: FollowCategory,
+  ): CommentMock[] {
+    return thread.comments.filter((c) => {
+      if (c.authorId === viewer.id) {
+        // The exact-category toggle drops your own comments, since you do not
+        // follow yourself — matching the followed-feed filter.
+        return category ? false : true
+      }
+      if (c.hidden) return false
+      if (!this.audienceAdmits(c, viewer.id)) return false
+      return !category || this.labeledAs(viewer, c.authorId, category)
+    })
+  }
+
   async getCommentsForPost(
     postIdentifier: string,
     batch: number,
+    category?: FollowCategory,
   ): Promise<CommentThreadRef[]> {
-    this.requireUser()
-    const threads = this.commentThreads.filter((t) => t.postId === postIdentifier)
+    const user = this.requireUser()
+    const threads = this.commentThreads
+      .filter((t) => t.postId === postIdentifier)
+      .filter((t) => this.visibleComments(t, user, category).length > 0)
     return this.batch(threads, batch, COMMENT_BATCH_SIZE).map((t) => ({
       comment_thread_identifier: t.threadIdentifier,
     }))
@@ -1155,6 +1225,7 @@ export class StatefulStubbedAPI implements PositiveOnlySocialAPI {
   async getCommentsForThread(
     commentThreadIdentifier: string,
     batch: number,
+    category?: FollowCategory,
   ): Promise<Comment[]> {
     const user = this.requireUser()
     const thread = this.commentThreads.find(
@@ -1163,9 +1234,9 @@ export class StatefulStubbedAPI implements PositiveOnlySocialAPI {
     if (!thread) {
       throw new ApiError(400, 'No comment thread with that identifier')
     }
-    const visible = thread.comments
-      .filter((c) => !c.hidden)
-      .sort((a, b) => a.creationTime - b.creationTime)
+    const visible = this.visibleComments(thread, user, category).sort(
+      (a, b) => a.creationTime - b.creationTime,
+    )
     return this.batch(visible, batch, COMMENT_BATCH_SIZE).map((c) => {
       const author = this.users.find((u) => u.id === c.authorId)
       const time = new Date(c.creationTime).toISOString()
@@ -1173,6 +1244,7 @@ export class StatefulStubbedAPI implements PositiveOnlySocialAPI {
         comment_identifier: c.commentIdentifier,
         body: c.body,
         body_formatting: c.bodyFormatting,
+        audience: c.audience,
         author_username: author ? author.username : '',
         ...this.authorAvatarFields(c.authorId),
         creation_time: time,
@@ -1496,6 +1568,144 @@ export class StatefulStubbedAPI implements PositiveOnlySocialAPI {
     }
     user.bio = body.bio
     return { bio: user.bio, message: 'Your bio has been updated.' }
+  }
+
+  // ===========================================================================
+  // POSITIVE INTEREST TAGS (issues #446/#35)
+  // ===========================================================================
+
+  /** Mirrors the backend apply_user_interests: full-replace of a user's
+   * interest state. Preset slugs are kept if known; each freeform term is
+   * positivity-checked (reject anything containing "negative", like the backend
+   * TESTING classifier) and mapped to buckets; the weighting set is the union
+   * of picks and mapped buckets. */
+  private applyInterests(
+    user: UserMock,
+    categories: string[],
+    freeform: string[],
+  ): SetInterestsResponse {
+    // Normalize before matching, mirroring the backend's strip().lower() — a
+    // slug arriving as " Nature" must resolve the same way here as in production.
+    const picked = Array.isArray(categories)
+      ? [
+          ...new Set(
+            categories
+              .filter((s) => typeof s === 'string')
+              .map((s) => s.trim().toLowerCase())
+              .filter((s) => INTEREST_SLUGS.has(s)),
+          ),
+        ]
+      : []
+
+    const accepted: string[] = []
+    const rejected: SetInterestsResponse['freeform']['rejected'] = []
+    const union = new Set<string>(picked)
+    const seen = new Set<string>()
+
+    if (Array.isArray(freeform)) {
+      for (const raw of freeform) {
+        if (typeof raw !== 'string') continue
+        const term = raw.trim()
+        if (!term) continue
+        // Dedupe before deciding the term's fate and bound the rejected list,
+        // mirroring the backend's _normalize_freeform_terms: deduping only the
+        // accepted terms let a repeated bad term be reported once per
+        // occurrence, and an unbounded list diverges from what the real API
+        // returns (duplicate React keys, inflated responses).
+        const key = term.toLowerCase()
+        if (seen.has(key)) continue
+        seen.add(key)
+        if (characterCount(term) > MAX_FREEFORM_INTEREST_LENGTH) {
+          if (rejected.length < MAX_FREEFORM_INTERESTS) {
+            // Echo bounded the same way the backend bounds it, so a huge term
+            // doesn't produce a huge response. Still well over the limit, so an
+            // elided term reads as too long.
+            const echo =
+              characterCount(term) > REJECTED_TEXT_ECHO_LIMIT
+                ? [...term].slice(0, REJECTED_TEXT_ECHO_LIMIT).join('') + '…'
+                : term
+            rejected.push({
+              text: echo,
+              reason_code: 'too_long',
+              reason: `is longer than ${MAX_FREEFORM_INTEREST_LENGTH} characters`,
+            })
+          }
+          continue
+        }
+        if (key.includes('negative')) {
+          if (rejected.length < MAX_FREEFORM_INTERESTS) {
+            rejected.push({
+              text: key,
+              reason_code: 'guidelines',
+              reason: 'did not meet our positivity guidelines',
+            })
+          }
+          continue
+        }
+        accepted.push(key)
+        for (const slug of matchInterestSlugs(key)) union.add(slug)
+        if (accepted.length >= MAX_FREEFORM_INTERESTS) break
+      }
+    }
+
+    user.freeformInterests = accepted
+    user.interestCategories = union
+    return {
+      categories: [...union].sort(),
+      freeform: { accepted, rejected },
+    }
+  }
+
+  async getInterestOptions(): Promise<InterestOptionsResponse> {
+    return { options: INTEREST_OPTIONS.map((o) => ({ ...o })) }
+  }
+
+  async getInterests(): Promise<InterestsResponse> {
+    const user = this.requireUser()
+    return {
+      categories: [...user.interestCategories].sort(),
+      freeform: [...user.freeformInterests],
+    }
+  }
+
+  async setInterests(body: SetInterestsRequest): Promise<SetInterestsResponse> {
+    const user = this.requireUser()
+    const result = this.applyInterests(user, body.categories ?? [], body.freeform ?? [])
+    return { ...result, message: 'Your interests have been updated.' }
+  }
+
+  // ---------------------------------------------------------------------------
+  // Push notifications (issues #342/#343)
+  // ---------------------------------------------------------------------------
+
+  async registerDevice(_body: RegisterDeviceRequest): Promise<MessageResponse> {
+    // The stub keeps no device table; registration always "succeeds" so the
+    // push bootstrap flow can be exercised in UI mode without a real backend.
+    this.requireUser()
+    return { message: 'Device registered.' }
+  }
+
+  // The push types the stub knows about, mirroring the backend's
+  // PUSH_TYPE_CHOICES. Preferences default to enabled; toggling stores an
+  // override in this map.
+  private notificationOverrides: Record<string, boolean> = {}
+
+  async getNotificationPreferences(): Promise<NotificationPreference[]> {
+    this.requireUser()
+    return [{
+      type: 'post_rejected',
+      label: 'Post moderation',
+      enabled: this.notificationOverrides['post_rejected'] ?? true,
+    }]
+  }
+
+  async setNotificationPreference(
+    type: string,
+    enabled: boolean,
+  ): Promise<SetNotificationPreferenceResponse> {
+    this.requireUser()
+    this.notificationOverrides[type] = enabled
+    return { type, enabled }
   }
 
   // ---------------------------------------------------------------------------

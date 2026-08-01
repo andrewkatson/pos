@@ -44,6 +44,10 @@ struct MockUser {
     var profileImageReasonCode: String? = nil
     // Free-text bio (issue #380); "" when unset.
     var bio: String = ""
+    // Positive interest tags (issues #446/#35): weighting buckets (picks ∪
+    // mapped freeform) and the freeform terms the user typed.
+    var interestCategories: [String] = []
+    var freeformInterests: [String] = []
 
     init(username: String, email: String, passwordHash: String) {
         self.username = username
@@ -156,6 +160,8 @@ fileprivate struct MockComment {
     var body: String
     /// Inline formatting spans over `body` (issue #318); nil = plain.
     var bodyFormatting: [CommentFormatSpan]? = nil
+    /// Who may see this comment (issue #445).
+    var audience: String = PostAudience.public.rawValue
     var likes: [String] = []
     var reports: [(username: String, reason: String)] = []
     var isHidden: Bool = false
@@ -198,6 +204,57 @@ final class StatefulStubbedAPI: Networking {
     // rather than users.count so a delete + re-register never reuses a number,
     // matching the backend's "creation order, never reused" behavior.
     private var membershipCounter = 0
+
+    // Usernames pre-seeded from the launch environment (issue #377). UI tests
+    // seed the accounts they use so a test can log in directly instead of
+    // walking the whole registration UI first. `register` is idempotent for
+    // these names (see below) so a test that *does* exercise the register form
+    // on a seeded account still succeeds instead of hitting "already exists".
+    private var seededUsernames: Set<String> = []
+
+    init() {
+        seedUsersFromEnvironment()
+    }
+
+    /// Seeds verified accounts listed in the `seed-usernames` launch
+    /// environment variable (issue #377): names joined by `;`. Every seeded
+    /// account shares the sign-in value from `seed-secret`, so the two are
+    /// passed separately rather than as colon-joined pairs — pairing them
+    /// reads like an embedded credential to secret scanners, and this is
+    /// simpler anyway. The email is derived as `<username>@test.com`, matching
+    /// the convention every UI test uses. Both variables must be set together;
+    /// usernames without a sign-in value seed nothing and log why.
+    ///
+    /// Nothing here is sensitive: `StatefulStubbedAPI` is an in-memory fake
+    /// used only under UI testing, and the value arrives at runtime from the
+    /// test harness rather than being compiled in.
+    private func seedUsersFromEnvironment() {
+        guard isUITesting(),
+              let raw = ProcessInfo.processInfo.environment["seed-usernames"],
+              !raw.isEmpty else { return }
+        // Seeding accounts with an empty sign-in value would create accounts
+        // that can never be logged into, and the test would then fail deep in a
+        // login flow with nothing pointing back at the real cause. Refuse to
+        // seed and say why, so the misconfiguration explains itself.
+        guard let sharedSignIn = ProcessInfo.processInfo.environment["seed-secret"],
+              !sharedSignIn.isEmpty else {
+            NSLog("%@", "[seed] 'seed-usernames' was set but 'seed-secret' is missing or empty, "
+                  + "so no accounts were seeded. Every seeded-account sign-in would have failed. "
+                  + "Set both launch environment variables together.")
+            return
+        }
+        for entry in raw.split(separator: ";") {
+            let username = String(entry)
+            if username.isEmpty { continue }
+            if findUser(byUsername: username) != nil { continue }
+            var user = MockUser(username: username, email: "\(username)@test.com", passwordHash: sharedSignIn)
+            membershipCounter += 1
+            user.membershipNumber = membershipCounter
+            user.emailVerified = true
+            users.append(user)
+            seededUsernames.insert(username)
+        }
+    }
 
     // MARK: - Configuration
     public var simulatedLatency: TimeInterval = 0.1
@@ -301,6 +358,57 @@ final class StatefulStubbedAPI: Networking {
         return (rank[category] ?? 0) >= (required[audience] ?? 0)
     }
 
+    /// Comment mirror of `audienceAdmits` (issue #445): whether the comment's
+    /// audience admits `viewer`. Resolves the author by username since comments
+    /// carry a username rather than an id.
+    fileprivate func audienceAdmits(comment: MockComment, viewer: MockUser) -> Bool {
+        if comment.audience == PostAudience.public.rawValue || comment.authorUsername == viewer.username {
+            return true
+        }
+        guard let author = users.first(where: { $0.username == comment.authorUsername }),
+              let follow = userFollows.first(where: {
+                  $0.userFromId == author.id && $0.userToId == viewer.id
+              }), let category = FollowCategory(rawValue: follow.category),
+              let audience = PostAudience(rawValue: comment.audience) else {
+            return false
+        }
+        let rank: [FollowCategory: Int] = [.following: 1, .friend: 2, .family: 3]
+        let required: [PostAudience: Int] = [.following: 1, .friends: 2, .family: 3]
+        return (rank[category] ?? 0) >= (required[audience] ?? 0)
+    }
+
+    /// The followed-feed toggle applied to a comment author (issue #445):
+    /// whether `viewer` labeled the comment's author with exactly `category`. A
+    /// plain follow counts as `.following`; the viewer's own comments never
+    /// match (you do not follow yourself).
+    fileprivate func commentMatchesCategory(_ comment: MockComment, viewer: MockUser, category: FollowCategory) -> Bool {
+        guard let author = users.first(where: { $0.username == comment.authorUsername }),
+              let follow = userFollows.first(where: {
+                  $0.userFromId == viewer.id && $0.userToId == author.id
+              }) else {
+            return false
+        }
+        return (FollowCategory(rawValue: follow.category) ?? .following) == category
+    }
+
+    /// Comments in a thread the `viewer` may see (issue #445): not hidden
+    /// (unless their own), audience-admitted, and — when `category` is set — by
+    /// an author the viewer labeled with exactly that category.
+    fileprivate func visibleComments(inThread threadId: String, viewer: MockUser, category: FollowCategory?) -> [MockComment] {
+        comments.filter { comment in
+            guard comment.threadId == threadId else { return false }
+            let isOwn = comment.authorUsername == viewer.username
+            if let category = category {
+                // The exact-category toggle drops your own comments.
+                return !isOwn && !comment.isHidden
+                    && audienceAdmits(comment: comment, viewer: viewer)
+                    && commentMatchesCategory(comment, viewer: viewer, category: category)
+            }
+            if isOwn { return true }
+            return !comment.isHidden && audienceAdmits(comment: comment, viewer: viewer)
+        }
+    }
+
     /// Parses #hashtags from a caption the same way the backend does (issue
     /// #379): a '#' followed by unicode letters, numbers, or underscore
     /// (\p{L}\p{N}_) — exactly equivalent to the backend's Python `\w` on a
@@ -352,8 +460,47 @@ final class StatefulStubbedAPI: Networking {
 
     // MARK: - Implementations
     
-    func register(username: String, email: String, password: String, rememberMe: String, ip: String, dateOfBirth: String) async throws -> Data {
+    func register(username: String, email: String, password: String, rememberMe: String, ip: String, dateOfBirth: String, interestCategories: [String], interestFreeform: [String]) async throws -> Data {
         await simulateNetwork()
+        // A pre-seeded account (issue #377) is not a real prior registration —
+        // it stands in for one the test skipped walking through the UI. Let the
+        // first register call for such a name adopt the seeded row instead of
+        // failing as a duplicate, then drop it from the seeded set so a genuine
+        // second registration still gets the "already exists" rejection.
+        // Consume the marker up front, whichever path this call takes. Removing
+        // it only inside the adoption branch left it set when the seeded row had
+        // already been deleted — the name would then register for real, still be
+        // flagged as seeded, and a later duplicate registration would adopt that
+        // real account instead of being rejected.
+        let wasSeeded = seededUsernames.remove(username) != nil
+        if wasSeeded,
+           let index = users.firstIndex(where: { $0.username == username }) {
+            users[index].email = email
+            users[index].passwordHash = password
+            let membershipNumber = users[index].membershipNumber
+            let userId = users[index].id
+            sessions.removeAll { $0.userId == userId }
+            let seededSession = MockSession(managementToken: generateToken(), userId: userId, ip: ip)
+            sessions.append(seededSession)
+            if Bool(rememberMe.lowercased()) ?? false {
+                let cookie = MockLoginCookie(seriesIdentifier: UUID().uuidString, token: generateToken(), userId: userId)
+                loginCookies.append(cookie)
+                struct Fields: Codable { let series_identifier, login_cookie_token, session_management_token, user_id: String; let membership_number: Int? }
+                return try createSerializedResponse(fields: Fields(
+                    series_identifier: cookie.seriesIdentifier,
+                    login_cookie_token: cookie.token,
+                    session_management_token: seededSession.managementToken,
+                    user_id: userId.uuidString,
+                    membership_number: membershipNumber
+                ))
+            }
+            struct Fields: Codable { let session_management_token, user_id: String; let membership_number: Int? }
+            return try createSerializedResponse(fields: Fields(
+                session_management_token: seededSession.managementToken,
+                user_id: userId.uuidString,
+                membership_number: membershipNumber
+            ))
+        }
         if findUser(byUsername: username) != nil || findUser(byEmail: email) != nil {
             throw APIError.badServerResponse(statusCode: 400) // "User already exists"
         }
@@ -365,6 +512,13 @@ final class StatefulStubbedAPI: Networking {
         newUser.membershipNumber = membershipCounter
         let membershipNumber = newUser.membershipNumber
         users.append(newUser)
+
+        // Interests picked during sign-up ride along in the register payload
+        // (issues #446/#35). Best-effort, exactly like the backend.
+        if !interestCategories.isEmpty || !interestFreeform.isEmpty,
+           let index = users.firstIndex(where: { $0.id == newUser.id }) {
+            _ = applyInterests(atIndex: index, categories: interestCategories, freeform: interestFreeform)
+        }
         let newSession = MockSession(managementToken: generateToken(), userId: newUser.id, ip: ip)
         sessions.append(newSession)
 
@@ -1186,7 +1340,7 @@ final class StatefulStubbedAPI: Networking {
         return try createSerializedListResponse(fieldsList: fieldObjects)
     }
 
-    func commentOnPost(sessionManagementToken: String, postIdentifier: String, commentText: String, formatting: [CommentFormatSpan]? = nil) async throws -> Data {
+    func commentOnPost(sessionManagementToken: String, postIdentifier: String, commentText: String, formatting: [CommentFormatSpan]? = nil, audience: String? = nil) async throws -> Data {
         await simulateNetwork()
         guard let user = findUser(bySessionToken: sessionManagementToken) else { throw APIError.badServerResponse(statusCode: 400) }
         guard findPost(byIdentifier: postIdentifier) != nil else { throw APIError.badServerResponse(statusCode: 400) }
@@ -1194,6 +1348,7 @@ final class StatefulStubbedAPI: Networking {
         var newThread = MockCommentThread(postId: postIdentifier)
         var newComment = MockComment(threadId: newThread.commentThreadIdentifier, authorUsername: user.username, body: commentText)
         newComment.bodyFormatting = formatting
+        newComment.audience = audience ?? PostAudience.public.rawValue
         newThread.comments.append(newComment)
         
         comments.append(newComment)
@@ -1204,13 +1359,14 @@ final class StatefulStubbedAPI: Networking {
         return try createSerializedResponse(fields: fields)
     }
 
-    func replyToCommentThread(sessionManagementToken: String, postIdentifier: String, commentThreadIdentifier: String, commentText: String, formatting: [CommentFormatSpan]? = nil) async throws -> Data {
+    func replyToCommentThread(sessionManagementToken: String, postIdentifier: String, commentThreadIdentifier: String, commentText: String, formatting: [CommentFormatSpan]? = nil, audience: String? = nil) async throws -> Data {
         await simulateNetwork()
         guard let user = findUser(bySessionToken: sessionManagementToken) else { throw APIError.badServerResponse(statusCode: 400) }
         guard let threadIndex = commentThreads.firstIndex(where: { $0.commentThreadIdentifier == commentThreadIdentifier }) else { throw APIError.badServerResponse(statusCode: 400) }
 
         var newComment = MockComment(threadId: commentThreadIdentifier, authorUsername: user.username, body: commentText)
         newComment.bodyFormatting = formatting
+        newComment.audience = audience ?? PostAudience.public.rawValue
         commentThreads[threadIndex].comments.append(newComment)
         comments.append(newComment)
         
@@ -1283,11 +1439,17 @@ final class StatefulStubbedAPI: Networking {
         return try createEmptySuccessResponse()
     }
 
-    func getCommentsForPost(sessionManagementToken: String, postIdentifier: String, batch: Int) async throws -> Data {
+    func getCommentsForPost(sessionManagementToken: String, postIdentifier: String, batch: Int, category: String? = nil) async throws -> Data {
         await simulateNetwork()
-        guard findUser(bySessionToken: sessionManagementToken) != nil else { throw APIError.badServerResponse(statusCode: 401) }
-        let relevantThreads = commentThreads.filter { $0.postId == postIdentifier }
-        
+        guard let user = findUser(bySessionToken: sessionManagementToken) else { throw APIError.badServerResponse(statusCode: 401) }
+        let categoryFilter = category.flatMap { FollowCategory(rawValue: $0) }
+        // Only threads with a comment the viewer may see under the current filter
+        // survive (issue #445), mirroring visible_comment_threads.
+        let relevantThreads = commentThreads.filter {
+            $0.postId == postIdentifier
+                && !visibleComments(inThread: $0.commentThreadIdentifier, viewer: user, category: categoryFilter).isEmpty
+        }
+
         // If there are no threads return gracefully
         if relevantThreads.isEmpty {
             return try createSerializedListResponse(fieldsList: [Fields]())
@@ -1298,10 +1460,12 @@ final class StatefulStubbedAPI: Networking {
         return try createSerializedListResponse(fieldsList: fieldObjects)
     }
 
-    func getCommentsForThread(sessionManagementToken: String, commentThreadIdentifier: String, batch: Int) async throws -> Data {
+    func getCommentsForThread(sessionManagementToken: String, commentThreadIdentifier: String, batch: Int, category: String? = nil) async throws -> Data {
         await simulateNetwork()
         guard let user = findUser(bySessionToken: sessionManagementToken) else { throw APIError.badServerResponse(statusCode: 401) }
-        let relevantComments = comments.filter { $0.threadId == commentThreadIdentifier && !$0.isHidden }.sorted { $0.createdDate < $1.createdDate }
+        let categoryFilter = category.flatMap { FollowCategory(rawValue: $0) }
+        let relevantComments = visibleComments(inThread: commentThreadIdentifier, viewer: user, category: categoryFilter)
+            .sorted { $0.createdDate < $1.createdDate }
 
         if relevantComments.isEmpty {
             // If there are no comments return gracefully
@@ -1313,6 +1477,7 @@ final class StatefulStubbedAPI: Networking {
             let author_profile_image_url: String?
             let author_profile_image_original_url: String?
             let body_formatting: [CommentFormatSpan]?
+            let audience: String
             let creation_time, updated_time: String
             let comment_likes: Int
             let is_liked: Bool
@@ -1328,6 +1493,7 @@ final class StatefulStubbedAPI: Networking {
                    author_profile_image_url: authorAvatar,
                    author_profile_image_original_url: authorAvatar,
                    body_formatting: comment.bodyFormatting,
+                   audience: comment.audience,
                    creation_time: dateFormatter.string(from: comment.createdDate),
                    updated_time: dateFormatter.string(from: comment.updatedDate),
                    comment_likes: comment.likes.count,
@@ -1740,6 +1906,144 @@ final class StatefulStubbedAPI: Networking {
         }
         users[userIndex].bio = bio
         return try createSerializedResponse(fields: Fields(bio: bio, message: "Your bio has been updated."))
+    }
+
+    // MARK: - Positive interest tags (issues #446/#35)
+
+    /// Mirrors the backend apply_user_interests: full-replace of a user's
+    /// interest state. Known preset slugs are kept; each freeform term is
+    /// positivity-checked (reject anything containing "negative", like the
+    /// backend TESTING classifier) and mapped to buckets; the weighting set is
+    /// the union of picks and mapped buckets. Returns the applied result.
+    private func applyInterests(atIndex index: Int, categories: [String], freeform: [String]) -> SetInterestsResponse {
+        // Normalize before matching, mirroring the backend's strip().lower().
+        var picked: [String] = []
+        for raw in categories {
+            let slug = raw.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+            if InterestVocabulary.slugs.contains(slug) && !picked.contains(slug) {
+                picked.append(slug)
+            }
+        }
+
+        var accepted: [String] = []
+        var rejected: [RejectedInterest] = []
+        var union = Set(picked)
+        var seen = Set<String>()
+
+        for raw in freeform {
+            let term = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+            if term.isEmpty { continue }
+            // Dedupe before deciding the term's fate and bound the rejected
+            // list, mirroring the backend's _normalize_freeform_terms: deduping
+            // only accepted terms let a repeated bad term be reported once per
+            // occurrence, and an unbounded list diverges from the real API
+            // (duplicate ForEach ids, inflated responses).
+            let key = term.lowercased()
+            if seen.contains(key) { continue }
+            seen.insert(key)
+            if term.unicodeScalars.count > GVOAppConstants.maxFreeformInterestLength {
+                if rejected.count < GVOAppConstants.maxFreeformInterests {
+                    // Echo bounded like the backend bounds it, so a huge term
+                    // can't produce a huge response.
+                    let echo = term.unicodeScalars.count > GVOAppConstants.rejectedTextEchoLimit
+                        ? String(term.prefix(GVOAppConstants.rejectedTextEchoLimit)) + "…"
+                        : term
+                    rejected.append(RejectedInterest(text: echo, reasonCode: "too_long",
+                        reason: "is longer than \(GVOAppConstants.maxFreeformInterestLength) characters"))
+                }
+                continue
+            }
+            if key.contains("negative") {
+                if rejected.count < GVOAppConstants.maxFreeformInterests {
+                    rejected.append(RejectedInterest(text: key, reasonCode: "guidelines",
+                        reason: "did not meet our positivity guidelines"))
+                }
+                continue
+            }
+            accepted.append(key)
+            for slug in InterestVocabulary.matchSlugs(key) { union.insert(slug) }
+            if accepted.count >= GVOAppConstants.maxFreeformInterests { break }
+        }
+
+        users[index].freeformInterests = accepted
+        users[index].interestCategories = union.sorted()
+        return SetInterestsResponse(
+            categories: union.sorted(),
+            freeform: InterestFreeformResult(accepted: accepted, rejected: rejected),
+            message: "Your interests have been updated.")
+    }
+
+    func getInterestOptions() async throws -> Data {
+        await simulateNetwork()
+        struct Fields: Codable { let options: [InterestOption] }
+        return try createSerializedResponse(fields: Fields(options: InterestVocabulary.options))
+    }
+
+    func getInterests(sessionManagementToken: String) async throws -> Data {
+        await simulateNetwork()
+        guard let user = findUser(bySessionToken: sessionManagementToken) else {
+            throw APIError.badServerResponse(statusCode: 401)
+        }
+        struct Fields: Codable { let categories: [String]; let freeform: [String] }
+        return try createSerializedResponse(fields: Fields(
+            categories: user.interestCategories, freeform: user.freeformInterests))
+    }
+
+    func setInterests(sessionManagementToken: String, categories: [String], freeform: [String]) async throws -> Data {
+        await simulateNetwork()
+        guard let user = findUser(bySessionToken: sessionManagementToken),
+              let index = users.firstIndex(where: { $0.id == user.id })
+        else { throw APIError.badServerResponse(statusCode: 401) }
+        let result = applyInterests(atIndex: index, categories: categories, freeform: freeform)
+        struct RejectedFields: Codable { let text: String; let reason_code: String?; let reason: String? }
+        struct FreeformFields: Codable { let accepted: [String]; let rejected: [RejectedFields] }
+        struct Fields: Codable { let categories: [String]; let freeform: FreeformFields; let message: String? }
+        return try createSerializedResponse(fields: Fields(
+            categories: result.categories,
+            freeform: FreeformFields(
+                accepted: result.freeform.accepted,
+                rejected: result.freeform.rejected.map {
+                    RejectedFields(text: $0.text, reason_code: $0.reasonCode, reason: $0.reason)
+                }),
+            message: result.message))
+    }
+
+    // MARK: - Push notifications (issue #342/#343)
+
+    func registerDevice(sessionManagementToken: String, platform: String, token: String) async throws -> Data {
+        await simulateNetwork()
+        // The stub keeps no device table; registration just "succeeds" for a
+        // valid session so the push bootstrap can be exercised in UI mode.
+        guard findUser(bySessionToken: sessionManagementToken) != nil else {
+            throw APIError.badServerResponse(statusCode: 401)
+        }
+        struct Fields: Codable { let message: String }
+        return try createSerializedResponse(fields: Fields(message: "Device registered."))
+    }
+
+    // Per-type push preferences, mirroring the backend's PUSH_TYPE_CHOICES.
+    // Defaults to enabled; toggling stores an override in this map.
+    private var notificationOverrides: [String: Bool] = [:]
+
+    func getNotificationPreferences(sessionManagementToken: String) async throws -> Data {
+        await simulateNetwork()
+        guard findUser(bySessionToken: sessionManagementToken) != nil else {
+            throw APIError.badServerResponse(statusCode: 401)
+        }
+        let prefs = [NotificationPreference(
+            type: "post_rejected", label: "Post moderation",
+            enabled: notificationOverrides["post_rejected"] ?? true)]
+        return try createSerializedResponse(fields: NotificationPreferencesResponse(preferences: prefs))
+    }
+
+    func setNotificationPreference(sessionManagementToken: String, notificationType: String, enabled: Bool) async throws -> Data {
+        await simulateNetwork()
+        guard findUser(bySessionToken: sessionManagementToken) != nil else {
+            throw APIError.badServerResponse(statusCode: 401)
+        }
+        notificationOverrides[notificationType] = enabled
+        struct Fields: Codable { let type: String; let enabled: Bool }
+        return try createSerializedResponse(fields: Fields(type: notificationType, enabled: enabled))
     }
 
     // MARK: - Appeals

@@ -48,7 +48,7 @@ struct MockedAPI: Networking {
 
     // MARK: - User & Session Management
 
-    func register(username: String, email: String, password: String, rememberMe: String, ip: String, dateOfBirth: String) async throws -> Data {
+    func register(username: String, email: String, password: String, rememberMe: String, ip: String, dateOfBirth: String, interestCategories: [String], interestFreeform: [String]) async throws -> Data {
         let response = LoginResponseFields(
             sessionManagementToken: "mock_session_token",
             username: username,
@@ -287,7 +287,7 @@ struct MockedAPI: Networking {
     
     // MARK: - Comment Management
 
-    func commentOnPost(sessionManagementToken: String, postIdentifier: String, commentText: String, formatting: [CommentFormatSpan]? = nil) async throws -> Data {
+    func commentOnPost(sessionManagementToken: String, postIdentifier: String, commentText: String, formatting: [CommentFormatSpan]? = nil, audience: String? = nil) async throws -> Data {
         return try encodeGenericSuccess()
     }
 
@@ -311,7 +311,7 @@ struct MockedAPI: Networking {
         return try encodeGenericSuccess()
     }
 
-    func getCommentsForPost(sessionManagementToken: String, postIdentifier: String, batch: Int) async throws -> Data {
+    func getCommentsForPost(sessionManagementToken: String, postIdentifier: String, batch: Int, category: String? = nil) async throws -> Data {
         // Matches PostDetailViewModel.ThreadIDFields
         struct ThreadIDResponse: Codable {
             let comment_thread_identifier: String
@@ -324,7 +324,7 @@ struct MockedAPI: Networking {
         return try encode(threads)
     }
 
-    func getCommentsForThread(sessionManagementToken: String, commentThreadIdentifier: String, batch: Int) async throws -> Data {
+    func getCommentsForThread(sessionManagementToken: String, commentThreadIdentifier: String, batch: Int, category: String? = nil) async throws -> Data {
         // Matches PostDetailViewModel.CommentFields
         struct CommentResponse: Codable {
             let comment_identifier: String
@@ -359,7 +359,7 @@ struct MockedAPI: Networking {
         return try encode(comments)
     }
 
-    func replyToCommentThread(sessionManagementToken: String, postIdentifier: String, commentThreadIdentifier: String, commentText: String, formatting: [CommentFormatSpan]? = nil) async throws -> Data {
+    func replyToCommentThread(sessionManagementToken: String, postIdentifier: String, commentThreadIdentifier: String, commentText: String, formatting: [CommentFormatSpan]? = nil, audience: String? = nil) async throws -> Data {
         return try encodeGenericSuccess()
     }
 
@@ -423,6 +423,45 @@ struct MockedAPI: Networking {
     func setBio(sessionManagementToken: String, bio: String) async throws -> Data {
         struct BioResponse: Codable { let bio: String; let message: String }
         return try encode(BioResponse(bio: bio, message: "Your bio has been updated."))
+    }
+
+    // MARK: - Positive interest tags (issues #446/#35)
+
+    func getInterestOptions() async throws -> Data {
+        struct Fields: Codable { let options: [InterestOption] }
+        return try encode(Fields(options: InterestVocabulary.options))
+    }
+
+    func getInterests(sessionManagementToken: String) async throws -> Data {
+        struct Fields: Codable { let categories: [String]; let freeform: [String] }
+        return try encode(Fields(categories: [], freeform: []))
+    }
+
+    func setInterests(sessionManagementToken: String, categories: [String], freeform: [String]) async throws -> Data {
+        struct RejectedFields: Codable { let text: String; let reason_code: String?; let reason: String? }
+        struct FreeformFields: Codable { let accepted: [String]; let rejected: [RejectedFields] }
+        struct Fields: Codable { let categories: [String]; let freeform: FreeformFields; let message: String }
+        return try encode(Fields(
+            categories: categories,
+            freeform: FreeformFields(accepted: freeform, rejected: []),
+            message: "Your interests have been updated."))
+    }
+
+    // MARK: - Push notifications (issue #342/#343)
+
+    func registerDevice(sessionManagementToken: String, platform: String, token: String) async throws -> Data {
+        struct DeviceResponse: Codable { let message: String }
+        return try encode(DeviceResponse(message: "Device registered."))
+    }
+
+    func getNotificationPreferences(sessionManagementToken: String) async throws -> Data {
+        let prefs = [NotificationPreference(type: "post_rejected", label: "Post moderation", enabled: true)]
+        return try encode(NotificationPreferencesResponse(preferences: prefs))
+    }
+
+    func setNotificationPreference(sessionManagementToken: String, notificationType: String, enabled: Bool) async throws -> Data {
+        struct PrefResponse: Codable { let type: String; let enabled: Bool }
+        return try encode(PrefResponse(type: notificationType, enabled: enabled))
     }
 
     // MARK: - Appeals

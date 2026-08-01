@@ -27,6 +27,17 @@ NON_APPEALABLE_HIDDEN_REASONS = (
     HIDDEN_REASON_CLASSIFIER_FINAL,
 )
 
+# Hidden reasons in which a post has NOT (yet) passed classification, so there
+# is nothing meaningful to categorize into interest buckets (issues #446/#35):
+# it is still pending, or it was rejected — its content will never surface, and
+# a final rejection has had its image deleted. Report-hiding is deliberately
+# absent: such a post already passed classification and can return to the feed.
+NON_CATEGORIZABLE_HIDDEN_REASONS = frozenset({
+    HIDDEN_REASON_PENDING_CLASSIFICATION,
+    HIDDEN_REASON_CLASSIFIER,
+    HIDDEN_REASON_CLASSIFIER_FINAL,
+})
+
 # Classification lifecycle of a post as reported to its author (the `status`
 # field of make_post/get_post_status). Derived from hidden_reason; see
 # Post.classification_status.
@@ -98,6 +109,45 @@ PROFILE_IMAGE_STATUS_NONE = "none"
 PROFILE_IMAGE_STATUS_PENDING = "pending"
 PROFILE_IMAGE_STATUS_APPROVED = "approved"
 PROFILE_IMAGE_STATUS_REJECTED = "rejected"
+
+# Native push notifications (issues #342/#343). A DeviceToken row is one device
+# a user has registered to receive pop-up notifications on. The platform picks
+# the delivery provider: iOS goes through APNs directly, Android and web through
+# FCM. Push is best-effort and never the source of truth — a user who never
+# receives it still learns the outcome via in-app reconciliation (#282).
+DEVICE_PLATFORM_IOS = "ios"
+DEVICE_PLATFORM_ANDROID = "android"
+DEVICE_PLATFORM_WEB = "web"
+DEVICE_PLATFORM_CHOICES = [
+    (DEVICE_PLATFORM_IOS, "iOS"),
+    (DEVICE_PLATFORM_ANDROID, "Android"),
+    (DEVICE_PLATFORM_WEB, "Web"),
+]
+DEVICE_PLATFORMS = frozenset(value for value, _ in DEVICE_PLATFORM_CHOICES)
+
+# Upper bound on a stored device token. APNs tokens are 64 hex chars; FCM
+# registration tokens (Android and FCM-for-web) run ~150–350 chars. 1024 leaves
+# generous headroom over any real provider token while staying well under
+# PostgreSQL's ~2704-byte btree row limit — the token participates in the
+# (platform, token) UNIQUE index, so a larger value could pass validation only
+# to fail the insert at the index level.
+MAX_DEVICE_TOKEN_LENGTH = 1024
+
+# Machine-readable "type" on a push payload's data dict so a client can branch
+# on why it was notified and deep-link accordingly. The only kind today is a
+# post rejection resolved off the request path.
+PUSH_TYPE_POST_REJECTED = "post_rejected"
+
+# Registry of user-toggleable push notification types. Each entry's label is
+# what the clients' Settings "Notifications" toggles show; the preferences
+# endpoint returns one {type, label, enabled} row per entry and every client
+# renders a toggle per row generically — so a NEW push type needs only an entry
+# here plus a send_push call that passes its type, with no client changes.
+# Preferences default to enabled; send_push skips a type a user has turned off.
+PUSH_TYPE_CHOICES = [
+    (PUSH_TYPE_POST_REJECTED, "Post moderation"),
+]
+PUSH_TYPES = frozenset(value for value, _ in PUSH_TYPE_CHOICES)
 
 # Lifecycle of an appeal a user files against hidden content or a ban.
 APPEAL_STATUS_PENDING = "pending"
@@ -220,6 +270,10 @@ class Params:
     totp_code = "TOTP_CODE"
     recovery_code = "RECOVERY_CODE"
     bio = "BIO"
+    platform = "PLATFORM"
+    token = "TOKEN"
+    notification_type = "TYPE"
+    enabled = "ENABLED"
 
 class Fields:
     is_adult = 'is_adult'
@@ -308,6 +362,27 @@ class Fields:
     recovery_codes = "recovery_codes"
     totp_enabled = "totp_enabled"
     tags = "tags"
+    # Positive interest tags (issues #446/#35). `categories`/`freeform` are the
+    # POST /interests/set/ and GET /interests/ body keys; `interest_categories`/
+    # `interest_freeform` are the distinct keys interests ride under in the
+    # register payload (so they don't collide with anything else there).
+    categories = "categories"
+    freeform = "freeform"
+    interest_categories = "interest_categories"
+    interest_freeform = "interest_freeform"
+    options = "options"
+    slug = "slug"
+    name = "name"
+    accepted = "accepted"
+    rejected = "rejected"
+    text = "text"
+    platform = "platform"
+    token = "token"
+    # Push notification preferences (Settings toggles).
+    notification_type = "type"
+    enabled = "enabled"
+    label = "label"
+    preferences = "preferences"
 
 # Lengths of things
 LEN_LOGIN_COOKIE_TOKEN = 32
@@ -336,6 +411,72 @@ MAX_BIO_LENGTH = 500
 # MAX_CAPTION_LENGTH, so this is a belt-and-suspenders bound on abuse.
 MAX_TAG_LENGTH = 100
 MAX_TAGS_PER_POST = 30
+
+# =============================================================================
+# POSITIVE INTEREST TAGS (issues #446 / #35)
+# =============================================================================
+# The curated, closed vocabulary of "positive interest" buckets a user can pick
+# from (in Settings and at registration) and that the offline categorizer
+# assigns to posts. This is the single source of truth: the seed data migration
+# and the GET /interests/options/ endpoint both read it, and both the freeform
+# mapper and the post categorizer intersect the model's output against these
+# slugs. `slug` is the stable machine key (sent over the wire, stored on the
+# InterestCategory row); the name is the human label the clients display.
+#
+# Kept deliberately separate from the open-vocabulary hashtag Tag table: a
+# hashtag is whatever a user typed in a caption, whereas an interest bucket is a
+# controlled label the feed-weighting join relies on being finite and stable.
+INTEREST_CATEGORY_CHOICES = [
+    ("nature", "Nature"),
+    ("animals", "Animals"),
+    ("sports", "Sports"),
+    ("art", "Art"),
+    ("music", "Music"),
+    ("food", "Food"),
+    ("travel", "Travel"),
+    ("science", "Science"),
+    ("technology", "Technology"),
+    ("fitness", "Fitness"),
+    ("family", "Family"),
+    ("friends", "Friends"),
+    ("humor", "Humor"),
+    ("gratitude", "Gratitude"),
+    ("kindness", "Kindness"),
+    ("community", "Community"),
+    ("learning", "Learning"),
+    ("achievement", "Achievement"),
+    ("faith", "Faith"),
+    ("wellness", "Wellness"),
+    ("outdoors", "Outdoors"),
+    ("books", "Books"),
+    ("gaming", "Gaming"),
+    ("photography", "Photography"),
+]
+# Frozenset of the valid slugs, for cheap membership checks when validating an
+# incoming payload or a model's raw output.
+INTEREST_CATEGORY_SLUGS = frozenset(slug for slug, _ in INTEREST_CATEGORY_CHOICES)
+
+# A user keeps at most this many freeform interest terms (each a short phrase
+# they typed that passed the positivity check). Bounds the synchronous
+# classifier work a single /interests/ write can trigger.
+MAX_FREEFORM_INTERESTS = 20
+# Max length (unicode code points) of a single freeform interest term.
+MAX_FREEFORM_INTEREST_LENGTH = 100
+# How much of a rejected (over-length) term is echoed back to the client so it
+# can show the user what they typed. Deliberately well above
+# MAX_FREEFORM_INTEREST_LENGTH so an elided term still reads as clearly too
+# long, while bounding the response for a crafted payload whose single term is
+# as large as the request body allows.
+REJECTED_TEXT_ECHO_LIMIT = MAX_FREEFORM_INTEREST_LENGTH * 2
+# Most interest buckets the offline categorizer assigns to one post — a handful
+# of "what this is about" labels, not an exhaustive tagging.
+MAX_INTEREST_TAGS_PER_POST = 3
+# Feed weighting: a post's hot-rank score is multiplied by
+# (1 + INTEREST_BOOST * overlap), where overlap is the number of interest
+# buckets the post shares with the viewer — a LINEAR boost in the overlap, not
+# (1 + INTEREST_BOOST) applied per bucket. 0 would disable the feature; a larger
+# value surfaces on-interest posts more aggressively. Tunable.
+INTEREST_BOOST = 0.5
 
 # Number of reports before hiding
 MAX_BEFORE_HIDING_POST = 10

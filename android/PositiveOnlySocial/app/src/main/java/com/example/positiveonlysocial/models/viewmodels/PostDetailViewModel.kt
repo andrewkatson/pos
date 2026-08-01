@@ -107,9 +107,22 @@ class PostDetailViewModel(
     private val _currentUsername = MutableStateFlow<String?>(null)
     val currentUsername: StateFlow<String?> = _currentUsername.asStateFlow()
 
+    // The active comment-list filter — the followed-feed toggle applied to
+    // comments (issue #445). null means no filter (all visible comments).
+    private val _selectedCategory = MutableStateFlow<FollowCategory?>(null)
+    val selectedCategory: StateFlow<FollowCategory?> = _selectedCategory.asStateFlow()
+
     private val service = "positive-only-social.Positive-Only-Social"
 
     init {
+        loadAllData()
+    }
+
+    /** Switch the comment filter and reload. A no-op when unchanged so tapping
+     * the active chip doesn't refetch, mirroring the following feed. */
+    fun selectCategory(category: FollowCategory?) {
+        if (category == _selectedCategory.value) return
+        _selectedCategory.value = category
         loadAllData()
     }
 
@@ -227,8 +240,11 @@ class PostDetailViewModel(
                 throw Exception("Failed to load post details")
             }
 
-            // 2. Fetch the list of comment thread IDs for this post
-            val threadListResponse = api.getCommentsForPost(token, postIdentifier, 0)
+            // 2. Fetch the list of comment thread IDs for this post. The optional
+            // category applies the followed-feed toggle to comments (issue #445);
+            // null returns all visible threads.
+            val category = _selectedCategory.value?.value
+            val threadListResponse = api.getCommentsForPost(token, postIdentifier, 0, category)
             val threadDtos = threadListResponse.body() ?: emptyList()
             val threadIdentifiers = threadDtos.map { it.threadIdentifier }
 
@@ -236,7 +252,7 @@ class PostDetailViewModel(
             val loadedThreads = coroutineScope {
                 threadIdentifiers.map { threadId ->
                     async {
-                        val commentsResponse = api.getCommentsForThread(token, threadId, 0)
+                        val commentsResponse = api.getCommentsForThread(token, threadId, 0, category)
                         val comments = commentsResponse.body() ?: emptyList()
                         // Sort comments by date (oldest first)
                         val sortedComments = comments.sortedBy { it.creationTime }
@@ -255,7 +271,8 @@ class PostDetailViewModel(
                                 reportReason = c.reportReason,
                                 createdDate = parseBackendDate(c.creationTime) ?: Date(),
                                 authorProfileImageUrl = c.authorProfileImageUrl,
-                                authorProfileImageOriginalUrl = c.authorProfileImageOriginalUrl
+                                authorProfileImageOriginalUrl = c.authorProfileImageOriginalUrl,
+                                audience = c.audience
                             )
                         }
 
@@ -533,7 +550,11 @@ class PostDetailViewModel(
         }
     }
 
-    fun commentOnPost(commentText: String, formatting: List<CommentFormatSpan>? = null) {
+    fun commentOnPost(
+        commentText: String,
+        formatting: List<CommentFormatSpan>? = null,
+        audience: PostAudience = PostAudience.PUBLIC
+    ) {
         if (commentText.isEmpty()) return
 
         viewModelScope.launch {
@@ -548,7 +569,7 @@ class PostDetailViewModel(
                 val response = api.commentOnPost(
                     userSession.sessionToken,
                     postIdentifier,
-                    CommentRequest(commentText, formatting)
+                    CommentRequest(commentText, formatting, audience.value)
                 )
                 
                 if (response.isSuccessful) {
@@ -563,7 +584,12 @@ class PostDetailViewModel(
         }
     }
 
-    fun replyToCommentThread(thread: CommentThreadViewData, commentText: String, formatting: List<CommentFormatSpan>? = null) {
+    fun replyToCommentThread(
+        thread: CommentThreadViewData,
+        commentText: String,
+        formatting: List<CommentFormatSpan>? = null,
+        audience: PostAudience = PostAudience.PUBLIC
+    ) {
         if (commentText.isEmpty()) return
 
         viewModelScope.launch {
@@ -579,7 +605,7 @@ class PostDetailViewModel(
                     userSession.sessionToken,
                     postIdentifier,
                     thread.id,
-                    CommentRequest(commentText, formatting)
+                    CommentRequest(commentText, formatting, audience.value)
                 )
                 
                 if (response.isSuccessful) {

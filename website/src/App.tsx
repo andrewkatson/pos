@@ -16,6 +16,7 @@ import BlockedUsersPage from './pages/BlockedUsersPage'
 import SavedPostsPage from './pages/SavedPostsPage'
 import FollowListPage from './pages/FollowListPage'
 import PrivacyPolicyPage from './pages/PrivacyPolicyPage'
+import DeleteAccountPage from './pages/DeleteAccountPage'
 
 function App() {
   return (
@@ -38,6 +39,7 @@ function App() {
       <Route path="/followers" element={<FollowListPage mode="followers" />} />
       <Route path="/following" element={<FollowListPage mode="following" />} />
       <Route path="/privacy-policy" element={<PrivacyPolicyPage />} />
+      <Route path="/delete-account" element={<DeleteAccountPage />} />
     </Routes>
   )
 }
