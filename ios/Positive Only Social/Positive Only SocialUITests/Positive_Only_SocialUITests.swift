@@ -390,16 +390,21 @@ final class Positive_Only_SocialUITests: XCTestCase {
     }
     
     private func registerUser(app: XCUIApplication, username: String, password: String) throws {
-        // We wait until the "Welcome! 👋" text (which is in NeedsAuthView) appears.
-        let welcomeText = app.staticTexts["Welcome! 👋"]
-        
-        // Use a robust existence check with a reasonable timeout.
-        XCTAssertTrue(welcomeText.waitForExistence(timeout: TestConstants.shortTimeout), "The Welcome! 👋 text (NeedsAuthView) did not appear in time.")
-        
+        // Use the shared assertion rather than repeating the Welcome check
+        // here: this copy waited a plain shortTimeout and did not clear system
+        // alerts, so it missed the Save Password prompt that the shared one
+        // handles. Every route onto Welcome runs through one behaviour now.
+        assertOnWelcomeView(app: app)
+
         let registerButton = app.buttons["RegisterText"]
         XCTAssertTrue(registerButton.waitForExistence(timeout: TestConstants.shortTimeout))
+        // Clear a prompt that landed between arriving and tapping. Without
+        // this the tap goes to the alert instead, the push never happens, and
+        // the failure surfaces as the register screen "not appearing" — which
+        // is how testDeleteAccount presented.
+        dismissSavePasswordNow()
         registerButton.tap()
-        
+
         assertOnRegisterView(app: app)
         
         dismissKeyboardIfPresent(app)
@@ -824,12 +829,13 @@ final class Positive_Only_SocialUITests: XCTestCase {
     func testTappingOutsideFieldDismissesKeyboard() throws {
         try returnToWelcomeIfSignedIn(app: app)
 
-        // Navigate to the Register screen.
-        let welcomeText = app.staticTexts["Welcome! 👋"]
-        XCTAssertTrue(welcomeText.waitForExistence(timeout: TestConstants.shortTimeout),
-                      "Welcome view did not appear")
+        // Navigate to the Register screen. Same shared assertion and
+        // alert-clearing as registerUser: this test reaches Welcome after a
+        // possible logout, so the Save Password prompt can land here too.
+        assertOnWelcomeView(app: app)
         let registerButton = app.buttons["RegisterText"]
         XCTAssertTrue(registerButton.waitForExistence(timeout: TestConstants.shortTimeout))
+        dismissSavePasswordNow()
         registerButton.tap()
         assertOnRegisterView(app: app)
 
