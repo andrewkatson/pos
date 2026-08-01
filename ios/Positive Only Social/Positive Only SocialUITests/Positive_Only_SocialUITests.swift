@@ -230,8 +230,8 @@ final class Positive_Only_SocialUITests: XCTestCase {
             waitForExistenceClearingSystemAlerts(welcomeText, timeout: TestConstants.timeout),
             "The Welcome! 👋 text (NeedsAuthView) did not appear in time.")
 
-        XCTAssertTrue(app.buttons["RegisterText"].waitForExistence(timeout: TestConstants.shortTimeout), "Register button is not empty")
-        XCTAssertTrue(app.buttons["LoginText"].waitForExistence(timeout: TestConstants.shortTimeout), "Login button is not empty")
+        XCTAssertTrue(app.buttons["RegisterText"].waitForExistence(timeout: TestConstants.shortTimeout), "Register button not present")
+        XCTAssertTrue(app.buttons["LoginText"].waitForExistence(timeout: TestConstants.shortTimeout), "Login button not present")
     }
     
     /// Taps "Not Now" on the system Save Password prompt if it is on screen at
@@ -347,7 +347,7 @@ final class Positive_Only_SocialUITests: XCTestCase {
     private func assertOnNewPostView(app: XCUIApplication) {
         XCTAssertTrue(app.buttons["SelectAPhotoPicker"].waitForExistence(timeout: TestConstants.shortTimeout), "Select a photo picker not present")
         XCTAssertTrue(app.textViews["CaptionTextEditor"].waitForExistence(timeout: TestConstants.shortTimeout), "Caption text editor not present")
-        XCTAssertTrue(app.buttons["SharePostButton"].waitForExistence(timeout: TestConstants.shortTimeout), "Share post button is not empty")
+        XCTAssertTrue(app.buttons["SharePostButton"].waitForExistence(timeout: TestConstants.shortTimeout), "Share post button not present")
     }
     
     private func assertOnFeedView(app: XCUIApplication) {
