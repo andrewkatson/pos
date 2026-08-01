@@ -32,10 +32,16 @@ if (config && config.apiKey) {
   messaging.onBackgroundMessage((payload) => {
     const notification = payload.notification || {}
     const data = payload.data || {}
-    self.registration.showNotification(notification.title || 'Good Vibes Only', {
-      body: notification.body || '',
-      data: { deep_link: data.deep_link },
-    })
+    // showNotification returns a Promise that can reject (permission revoked
+    // after registration, a transient worker error). Swallow it explicitly, as
+    // the foreground handler in src/push/webPush.ts does: leaving it unhandled
+    // just prints noise, and background push is best-effort either way.
+    self.registration
+      .showNotification(notification.title || 'Good Vibes Only', {
+        body: notification.body || '',
+        data: { deep_link: data.deep_link },
+      })
+      .catch(() => {})
   })
 }
 
