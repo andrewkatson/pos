@@ -1334,6 +1334,15 @@ final class Positive_Only_SocialUITests: XCTestCase {
 
         app.buttons["ConfirmTwoFactorButton"].tap()
 
+        // Confirming submits the account password, so iOS offers to save it.
+        // That prompt is a SpringBoard alert drawn over the recovery-codes
+        // screen: the Done button below is visible but not tappable until it is
+        // gone, and a tap on it is simply swallowed. Dismiss it first.
+        // This is why the test fails without it while testChangePassword passes
+        // on the same screen with the same fields - that flow never submits a
+        // password iOS considers worth offering to save.
+        dismissSavePassword(app: app)
+
         // Recovery codes are shown once; finishing reports 2FA enabled.
         let finishButton = app.buttons["FinishTwoFactorEnrollmentButton"]
         XCTAssertTrue(finishButton.waitForExistence(timeout: TestConstants.shortTimeout), "Recovery-codes step with Done button should appear")
