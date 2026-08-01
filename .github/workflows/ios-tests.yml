@@ -5,10 +5,16 @@ on:
     paths:
       - 'ios/**'
       - '.github/workflows/ios-tests.yml'
+      # The coverage guard this workflow runs. Without it listed, a change to
+      # the guard alone would not trigger CI, so a broken guard could sit
+      # unexercised until some unrelated iOS change happened along - the same
+      # silent-gap failure the guard exists to prevent.
+      - '.github/scripts/check_ui_test_coverage.py'
   pull_request:
     paths:
       - 'ios/**'
       - '.github/workflows/ios-tests.yml'
+      - '.github/scripts/check_ui_test_coverage.py'
 
 jobs:
   build:
@@ -21,6 +27,11 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
+
+      # Runs before the (slow) build so a forgotten test fails in seconds
+      # rather than after a full build-and-test cycle.
+      - name: Verify every UI test is scheduled by the matrix
+        run: python3 .github/scripts/check_ui_test_coverage.py
 
       - name: List Xcode versions
         run: ls /Applications/ | grep Xcode
@@ -150,6 +161,7 @@ jobs:
                   "Positive Only SocialUITests/Positive_Only_SocialUITests/testDeleteAccount"
                   "Positive Only SocialUITests/Positive_Only_SocialUITests/testResetPassword"
                   "Positive Only SocialUITests/Positive_Only_SocialUITests/testTappingOutsideFieldDismissesKeyboard"
+                  "Positive Only SocialUITests/Positive_Only_SocialUITests/testChangePassword"
                 )
                 # "Positive Only Social" (default) plan covers both unit and UI tests
                 XCTESTRUN=$(find build/Build/Products -name "*.xctestrun" | grep -v "Unit Tests" | head -1)
@@ -159,6 +171,7 @@ jobs:
                   "Positive Only SocialUITests/Positive_Only_SocialUITests/testFollowAndUnfollowFromSearch"
                   "Positive Only SocialUITests/Positive_Only_SocialUITests/testFollowAndUnfollowFromPost"
                   "Positive Only SocialUITests/Positive_Only_SocialUITests/testLikeAndUnlikePost"
+                  "Positive Only SocialUITests/Positive_Only_SocialUITestsLaunchTests/testLaunch"
                 )
                 # "Positive Only Social" (default) plan covers both unit and UI tests
                 XCTESTRUN=$(find build/Build/Products -name "*.xctestrun" | grep -v "Unit Tests" | head -1)
@@ -188,6 +201,7 @@ jobs:
                   "Positive Only SocialUITests/Positive_Only_SocialUITests/testOpenPostDetailFromHomeGrid"
                   "Positive Only SocialUITests/Positive_Only_SocialUITests/testOpenPostDetailFromProfileGrid"
                   "Positive Only SocialUITests/Positive_Only_SocialUITests/testOpenPostDetailFromFollowingFeed"
+                  "Positive Only SocialUITests/Positive_Only_SocialUITests/testEnableTwoFactorAuthentication"
                 )
                 # "Positive Only Social" (default) plan covers both unit and UI tests
                 XCTESTRUN=$(find build/Build/Products -name "*.xctestrun" | grep -v "Unit Tests" | head -1)
