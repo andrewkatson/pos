@@ -69,18 +69,20 @@ struct LoginView: View {
 
     @ViewBuilder
     private var loginSection: some View {
-        // Under UI testing, drop the `.username` content type: a
+        // Both fields below drop their content type under UI testing. A
         // `.username`/`.password` pairing makes iOS surface the AutoFill /
-        // strong-password QuickType panel, which steals focus and breaks typing.
+        // strong-password QuickType panel, which steals focus and breaks
+        // typing; real users keep the credential types.
+        //
+        // Suppressing is only half of it, and deliberately the weaker half.
+        // `.oneTimeCode` was tried here (issue #377) to opt the secure field
+        // out of password AutoFill outright and made things worse — the field
+        // then never took keyboard focus at all in CI, so every login failed.
+        // Dropping the type makes the panel less likely; the test helper
+        // dismissing it is what actually carries this.
         TextField("Username or Email", text: $usernameOrEmail).padding().background(Color(.systemGray6)).cornerRadius(10).textContentType(isUITesting() ? nil : .username).autocapitalization(.none).keyboardType(.emailAddress)
             .focused($focusedField, equals: .usernameOrEmail)
             .accessibilityIdentifier("UsernameOrEmailTextField")
-        // Drop the content type under UI testing, same as the field above.
-        // .oneTimeCode was tried here (issue #377) to opt the field out of
-        // password AutoFill outright, and it made things worse: the secure
-        // field then never took keyboard focus at all in CI, so every login
-        // failed. Suppressing with nil and letting the test helper dismiss any
-        // panel that does appear is what actually works.
         SecureField("Password", text: $password).padding().background(Color(.systemGray6)).cornerRadius(10).textContentType(isUITesting() ? nil : .password)
             .focused($focusedField, equals: .password)
             .accessibilityIdentifier("PasswordSecureField")
