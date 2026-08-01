@@ -437,7 +437,14 @@ final class Positive_Only_SocialUITests: XCTestCase {
     /// ever does, since missing it leaves a modal blocking every later tap.
     private func dismissSavePassword(app: XCUIApplication) {
         let notNowButton = app.buttons["Not Now"]
-        if poll(timeout: 1.5, until: { notNowButton.exists }) {
+        // Full shortTimeout, matching the original. The window was trimmed to
+        // 1.5s while secure fields declared .oneTimeCode, which kept iOS from
+        // offering to save anything — that is no longer true, so the prompt can
+        // appear again and missing it leaves a SpringBoard alert covering the
+        // screen. testDeleteAccount failed exactly that way: the prompt landed
+        // after a failed sign-in, the tap on Register went to the alert
+        // instead, and the register screen never came up.
+        if poll(timeout: TestConstants.shortTimeout, until: { notNowButton.exists }) {
             notNowButton.tap()
         }
     }
