@@ -123,11 +123,13 @@ final class Positive_Only_SocialUITests: XCTestCase {
 
     /// Dismisses the iOS "Use Strong Password" AutoFill panel/sheet if showing.
     ///
-    /// Every secure field the tests touch now declares `.oneTimeCode` under UI
-    /// testing, which should stop the panel appearing at all. This stays as a
-    /// safety net because content-type suppression alone has proven unreliable
-    /// inside a Form/Section (the reason this helper was written in the first
-    /// place).
+    /// This is the primary defence, not a fallback. The app drops the
+    /// credential content type on these fields under UI testing, which makes
+    /// the panel less likely but does not prevent it — 2f07f7b recorded that
+    /// suppression alone is unreliable inside a Form/Section, which is why this
+    /// helper exists. Declaring `.oneTimeCode` to opt out of AutoFill outright
+    /// was tried for issue #377 and abandoned: it stopped secure fields taking
+    /// keyboard focus at all in CI. Dismissing the panel is what works.
     ///
     /// Each call is a single immediate probe with no waiting, unlike the old
     /// multi-second `waitForExistence` chain: the panel appears asynchronously,
