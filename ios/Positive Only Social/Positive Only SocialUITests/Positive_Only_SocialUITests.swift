@@ -151,7 +151,12 @@ final class Positive_Only_SocialUITests: XCTestCase {
         for title in ["xmark", "Close", "close",
                       "Choose My Own Password", "Choose My Own…", "Don't Use"] {
             let button = app.buttons[title]
-            if button.exists {
+            // Hittable, not merely existing: a panel that is still animating in
+            // is in the tree but not yet interactable, and tapping it then is a
+            // hard failure rather than a no-op. There is no need to gamble on
+            // the timing, because typeText calls this again on every retry — so
+            // a panel that is not ready yet is simply caught on the next pass.
+            if button.exists && button.isHittable {
                 button.tap()
                 return
             }
