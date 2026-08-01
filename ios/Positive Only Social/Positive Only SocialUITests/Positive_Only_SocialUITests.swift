@@ -229,7 +229,13 @@ final class Positive_Only_SocialUITests: XCTestCase {
     }
     
     private func assertOnRegisterView(app: XCUIApplication) {
-        XCTAssertTrue(app.textFields["UsernameTextField"].waitForExistence(timeout: TestConstants.shortTimeout), "Username field not present")
+        // The first check doubles as the "did we arrive?" wait, so it gets the
+        // longer timeout: it has to cover a navigation push, not just a render.
+        // testDeleteAccount reaches this screen ~210s into the test, after a
+        // delete, a deliberately failed sign-in and a back navigation, and the
+        // push took longer than the 3s this used to allow. The checks below it
+        // stay short - once the screen is up, its fields are all there at once.
+        XCTAssertTrue(app.textFields["UsernameTextField"].waitForExistence(timeout: TestConstants.timeout), "Username field not present")
         XCTAssertTrue(app.textFields["EmailTextField"].waitForExistence(timeout: TestConstants.shortTimeout), "Email field not present")
         XCTAssertTrue(app.secureTextFields["PasswordSecureField"].waitForExistence(timeout: TestConstants.shortTimeout), "Password field not present")
         XCTAssertTrue(app.secureTextFields["ConfirmPasswordSecureField"].waitForExistence(timeout: TestConstants.shortTimeout), "Confirm Password field not present")
