@@ -477,24 +477,27 @@ final class Positive_Only_SocialUITests: XCTestCase {
         dismissSavePassword(app: app)
     }
     
-    /// Dismisses the system "Save Password" prompt if one is showing.
+    /// Waits briefly for the system "Save Password" prompt and dismisses it.
     ///
-    /// The auth screens opt out of password AutoFill under UI testing, so this
-    /// prompt should no longer appear at all; the check stays as a cheap safety
-    /// net. It uses a reduced poll rather than a full `shortTimeout`
-    /// `waitForExistence` — this runs after every sign-in, and the old 3 s wait
-    /// was paid in full on every call precisely because nothing appears. The
-    /// window is still wide enough for the SpringBoard alert to present if it
-    /// ever does, since missing it leaves a modal blocking every later tap.
+    /// The prompt is common, not incidental: iOS raises it after a password is
+    /// submitted, and the auth screens no longer suppress it. Declaring
+    /// `.oneTimeCode` did suppress it, but stopped secure fields taking
+    /// keyboard focus at all, so that was reverted.
+    ///
+    /// The full window is deliberate. It was once trimmed to 1.5s on the
+    /// reasoning that nothing ever appeared here, and that directly caused
+    /// testDeleteAccount to fail — the prompt landed just after the shortened
+    /// window closed and then covered the screen. The wait is short in practice
+    /// whenever the prompt does appear, because polling stops the moment it is
+    /// dismissed; the full cost is only paid when there is nothing to dismiss.
+    ///
+    /// This is not the only defence. The prompt can arrive later still, after
+    /// this has already returned, so `scrollIntoView` and the screen-arrival
+    /// checks clear it at the point of use as well.
     private func dismissSavePassword(app: XCUIApplication) {
-        // Waits for the prompt rather than probing once, and delegates the tap
-        // to `dismissSavePasswordNow` so both paths share one rule about when
-        // the button is safe to touch. That rule matters: the alert can be in
-        // the tree while still animating in, and tapping a control that exists
-        // but is not yet hittable is a hard failure rather than a no-op.
-        //
-        // Costs the full window only when nothing appears, since polling stops
-        // the moment the dismissal succeeds.
+        // Delegates the tap so both paths share one rule about when the button
+        // is safe to touch: the alert can be in the tree while still animating
+        // in, and tapping a control that is not yet hittable is a hard failure.
         poll(timeout: TestConstants.shortTimeout, until: { dismissSavePasswordNow() })
     }
 
