@@ -136,7 +136,16 @@ final class Positive_Only_SocialUITests: XCTestCase {
     /// so `typeText` calls this again on every focus-retry attempt and the
     /// waiting happens in that loop's `poll`. Waiting here instead would charge
     /// every field for a panel that normally never appears.
-    private func dismissStrongPasswordIfPresent() {
+    private func dismissStrongPasswordIfPresent(for element: XCUIElement) {
+        // Only secure fields raise the password panel, and this must not run
+        // anywhere else: "Close" and "xmark" are generic enough to match an
+        // unrelated control, and tapping one cancels whatever the test was
+        // doing. That is not hypothetical - searching for a user tapped a
+        // "Close" button on the search screen once per retry, undoing the
+        // focus the tap had just established, and the field could never be
+        // typed into.
+        guard element.elementType == .secureTextField else { return }
+
         // Newer iOS: floating AutoFill panel with an X / xmark close button.
         // Older iOS: an action sheet with text buttons.
         for title in ["xmark", "Close", "close",
@@ -159,7 +168,7 @@ final class Positive_Only_SocialUITests: XCTestCase {
 
         element.tap()
 
-        dismissStrongPasswordIfPresent()
+        dismissStrongPasswordIfPresent(for: element)
 
         // Require focus *and* a keyboard, which is the condition this suite has
         // always passed under. Focus alone is not enough: the keyboard can lag
@@ -178,7 +187,7 @@ final class Positive_Only_SocialUITests: XCTestCase {
         while !poll(timeout: 2.0, until: { element.hasFocus && app.keyboards.count > 0 })
                 && attempt < maxAttempts {
             element.tap()
-            dismissStrongPasswordIfPresent()
+            dismissStrongPasswordIfPresent(for: element)
             attempt += 1
         }
 
