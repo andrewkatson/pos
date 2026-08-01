@@ -103,7 +103,11 @@ jobs:
     runs-on: macos-15
     # Without this the job inherits the 360-minute default; a job cancelled at
     # that limit skips the if: failure() steps, so we'd get no logs at all.
-    timeout-minutes: 75
+    # Sized off measured runs: a single attempt of the heaviest group has taken
+    # ~35 min, plus setup and a ~200 MB result-bundle upload. The step cap below
+    # is deliberately lower so the step, not the job, is what trips - a job
+    # cancelled at its limit skips the log-collecting steps entirely.
+    timeout-minutes: 90
     strategy:
       fail-fast: false
       matrix:
@@ -142,12 +146,14 @@ jobs:
 
           # Use the image's existing iPhone 16 rather than creating a device.
           # Creating one was only ever needed to give each of two shards its own
-          # simulator, and that sharding is gone. It also cost us a real
-          # failure: on a freshly created device the software keyboard never
-          # appeared, so a login field could not take focus and
-          # testFollowAndUnfollowFromSearch failed every attempt with "Element
-          # did not gain keyboard focus". Staying on the pre-existing device
-          # keeps us on the configuration the suite has always passed against.
+          # simulator, and that sharding is gone, so this is simply the
+          # configuration the suite has always passed against.
+          #
+          # A created device was once suspected of coming up without a software
+          # keyboard, which would have explained a run of "Element did not gain
+          # keyboard focus" failures. That turned out to be wrong - the failures
+          # continued on the existing device and had three unrelated causes in
+          # the test helpers. Kept anyway for being the smaller deviation.
           # Kept to one line: a multi-line -c script would have to sit at column
           # zero to satisfy Python, which ends this block scalar and breaks the
           # YAML. Error reporting lives in the shell below instead.
@@ -163,8 +169,9 @@ jobs:
 
           # Force the software keyboard on. With the hardware keyboard attached
           # iOS shows no on-screen keyboard, text fields never report focus, and
-          # every typing helper fails - which is exactly how the failure above
-          # presented. Defaulted per-device, so set it before boot.
+          # every typing helper fails. This was not the cause of the failures
+          # above, but it removes a per-image default we would otherwise be
+          # trusting. Defaulted per-device, so set it before boot.
           defaults write com.apple.iphonesimulator DevicePreferences -dict-add \
             "$SIM_ID" '{ConnectHardwareKeyboard = 0;}' || true
 
@@ -184,7 +191,11 @@ jobs:
           find build/Build/Products -name "*.xctestrun"
 
       - name: Run Tests
-        timeout-minutes: 60
+        # Covers a retried run: two attempts of the heaviest group, measured at
+        # ~35 min each. The old 60 was a combined cap across both attempts, so a
+        # slow second attempt was killed mid-flight and the retry bought
+        # nothing. Kept under the job cap so failures still reach the log steps.
+        timeout-minutes: 75
         shell: bash
         run: |
             cd "ios/Positive Only Social"
@@ -312,13 +323,25 @@ jobs:
             # simulator failing to boot, "Test runner never began executing",
             # install failures, xcodebuild dying. Those were the reason retries
             # existed, so keep one whole-run retry on top of it.
+            #
+            # But retry ONLY those. If a test case actually failed, xcodebuild
+            # has already re-run it three times in-process, so running the whole
+            # group again cannot change the outcome — it just doubles the job
+            # for a result we already have. That doubling is not theoretical:
+            # groups have taken 60-65 minutes against a 60 minute step cap,
+            # which both wasted a runner and truncated the retry it was
+            # supposedly buying.
             attempt=1
             max=2
             RC=1
             while :; do
               if run_tests_once; then RC=0; break; fi
               if [ "$attempt" -ge "$max" ]; then RC=1; break; fi
-              echo "Attempt $attempt failed; retrying (infrastructure flake?)" >&2
+              if grep -qiE "Test [Cc]ase .* failed" xcodebuild.log 2>/dev/null; then
+                echo "A test case failed and was already retried in-process; not re-running the group." >&2
+                RC=1; break
+              fi
+              echo "Attempt $attempt failed with no failing test case, so the run itself broke; retrying." >&2
               attempt=$(( attempt + 1 ))
             done
             exit "$RC"
