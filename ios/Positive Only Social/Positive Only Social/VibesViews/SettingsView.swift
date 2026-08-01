@@ -327,21 +327,23 @@ struct SettingsView: View {
                     .multilineTextAlignment(.center)
             }
 
-            // Under UI testing these use .oneTimeCode so iOS does not offer the
-            // "Use Strong Password" panel, which steals focus and makes every
-            // password field slow to type into (issue #377). Real users keep
-            // the credential content types.
+            // Under UI testing these drop their content type so iOS is less
+            // likely to offer the "Use Strong Password" panel, which steals
+            // focus and makes every password field slow to type into (issue
+            // #377). Real users keep the credential content types. The test
+            // helper still dismisses the panel actively, which is the part that
+            // is reliable inside a Form/Section (see 2f07f7b).
             SecureField("Current password", text: $changePasswordCurrent)
                 .padding().background(Color(.systemGray6)).cornerRadius(10)
-                .textContentType(isUITesting() ? .oneTimeCode : .password)
+                .textContentType(isUITesting() ? nil : .password)
                 .accessibilityIdentifier("ChangePasswordCurrentField")
             SecureField("New password", text: $changePasswordNew)
                 .padding().background(Color(.systemGray6)).cornerRadius(10)
-                .textContentType(isUITesting() ? .oneTimeCode : .newPassword)
+                .textContentType(isUITesting() ? nil : .newPassword)
                 .accessibilityIdentifier("ChangePasswordNewField")
             SecureField("Confirm new password", text: $changePasswordConfirm)
                 .padding().background(Color(.systemGray6)).cornerRadius(10)
-                .textContentType(isUITesting() ? .oneTimeCode : .newPassword)
+                .textContentType(isUITesting() ? nil : .newPassword)
                 .accessibilityIdentifier("ChangePasswordConfirmField")
 
             // Inline guidance so the disabled Change button isn't a dead end.
@@ -482,7 +484,7 @@ struct SettingsView: View {
                 // real owner out permanently.
                 SecureField("Account password", text: $twoFactorConfirmPassword)
                     .padding().background(Color(.systemGray6)).cornerRadius(10)
-                    .textContentType(isUITesting() ? .oneTimeCode : .password)
+                    .textContentType(isUITesting() ? nil : .password)
                     .accessibilityIdentifier("TwoFactorConfirmPasswordSecureField")
                 Button("Verify") {
                     viewModel.confirmTotp(password: twoFactorConfirmPassword,
@@ -543,7 +545,7 @@ struct SettingsView: View {
                 // password by iOS, so it can float the AutoFill panel. No test
                 // drives the disable flow today, but leaving the one field out
                 // is how that panel creeps back in later.
-                .textContentType(isUITesting() ? .oneTimeCode : .password)
+                .textContentType(isUITesting() ? nil : .password)
                 .accessibilityIdentifier("DisableTwoFactorPasswordField")
             TextField(disableUsesRecoveryCode ? "Recovery code" : "Authenticator code", text: $disableCode)
                 .padding().background(Color(.systemGray6)).cornerRadius(10)

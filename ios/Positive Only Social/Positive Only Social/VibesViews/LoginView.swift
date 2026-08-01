@@ -75,12 +75,13 @@ struct LoginView: View {
         TextField("Username or Email", text: $usernameOrEmail).padding().background(Color(.systemGray6)).cornerRadius(10).textContentType(isUITesting() ? nil : .username).autocapitalization(.none).keyboardType(.emailAddress)
             .focused($focusedField, equals: .usernameOrEmail)
             .accessibilityIdentifier("UsernameOrEmailTextField")
-        // Under UI testing use .oneTimeCode rather than nil: a nil content type
-        // still lets iOS treat a secure field as a password and float the "Use
-        // Strong Password" / "Save Password" panels, which steal focus and slow
-        // every auth flow. .oneTimeCode opts the field out of password AutoFill
-        // entirely (issue #377) while keeping secure entry.
-        SecureField("Password", text: $password).padding().background(Color(.systemGray6)).cornerRadius(10).textContentType(isUITesting() ? .oneTimeCode : .password)
+        // Drop the content type under UI testing, same as the field above.
+        // .oneTimeCode was tried here (issue #377) to opt the field out of
+        // password AutoFill outright, and it made things worse: the secure
+        // field then never took keyboard focus at all in CI, so every login
+        // failed. Suppressing with nil and letting the test helper dismiss any
+        // panel that does appear is what actually works.
+        SecureField("Password", text: $password).padding().background(Color(.systemGray6)).cornerRadius(10).textContentType(isUITesting() ? nil : .password)
             .focused($focusedField, equals: .password)
             .accessibilityIdentifier("PasswordSecureField")
         Toggle("Remember Me", isOn: $rememberMe)

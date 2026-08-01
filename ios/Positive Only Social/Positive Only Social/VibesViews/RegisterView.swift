@@ -112,7 +112,7 @@ struct RegisterView: View {
                 // Disable the automatic "Use Strong Password" AutoFill prompt
                 // during UI tests, where it would block interaction. Real users
                 // still get the new-password content type.
-                .textContentType(isUITesting() ? .oneTimeCode : .newPassword)
+                .textContentType(isUITesting() ? nil : .newPassword)
                 .focused($focusedField, equals: .password)
                 .accessibilityIdentifier("PasswordSecureField")
             if !password.isEmpty {
@@ -124,7 +124,7 @@ struct RegisterView: View {
                 .padding()
                 .background(Color(.systemGray6))
                 .cornerRadius(10)
-                .textContentType(isUITesting() ? .oneTimeCode : .newPassword)
+                .textContentType(isUITesting() ? nil : .newPassword)
                 .focused($focusedField, equals: .confirmPassword)
                 .accessibilityIdentifier("ConfirmPasswordSecureField")
             
