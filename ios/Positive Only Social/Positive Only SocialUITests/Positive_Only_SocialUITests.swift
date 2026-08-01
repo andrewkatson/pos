@@ -262,10 +262,26 @@ final class Positive_Only_SocialUITests: XCTestCase {
         timeout: TimeInterval
     ) -> Bool {
         poll(timeout: timeout) {
-            if element.exists { return true }
+            // Clear first, then check. Checking first and returning early would
+            // defeat the purpose: the prompt leaves elements in the tree, so
+            // the element can "exist" while the alert is still covering it, and
+            // the caller would proceed to a tap that goes to the alert. Doing
+            // it in this order means that whenever this returns true, any
+            // prompt has just been dismissed.
             dismissSavePasswordNow()
             return element.exists
         }
+    }
+
+    /// Taps `element` after clearing any system prompt that would intercept it.
+    ///
+    /// A SpringBoard alert swallows the tap silently — the control stays in the
+    /// tree, the tap reports success, and the screen simply never changes — so
+    /// every tap that follows a password submission goes through here rather
+    /// than relying on the alert having been dismissed earlier.
+    private func tapClearingSystemAlerts(_ element: XCUIElement) {
+        dismissSavePasswordNow()
+        element.tap()
     }
 
     private func assertOnRegisterView(app: XCUIApplication) {
@@ -402,8 +418,7 @@ final class Positive_Only_SocialUITests: XCTestCase {
         // this the tap goes to the alert instead, the push never happens, and
         // the failure surfaces as the register screen "not appearing" — which
         // is how testDeleteAccount presented.
-        dismissSavePasswordNow()
-        registerButton.tap()
+        tapClearingSystemAlerts(registerButton)
 
         assertOnRegisterView(app: app)
         
@@ -435,7 +450,7 @@ final class Positive_Only_SocialUITests: XCTestCase {
 
         let otherRegisterButton = app.buttons["RegisterButton"]
         XCTAssertTrue(otherRegisterButton.waitForExistence(timeout: TestConstants.shortTimeout))
-        otherRegisterButton.tap()
+        tapClearingSystemAlerts(otherRegisterButton)
         
         let privacyPolicyAlert = app.alerts["Privacy Policy"]
         XCTAssertTrue(privacyPolicyAlert.waitForExistence(timeout: TestConstants.shortTimeout))
@@ -475,7 +490,7 @@ final class Positive_Only_SocialUITests: XCTestCase {
 
         let loginButton = app.buttons["LoginButton"]
         XCTAssertTrue(loginButton.waitForExistence(timeout: TestConstants.shortTimeout))
-        loginButton.tap()
+        tapClearingSystemAlerts(loginButton)
 
         assertOnHomeView(app: app)
 
@@ -519,7 +534,7 @@ final class Positive_Only_SocialUITests: XCTestCase {
 
         let loginButton = app.buttons["LoginText"]
         XCTAssertTrue(loginButton.waitForExistence(timeout: TestConstants.shortTimeout))
-        loginButton.tap()
+        tapClearingSystemAlerts(loginButton)
 
         assertOnLoginView(app: app)
 
@@ -552,7 +567,7 @@ final class Positive_Only_SocialUITests: XCTestCase {
 
         let loginButton2 = app.buttons["LoginButton"]
         XCTAssertTrue(loginButton2.waitForExistence(timeout: TestConstants.shortTimeout))
-        loginButton2.tap()
+        tapClearingSystemAlerts(loginButton2)
 
         assertOnHomeView(app: app)
 
@@ -835,8 +850,7 @@ final class Positive_Only_SocialUITests: XCTestCase {
         assertOnWelcomeView(app: app)
         let registerButton = app.buttons["RegisterText"]
         XCTAssertTrue(registerButton.waitForExistence(timeout: TestConstants.shortTimeout))
-        dismissSavePasswordNow()
-        registerButton.tap()
+        tapClearingSystemAlerts(registerButton)
         assertOnRegisterView(app: app)
 
         // Focus a field so the keyboard appears. The simulator occasionally
@@ -890,7 +904,7 @@ final class Positive_Only_SocialUITests: XCTestCase {
 
         let loginButton = app.buttons["LoginText"]
         XCTAssertTrue(loginButton.waitForExistence(timeout: TestConstants.shortTimeout))
-        loginButton.tap()
+        tapClearingSystemAlerts(loginButton)
         
         assertOnLoginView(app: app)
         
@@ -906,7 +920,7 @@ final class Positive_Only_SocialUITests: XCTestCase {
         
         let loginButton2 = app.buttons["LoginButton"]
         XCTAssertTrue(loginButton2.waitForExistence(timeout: TestConstants.shortTimeout))
-        loginButton2.tap()
+        tapClearingSystemAlerts(loginButton2)
         
         XCTAssertTrue(app.buttons["LoginFailedOkButton"].waitForExistence(timeout: TestConstants.shortTimeout), "Login should have failed")
         
@@ -937,7 +951,7 @@ final class Positive_Only_SocialUITests: XCTestCase {
 
         let loginButton = app.buttons["LoginText"]
         XCTAssertTrue(loginButton.waitForExistence(timeout: TestConstants.shortTimeout))
-        loginButton.tap()
+        tapClearingSystemAlerts(loginButton)
 
         assertOnLoginView(app: app)
 
@@ -1014,7 +1028,7 @@ final class Positive_Only_SocialUITests: XCTestCase {
         
         let loginButton2 = app.buttons["LoginText"]
         XCTAssertTrue(loginButton2.waitForExistence(timeout: TestConstants.shortTimeout))
-        loginButton2.tap()
+        tapClearingSystemAlerts(loginButton2)
         
         assertOnLoginView(app: app)
         
@@ -1030,7 +1044,7 @@ final class Positive_Only_SocialUITests: XCTestCase {
         
         let loginButton3 = app.buttons["LoginButton"]
         XCTAssertTrue(loginButton3.waitForExistence(timeout: TestConstants.shortTimeout))
-        loginButton3.tap()
+        tapClearingSystemAlerts(loginButton3)
         
         dismissSavePassword(app: app)
         
