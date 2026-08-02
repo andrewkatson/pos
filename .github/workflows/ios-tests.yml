@@ -72,6 +72,18 @@ jobs:
           | xcpretty
           exit ${PIPESTATUS[0]}
 
+      # CODE_SIGNING_ALLOWED=NO, on top of the two settings below it. Push
+      # notifications gave the app target a CODE_SIGN_ENTITLEMENTS file
+      # (aps-environment), and an entitlements file makes xcodebuild run
+      # ProcessProductPackaging, which gathers provisioning inputs and writes
+      # .xcent/.xcent.der plists next to the product. CODE_SIGN_IDENTITY="" and
+      # CODE_SIGNING_REQUIRED=NO only say the product need not be *signed* -
+      # measured locally, the packaging step still ran six times and emitted
+      # every .xcent. That work depends on signing assets the runners do not
+      # have, so it is a failure the runner would be the first to hit.
+      # ALLOWED=NO skips the step outright: verified to build clean with zero
+      # ProcessProductPackaging invocations and no .xcent produced. Simulator
+      # test bundles are never signed, so nothing the tests need is lost.
       - name: Build for Testing
         working-directory: "ios/Positive Only Social"
         run: |
@@ -82,6 +94,7 @@ jobs:
             -derivedDataPath build \
             CODE_SIGN_IDENTITY="" \
             CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGNING_ALLOWED=NO \
           | tee build.log | xcpretty
           exit ${PIPESTATUS[0]}
 
