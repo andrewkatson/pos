@@ -80,6 +80,9 @@ dependencies {
     implementation(libs.androidx.navigation.compose)
     implementation(platform(libs.firebase.bom))
     implementation(libs.firebase.messaging)
+    // Forces firebase-messaging's transitive androidx.fragment 1.1.0 up past the
+    // 1.3.0 that ActivityResult APIs require (see libs.versions.toml).
+    implementation(libs.androidx.fragment)
     implementation(libs.io.coil.compose)
     implementation(libs.zxing.core)
     implementation(libs.androidx.material.icons.extended)
