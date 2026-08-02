@@ -72,18 +72,24 @@ jobs:
           | xcpretty
           exit ${PIPESTATUS[0]}
 
-      # CODE_SIGNING_ALLOWED=NO, on top of the two settings below it. Push
-      # notifications gave the app target a CODE_SIGN_ENTITLEMENTS file
-      # (aps-environment), and an entitlements file makes xcodebuild run
-      # ProcessProductPackaging, which gathers provisioning inputs and writes
-      # .xcent/.xcent.der plists next to the product. CODE_SIGN_IDENTITY="" and
-      # CODE_SIGNING_REQUIRED=NO only say the product need not be *signed* -
-      # measured locally, the packaging step still ran six times and emitted
-      # every .xcent. That work depends on signing assets the runners do not
-      # have, so it is a failure the runner would be the first to hit.
-      # ALLOWED=NO skips the step outright: verified to build clean with zero
-      # ProcessProductPackaging invocations and no .xcent produced. Simulator
-      # test bundles are never signed, so nothing the tests need is lost.
+      # CODE_SIGN_ENTITLEMENTS="" overrides the entitlements file that push
+      # notifications added to the app target, so the aps-environment key -
+      # which a real build would need a matching provisioning profile for -
+      # never reaches the product the runner builds. Everything else about
+      # signing stays on.
+      #
+      # Do NOT "simplify" this to CODE_SIGNING_ALLOWED=NO. That was tried and
+      # it broke all six test jobs: it leaves the app entirely unsigned, with
+      # no entitlements blob and a signature identifier of "Positive Only
+      # Social" instead of the bundle id. The iOS Keychain needs a signed app
+      # carrying an application-identifier, so every Keychain call returned
+      # errSecMissingEntitlement (-34018) and every test touching
+      # KeychainHelper or AuthenticationManager failed. The build passing
+      # proves nothing here - the damage only shows at test time.
+      #
+      # This combination is verified: builds clean, signs as
+      # com.katsonsoftware.goodvibesonly, no aps-environment in the products,
+      # and the full 217-test unit suite passes with no -34018.
       - name: Build for Testing
         working-directory: "ios/Positive Only Social"
         run: |
@@ -94,7 +100,7 @@ jobs:
             -derivedDataPath build \
             CODE_SIGN_IDENTITY="" \
             CODE_SIGNING_REQUIRED=NO \
-            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGN_ENTITLEMENTS="" \
           | tee build.log | xcpretty
           exit ${PIPESTATUS[0]}
 

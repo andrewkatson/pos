@@ -42,10 +42,14 @@ the user still learns async outcomes via in-app reconciliation (#282).
   path this repo has — there is no fastlane, no `ExportOptions.plist`, and no
   archive workflow, so distribution is a manual Xcode archive-and-export. If
   that ever becomes automated with explicit entitlements, revisit this.
-- CI is unaffected by the entitlements file because `ios-tests.yml` builds with
-  `CODE_SIGNING_ALLOWED=NO`. Without it, an entitlements file makes xcodebuild
-  run `ProcessProductPackaging` and emit `.xcent` plists, which needs signing
-  assets the runners do not have. Simulator test bundles are never signed.
+- CI overrides the entitlements away with `CODE_SIGN_ENTITLEMENTS=""` in
+  `ios-tests.yml`, so `aps-environment` — which a real build would need a
+  matching provisioning profile for — never reaches what the runner builds.
+  Signing itself stays on, which matters: `CODE_SIGNING_ALLOWED=NO` was tried
+  and broke every test job, because an unsigned app carries no
+  application-identifier and the iOS Keychain then fails every call with
+  `errSecMissingEntitlement` (-34018). The build still succeeds when that
+  happens, so the build job passing is not evidence the tests will run.
 - Pushes are user-visible alerts, so no `remote-notification` background mode is
   required.
 - A denied permission or a simulator (which has no APNs) just no-ops.
