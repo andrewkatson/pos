@@ -72,6 +72,24 @@ jobs:
           | xcpretty
           exit ${PIPESTATUS[0]}
 
+      # CODE_SIGN_ENTITLEMENTS="" overrides the entitlements file that push
+      # notifications added to the app target, so the aps-environment key -
+      # which a real build would need a matching provisioning profile for -
+      # never reaches the product the runner builds. Everything else about
+      # signing stays on.
+      #
+      # Do NOT "simplify" this to CODE_SIGNING_ALLOWED=NO. That was tried and
+      # it broke all six test jobs: it leaves the app entirely unsigned, with
+      # no entitlements blob and a signature identifier of "Positive Only
+      # Social" instead of the bundle id. The iOS Keychain needs a signed app
+      # carrying an application-identifier, so every Keychain call returned
+      # errSecMissingEntitlement (-34018) and every test touching
+      # KeychainHelper or AuthenticationManager failed. The build passing
+      # proves nothing here - the damage only shows at test time.
+      #
+      # This combination is verified: builds clean, signs as
+      # com.katsonsoftware.goodvibesonly, no aps-environment in the products,
+      # and the full 217-test unit suite passes with no -34018.
       - name: Build for Testing
         working-directory: "ios/Positive Only Social"
         run: |
@@ -82,6 +100,7 @@ jobs:
             -derivedDataPath build \
             CODE_SIGN_IDENTITY="" \
             CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGN_ENTITLEMENTS="" \
           | tee build.log | xcpretty
           exit ${PIPESTATUS[0]}
 
