@@ -19,11 +19,15 @@ the user still learns async outcomes via in-app reconciliation (#282).
 
 ## To enable it (Xcode + Apple Developer)
 
-1. Already done: the target has the **Push Notifications** capability, and
-   `Positive Only Social/Positive Only Social.entitlements` (`aps-environment`)
-   is committed and wired up via `CODE_SIGN_ENTITLEMENTS` on both
-   configurations. What still has to happen per-machine is provisioning — the
-   signing team needs an APNs-enabled profile for the bundle id.
+1. Already done: the target has the **Push Notifications** capability, and the
+   entitlements file carrying `aps-environment` is committed at
+   `ios/Positive Only Social/Positive Only Social/Positive Only Social.entitlements`.
+   It is wired up on both configurations as
+   `CODE_SIGN_ENTITLEMENTS = "Positive Only Social/Positive Only Social.entitlements"`
+   — that build setting is resolved relative to the `.xcodeproj`, which is why it
+   has one fewer path component than the repo path above. What still has to happen
+   per-machine is provisioning — the signing team needs an APNs-enabled profile for
+   the bundle id.
 2. In the Apple Developer portal, create an **APNs Auth Key** (`.p8`) and note
    its Key ID and your Team ID. Give these to the backend (`APNS_AUTH_KEY*`,
    `APNS_KEY_ID`, `APNS_TEAM_ID`, `APNS_TOPIC` = the app bundle id
