@@ -64,8 +64,8 @@
 				VibesViewModels/AppealsViewModel.swift,
 				VibesViewModels/BlockedUsersViewModel.swift,
 				VibesViewModels/FeedViewModel.swift,
-				VibesViewModels/FollowListViewModel.swift,
 				VibesViewModels/FollowingFeedViewModel.swift,
+				VibesViewModels/FollowListViewModel.swift,
 				VibesViewModels/HomeViewModel.swift,
 				VibesViewModels/PostActionsViewModel.swift,
 				VibesViewModels/PostDetailViewModel.swift,
@@ -76,6 +76,7 @@
 				VibesViews/BlockedUsersView.swift,
 				VibesViews/CaptionTileView.swift,
 				VibesViews/CheckEmailView.swift,
+				VibesViews/CommentComposerView.swift,
 				VibesViews/CommentRowView.swift,
 				VibesViews/CommentThreadView.swift,
 				VibesViews/FeedView.swift,
@@ -87,7 +88,6 @@
 				VibesViews/ProfileAvatarView.swift,
 				VibesViews/ProfileView.swift,
 				VibesViews/RegisterView.swift,
-				VibesViews/CommentComposerView.swift,
 				VibesViews/ReportView.swift,
 				VibesViews/RequestResetView.swift,
 				VibesViews/ResetPasswordView.swift,
@@ -124,8 +124,8 @@
 				VibesViewModels/AppealsViewModel.swift,
 				VibesViewModels/BlockedUsersViewModel.swift,
 				VibesViewModels/FeedViewModel.swift,
-				VibesViewModels/FollowListViewModel.swift,
 				VibesViewModels/FollowingFeedViewModel.swift,
+				VibesViewModels/FollowListViewModel.swift,
 				VibesViewModels/HomeViewModel.swift,
 				VibesViewModels/PostActionsViewModel.swift,
 				VibesViewModels/PostDetailViewModel.swift,
@@ -136,6 +136,7 @@
 				VibesViews/BlockedUsersView.swift,
 				VibesViews/CaptionTileView.swift,
 				VibesViews/CheckEmailView.swift,
+				VibesViews/CommentComposerView.swift,
 				VibesViews/CommentRowView.swift,
 				VibesViews/CommentThreadView.swift,
 				VibesViews/FeedView.swift,
@@ -147,7 +148,6 @@
 				VibesViews/ProfileAvatarView.swift,
 				VibesViews/ProfileView.swift,
 				VibesViews/RegisterView.swift,
-				VibesViews/CommentComposerView.swift,
 				VibesViews/ReportView.swift,
 				VibesViews/RequestResetView.swift,
 				VibesViews/ResetPasswordView.swift,
@@ -549,8 +549,9 @@
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				CODE_SIGN_ENTITLEMENTS = "Positive Only Social/Positive Only Social.entitlements";
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 1;
+				CURRENT_PROJECT_VERSION = 7;
 				DEVELOPMENT_TEAM = 7L9M852R4K;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
@@ -565,7 +566,7 @@
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-				MARKETING_VERSION = 1.03;
+				MARKETING_VERSION = 1.05.03;
 				PRODUCT_BUNDLE_IDENTIFIER = com.katsonsoftware.goodvibesonly;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SWIFT_EMIT_LOC_STRINGS = YES;
@@ -579,8 +580,9 @@
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				CODE_SIGN_ENTITLEMENTS = "Positive Only Social/Positive Only Social.entitlements";
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 1;
+				CURRENT_PROJECT_VERSION = 7;
 				DEVELOPMENT_TEAM = 7L9M852R4K;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
@@ -595,7 +597,7 @@
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-				MARKETING_VERSION = 1.03;
+				MARKETING_VERSION = 1.05.03;
 				PRODUCT_BUNDLE_IDENTIFIER = com.katsonsoftware.goodvibesonly;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SWIFT_EMIT_LOC_STRINGS = YES;
