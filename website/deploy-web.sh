@@ -10,6 +10,18 @@
 # Topology:
 #   smiling.social / www  ->  CloudFront (EMS8KP5TZ1KB3)  ->  S3 (smiling-social-web)
 #
+# Two pieces of distribution config this script does NOT manage, both needed for
+# shared post links (issue #381) — the script checks the first and warns:
+#
+#   1. SPA routing. /post/<id> is a client-side route with no object behind it
+#      in S3, so the distribution needs custom error responses mapping 403 and
+#      404 to /index.html with a 200, or a cold load of a shared link 404s.
+#
+#   2. Link previews. cloudfront/link-preview.js must be published as a
+#      CloudFront Function and associated with the default cache behavior on
+#      *viewer request*, so crawlers fetching /post/<id> are redirected to the
+#      backend's Open Graph document instead of the empty SPA shell.
+#
 # Run from a machine with the AWS CLI + Node installed and credentials that can
 # write the bucket and create invalidations (s3:PutObject/DeleteObject/ListBucket
 # on the bucket, cloudfront:CreateInvalidation on the distribution). Works in CI
@@ -90,6 +102,22 @@ aws s3 sync dist/assets/ "s3://$BUCKET/assets/" --delete \
 print_status "Syncing the rest to s3://$BUCKET/ (no-cache)..."
 aws s3 sync dist/ "s3://$BUCKET/" --delete --exclude "assets/*" \
     --cache-control "no-cache"
+
+# A shared /post/<id> link is a client-side route with nothing behind it in S3,
+# so CloudFront must rewrite the resulting 403/404 to /index.html with a 200 or
+# a cold load of the link fails (issue #381). Only a warning: the check needs
+# cloudfront:GetDistributionConfig, which a deploy role may not carry, and a
+# missing permission must not fail an otherwise good deploy.
+print_status "Checking SPA routing (403/404 -> /index.html) on $DISTRIBUTION_ID ..."
+SPA_ERRORS="$(aws cloudfront get-distribution-config --id "$DISTRIBUTION_ID" \
+    --query "DistributionConfig.CustomErrorResponses.Items[?ResponsePagePath=='/index.html' && ResponseCode=='200'].ErrorCode" \
+    --output text 2>/dev/null || true)"
+for code in 403 404; do
+    case " $SPA_ERRORS " in
+        *" $code "*) ;;
+        *) print_warning "No custom error response maps $code -> /index.html (200). A cold load of https://smiling.social/post/<id> will fail until one is added." ;;
+    esac
+done
 
 if [ "$SKIP_INVALIDATION" = "true" ]; then
     print_warning "Skipping CloudFront invalidation (--skip-invalidation)."

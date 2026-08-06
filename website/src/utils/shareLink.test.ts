@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, test, vi } from 'vitest'
-import { commentShareUrl, postShareUrl, shareLink } from './shareLink'
+import { commentShareUrl, postShareUrl, shareLink, sharedCommentId } from './shareLink'
 
 // jsdom serves window.location.origin as http://localhost:3000 by default.
 const ORIGIN = window.location.origin
@@ -16,6 +16,37 @@ describe('postShareUrl / commentShareUrl', () => {
 
   test('comment URL appends a #comment-<id> fragment to the post URL', () => {
     expect(commentShareUrl('abc-123', 'def-456')).toBe(`${ORIGIN}/post/abc-123#comment-def-456`)
+  })
+})
+
+describe('sharedCommentId', () => {
+  const COMMENT_ID = '3f1b9a2c-6d4e-4f8a-9b1c-2d3e4f5a6b7c'
+
+  test('round-trips the fragment commentShareUrl produces', () => {
+    const url = commentShareUrl('9a1e0b6f-1111-4222-8333-444455556666', COMMENT_ID)
+
+    expect(sharedCommentId(`#${url.split('#')[1]}`)).toBe(COMMENT_ID)
+  })
+
+  test('is case-insensitive about the uuid', () => {
+    expect(sharedCommentId(`#comment-${COMMENT_ID.toUpperCase()}`)).toBe(COMMENT_ID.toUpperCase())
+  })
+
+  test('ignores a hash that is not a comment link', () => {
+    for (const hash of ['', '#', '#top', '#comment-', '#comment-not-a-uuid', `#post-${COMMENT_ID}`]) {
+      expect(sharedCommentId(hash)).toBeNull()
+    }
+  })
+
+  test('ignores anything that could be smuggled into a DOM id or selector', () => {
+    // The value builds a DOM id; a hash is attacker-supplied whenever a link is.
+    for (const hash of [
+      '#comment-<script>alert(1)</script>',
+      `#comment-${COMMENT_ID}"]`,
+      `#comment-${COMMENT_ID} extra`,
+    ]) {
+      expect(sharedCommentId(hash)).toBeNull()
+    }
   })
 })
 

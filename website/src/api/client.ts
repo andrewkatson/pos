@@ -558,6 +558,35 @@ export class ApiClient implements PositiveOnlySocialAPI {
   }
 
   // ===========================================================================
+  // PUBLIC SHARE ENDPOINTS (issue #381)
+  // ===========================================================================
+  // Deliberately sent without `auth: true` even when a session exists: the
+  // backend resolves these against a fixed anonymous viewer, so sending a token
+  // would change nothing but would leak the session to a read that does not
+  // need it.
+
+  getPublicPostDetails(postIdentifier: string): Promise<PostDetails> {
+    return this.request<PostDetails>('GET', `/public/posts/${postIdentifier}/details/`)
+  }
+
+  getPublicCommentsForPost(postIdentifier: string, batch: number): Promise<CommentThreadRef[]> {
+    return this.request<CommentThreadRef[]>(
+      'GET',
+      `/public/posts/${postIdentifier}/comments/${batch}/`,
+    )
+  }
+
+  getPublicCommentsForThread(
+    commentThreadIdentifier: string,
+    batch: number,
+  ): Promise<Comment[]> {
+    return this.request<Comment[]>(
+      'GET',
+      `/public/threads/${commentThreadIdentifier}/comments/${batch}/`,
+    )
+  }
+
+  // ===========================================================================
   // COMMENTS
   // ===========================================================================
 

@@ -119,6 +119,20 @@ export interface PositiveOnlySocialAPI {
   /** Classification status of one of the caller's own posts (issue #282). */
   getPostStatus(postIdentifier: string): Promise<PostStatusResponse>
 
+  // Public share endpoints (issue #381). These need no session: they back a
+  // shared https://smiling.social/post/<id> link opened by someone who is not
+  // logged in. They serve only genuinely public content (not hidden, not
+  // pending, author not shadow banned, audience 'public', author not a verified
+  // minor) and carry no per-viewer state — `is_liked` / `is_saved` /
+  // `is_reported` / `report_reason` are absent, since there is no viewer to
+  // have them. Anything else 404s exactly like a post that never existed.
+  getPublicPostDetails(postIdentifier: string): Promise<PostDetails>
+  getPublicCommentsForPost(postIdentifier: string, batch: number): Promise<CommentThreadRef[]>
+  getPublicCommentsForThread(
+    commentThreadIdentifier: string,
+    batch: number,
+  ): Promise<Comment[]>
+
   // Comments. `formatting` carries optional inline styling spans (issue #318);
   // `audience` scopes who may see the comment (issue #445, omitted = 'public').
   commentOnPost(

@@ -1092,6 +1092,105 @@ export class StatefulStubbedAPI implements PositiveOnlySocialAPI {
     }
   }
 
+  // ---------------------------------------------------------------------------
+  // Public share endpoints (issue #381)
+  // ---------------------------------------------------------------------------
+
+  /** Whether a post is visible to a signed-out visitor, mirroring the backend's
+   * PUBLIC_VIEWER rule: live, public-audience, and not by a verified minor
+   * (an anonymous visitor's age is unknown, so it sits in the adult band and
+   * never sees a minor's content — issue #329). */
+  private isPubliclyVisible(post: PostMock): boolean {
+    if (post.hiddenReason === 'classifier_final') return false
+    if (post.hidden) return false
+    if (post.audience !== 'public') return false
+    const author = this.users.find((u) => u.id === post.authorId)
+    return !(author?.isVerified && !author.isAdult)
+  }
+
+  /** Comments in a thread a signed-out visitor may see: not hidden and public
+   * audience. There is no viewer, so no author-owns-it or category rule. */
+  private publiclyVisibleComments(thread: CommentThreadMock): CommentMock[] {
+    return thread.comments.filter((c) => !c.hidden && c.audience === 'public')
+  }
+
+  private requirePublicPost(postIdentifier: string): PostMock {
+    const post = this.posts.find((p) => p.postIdentifier === postIdentifier)
+    // A post that exists but isn't public reads exactly like a missing one, so
+    // the endpoint can't be used to probe moderation state.
+    if (!post || !this.isPubliclyVisible(post)) {
+      throw new ApiError(404, 'No post with that identifier')
+    }
+    return post
+  }
+
+  async getPublicPostDetails(postIdentifier: string): Promise<PostDetails> {
+    const post = this.requirePublicPost(postIdentifier)
+    const author = this.users.find((u) => u.id === post.authorId)
+    // No is_liked/is_saved/is_reported/report_reason and no author-only status:
+    // there is no viewer to have them.
+    return {
+      post_identifier: post.postIdentifier,
+      image_url: post.imageUrl,
+      original_image_url: post.imageUrl,
+      caption: post.caption,
+      caption_font: post.captionFont,
+      background_color: post.backgroundColor,
+      creation_time: new Date(post.creationTime).toISOString(),
+      post_likes: post.likes.size,
+      author_username: author ? author.username : '',
+      audience: post.audience,
+      tags: post.tags,
+      ...this.authorAvatarFields(post.authorId),
+    }
+  }
+
+  async getPublicCommentsForPost(
+    postIdentifier: string,
+    batch: number,
+  ): Promise<CommentThreadRef[]> {
+    const post = this.requirePublicPost(postIdentifier)
+    const threads = this.commentThreads
+      .filter((t) => t.postId === post.postIdentifier)
+      .filter((t) => this.publiclyVisibleComments(t).length > 0)
+    return this.batch(threads, batch, COMMENT_BATCH_SIZE).map((t) => ({
+      comment_thread_identifier: t.threadIdentifier,
+    }))
+  }
+
+  async getPublicCommentsForThread(
+    commentThreadIdentifier: string,
+    batch: number,
+  ): Promise<Comment[]> {
+    const thread = this.commentThreads.find(
+      (t) => t.threadIdentifier === commentThreadIdentifier,
+    )
+    // A leaked thread id is not a back door into a non-public post's
+    // conversation: the post must be public too.
+    if (!thread) {
+      throw new ApiError(404, 'No comment thread with that identifier')
+    }
+    this.requirePublicPost(thread.postId)
+    const visible = this.publiclyVisibleComments(thread).sort(
+      (a, b) => a.creationTime - b.creationTime,
+    )
+    return this.batch(visible, batch, COMMENT_BATCH_SIZE).map((c) => {
+      const author = this.users.find((u) => u.id === c.authorId)
+      const time = new Date(c.creationTime).toISOString()
+      return {
+        comment_identifier: c.commentIdentifier,
+        body: c.body,
+        body_formatting: c.bodyFormatting,
+        audience: c.audience,
+        author_username: author ? author.username : '',
+        ...this.authorAvatarFields(c.authorId),
+        creation_time: time,
+        updated_time: time,
+        comment_likes: c.likes.size,
+      }
+    })
+  }
+
   async getPostStatus(postIdentifier: string): Promise<PostStatusResponse> {
     const user = this.requireUser()
     const post = this.posts.find(
