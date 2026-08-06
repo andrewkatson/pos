@@ -1,0 +1,15 @@
+{
+  "applinks": {
+    "details": [
+      {
+        "appIDs": ["7L9M852R4K.com.katsonsoftware.goodvibesonly"],
+        "components": [
+          {
+            "/": "/post/*",
+            "comment": "Shared post links (issue #382) open the app; every other route stays on the website."
+          }
+        ]
+      }
+    ]
+  }
+}

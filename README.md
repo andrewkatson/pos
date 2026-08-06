@@ -206,12 +206,105 @@ Android fires an `ACTION_SEND` chooser, and the website uses the Web Share API
 when the browser offers it (typically mobile), otherwise copying the link to the
 clipboard and confirming with a "Link copied" prompt.
 
-This is deliberately the client-only first step. A shared link today opens the
-website and, because the single-post view is still behind auth, prompts a
-signed-out recipient to log in; on mobile it opens the browser rather than the
-app. Making a single post (and comment) publicly viewable with link-preview
-metadata, and adding iOS Universal Links / Android App Links so a shared link
-opens the app, are tracked follow-ups.
+### What a recipient sees (issue #381)
+
+A shared link opens the website's post page **whether or not the recipient has
+an account**. Signed out, the page is read-only: the image, caption, like count
+and the comment threads are all there, but liking, commenting, replying,
+reporting and the relationship filter are replaced by a prompt to log in or
+join. Share itself still works, so a link can be passed along.
+
+Comments are paged, and the post page has no "load more": it renders the first
+batch of threads (10) and the first batch of comments within each (30). That is
+the same for signed-in viewers — this page has never paged — so a very busy
+post shows its opening conversation rather than all of it.
+
+What is public is deliberately narrower than what a signed-in viewer sees. A
+signed-out visitor is resolved against a fixed anonymous viewer, so a post is
+served only when it is:
+
+- not hidden — approved, not pending classification, not hidden by reports, and
+  not a final-rejection tombstone;
+- `public` audience — a following/friends/family post is never public, because
+  an anonymous visitor is on nobody's follow list;
+- by an author who is **not shadow banned** (an outright ban stops the account
+  from acting but is not a content takedown, so their approved posts stay up);
+- by an author who is **not a verified minor** — an anonymous visitor's age is
+  unknown, which puts them in the adult band, and the two bands are mutually
+  invisible (see [Age and identity](#age-and-identity)). A minor's post is
+  therefore never served to the open internet.
+
+Comments are filtered by the same rule, so a public post can serve an empty
+comment list when every comment on it is hidden or narrowly scoped.
+
+Anything that fails these checks is reported as **404, identical to a post that
+never existed** — the endpoints cannot be used to probe moderation state. The
+answer does not depend on who asks: a signed-in browser, a signed-out one, and a
+crawler all get the same bytes.
+
+A comment link's `#comment-<id>` fragment is resolved by the post page itself.
+The API serves the **containing thread**, not the comment alone — a reply only
+makes sense inside the conversation it belongs to — and the page scrolls to that
+comment and marks it out.
+
+Because the page renders one batch of threads, a link into the 11th thread would
+otherwise point at something never rendered. So a fragment is the one thing that
+makes the page keep paging: it fetches further thread batches until the target
+appears, stopping at 5 batches (~50 threads). Earlier batches stay on screen, so
+the comment is read in context. This widens only the thread dimension — a
+comment past the 30th in its own thread still isn't reached, which would need
+real pagination on this screen.
+
+### Link previews
+
+The website is a client-only SPA, so a crawler that fetches
+`https://smiling.social/post/<id>` gets an empty root div and nothing to unfurl.
+CloudFront's viewer-request function (`website/cloudfront/link-preview.js`)
+redirects known link-preview crawlers — and only those — to a backend endpoint
+that returns a meta-only HTML document with the post's Open Graph and Twitter
+Card tags. Real browsers are untouched and get the SPA. The preview endpoint
+applies exactly the public-visibility rule above, so a post it may not show
+unfurls as the generic site card rather than leaking anything.
+
+Two pieces of CloudFront configuration make this work and are not managed by
+`website/deploy-web.sh` (which warns about the first): custom error responses
+mapping 403/404 to `/index.html` with a 200, so a cold load of a client-side
+`/post/<id>` route resolves at all; and the published function association
+itself.
+
+### Opening the app instead of the browser (issue #382)
+
+On a phone with the app installed, a shared link opens the **app**, not the
+browser: iOS via Universal Links (`applinks:smiling.social` in the app's
+entitlements) and Android via App Links (an `autoVerify` intent-filter for
+`https://smiling.social/post/*`). Both are claimed by a file the OS fetches from
+the website at install time, published by `website/deploy-web.sh`:
+
+- `/.well-known/apple-app-site-association` — checked into
+  `website/public/.well-known/` and scoped to `/post/*`;
+- `/.well-known/assetlinks.json` — generated at deploy time, because it needs
+  the release signing certificate's SHA-256 fingerprint, which lives in Play
+  Console rather than the repo. Export `ANDROID_SHA256_CERT_FINGERPRINTS` to
+  publish it; without it the deploy leaves the file alone and Android App Links
+  simply do not verify (links keep opening the browser, which still works
+  because the web page is public).
+
+Only `/post/*` is claimed. Every other route — login, profiles, the privacy
+policy — belongs to the website, and claiming them would hijack links the app
+has no screen for.
+
+Each client parses the URL itself rather than letting the navigation framework
+resolve it (`ShareURL.parse` on iOS, `ShareLinks.parseSharedPostLink` on
+Android), because the post detail is an **authenticated** screen. The parsed
+post id goes onto the same small router a tapped push notification uses, which
+holds the request until a session exists — so a link opened while signed out
+waits for login instead of dropping the user on a screen with no session behind
+it. Both parsers are strict about scheme, host and path shape: a `VIEW` intent
+or an `.onOpenURL` callback can carry any URL, and one that merely looks similar
+must not navigate anywhere. A `#comment-<id>` fragment is parsed and the post
+still opens; scrolling to the specific comment is web-only today.
+
+If the app is not installed, the link opens the public web page as before.
 
 ## Text formatting (issue #318)
 

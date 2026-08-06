@@ -16,14 +16,14 @@ from django.contrib.auth.hashers import check_password, make_password
 from django.core.mail import send_mail
 from django.db import transaction, IntegrityError
 from django.db.models import Count, Max, OuterRef, Subquery
-from django.http import JsonResponse
+from django.http import HttpResponse, JsonResponse
 from django.utils import timezone
 from django.views.decorators.csrf import csrf_exempt
 from django.views.decorators.http import require_POST, require_GET, require_http_methods
 from django_ratelimit.decorators import ratelimit
 from django_ratelimit.exceptions import Ratelimited
 
-from . import moderation, tasks
+from . import link_preview, moderation, tasks
 from .classifiers import image_classifier, text_classifier, interest_classifier
 from .classifiers.classifier_constants import REASON_PHRASES, GENERIC_REASON_CODE
 from .classifiers.prefilter import prefilter_text
@@ -60,7 +60,7 @@ from .s3 import delete_image, generate_presigned_upload, image_url_to_key, is_so
     strip_query_and_fragment
 from .tags import set_post_tags
 from .visibility import audience_admits, can_view_post, in_same_age_band, searchable_users, \
-    visible_comment_threads, visible_comments, visible_posts
+    visible_comment_threads, visible_comments, visible_posts, PUBLIC_VIEWER
 
 
 def _age_from_dob(dob):
@@ -612,6 +612,39 @@ def _issue_recovery_codes(user):
     return raw_codes
 
 
+def _read_remember_me(data, invalid_fields):
+    """Read the optional `remember_me` flag from a request body.
+
+    **No value means "don't remember me".** Every client already treats the field
+    as optional — the website's own LoginRequest/RegisterRequest types mark it
+    so, and the API tests call login without it — and a caller that never wants a
+    remembered device should not have to say so.
+
+    "No value" covers both an absent key and an explicit JSON `null`, which
+    `data.get` cannot tell apart and which this API deliberately does not
+    distinguish anywhere: `date_of_birth`, `interest_categories` and
+    `interest_freeform` are all read the same way. Rejecting a `null` here alone
+    would be inconsistent, and would break any client that serializes an unset
+    optional as null rather than dropping the key — which is exactly the class of
+    failure this helper exists to stop.
+
+    **A value that is present and not null but unparseable is a validation
+    error**: that is a caller sending something it believes means yes or no, and
+    quietly reading it as "no" would hide the mistake rather than report it.
+
+    Shared by register and login_user so the two cannot drift apart on what a
+    missing or malformed flag means.
+    """
+    raw = data.get(Fields.remember_me)
+    if raw is None:
+        return False
+    try:
+        return convert_to_bool(raw)
+    except TypeError:
+        invalid_fields.append(Params.remember_me)
+        return False
+
+
 def _create_authenticated_session(view_name, request, user, ip, remember_me):
     """Final step of a successful authentication: Django session login, the
     remember-me cookie (when requested), the API session token, and the
@@ -667,7 +700,6 @@ def register(request):
     username = data.get(Fields.username)
     email = data.get(Fields.email)
     password = data.get(Fields.password)
-    remember_me_str = data.get(Fields.remember_me)
     ip = _get_client_ip(None, request)
     date_of_birth_str = data.get('date_of_birth')
 
@@ -705,11 +737,7 @@ def register(request):
         # rejected — the age gate only bites once an age is actually given.
         pass
 
-    try:
-        remember_me = convert_to_bool(remember_me_str)
-    except TypeError:
-        remember_me = False  # Default to false if invalid
-        invalid_fields.append(Params.remember_me)
+    remember_me = _read_remember_me(data, invalid_fields)
 
     if len(invalid_fields) > 0:
         logger.warning(f"Registration failed: Invalid fields {invalid_fields}")
@@ -871,7 +899,6 @@ def login_user(request):
 
     username_or_email = data.get(Fields.username_or_email)
     password = data.get(Fields.password)
-    remember_me_str = data.get(Fields.remember_me)
     ip = _get_client_ip(None, request)
 
     invalid_fields = []
@@ -882,11 +909,7 @@ def login_user(request):
     if not password or not is_valid_pattern(password, Patterns.login_password):
         invalid_fields.append(Params.password)
 
-    try:
-        remember_me = convert_to_bool(remember_me_str)
-    except TypeError:
-        remember_me = False
-        invalid_fields.append(Params.remember_me)
+    remember_me = _read_remember_me(data, invalid_fields)
     if len(invalid_fields) > 0:
         return log_and_return_json("login_user", {'error': f"Invalid fields {invalid_fields}"}, status=400)
 
@@ -3177,6 +3200,232 @@ def get_comments_for_thread(request, comment_thread_identifier, batch):
         for comment in batched_comments
     ]
     return log_and_return_json("get_comments_for_thread", comments_data, safe=False)
+
+
+# =============================================================================
+# PUBLIC (SIGNED-OUT) SHARE VIEWS — issue #381
+# =============================================================================
+#
+# A shared link (`https://smiling.social/post/<id>`, optionally with a
+# `#comment-<id>` fragment) has to open something usable for a recipient who has
+# no account. These endpoints are the read-only, unauthenticated half of that:
+# the post, its comment threads, and an HTML document a link-preview crawler can
+# unfurl.
+#
+# Every one of them resolves visibility against `PUBLIC_VIEWER` rather than
+# `request.user`, so the answer does not depend on who is asking — a signed-in
+# browser, a signed-out one, and Slack's crawler all get identical bytes. That
+# makes the public surface exactly: not hidden, not pending, not a
+# final-rejection tombstone, author not shadow banned, `audience` public, and
+# author not a verified minor. Anything else is reported as 404, the same as a
+# post that never existed, so the endpoints cannot be used to probe moderation
+# state or enumerate restricted-audience posts.
+#
+# They are rate limited by client IP (there is no user to key on) and never
+# serialize per-viewer state (is_liked / is_saved / is_reported / report_reason)
+# or the author-only classification fields — there is no viewer to have it.
+
+# Comment exposure for the `#comment-<id>` fragment shipped in Scope A (#34):
+# the public view serves the *containing thread*, batched exactly like the
+# signed-in view, and the fragment is resolved client-side by scrolling to that
+# comment. Serving a single comment in isolation would strip the conversation a
+# shared reply only makes sense inside of, and would need its own endpoint to
+# say "this comment lives in that thread" anyway. Batched, not exhaustive: the
+# client pages through thread batches to find a shared comment (see
+# PostDetailPage), so these stay ordinary paginated listings.
+
+def _public_post_fields(post):
+    """A post serialized for a signed-out viewer.
+
+    The signed-in payload minus everything that is about the viewer: no
+    like/save/report flags (nobody to have them) and no author-only
+    classification status (a public post is approved by construction)."""
+    return {
+        Fields.post_identifier: post.post_identifier,
+        Fields.image_url: sign_compressed_url(post.image_url),
+        # Full-res original, used as a client fallback while the async
+        # Lambda-generated compressed copy is still missing (#252/#254).
+        Fields.original_image_url: sign_original_url(post.image_url),
+        Fields.image_blurhash: post.image_blurhash,
+        Fields.caption: post.caption,
+        **_caption_style_fields(post),
+        Fields.creation_time: post.creation_time,
+        Fields.post_likes: post.postlike_set.count(),
+        Fields.author_username: post.author.username,
+        Fields.audience: post.audience,
+        **_author_avatar_fields(post.author),
+        **_post_tags(post),
+    }
+
+
+def _get_public_post(post_identifier):
+    """The post behind a shared link, or None when it is missing or not public.
+
+    Collapsing "no such post" and "not publicly visible" into one None is the
+    point: callers turn both into the same 404."""
+    if not is_valid_pattern(post_identifier, Patterns.uuid4):
+        return None
+    post = get_post_with_identifier(post_identifier)
+    if post is None or not can_view_post(post, PUBLIC_VIEWER):
+        return None
+    return post
+
+
+@ratelimit(key=_get_client_ip, rate='60/m', block=True)
+@require_GET
+def get_public_post_details(request, post_identifier):
+    """A shared post, for a recipient who is not logged in (issue #381)."""
+    logger.info("Endpoint get_public_post_details invoked by IP")
+    post = _get_public_post(post_identifier)
+    if post is None:
+        # No explicit warning here: log_and_return_json already logs one for any
+        # status >= 400, and on an unauthenticated endpoint a 404 is a routine
+        # outcome anyone can trigger at will (a link to a deleted post, a probed
+        # uuid). Logging it twice at warning level is how a real signal gets
+        # buried. Same below, and in the other public views.
+        return log_and_return_json(
+            "get_public_post_details", {'error': "No post with that identifier"}, status=404)
+    return log_and_return_json("get_public_post_details", _public_post_fields(post))
+
+
+@ratelimit(key=_get_client_ip, rate='60/m', block=True)
+@require_GET
+def get_public_comments_for_post(request, post_identifier, batch):
+    """Comment threads on a shared post, for a signed-out viewer.
+
+    No `?category=` filter: the relationship toggle (issue #445) is meaningless
+    without a viewer to have relationships."""
+    logger.info("Endpoint get_public_comments_for_post invoked by IP")
+    if batch < 0:
+        return log_and_return_json(
+            "get_public_comments_for_post", {'error': "Invalid batch parameter"}, status=400)
+
+    post = _get_public_post(post_identifier)
+    if post is None:
+        return log_and_return_json(
+            "get_public_comments_for_post", {'error': "No post with that identifier"}, status=404)
+
+    comment_threads = visible_comment_threads(post.commentthread_set.all(), PUBLIC_VIEWER)
+    relevant_comment_threads = feed_algorithm_class.get_comment_threads_weighted_for_post(comment_threads)
+    # get_queryset_batch, not get_batch: the latter calls len() and so evaluates
+    # every ranked thread on the post before slicing. That is a cost anyone can
+    # impose here without an account, so let the DB apply LIMIT/OFFSET instead.
+    # Dropping the .count() guard that used to precede this removes another
+    # whole-queryset aggregate — an empty batch already serializes to [].
+    batched_comment_threads = get_queryset_batch(
+        relevant_comment_threads, batch, COMMENT_THREAD_BATCH_SIZE)
+    data = [{Fields.comment_thread_identifier: ct.comment_thread_identifier} for ct in batched_comment_threads]
+    return log_and_return_json("get_public_comments_for_post", data, safe=False)
+
+
+@ratelimit(key=_get_client_ip, rate='60/m', block=True)
+@require_GET
+def get_public_comments_for_thread(request, comment_thread_identifier, batch):
+    """Comments within a thread on a shared post, for a signed-out viewer.
+
+    A thread on a post that is not publicly visible 404s even when the thread id
+    is known, so a leaked thread id cannot be used to read a restricted post's
+    conversation."""
+    logger.info("Endpoint get_public_comments_for_thread invoked by IP")
+    if not is_valid_pattern(comment_thread_identifier, Patterns.uuid4):
+        return log_and_return_json(
+            "get_public_comments_for_thread", {'error': "Invalid comment thread identifier"}, status=400)
+    if batch < 0:
+        return log_and_return_json(
+            "get_public_comments_for_thread", {'error': "Invalid batch parameter"}, status=400)
+
+    comment_thread = get_comment_thread_with_identifier(comment_thread_identifier)
+    if not comment_thread or not can_view_post(comment_thread.post, PUBLIC_VIEWER):
+        return log_and_return_json(
+            "get_public_comments_for_thread", {'error': "No comment thread with that identifier"}, status=404)
+
+    # Mirrors get_comments_for_thread: resolve the visible ids first, then rank a
+    # clean queryset built from them, so the audience join's fan-out cannot
+    # inflate the like-count weighting.
+    visible_comment_ids = visible_comments(
+        comment_thread.comment_set.all(), PUBLIC_VIEWER
+    ).values_list('comment_identifier', flat=True)
+    comments = Comment.objects.filter(
+        comment_identifier__in=visible_comment_ids
+    ).select_related('author')
+    relevant_comments = feed_algorithm_class.get_comments_weighted_for_thread(comments)
+    # DB-level LIMIT/OFFSET rather than get_batch's len(), for the same reason as
+    # the thread listing above.
+    batched_comments = get_queryset_batch(relevant_comments, batch, COMMENT_BATCH_SIZE)
+    # Like counts for the whole batch in one grouped query (no N+1 COUNT).
+    like_counts = dict(
+        CommentLike.objects
+        .filter(comment__in=batched_comments)
+        .values('comment_id')
+        .annotate(count=Count('comment_id'))
+        .values_list('comment_id', 'count')
+    )
+    comments_data = [
+        {
+            Fields.comment_identifier: comment.comment_identifier,
+            Fields.body: comment.body,
+            Fields.body_formatting: comment.body_formatting,
+            Fields.audience: comment.audience,
+            Fields.author_username: comment.author.username,
+            **_author_avatar_fields(comment.author),
+            Fields.creation_time: comment.creation_time,
+            Fields.updated_time: comment.updated_time,
+            Fields.comment_likes: like_counts.get(comment.comment_identifier, 0),
+        }
+        for comment in batched_comments
+    ]
+    return log_and_return_json("get_public_comments_for_thread", comments_data, safe=False)
+
+
+def _post_canonical_url(post_identifier):
+    """The website URL a shared post link points at — the URL that was shared,
+    and the one a preview must declare as canonical."""
+    return f"{settings.FRONTEND_BASE_URL}/post/{post_identifier}"
+
+
+@ratelimit(key=_get_client_ip, rate='60/m', block=True)
+@require_GET
+def get_post_link_preview(request, post_identifier):
+    """Open Graph / Twitter Card HTML for a shared post link (issue #381).
+
+    The website is a client-only SPA, so a crawler fetching
+    `https://smiling.social/post/<id>` sees an empty root div. CloudFront routes
+    crawler user-agents here instead (see `website/cloudfront/link-preview.js`),
+    and this returns a tiny meta-only document describing the post.
+
+    A post that is missing or not publicly visible gets the generic site card
+    with a 404 status rather than an error page, so a crawler unfurls something
+    sane and cannot tell the two cases apart.
+
+    The response is cached only briefly: `og:image` is a CloudFront-signed URL
+    that expires, so a long-lived cached document would eventually hand crawlers
+    an image they cannot fetch.
+    """
+    logger.info("Endpoint get_post_link_preview invoked by IP")
+    post = _get_public_post(post_identifier)
+    if post is None:
+        # info, not warning: this path builds its own response rather than going
+        # through log_and_return_json, and unfurling a link to a since-deleted
+        # or moderated post is the expected case it exists to handle, not a
+        # problem worth paging anyone about.
+        logger.info(f"Post link preview: Post {post_identifier} not publicly visible")
+        response = HttpResponse(
+            link_preview.render_missing_preview(site_url=settings.FRONTEND_BASE_URL),
+            content_type='text/html; charset=utf-8',
+            status=404,
+        )
+    else:
+        response = HttpResponse(
+            link_preview.render_post_preview(
+                title=f"{post.author.username} on {link_preview.SITE_NAME}",
+                description=link_preview.truncate_description(post.caption),
+                canonical_url=_post_canonical_url(post.post_identifier),
+                image_url=sign_compressed_url(post.image_url),
+            ),
+            content_type='text/html; charset=utf-8',
+        )
+    response['Cache-Control'] = 'public, max-age=300'
+    return response
 
 
 # =============================================================================
