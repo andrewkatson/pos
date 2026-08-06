@@ -14,7 +14,7 @@ from ..constants import (
     HIDDEN_REASON_CLASSIFIER, HIDDEN_REASON_NONE, HIDDEN_REASON_REPORTS,
     REVIEW_STATUS_DISMISSED, REVIEW_STATUS_ESCALATED, REVIEW_STATUS_HIDDEN,
 )
-from ..models import ModerationReview, PositiveOnlySocialUser
+from ..models import Comment, CommentThread, ModerationReview, PositiveOnlySocialUser
 
 
 class ModerationReviewAdminTests(TestCase):
@@ -112,6 +112,30 @@ class ModerationReviewAdminTests(TestCase):
         self._refresh()
         self.assertEqual(self.review.status, REVIEW_STATUS_HIDDEN)
         self.assertEqual(self.post.hidden_reason, HIDDEN_REASON_CLASSIFIER)
+
+    def test_changelist_counts_reports_without_a_query_per_row(self):
+        """The queue's Reports column is annotated, not counted per row: a
+        moderator opening a busy queue must not pay one COUNT per entry."""
+        thread = CommentThread.objects.create(post=self.post)
+        for i in range(4):
+            post = self.author.post_set.create(caption=f'contested {i}')
+            post.postreport_set.create(user=self.reporter, reason='no')
+            post.postreport_set.create(user=self.moderator, reason='no')
+            ModerationReview.objects.create(post=post, status=REVIEW_STATUS_ESCALATED)
+            comment = Comment.objects.create(
+                comment_thread=thread, author=self.author, body=f'contested comment {i}')
+            comment.commentreport_set.create(user=self.reporter, reason='no')
+            ModerationReview.objects.create(comment=comment, status=REVIEW_STATUS_ESCALATED)
+
+        request = self._request(self.moderator)
+        # One query for the rows, whatever the row count — no per-row COUNT and
+        # no per-row walk to the post/comment or its author.
+        with self.assertNumQueries(1):
+            counts = [self.admin.report_count(review)
+                      for review in self.admin.get_queryset(request)]
+
+        # 9 reviews: 4 posts with 2 reports, 4 comments with 1, and setUp's 1.
+        self.assertEqual(sorted(counts), [1, 1, 1, 1, 1, 2, 2, 2, 2])
 
     def test_changelist_columns_render_the_reported_content(self):
         """The queue is only useful if a moderator can see what was reported and

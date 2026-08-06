@@ -1,6 +1,6 @@
 from django.contrib import admin, messages
 from django.contrib.auth.admin import UserAdmin
-from django.db.models import Prefetch
+from django.db.models import Count, Prefetch
 from django.utils import timezone
 
 from . import moderation
@@ -222,9 +222,21 @@ class ModerationReviewAdmin(admin.ModelAdmin):
 
     def get_queryset(self, request):
         # target/author/report rendering walks to the post or comment and its
-        # author for every row, so fetch them in the changelist query.
+        # author for every row, so fetch them in the changelist query, and count
+        # the reports in it too — report_count is in list_display, so counting
+        # per row would be one extra COUNT per queue entry.
+        #
+        # Exactly one of the two joins is non-null per row (the check
+        # constraint), so the sum is that side's count and the other is 0. Both
+        # aggregates need distinct=True: two multi-valued joins in one query
+        # multiply each other's rows, and only DISTINCT collapses that fan-out
+        # back to the real counts.
         return super().get_queryset(request).select_related(
-            'post', 'post__author', 'comment', 'comment__author', 'resolved_by')
+            'post', 'post__author', 'comment', 'comment__author', 'resolved_by',
+        ).annotate(
+            _report_count=(Count('post__postreport', distinct=True)
+                           + Count('comment__commentreport', distinct=True)),
+        )
 
     @admin.display(description="Target")
     def target_kind(self, review):
@@ -244,9 +256,13 @@ class ModerationReviewAdmin(admin.ModelAdmin):
     def author(self, review):
         return review.target.author
 
-    @admin.display(description="Reports")
+    @admin.display(description="Reports", ordering='_report_count')
     def report_count(self, review):
-        return review.report_count()
+        # Annotated by get_queryset for every admin view. The fallback keeps the
+        # column correct for a row that reached it from some other queryset
+        # (a caller outside the admin, a test) rather than silently blanking.
+        count = getattr(review, '_report_count', None)
+        return review.report_count() if count is None else count
 
     @admin.display(description="Reported reasons")
     def reported_reasons(self, review):
