@@ -276,6 +276,48 @@ class GoogleLoginTests(PositiveOnlySocialTestCase):
 
         self._login_user(username, password)
 
+    def test_a_concurrent_link_is_adopted_rather_than_erroring(self):
+        """google_sub is unique, so linking can lose a race too.
+
+        Another request can attach this same Google identity to a different row
+        between our lookup and our write; the insert-side fix has a twin here.
+        Exercised against the helper for the same reason: the winner's row has to
+        be committed outside the atomic block the save runs in.
+        """
+        user_model = get_user_model()
+        winner = user_model.objects.create(
+            username='linkracewin', email='somewhereelse@example.com', google_sub='google-sub-1',
+        )
+        registered = self._register_user(
+            self._get_unique_username('linkloser'), 'shared@example.com', f'Password_{self.prefix}123-'
+        )
+        target = user_model.objects.get(id=registered[Fields.user_id])
+
+        with patch.object(
+            user_model, 'save',
+            side_effect=IntegrityError('duplicate key value violates unique constraint "google_sub"'),
+        ):
+            linked = views._link_google_identity(target, claims())
+
+        self.assertEqual(linked, winner)
+
+    def test_linking_writes_only_the_columns_it_owns(self):
+        """A whole-row save would clobber a concurrent edit to anything else."""
+        user_model = get_user_model()
+        registered = self._register_user(
+            self._get_unique_username('narrowsave'), 'narrow@example.com', f'Password_{self.prefix}123-'
+        )
+        target = user_model.objects.get(id=registered[Fields.user_id])
+
+        with patch.object(user_model, 'save') as save:
+            views._link_google_identity(target, claims())
+
+        self.assertEqual(
+            sorted(save.call_args.kwargs['update_fields']),
+            ['email_verification_token', 'email_verification_token_expires',
+             'email_verified', 'google_sub'],
+        )
+
     def test_ambiguous_email_is_refused_rather_than_linked_arbitrarily(self):
         """Nothing enforces email uniqueness, so two rows can hold one address."""
         password = f'Password_{self.prefix}123-'

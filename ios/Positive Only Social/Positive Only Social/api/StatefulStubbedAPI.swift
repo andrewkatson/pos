@@ -603,7 +603,11 @@ final class StatefulStubbedAPI: Networking {
               let sub = claims.sub, let rawEmail = claims.email else {
             throw APIError.serverError(statusCode: 401, serverMessage: "invalid_google_token")
         }
-        if claims.email_verified == false {
+        // Verified has to be asserted, not merely not-denied: the backend
+        // requires `email_verified is True`, so a missing claim counts as
+        // unverified there and must here too, or the stub is more permissive
+        // than production.
+        if claims.email_verified != true {
             throw APIError.serverError(statusCode: 403, serverMessage: "google_email_unverified")
         }
         let email = rawEmail.lowercased()

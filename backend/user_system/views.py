@@ -1051,6 +1051,42 @@ def _google_username_candidate(base, attempt):
     return base + ''.join(secrets.choice(string.digits) for _ in range(suffix_length))
 
 
+def _link_google_identity(user, claims):
+    """Attach a Google identity to the account we matched by verified email.
+
+    Returns the account that ends up holding it: normally `user`, but the row a
+    concurrent request linked first if that one won the race.
+    """
+    user.google_sub = claims['sub']
+    # Google vouching for the address settles our own verification too: an
+    # account still sitting on an unclicked link is now proven.
+    user.email_verified = True
+    user.email_verification_token = None
+    user.email_verification_token_expires = None
+    try:
+        # Named columns only, so a concurrent write to anything else on this row
+        # — a bio edit, a profile photo — isn't clobbered by a whole-row save
+        # from an instance that was read moments ago.
+        with transaction.atomic():
+            user.save(update_fields=[
+                'google_sub', 'email_verified',
+                'email_verification_token', 'email_verification_token_expires',
+            ])
+    except IntegrityError:
+        # google_sub is unique, so another request can have attached this same
+        # Google identity to a *different* row between the lookup and this
+        # write. Adopt whatever holds it now rather than 500 — the same
+        # reasoning as _create_user_for_google.
+        raced = get_user_model().objects.filter(google_sub=claims['sub']).first()
+        if raced is None:
+            raise
+        logger.info(f"A concurrent Google sign-in linked user_id: {raced.id} first; using it")
+        return raced
+
+    logger.info(f"Linked a Google identity to existing user_id: {user.id}")
+    return user
+
+
 def _create_user_for_google(request, claims, ip):
     """Create the account behind a first-ever Google sign-in.
 
@@ -1188,15 +1224,7 @@ def login_user_google(request):
                 'error': GOOGLE_EMAIL_AMBIGUOUS,
             }, status=409)
         if candidates:
-            existing = candidates[0]
-            existing.google_sub = claims['sub']
-            # Google vouching for the address settles our own verification too:
-            # an account still sitting on an unclicked link is now proven.
-            existing.email_verified = True
-            existing.email_verification_token = None
-            existing.email_verification_token_expires = None
-            existing.save()
-            logger.info(f"Linked a Google identity to existing user_id: {existing.id}")
+            existing = _link_google_identity(candidates[0], claims)
 
     if existing is None:
         existing, created_account = _create_user_for_google(request, claims, ip)

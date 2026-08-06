@@ -492,7 +492,11 @@ export class StatefulStubbedAPI implements PositiveOnlySocialAPI {
     if (!claims || !claims.sub || !claims.email) {
       throw new ApiError(401, 'invalid_google_token')
     }
-    if (claims.email_verified === false) {
+    // Verified has to be asserted, not merely not-denied: the backend requires
+    // `email_verified is True`, so a missing or non-boolean claim counts as
+    // unverified there and must here too, or the offline stub is more
+    // permissive than production.
+    if (claims.email_verified !== true) {
       throw new ApiError(403, 'google_email_unverified')
     }
 

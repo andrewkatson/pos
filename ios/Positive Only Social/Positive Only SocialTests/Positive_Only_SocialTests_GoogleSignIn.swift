@@ -71,8 +71,10 @@ struct Positive_Only_SocialTests_GoogleSignIn {
         #expect(value("code_challenge") == GoogleOAuth.codeChallenge(for: request.codeVerifier))
         #expect(value("state") == request.state)
         #expect(value("redirect_uri") == request.redirectURI)
-        // A replayed nonce would let a captured ID token be reused.
-        #expect(value("nonce")?.isEmpty == false)
+        // The nonce is kept so the returned token can be checked to carry it
+        // back; an unchecked one would be decoration, not replay protection.
+        #expect(value("nonce") == request.nonce)
+        #expect(request.nonce.isEmpty == false)
     }
 
     @Test func testAuthorizationRequest_RedirectsToTheReversedClientIdScheme() throws {
@@ -151,27 +153,70 @@ struct Positive_Only_SocialTests_GoogleSignIn {
 
     @Test func testIdToken_IsReadFromASuccessfulExchange() throws {
         let data = Data(#"{"id_token":"a.b.c","access_token":"ignored"}"#.utf8)
-        #expect(try GoogleOAuth.idToken(fromTokenResponse: data) == "a.b.c")
+        #expect(try GoogleOAuth.idToken(fromTokenResponse: data, expectedNonce: nil) == "a.b.c")
     }
 
     @Test func testIdToken_ReportsGooglesDescriptionOfAFailure() {
         let data = Data(#"{"error":"invalid_grant","error_description":"Bad Request"}"#.utf8)
         #expect(throws: GoogleSignInError.tokenExchangeFailed("Bad Request")) {
-            try GoogleOAuth.idToken(fromTokenResponse: data)
+            try GoogleOAuth.idToken(fromTokenResponse: data, expectedNonce: nil)
         }
     }
 
     @Test func testIdToken_RejectsAResponseWithNoTokenAtAll() {
         let data = Data(#"{"access_token":"only-this"}"#.utf8)
         #expect(throws: (any Error).self) {
-            try GoogleOAuth.idToken(fromTokenResponse: data)
+            try GoogleOAuth.idToken(fromTokenResponse: data, expectedNonce: nil)
         }
+    }
+
+    // MARK: - Nonce
+
+    /// An unsigned JWT carrying `nonce`. Not a credential — the backend would
+    /// reject it; it exists to exercise the client-side nonce comparison.
+    private func idToken(nonce: String) -> String {
+        let header = GoogleOAuth.base64URLEncode(Data(#"{"alg":"none"}"#.utf8))
+        let payload = GoogleOAuth.base64URLEncode(Data("{\"nonce\":\"\(nonce)\"}".utf8))
+        return "\(header).\(payload).sig"
+    }
+
+    @Test func testIdToken_AcceptsATokenCarryingTheExpectedNonce() throws {
+        let data = Data("{\"id_token\":\"\(idToken(nonce: "abc123"))\"}".utf8)
+        #expect(try GoogleOAuth.idToken(fromTokenResponse: data, expectedNonce: "abc123").isEmpty == false)
+    }
+
+    @Test func testIdToken_RejectsATokenMintedForAnotherRequest() {
+        // The whole point of sending a nonce: a token that came back without
+        // ours belongs to some other sign-in and must not be accepted as this
+        // one's.
+        let data = Data("{\"id_token\":\"\(idToken(nonce: "somebody-elses"))\"}".utf8)
+        #expect(throws: GoogleSignInError.nonceMismatch) {
+            try GoogleOAuth.idToken(fromTokenResponse: data, expectedNonce: "abc123")
+        }
+    }
+
+    @Test func testIdToken_RejectsATokenWithNoNonceAtAllWhenOneWasAskedFor() {
+        let data = Data(#"{"id_token":"aaaa.eyJzdWIiOiJzIn0.sig"}"#.utf8)
+        #expect(throws: GoogleSignInError.nonceMismatch) {
+            try GoogleOAuth.idToken(fromTokenResponse: data, expectedNonce: "abc123")
+        }
+    }
+
+    @Test func testUnverifiedClaim_ReadsAPayloadRegardlessOfPadding() {
+        // base64url omits '=' padding, so the reader has to restore it.
+        for nonce in ["a", "ab", "abc", "abcd", "abcde"] {
+            #expect(GoogleOAuth.unverifiedClaim("nonce", of: idToken(nonce: nonce)) == nonce)
+        }
+    }
+
+    @Test func testUnverifiedClaim_IsNilForSomethingThatIsNotAJWT() {
+        #expect(GoogleOAuth.unverifiedClaim("nonce", of: "not-a-jwt") == nil)
     }
 
     @Test func testIdToken_RejectsAnEmptyToken() {
         let data = Data(#"{"id_token":""}"#.utf8)
         #expect(throws: (any Error).self) {
-            try GoogleOAuth.idToken(fromTokenResponse: data)
+            try GoogleOAuth.idToken(fromTokenResponse: data, expectedNonce: nil)
         }
     }
 

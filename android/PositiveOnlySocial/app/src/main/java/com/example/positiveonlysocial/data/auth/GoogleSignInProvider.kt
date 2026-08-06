@@ -1,6 +1,8 @@
 package com.example.positiveonlysocial.data.auth
 
+import android.app.Activity
 import android.content.Context
+import android.content.ContextWrapper
 import android.util.Log
 import androidx.credentials.CredentialManager
 import androidx.credentials.CustomCredential
@@ -24,7 +26,27 @@ sealed class GoogleSignInFailure(message: String) : Exception(message) {
     object NotConfigured : GoogleSignInFailure("Google sign-in is not set up in this build")
     object Cancelled : GoogleSignInFailure("Google sign-in was cancelled")
     object NoAccount : GoogleSignInFailure("No Google account is available on this device")
+    /** No Activity to host the account picker — see [findActivity]. */
+    object NoActivity : GoogleSignInFailure("Google sign-in can't be shown from here")
     class Failed(message: String) : GoogleSignInFailure(message)
+}
+
+/**
+ * Walk the ContextWrapper chain looking for an Activity.
+ *
+ * Credential Manager renders the account picker over an Activity, and
+ * `LocalContext.current` is only typed as a Context — under a preview, a test
+ * harness, or any wrapping it may not be one. Finding it explicitly turns that
+ * into a reportable failure instead of a ClassCastException from inside the
+ * Google flow.
+ */
+internal fun Context.findActivity(): Activity? {
+    var current: Context? = this
+    while (current is ContextWrapper) {
+        if (current is Activity) return current
+        current = current.baseContext
+    }
+    return null
 }
 
 /**
@@ -67,6 +89,13 @@ class GoogleSignInProvider(
     override suspend fun signIn(context: Context): String {
         if (!isConfigured) throw GoogleSignInFailure.NotConfigured
 
+        // Resolved up front so "nothing to show the picker over" is a reported
+        // failure rather than a crash inside Credential Manager.
+        val activity = context.findActivity() ?: run {
+            Log.w(TAG, "No Activity in the context chain; cannot show the Google account picker")
+            throw GoogleSignInFailure.NoActivity
+        }
+
         // GetSignInWithGoogleOption (rather than GetGoogleIdOption) shows the
         // full account picker every time. The filtered variant silently reuses
         // whichever account signed in last, which is wrong for a button the
@@ -76,7 +105,7 @@ class GoogleSignInProvider(
             .build()
 
         val response = try {
-            credentialManagerFactory(context).getCredential(context, request)
+            credentialManagerFactory(activity).getCredential(activity, request)
         } catch (e: GetCredentialCancellationException) {
             throw GoogleSignInFailure.Cancelled
         } catch (e: NoCredentialException) {

@@ -685,10 +685,13 @@ With the setting unset the endpoint refuses every request with
 `google_sign_in_unavailable`, so a deployment that has not been configured
 cannot accidentally accept anything. Google is also only ever trusted to assert
 an address it has itself verified: a token whose `email_verified` claim is false
-is rejected with `google_email_unverified`. Every other way a token can fail —
-bad signature, wrong audience, expired, malformed — collapses into one opaque
-`invalid_google_token`, because telling a caller which check failed only helps
-someone probing the endpoint.
+is rejected with `google_email_unverified`. Every way a *presented* token can
+fail verification — bad signature, wrong audience, expired — collapses into one
+opaque `invalid_google_token`, because telling a caller which check failed only
+helps someone probing the endpoint. Input that isn't shaped like a JWT at all is
+refused earlier, as an ordinary `Invalid fields [ID_TOKEN]` validation error
+alongside every other malformed request; that reveals nothing, and keeps the
+endpoint consistent with the rest of the API.
 
 **Which account it is.** Google's `sub` claim is the join key, stored on
 `PositiveOnlySocialUser.google_sub`. It is the only identifier Google guarantees

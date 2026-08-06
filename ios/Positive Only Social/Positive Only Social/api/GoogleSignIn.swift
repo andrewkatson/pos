@@ -48,6 +48,9 @@ enum GoogleSignInError: Error, LocalizedError, Equatable {
     case cancelled
     case invalidConfiguration
     case invalidCallback
+    /// The ID token came back without the nonce this flow asked for, so it
+    /// belongs to some other request.
+    case nonceMismatch
     case tokenExchangeFailed(String)
 
     var errorDescription: String? {
@@ -60,6 +63,8 @@ enum GoogleSignInError: Error, LocalizedError, Equatable {
             return "Google sign-in is misconfigured in this build."
         case .invalidCallback:
             return "Google returned an unexpected response. Please try again."
+        case .nonceMismatch:
+            return "Google returned a sign-in that didn't match this request. Please try again."
         case .tokenExchangeFailed(let message):
             return "Google sign-in failed: \(message)"
         }
@@ -73,6 +78,9 @@ struct GoogleAuthorizationRequest: Equatable {
     let url: URL
     let codeVerifier: String
     let state: String
+    /// Kept so the ID token Google returns can be checked to carry it back —
+    /// an unchecked nonce is decoration, not replay protection.
+    let nonce: String
     let redirectURI: String
     let callbackScheme: String
 }
@@ -116,12 +124,15 @@ enum GoogleOAuth {
     }
 
     /// Build the authorization URL and the secrets that must survive until the
-    /// exchange. `nonce` is included because Google binds it into the ID token.
+    /// exchange. Google binds `nonce` into the ID token it issues, and
+    /// `idToken(fromTokenResponse:expectedNonce:)` checks it comes back, so a
+    /// token minted for some other request cannot be passed off as this one's.
     static func authorizationRequest(clientID: String) -> GoogleAuthorizationRequest? {
         guard let reversed = reversedClientID(for: clientID) else { return nil }
         let redirectURI = reversed + ":/oauth2redirect"
         let verifier = makeCodeVerifier()
         let state = makeCodeVerifier()
+        let nonce = makeCodeVerifier()
 
         guard var components = URLComponents(string: authorizationEndpoint) else { return nil }
         components.queryItems = [
@@ -134,7 +145,7 @@ enum GoogleOAuth {
             URLQueryItem(name: "code_challenge", value: codeChallenge(for: verifier)),
             URLQueryItem(name: "code_challenge_method", value: "S256"),
             URLQueryItem(name: "state", value: state),
-            URLQueryItem(name: "nonce", value: makeCodeVerifier()),
+            URLQueryItem(name: "nonce", value: nonce),
         ]
         guard let url = components.url else { return nil }
 
@@ -142,6 +153,7 @@ enum GoogleOAuth {
             url: url,
             codeVerifier: verifier,
             state: state,
+            nonce: nonce,
             redirectURI: redirectURI,
             callbackScheme: reversed
         )
@@ -198,16 +210,44 @@ enum GoogleOAuth {
     }
 
     /// The ID token from a token-endpoint response, or a described failure.
-    static func idToken(fromTokenResponse data: Data) throws -> String {
+    ///
+    /// `expectedNonce` is the one this flow asked for. Google binds it into the
+    /// token, so a token that doesn't carry it back belongs to some other
+    /// request and is refused. The claims are read without verifying the
+    /// signature — that is the backend's job, and it is the only side whose
+    /// verdict grants a session; this check only rejects a token that is not
+    /// the one this sign-in asked for.
+    static func idToken(fromTokenResponse data: Data, expectedNonce: String?) throws -> String {
         guard let response = try? JSONDecoder().decode(TokenResponse.self, from: data) else {
             throw GoogleSignInError.invalidCallback
         }
-        if let idToken = response.id_token, !idToken.isEmpty {
-            return idToken
+        guard let idToken = response.id_token, !idToken.isEmpty else {
+            throw GoogleSignInError.tokenExchangeFailed(
+                response.error_description ?? response.error ?? "no ID token was returned"
+            )
         }
-        throw GoogleSignInError.tokenExchangeFailed(
-            response.error_description ?? response.error ?? "no ID token was returned"
-        )
+        if let expectedNonce, unverifiedClaim("nonce", of: idToken) != expectedNonce {
+            throw GoogleSignInError.nonceMismatch
+        }
+        return idToken
+    }
+
+    /// Read one string claim out of a JWT payload *without* checking the
+    /// signature. Only ever used for the nonce comparison above; nothing here
+    /// decides who anyone is.
+    static func unverifiedClaim(_ name: String, of jwt: String) -> String? {
+        let segments = jwt.split(separator: ".", omittingEmptySubsequences: false)
+        guard segments.count == 3 else { return nil }
+        var payload = String(segments[1])
+            .replacingOccurrences(of: "-", with: "+")
+            .replacingOccurrences(of: "_", with: "/")
+        // base64url drops the padding Data(base64Encoded:) insists on.
+        while payload.count % 4 != 0 { payload += "=" }
+        guard let data = Data(base64Encoded: payload),
+              let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+            return nil
+        }
+        return object[name] as? String
     }
 }
 
@@ -258,7 +298,7 @@ final class GoogleSignInProvider: NSObject, GoogleSignInProviding, ASWebAuthenti
         // on success and failure alike, and idToken(fromTokenResponse:) turns
         // an error body into a message worth showing instead of a bare 400.
         let (data, _) = try await urlSession.data(for: tokenRequest)
-        return try GoogleOAuth.idToken(fromTokenResponse: data)
+        return try GoogleOAuth.idToken(fromTokenResponse: data, expectedNonce: request.nonce)
     }
 
     @MainActor

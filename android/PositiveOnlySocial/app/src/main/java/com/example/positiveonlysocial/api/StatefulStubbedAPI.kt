@@ -315,7 +315,11 @@ class StatefulStubbedAPI : PositiveOnlySocialAPI {
         if (sub.isNullOrBlank() || rawEmail.isNullOrBlank()) {
             return errorGeneric(401, Constants.INVALID_GOOGLE_TOKEN)
         }
-        if (claims["email_verified"] == "false") {
+        // Verified has to be asserted, not merely not-denied: the backend
+        // requires `email_verified is True`, so a missing or non-boolean claim
+        // counts as unverified there and must here too, or the stub is more
+        // permissive than production.
+        if (claims["email_verified"] != "true") {
             return errorGeneric(403, Constants.GOOGLE_EMAIL_UNVERIFIED)
         }
         val email = rawEmail.lowercase()
