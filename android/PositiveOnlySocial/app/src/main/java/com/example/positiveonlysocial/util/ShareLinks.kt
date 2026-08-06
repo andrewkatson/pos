@@ -28,8 +28,11 @@ data class SharedPostLink(
  *
  * The website renders these links for signed-out recipients too (issue #381),
  * so a link is useful whether or not the app is installed — which is what makes
- * claiming `https://smiling.social/post/*` with `autoVerify` safe: a device
- * without the app just opens the web page.
+ * claiming the `https://smiling.social/post/` path prefix with `autoVerify`
+ * safe: a device without the app just opens the web page.
+ *
+ * (Spelling that prefix with a trailing wildcard would end this comment early:
+ * Kotlin block comments nest, so the `/` + `*` would open one.)
  *
  * Everything except [shareText] is pure (no Android framework, [URI] rather
  * than `android.net.Uri`) so it unit-tests on the JVM without a runtime.
