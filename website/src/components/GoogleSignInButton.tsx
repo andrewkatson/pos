@@ -14,6 +14,13 @@ interface GoogleSignInButtonProps {
   disabled?: boolean
   /** 'signin_with' on the login page, 'signup_with' on the register page. */
   text?: 'signin_with' | 'signup_with' | 'continue_with'
+  /**
+   * What to say when Google itself can't be reached. Supplied by the caller
+   * because the way out differs per surface: on the login page there is a
+   * password to fall back on, but someone signing *up* with Google has no
+   * account yet, so telling them to use their password is nonsense.
+   */
+  unavailableMessage?: string
 }
 
 /**
@@ -29,6 +36,7 @@ function GoogleSignInButton({
   onError,
   disabled = false,
   text = 'signin_with',
+  unavailableMessage = 'Google sign-in is unavailable right now. Please use your password.',
 }: GoogleSignInButtonProps) {
   const containerRef = useRef<HTMLDivElement>(null)
   const [isReady, setIsReady] = useState(false)
@@ -39,9 +47,11 @@ function GoogleSignInButton({
   // long before either can fire — both are only reached from a user action.
   const onCredentialRef = useRef(onCredential)
   const onErrorRef = useRef(onError)
+  const unavailableMessageRef = useRef(unavailableMessage)
   useEffect(() => {
     onCredentialRef.current = onCredential
     onErrorRef.current = onError
+    unavailableMessageRef.current = unavailableMessage
   })
 
   useEffect(() => {
@@ -72,7 +82,7 @@ function GoogleSignInButton({
       })
       .catch(() => {
         if (cancelled) return
-        onErrorRef.current?.('Google sign-in is unavailable right now. Please use your password.')
+        onErrorRef.current?.(unavailableMessageRef.current)
       })
 
     return () => {

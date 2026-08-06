@@ -104,3 +104,25 @@ test('reports a failure to reach Google instead of showing a dead button', async
   await waitFor(() => expect(onError).toHaveBeenCalled())
   expect(onError.mock.calls[0][0]).toContain('Google sign-in is unavailable')
 })
+
+test('the caller chooses the unavailable copy, since the way out differs per page', async () => {
+  // The login page can say "use your password"; someone signing up with Google
+  // has no account yet, so that wording would be nonsense there.
+  loadGoogleIdentityServices.mockRejectedValue(new Error('offline'))
+  const onError = vi.fn()
+
+  render(
+    <GoogleSignInButton
+      onCredential={vi.fn()}
+      onError={onError}
+      text="signup_with"
+      unavailableMessage="Google sign-up is unavailable right now. Please fill in the form above instead."
+    />,
+  )
+
+  await waitFor(() => expect(onError).toHaveBeenCalled())
+  expect(onError.mock.calls[0][0]).toBe(
+    'Google sign-up is unavailable right now. Please fill in the form above instead.',
+  )
+  expect(onError.mock.calls[0][0]).not.toContain('your password')
+})

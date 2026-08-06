@@ -185,6 +185,20 @@ class StatefulStubbedApiGoogleTest {
     }
 
     @Test
+    fun `tokens decode at every payload length, padded or not`() = runTest {
+        // java.util.Base64 treats '=' as optional, unlike the browser's atob
+        // which rejects a length of 4n+1. Walk the claim set through every
+        // length mod 4 so a future "let's pad it like the web stub" change has
+        // something to answer to.
+        val api = StatefulStubbedAPI()
+        repeat(6) { extra ->
+            val email = "a".repeat(extra) + "person$extra@example.com"
+            val response = signIn(api, sub = "sub-$extra", email = email)
+            assertTrue("failed at extra=$extra", response.isSuccessful)
+        }
+    }
+
+    @Test
     fun `a malformed token is refused`() = runTest {
         val api = StatefulStubbedAPI()
         val response = api.loginWithGoogle(GoogleLoginRequest("not-a-jwt", "false", "127.0.0.1"))

@@ -407,6 +407,13 @@ class StatefulStubbedAPI : PositiveOnlySocialAPI {
      * is exercised by JVM unit tests, where the Android framework stubs return
      * default values (unitTests.isReturnDefaultValues) and would silently
      * decode everything to null.
+     *
+     * No padding is restored before decoding, unlike the website stub. That is
+     * not an oversight: java.util.Base64's decoder treats '=' as optional and
+     * decodes an unpadded segment of any valid length, whereas the browser's
+     * atob rejects a length of 4n+1 outright and so does need it. Verified
+     * against every length mod 4. The trimEnd is only there to drop padding
+     * that a token may or may not carry.
      */
     private fun decodeIdTokenClaims(idToken: String): Map<String, String>? {
         val segments = idToken.split(".")

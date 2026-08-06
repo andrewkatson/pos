@@ -459,6 +459,9 @@ function RegisterPage() {
           onError={setErrorMessage}
           disabled={isLoading}
           text="signup_with"
+          // Someone signing up has no password to fall back on yet, so the
+          // login page's wording would be nonsense here.
+          unavailableMessage="Google sign-up is unavailable right now. Please fill in the form above instead."
         />
       </div>
     </div>

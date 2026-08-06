@@ -8,11 +8,13 @@ it here keeps every test about what the *endpoint* does with a set of claims.
 from unittest.mock import patch
 
 from django.contrib.auth import get_user_model
+from django.db import IntegrityError
 from django.test import override_settings
 from django.urls import reverse
 
 from .test_constants import false, true
 from .test_parent_case import PositiveOnlySocialTestCase
+from .. import views
 from ..constants import (
     ACCOUNT_BANNED, BAN_TYPE_OUTRIGHT, Fields, GOOGLE_EMAIL_AMBIGUOUS,
     GOOGLE_EMAIL_UNVERIFIED, GOOGLE_SIGN_IN_UNAVAILABLE, INVALID_GOOGLE_TOKEN,
@@ -118,6 +120,57 @@ class GoogleLoginTests(PositiveOnlySocialTestCase):
         body = self._sign_in(claims(email='hopefulperson@example.com')).json()
         self.assertNotEqual(body[Fields.username], taken)
         self.assertTrue(body[Fields.username].startswith(taken))
+
+    def test_a_concurrent_first_sign_in_is_adopted_rather_than_looped_over(self):
+        """Two unique columns can trip the insert, and only one is retryable.
+
+        If a concurrent first-ever sign-in for the same Google account wins the
+        race, the constraint that fails is google_sub, not username — so drawing
+        new digits could never succeed, and looping would burn every attempt and
+        end in a 500. The row the winner created has to be adopted instead.
+
+        Exercised against the helper rather than the endpoint: the winner's row
+        has to be committed *outside* the atomic block the insert runs in, or the
+        savepoint rollback would take it away again and the test would be
+        checking its own artifact.
+        """
+        user_model = get_user_model()
+        winner = user_model.objects.create(
+            username='racewinner01', email='winner@example.com', google_sub='google-sub-1',
+        )
+
+        with patch.object(
+            user_model.objects, 'create_user',
+            side_effect=IntegrityError('duplicate key value violates unique constraint "google_sub"'),
+        ), patch(CLASSIFIER_PATH, return_value=True):
+            adopted, created = views._create_user_for_google(None, claims(), '127.0.0.1')
+
+        self.assertEqual(adopted, winner)
+        # The winner created it, not this request — so the caller must not greet
+        # the same person as a new member a second time.
+        self.assertFalse(created)
+        self.assertEqual(user_model.objects.filter(google_sub='google-sub-1').count(), 1)
+
+    def test_a_username_collision_alone_keeps_retrying(self):
+        """The other unique column is still worth drawing new digits for."""
+        user_model = get_user_model()
+        real_create = user_model.objects.create_user
+        attempts = []
+
+        def create_once_taken(**kwargs):
+            attempts.append(kwargs['username'])
+            if len(attempts) == 1:
+                raise IntegrityError('duplicate key value violates unique constraint "username"')
+            return real_create(**kwargs)
+
+        with patch.object(user_model.objects, 'create_user', side_effect=create_once_taken), \
+                patch(CLASSIFIER_PATH, return_value=True):
+            created_user, created = views._create_user_for_google(None, claims(), '127.0.0.1')
+
+        self.assertTrue(created)
+        self.assertEqual(len(attempts), 2)
+        self.assertNotEqual(attempts[0], attempts[1])
+        self.assertEqual(created_user.google_sub, 'google-sub-1')
 
     def test_non_positive_local_part_falls_back_to_a_neutral_username(self):
         """A name the user never chose must not be what stops them signing up."""

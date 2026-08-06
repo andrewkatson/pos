@@ -1052,7 +1052,11 @@ def _google_username_candidate(base, attempt):
 
 
 def _create_user_for_google(request, claims, ip):
-    """Create the account behind a first-ever Google sign-in, or None if we can't.
+    """Create the account behind a first-ever Google sign-in.
+
+    Returns `(user, created)`. `created` is False when a concurrent request beat
+    us to it and we adopted its row, so the caller doesn't greet the same person
+    as a new member twice; `(None, False)` means no account could be made.
 
     The result matches registering without a date of birth (identity unverified,
     not an adult), with two differences: the password is unusable, because there
@@ -1069,11 +1073,11 @@ def _create_user_for_google(request, claims, ip):
         if not is_valid_pattern(candidate, Patterns.alphanumeric):
             continue
         try:
-            # The username unique constraint, not the lookup, is what actually
-            # decides: two Google sign-ins racing on the same generated name
-            # (or on a name someone registered a moment ago) make one insert
-            # fail, and that one simply draws different digits. The savepoint
-            # keeps the failure from poisoning any surrounding transaction.
+            # The unique constraints, not the lookups, are what actually decide:
+            # two Google sign-ins racing on the same generated name (or on a name
+            # someone registered a moment ago) make one insert fail, and that one
+            # simply draws different digits. The savepoint keeps the failure from
+            # poisoning any surrounding transaction.
             with transaction.atomic():
                 new_user = get_user_model().objects.create_user(username=candidate, email=email)
                 new_user.set_unusable_password()
@@ -1081,6 +1085,16 @@ def _create_user_for_google(request, claims, ip):
                 new_user.email_verified = True
                 new_user.save()
         except IntegrityError:
+            # Two columns here are unique, and only one of them is worth
+            # retrying. If google_sub is the one that tripped, a concurrent
+            # first-ever sign-in for this same Google account won the race and
+            # has already made the account — no username would ever succeed, so
+            # looping would burn every attempt and end in a 500. Adopt the row
+            # the winner created instead; it is the same person's account.
+            raced = get_user_model().objects.filter(google_sub=claims['sub']).first()
+            if raced is not None:
+                logger.info(f"A concurrent Google sign-in created user_id: {raced.id} first; using it")
+                return raced, False
             logger.info("Generated Google username was taken; retrying with another")
             continue
 
@@ -1094,10 +1108,10 @@ def _create_user_for_google(request, claims, ip):
         # The _create_authenticated_session call that follows will see it as
         # already known and stay quiet.
         _record_device_and_maybe_notify(new_user, ip, request=request, notify=False)
-        return new_user
+        return new_user, True
 
     logger.error("Could not generate a free username for a Google sign-in")
-    return None
+    return None, False
 
 
 @ratelimit(key=_get_client_ip, rate='10/m', block=True)
@@ -1185,13 +1199,13 @@ def login_user_google(request):
             logger.info(f"Linked a Google identity to existing user_id: {existing.id}")
 
     if existing is None:
-        existing = _create_user_for_google(request, claims, ip)
+        existing, created_account = _create_user_for_google(request, claims, ip)
         if existing is None:
             return log_and_return_json("login_user_google", {
                 'error': "Could not create an account for that Google identity. Please try again.",
             }, status=500)
-        created_account = True
-        logger.info(f"Created an account from Google sign-in for user_id: {existing.id}")
+        if created_account:
+            logger.info(f"Created an account from Google sign-in for user_id: {existing.id}")
 
     if has_active_outright_ban(existing):
         logger.warning(f"Google sign-in failed: Account banned for user_id: {existing.id}")
