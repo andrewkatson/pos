@@ -48,6 +48,9 @@ struct MockUser {
     // mapped freeform) and the freeform terms the user typed.
     var interestCategories: [String] = []
     var freeformInterests: [String] = []
+    // Google's `sub` claim once this account is linked to a Google identity
+    // (issue #10); nil for password-only accounts.
+    var googleSub: String? = nil
 
     init(username: String, email: String, passwordHash: String) {
         self.username = username
@@ -587,6 +590,126 @@ final class StatefulStubbedAPI: Networking {
                 user_id: user.id.uuidString
             ))
         }
+    }
+
+    func loginWithGoogle(idToken: String, rememberMe: String, ip: String) async throws -> Data {
+        await simulateNetwork()
+
+        // The real backend verifies the token against Google's public keys; the
+        // stub has neither a network nor the keys, so it reads the claims
+        // straight out of the payload segment (see google_auth.py for what the
+        // real check does).
+        guard let claims = Self.decodeIdTokenClaims(idToken),
+              let sub = claims.sub, let rawEmail = claims.email else {
+            throw APIError.serverError(statusCode: 401, serverMessage: "invalid_google_token")
+        }
+        if claims.email_verified == false {
+            throw APIError.serverError(statusCode: 403, serverMessage: "google_email_unverified")
+        }
+        let email = rawEmail.lowercased()
+
+        var createdAccount = false
+        var index = users.firstIndex { $0.googleSub == sub }
+        if index == nil {
+            // Google has verified the address, so an account already holding it
+            // is the same person: link rather than making a second account.
+            if let existing = users.firstIndex(where: { $0.email.lowercased() == email }) {
+                users[existing].googleSub = sub
+                users[existing].emailVerified = true
+                users[existing].emailVerificationToken = nil
+                index = existing
+            }
+        }
+        if index == nil {
+            // Usernames need at least 10 word characters, so a short local part
+            // is padded — mirroring _google_username_base in the backend.
+            let localPart = String(email.split(separator: "@").first ?? "")
+            let base = localPart.filter { $0.isLetter || $0.isNumber || $0 == "_" }
+            let stem = base.isEmpty ? "friend" : base
+            var username = stem.count >= 10 ? stem : stem + String(repeating: "0", count: 10 - stem.count)
+            var suffix = 1
+            while findUser(byUsername: username) != nil {
+                username = stem + String(format: "%04d", suffix)
+                suffix += 1
+            }
+
+            // No password exists behind a Google account. The stub compares
+            // passwords as plain strings, so this is a value nobody could type
+            // rather than a readable placeholder somebody might.
+            var newUser = MockUser(username: username, email: email, passwordHash: "no-password-\(UUID().uuidString)")
+            newUser.googleSub = sub
+            membershipCounter += 1
+            newUser.membershipNumber = membershipCounter
+            users.append(newUser)
+            index = users.count - 1
+            createdAccount = true
+        }
+
+        guard let userIndex = index else {
+            throw APIError.serverError(statusCode: 500, serverMessage: "Could not create an account")
+        }
+        let user = users[userIndex]
+
+        // Holding the Google account is a first factor, not a bypass of the second.
+        if user.totpEnabled {
+            twoFactorChallenges.removeAll { $0.userId == user.id }
+            let challenge = MockTwoFactorChallenge(
+                challengeToken: generateToken(),
+                userId: user.id,
+                rememberMe: Bool(rememberMe.lowercased()) ?? false,
+                ip: ip
+            )
+            twoFactorChallenges.append(challenge)
+            struct Fields: Codable { let two_factor_required: Bool; let challenge_token: String }
+            return try createSerializedResponse(fields: Fields(two_factor_required: true, challenge_token: challenge.challengeToken))
+        }
+
+        sessions.removeAll { $0.userId == user.id }
+        let newSession = MockSession(managementToken: generateToken(), userId: user.id, ip: ip)
+        sessions.append(newSession)
+
+        struct Fields: Codable {
+            let session_management_token, username, user_id: String
+            let series_identifier, login_cookie_token: String?
+            let created_account: Bool
+            let membership_number: Int?
+        }
+        var seriesIdentifier: String? = nil
+        var loginCookieToken: String? = nil
+        if Bool(rememberMe.lowercased()) ?? false {
+            let cookie = MockLoginCookie(seriesIdentifier: UUID().uuidString, token: generateToken(), userId: user.id)
+            loginCookies.append(cookie)
+            seriesIdentifier = cookie.seriesIdentifier
+            loginCookieToken = cookie.token
+        }
+        return try createSerializedResponse(fields: Fields(
+            session_management_token: newSession.managementToken,
+            username: user.username,
+            user_id: user.id.uuidString,
+            series_identifier: seriesIdentifier,
+            login_cookie_token: loginCookieToken,
+            created_account: createdAccount,
+            membership_number: createdAccount ? user.membershipNumber : nil
+        ))
+    }
+
+    /// The claims the stub reads out of an unverified ID token payload.
+    struct StubGoogleClaims: Decodable {
+        let sub: String?
+        let email: String?
+        let email_verified: Bool?
+    }
+
+    static func decodeIdTokenClaims(_ idToken: String) -> StubGoogleClaims? {
+        let segments = idToken.split(separator: ".", omittingEmptySubsequences: false)
+        guard segments.count == 3 else { return nil }
+        var payload = String(segments[1])
+            .replacingOccurrences(of: "-", with: "+")
+            .replacingOccurrences(of: "_", with: "/")
+        // base64url drops the padding that Data(base64Encoded:) insists on.
+        while payload.count % 4 != 0 { payload += "=" }
+        guard let data = Data(base64Encoded: payload) else { return nil }
+        return try? JSONDecoder().decode(StubGoogleClaims.self, from: data)
     }
 
     func loginUserWithRememberMe(sessionManagementToken: String, seriesIdentifier: String, loginCookieToken: String, ip: String) async throws -> Data {

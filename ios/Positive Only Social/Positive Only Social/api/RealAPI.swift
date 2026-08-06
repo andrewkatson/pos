@@ -75,6 +75,12 @@ final class RealAPI: Networking {
         let remember_me: String
         let ip: String
     }
+
+    private struct GoogleLoginBody: Encodable {
+        let id_token: String
+        let remember_me: String
+        let ip: String
+    }
     
     private struct RememberMeBody: Encodable {
         let session_management_token: String
@@ -347,6 +353,17 @@ final class RealAPI: Networking {
     }
     
     /// Second step of a two-factor login: exchanges the challenge for a session.
+    func loginWithGoogle(idToken: String, rememberMe: String, ip: String) async throws -> Data {
+        let body = GoogleLoginBody(id_token: idToken, remember_me: rememberMe, ip: ip)
+        let requestBody = try encode(body)
+
+        return try await performRequest(
+            pathSegments: [GVOAppConstants.pathSegmentLogin, GVOAppConstants.pathSegmentGoogle],
+            method: .post,
+            body: requestBody
+        )
+    }
+
     func loginUser2FA(challengeToken: String, totpCode: String?, recoveryCode: String?, ip: String) async throws -> Data {
         let body = Login2FABody(challenge_token: challengeToken, totp_code: totpCode, recovery_code: recoveryCode, ip: ip)
         let requestBody = try encode(body)

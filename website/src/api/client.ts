@@ -26,6 +26,7 @@ import type {
   DisableTotpResponse,
   FeedPost,
   FollowCategory,
+  GoogleLoginRequest,
   HiddenComment,
   HiddenPost,
   LoginRequest,
@@ -378,6 +379,18 @@ export class ApiClient implements PositiveOnlySocialAPI {
       // A 2FA-enrolled account gets a challenge, not a session — clear any
       // prior token so isAuthenticated() doesn't report true before the
       // second factor is completed via loginWithTwoFactor.
+      this.setToken(null)
+    } else {
+      this.setToken(result.session_management_token)
+    }
+    return result
+  }
+
+  async loginWithGoogle(body: GoogleLoginRequest): Promise<LoginResponse> {
+    const result = await this.request<LoginResponse>('POST', '/login/google/', { body })
+    if (isTwoFactorRequired(result)) {
+      // Holding the Google account is a first factor, not a bypass of the
+      // second — no session until loginWithTwoFactor completes.
       this.setToken(null)
     } else {
       this.setToken(result.session_management_token)

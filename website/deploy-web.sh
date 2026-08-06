@@ -62,7 +62,13 @@ print_status "Building SPA with VITE_API_BASE_URL=$API_BASE_URL ..."
 # Web push (issues #342/#343) is opt-in: export the VITE_FIREBASE_* vars (public
 # Firebase Web config + VAPID key) in the deploy environment to enable it. When
 # they are unset the build still succeeds and push is simply a no-op client-side.
+#
+# Google sign-in (issue #10) is opt-in the same way: export VITE_GOOGLE_CLIENT_ID
+# (the *web* OAuth client ID from the Google Cloud console — public, and it must
+# also appear in the backend's GOOGLE_OAUTH_CLIENT_IDS) to show the Google
+# button. Unset, the button simply isn't rendered.
 VITE_API_BASE_URL="$API_BASE_URL" \
+  VITE_GOOGLE_CLIENT_ID="${VITE_GOOGLE_CLIENT_ID:-}" \
   VITE_FIREBASE_API_KEY="${VITE_FIREBASE_API_KEY:-}" \
   VITE_FIREBASE_AUTH_DOMAIN="${VITE_FIREBASE_AUTH_DOMAIN:-}" \
   VITE_FIREBASE_PROJECT_ID="${VITE_FIREBASE_PROJECT_ID:-}" \

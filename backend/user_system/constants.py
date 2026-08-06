@@ -202,6 +202,39 @@ TOTP_ISSUER = "Positive Only Social"
 # rather than prose that could be reworded or localized.
 INVALID_TWO_FACTOR_CHALLENGE = "invalid_two_factor_challenge"
 
+# Google sign-in (issue #10). Clients obtain a Google ID token natively and
+# post it to login/google/; the server verifies it against Google's public keys
+# and exchanges it for an ordinary session.
+#
+# Returned when the deployment has no GOOGLE_OAUTH_CLIENT_IDS configured. With
+# no audience to check against, no ID token could ever be trusted, so the
+# endpoint refuses rather than accepting tokens minted for someone else's app.
+# Clients hide the Google button when their own client ID is unset, so this is
+# the belt-and-braces case of a client that asks anyway.
+GOOGLE_SIGN_IN_UNAVAILABLE = "google_sign_in_unavailable"
+
+# Returned when the presented token is not a valid, unexpired Google ID token
+# issued for one of our OAuth clients. Deliberately one code for every failure
+# mode (bad signature, wrong audience, expired, malformed): telling a caller
+# *which* check failed only helps someone probing the endpoint.
+INVALID_GOOGLE_TOKEN = "invalid_google_token"
+
+# Returned when the token is genuine but Google has not verified the address on
+# it. The whole basis for linking a Google identity to an existing account — and
+# for skipping our own verification email on a new one — is that Google has
+# proven the user owns that mailbox, so an unverified claim is worth nothing.
+GOOGLE_EMAIL_UNVERIFIED = "google_email_unverified"
+
+# A Google account carries no username, so the first sign-in generates one from
+# the email local part. Generated names must still satisfy Patterns.alphanumeric
+# (at least 10 word characters), so a short local part is padded and a taken name
+# gets a numeric suffix. GENERATED_USERNAME_FALLBACK_PREFIX is used when the
+# local part yields nothing usable — or when the text classifier rejects what it
+# yielded, which must not block a sign-in over a name the user never chose.
+GENERATED_USERNAME_FALLBACK_PREFIX = "friend"
+MIN_GENERATED_USERNAME_LENGTH = 10
+MAX_GENERATED_USERNAME_ATTEMPTS = 20
+
 # Regex Patterns to check against
 class Patterns:
     password = r"^(?=.*[0-9])(?=.*[a-z])(?=.*[A-Z])(?=\S+$).{8,}$"
@@ -230,6 +263,12 @@ class Patterns:
     alphanumeric_with_special_chars = r"^[\w\W]+$"
     totp_code = r"^\d{6}$"
     recovery_code = r"^[0-9a-f]{10}$"
+    # A JWS in compact serialization — three base64url segments — which is the
+    # shape of a Google ID token. This is only a cheap "don't bother Google with
+    # obvious junk" gate; the signature, issuer, audience and expiry are all
+    # checked properly by google.oauth2.id_token during verification. The upper
+    # bound keeps an attacker from making us hash a megabyte of base64.
+    google_id_token = r"^[A-Za-z0-9_-]{4,2048}\.[A-Za-z0-9_-]{4,4096}\.[A-Za-z0-9_-]{4,2048}$"
     hex_token = r"^[0-9a-f]{64}$"
     # A single hashtag, without the leading '#'. Word characters only (unicode
     # letters, digits, underscore), matching what extract_tag_names harvests
@@ -274,6 +313,7 @@ class Params:
     token = "TOKEN"
     notification_type = "TYPE"
     enabled = "ENABLED"
+    id_token = "ID_TOKEN"
 
 class Fields:
     is_adult = 'is_adult'
@@ -355,6 +395,11 @@ class Fields:
     has_appeal = "has_appeal"
     two_factor_required = "two_factor_required"
     challenge_token = "challenge_token"
+    # The Google ID token a client posts to login/google/, and the flag the
+    # response sets when that sign-in created the account rather than logging
+    # in to an existing one (so clients can greet a brand-new member).
+    id_token = "id_token"
+    created_account = "created_account"
     totp_code = "totp_code"
     recovery_code = "recovery_code"
     totp_secret = "totp_secret"

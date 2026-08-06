@@ -77,6 +77,8 @@ import Foundation
     // Relationship-category endpoint and query key (issue #392).
     static let pathSegmentCategory = "category"
     static let queryKeyCategory = "category"
+    // POST login/google/ — exchange a Google ID token for a session (issue #10).
+    static let pathSegmentGoogle = "google"
     static let pathSegmentFollowers = "followers"
     static let pathSegmentFollowing = "following"
     static let pathSegmentLike = "like"

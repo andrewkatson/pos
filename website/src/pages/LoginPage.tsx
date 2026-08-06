@@ -1,5 +1,6 @@
 import { useEffect, useState, type FormEvent } from 'react'
 import { useNavigate, useSearchParams } from 'react-router'
+import GoogleSignInButton from '../components/GoogleSignInButton'
 import Logo from '../components/Logo'
 import {
   ACCOUNT_BANNED,
@@ -115,6 +116,36 @@ function LoginPage() {
         setErrorMessage(EMAIL_NOT_VERIFIED_MESSAGE)
       } else {
         setErrorMessage(apiErr.message ?? 'Login failed. Please check your credentials.')
+      }
+    } finally {
+      setIsLoading(false)
+    }
+  }
+
+  /** Google handed us an ID token; trade it for a session (issue #10). */
+  async function handleGoogleCredential(idToken: string) {
+    if (isLoading) return
+    setErrorMessage(null)
+    setIsLoading(true)
+    try {
+      const response = await apiClient.loginWithGoogle({
+        id_token: idToken,
+        remember_me: rememberMe,
+      })
+      if (isTwoFactorRequired(response)) {
+        // Same reasoning as the password path: no session has been issued yet,
+        // so nothing stale may be left behind to look like one.
+        clearSession()
+        setChallengeToken(response.challenge_token)
+        return
+      }
+      completeLogin(response)
+    } catch (err) {
+      const apiErr = err as ApiError
+      if (apiErr.message === ACCOUNT_BANNED) {
+        setErrorMessage(ACCOUNT_SUSPENDED_MESSAGE)
+      } else {
+        setErrorMessage(apiErr.message ?? 'Google sign-in failed. Please try again.')
       }
     } finally {
       setIsLoading(false)
@@ -311,6 +342,14 @@ function LoginPage() {
             >
               Forgot Password?
             </button>
+
+            {/* Sits below the password form so the primary path stays first,
+                and honours the same "Remember Me" toggle above it. */}
+            <GoogleSignInButton
+              onCredential={handleGoogleCredential}
+              onError={setErrorMessage}
+              disabled={isLoading}
+            />
           </>
         )}
       </div>

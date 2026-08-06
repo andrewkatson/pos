@@ -31,11 +31,28 @@ export interface AuthResponse {
    * case the backend couldn't assign one at signup.
    */
   membership_number?: number | null
+  /**
+   * Set by the Google sign-in response (issue #10): true when that sign-in
+   * created the account rather than logging in to an existing one, so a
+   * brand-new member can be greeted rather than dropped straight into a feed.
+   * Absent on every other auth response.
+   */
+  created_account?: boolean
 }
 
 export interface LoginRequest {
   username_or_email: string
   password: string
+  remember_me?: boolean
+}
+
+/**
+ * Google sign-in (issue #10). `id_token` is the JWT Google Identity Services
+ * hands back in its credential callback; the backend verifies it against
+ * Google's public keys and exchanges it for an ordinary session.
+ */
+export interface GoogleLoginRequest {
+  id_token: string
   remember_me?: boolean
 }
 

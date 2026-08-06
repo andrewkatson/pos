@@ -25,6 +25,9 @@ urlpatterns = [
     # POST /login/
     path('login/', views.login_user, name='login_user'),
 
+    # POST /login/google/
+    path('login/google/', views.login_user_google, name='login_user_google'),
+
     # POST /login/remember/
     path('login/remember/', views.login_user_with_remember_me, name='login_user_with_remember_me'),
 

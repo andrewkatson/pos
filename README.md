@@ -574,6 +574,82 @@ exactly the cascade above; on success the local session is cleared and a
 confirmation is shown. A session already restored on page load skips straight to
 the confirmation step.
 
+## Signing in with Google
+
+Anyone can sign in — and sign up — with a Google account instead of a username
+and password (issue #10). Every client obtains a **Google ID token** natively
+and posts it to `login/google/`, which verifies it and hands back exactly the
+same session a password login would: same fields, same remember-me cookie, same
+new-device email. Nothing downstream of login knows or cares how the session was
+obtained.
+
+**Verification.** The backend checks the token's RS256 signature against
+Google's published keys, its issuer, its expiry, and — the part that matters —
+its **audience**, which must be one of the OAuth client IDs in
+`GOOGLE_OAUTH_CLIENT_IDS`. That list is the entire trust boundary: a token minted
+for someone else's Google app is just a signed statement addressed elsewhere.
+With the setting unset the endpoint refuses every request with
+`google_sign_in_unavailable`, so a deployment that has not been configured
+cannot accidentally accept anything. Google is also only ever trusted to assert
+an address it has itself verified: a token whose `email_verified` claim is false
+is rejected with `google_email_unverified`. Every other way a token can fail —
+bad signature, wrong audience, expired, malformed — collapses into one opaque
+`invalid_google_token`, because telling a caller which check failed only helps
+someone probing the endpoint.
+
+**Which account it is.** Google's `sub` claim is the join key, stored on
+`PositiveOnlySocialUser.google_sub`. It is the only identifier Google guarantees
+is permanent and never reused; an email address is neither, so someone who
+renames their mailbox still lands on the same account. The email is used only
+once, on the first sign-in, to find an account to link to.
+
+**Linking.** If no account carries that `sub` yet but one already holds the
+email address, the two are the same person and the Google identity is attached to
+the existing account — matched case-insensitively, since accounts were registered
+with whatever case the user typed while Google normalizes what it asserts. Both
+ways in then work: the password still logs in, and so does Google. Because Google
+has proven ownership of the address, linking also settles our own email
+verification, so an account still sitting on an unclicked verification link
+becomes verified. Nothing enforces email uniqueness in the database; in the rare
+case that more than one account holds the address, the sign-in is refused rather
+than handing the Google identity to whichever row sorted first.
+
+**Creating an account.** Otherwise the sign-in creates one. A Google account
+brings no username, so one is generated from the email local part (non-word
+characters stripped, padded to the ten-character minimum, and given random digits
+if it is taken). The generated name still has to clear the positivity bar a
+chosen username does — but the user did not choose this one, so a rejection falls
+back to a neutral `friend…` name rather than refusing the sign-in over somebody's
+email address. The account gets a membership number in the usual join order,
+starts already email-verified, and has **no usable password**, so the password
+login path can never let anyone in with a guess. Like registering without a date
+of birth, it is left identity-unverified and not an adult. The response carries
+`created_account: true` and the new membership number so clients can greet a new
+member.
+
+**Two-factor authentication is not bypassed.** An account with 2FA enabled
+answers `login/google/` with the same short-lived challenge `login/` returns, and
+the code is exchanged at `login/2fa/` as usual. Holding the Google account is a
+first factor, not a way past a second one the user deliberately turned on. An
+active outright ban is refused here exactly as it is on every other login path.
+
+**Configuration.** Google issues a separate OAuth client ID per platform, and
+each mints tokens addressed to itself, so all of them go in the backend's
+comma-separated `GOOGLE_OAUTH_CLIENT_IDS`:
+
+| Surface | Client ID | Where it is set | How the token is obtained |
+| --- | --- | --- | --- |
+| Website | Web | `VITE_GOOGLE_CLIENT_ID` (see `website/deploy-web.sh`) | Google Identity Services, loaded from Google's CDN |
+| iOS | iOS | `GoogleSignInConfig.clientID` in `ios/…/api/GoogleSignIn.swift` | `ASWebAuthenticationSession` + OAuth 2.0 PKCE, no SDK |
+| Android | **Web** | `GOOGLE_WEB_CLIENT_ID` gradle property | Credential Manager (Sign in with Google) |
+
+Android really does want the *web* client ID — Credential Manager mints the token
+addressed to it — though an Android client ID keyed to the app's signing
+certificate must also exist in the same Google Cloud project. Every surface treats
+an unset client ID as "the feature is off" and simply shows no Google button, so
+CI and local runs need no Google credentials. Step-by-step wiring lives in
+[`GOOGLE_SIGN_IN_SETUP.md`](GOOGLE_SIGN_IN_SETUP.md).
+
 ## Email verification
 
 Registering does not prove you own the email address you signed up with, so

@@ -17,6 +17,12 @@ struct LoginResponseFields: Codable {
     let userId: String?
     let seriesIdentifier: String?
     let loginCookieToken: String?
+    /// Only sent by login/google/ (issue #10): true when that sign-in created
+    /// the account rather than logging in to an existing one. Optional, like
+    /// every other field here, so a response without it still decodes.
+    let createdAccount: Bool?
+    /// The new member's join number, sent alongside `createdAccount`.
+    let membershipNumber: Int?
 
     enum CodingKeys: String, CodingKey {
         case sessionManagementToken = "session_management_token"
@@ -24,6 +30,30 @@ struct LoginResponseFields: Codable {
         case userId = "user_id"
         case seriesIdentifier = "series_identifier"
         case loginCookieToken = "login_cookie_token"
+        case createdAccount = "created_account"
+        case membershipNumber = "membership_number"
+    }
+
+    /// Spelled out rather than left to the synthesized memberwise init so the
+    /// Google-only fields can default to nil, and the mocks that build a plain
+    /// login response don't have to mention them. Decoding is unaffected —
+    /// `init(from:)` is still synthesized.
+    init(
+        sessionManagementToken: String,
+        username: String?,
+        userId: String?,
+        seriesIdentifier: String?,
+        loginCookieToken: String?,
+        createdAccount: Bool? = nil,
+        membershipNumber: Int? = nil
+    ) {
+        self.sessionManagementToken = sessionManagementToken
+        self.username = username
+        self.userId = userId
+        self.seriesIdentifier = seriesIdentifier
+        self.loginCookieToken = loginCookieToken
+        self.createdAccount = createdAccount
+        self.membershipNumber = membershipNumber
     }
 }
 

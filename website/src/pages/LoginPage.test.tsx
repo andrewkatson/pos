@@ -13,6 +13,7 @@ vi.mock('../api/client', async importOriginal => {
     ...actual,
     apiClient: {
       login: vi.fn(),
+      loginWithGoogle: vi.fn(),
       loginWithTwoFactor: vi.fn(),
       setToken: vi.fn(),
       isAuthenticated: vi.fn(() => false),
@@ -20,8 +21,26 @@ vi.mock('../api/client', async importOriginal => {
   }
 })
 
+// The Google button is Google's own iframe, drawn by a script we never load in
+// tests. Stub the component down to a plain button that hands back a canned
+// credential, so the page's behaviour around it is what gets tested.
+vi.mock('../components/GoogleSignInButton', () => ({
+  default: ({
+    onCredential,
+    disabled,
+  }: {
+    onCredential: (idToken: string) => void
+    disabled?: boolean
+  }) => (
+    <button type="button" disabled={disabled} onClick={() => onCredential('a.google.token')}>
+      Sign in with Google
+    </button>
+  ),
+}))
+
 import { apiClient } from '../api/client'
 const mockLogin = vi.mocked(apiClient.login)
+const mockLoginWithGoogle = vi.mocked(apiClient.loginWithGoogle)
 const mockLoginWithTwoFactor = vi.mocked(apiClient.loginWithTwoFactor)
 const mockIsAuthenticated = vi.mocked(apiClient.isAuthenticated)
 
@@ -46,6 +65,7 @@ function renderLoginPage() {
 
 beforeEach(() => {
   mockLogin.mockReset()
+  mockLoginWithGoogle.mockReset()
   mockLoginWithTwoFactor.mockReset()
   mockIsAuthenticated.mockReset()
   mockIsAuthenticated.mockReturnValue(false)
@@ -341,4 +361,95 @@ test('back from the code step returns to the login form', async () => {
 
   expect(screen.getByRole('heading', { name: 'Login' })).toBeInTheDocument()
   expect(screen.getByLabelText('Password')).toBeInTheDocument()
+})
+
+// ---------------------------------------------------------------------------
+// Google sign-in (issue #10)
+// ---------------------------------------------------------------------------
+
+test('a Google credential is exchanged for a session and enters the app', async () => {
+  mockLoginWithGoogle.mockResolvedValueOnce({
+    session_management_token: 'google-token',
+    user_id: 'u1',
+    username: 'hopefulperson',
+    created_account: true,
+    membership_number: 7,
+  })
+  renderLoginPage()
+
+  await userEvent.click(screen.getByRole('button', { name: 'Sign in with Google' }))
+
+  await screen.findByText('Home')
+  expect(mockLoginWithGoogle).toHaveBeenCalledWith({
+    id_token: 'a.google.token',
+    remember_me: false,
+  })
+  expect(sessionStorageMock.setItem).toHaveBeenCalledWith('session_token', 'google-token')
+})
+
+test('Google sign-in honours the Remember Me toggle', async () => {
+  mockLoginWithGoogle.mockResolvedValueOnce({
+    session_management_token: 'google-token',
+    user_id: 'u1',
+    username: 'hopefulperson',
+    series_identifier: 's1',
+    login_cookie_token: 'c1',
+  })
+  renderLoginPage()
+
+  await userEvent.click(screen.getByLabelText('Remember me'))
+  await userEvent.click(screen.getByRole('button', { name: 'Sign in with Google' }))
+
+  await screen.findByText('Home')
+  expect(mockLoginWithGoogle).toHaveBeenCalledWith({
+    id_token: 'a.google.token',
+    remember_me: true,
+  })
+  expect(localStorageMock.setItem).toHaveBeenCalledWith('session_token', 'google-token')
+})
+
+test('a 2FA-enrolled account signing in with Google still has to enter a code', async () => {
+  mockLoginWithGoogle.mockResolvedValueOnce({
+    two_factor_required: true,
+    challenge_token: 'c'.repeat(64),
+  })
+  mockLoginWithTwoFactor.mockResolvedValueOnce({
+    session_management_token: 'after-2fa',
+    user_id: 'u1',
+    username: 'ada',
+  })
+  renderLoginPage()
+
+  await userEvent.click(screen.getByRole('button', { name: 'Sign in with Google' }))
+  await screen.findByRole('heading', { name: 'Two-Factor Authentication' })
+
+  await userEvent.type(screen.getByLabelText('Authenticator Code'), '123456')
+  await userEvent.click(screen.getByRole('button', { name: 'Verify' }))
+
+  await screen.findByText('Home')
+  expect(mockLoginWithTwoFactor).toHaveBeenCalledWith({
+    challenge_token: 'c'.repeat(64),
+    totp_code: '123456',
+  })
+})
+
+test('a banned account gets the suspension message, not a raw error code', async () => {
+  const { ApiError, ACCOUNT_BANNED, ACCOUNT_SUSPENDED_MESSAGE } = await import('../api/client')
+  mockLoginWithGoogle.mockRejectedValueOnce(new ApiError(403, ACCOUNT_BANNED))
+  renderLoginPage()
+
+  await userEvent.click(screen.getByRole('button', { name: 'Sign in with Google' }))
+
+  expect(await screen.findByRole('alert')).toHaveTextContent(ACCOUNT_SUSPENDED_MESSAGE)
+})
+
+test('a failed Google sign-in leaves the password form usable', async () => {
+  const { ApiError } = await import('../api/client')
+  mockLoginWithGoogle.mockRejectedValueOnce(new ApiError(401, 'invalid_google_token'))
+  renderLoginPage()
+
+  await userEvent.click(screen.getByRole('button', { name: 'Sign in with Google' }))
+
+  expect(await screen.findByRole('alert')).toHaveTextContent('invalid_google_token')
+  expect(screen.getByLabelText('Password')).not.toBeDisabled()
 })

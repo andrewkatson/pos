@@ -24,6 +24,11 @@ protocol Networking {
     /// Logs the user in if they exist.
     func loginUser(usernameOrEmail: String, password: String, rememberMe: String, ip: String) async throws -> Data
 
+    /// Exchanges a Google ID token for a session, creating the account on the
+    /// first sign-in (issue #10). Answers with a two-factor challenge for an
+    /// enrolled account, exactly like `loginUser`.
+    func loginWithGoogle(idToken: String, rememberMe: String, ip: String) async throws -> Data
+
     /// Logs the user in using a "remember me" token.
     /// This is used if the user's series identifier and login cookie token exist and match what is on record.
     func loginUserWithRememberMe(sessionManagementToken: String, seriesIdentifier: String, loginCookieToken: String, ip: String) async throws -> Data

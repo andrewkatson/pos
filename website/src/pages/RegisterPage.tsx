@@ -1,15 +1,18 @@
 import { useCallback, useRef, useState, useEffect } from 'react'
 import { useNavigate } from 'react-router'
+import GoogleSignInButton from '../components/GoogleSignInButton'
 import Logo from '../components/Logo'
 import { apiClient } from '../api/client'
 import type { ApiError } from '../api/client'
-import { clearSession } from '../api/session'
+import { clearSession, persistSession } from '../api/session'
 import RequirementHints from '../auth/RequirementHints'
 import { getPasswordRequirements, getUsernameRequirements, allMet } from '../auth/requirements'
 import { MAX_FREEFORM_INTERESTS } from '../api/interestVocabulary'
 import InterestPicker from '../components/InterestPicker'
 import type { InterestOption } from '../api/types'
+import { isTwoFactorRequired } from '../api/types'
 import { PRIVACY_POLICY_TEXT } from '../privacyPolicy'
+import { registerForPush } from '../push/webPush'
 import './LoginPage.css'
 
 function RegisterPage() {
@@ -26,6 +29,14 @@ function RegisterPage() {
   // memberNumber is null in the rare case the backend couldn't assign one.
   const [showWelcome, setShowWelcome] = useState(false)
   const [memberNumber, setMemberNumber] = useState<number | null>(null)
+  // Google sign-up (issue #10). The credential is held here between Google's
+  // callback and the privacy-policy acknowledgement: consent is a condition of
+  // creating an account, and Google's button can't be made to ask for it first.
+  const [pendingGoogleToken, setPendingGoogleToken] = useState<string | null>(null)
+  // A Google account arrives already signed in and already email-verified, so
+  // its welcome modal says something different and leads somewhere else than
+  // the password path's "go check your inbox".
+  const [signedUpWithGoogle, setSignedUpWithGoogle] = useState(false)
   // Optional positive-interest picks collected during sign-up (issues #446/#35),
   // sent along in the register call since the account has no session yet.
   const [interestOptions, setInterestOptions] = useState<InterestOption[]>([])
@@ -126,12 +137,61 @@ function RegisterPage() {
     }
   }
 
+  /** Google's callback: hold the credential until the privacy policy is accepted. */
+  function handleGoogleCredential(idToken: string) {
+    if (isLoading) return
+    setErrorMessage(null)
+    setPendingGoogleToken(idToken)
+    setShowPrivacyPolicy(true)
+  }
+
+  async function handleGoogleSignUp() {
+    const idToken = pendingGoogleToken
+    if (!idToken) return
+    setShowPrivacyPolicy(false)
+    setPendingGoogleToken(null)
+    setIsLoading(true)
+    try {
+      const response = await apiClient.loginWithGoogle({ id_token: idToken })
+
+      if (isTwoFactorRequired(response)) {
+        // Only an *existing* account can owe a second factor, so this is
+        // someone who already has one. The code-entry step lives on the login
+        // page; duplicating it here would mean two copies of the 2FA flow, so
+        // send them there instead.
+        clearSession()
+        setErrorMessage(
+          'You already have an account with two-factor authentication. Please sign in from the Login page.',
+        )
+        return
+      }
+
+      // Unlike the password path this session is usable immediately: Google has
+      // already verified the address, so there is no email to go and click.
+      persistSession(response, false)
+      void registerForPush({ promptIfNeeded: true })
+      setMemberNumber(response.membership_number ?? null)
+      setSignedUpWithGoogle(true)
+      setShowWelcome(true)
+    } catch (err) {
+      const apiErr = err as ApiError
+      setErrorMessage(apiErr.message ?? 'Google sign-up failed. Please try again.')
+    } finally {
+      setIsLoading(false)
+    }
+  }
+
   // Dismissing the welcome modal just moves on to email verification; the
   // session was already cleared in handleRegister. The user logs in after
-  // verifying.
+  // verifying. A Google sign-up has neither of those to do — it is already
+  // signed in and already verified — so it goes straight into the app.
   const dismissWelcome = useCallback(() => {
+    if (signedUpWithGoogle) {
+      navigate('/home')
+      return
+    }
     navigate('/check-email', { state: { email: email.trim() } })
-  }, [navigate, email])
+  }, [navigate, email, signedUpWithGoogle])
 
   // While the welcome modal is open, Escape dismisses it (matching the
   // privacy-policy modal) and Tab is trapped on the modal's only control so
@@ -167,9 +227,13 @@ function RegisterPage() {
               Welcome to Good Vibes Only! 🎉
             </h2>
             <p className="modal__body" id="welcome-body">
-              {memberNumber != null
-                ? `You're member #${memberNumber.toLocaleString()}! Check your email to verify your account and start spreading good vibes.`
-                : `You're all set! Check your email to verify your account and start spreading good vibes.`}
+              {signedUpWithGoogle
+                ? memberNumber != null
+                  ? `You're member #${memberNumber.toLocaleString()}! You're all set — start spreading good vibes.`
+                  : `You're all set — start spreading good vibes.`
+                : memberNumber != null
+                  ? `You're member #${memberNumber.toLocaleString()}! Check your email to verify your account and start spreading good vibes.`
+                  : `You're all set! Check your email to verify your account and start spreading good vibes.`}
             </p>
             <div className="modal__actions">
               <button
@@ -203,11 +267,21 @@ function RegisterPage() {
               <button
                 type="button"
                 className="modal__cancel"
-                onClick={() => setShowPrivacyPolicy(false)}
+                onClick={() => {
+                  setShowPrivacyPolicy(false)
+                  // Declining consent discards the Google credential rather
+                  // than leaving it primed for the next confirmation.
+                  setPendingGoogleToken(null)
+                }}
               >
                 Cancel
               </button>
-              <button type="button" className="modal__confirm" onClick={handleRegister} autoFocus>
+              <button
+                type="button"
+                className="modal__confirm"
+                onClick={pendingGoogleToken ? handleGoogleSignUp : handleRegister}
+                autoFocus
+              >
                 Ok
               </button>
             </div>
@@ -249,7 +323,12 @@ function RegisterPage() {
           className="auth-form"
           onSubmit={e => {
             e.preventDefault()
-            if (isFormValid) setShowPrivacyPolicy(true)
+            if (!isFormValid) return
+            // Whatever the modal is about to confirm, it is this form — drop any
+            // Google credential still held from an abandoned attempt so the
+            // shared "Ok" button can't run the wrong one.
+            setPendingGoogleToken(null)
+            setShowPrivacyPolicy(true)
           }}
           noValidate
         >
@@ -364,6 +443,15 @@ function RegisterPage() {
             </button>
           )}
         </form>
+
+        {/* A Google sign-up skips every field above — Google supplies the
+            email, the backend generates a username, and there is no password. */}
+        <GoogleSignInButton
+          onCredential={handleGoogleCredential}
+          onError={setErrorMessage}
+          disabled={isLoading}
+          text="signup_with"
+        />
       </div>
     </div>
   )

@@ -10,6 +10,7 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
@@ -24,7 +25,11 @@ import com.example.positiveonlysocial.ui.preview.PreviewHelpers
 import com.example.positiveonlysocial.api.ApiErrors
 import com.example.positiveonlysocial.api.PositiveOnlySocialAPI
 import com.example.positiveonlysocial.data.auth.AuthenticationManager
+import com.example.positiveonlysocial.data.auth.GoogleSignInFailure
+import com.example.positiveonlysocial.data.auth.GoogleSignInProvider
+import com.example.positiveonlysocial.data.auth.GoogleSignInProviding
 import com.example.positiveonlysocial.data.constants.Constants
+import com.example.positiveonlysocial.data.model.GoogleLoginRequest
 import com.example.positiveonlysocial.data.model.LoginRequest
 import com.example.positiveonlysocial.data.model.LoginTwoFactorRequest
 import com.example.positiveonlysocial.data.model.RememberMeTokens
@@ -40,7 +45,10 @@ fun LoginScreen(
     navController: NavController,
     api: PositiveOnlySocialAPI,
     keychainHelper: KeychainHelperProtocol,
-    authManager: AuthenticationManager
+    authManager: AuthenticationManager,
+    // Google sign-in (issue #10). Injected so previews and instrumentation
+    // runs never try to drive a real Credential Manager account picker.
+    googleSignIn: GoogleSignInProviding = remember { GoogleSignInProvider() },
 ) {
     PositiveOnlySocialTheme {
         var usernameOrEmail by remember { mutableStateOf("") }
@@ -60,6 +68,8 @@ fun LoginScreen(
 
         val scope = rememberCoroutineScope()
         val focusManager = LocalFocusManager.current
+        // Credential Manager needs an Activity context to show the account picker.
+        val context = LocalContext.current
 
         // Keychain identifiers, matching WelcomeScreen's auto-login reader and
         // AuthenticationManager's session store.
@@ -373,6 +383,92 @@ fun LoginScreen(
                     modifier = Modifier.align(Alignment.End)
                 ) {
                     Text("Forgot Password?")
+                }
+
+                // Hidden outright when this build has no web OAuth client ID,
+                // rather than shown as a button that could only ever fail.
+                if (googleSignIn.isConfigured) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        HorizontalDivider(modifier = Modifier.weight(1f))
+                        Text(
+                            "or",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.padding(horizontal = 8.dp)
+                        )
+                        HorizontalDivider(modifier = Modifier.weight(1f))
+                    }
+
+                    Button(
+                        onClick = {
+                            scope.launch {
+                                isLoading = true
+                                try {
+                                    val idToken = googleSignIn.signIn(context)
+                                    val response = api.loginWithGoogle(
+                                        GoogleLoginRequest(
+                                            idToken = idToken,
+                                            rememberMe = rememberMe.toString(),
+                                            ip = "127.0.0.1",
+                                        )
+                                    )
+                                    if (response.isSuccessful) {
+                                        val body = response.body()
+                                        val challenge = body?.challengeToken
+                                        if (body?.twoFactorRequired == true && !challenge.isNullOrBlank()) {
+                                            // Holding the Google account is a
+                                            // first factor, not a bypass of the
+                                            // second.
+                                            twoFactorChallengeToken = challenge
+                                            twoFactorCode = ""
+                                            useRecoveryCode = false
+                                        } else {
+                                            completeLogin(
+                                                sessionToken = body?.sessionToken,
+                                                username = body?.username,
+                                                userId = body?.userId,
+                                                seriesIdentifier = body?.seriesIdentifier,
+                                                loginCookieToken = body?.loginCookieToken
+                                            )
+                                        }
+                                    } else {
+                                        val errorMsg = ApiErrors.messageFor(
+                                            response,
+                                            fallback = "Google sign-in failed. Please try again."
+                                        )
+                                        errorMessage = when (errorMsg) {
+                                            Constants.ACCOUNT_BANNED -> Constants.ACCOUNT_SUSPENDED_MESSAGE
+                                            Constants.EMAIL_NOT_VERIFIED -> Constants.EMAIL_NOT_VERIFIED_MESSAGE
+                                            Constants.GOOGLE_SIGN_IN_UNAVAILABLE -> Constants.GOOGLE_SIGN_IN_UNAVAILABLE_MESSAGE
+                                            Constants.GOOGLE_EMAIL_UNVERIFIED -> Constants.GOOGLE_EMAIL_UNVERIFIED_MESSAGE
+                                            else -> errorMsg
+                                        }
+                                        showingErrorAlert = true
+                                    }
+                                } catch (e: GoogleSignInFailure.Cancelled) {
+                                    // Dismissing the account picker is a choice,
+                                    // not a failure to report.
+                                } catch (e: GoogleSignInFailure) {
+                                    errorMessage = e.message
+                                    showingErrorAlert = true
+                                } catch (e: Exception) {
+                                    errorMessage = "Google sign-in failed. Please check your network connection."
+                                    showingErrorAlert = true
+                                } finally {
+                                    isLoading = false
+                                }
+                            }
+                        },
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .testTag("GoogleSignInButton"),
+                        enabled = !isLoading
+                    ) {
+                        Text("Sign in with Google", fontWeight = FontWeight.Bold)
+                    }
                 }
             }
 
