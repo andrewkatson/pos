@@ -3262,7 +3262,11 @@ def get_public_post_details(request, post_identifier):
     logger.info("Endpoint get_public_post_details invoked by IP")
     post = _get_public_post(post_identifier)
     if post is None:
-        logger.warning(f"Public post details failed: Post {post_identifier} not publicly visible")
+        # No explicit warning here: log_and_return_json already logs one for any
+        # status >= 400, and on an unauthenticated endpoint a 404 is a routine
+        # outcome anyone can trigger at will (a link to a deleted post, a probed
+        # uuid). Logging it twice at warning level is how a real signal gets
+        # buried. Same below, and in the other public views.
         return log_and_return_json(
             "get_public_post_details", {'error': "No post with that identifier"}, status=404)
     return log_and_return_json("get_public_post_details", _public_post_fields(post))
@@ -3282,7 +3286,6 @@ def get_public_comments_for_post(request, post_identifier, batch):
 
     post = _get_public_post(post_identifier)
     if post is None:
-        logger.warning(f"Public comments for post failed: Post {post_identifier} not publicly visible")
         return log_and_return_json(
             "get_public_comments_for_post", {'error': "No post with that identifier"}, status=404)
 
@@ -3314,8 +3317,6 @@ def get_public_comments_for_thread(request, comment_thread_identifier, batch):
 
     comment_thread = get_comment_thread_with_identifier(comment_thread_identifier)
     if not comment_thread or not can_view_post(comment_thread.post, PUBLIC_VIEWER):
-        logger.warning(
-            f"Public comments for thread failed: Thread {comment_thread_identifier} not publicly visible")
         return log_and_return_json(
             "get_public_comments_for_thread", {'error': "No comment thread with that identifier"}, status=404)
 
@@ -3385,7 +3386,11 @@ def get_post_link_preview(request, post_identifier):
     logger.info("Endpoint get_post_link_preview invoked by IP")
     post = _get_public_post(post_identifier)
     if post is None:
-        logger.warning(f"Post link preview failed: Post {post_identifier} not publicly visible")
+        # info, not warning: this path builds its own response rather than going
+        # through log_and_return_json, and unfurling a link to a since-deleted
+        # or moderated post is the expected case it exists to handle, not a
+        # problem worth paging anyone about.
+        logger.info(f"Post link preview: Post {post_identifier} not publicly visible")
         response = HttpResponse(
             link_preview.render_missing_preview(site_url=settings.FRONTEND_BASE_URL),
             content_type='text/html; charset=utf-8',
