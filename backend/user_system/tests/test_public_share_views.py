@@ -123,6 +123,24 @@ class PublicShareViewTests(PositiveOnlySocialTestCase):
         for field in (Fields.is_liked, Fields.is_reported, Fields.report_reason):
             self.assertNotIn(field, comment)
 
+    def test_public_comment_likes_count_reflects_real_likes(self):
+        """The batch like-count query is keyed on the comment's primary key,
+        which for Comment *is* comment_identifier (a UUID PK), so the per-comment
+        lookup resolves. Asserting a non-zero count is what proves that — a test
+        that only ever sees 0 would pass just as happily with a broken key."""
+        liker = self.make_user_with_prefix(prefix='liker')
+        like_url = reverse('like_comment', kwargs={
+            'post_identifier': str(self.post_identifier),
+            'comment_thread_identifier': str(self.thread_identifier),
+            'comment_identifier': str(self.comment_identifier),
+        })
+        header = {'HTTP_AUTHORIZATION': f"Bearer {liker[Fields.session_management_token]}"}
+        self.assertEqual(self.client.post(like_url, **header).status_code, 200)
+
+        comments = self.client.get(self.thread_url).json()
+
+        self.assertEqual(comments[0][Fields.comment_likes], 1)
+
     def test_public_post_likes_count_reflects_real_likes(self):
         like_url = reverse('like_post', kwargs={'post_identifier': str(self.post_identifier)})
         header = {'HTTP_AUTHORIZATION': f"Bearer {self.commenter[Fields.session_management_token]}"}

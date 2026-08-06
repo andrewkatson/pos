@@ -163,8 +163,10 @@ urlpatterns = [
     # =========================================================================
     # These back a shared https://smiling.social/post/<id> link for a recipient
     # who has no account. They serve only public, approved, non-shadow-banned
-    # content by an adult author; everything else 404s exactly like a missing
-    # post. See the PUBLIC SHARE VIEWS section in views.py.
+    # content whose author is not a verified minor — an account that never
+    # verified an age has an unknown one and stays in the general pool, so
+    # "not a verified minor" is the rule, not "an adult". Everything else 404s
+    # exactly like a missing post. See the PUBLIC SHARE VIEWS section in views.py.
 
     # GET /public/posts/<uuid:post_identifier>/details/
     path('public/posts/<uuid:post_identifier>/details/', views.get_public_post_details,
