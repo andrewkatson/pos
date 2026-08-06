@@ -490,6 +490,21 @@ class Post(models.Model):
         return self.hidden and self.hidden_reason not in NON_APPEALABLE_HIDDEN_REASONS
 
 
+class ReportQuerySet(models.QuerySet):
+    def active(self):
+        """Reports still standing against the content.
+
+        Retracting a report does not delete its row — it stamps retracted_time
+        (issue #467). The row lives on as a record that the account *filed* a
+        report, which is what the daily budget counts, so report-then-retract
+        cycling cannot refund budget and turn the cap into a formality. Every
+        question about the content itself ("is this reported?", "how many
+        reports?", "what did the reporters say?") asks this manager instead, so
+        a withdrawn report counts for nothing where it should not.
+        """
+        return self.filter(retracted_time__isnull=True)
+
+
 # A report on a post
 class PostReport(models.Model):
     user = models.ForeignKey(settings.AUTH_USER_MODEL,
@@ -498,6 +513,11 @@ class PostReport(models.Model):
     creation_time = models.DateTimeField(auto_now_add=True, null=True,
                                          blank=True)
     reason = models.TextField(null=True)
+    # Null while the report stands; set when its author withdraws it. See
+    # ReportQuerySet.active for why the row is kept rather than deleted.
+    retracted_time = models.DateTimeField(null=True, blank=True, default=None)
+
+    objects = ReportQuerySet.as_manager()
 
 
 # A like on a post
@@ -632,6 +652,10 @@ class CommentReport(models.Model):
     creation_time = models.DateTimeField(auto_now_add=True, null=True,
                                          blank=True)
     reason = models.TextField(null=True)
+    # As on PostReport: retraction stamps this rather than deleting the row.
+    retracted_time = models.DateTimeField(null=True, blank=True, default=None)
+
+    objects = ReportQuerySet.as_manager()
 
 
 # A like on a comment
@@ -931,10 +955,13 @@ class ModerationReview(models.Model):
         return self.status in TERMINAL_REVIEW_STATUSES
 
     def reports(self):
-        """The reports filed against this content, newest first."""
+        """The reports standing against this content, newest first. Withdrawn
+        ones are excluded: they still count against their author's daily budget,
+        but they are not something a moderator should be shown or a review
+        should escalate on."""
         if self.post_id:
-            return self.post.postreport_set.order_by('-creation_time')
-        return self.comment.commentreport_set.order_by('-creation_time')
+            return self.post.postreport_set.active().order_by('-creation_time')
+        return self.comment.commentreport_set.active().order_by('-creation_time')
 
     def report_count(self):
         return self.reports().count()

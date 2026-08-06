@@ -335,7 +335,8 @@ class ModerationReviewTests(TestCase):
         review = ModerationReview.objects.get(post=self.post)
         self.assertEqual(review.status, REVIEW_STATUS_ESCALATED)
 
-        self.post.postreport_set.all().delete()
+        # Withdraw them the way the endpoint does — stamped, not deleted.
+        self.post.postreport_set.update(retracted_time=timezone.now())
         moderation.withdraw_report(post=self.post)
 
         review.refresh_from_db()
@@ -407,6 +408,37 @@ class ModerationReviewTests(TestCase):
         self.assertFalse(self.post.hidden)
 
     # --- reporter-side limits --------------------------------------------
+
+    def test_retracting_a_report_does_not_refund_daily_budget(self):
+        """The budget is on filings, not on reports currently standing.
+
+        Counting only live rows would make the cap a formality: an account could
+        report, retract, report, retract — never holding more than one live
+        report while opening unlimited reviews and spending unlimited provider
+        calls on them. So a retracted report keeps counting for its 24 hours.
+        """
+        reporter = self.reporters[0]
+        for _ in range(MAX_REPORTS_PER_USER_PER_DAY):
+            report = self.post.postreport_set.create(user=reporter, reason='x')
+            report.retracted_time = timezone.now()
+            report.save(update_fields=['retracted_time'])
+
+        # Nothing stands against the post any more...
+        self.assertEqual(self.post.postreport_set.active().count(), 0)
+        # ...but the account has still spent its day's filings.
+        self.assertTrue(moderation.daily_report_limit_reached(reporter))
+
+    def test_a_withdrawn_report_stops_counting_against_the_content(self):
+        """The other half of the same rule: the kept row is a filing record, not
+        a standing report, so it must not escalate a review or show a moderator
+        a complaint nobody is making."""
+        review = self._report_post(self.reporters[0])
+        self.assertEqual(review.report_count(), 1)
+
+        self.post.postreport_set.update(retracted_time=timezone.now())
+
+        self.assertEqual(review.report_count(), 0)
+        self.assertEqual(list(review.reports()), [])
 
     def test_the_daily_report_budget_is_shared_across_posts_and_comments(self):
         reporter = self.reporters[0]

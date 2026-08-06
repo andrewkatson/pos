@@ -33,8 +33,16 @@ logger = logging.getLogger(__name__)
 
 
 def reports_filed_in_last_day(user):
-    """How many reports this account has filed in the trailing 24 hours, posts
-    and comments together."""
+    """How many reports this account has FILED in the trailing 24 hours, posts
+    and comments together.
+
+    Deliberately counts retracted reports too. The budget is on filings, not on
+    reports currently standing: a retraction that gave budget back would make
+    the cap a formality, since report-then-retract cycling would let one account
+    open unlimited reviews (and spend unlimited provider calls) while never
+    holding more than a handful of live reports. Retraction therefore stamps the
+    row rather than deleting it — see ReportQuerySet.active.
+    """
     since = timezone.now() - timedelta(days=1)
     return (PostReport.objects.filter(user=user, creation_time__gte=since).count()
             + CommentReport.objects.filter(user=user, creation_time__gte=since).count())

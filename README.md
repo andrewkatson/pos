@@ -485,7 +485,15 @@ reports have *all* been withdrawn, sparing a moderator an empty queue entry.
 Reporter-side limits: the report endpoints are rate limited per user, and on top
 of that one account may file at most `MAX_REPORTS_PER_USER_PER_DAY` (default 30)
 reports per rolling 24 hours, counted across posts and comments together, so no
-single account can flood the queue.
+single account can flood the queue. The budget counts **filings, not reports
+currently standing**: retracting a report does not give budget back. That is why
+a retraction stamps `retracted_time` on the report row instead of deleting it —
+a deleted row would let one account cycle report → retract → report and open
+unlimited reviews (each spending provider calls) while never holding more than
+one live report. Everything that asks about the content rather than about the
+reporter — is this reported, how many reports, what did the reporters say, does
+this escalate — reads `PostReport/CommentReport.objects.active()`, so a
+withdrawn report counts for nothing there.
 
 ## Push notifications
 

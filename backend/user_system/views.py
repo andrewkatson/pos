@@ -1933,7 +1933,7 @@ def report_post(request, post_identifier):
             logger.warning(f"Report post failed: Cannot report own post for user_id: {request.user.id}")
             return log_and_return_json("report_post", {'error': "Cannot report own post"}, status=400)
 
-        if post.postreport_set.filter(user=request.user).exists():
+        if post.postreport_set.active().filter(user=request.user).exists():
             logger.warning(f"Report post failed: Post already reported by user_id: {request.user.id}")
             return log_and_return_json("report_post", {'error': "Cannot report post twice"}, status=400)
 
@@ -1980,8 +1980,13 @@ def retract_report_post(request, post_identifier):
         logger.warning(f"Retract report post failed: Post {post_identifier} not visible to user_id: {request.user.id}")
         return log_and_return_json("retract_report_post", {'error': "No post with that identifier"}, status=400)
 
-    deleted_count, _ = post.postreport_set.filter(user=request.user).delete()
-    if deleted_count == 0:
+    # Stamped, not deleted (issue #467): the row stays as a record that this
+    # account filed a report, so the daily budget counts it and report-then-
+    # retract cycling cannot refund budget. active() makes it stop counting as a
+    # report of the post everywhere else.
+    retracted_count = post.postreport_set.active().filter(user=request.user).update(
+        retracted_time=timezone.now())
+    if retracted_count == 0:
         logger.warning(f"Retract report post failed: Post not reported by user_id: {request.user.id}")
         return log_and_return_json("retract_report_post", {'error': "Post not reported yet"}, status=400)
 
@@ -2333,7 +2338,7 @@ def build_post_interaction_state(user, posts):
         # The caller's own report reason per post, so clients can offer "retract
         # report" with the original reason pre-filled instead of "report".
         my_report_reasons = dict(
-            user.postreport_set
+            user.postreport_set.active()
             .filter(post__in=posts)
             .values_list('post_id', 'reason')
         )
@@ -2563,7 +2568,7 @@ def get_post_details(request, post_identifier):
         total_likes = post.postlike_set.count()
         # The caller's own report (if any), so clients can offer "retract
         # report" with the original reason pre-filled instead of "report".
-        my_report = post.postreport_set.filter(user=request.user).first()
+        my_report = post.postreport_set.active().filter(user=request.user).first()
         post_data = {
             Fields.post_identifier: post.post_identifier,
             Fields.image_url: sign_compressed_url(post.image_url),
@@ -3014,7 +3019,7 @@ def report_comment(request, post_identifier, comment_thread_identifier, comment_
         logger.warning(f"Report comment failed: Cannot report own comment for user_id: {request.user.id}")
         return log_and_return_json("report_comment", {'error': "Cannot report own comment"}, status=400)
 
-    if comment.commentreport_set.filter(user=request.user).exists():
+    if comment.commentreport_set.active().filter(user=request.user).exists():
         logger.warning(f"Report comment failed: Already reported by user_id: {request.user.id}")
         return log_and_return_json("report_comment", {'error': "Cannot report comment twice"}, status=400)
 
@@ -3067,8 +3072,10 @@ def retract_report_comment(request, post_identifier, comment_thread_identifier, 
         logger.warning(f"Retract report comment failed: Comment {comment_identifier} not visible to user_id: {request.user.id}")
         return log_and_return_json("retract_report_comment", {'error': "Comment not found"}, status=400)
 
-    deleted_count, _ = comment.commentreport_set.filter(user=request.user).delete()
-    if deleted_count == 0:
+    # Stamped, not deleted, exactly as for posts (issue #467).
+    retracted_count = comment.commentreport_set.active().filter(user=request.user).update(
+        retracted_time=timezone.now())
+    if retracted_count == 0:
         logger.warning(f"Retract report comment failed: Comment not reported by user_id: {request.user.id}")
         return log_and_return_json("retract_report_comment", {'error': "Comment not reported yet"}, status=400)
 
@@ -3169,7 +3176,7 @@ def get_comments_for_thread(request, comment_thread_identifier, batch):
     # set above), so clients can offer "retract report" with the original
     # reason pre-filled instead of "report".
     my_report_reasons = dict(
-        request.user.commentreport_set
+        request.user.commentreport_set.active()
         .filter(comment__in=batched_comments)
         .values_list('comment_id', 'reason')
     )

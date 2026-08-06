@@ -8,6 +8,7 @@ from django.contrib.auth.models import Permission
 from django.contrib.messages.middleware import MessageMiddleware
 from django.contrib.sessions.middleware import SessionMiddleware
 from django.test import RequestFactory, TestCase
+from django.utils import timezone
 
 from ..admin import ModerationReviewAdmin
 from ..constants import (
@@ -126,6 +127,12 @@ class ModerationReviewAdminTests(TestCase):
                 comment_thread=thread, author=self.author, body=f'contested comment {i}')
             comment.commentreport_set.create(user=self.reporter, reason='no')
             ModerationReview.objects.create(comment=comment, status=REVIEW_STATUS_ESCALATED)
+
+        # A withdrawn report is kept as a filing record but must not inflate the
+        # queue's tally — the column has to agree with report_count().
+        withdrawn = self.post.postreport_set.create(user=self.moderator, reason='changed my mind')
+        withdrawn.retracted_time = timezone.now()
+        withdrawn.save(update_fields=['retracted_time'])
 
         request = self._request(self.moderator)
         # One query for the rows, whatever the row count — no per-row COUNT and

@@ -1,6 +1,6 @@
 from django.contrib import admin, messages
 from django.contrib.auth.admin import UserAdmin
-from django.db.models import Count, Prefetch
+from django.db.models import Count, Prefetch, Q
 from django.utils import timezone
 
 from . import moderation
@@ -231,11 +231,18 @@ class ModerationReviewAdmin(admin.ModelAdmin):
         # aggregates need distinct=True: two multi-valued joins in one query
         # multiply each other's rows, and only DISTINCT collapses that fan-out
         # back to the real counts.
+        # The filters keep this column equal to ModerationReview.report_count():
+        # a retracted report is kept as a filing record (it still counts against
+        # its author's daily budget) but is not a complaint standing against the
+        # content, so a moderator must not see it in the queue's tally.
         return super().get_queryset(request).select_related(
             'post', 'post__author', 'comment', 'comment__author', 'resolved_by',
         ).annotate(
-            _report_count=(Count('post__postreport', distinct=True)
-                           + Count('comment__commentreport', distinct=True)),
+            _report_count=(
+                Count('post__postreport', distinct=True,
+                      filter=Q(post__postreport__retracted_time__isnull=True))
+                + Count('comment__commentreport', distinct=True,
+                        filter=Q(comment__commentreport__retracted_time__isnull=True))),
         )
 
     @admin.display(description="Target")

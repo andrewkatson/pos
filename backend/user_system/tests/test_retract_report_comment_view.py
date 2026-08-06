@@ -103,18 +103,19 @@ class RetractReportCommentTests(PositiveOnlySocialTestCase):
         self.assertEqual(response.status_code, 400)
         self.assertEqual(response.json(), {'error': 'Comment not reported yet'})
 
-    def test_retract_report_returns_good_response_and_deletes_report(self):
+    def test_retract_report_returns_good_response_and_withdraws_report(self):
         """
-        Tests the happy path: report, then retract, and the report row is gone.
+        Tests the happy path: report, then retract, and the report no longer
+        stands against the comment (its row is kept as a filing record — #467).
         """
         self._report(self.reporter_header)
-        self.assertEqual(self.comment.commentreport_set.count(), 1)
+        self.assertEqual(self.comment.commentreport_set.active().count(), 1)
 
         response = self.client.post(self.url, **self.reporter_header)
 
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.json(), {'message': 'Comment report retracted'})
-        self.assertEqual(self.comment.commentreport_set.count(), 0)
+        self.assertEqual(self.comment.commentreport_set.active().count(), 0)
 
     def test_can_report_again_after_retracting(self):
         """
@@ -128,21 +129,21 @@ class RetractReportCommentTests(PositiveOnlySocialTestCase):
 
         # Reporting again should now succeed instead of "Cannot report comment twice".
         self._report(self.reporter_header)
-        self.assertEqual(self.comment.commentreport_set.count(), 1)
+        self.assertEqual(self.comment.commentreport_set.active().count(), 1)
 
-    def test_retract_only_deletes_own_report(self):
+    def test_retract_only_withdraws_own_report(self):
         """
-        Tests that retracting removes only the caller's report, not other users'.
+        Tests that retracting withdraws only the caller's report, not other users'.
         """
         self._report(self.reporter_header)
         other_header = {'HTTP_AUTHORIZATION': f'Bearer {self.users[UserFields.TOKEN][2]}'}
         self._report(other_header)
-        self.assertEqual(self.comment.commentreport_set.count(), 2)
+        self.assertEqual(self.comment.commentreport_set.active().count(), 2)
 
         response = self.client.post(self.url, **self.reporter_header)
 
         self.assertEqual(response.status_code, 200)
-        self.assertEqual(self.comment.commentreport_set.count(), 1)
+        self.assertEqual(self.comment.commentreport_set.active().count(), 1)
 
     @patch.dict(os.environ, {"TESTING": "True"}, clear=True)
     def test_retract_does_not_unhide_comment_hidden_by_a_moderator(self):
