@@ -1105,8 +1105,16 @@ export class StatefulStubbedAPI implements PositiveOnlySocialAPI {
     return !!author?.isVerified && !author.isAdult
   }
 
-  /** Whether a post is visible to a signed-out visitor, mirroring the backend's
-   * PUBLIC_VIEWER rule: live, public-audience, and not by a verified minor. */
+  /** Whether a post is visible to a signed-out visitor: live, public-audience,
+   * and not by a verified minor.
+   *
+   * That is the backend's PUBLIC_VIEWER rule *minus the shadow-ban clause* —
+   * this stub has no ban model at all (no path here knows about UserBan,
+   * including the authenticated `canViewPost`), so a shadow-banned author's
+   * post stays visible in the stub where the real backend would hide it. Do
+   * not read this as production visibility: `visibility.py` is the authority,
+   * and the moderation rules are covered by the backend tests
+   * (`test_public_share_views.py`), not from here. */
   private isPubliclyVisible(post: PostMock): boolean {
     if (post.hiddenReason === 'classifier_final') return false
     if (post.hidden) return false
@@ -1119,7 +1127,9 @@ export class StatefulStubbedAPI implements PositiveOnlySocialAPI {
    * viewer: not hidden, public audience, and not by a verified minor — a
    * minor's comment is no more public than a minor's post, even on someone
    * else's public post. There is no viewer, so no author-owns-it or category
-   * rule applies. */
+   * rule applies, and the same shadow-ban caveat as `isPubliclyVisible` holds:
+   * the stub has no ban model, so a shadow-banned author's comment survives
+   * here where the backend drops it. */
   private publiclyVisibleComments(thread: CommentThreadMock): CommentMock[] {
     return thread.comments.filter(
       (c) => !c.hidden && c.audience === 'public' && !this.isVerifiedMinor(c.authorId),
