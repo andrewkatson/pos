@@ -3291,10 +3291,13 @@ def get_public_comments_for_post(request, post_identifier, batch):
 
     comment_threads = visible_comment_threads(post.commentthread_set.all(), PUBLIC_VIEWER)
     relevant_comment_threads = feed_algorithm_class.get_comment_threads_weighted_for_post(comment_threads)
-    if not relevant_comment_threads.count() > 0:
-        return log_and_return_json("get_public_comments_for_post", [], safe=False)
-
-    batched_comment_threads = get_batch(batch, COMMENT_THREAD_BATCH_SIZE, relevant_comment_threads)
+    # get_queryset_batch, not get_batch: the latter calls len() and so evaluates
+    # every ranked thread on the post before slicing. That is a cost anyone can
+    # impose here without an account, so let the DB apply LIMIT/OFFSET instead.
+    # Dropping the .count() guard that used to precede this removes another
+    # whole-queryset aggregate — an empty batch already serializes to [].
+    batched_comment_threads = get_queryset_batch(
+        relevant_comment_threads, batch, COMMENT_THREAD_BATCH_SIZE)
     data = [{Fields.comment_thread_identifier: ct.comment_thread_identifier} for ct in batched_comment_threads]
     return log_and_return_json("get_public_comments_for_post", data, safe=False)
 
@@ -3330,10 +3333,9 @@ def get_public_comments_for_thread(request, comment_thread_identifier, batch):
         comment_identifier__in=visible_comment_ids
     ).select_related('author')
     relevant_comments = feed_algorithm_class.get_comments_weighted_for_thread(comments)
-    if not relevant_comments.count() > 0:
-        return log_and_return_json("get_public_comments_for_thread", [], safe=False)
-
-    batched_comments = get_batch(batch, COMMENT_BATCH_SIZE, relevant_comments)
+    # DB-level LIMIT/OFFSET rather than get_batch's len(), for the same reason as
+    # the thread listing above.
+    batched_comments = get_queryset_batch(relevant_comments, batch, COMMENT_BATCH_SIZE)
     # Like counts for the whole batch in one grouped query (no N+1 COUNT).
     like_counts = dict(
         CommentLike.objects
