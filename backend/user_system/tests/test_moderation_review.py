@@ -21,7 +21,7 @@ from ..constants import (
     REVIEW_STATUS_CLEARED, REVIEW_STATUS_DISMISSED, REVIEW_STATUS_ESCALATED,
     REVIEW_STATUS_HIDDEN, REVIEW_STATUS_PENDING,
 )
-from ..models import Appeal, Comment, CommentThread, ModerationReview, PositiveOnlySocialUser
+from ..models import Appeal, Comment, CommentThread, ModerationReview, PositiveOnlySocialUser, Post
 
 ALLOWED = ClassificationResult(allowed=True)
 APPEALABLE_HATE = ClassificationResult(allowed=False, appealable=True, reason_code='hate_speech')
@@ -220,6 +220,50 @@ class ModerationReviewTests(TestCase):
         review = self._refresh(review)
         self.assertEqual(review.status, REVIEW_STATUS_ESCALATED)
         self.assertFalse(self.post.hidden)
+
+    def _hide_the_post_while_the_cascade_runs(self, verdict):
+        """Run one review whose content gets hidden by somebody else in the
+        window between the cascades starting and their verdict being applied.
+
+        The hide is staged from the cascade boundary rather than from inside a
+        classifier: the cascades run in a thread pool, so a write from in there
+        would come from another DB connection and just deadlock SQLite — the
+        window under test is the same either way.
+        """
+        review = ModerationReview.objects.create(post=self.post)
+
+        def cascade_then_hide(_target, _is_post):
+            Post.objects.filter(pk=self.post.pk).update(
+                hidden=True, hidden_reason=HIDDEN_REASON_REPORTS)
+            return verdict, ALLOWED
+
+        with patch('user_system.tasks._review_content_results', side_effect=cascade_then_hide):
+            tasks.review_reported_content(str(review.review_identifier))
+        return self._refresh(review)
+
+    def test_a_hide_landing_during_the_cascade_keeps_its_own_reason(self):
+        """The cascades take minutes, so the pre-flight "is it visible?" check is
+        stale by the time a verdict exists. A moderator hiding the content in that
+        window owns the reason: applying this job's verdict over it would erase
+        why it was really hidden — and over a classifier_final tombstone would
+        make terminal, image-deleted content look appealable again."""
+        review = self._hide_the_post_while_the_cascade_runs(APPEALABLE_HATE)
+
+        self.assertEqual(self.post.hidden_reason, HIDDEN_REASON_REPORTS)
+        self.assertIsNone(self.post.classification_reason_code)
+        self.assertEqual(review.status, REVIEW_STATUS_HIDDEN)
+        # No author email either: this job did not hide anything.
+        self.assertEqual(len(mail.outbox), 0)
+
+    def test_a_clear_does_not_overwrite_a_hide_that_landed_during_the_cascade(self):
+        """The mirror case: a passing verdict must not record "cleared" for
+        content someone hid meanwhile, which would read as this review having
+        approved it."""
+        review = self._hide_the_post_while_the_cascade_runs(ALLOWED)
+
+        self.assertEqual(review.status, REVIEW_STATUS_HIDDEN)
+        self.assertTrue(self.post.hidden)
+        self.assertEqual(self.post.hidden_reason, HIDDEN_REASON_REPORTS)
 
     @patch(IMAGE, return_value=ALLOWED)
     @patch(TEXT, return_value=ALLOWED)

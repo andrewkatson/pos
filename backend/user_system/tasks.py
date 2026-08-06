@@ -609,7 +609,26 @@ def review_reported_content(review_identifier):
             logger.info("review_reported_content: review %s was resolved concurrently; nothing to do.",
                         review_identifier)
             return
+        # Re-read the target inside the lock, because the pre-cascade check that
+        # it was visible is minutes stale by now: a moderator (or any other hide
+        # path) can have hidden it while the providers were being consulted. The
+        # verdict computed against a since-hidden target is moot, and applying it
+        # would overwrite whatever reason actually hid it — the same invariant
+        # the pre-cascade check enforces, which must hold here too. Overwriting a
+        # classifier_final reason would be worse than untidy: it would make a
+        # terminal, image-deleted tombstone look appealable again.
         target = claimed.target
+        if target.hidden:
+            claimed.status = REVIEW_STATUS_HIDDEN
+            claimed.reviewed_time = now
+            claimed.resolution_note = (
+                f"Already hidden ({target.hidden_reason or 'unspecified'}) "
+                "by the time the review finished")
+            claimed.save(update_fields=['status', 'reviewed_time', 'resolution_note', 'updated'])
+            logger.info("review_reported_content: review %s found its %s already hidden (%s); "
+                        "leaving that decision alone.",
+                        review_identifier, claimed.target_kind, target.hidden_reason or 'unspecified')
+            return
         if allowed:
             claimed.status = REVIEW_STATUS_CLEARED
             # Reports counted from here decide whether a human takes a look, so
