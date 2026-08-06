@@ -612,6 +612,39 @@ def _issue_recovery_codes(user):
     return raw_codes
 
 
+def _read_remember_me(data, invalid_fields):
+    """Read the optional `remember_me` flag from a request body.
+
+    **No value means "don't remember me".** Every client already treats the field
+    as optional — the website's own LoginRequest/RegisterRequest types mark it
+    so, and the API tests call login without it — and a caller that never wants a
+    remembered device should not have to say so.
+
+    "No value" covers both an absent key and an explicit JSON `null`, which
+    `data.get` cannot tell apart and which this API deliberately does not
+    distinguish anywhere: `date_of_birth`, `interest_categories` and
+    `interest_freeform` are all read the same way. Rejecting a `null` here alone
+    would be inconsistent, and would break any client that serializes an unset
+    optional as null rather than dropping the key — which is exactly the class of
+    failure this helper exists to stop.
+
+    **A value that is present and not null but unparseable is a validation
+    error**: that is a caller sending something it believes means yes or no, and
+    quietly reading it as "no" would hide the mistake rather than report it.
+
+    Shared by register and login_user so the two cannot drift apart on what a
+    missing or malformed flag means.
+    """
+    raw = data.get(Fields.remember_me)
+    if raw is None:
+        return False
+    try:
+        return convert_to_bool(raw)
+    except TypeError:
+        invalid_fields.append(Params.remember_me)
+        return False
+
+
 def _create_authenticated_session(view_name, request, user, ip, remember_me):
     """Final step of a successful authentication: Django session login, the
     remember-me cookie (when requested), the API session token, and the
@@ -667,7 +700,6 @@ def register(request):
     username = data.get(Fields.username)
     email = data.get(Fields.email)
     password = data.get(Fields.password)
-    remember_me_str = data.get(Fields.remember_me)
     ip = _get_client_ip(None, request)
     date_of_birth_str = data.get('date_of_birth')
 
@@ -705,11 +737,7 @@ def register(request):
         # rejected — the age gate only bites once an age is actually given.
         pass
 
-    try:
-        remember_me = convert_to_bool(remember_me_str)
-    except TypeError:
-        remember_me = False  # Default to false if invalid
-        invalid_fields.append(Params.remember_me)
+    remember_me = _read_remember_me(data, invalid_fields)
 
     if len(invalid_fields) > 0:
         logger.warning(f"Registration failed: Invalid fields {invalid_fields}")
@@ -871,7 +899,6 @@ def login_user(request):
 
     username_or_email = data.get(Fields.username_or_email)
     password = data.get(Fields.password)
-    remember_me_str = data.get(Fields.remember_me)
     ip = _get_client_ip(None, request)
 
     invalid_fields = []
@@ -882,11 +909,7 @@ def login_user(request):
     if not password or not is_valid_pattern(password, Patterns.login_password):
         invalid_fields.append(Params.password)
 
-    try:
-        remember_me = convert_to_bool(remember_me_str)
-    except TypeError:
-        remember_me = False
-        invalid_fields.append(Params.remember_me)
+    remember_me = _read_remember_me(data, invalid_fields)
     if len(invalid_fields) > 0:
         return log_and_return_json("login_user", {'error': f"Invalid fields {invalid_fields}"}, status=400)
 
