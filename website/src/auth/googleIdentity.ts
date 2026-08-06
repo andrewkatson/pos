@@ -88,36 +88,48 @@ export function loadGoogleIdentityServices(): Promise<GoogleIdentityServices> {
   }
 
   loadPromise = new Promise<GoogleIdentityServices>((resolve, reject) => {
-    const existing = document.querySelector<HTMLScriptElement>(
-      `script[src="${GOOGLE_IDENTITY_SCRIPT_URL}"]`,
-    )
-    const script = existing ?? document.createElement('script')
+    const script = document.createElement('script')
 
-    const onLoad = () => {
-      if (window.google?.id) {
-        resolve(window.google)
-      } else {
-        // The script loaded but installed nothing usable — treat it as a
-        // failure rather than resolving with an object we can't call.
-        reject(new Error('Google Identity Services loaded without an id API'))
-      }
-    }
-    const onError = () => {
-      // Let a later attempt retry: a blocked or offline first load should not
-      // permanently disable the button for the rest of the session.
+    // Every failure has to leave things exactly as it found them, or Google
+    // sign-in is dead for the rest of the session. Two things must be undone:
+    //
+    //  - the cached promise, so a later attempt isn't handed the rejected one
+    //    (a blocked first load should not be permanent); and
+    //  - the script element, because a tag that has already fired load or error
+    //    never fires either again. Reusing one would leave the retry's promise
+    //    unsettled forever — a button that hangs rather than reports, which is
+    //    worse than the failure it was retrying.
+    const fail = (message: string) => {
       loadPromise = null
-      reject(new Error('Could not load Google Identity Services'))
+      script.remove()
+      reject(new Error(message))
     }
 
-    script.addEventListener('load', onLoad, { once: true })
-    script.addEventListener('error', onError, { once: true })
+    script.addEventListener(
+      'load',
+      () => {
+        if (window.google?.id) {
+          resolve(window.google)
+        } else {
+          // Loaded but installed nothing usable, which is no better than not
+          // loading at all — and just as retryable.
+          fail('Google Identity Services loaded without an id API')
+        }
+      },
+      { once: true },
+    )
+    script.addEventListener('error', () => fail('Could not load Google Identity Services'), {
+      once: true,
+    })
 
-    if (!existing) {
-      script.src = GOOGLE_IDENTITY_SCRIPT_URL
-      script.async = true
-      script.defer = true
-      document.head.appendChild(script)
-    }
+    // Always a fresh element. Concurrent callers are deduplicated by
+    // `loadPromise` above, which is what stops a second tag being appended
+    // while one is in flight; adopting a pre-existing tag from the DOM would
+    // reintroduce the already-fired-its-events hang described above.
+    script.src = GOOGLE_IDENTITY_SCRIPT_URL
+    script.async = true
+    script.defer = true
+    document.head.appendChild(script)
   })
 
   return loadPromise
