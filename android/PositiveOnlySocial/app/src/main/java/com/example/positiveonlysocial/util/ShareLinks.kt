@@ -5,15 +5,37 @@ import android.content.Context
 import android.content.Intent
 import android.util.Log
 import android.widget.Toast
+import java.net.URI
 
 /**
- * Builds the website links shared from a post's or comment's options menu, and
- * launches the Android system share sheet with one (issue #34, Scope A).
+ * A shared link that resolved to a post, and optionally to one comment on it
+ * (issue #382).
+ */
+data class SharedPostLink(
+    val postIdentifier: String,
+    /**
+     * The comment a `#comment-<id>` fragment named, or null for a plain post
+     * link. Carried so a shared comment link routes to its post rather than
+     * being rejected outright; the app opens the post detail either way.
+     */
+    val commentIdentifier: String?
+)
+
+/**
+ * Both ends of a shared post link: the website URLs built from a post's or
+ * comment's options menu (issue #34), and the parse of the same URL when
+ * Android hands it back as an App Link (issue #382).
  *
- * These links point at the website (they currently require login to view —
- * public viewing / App Links deep-linking straight into the app is the tracked
- * Scope B follow-up). The URL builders are kept pure so they can be unit-tested
- * without an Android runtime; only [shareText] touches the framework.
+ * The website renders these links for signed-out recipients too (issue #381),
+ * so a link is useful whether or not the app is installed — which is what makes
+ * claiming the `https://smiling.social/post/` path prefix with `autoVerify`
+ * safe: a device without the app just opens the web page.
+ *
+ * (Spelling that prefix with a trailing wildcard would end this comment early:
+ * Kotlin block comments nest, so the `/` + `*` would open one.)
+ *
+ * Everything except [shareText] is pure (no Android framework, [URI] rather
+ * than `android.net.Uri`) so it unit-tests on the JVM without a runtime.
  */
 object ShareLinks {
     /** The website origin every shared link is rooted at. */
@@ -29,6 +51,61 @@ object ShareLinks {
      */
     fun commentUrl(postIdentifier: String, commentIdentifier: String): String =
         "${postUrl(postIdentifier)}#comment-$commentIdentifier"
+
+    /**
+     * The website hosts this app claims as App Links. Both are declared in the
+     * manifest's `autoVerify` intent-filter and both serve the same site, so a
+     * link shared with the `www.` prefix opens the app too.
+     */
+    val LINK_HOSTS = setOf("smiling.social", "www.smiling.social")
+
+    private const val COMMENT_FRAGMENT_PREFIX = "comment-"
+
+    /**
+     * The inverse of the builders above: what an App Link Android launched us
+     * with refers to, or null when [url] is not one of ours (issue #382).
+     *
+     * Deliberately strict. A VIEW intent can be sent by any app, not only by
+     * the verified-link path, so scheme, host and path shape are all checked
+     * before the identifier is used to navigate — a URL that merely looks
+     * similar must not send the user somewhere unexpected. A trailing slash is
+     * tolerated because chat apps and link shorteners add one freely, and an
+     * unrecognized fragment is ignored rather than failing the whole link: the
+     * post is still the right destination.
+     */
+    fun parseSharedPostLink(url: String?): SharedPostLink? {
+        if (url.isNullOrBlank()) return null
+        val uri = try {
+            URI(url)
+        } catch (e: Exception) {
+            // A malformed URL is simply not one of ours. Returning null is the
+            // whole signal — no logging, so this stays free of the Android
+            // framework and its unit tests don't lean on the JVM stubs.
+            return null
+        }
+
+        if (!"https".equals(uri.scheme, ignoreCase = true)) return null
+        val host = uri.host?.lowercase() ?: return null
+        if (host !in LINK_HOSTS) return null
+
+        // ["", "post", "<id>"] for /post/<id>, plus a trailing "" for a
+        // trailing slash. Anything longer is a route we don't claim.
+        val segments = (uri.path ?: "").split("/").toMutableList()
+        if (segments.isNotEmpty() && segments.last().isEmpty()) segments.removeAt(segments.size - 1)
+        if (segments.size != 3 || segments[0].isNotEmpty() || segments[1] != "post") return null
+
+        val postIdentifier = segments[2]
+        if (postIdentifier.isEmpty()) return null
+
+        // URI decodes the fragment, matching what commentUrl encoded.
+        val fragment = uri.fragment
+        val commentIdentifier = fragment
+            ?.takeIf { it.startsWith(COMMENT_FRAGMENT_PREFIX) }
+            ?.removePrefix(COMMENT_FRAGMENT_PREFIX)
+            ?.takeIf { it.isNotEmpty() }
+
+        return SharedPostLink(postIdentifier, commentIdentifier)
+    }
 
     /**
      * Launch the system share sheet (chooser) with [text] as plain-text content,
