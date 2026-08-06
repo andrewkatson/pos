@@ -615,14 +615,22 @@ def _issue_recovery_codes(user):
 def _read_remember_me(data, invalid_fields):
     """Read the optional `remember_me` flag from a request body.
 
-    Omitting it means "don't remember me". Every client already treats the field
+    **No value means "don't remember me".** Every client already treats the field
     as optional — the website's own LoginRequest/RegisterRequest types mark it
     so, and the API tests call login without it — and a caller that never wants a
     remembered device should not have to say so.
 
-    A value that is *present but unparseable* stays a validation error: that is a
-    caller sending something it believes means yes or no, and quietly reading it
-    as "no" would hide the mistake rather than report it.
+    "No value" covers both an absent key and an explicit JSON `null`, which
+    `data.get` cannot tell apart and which this API deliberately does not
+    distinguish anywhere: `date_of_birth`, `interest_categories` and
+    `interest_freeform` are all read the same way. Rejecting a `null` here alone
+    would be inconsistent, and would break any client that serializes an unset
+    optional as null rather than dropping the key — which is exactly the class of
+    failure this helper exists to stop.
+
+    **A value that is present and not null but unparseable is a validation
+    error**: that is a caller sending something it believes means yes or no, and
+    quietly reading it as "no" would hide the mistake rather than report it.
 
     Shared by register and login_user so the two cannot drift apart on what a
     missing or malformed flag means.

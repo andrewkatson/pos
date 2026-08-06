@@ -98,6 +98,21 @@ class LoginUserTests(PositiveOnlySocialTestCase):
 
         self.assertEqual(response.status_code, 400)
 
+    def test_null_remember_me_is_treated_as_omitted(self):
+        """
+        An explicit JSON null means "no value", exactly like leaving the key out.
+        This API does not distinguish the two anywhere — date_of_birth and the
+        interest fields are read the same way — and a client that serializes an
+        unset optional as null rather than dropping the key must not be rejected.
+        """
+        data = self.valid_data.copy()
+        data['remember_me'] = None
+
+        response = self.client.post(self.url, data=data, content_type='application/json')
+
+        self.assertEqual(response.status_code, 200)
+        self.assertNotIn(Fields.login_cookie_token, response.json())
+
     def test_omitted_remember_me_logs_in_without_remembering(self):
         """
         'remember_me' is optional — the website's own LoginRequest type marks it
