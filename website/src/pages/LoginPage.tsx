@@ -7,6 +7,8 @@ import {
   ACCOUNT_SUSPENDED_MESSAGE,
   EMAIL_NOT_VERIFIED,
   EMAIL_NOT_VERIFIED_MESSAGE,
+  GOOGLE_SIGN_IN_FAILED_MESSAGE,
+  GOOGLE_SIGN_IN_MESSAGES,
   INVALID_TWO_FACTOR_CHALLENGE,
   apiClient,
 } from '../api/client'
@@ -142,11 +144,12 @@ function LoginPage() {
       completeLogin(response)
     } catch (err) {
       const apiErr = err as ApiError
-      if (apiErr.message === ACCOUNT_BANNED) {
-        setErrorMessage(ACCOUNT_SUSPENDED_MESSAGE)
-      } else {
-        setErrorMessage(apiErr.message ?? 'Google sign-in failed. Please try again.')
-      }
+      // The backend answers with stable codes, not prose (see constants.py), so
+      // the copy lives client-side. An unmapped message is a transport failure
+      // that already reads well on its own.
+      setErrorMessage(
+        GOOGLE_SIGN_IN_MESSAGES[apiErr.message] ?? apiErr.message ?? GOOGLE_SIGN_IN_FAILED_MESSAGE,
+      )
     } finally {
       setIsLoading(false)
     }

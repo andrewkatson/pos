@@ -2,7 +2,11 @@ import { useCallback, useRef, useState, useEffect } from 'react'
 import { useNavigate } from 'react-router'
 import GoogleSignInButton from '../components/GoogleSignInButton'
 import Logo from '../components/Logo'
-import { apiClient } from '../api/client'
+import {
+  GOOGLE_SIGN_IN_FAILED_MESSAGE,
+  GOOGLE_SIGN_IN_MESSAGES,
+  apiClient,
+} from '../api/client'
 import type { ApiError } from '../api/client'
 import { clearSession, persistSession } from '../api/session'
 import RequirementHints from '../auth/RequirementHints'
@@ -175,7 +179,11 @@ function RegisterPage() {
       setShowWelcome(true)
     } catch (err) {
       const apiErr = err as ApiError
-      setErrorMessage(apiErr.message ?? 'Google sign-up failed. Please try again.')
+      // Stable codes from the backend map to copy here (see constants.py); an
+      // unmapped message is a transport failure that already reads well.
+      setErrorMessage(
+        GOOGLE_SIGN_IN_MESSAGES[apiErr.message] ?? apiErr.message ?? GOOGLE_SIGN_IN_FAILED_MESSAGE,
+      )
     } finally {
       setIsLoading(false)
     }

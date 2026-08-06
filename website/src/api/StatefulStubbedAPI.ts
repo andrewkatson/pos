@@ -259,9 +259,14 @@ function decodeIdTokenClaims(
   const payload = idToken.split('.')[1]
   if (!payload) return null
   try {
-    // base64url → base64 before atob, which only understands the latter.
+    // base64url → base64 before atob, which only understands the latter, and
+    // restore the '=' padding a JWT segment omits. atob rejects a length of
+    // 4n+1 outright, so without this an otherwise valid token can throw
+    // depending on how long its claim set happens to be. The iOS and Android
+    // stubs pad the same way.
     const base64 = payload.replace(/-/g, '+').replace(/_/g, '/')
-    return JSON.parse(atob(base64))
+    const padded = base64.padEnd(Math.ceil(base64.length / 4) * 4, '=')
+    return JSON.parse(atob(padded))
   } catch {
     return null
   }

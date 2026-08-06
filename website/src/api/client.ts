@@ -106,6 +106,32 @@ export const INVALID_TWO_FACTOR_CHALLENGE = 'invalid_two_factor_challenge'
 export const EMAIL_NOT_VERIFIED_MESSAGE =
   'Please verify your email address first — check your inbox for the verification link.'
 
+/** Error codes login/google/ answers with (issue #10), and the copy each maps
+ * to. The backend returns stable codes rather than prose (see constants.py), so
+ * the user-facing wording lives here. */
+export const GOOGLE_EMAIL_UNVERIFIED = 'google_email_unverified'
+export const GOOGLE_EMAIL_UNVERIFIED_MESSAGE =
+  "Google hasn't verified the email address on that account, so we can't use it to sign you in."
+export const GOOGLE_EMAIL_AMBIGUOUS = 'google_email_ambiguous'
+export const GOOGLE_EMAIL_AMBIGUOUS_MESSAGE =
+  'More than one account already uses that email address. Please sign in with your password.'
+export const INVALID_GOOGLE_TOKEN = 'invalid_google_token'
+export const GOOGLE_SIGN_IN_UNAVAILABLE = 'google_sign_in_unavailable'
+export const GOOGLE_SIGN_IN_UNAVAILABLE_MESSAGE =
+  "Google sign-in isn't available right now. Please sign in with your password."
+export const GOOGLE_SIGN_IN_FAILED_MESSAGE = 'Google sign-in failed. Please try again.'
+
+/** Maps a Google sign-in error code to its copy. A code that isn't here (a
+ * transport failure, say) already carries readable wording of its own. */
+export const GOOGLE_SIGN_IN_MESSAGES: Readonly<Record<string, string>> = {
+  [ACCOUNT_BANNED]: ACCOUNT_SUSPENDED_MESSAGE,
+  [EMAIL_NOT_VERIFIED]: EMAIL_NOT_VERIFIED_MESSAGE,
+  [GOOGLE_EMAIL_UNVERIFIED]: GOOGLE_EMAIL_UNVERIFIED_MESSAGE,
+  [GOOGLE_EMAIL_AMBIGUOUS]: GOOGLE_EMAIL_AMBIGUOUS_MESSAGE,
+  [INVALID_GOOGLE_TOKEN]: GOOGLE_SIGN_IN_FAILED_MESSAGE,
+  [GOOGLE_SIGN_IN_UNAVAILABLE]: GOOGLE_SIGN_IN_UNAVAILABLE_MESSAGE,
+}
+
 /**
  * Friendly, user-facing copy for an HTTP status code, used when the backend did
  * not return its own `{ error }` message (e.g. a gateway timeout or routing

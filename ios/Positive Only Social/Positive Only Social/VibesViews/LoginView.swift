@@ -218,14 +218,40 @@ struct LoginView: View {
                 showingErrorAlert = true
                 NSLog("%@", "🔴 Google sign-in failed with error: \(error)")
             } catch let error as APIError {
-                handleLoginError(error)
+                handleGoogleSignInError(error)
             } catch {
-                errorMessage = "Google sign-in failed. Please try again."
+                errorMessage = GVOAppConstants.googleSignInFailedMessage
                 showingErrorAlert = true
                 NSLog("%@", "🔴 Google sign-in failed with error: \(error)")
             }
             isLoading = false
         }
+    }
+
+    /// The backend answers login/google/ with stable codes rather than prose
+    /// (see backend/user_system/constants.py), so the copy lives here. Anything
+    /// unrecognized falls through to the shared password-login handling, which
+    /// already reports transport failures readably.
+    private func handleGoogleSignInError(_ error: APIError) {
+        guard case .serverError(_, let code) = error else {
+            handleLoginError(error)
+            return
+        }
+        switch code {
+        case GVOAppConstants.googleEmailUnverifiedError:
+            errorMessage = GVOAppConstants.googleEmailUnverifiedMessage
+        case GVOAppConstants.googleEmailAmbiguousError:
+            errorMessage = GVOAppConstants.googleEmailAmbiguousMessage
+        case GVOAppConstants.googleSignInUnavailableError:
+            errorMessage = GVOAppConstants.googleSignInUnavailableMessage
+        case GVOAppConstants.invalidGoogleTokenError:
+            errorMessage = GVOAppConstants.googleSignInFailedMessage
+        default:
+            handleLoginError(error)
+            return
+        }
+        showingErrorAlert = true
+        NSLog("%@", "🔴 Google sign-in rejected with code: \(code)")
     }
 
     // MARK: - Two-Factor Verify Action

@@ -352,7 +352,8 @@ final class RealAPI: Networking {
         )
     }
     
-    /// Second step of a two-factor login: exchanges the challenge for a session.
+    /// Exchanges a Google ID token for a session, creating the account on the
+    /// first sign-in. Can answer with a two-factor challenge, like loginUser.
     func loginWithGoogle(idToken: String, rememberMe: String, ip: String) async throws -> Data {
         let body = GoogleLoginBody(id_token: idToken, remember_me: rememberMe, ip: ip)
         let requestBody = try encode(body)
@@ -364,6 +365,7 @@ final class RealAPI: Networking {
         )
     }
 
+    /// Second step of a two-factor login: exchanges the challenge for a session.
     func loginUser2FA(challengeToken: String, totpCode: String?, recoveryCode: String?, ip: String) async throws -> Data {
         let body = Login2FABody(challenge_token: challengeToken, totp_code: totpCode, recovery_code: recoveryCode, ip: ip)
         let requestBody = try encode(body)

@@ -439,11 +439,18 @@ fun LoginScreen(
                                             response,
                                             fallback = "Google sign-in failed. Please try again."
                                         )
+                                        // The backend answers with stable codes
+                                        // rather than prose (see constants.py),
+                                        // so the copy lives here. An unmapped
+                                        // message is a transport failure that
+                                        // already reads well on its own.
                                         errorMessage = when (errorMsg) {
                                             Constants.ACCOUNT_BANNED -> Constants.ACCOUNT_SUSPENDED_MESSAGE
                                             Constants.EMAIL_NOT_VERIFIED -> Constants.EMAIL_NOT_VERIFIED_MESSAGE
                                             Constants.GOOGLE_SIGN_IN_UNAVAILABLE -> Constants.GOOGLE_SIGN_IN_UNAVAILABLE_MESSAGE
                                             Constants.GOOGLE_EMAIL_UNVERIFIED -> Constants.GOOGLE_EMAIL_UNVERIFIED_MESSAGE
+                                            Constants.GOOGLE_EMAIL_AMBIGUOUS -> Constants.GOOGLE_EMAIL_AMBIGUOUS_MESSAGE
+                                            Constants.INVALID_GOOGLE_TOKEN -> Constants.GOOGLE_SIGN_IN_FAILED_MESSAGE
                                             else -> errorMsg
                                         }
                                         showingErrorAlert = true

@@ -443,13 +443,39 @@ test('a banned account gets the suspension message, not a raw error code', async
   expect(await screen.findByRole('alert')).toHaveTextContent(ACCOUNT_SUSPENDED_MESSAGE)
 })
 
-test('a failed Google sign-in leaves the password form usable', async () => {
-  const { ApiError } = await import('../api/client')
-  mockLoginWithGoogle.mockRejectedValueOnce(new ApiError(401, 'invalid_google_token'))
+test('a failed Google sign-in shows copy, not the raw error code', async () => {
+  const { ApiError, INVALID_GOOGLE_TOKEN, GOOGLE_SIGN_IN_FAILED_MESSAGE } = await import(
+    '../api/client'
+  )
+  mockLoginWithGoogle.mockRejectedValueOnce(new ApiError(401, INVALID_GOOGLE_TOKEN))
   renderLoginPage()
 
   await userEvent.click(screen.getByRole('button', { name: 'Sign in with Google' }))
 
-  expect(await screen.findByRole('alert')).toHaveTextContent('invalid_google_token')
+  expect(await screen.findByRole('alert')).toHaveTextContent(GOOGLE_SIGN_IN_FAILED_MESSAGE)
   expect(screen.getByLabelText('Password')).not.toBeDisabled()
+})
+
+test('an ambiguous email points the user at their password instead', async () => {
+  const { ApiError, GOOGLE_EMAIL_AMBIGUOUS, GOOGLE_EMAIL_AMBIGUOUS_MESSAGE } = await import(
+    '../api/client'
+  )
+  mockLoginWithGoogle.mockRejectedValueOnce(new ApiError(409, GOOGLE_EMAIL_AMBIGUOUS))
+  renderLoginPage()
+
+  await userEvent.click(screen.getByRole('button', { name: 'Sign in with Google' }))
+
+  expect(await screen.findByRole('alert')).toHaveTextContent(GOOGLE_EMAIL_AMBIGUOUS_MESSAGE)
+})
+
+test('an unmapped failure keeps its own readable message', async () => {
+  // A transport failure already carries friendly wording; the code map must not
+  // flatten it into the generic Google copy.
+  const { ApiError } = await import('../api/client')
+  mockLoginWithGoogle.mockRejectedValueOnce(new ApiError(0, 'Network error. Please try again.'))
+  renderLoginPage()
+
+  await userEvent.click(screen.getByRole('button', { name: 'Sign in with Google' }))
+
+  expect(await screen.findByRole('alert')).toHaveTextContent('Network error. Please try again.')
 })

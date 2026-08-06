@@ -611,8 +611,14 @@ ways in then work: the password still logs in, and so does Google. Because Googl
 has proven ownership of the address, linking also settles our own email
 verification, so an account still sitting on an unclicked verification link
 becomes verified. Nothing enforces email uniqueness in the database; in the rare
-case that more than one account holds the address, the sign-in is refused rather
-than handing the Google identity to whichever row sorted first.
+case that more than one account holds the address, the sign-in is refused with
+`google_email_ambiguous` rather than handing the Google identity to whichever row
+sorted first.
+
+Every rejection above is a stable machine-readable code, never prose — clients
+map `google_email_ambiguous`, `google_email_unverified`,
+`invalid_google_token` and `google_sign_in_unavailable` to their own copy, the
+same way they already do for `account_banned` and `email_not_verified`.
 
 **Creating an account.** Otherwise the sign-in creates one. A Google account
 brings no username, so one is generated from the email local part (non-word

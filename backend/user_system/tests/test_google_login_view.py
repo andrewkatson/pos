@@ -14,8 +14,9 @@ from django.urls import reverse
 from .test_constants import false, true
 from .test_parent_case import PositiveOnlySocialTestCase
 from ..constants import (
-    ACCOUNT_BANNED, BAN_TYPE_OUTRIGHT, Fields, GOOGLE_EMAIL_UNVERIFIED,
-    GOOGLE_SIGN_IN_UNAVAILABLE, INVALID_GOOGLE_TOKEN, Patterns,
+    ACCOUNT_BANNED, BAN_TYPE_OUTRIGHT, Fields, GOOGLE_EMAIL_AMBIGUOUS,
+    GOOGLE_EMAIL_UNVERIFIED, GOOGLE_SIGN_IN_UNAVAILABLE, INVALID_GOOGLE_TOKEN,
+    Patterns,
 )
 from ..google_auth import GoogleTokenError
 from ..input_validator import is_valid_pattern
@@ -228,7 +229,10 @@ class GoogleLoginTests(PositiveOnlySocialTestCase):
         self._register_user(self._get_unique_username('dupea'), 'duplicate@example.com', password)
         self._register_user(self._get_unique_username('dupeb'), 'Duplicate@example.com', password)
 
-        self._sign_in(claims(email='duplicate@example.com'), expect_status=409)
+        response = self._sign_in(claims(email='duplicate@example.com'), expect_status=409)
+
+        # A stable code, not prose, so clients supply their own copy.
+        self.assertEqual(response.json()['error'], GOOGLE_EMAIL_AMBIGUOUS)
         self.assertFalse(get_user_model().objects.filter(google_sub='google-sub-1').exists())
 
     # =========================================================================

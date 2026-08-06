@@ -225,6 +225,14 @@ INVALID_GOOGLE_TOKEN = "invalid_google_token"
 # proven the user owns that mailbox, so an unverified claim is worth nothing.
 GOOGLE_EMAIL_UNVERIFIED = "google_email_unverified"
 
+# Returned when more than one account already holds the address on the token, so
+# there is no single account to link the Google identity to. Nothing enforces
+# email uniqueness in the database, so this is possible (two accounts registered
+# with addresses differing only in case), and picking one arbitrarily is not a
+# guess worth making. A stable code like the two above rather than prose, so
+# clients can show their own copy without depending on backend wording.
+GOOGLE_EMAIL_AMBIGUOUS = "google_email_ambiguous"
+
 # A Google account carries no username, so the first sign-in generates one from
 # the email local part. Generated names must still satisfy Patterns.alphanumeric
 # (at least 10 word characters), so a short local part is padded and a taken name

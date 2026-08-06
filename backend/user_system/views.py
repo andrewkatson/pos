@@ -51,6 +51,7 @@ from .constants import Patterns, Params, POST_BATCH_SIZE, MAX_BEFORE_HIDING_POST
     DEVICE_PLATFORMS, MAX_DEVICE_TOKEN_LENGTH, \
     PUSH_TYPE_CHOICES, PUSH_TYPES, \
     GOOGLE_SIGN_IN_UNAVAILABLE, INVALID_GOOGLE_TOKEN, GOOGLE_EMAIL_UNVERIFIED, \
+    GOOGLE_EMAIL_AMBIGUOUS, \
     GENERATED_USERNAME_FALLBACK_PREFIX, MIN_GENERATED_USERNAME_LENGTH, \
     MAX_GENERATED_USERNAME_ATTEMPTS
 from .feed_algorithm import feed_algorithm
@@ -1158,7 +1159,7 @@ def login_user_google(request):
         if len(candidates) > 1:
             logger.warning("Google sign-in failed: more than one account holds that email address")
             return log_and_return_json("login_user_google", {
-                'error': "More than one account already uses that email address. Please sign in with your password.",
+                'error': GOOGLE_EMAIL_AMBIGUOUS,
             }, status=409)
         if candidates:
             existing = candidates[0]
