@@ -203,12 +203,76 @@ Android fires an `ACTION_SEND` chooser, and the website uses the Web Share API
 when the browser offers it (typically mobile), otherwise copying the link to the
 clipboard and confirming with a "Link copied" prompt.
 
-This is deliberately the client-only first step. A shared link today opens the
-website and, because the single-post view is still behind auth, prompts a
-signed-out recipient to log in; on mobile it opens the browser rather than the
-app. Making a single post (and comment) publicly viewable with link-preview
-metadata, and adding iOS Universal Links / Android App Links so a shared link
-opens the app, are tracked follow-ups.
+### What a recipient sees (issue #381)
+
+A shared link opens the website's post page **whether or not the recipient has
+an account**. Signed out, the page is read-only: the image, caption, like count
+and the comment threads are all there, but liking, commenting, replying,
+reporting and the relationship filter are replaced by a prompt to log in or
+join. Share itself still works, so a link can be passed along.
+
+Comments are paged, and the post page has no "load more": it renders the first
+batch of threads (10) and the first batch of comments within each (30). That is
+the same for signed-in viewers — this page has never paged — so a very busy
+post shows its opening conversation rather than all of it.
+
+What is public is deliberately narrower than what a signed-in viewer sees. A
+signed-out visitor is resolved against a fixed anonymous viewer, so a post is
+served only when it is:
+
+- not hidden — approved, not pending classification, not hidden by reports, and
+  not a final-rejection tombstone;
+- `public` audience — a following/friends/family post is never public, because
+  an anonymous visitor is on nobody's follow list;
+- by an author who is **not shadow banned** (an outright ban stops the account
+  from acting but is not a content takedown, so their approved posts stay up);
+- by an author who is **not a verified minor** — an anonymous visitor's age is
+  unknown, which puts them in the adult band, and the two bands are mutually
+  invisible (see [Age and identity](#age-and-identity)). A minor's post is
+  therefore never served to the open internet.
+
+Comments are filtered by the same rule, so a public post can serve an empty
+comment list when every comment on it is hidden or narrowly scoped.
+
+Anything that fails these checks is reported as **404, identical to a post that
+never existed** — the endpoints cannot be used to probe moderation state. The
+answer does not depend on who asks: a signed-in browser, a signed-out one, and a
+crawler all get the same bytes.
+
+A comment link's `#comment-<id>` fragment is resolved by the post page itself.
+The API serves the **containing thread**, not the comment alone — a reply only
+makes sense inside the conversation it belongs to — and the page scrolls to that
+comment and marks it out.
+
+Because the page renders one batch of threads, a link into the 11th thread would
+otherwise point at something never rendered. So a fragment is the one thing that
+makes the page keep paging: it fetches further thread batches until the target
+appears, stopping at 5 batches (~50 threads). Earlier batches stay on screen, so
+the comment is read in context. This widens only the thread dimension — a
+comment past the 30th in its own thread still isn't reached, which would need
+real pagination on this screen.
+
+### Link previews
+
+The website is a client-only SPA, so a crawler that fetches
+`https://smiling.social/post/<id>` gets an empty root div and nothing to unfurl.
+CloudFront's viewer-request function (`website/cloudfront/link-preview.js`)
+redirects known link-preview crawlers — and only those — to a backend endpoint
+that returns a meta-only HTML document with the post's Open Graph and Twitter
+Card tags. Real browsers are untouched and get the SPA. The preview endpoint
+applies exactly the public-visibility rule above, so a post it may not show
+unfurls as the generic site card rather than leaking anything.
+
+Two pieces of CloudFront configuration make this work and are not managed by
+`website/deploy-web.sh` (which warns about the first): custom error responses
+mapping 403/404 to `/index.html` with a 200, so a cold load of a client-side
+`/post/<id>` route resolves at all; and the published function association
+itself.
+
+### Still to come
+
+On mobile a shared link opens the browser rather than the app. iOS Universal
+Links and Android App Links are a tracked follow-up (issue #382).
 
 ## Text formatting (issue #318)
 
