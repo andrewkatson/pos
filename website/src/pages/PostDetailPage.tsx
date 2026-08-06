@@ -92,6 +92,13 @@ const COMMENT_AUDIENCE_BADGE: Partial<Record<PostAudience, string>> = {
   family: 'Family',
 }
 
+// How many extra pages of comment threads a shared `#comment-<id>` link may
+// pull in while looking for its target (issue #381). The backend pages threads
+// COMMENT_THREAD_BATCH_SIZE (10) at a time, so this reaches ~50 threads deep —
+// enough for a real conversation, and bounded so a link to a comment that was
+// since removed or hidden costs a few requests rather than the whole thing.
+const MAX_SHARED_COMMENT_THREAD_BATCHES = 5
+
 type ReportTarget = { type: 'post' } | { type: 'comment'; comment: CommentView }
 type DeleteTarget = { type: 'post' } | { type: 'comment'; comment: CommentView }
 // The three-dots menu next to the post caption / each comment (issue #304).
@@ -290,35 +297,54 @@ function PostDetailView({ postId, isSignedIn }: { postId: string; isSignedIn: bo
       // no category filter and the chips that set it are not rendered.
       const groupFilter = !isSignedIn || group === 'all' ? undefined : group
       try {
-        const refs = isSignedIn
-          ? await apiClient.getCommentsForPost(postId, 0, groupFilter)
-          : await apiClient.getPublicCommentsForPost(postId, 0)
-        const threadLists = await Promise.all(
-          refs.map(async ref => {
-            const comments = isSignedIn
-              ? await apiClient.getCommentsForThread(
-                  ref.comment_thread_identifier,
-                  0,
-                  groupFilter,
-                )
-              : await apiClient.getPublicCommentsForThread(ref.comment_thread_identifier, 0)
-            return { threadId: ref.comment_thread_identifier, comments }
-          }),
-        )
-        if (!isMounted.current) return
-
-        const built: ThreadView[] = threadLists
-          .filter(t => t.comments.length > 0)
-          .map(t => ({
-            threadId: t.threadId,
-            comments: t.comments
-              .slice()
-              .sort((a, b) => a.creation_time.localeCompare(b.creation_time))
-              .map(c => toView(c, t.threadId)),
-          }))
-          .sort((a, b) =>
-            (a.comments[0]?.createdTime ?? '').localeCompare(b.comments[0]?.createdTime ?? ''),
+        const built: ThreadView[] = []
+        let threadBatch = 0
+        for (;;) {
+          const refs = isSignedIn
+            ? await apiClient.getCommentsForPost(postId, threadBatch, groupFilter)
+            : await apiClient.getPublicCommentsForPost(postId, threadBatch)
+          if (refs.length === 0) break
+          const threadLists = await Promise.all(
+            refs.map(async ref => {
+              const comments = isSignedIn
+                ? await apiClient.getCommentsForThread(
+                    ref.comment_thread_identifier,
+                    0,
+                    groupFilter,
+                  )
+                : await apiClient.getPublicCommentsForThread(ref.comment_thread_identifier, 0)
+              return { threadId: ref.comment_thread_identifier, comments }
+            }),
           )
+          if (!isMounted.current) return
+
+          built.push(
+            ...threadLists
+              .filter(t => t.comments.length > 0)
+              .map(t => ({
+                threadId: t.threadId,
+                comments: t.comments
+                  .slice()
+                  .sort((a, b) => a.creation_time.localeCompare(b.creation_time))
+                  .map(c => toView(c, t.threadId)),
+              })),
+          )
+
+          // Normally one batch is all this page loads. The exception is a shared
+          // `#comment-<id>` link (issue #381): the backend pages threads 10 at a
+          // time, so a link to a comment in the 11th thread would land on a page
+          // that never renders it — the scroll would silently do nothing. Keep
+          // paging until it turns up, bounded so a link to an already-removed
+          // comment can't walk the whole conversation.
+          if (!targetCommentId) break
+          if (built.some(t => t.comments.some(c => c.id === targetCommentId))) break
+          threadBatch += 1
+          if (threadBatch >= MAX_SHARED_COMMENT_THREAD_BATCHES) break
+        }
+
+        built.sort((a, b) =>
+          (a.comments[0]?.createdTime ?? '').localeCompare(b.comments[0]?.createdTime ?? ''),
+        )
         setThreads(built)
         // Clear any stale "failed to load comments" message from a prior attempt.
         setErrorMessage(null)
@@ -339,7 +365,7 @@ function PostDetailView({ postId, isSignedIn }: { postId: string; isSignedIn: bo
     } finally {
       isLoadingRef.current = false
     }
-  }, [postId, currentUsername, commentGroup, isSignedIn])
+  }, [postId, currentUsername, commentGroup, isSignedIn, targetCommentId])
 
   // Kick the initial load off a microtask so the fetch's setState calls don't
   // run synchronously inside the effect (React flags that as cascading renders).

@@ -597,6 +597,66 @@ test('a plain post link scrolls nowhere', async () => {
   scrollIntoView.mockRestore()
 })
 
+test('a shared comment link pages past the first batch to reach its comment', async () => {
+  // The backend pages threads 10 at a time and this screen has no "load more",
+  // so without this a link to a comment in the 11th thread would render a page
+  // that never contains it and scroll nowhere (issue #381).
+  mockGetPublicThreadRefs.mockImplementation((_postId: string, batch: number) =>
+    Promise.resolve(
+      batch === 0
+        ? [{ comment_thread_identifier: 't1' }]
+        : batch === 1
+          ? [{ comment_thread_identifier: 't2' }]
+          : [],
+    ),
+  )
+  mockGetPublicThreadComments.mockImplementation((threadId: string) =>
+    Promise.resolve(threadId === 't1' ? [rootComment] : [replyComment]),
+  )
+
+  renderSignedOut(`/post/p1#comment-${REPLY_ID}`)
+
+  // The target lives in the second batch, so it had to be fetched to appear.
+  expect(await screen.findByText('totally agree')).toBeInTheDocument()
+  expect(mockGetPublicThreadRefs).toHaveBeenCalledWith('p1', 1)
+  await waitFor(() =>
+    expect(document.getElementById(`comment-${REPLY_ID}`)).toHaveClass('comment-row--shared'),
+  )
+  // The earlier batch stays on the page, so the comment is read in context.
+  expect(screen.getByText('love this')).toBeInTheDocument()
+})
+
+test('a plain post link loads only the first batch', async () => {
+  // Paging past batch 0 is strictly for reaching a shared comment; an ordinary
+  // visit must not pull the whole conversation.
+  mockGetPublicThreadRefs.mockResolvedValue([{ comment_thread_identifier: 't1' }])
+  mockGetPublicThreadComments.mockResolvedValue([rootComment])
+
+  renderSignedOut()
+  await screen.findByText('love this')
+
+  expect(mockGetPublicThreadRefs).toHaveBeenCalledTimes(1)
+  expect(mockGetPublicThreadRefs).toHaveBeenCalledWith('p1', 0)
+})
+
+test('a shared comment link that is never found stops at the batch cap', async () => {
+  // A link to a since-removed or moderated comment must cost a bounded number
+  // of requests, not walk the entire thread list.
+  mockGetPublicThreadRefs.mockImplementation((_postId: string, batch: number) =>
+    Promise.resolve(batch < 20 ? [{ comment_thread_identifier: `t${batch}` }] : []),
+  )
+  mockGetPublicThreadComments.mockResolvedValue([rootComment])
+
+  renderSignedOut(`/post/p1#comment-${REPLY_ID}`)
+  // Every batch returns the same comment body, so several rows carry it.
+  await screen.findAllByText('love this')
+
+  await waitFor(() => expect(mockGetPublicThreadRefs).toHaveBeenCalledTimes(5))
+  // Still capped after everything settles.
+  expect(mockGetPublicThreadRefs).toHaveBeenCalledTimes(5)
+  expect(document.querySelector('.comment-row--shared')).toBeNull()
+})
+
 test('a plain post link marks out nothing', async () => {
   mockGetPublicThreadRefs.mockResolvedValue([{ comment_thread_identifier: 't1' }])
   mockGetPublicThreadComments.mockResolvedValue([rootComment, replyComment])
