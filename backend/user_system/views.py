@@ -3212,11 +3212,13 @@ def get_comments_for_thread(request, comment_thread_identifier, batch):
 # or the author-only classification fields — there is no viewer to have it.
 
 # Comment exposure for the `#comment-<id>` fragment shipped in Scope A (#34):
-# the public view serves the *whole* thread list, exactly like the signed-in
-# view, and the fragment is resolved client-side by scrolling to that comment.
-# Serving a single comment in isolation would strip the conversation a shared
-# reply only makes sense inside of, and would need its own endpoint to say
-# "this comment lives in that thread" anyway.
+# the public view serves the *containing thread*, batched exactly like the
+# signed-in view, and the fragment is resolved client-side by scrolling to that
+# comment. Serving a single comment in isolation would strip the conversation a
+# shared reply only makes sense inside of, and would need its own endpoint to
+# say "this comment lives in that thread" anyway. Batched, not exhaustive: the
+# client pages through thread batches to find a shared comment (see
+# PostDetailPage), so these stay ordinary paginated listings.
 
 def _public_post_fields(post):
     """A post serialized for a signed-out viewer.
