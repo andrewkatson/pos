@@ -750,10 +750,11 @@ function PostDetailView({ postId, isSignedIn }: { postId: string; isSignedIn: bo
         ) : (
           /* A shared link opened by someone with no account (issue #381): the
              post and its comments are readable, but liking, commenting and
-             reporting all need one. */
+             reporting all need one. Sharing deliberately isn't listed — it
+             still works signed out, so naming it here would imply the opposite. */
           <p className="muted signed-out-prompt">
             <Link to="/login">Log in</Link> or <Link to="/register">join</Link> to like,
-            comment, and share the good vibes.
+            comment, and post your own good vibes.
           </p>
         )}
 
