@@ -1,11 +1,12 @@
 import os
 from unittest.mock import patch
 
+from django.contrib.auth import get_user_model
 from django.urls import reverse
 
 from .test_parent_case import PositiveOnlySocialTestCase
 from .test_constants import UserFields
-from ..constants import Fields, REVIEW_STATUS_ESCALATED
+from ..constants import Fields, MAX_REPORTS_PER_USER_PER_DAY, REVIEW_STATUS_ESCALATED
 from ..models import Comment, ModerationReview
 
 # Reporters available in setUp, comfortably more than any escalation bar.
@@ -176,3 +177,20 @@ class ReportCommentTests(PositiveOnlySocialTestCase):
 
         review = ModerationReview.objects.get(comment=self.comment)
         self.assertEqual(review.status, REVIEW_STATUS_ESCALATED)
+
+    @patch.dict(os.environ, {"TESTING": "True"}, clear=True)
+    def test_report_beyond_the_daily_limit_is_refused(self):
+        """The daily budget is shared with posts, so it has to be enforced on
+        this endpoint too — otherwise comments are the way around it."""
+        reporter = get_user_model().objects.get(username=self.users[UserFields.USERNAME][1])
+        # Stand in for a day's worth of reporting by this account.
+        for _ in range(MAX_REPORTS_PER_USER_PER_DAY):
+            self.post.postreport_set.create(user=reporter, reason=self.reason)
+
+        response = self.client.post(
+            self.url, data=self.valid_data, content_type='application/json', **self.reporter_header
+        )
+
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(response.json(), {'error': 'Daily report limit reached'})
+        self.assertEqual(self.comment.commentreport_set.count(), 0)

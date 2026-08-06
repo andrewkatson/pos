@@ -8,14 +8,19 @@ from ..models import Post
 invalid_session_management_token = '?'
 invalid_post_identifier = '?'
 
+# These tests only ever act as user 0 (the poster) and user 1 (the liker); the
+# rest are spare bystanders inherited from the original fixture, which sized
+# itself off the old report-hiding threshold. Nothing here depends on the exact
+# count — it just has to be at least 2.
+NUM_USERS = 12
+
 class UnlikePostTests(PositiveOnlySocialTestCase):
 
     def setUp(self):
         super().setUp()
 
         # 1. Create User 0 (poster) and other users
-        # The number of users is high but harmless, taken from original test
-        self.make_post_with_users(12)
+        self.make_post_with_users(NUM_USERS)
 
         # 2. Get the "poster's" info (User 0)
         self.poster_token = self.session_management_token  # Set by parent helper

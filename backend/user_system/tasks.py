@@ -557,14 +557,33 @@ def review_reported_content(review_identifier):
                      review_identifier, review.review_attempts)
         return
 
-    # Count the attempt before the fallible external work, in one atomic UPDATE
-    # with the still-pending check, so a duplicate delivery that lost the race
-    # neither burns retry budget nor runs the (billable) cascades.
-    still_pending = ModerationReview.objects.filter(
-        pk=review.pk, status=REVIEW_STATUS_PENDING,
-    ).update(review_attempts=F('review_attempts') + 1, updated=timezone.now())
-    if not still_pending:
-        logger.info("review_reported_content: review %s was resolved concurrently; nothing to do.", review_identifier)
+    # Claim the attempt before doing the fallible (and billable) external work.
+    #
+    # This is a compare-and-swap, not just a still-pending check: the WHERE pins
+    # the attempt count this job read, and the SET writes the successor
+    # explicitly rather than as F('review_attempts') + 1. That matters because a
+    # bare status=pending guard does NOT serialize duplicate deliveries — two
+    # jobs that both read the row before either resolves it would both match it
+    # and both run the cascades, since the row lock only orders the UPDATEs, it
+    # never makes one of them fail. With the count pinned, the loser
+    # re-evaluates its WHERE against the winner's committed row, matches
+    # nothing, and drops out here.
+    #
+    # What this does not buy is a lease: a delivery that arrives *after* the
+    # winner claimed — reading the already-incremented count — claims the next
+    # attempt and runs its own cascade. Holding that off needs a locked_at lease
+    # with an expiry, and a stuck-lease state for the sweep to reconcile, which
+    # is not worth it here: the cost of that rarer overlap is duplicate provider
+    # spend, never a duplicate outcome (the select_for_update claim below admits
+    # exactly one verdict), and the `updated` bump this UPDATE performs already
+    # keeps the sweep from re-enqueueing a review that was claimed recently.
+    claimed_attempt = review.review_attempts
+    claimed = ModerationReview.objects.filter(
+        pk=review.pk, status=REVIEW_STATUS_PENDING, review_attempts=claimed_attempt,
+    ).update(review_attempts=claimed_attempt + 1, updated=timezone.now())
+    if not claimed:
+        logger.info("review_reported_content: review %s was claimed or resolved concurrently; nothing to do.",
+                    review_identifier)
         return
 
     # The cascades run outside any transaction/lock: they can take minutes.

@@ -9,6 +9,7 @@ from unittest.mock import patch
 
 from django.core import mail
 from django.test import TestCase, override_settings
+from django.utils import timezone
 
 from .. import moderation, tasks
 from ..classifiers.classifier_utils import ClassificationResult
@@ -169,6 +170,42 @@ class ModerationReviewTests(TestCase):
         review = self._refresh(review)
         self.assertEqual(review.status, REVIEW_STATUS_PENDING)
         self.assertFalse(self.post.hidden)
+
+    @patch(IMAGE, return_value=ALLOWED)
+    def test_simultaneous_duplicate_deliveries_run_the_cascades_once(self, _image):
+        """RQ delivers at least once, so two jobs for one review can be in flight
+        together. Both read the row before either resolves it, so a bare
+        status-still-pending guard would admit both and pay for two cascades; the
+        compare-and-swap on the attempt count admits exactly one.
+
+        The interleaving is forced deterministically: the second delivery is run
+        from inside the first's claim, at the one moment when the first has read
+        the row (attempts=0) but has not yet written its claim.
+        """
+        review = ModerationReview.objects.create(post=self.post)
+        self.post.postreport_set.create(user=self.reporters[0], reason='x')
+
+        real_now = timezone.now
+        reentered = []
+
+        def run_the_duplicate_mid_claim():
+            # timezone.now() is first called building the claim UPDATE, so the
+            # duplicate below starts from exactly the same row state.
+            if not reentered:
+                reentered.append(True)
+                tasks.review_reported_content(str(review.review_identifier))
+            return real_now()
+
+        with patch(TEXT, return_value=ALLOWED) as mock_text, \
+                patch('user_system.tasks.timezone.now', side_effect=run_the_duplicate_mid_claim):
+            tasks.review_reported_content(str(review.review_identifier))
+
+        self.assertTrue(reentered, "the duplicate delivery never ran; the test proves nothing")
+        # One cascade, one attempt spent, one verdict.
+        self.assertEqual(mock_text.call_count, 1)
+        review.refresh_from_db()
+        self.assertEqual(review.review_attempts, 1)
+        self.assertEqual(review.status, REVIEW_STATUS_CLEARED)
 
     @patch(IMAGE, return_value=ALLOWED)
     @patch(TEXT, return_value=ALLOWED)
