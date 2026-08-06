@@ -48,11 +48,17 @@ fun NavGraph(
         }
     }
 
-    // A tapped "post rejected" notification asks us to open that post (issues
-    // #342/#343). Only route into the authenticated PostDetail once logged in:
-    // a stale tap while logged out is left pending (not cleared) and consumed
-    // after login — keying the effect on isLoggedIn re-runs it when auth flips —
-    // instead of pushing an authenticated screen from the Welcome flow.
+    // Something asked us to open a post: a tapped "post rejected" notification
+    // (issues #342/#343), or a shared https://smiling.social/post/<id> App Link
+    // parsed in MainActivity (issue #382). Only route into the authenticated
+    // PostDetail once logged in: a stale request while logged out is left
+    // pending (not cleared) and consumed after login — keying the effect on
+    // isLoggedIn re-runs it when auth flips — instead of pushing an
+    // authenticated screen from the Welcome flow.
+    //
+    // This is also why PostDetail carries no navDeepLink: NavHost would resolve
+    // the incoming VIEW intent itself and build a back stack straight to an
+    // authenticated screen, with no session behind it.
     val pendingPostId by PushNavigator.pendingPostId.collectAsState()
     val pushIsLoggedIn by authManager.isLoggedIn.collectAsState()
     LaunchedEffect(pendingPostId, pushIsLoggedIn) {

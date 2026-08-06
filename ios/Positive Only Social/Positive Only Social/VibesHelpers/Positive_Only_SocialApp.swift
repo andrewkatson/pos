@@ -59,12 +59,24 @@ struct Positive_Only_SocialApp: App {
     var body: some Scene {
         WindowGroup {
             // If logged in, show HomeView. Otherwise, show WelcomeView.
-            if authManager.isLoggedIn {
-                HomeView(api: api, keychainHelper: keychainHelper)
-                    .environmentObject(authManager) // Make the manager available to all subviews
-            } else {
-                WelcomeView(api: api, keychainHelper: keychainHelper)
-                    .environmentObject(authManager)
+            Group {
+                if authManager.isLoggedIn {
+                    HomeView(api: api, keychainHelper: keychainHelper)
+                        .environmentObject(authManager) // Make the manager available to all subviews
+                } else {
+                    WelcomeView(api: api, keychainHelper: keychainHelper)
+                        .environmentObject(authManager)
+                }
+            }
+            // A shared https://smiling.social/post/<id> link opened this app as
+            // a Universal Link (issue #382). Route it through the same bus a
+            // tapped push notification uses: HomeView consumes the pending id,
+            // so a link opened while signed out simply waits there until the
+            // user logs in rather than pushing an authenticated screen out of
+            // the Welcome flow. A URL that isn't one of ours is ignored.
+            .onOpenURL { url in
+                guard let link = ShareURL.parse(url) else { return }
+                PushRouter.shared.openPost(link.postIdentifier)
             }
         }
     }

@@ -1,8 +1,9 @@
-// Sharing posts and comments (issues #34, #381). The share action hands off a
-// link to the website's /post/:postId route, which renders for signed-out
+// Sharing posts and comments (issues #34, #381, #382). The share action hands
+// off a link to the website's /post/:postId route, which renders for signed-out
 // recipients too — a shared post is readable without an account as long as it
-// is public. Deep-linking the same URL into the mobile apps is tracked
-// separately (#382).
+// is public. The same URL is claimed by the mobile apps as an iOS Universal
+// Link / Android App Link, so on a phone with the app installed it opens there
+// instead of the browser; see ios/DEEP_LINKING.md.
 
 /**
  * The absolute URL for a post's detail page, rooted at the current deployment's
