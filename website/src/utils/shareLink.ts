@@ -1,8 +1,8 @@
-// Sharing posts and comments (issue #34). Scope A is an in-app share/copy-link
-// action; the URL points at the website's existing /post/:postId route. Making
-// that route publicly viewable and deep-linking it into the mobile apps is a
-// tracked follow-up (Scope B), so a shared link currently opens the site and
-// prompts login for signed-out recipients.
+// Sharing posts and comments (issues #34, #381). The share action hands off a
+// link to the website's /post/:postId route, which renders for signed-out
+// recipients too — a shared post is readable without an account as long as it
+// is public. Deep-linking the same URL into the mobile apps is tracked
+// separately (#382).
 
 /**
  * The absolute URL for a post's detail page, rooted at the current deployment's
@@ -15,11 +15,29 @@ export function postShareUrl(postIdentifier: string): string {
 
 /**
  * The URL for a specific comment: the post page plus a `#comment-<id>` fragment.
- * Nothing consumes the fragment yet, but it is forward-compatible with scrolling
- * to the comment once the detail page honors it, and it is harmless today.
+ * The detail page resolves the fragment by scrolling to (and marking out) that
+ * comment within its thread — see `sharedCommentId`.
  */
 export function commentShareUrl(postIdentifier: string, commentIdentifier: string): string {
   return `${postShareUrl(postIdentifier)}#comment-${commentIdentifier}`
+}
+
+/**
+ * The inverse of `commentShareUrl`: the comment id a location hash points at,
+ * or null when the hash is absent or is not a comment link.
+ *
+ * The id must look like a UUID. The value is used to build a DOM id and to
+ * match against rendered comments, so anything else is ignored rather than
+ * trusted — a hash is attacker-supplied whenever a link is.
+ *
+ * The result is lowercased. A hash can arrive upper- or mixed-case (a chat app
+ * or link shortener that "normalizes" URLs, a hand-typed link), while the ids
+ * the backend serves are always lowercase UUIDs — without normalizing, an
+ * uppercase hash would parse cleanly and then silently match no comment.
+ */
+export function sharedCommentId(hash: string): string | null {
+  const match = /^#comment-([0-9a-fA-F]{8}(?:-[0-9a-fA-F]{4}){3}-[0-9a-fA-F]{12})$/.exec(hash)
+  return match ? match[1].toLowerCase() : null
 }
 
 /**

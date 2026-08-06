@@ -162,6 +162,33 @@ urlpatterns = [
         views.retract_report_comment, name='retract_report_comment'),
 
     # =========================================================================
+    # PUBLIC SHARE VIEWS (issue #381) — no token, IP rate limited
+    # =========================================================================
+    # These back a shared https://smiling.social/post/<id> link for a recipient
+    # who has no account. They serve only public, approved, non-shadow-banned
+    # content whose author is not a verified minor — an account that never
+    # verified an age has an unknown one and stays in the general pool, so
+    # "not a verified minor" is the rule, not "an adult". Everything else 404s
+    # exactly like a missing post. See the PUBLIC SHARE VIEWS section in views.py.
+
+    # GET /public/posts/<uuid:post_identifier>/details/
+    path('public/posts/<uuid:post_identifier>/details/', views.get_public_post_details,
+         name='get_public_post_details'),
+
+    # GET /public/posts/<uuid:post_identifier>/comments/<int:batch>/
+    path('public/posts/<uuid:post_identifier>/comments/<int:batch>/', views.get_public_comments_for_post,
+         name='get_public_comments_for_post'),
+
+    # GET /public/threads/<uuid:comment_thread_identifier>/comments/<int:batch>/
+    path('public/threads/<uuid:comment_thread_identifier>/comments/<int:batch>/',
+         views.get_public_comments_for_thread, name='get_public_comments_for_thread'),
+
+    # GET /public/posts/<uuid:post_identifier>/preview/ — Open Graph HTML for
+    # link-preview crawlers, which CloudFront routes here by user-agent.
+    path('public/posts/<uuid:post_identifier>/preview/', views.get_post_link_preview,
+         name='get_post_link_preview'),
+
+    # =========================================================================
     # USER & PROFILE
     # =========================================================================
     # GET /users/search/<str:username_fragment>/ (Token in header)

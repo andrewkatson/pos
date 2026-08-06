@@ -296,6 +296,27 @@ class GoogleLoginTests(PositiveOnlySocialTestCase):
         )
         self.assertEqual(response.status_code, 400)
 
+    def test_null_remember_me_is_treated_as_omitted(self):
+        """Same rule as login and register: no value means don't remember me."""
+        with patch(VERIFY_PATH, return_value=claims()), patch(CLASSIFIER_PATH, return_value=True):
+            response = self.client.post(
+                self.url,
+                data={'id_token': FAKE_ID_TOKEN, 'remember_me': None},
+                content_type='application/json',
+            )
+        self.assertEqual(response.status_code, 200)
+        self.assertNotIn(Fields.login_cookie_token, response.json())
+
+    def test_non_string_remember_me_is_rejected(self):
+        """A JSON number is neither a bool nor a parseable string."""
+        with patch(VERIFY_PATH, return_value=claims()), patch(CLASSIFIER_PATH, return_value=True):
+            response = self.client.post(
+                self.url,
+                data={'id_token': FAKE_ID_TOKEN, 'remember_me': 1},
+                content_type='application/json',
+            )
+        self.assertEqual(response.status_code, 400)
+
     def test_omitted_remember_me_defaults_to_not_remembering(self):
         with patch(VERIFY_PATH, return_value=claims()), patch(CLASSIFIER_PATH, return_value=True):
             response = self.client.post(

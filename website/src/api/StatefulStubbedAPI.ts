@@ -1235,6 +1235,127 @@ export class StatefulStubbedAPI implements PositiveOnlySocialAPI {
     }
   }
 
+  // ---------------------------------------------------------------------------
+  // Public share endpoints (issue #381)
+  // ---------------------------------------------------------------------------
+
+  /** Whether an author is a verified minor, whose content an anonymous visitor
+   * never sees: that visitor's age is unknown, so it sits in the adult band and
+   * the two bands are mutually invisible (issue #329). Mirrors
+   * visibility.is_minor. */
+  private isVerifiedMinor(authorId: string): boolean {
+    const author = this.users.find((u) => u.id === authorId)
+    return !!author?.isVerified && !author.isAdult
+  }
+
+  /** Whether a post is visible to a signed-out visitor: live, public-audience,
+   * and not by a verified minor.
+   *
+   * That is the backend's PUBLIC_VIEWER rule *minus the shadow-ban clause* —
+   * this stub has no ban model at all (no path here knows about UserBan,
+   * including the authenticated `canViewPost`), so a shadow-banned author's
+   * post stays visible in the stub where the real backend would hide it. Do
+   * not read this as production visibility: `visibility.py` is the authority,
+   * and the moderation rules are covered by the backend tests
+   * (`test_public_share_views.py`), not from here. */
+  private isPubliclyVisible(post: PostMock): boolean {
+    if (post.hiddenReason === 'classifier_final') return false
+    if (post.hidden) return false
+    if (post.audience !== 'public') return false
+    return !this.isVerifiedMinor(post.authorId)
+  }
+
+  /** Comments in a thread a signed-out visitor may see. The same rule as posts,
+   * because the backend runs `visible_comments` against the same anonymous
+   * viewer: not hidden, public audience, and not by a verified minor — a
+   * minor's comment is no more public than a minor's post, even on someone
+   * else's public post. There is no viewer, so no author-owns-it or category
+   * rule applies, and the same shadow-ban caveat as `isPubliclyVisible` holds:
+   * the stub has no ban model, so a shadow-banned author's comment survives
+   * here where the backend drops it. */
+  private publiclyVisibleComments(thread: CommentThreadMock): CommentMock[] {
+    return thread.comments.filter(
+      (c) => !c.hidden && c.audience === 'public' && !this.isVerifiedMinor(c.authorId),
+    )
+  }
+
+  private requirePublicPost(postIdentifier: string): PostMock {
+    const post = this.posts.find((p) => p.postIdentifier === postIdentifier)
+    // A post that exists but isn't public reads exactly like a missing one, so
+    // the endpoint can't be used to probe moderation state.
+    if (!post || !this.isPubliclyVisible(post)) {
+      throw new ApiError(404, 'No post with that identifier')
+    }
+    return post
+  }
+
+  async getPublicPostDetails(postIdentifier: string): Promise<PostDetails> {
+    const post = this.requirePublicPost(postIdentifier)
+    const author = this.users.find((u) => u.id === post.authorId)
+    // No is_liked/is_saved/is_reported/report_reason and no author-only status:
+    // there is no viewer to have them.
+    return {
+      post_identifier: post.postIdentifier,
+      image_url: post.imageUrl,
+      original_image_url: post.imageUrl,
+      caption: post.caption,
+      caption_font: post.captionFont,
+      background_color: post.backgroundColor,
+      creation_time: new Date(post.creationTime).toISOString(),
+      post_likes: post.likes.size,
+      author_username: author ? author.username : '',
+      audience: post.audience,
+      tags: post.tags,
+      ...this.authorAvatarFields(post.authorId),
+    }
+  }
+
+  async getPublicCommentsForPost(
+    postIdentifier: string,
+    batch: number,
+  ): Promise<CommentThreadRef[]> {
+    const post = this.requirePublicPost(postIdentifier)
+    const threads = this.commentThreads
+      .filter((t) => t.postId === post.postIdentifier)
+      .filter((t) => this.publiclyVisibleComments(t).length > 0)
+    return this.batch(threads, batch, COMMENT_BATCH_SIZE).map((t) => ({
+      comment_thread_identifier: t.threadIdentifier,
+    }))
+  }
+
+  async getPublicCommentsForThread(
+    commentThreadIdentifier: string,
+    batch: number,
+  ): Promise<Comment[]> {
+    const thread = this.commentThreads.find(
+      (t) => t.threadIdentifier === commentThreadIdentifier,
+    )
+    // A leaked thread id is not a back door into a non-public post's
+    // conversation: the post must be public too.
+    if (!thread) {
+      throw new ApiError(404, 'No comment thread with that identifier')
+    }
+    this.requirePublicPost(thread.postId)
+    const visible = this.publiclyVisibleComments(thread).sort(
+      (a, b) => a.creationTime - b.creationTime,
+    )
+    return this.batch(visible, batch, COMMENT_BATCH_SIZE).map((c) => {
+      const author = this.users.find((u) => u.id === c.authorId)
+      const time = new Date(c.creationTime).toISOString()
+      return {
+        comment_identifier: c.commentIdentifier,
+        body: c.body,
+        body_formatting: c.bodyFormatting,
+        audience: c.audience,
+        author_username: author ? author.username : '',
+        ...this.authorAvatarFields(c.authorId),
+        creation_time: time,
+        updated_time: time,
+        comment_likes: c.likes.size,
+      }
+    })
+  }
+
   async getPostStatus(postIdentifier: string): Promise<PostStatusResponse> {
     const user = this.requireUser()
     const post = this.posts.find(
