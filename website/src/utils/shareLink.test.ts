@@ -28,8 +28,10 @@ describe('sharedCommentId', () => {
     expect(sharedCommentId(`#${url.split('#')[1]}`)).toBe(COMMENT_ID)
   })
 
-  test('is case-insensitive about the uuid', () => {
-    expect(sharedCommentId(`#comment-${COMMENT_ID.toUpperCase()}`)).toBe(COMMENT_ID.toUpperCase())
+  test('accepts an upper-cased uuid and normalizes it to match rendered ids', () => {
+    // A link that passed through something that upper-cased the URL still has
+    // to match the lowercase ids the backend serves.
+    expect(sharedCommentId(`#comment-${COMMENT_ID.toUpperCase()}`)).toBe(COMMENT_ID)
   })
 
   test('ignores a hash that is not a comment link', () => {

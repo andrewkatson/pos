@@ -571,6 +571,32 @@ test('a shared comment link marks out the comment it points at', async () => {
   expect(document.getElementById(`comment-${ROOT_ID}`)).not.toHaveClass('comment-row--shared')
 })
 
+test('a shared comment link scrolls that comment into view', async () => {
+  // The highlight and the scroll are separate mechanisms: a comment that is
+  // marked but off-screen is still a broken share link, so assert the scroll
+  // itself rather than inferring it from the class.
+  const scrollIntoView = vi.spyOn(Element.prototype, 'scrollIntoView')
+  mockGetPublicThreadRefs.mockResolvedValue([{ comment_thread_identifier: 't1' }])
+  mockGetPublicThreadComments.mockResolvedValue([rootComment, replyComment])
+  renderSignedOut(`/post/p1#comment-${REPLY_ID}`)
+  await screen.findByText('totally agree')
+
+  await waitFor(() => expect(scrollIntoView).toHaveBeenCalled())
+  expect(scrollIntoView.mock.instances[0]).toBe(document.getElementById(`comment-${REPLY_ID}`))
+  scrollIntoView.mockRestore()
+})
+
+test('a plain post link scrolls nowhere', async () => {
+  const scrollIntoView = vi.spyOn(Element.prototype, 'scrollIntoView')
+  mockGetPublicThreadRefs.mockResolvedValue([{ comment_thread_identifier: 't1' }])
+  mockGetPublicThreadComments.mockResolvedValue([rootComment, replyComment])
+  renderSignedOut()
+  await screen.findByText('totally agree')
+
+  expect(scrollIntoView).not.toHaveBeenCalled()
+  scrollIntoView.mockRestore()
+})
+
 test('a plain post link marks out nothing', async () => {
   mockGetPublicThreadRefs.mockResolvedValue([{ comment_thread_identifier: 't1' }])
   mockGetPublicThreadComments.mockResolvedValue([rootComment, replyComment])

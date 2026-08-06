@@ -29,10 +29,15 @@ export function commentShareUrl(postIdentifier: string, commentIdentifier: strin
  * The id must look like a UUID. The value is used to build a DOM id and to
  * match against rendered comments, so anything else is ignored rather than
  * trusted — a hash is attacker-supplied whenever a link is.
+ *
+ * The result is lowercased. A hash can arrive upper- or mixed-case (a chat app
+ * or link shortener that "normalizes" URLs, a hand-typed link), while the ids
+ * the backend serves are always lowercase UUIDs — without normalizing, an
+ * uppercase hash would parse cleanly and then silently match no comment.
  */
 export function sharedCommentId(hash: string): string | null {
   const match = /^#comment-([0-9a-fA-F]{8}(?:-[0-9a-fA-F]{4}){3}-[0-9a-fA-F]{12})$/.exec(hash)
-  return match ? match[1] : null
+  return match ? match[1].toLowerCase() : null
 }
 
 /**

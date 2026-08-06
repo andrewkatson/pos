@@ -1096,22 +1096,34 @@ export class StatefulStubbedAPI implements PositiveOnlySocialAPI {
   // Public share endpoints (issue #381)
   // ---------------------------------------------------------------------------
 
+  /** Whether an author is a verified minor, whose content an anonymous visitor
+   * never sees: that visitor's age is unknown, so it sits in the adult band and
+   * the two bands are mutually invisible (issue #329). Mirrors
+   * visibility.is_minor. */
+  private isVerifiedMinor(authorId: string): boolean {
+    const author = this.users.find((u) => u.id === authorId)
+    return !!author?.isVerified && !author.isAdult
+  }
+
   /** Whether a post is visible to a signed-out visitor, mirroring the backend's
-   * PUBLIC_VIEWER rule: live, public-audience, and not by a verified minor
-   * (an anonymous visitor's age is unknown, so it sits in the adult band and
-   * never sees a minor's content — issue #329). */
+   * PUBLIC_VIEWER rule: live, public-audience, and not by a verified minor. */
   private isPubliclyVisible(post: PostMock): boolean {
     if (post.hiddenReason === 'classifier_final') return false
     if (post.hidden) return false
     if (post.audience !== 'public') return false
-    const author = this.users.find((u) => u.id === post.authorId)
-    return !(author?.isVerified && !author.isAdult)
+    return !this.isVerifiedMinor(post.authorId)
   }
 
-  /** Comments in a thread a signed-out visitor may see: not hidden and public
-   * audience. There is no viewer, so no author-owns-it or category rule. */
+  /** Comments in a thread a signed-out visitor may see. The same rule as posts,
+   * because the backend runs `visible_comments` against the same anonymous
+   * viewer: not hidden, public audience, and not by a verified minor — a
+   * minor's comment is no more public than a minor's post, even on someone
+   * else's public post. There is no viewer, so no author-owns-it or category
+   * rule applies. */
   private publiclyVisibleComments(thread: CommentThreadMock): CommentMock[] {
-    return thread.comments.filter((c) => !c.hidden && c.audience === 'public')
+    return thread.comments.filter(
+      (c) => !c.hidden && c.audience === 'public' && !this.isVerifiedMinor(c.authorId),
+    )
   }
 
   private requirePublicPost(postIdentifier: string): PostMock {

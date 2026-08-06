@@ -217,6 +217,16 @@ class PublicShareViewTests(PositiveOnlySocialTestCase):
         self.assertEqual(self.client.get(self.comments_url).json(), [])
         self.assertEqual(self.client.get(self.thread_url).json(), [])
 
+    def test_verified_minors_comment_is_dropped_from_a_public_post(self):
+        """The age-band rule applies per author, so a minor's comment is no more
+        public than a minor's post — even on an adult's public post."""
+        get_user_model().objects.filter(username=self.commenter['username']).update(
+            identity_is_verified=True, is_adult=False)
+
+        self.assertEqual(self.client.get(self.details_url).status_code, 200)
+        self.assertEqual(self.client.get(self.comments_url).json(), [])
+        self.assertEqual(self.client.get(self.thread_url).json(), [])
+
     def test_shadow_banned_commenters_comment_is_dropped(self):
         UserBan.objects.create(
             user=get_user_with_username(self.commenter['username']), ban_type=BAN_TYPE_SHADOW)
