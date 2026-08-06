@@ -23,16 +23,16 @@ from django.views.decorators.http import require_POST, require_GET, require_http
 from django_ratelimit.decorators import ratelimit
 from django_ratelimit.exceptions import Ratelimited
 
-from . import tasks
+from . import moderation, tasks
 from .classifiers import image_classifier, text_classifier, interest_classifier
 from .classifiers.classifier_constants import REASON_PHRASES, GENERIC_REASON_CODE
 from .classifiers.prefilter import prefilter_text
-from .constants import Patterns, Params, POST_BATCH_SIZE, MAX_BEFORE_HIDING_POST, MAX_BEFORE_HIDING_COMMENT, \
+from .constants import Patterns, Params, POST_BATCH_SIZE, \
     MAX_CAPTION_LENGTH, MAX_COMMENT_LENGTH, MAX_BIO_LENGTH, \
     COMMENT_BATCH_SIZE, Fields, COMMENT_THREAD_BATCH_SIZE, \
     VERIFY_RESET_MAX_ATTEMPTS, VERIFY_RESET_LOCKOUT_MINUTES, \
     ACCOUNT_BANNED, EMAIL_NOT_VERIFIED, EMAIL_VERIFICATION_TOKEN_HOURS, BAN_TYPE_OUTRIGHT, \
-    HIDDEN_REASON_NONE, HIDDEN_REASON_REPORTS, HIDDEN_REASON_CLASSIFIER, \
+    HIDDEN_REASON_NONE, HIDDEN_REASON_CLASSIFIER, \
     HIDDEN_REASON_PENDING_CLASSIFICATION, NON_APPEALABLE_HIDDEN_REASONS, \
     POST_STATUS_PENDING, POST_STATUS_REJECTED, POST_STATUS_REJECTED_FINAL, \
     APPEAL_TARGET_POST, APPEAL_TARGET_COMMENT, APPEAL_TARGET_BAN, \
@@ -1914,17 +1914,18 @@ def report_post(request, post_identifier):
             logger.warning(f"Report post failed: Post already reported by user_id: {request.user.id}")
             return log_and_return_json("report_post", {'error': "Cannot report post twice"}, status=400)
 
+        if moderation.daily_report_limit_reached(request.user):
+            logger.warning(f"Report post failed: Daily report limit reached by user_id: {request.user.id}")
+            return log_and_return_json("report_post", {'error': "Daily report limit reached"}, status=400)
+
         post.postreport_set.create(user=request.user, reason=reason)
         logger.info(f"Post reported successful: post_id: {post_identifier} by user_id: {request.user.id}")
 
-        # Only hide (and stamp the reason) if it is not already hidden, so a
-        # post already hidden by the classifier keeps its original reason and
-        # the appeal flow can still tell why it was hidden.
-        if not post.hidden and post.postreport_set.count() > MAX_BEFORE_HIDING_POST:
-            post.hidden = True
-            post.hidden_reason = HIDDEN_REASON_REPORTS
-            post.save()
-            logger.info(f"Post hidden due to reports: post_id: {post_identifier}")
+        # A report never hides anything (issue #467): it opens a moderation
+        # review, which re-examines the post itself and escalates to a human
+        # moderator if enough people keep flagging content the re-review
+        # cleared. See user_system/moderation.py.
+        moderation.record_report(post=post)
 
         return log_and_return_json("report_post", {'message': 'Post reported'})
     else:
@@ -1963,15 +1964,11 @@ def retract_report_post(request, post_identifier):
 
     logger.info(f"Post report retracted: post_id: {post_identifier} by user_id: {request.user.id}")
 
-    # If the retraction takes the report count back under the hiding threshold,
-    # un-hide the post — but only when reports were what hid it. Content hidden
-    # by the classifier or with no recorded reason stays hidden.
-    if post.hidden and post.hidden_reason == HIDDEN_REASON_REPORTS \
-            and post.postreport_set.count() <= MAX_BEFORE_HIDING_POST:
-        post.hidden = False
-        post.hidden_reason = HIDDEN_REASON_NONE
-        post.save()
-        logger.info(f"Post un-hidden after report retraction: post_id: {post_identifier}")
+    # A retraction never un-hides anything (issue #467). Hiding is a decision by
+    # the classifier or a moderator, not a reversible group vote, so the only
+    # thing withdrawing a report can do is take an escalation nobody is still
+    # reporting back off the moderator's queue.
+    moderation.withdraw_report(post=post)
 
     return log_and_return_json("retract_report_post", {'message': 'Post report retracted'})
 
@@ -2998,16 +2995,16 @@ def report_comment(request, post_identifier, comment_thread_identifier, comment_
         logger.warning(f"Report comment failed: Already reported by user_id: {request.user.id}")
         return log_and_return_json("report_comment", {'error': "Cannot report comment twice"}, status=400)
 
+    if moderation.daily_report_limit_reached(request.user):
+        logger.warning(f"Report comment failed: Daily report limit reached by user_id: {request.user.id}")
+        return log_and_return_json("report_comment", {'error': "Daily report limit reached"}, status=400)
+
     comment.commentreport_set.create(user=request.user, reason=reason)
     logger.info(f"Report comment successful: comment_id: {comment_identifier} by user_id: {request.user.id}")
 
-    # Only hide (and stamp the reason) if it is not already hidden, so a comment
-    # already hidden by the classifier keeps its original reason.
-    if not comment.hidden and comment.commentreport_set.count() > MAX_BEFORE_HIDING_COMMENT:
-        comment.hidden = True
-        comment.hidden_reason = HIDDEN_REASON_REPORTS
-        comment.save()
-        logger.info(f"Comment hidden due to reports: comment_id: {comment_identifier}")
+    # As for posts, a report never hides a comment (issue #467) — it opens a
+    # moderation review of the comment itself. See user_system/moderation.py.
+    moderation.record_report(comment=comment)
 
     return log_and_return_json("report_comment", {'message': 'Comment reported'})
 
@@ -3054,15 +3051,9 @@ def retract_report_comment(request, post_identifier, comment_thread_identifier, 
 
     logger.info(f"Comment report retracted: comment_id: {comment_identifier} by user_id: {request.user.id}")
 
-    # If the retraction takes the report count back under the hiding threshold,
-    # un-hide the comment — but only when reports were what hid it. Content
-    # hidden by the classifier or with no recorded reason stays hidden.
-    if comment.hidden and comment.hidden_reason == HIDDEN_REASON_REPORTS \
-            and comment.commentreport_set.count() <= MAX_BEFORE_HIDING_COMMENT:
-        comment.hidden = False
-        comment.hidden_reason = HIDDEN_REASON_NONE
-        comment.save()
-        logger.info(f"Comment un-hidden after report retraction: comment_id: {comment_identifier}")
+    # As for posts, a retraction never un-hides anything (issue #467); it only
+    # clears an escalation nobody is still reporting.
+    moderation.withdraw_report(comment=comment)
 
     return log_and_return_json("retract_report_comment", {'message': 'Comment report retracted'})
 

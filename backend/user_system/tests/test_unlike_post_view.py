@@ -2,7 +2,6 @@ from django.urls import reverse
 
 from .test_constants import UserFields
 from .test_parent_case import PositiveOnlySocialTestCase
-from ..constants import MAX_BEFORE_HIDING_POST
 from ..models import Post
 
 # --- Constants ---
@@ -16,7 +15,7 @@ class UnlikePostTests(PositiveOnlySocialTestCase):
 
         # 1. Create User 0 (poster) and other users
         # The number of users is high but harmless, taken from original test
-        self.make_post_with_users(MAX_BEFORE_HIDING_POST + 2)
+        self.make_post_with_users(12)
 
         # 2. Get the "poster's" info (User 0)
         self.poster_token = self.session_management_token  # Set by parent helper

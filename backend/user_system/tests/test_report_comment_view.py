@@ -1,9 +1,15 @@
+import os
+from unittest.mock import patch
+
 from django.urls import reverse
 
 from .test_parent_case import PositiveOnlySocialTestCase
 from .test_constants import UserFields
-from ..constants import Fields, MAX_BEFORE_HIDING_COMMENT, HIDDEN_REASON_REPORTS
-from ..models import Comment
+from ..constants import Fields, REVIEW_STATUS_ESCALATED
+from ..models import Comment, ModerationReview
+
+# Reporters available in setUp, comfortably more than any escalation bar.
+NUM_USERS = 8
 
 # --- Constants ---
 invalid_session_management_token = '?'
@@ -19,9 +25,8 @@ class ReportCommentTests(PositiveOnlySocialTestCase):
     def setUp(self):
         super().setUp()
 
-        # 1. Create User 0 (poster/commenter) and Users 1..MAX+1 (reporters)
-        # Total users = MAX + 2
-        self.make_post_with_users(MAX_BEFORE_HIDING_COMMENT + 2)
+        # 1. Create User 0 (poster/commenter) and Users 1..NUM_USERS-1 (reporters)
+        self.make_post_with_users(NUM_USERS)
 
         # 2. User 0 (the poster) makes the comment
         self.commenter_token = self.session_management_token  # User 0's token
@@ -153,31 +158,21 @@ class ReportCommentTests(PositiveOnlySocialTestCase):
         self.assertEqual(self.comment.commentreport_set.count(), 1)
         self.assertFalse(self.comment.hidden)  # Should not be hidden after 1 report
 
-    def test_report_comment_more_than_max_returns_good_response_and_hides_comment(self):
-        """
-        Tests that the comment becomes hidden after MAX_BEFORE_HIDING_COMMENT reports.
-        """
-        # Loop through all users *except* the commenter (User 0)
-        # This will be MAX + 1 reports
-        for i in range(1, MAX_BEFORE_HIDING_COMMENT + 2):
-            token = self.users[UserFields.TOKEN][i]
-            header = {'HTTP_AUTHORIZATION': f'Bearer {token}'}
-
+    @patch.dict(os.environ, {"TESTING": "True"}, clear=True)
+    def test_no_number_of_reports_hides_a_comment(self):
+        """Issue #467: as for posts, reports are not a vote. However many users
+        report a comment whose content passes review, it stays visible and is
+        only escalated to a human moderator."""
+        for i in range(1, NUM_USERS):
+            header = {'HTTP_AUTHORIZATION': f'Bearer {self.users[UserFields.TOKEN][i]}'}
             response = self.client.post(
                 self.url, data=self.valid_data, content_type='application/json', **header
             )
-
             self.assertEqual(response.status_code, 200)
 
-            # Check its state after each report
-            self.comment.refresh_from_db()
-            if i > MAX_BEFORE_HIDING_COMMENT:
-                self.assertTrue(self.comment.hidden)
-            else:
-                self.assertFalse(self.comment.hidden)
-
-        # Final check after the loop
         self.comment.refresh_from_db()
-        self.assertTrue(self.comment.hidden)
-        self.assertEqual(self.comment.hidden_reason, HIDDEN_REASON_REPORTS)
-        self.assertEqual(self.comment.commentreport_set.count(), MAX_BEFORE_HIDING_COMMENT + 1)
+        self.assertFalse(self.comment.hidden)
+        self.assertEqual(self.comment.commentreport_set.count(), NUM_USERS - 1)
+
+        review = ModerationReview.objects.get(comment=self.comment)
+        self.assertEqual(review.status, REVIEW_STATUS_ESCALATED)

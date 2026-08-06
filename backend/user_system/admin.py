@@ -3,8 +3,10 @@ from django.contrib.auth.admin import UserAdmin
 from django.db.models import Prefetch
 from django.utils import timezone
 
+from . import moderation
 from .constants import BAN_TYPE_OUTRIGHT, BAN_TYPE_SHADOW, APPEAL_STATUS_PENDING
-from .models import Appeal, LoginCookie, PositiveOnlySocialUser, Session, UserBan, notify_user_of_outright_ban
+from .models import Appeal, LoginCookie, ModerationReview, PositiveOnlySocialUser, Session, UserBan, \
+    notify_user_of_outright_ban
 
 _SUPERUSER_ONLY_FIELDS = frozenset(("is_staff", "is_superuser", "groups", "user_permissions"))
 _ALWAYS_READONLY_FIELDS = ("verification_token", "verification_token_expires",
@@ -195,6 +197,100 @@ class AppealAdmin(admin.ModelAdmin):
         self._resolve(request, queryset, approve=False)
 
 
+class ModerationReviewAdmin(admin.ModelAdmin):
+    """The human end of user moderation (issue #467).
+
+    Reports hide nothing on their own, so this queue is where content that kept
+    drawing reports after the automated re-review cleared it actually gets
+    decided. Filter to "Escalated to a moderator" for the work queue; the other
+    statuses are the audit trail of what reports led to.
+    """
+
+    list_display = ("target_kind", "target_summary", "author", "status",
+                    "report_count", "created", "resolved_time", "resolved_by")
+    list_filter = ("status",)
+    search_fields = ("post__caption", "comment__body", "post__author__username",
+                     "comment__author__username")
+    # Reviews are written by the report pipeline and resolved via the actions
+    # below, so nothing here is hand-edited — admins act, they don't type.
+    readonly_fields = ("review_identifier", "post", "comment", "status", "author",
+                       "target_summary", "reported_reasons", "report_count",
+                       "reports_at_last_review", "review_attempts", "created",
+                       "updated", "reviewed_time", "resolved_time", "resolved_by",
+                       "resolution_note")
+    actions = ("hide_content", "dismiss_reports")
+
+    def get_queryset(self, request):
+        # target/author/report rendering walks to the post or comment and its
+        # author for every row, so fetch them in the changelist query.
+        return super().get_queryset(request).select_related(
+            'post', 'post__author', 'comment', 'comment__author', 'resolved_by')
+
+    @admin.display(description="Target")
+    def target_kind(self, review):
+        return review.target_kind
+
+    @admin.display(description="Content")
+    def target_summary(self, review):
+        """The reported text, truncated. Returned as a plain string so the admin
+        escapes it — never mark_safe on user-authored content."""
+        target = review.target
+        text = (target.caption if review.post_id else target.body) or ''
+        if review.post_id and target.image_url and not text:
+            return "(image only)"
+        return (text[:80] + '…') if len(text) > 80 else (text or '—')
+
+    @admin.display(description="Author")
+    def author(self, review):
+        return review.target.author
+
+    @admin.display(description="Reports")
+    def report_count(self, review):
+        return review.report_count()
+
+    @admin.display(description="Reported reasons")
+    def reported_reasons(self, review):
+        """What the reporters actually said. Shown to a human here and nowhere
+        else: this text is deliberately never fed to the automated review, so a
+        crafted report cannot steer a classifier verdict."""
+        reasons = [report.reason or '(no reason given)' for report in review.reports()]
+        return "\n".join(f"• {reason}" for reason in reasons) or '—'
+
+    def _resolve(self, request, queryset, hide):
+        if not request.user.has_perm('user_system.change_moderationreview'):
+            self.message_user(request, "You do not have permission to resolve reports.", messages.ERROR)
+            return
+
+        # An already-decided review is deliberately NOT skipped: the immunity a
+        # terminal status confers is against *reports* (record_report will not
+        # reopen it), not against moderators. A moderator correcting their own
+        # hide — or overruling a colleague — is a legitimate, fully audited
+        # operation (resolved_by/resolved_time/resolution_note record who
+        # decided what, when).
+        reviews = list(queryset)
+        reversed_count = sum(1 for review in reviews if review.is_terminal)
+        for review in reviews:
+            if hide:
+                moderation.hide_reviewed_content(review, moderator=request.user)
+            else:
+                moderation.dismiss_reports(review, moderator=request.user)
+
+        verb = "Hid the content of" if hide else "Dismissed the reports on"
+        message = f"{verb} {len(reviews)} review(s)."
+        if reversed_count:
+            message += f" {reversed_count} of those reversed an earlier decision."
+        self.message_user(request, message)
+
+    @admin.action(description="Hide the reported content")
+    def hide_content(self, request, queryset):
+        self._resolve(request, queryset, hide=True)
+
+    @admin.action(description="Dismiss the reports (content stays up, and is immune to further automated review)")
+    def dismiss_reports(self, request, queryset):
+        self._resolve(request, queryset, hide=False)
+
+
 admin.site.register(PositiveOnlySocialUser, PositiveOnlySocialUserAdmin)
 admin.site.register(UserBan, UserBanAdmin)
 admin.site.register(Appeal, AppealAdmin)
+admin.site.register(ModerationReview, ModerationReviewAdmin)

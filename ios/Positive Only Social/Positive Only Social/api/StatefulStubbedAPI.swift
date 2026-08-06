@@ -258,7 +258,11 @@ final class StatefulStubbedAPI: Networking {
 
     // MARK: - Configuration
     public var simulatedLatency: TimeInterval = 0.1
-    private let maxReportsBeforeHiding = 5
+    /// The stub's seam for content the creation-time classifier let through but
+    /// the report-triggered re-review rejects (issue #467). A report count hides
+    /// nothing at all, so this word in a caption or comment body is the only way
+    /// reporting changes what the stub returns.
+    private let reviewRejectedMarker = "reviewable"
     private let awsStubBucket = "https://stub-bucket.s3.us-east-2.amazonaws.com/"
     public var pageSize = 2 // Make this small for easier testing
     public private(set) var getPostsInFeedCallCount = 0
@@ -1061,9 +1065,12 @@ final class StatefulStubbedAPI: Networking {
         if posts[postIndex].reports.contains(where: { $0.username == reporter.username }) { throw APIError.badServerResponse(statusCode: 400) }
         
         posts[postIndex].reports.append((reporter.username, reason))
-        if posts[postIndex].reports.count > maxReportsBeforeHiding {
+        // Mirrors the backend's report-triggered re-review (issue #467): the
+        // report re-examines the CONTENT, and only a rejection hides it — the
+        // number of reports never enters into it.
+        if !posts[postIndex].isHidden && posts[postIndex].caption.contains(reviewRejectedMarker) {
             posts[postIndex].isHidden = true
-            posts[postIndex].hiddenReason = "reports"
+            posts[postIndex].hiddenReason = "classifier"
         }
         return try createEmptySuccessResponse()
     }
@@ -1074,13 +1081,9 @@ final class StatefulStubbedAPI: Networking {
         guard let postIndex = posts.firstIndex(where: { $0.postIdentifier == postIdentifier }) else { throw APIError.badServerResponse(statusCode: 400) }
         guard let reportIndex = posts[postIndex].reports.firstIndex(where: { $0.username == retractor.username }) else { throw APIError.badServerResponse(statusCode: 400) }
 
+        // Retracting never un-hides: hiding is a moderation decision, not a
+        // reversible group vote (issue #467).
         posts[postIndex].reports.remove(at: reportIndex)
-        // Un-hide only when reports were what hid it, mirroring the backend.
-        if posts[postIndex].isHidden && posts[postIndex].hiddenReason == "reports"
-            && posts[postIndex].reports.count <= maxReportsBeforeHiding {
-            posts[postIndex].isHidden = false
-            posts[postIndex].hiddenReason = ""
-        }
         return try createEmptySuccessResponse()
     }
 
@@ -1416,9 +1419,11 @@ final class StatefulStubbedAPI: Networking {
         if comments[commentIndex].reports.contains(where: { $0.username == reporter.username }) { throw APIError.badServerResponse(statusCode: 400) }
         
         comments[commentIndex].reports.append((reporter.username, reason))
-        if comments[commentIndex].reports.count > maxReportsBeforeHiding {
+        // As for posts, the report re-reviews the comment's own text and only a
+        // rejection hides it (issue #467).
+        if !comments[commentIndex].isHidden && comments[commentIndex].body.contains(reviewRejectedMarker) {
             comments[commentIndex].isHidden = true
-            comments[commentIndex].hiddenReason = "reports"
+            comments[commentIndex].hiddenReason = "classifier"
         }
         return try createEmptySuccessResponse()
     }
@@ -1430,12 +1435,6 @@ final class StatefulStubbedAPI: Networking {
         guard let reportIndex = comments[commentIndex].reports.firstIndex(where: { $0.username == retractor.username }) else { throw APIError.badServerResponse(statusCode: 400) }
 
         comments[commentIndex].reports.remove(at: reportIndex)
-        // Un-hide only when reports were what hid it, mirroring the backend.
-        if comments[commentIndex].isHidden && comments[commentIndex].hiddenReason == "reports"
-            && comments[commentIndex].reports.count <= maxReportsBeforeHiding {
-            comments[commentIndex].isHidden = false
-            comments[commentIndex].hiddenReason = ""
-        }
         return try createEmptySuccessResponse()
     }
 

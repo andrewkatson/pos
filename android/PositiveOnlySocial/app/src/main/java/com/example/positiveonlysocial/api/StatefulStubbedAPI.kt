@@ -54,7 +54,6 @@ class StatefulStubbedAPI : PositiveOnlySocialAPI {
     // Constants from backend
     private val POST_BATCH_SIZE = 10
     private val COMMENT_BATCH_SIZE = 10
-    private val MAX_BEFORE_HIDING_POST = 5
 
     // ============================================================================================
     // MOCK DATA MODELS (Mirroring Django Models)
@@ -768,9 +767,14 @@ class StatefulStubbedAPI : PositiveOnlySocialAPI {
         if (post.reports.contains(user.id)) return error(400, "Cannot report post twice")
 
         post.reports[user.id] = request.reason
-        if (post.reports.size > MAX_BEFORE_HIDING_POST) {
+        // Mirrors the backend's report-triggered re-review (issue #467): a report
+        // re-examines the CONTENT, and only a rejection hides it — the number of
+        // reports never enters into it. "reviewable" is the stub's seam for
+        // content the creation-time classifier let through but a re-review does
+        // not; anything else stays visible however many people report it.
+        if (!post.hidden && post.caption.contains("reviewable")) {
             post.hidden = true
-            post.hiddenReason = "reports"
+            post.hiddenReason = "classifier"
         }
         return Response.success(GenericResponse("Post reported", null))
     }
@@ -782,12 +786,9 @@ class StatefulStubbedAPI : PositiveOnlySocialAPI {
 
         if (!post.reports.contains(user.id)) return error(400, "Post not reported yet")
 
+        // Retracting never un-hides: hiding is a moderation decision, not a
+        // reversible group vote (issue #467).
         post.reports.remove(user.id)
-        // Un-hide only when reports were what hid it, mirroring the backend.
-        if (post.hidden && post.hiddenReason == "reports" && post.reports.size <= MAX_BEFORE_HIDING_POST) {
-            post.hidden = false
-            post.hiddenReason = ""
-        }
         return Response.success(GenericResponse("Post report retracted", null))
     }
 
@@ -1109,9 +1110,11 @@ class StatefulStubbedAPI : PositiveOnlySocialAPI {
         if (comment.reports.contains(user.id)) return error(400, "Cannot report comment twice")
 
         comment.reports[user.id] = request.reason
-        if (comment.reports.size > 5) { // Stub limit
+        // As for posts, the report re-reviews the comment's own text and only a
+        // rejection hides it (issue #467).
+        if (!comment.hidden && comment.body.contains("reviewable")) {
             comment.hidden = true
-            comment.hiddenReason = "reports"
+            comment.hiddenReason = "classifier"
         }
 
         return Response.success(GenericResponse("Comment reported", null))
@@ -1124,11 +1127,6 @@ class StatefulStubbedAPI : PositiveOnlySocialAPI {
         if (!comment.reports.contains(user.id)) return error(400, "Comment not reported yet")
 
         comment.reports.remove(user.id)
-        // Un-hide only when reports were what hid it, mirroring the backend.
-        if (comment.hidden && comment.hiddenReason == "reports" && comment.reports.size <= 5) { // Stub limit
-            comment.hidden = false
-            comment.hiddenReason = ""
-        }
         return Response.success(GenericResponse("Comment report retracted", null))
     }
 

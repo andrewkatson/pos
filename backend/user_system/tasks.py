@@ -27,6 +27,7 @@ from django.utils import timezone
 from .blurhash_utils import compute_blurhash_for_image_url
 from .classifiers import image_classifier, text_classifier, interest_classifier
 from .classifiers.classifier_utils import ClassificationResult
+from .classifiers.prefilter import prefilter_text
 from .constants import (
     CLASSIFICATION_MAX_ATTEMPTS,
     HIDDEN_REASON_NONE, HIDDEN_REASON_CLASSIFIER,
@@ -34,8 +35,10 @@ from .constants import (
     PROFILE_IMAGE_STATUS_PENDING, PROFILE_IMAGE_STATUS_APPROVED,
     PROFILE_IMAGE_STATUS_REJECTED,
     MAX_INTEREST_TAGS_PER_POST, NON_CATEGORIZABLE_HIDDEN_REASONS,
+    REVIEW_STATUS_PENDING, REVIEW_STATUS_CLEARED, REVIEW_STATUS_ESCALATED,
+    REVIEW_STATUS_HIDDEN,
 )
-from .models import Post, PositiveOnlySocialUser, InterestCategory
+from .models import Post, PositiveOnlySocialUser, InterestCategory, ModerationReview
 from . import push
 from .s3 import delete_image
 
@@ -63,6 +66,11 @@ CLASSIFY_PROFILE_PHOTO_JOB_PATH = 'user_system.tasks.classify_profile_photo'
 # of an already-approved post, so — unlike classification — it carries no retry
 # budget: a miss is harmless and the `categorize_posts` command re-runs it.
 POST_CATEGORIZE_JOB_PATH = 'user_system.tasks.categorize_post'
+# Report-triggered re-review of already-published content (issue #467). Carries
+# the same retry budget as classification: a provider outage must not decide
+# anything, so the job retries and the review escalates to a human if the
+# budget runs out.
+REPORT_REVIEW_JOB_PATH = 'user_system.tasks.review_reported_content'
 RETRY_INTERVALS_SECONDS = [60, 300, 900]
 
 # RQ kills jobs that exceed this. Worst case is two sequential cascades of
@@ -410,6 +418,208 @@ def classify_post(post_identifier):
         # the backstop for a missed delete (the row no longer references the
         # key, so the sweeper reclaims it after its grace window).
         delete_image(image_url_to_delete)
+
+
+def _notify_author_of_review_hide(post, text_result, image_result):
+    """Email the author that a reported post was hidden by the automated re-review.
+
+    Deliberately says nothing about who reported it or how many did: reports
+    trigger a look at the content, they never decide the outcome, and telling
+    authors otherwise would advertise mass-reporting as a weapon. Best-effort
+    like every other moderation email — a mail failure is logged and swallowed.
+    """
+    if not post.author.email:
+        return
+    what = ' and '.join(_blocked_parts(text_result, image_result))
+    body = (
+        "A post of yours was re-checked against our content guidelines and did "
+        f"not pass because {what}. The post is hidden for now, but you can "
+        f"appeal the decision from the app or at {settings.FRONTEND_BASE_URL}."
+    )
+    try:
+        send_mail(
+            "Your post was hidden after a review",
+            body,
+            settings.EMAIL_HOST_USER,
+            [post.author.email],
+        )
+    except Exception:
+        logger.exception("Failed to send review-hide email for post %s", post.post_identifier)
+
+
+def enqueue_report_review(review_identifier):
+    """Schedule the automated re-review of freshly reported content (issue #467).
+
+    Mirrors enqueue_classification: inline in eager mode (dev/tests), otherwise
+    queued on_commit so the worker cannot fetch the job before the review row is
+    visible to it. An eager failure is swallowed — the review simply stays
+    pending, and nothing about the content changes until a verdict exists.
+    """
+    review_identifier = str(review_identifier)
+    if settings.CLASSIFICATION_EAGER:
+        try:
+            review_reported_content(review_identifier)
+        except Exception:
+            logger.exception("Eager report review failed for review %s; it stays pending.", review_identifier)
+        return
+
+    def _enqueue():
+        from rq import Retry
+        try:
+            _queue().enqueue(
+                REPORT_REVIEW_JOB_PATH,
+                review_identifier,
+                retry=Retry(max=len(RETRY_INTERVALS_SECONDS), interval=RETRY_INTERVALS_SECONDS),
+                job_timeout=JOB_TIMEOUT_SECONDS,
+            )
+        except Exception:
+            logger.exception("Failed to enqueue report review %s; it stays pending for a moderator.",
+                             review_identifier)
+
+    transaction.on_commit(_enqueue)
+
+
+def _review_content_results(target, is_post):
+    """Run the moderation cascades over reported content and return
+    (text_result, image_result).
+
+    The content and nothing else is classified: the report count, the reporters'
+    identities and the reasons they typed are never passed to a model. That is
+    what makes the verdict unspammable — and it also keeps reporter-authored
+    text out of a prompt, so a report cannot be written to steer the answer.
+    """
+    text = (target.caption if is_post else target.body) or ''
+    image_url = target.image_url if is_post else None
+
+    if text:
+        # The zero-cost local list check first, exactly as make_post runs it —
+        # the word lists grow over time, so content published before an addition
+        # is caught here without spending a provider call.
+        prefiltered = prefilter_text(text)
+        if not prefiltered:
+            return prefiltered, ClassificationResult(allowed=True)
+
+    text_future = (_CLASSIFICATION_EXECUTOR.submit(text_classifier_class.is_text_positive, text)
+                   if text else None)
+    image_future = (_CLASSIFICATION_EXECUTOR.submit(image_classifier_class.is_image_positive, image_url)
+                    if image_url else None)
+    text_result = text_future.result() if text_future else ClassificationResult(allowed=True)
+    image_result = image_future.result() if image_future else ClassificationResult(allowed=True)
+    return text_result, image_result
+
+
+def review_reported_content(review_identifier):
+    """RQ job: re-examine one reported post or comment and record the outcome.
+
+    Transitions out of `pending` (one-way): `hidden` when the cascades reject the
+    content, or `cleared` when they do not — and `escalated` when no verdict can
+    be reached, so an outage sends the case to a human instead of hiding
+    anything. A rejection here is always recorded as an APPEALABLE classifier
+    hide, even when the cascade's verdict was a final one: this content was
+    already published under an earlier verdict, so its author gets a route back.
+
+    Only acts on a review still in `pending` and claims the row before
+    transitioning, so a redelivered or duplicate job is a no-op (the same
+    idempotency story as classify_post). Provider failures raise so RQ retries
+    with backoff; the content stays visible meanwhile — reports must never fail
+    closed, or an outage would hand reporters the takedown power this whole
+    design removes.
+    """
+    review = ModerationReview.objects.filter(review_identifier=review_identifier).first()
+    if review is None:
+        logger.info("review_reported_content: review %s no longer exists; nothing to do.", review_identifier)
+        return
+    if review.status != REVIEW_STATUS_PENDING:
+        logger.info("review_reported_content: review %s already resolved (%s); nothing to do.",
+                    review_identifier, review.status)
+        return
+
+    target = review.target
+    is_post = review.post_id is not None
+    if target.hidden:
+        # Already hidden (classifier, or a moderator) — there is nothing for the
+        # re-review to decide, and its reason must not be overwritten.
+        ModerationReview.objects.filter(pk=review.pk, status=REVIEW_STATUS_PENDING).update(
+            status=REVIEW_STATUS_HIDDEN, reviewed_time=timezone.now(), updated=timezone.now(),
+            resolution_note=f"Already hidden ({target.hidden_reason or 'unspecified'}) when the review ran")
+        logger.info("review_reported_content: review %s targets already-hidden content; closing it.",
+                    review_identifier)
+        return
+
+    if review.review_attempts >= CLASSIFICATION_MAX_ATTEMPTS:
+        # The retry budget is spent and no verdict was reached. Escalate rather
+        # than retry or hide: a human decides what an unreachable provider could
+        # not. Returning successfully stops RQ retrying.
+        ModerationReview.objects.filter(pk=review.pk, status=REVIEW_STATUS_PENDING).update(
+            status=REVIEW_STATUS_ESCALATED, updated=timezone.now(),
+            resolution_note="Automated review could not reach a verdict; escalated for a moderator")
+        logger.error("review_reported_content: review %s exhausted its %d attempts; escalating to a moderator.",
+                     review_identifier, review.review_attempts)
+        return
+
+    # Count the attempt before the fallible external work, in one atomic UPDATE
+    # with the still-pending check, so a duplicate delivery that lost the race
+    # neither burns retry budget nor runs the (billable) cascades.
+    still_pending = ModerationReview.objects.filter(
+        pk=review.pk, status=REVIEW_STATUS_PENDING,
+    ).update(review_attempts=F('review_attempts') + 1, updated=timezone.now())
+    if not still_pending:
+        logger.info("review_reported_content: review %s was resolved concurrently; nothing to do.", review_identifier)
+        return
+
+    # The cascades run outside any transaction/lock: they can take minutes.
+    text_result, image_result = _review_content_results(target, is_post)
+
+    if text_result.provider_failure or image_result.provider_failure:
+        # Not a verdict on the content: leave the content visible and let RQ
+        # retry with backoff.
+        raise ClassificationProviderError(
+            f"Providers unavailable while reviewing reported content for review {review_identifier} "
+            f"(text failure={text_result.provider_failure}, image failure={image_result.provider_failure})")
+
+    allowed = bool(text_result) and bool(image_result)
+    reason_result = text_result if not text_result else image_result
+    now = timezone.now()
+
+    with transaction.atomic():
+        # Re-claim the row under lock so a concurrent duplicate delivery cannot
+        # apply the transition (and its side effects) twice.
+        claimed = ModerationReview.objects.select_for_update().filter(
+            pk=review.pk, status=REVIEW_STATUS_PENDING).first()
+        if claimed is None:
+            logger.info("review_reported_content: review %s was resolved concurrently; nothing to do.",
+                        review_identifier)
+            return
+        target = claimed.target
+        if allowed:
+            claimed.status = REVIEW_STATUS_CLEARED
+            # Reports counted from here decide whether a human takes a look, so
+            # the ones this review already accounted for cannot escalate it too.
+            claimed.reports_at_last_review = claimed.report_count()
+        else:
+            claimed.status = REVIEW_STATUS_HIDDEN
+            target.hidden = True
+            target.hidden_reason = HIDDEN_REASON_CLASSIFIER
+            if is_post:
+                target.classification_reason_code = reason_result.public_reason_code()
+                target.save(update_fields=['hidden', 'hidden_reason', 'classification_reason_code'])
+            else:
+                target.save(update_fields=['hidden', 'hidden_reason'])
+        claimed.reviewed_time = now
+        claimed.save(update_fields=['status', 'reports_at_last_review', 'reviewed_time', 'updated'])
+
+    # Side effects only after the one-time transition has committed.
+    if allowed:
+        logger.info("review_reported_content: review %s cleared; the %s stays visible.",
+                    review_identifier, claimed.target_kind)
+        return
+    logger.info("review_reported_content: review %s hid the %s (reason=%s).",
+                review_identifier, claimed.target_kind, reason_result.public_reason_code())
+    if is_post:
+        # Comments are hidden silently, as they always have been; only posts
+        # carry an author-facing moderation lifecycle (email + push + appeal).
+        _notify_author_of_review_hide(target, text_result, image_result)
+        _push_author_of_rejection(target, final=False)
 
 
 def enqueue_profile_photo_classification(user_id):

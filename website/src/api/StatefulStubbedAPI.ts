@@ -77,12 +77,10 @@ import type {
 
 // Stub-specific tuning values, matching the iOS/Android StatefulStubbedAPI
 // stubs. These intentionally differ from backend/user_system/constants.py
-// (which uses larger batches and report thresholds); the stub favors small,
-// test-friendly numbers and is not the source of truth for the real backend.
+// (which uses larger batches); the stub favors small, test-friendly numbers and
+// is not the source of truth for the real backend.
 const POST_BATCH_SIZE = 10
 const COMMENT_BATCH_SIZE = 10
-const MAX_BEFORE_HIDING_POST = 5
-const MAX_BEFORE_HIDING_COMMENT = 5
 
 // The stub has no clock-based TOTP; this fixed code is the one the stub
 // accepts, mirroring the fixed codes in the iOS/Android stubs.
@@ -766,9 +764,18 @@ export class StatefulStubbedAPI implements PositiveOnlySocialAPI {
   }
 
   /** Stubbed async classifier (#282): a caption containing 'borderline'
-   * becomes an appealable rejection; everything else is approved. */
+   * becomes an appealable rejection; everything else is approved.
+   *
+   * A caption containing 'moderated' stands in for content a human moderator
+   * hid after reviewing user reports (issue #467). Since report counts hide
+   * nothing, that decision — which no client-side action can reproduce — is the
+   * only way content reaches hidden_reason 'reports', so the stub needs a seam
+   * for it. */
   private classifyPost(post: PostMock): void {
-    if (post.caption.includes('borderline')) {
+    if (post.caption.includes('moderated')) {
+      post.hidden = true
+      post.hiddenReason = 'reports'
+    } else if (post.caption.includes('borderline')) {
       post.hidden = true
       post.hiddenReason = 'classifier'
       post.reasonCode = 'guidelines'
@@ -776,6 +783,22 @@ export class StatefulStubbedAPI implements PositiveOnlySocialAPI {
       post.hidden = false
       post.hiddenReason = ''
     }
+  }
+
+  /** The report-triggered re-review (issue #467), stubbed.
+   *
+   * A report is not a vote: it re-examines the CONTENT, and only a rejection
+   * hides anything — the number of reports never enters into it. The stub's
+   * seam for content the creation-time classifier let through but a re-review
+   * rejects is the word 'reviewable'; anything else stays visible however many
+   * people report it. */
+  private reviewReportedContent(
+    content: { hidden: boolean; hiddenReason: string },
+    text: string,
+  ): void {
+    if (content.hidden || !text.includes('reviewable')) return
+    content.hidden = true
+    content.hiddenReason = 'classifier'
   }
 
   /** Author-facing classification status, mirroring Post.classification_status. */
@@ -839,10 +862,7 @@ export class StatefulStubbedAPI implements PositiveOnlySocialAPI {
       throw new ApiError(400, 'Cannot report post twice')
     }
     post.reports.set(user.id, reason)
-    if (post.reports.size > MAX_BEFORE_HIDING_POST) {
-      post.hidden = true
-      post.hiddenReason = 'reports'
-    }
+    this.reviewReportedContent(post, post.caption)
     return { message: 'Post reported' }
   }
 
@@ -852,16 +872,9 @@ export class StatefulStubbedAPI implements PositiveOnlySocialAPI {
     if (!post.reports.has(user.id)) {
       throw new ApiError(400, 'Post not reported yet')
     }
+    // Retracting never un-hides either: hiding is a moderation decision, not a
+    // reversible group vote (issue #467).
     post.reports.delete(user.id)
-    // Un-hide only when reports were what hid it, mirroring the backend.
-    if (
-      post.hidden &&
-      post.hiddenReason === 'reports' &&
-      post.reports.size <= MAX_BEFORE_HIDING_POST
-    ) {
-      post.hidden = false
-      post.hiddenReason = ''
-    }
     return { message: 'Post report retracted' }
   }
 
@@ -1323,10 +1336,7 @@ export class StatefulStubbedAPI implements PositiveOnlySocialAPI {
       throw new ApiError(400, 'Cannot report comment twice')
     }
     comment.reports.set(user.id, reason)
-    if (comment.reports.size > MAX_BEFORE_HIDING_COMMENT) {
-      comment.hidden = true
-      comment.hiddenReason = 'reports'
-    }
+    this.reviewReportedContent(comment, comment.body)
     return { message: 'Comment reported' }
   }
 
@@ -1341,15 +1351,6 @@ export class StatefulStubbedAPI implements PositiveOnlySocialAPI {
       throw new ApiError(400, 'Comment not reported yet')
     }
     comment.reports.delete(user.id)
-    // Un-hide only when reports were what hid it, mirroring the backend.
-    if (
-      comment.hidden &&
-      comment.hiddenReason === 'reports' &&
-      comment.reports.size <= MAX_BEFORE_HIDING_COMMENT
-    ) {
-      comment.hidden = false
-      comment.hiddenReason = ''
-    }
     return { message: 'Comment report retracted' }
   }
 
