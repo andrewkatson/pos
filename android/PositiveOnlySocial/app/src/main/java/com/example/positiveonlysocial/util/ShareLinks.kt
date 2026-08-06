@@ -78,8 +78,9 @@ object ShareLinks {
         val uri = try {
             URI(url)
         } catch (e: Exception) {
-            // A malformed URL is simply not one of ours.
-            Log.w("ShareLinks", "Ignoring unparseable link", e)
+            // A malformed URL is simply not one of ours. Returning null is the
+            // whole signal — no logging, so this stays free of the Android
+            // framework and its unit tests don't lean on the JVM stubs.
             return null
         }
 
