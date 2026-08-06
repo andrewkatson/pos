@@ -93,6 +93,19 @@ test('hides the button while a sign-in is already in flight', async () => {
   // Google's button is an iframe that can't carry a `disabled` attribute, so a
   // second click is prevented by hiding it outright.
   expect(screen.getByTestId('google-sign-in-button')).toHaveAttribute('hidden')
+  // ...and the divider goes with it, rather than being left over the gap where
+  // the button used to be.
+  expect(screen.queryByText('or')).not.toBeInTheDocument()
+})
+
+test('the divider appears once there is a button under it', async () => {
+  const { google, google_ } = fakeGoogle()
+  loadGoogleIdentityServices.mockResolvedValue(google)
+
+  render(<GoogleSignInButton onCredential={vi.fn()} />)
+
+  await waitFor(() => expect(google_.id.renderButton).toHaveBeenCalled())
+  expect(screen.getByText('or')).toBeInTheDocument()
 })
 
 test('reports a failure to reach Google instead of showing a dead button', async () => {

@@ -96,7 +96,11 @@ function GoogleSignInButton({
 
   return (
     <div className="auth-google">
-      {isReady && (
+      {/* The divider only earns its place when there is a button under it to
+          separate. Gated on `disabled` as well as `isReady` because the button
+          is hidden while a request is in flight, and an "or" with nothing
+          beneath it just looks broken. */}
+      {isReady && !disabled && (
         <div className="auth-divider">
           <span>or</span>
         </div>

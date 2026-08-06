@@ -519,10 +519,16 @@ export class StatefulStubbedAPI implements PositiveOnlySocialAPI {
       // Usernames must be at least 10 word characters, so a short local part is
       // padded — matching _google_username_base in backend/user_system/views.py.
       const base = email.split('@')[0].replace(/\W/g, '') || 'friend'
+      // Suffix length follows _google_username_candidate: enough digits to
+      // reach the ten-character minimum, and never fewer than four, so the
+      // offline names look like the ones production would hand out. (The
+      // backend draws its digits at random; the stub counts, so its output
+      // stays predictable for tests.)
+      const suffixLength = Math.max(10 - base.length, 4)
       let username = base.length >= 10 ? base : base.padEnd(10, '0')
       let suffix = 1
       while (this.users.some((u) => u.username === username)) {
-        username = `${base}${String(suffix).padStart(Math.max(10 - base.length, 1), '0')}`
+        username = `${base}${String(suffix).padStart(suffixLength, '0')}`
         suffix += 1
       }
 

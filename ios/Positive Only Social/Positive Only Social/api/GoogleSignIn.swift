@@ -267,6 +267,11 @@ final class GoogleSignInProvider: NSObject, GoogleSignInProviding, ASWebAuthenti
     private let clientID: String
     private let urlSession: URLSession
 
+    /// The in-flight consent sheet. ASWebAuthenticationSession is cancelled if
+    /// it is deallocated, so something has to hold it until the callback fires;
+    /// see presentAuthorization.
+    private var authSession: ASWebAuthenticationSession?
+
     init(clientID: String = GoogleSignInConfig.clientID, urlSession: URLSession = .shared) {
         self.clientID = clientID
         self.urlSession = urlSession
@@ -307,7 +312,11 @@ final class GoogleSignInProvider: NSObject, GoogleSignInProviding, ASWebAuthenti
             let session = ASWebAuthenticationSession(
                 url: request.url,
                 callbackURLScheme: request.callbackScheme
-            ) { callbackURL, error in
+            ) { [weak self] callbackURL, error in
+                // Let go of the session now the sheet is done with; holding it
+                // past the callback would keep a dead one alive until the next
+                // sign-in replaced it.
+                self?.authSession = nil
                 if let callbackURL {
                     continuation.resume(returning: callbackURL)
                     return
@@ -320,7 +329,22 @@ final class GoogleSignInProvider: NSObject, GoogleSignInProviding, ASWebAuthenti
             // user straight back into the Google account they just switched away
             // from, with no chance to pick another.
             session.prefersEphemeralWebBrowserSession = true
-            session.start()
+
+            // Held on the provider for the lifetime of the sheet. A local would
+            // be the only strong reference and would go out of scope the moment
+            // this closure returns, so ARC could deallocate the session — which
+            // cancels it, meaning the completion handler never runs and this
+            // continuation is never resumed. The sign-in would hang forever
+            // rather than fail.
+            authSession = session
+
+            // start() returns false when the session could not be presented at
+            // all (no anchor, for instance). The completion handler does not run
+            // in that case, so resume here or the same hang applies.
+            if !session.start() {
+                authSession = nil
+                continuation.resume(throwing: GoogleSignInError.invalidConfiguration)
+            }
         }
     }
 
