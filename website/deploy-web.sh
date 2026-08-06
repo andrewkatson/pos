@@ -22,6 +22,10 @@
 #      *viewer request*, so crawlers fetching /post/<id> are redirected to the
 #      backend's Open Graph document instead of the empty SPA shell.
 #
+# Mobile deep linking (issue #382) needs the /.well-known/ files this script
+# publishes explicitly (see below). The Android one needs the release signing
+# fingerprint in ANDROID_SHA256_CERT_FINGERPRINTS.
+#
 # Run from a machine with the AWS CLI + Node installed and credentials that can
 # write the bucket and create invalidations (s3:PutObject/DeleteObject/ListBucket
 # on the bucket, cloudfront:CreateInvalidation on the distribution). Works in CI
@@ -100,8 +104,56 @@ aws s3 sync dist/assets/ "s3://$BUCKET/assets/" --delete \
     --cache-control "public,max-age=31536000,immutable"
 
 print_status "Syncing the rest to s3://$BUCKET/ (no-cache)..."
-aws s3 sync dist/ "s3://$BUCKET/" --delete --exclude "assets/*" \
+# .well-known/ is excluded here and uploaded below instead. Two reasons: those
+# files need an explicit application/json content type (the AASA has no
+# extension, so sync would guess binary/octet-stream and iOS would reject it),
+# and --delete would otherwise remove a previously published assetlinks.json on
+# any deploy that runs without the Android signing fingerprint configured.
+aws s3 sync dist/ "s3://$BUCKET/" --delete --exclude "assets/*" --exclude ".well-known/*" \
     --cache-control "no-cache"
+
+# ---------------------------------------------------------------------------
+# Mobile deep linking (issue #382)
+# ---------------------------------------------------------------------------
+# iOS Universal Links and Android App Links are both claimed by a file under
+# /.well-known/, fetched by the OS at install time. Both must be served as
+# application/json, over https, with no redirect.
+print_status "Publishing /.well-known/apple-app-site-association ..."
+aws s3 cp dist/.well-known/apple-app-site-association \
+    "s3://$BUCKET/.well-known/apple-app-site-association" \
+    --content-type "application/json" --cache-control "public,max-age=3600"
+
+# assetlinks.json needs the release signing certificate's SHA-256 fingerprint,
+# which is not in the repo (Play App Signing holds it — read it from Play
+# Console > Setup > App integrity). Export it to enable Android App Links:
+#
+#   ANDROID_SHA256_CERT_FINGERPRINTS="AB:CD:...:EF" ./deploy-web.sh
+#
+# Comma-separate several to serve more than one signing key (e.g. while
+# migrating, or to also accept a local debug key). When unset the file is left
+# alone rather than published half-configured: a wrong fingerprint fails
+# verification silently and links quietly stop opening the app.
+if [ -n "${ANDROID_SHA256_CERT_FINGERPRINTS:-}" ]; then
+    print_status "Publishing /.well-known/assetlinks.json ..."
+    FINGERPRINT_JSON="$(printf '%s' "$ANDROID_SHA256_CERT_FINGERPRINTS" \
+        | awk -F, '{for (i=1;i<=NF;i++){gsub(/^[ \t]+|[ \t]+$/,"",$i); printf "%s\"%s\"", (i>1?", ":""), $i}}')"
+    cat > dist/.well-known/assetlinks.json <<EOF
+[
+  {
+    "relation": ["delegate_permission/common.handle_all_urls"],
+    "target": {
+      "namespace": "android_app",
+      "package_name": "${ANDROID_PACKAGE_NAME:-io.github.andrewkatson.positiveonlysocial}",
+      "sha256_cert_fingerprints": [$FINGERPRINT_JSON]
+    }
+  }
+]
+EOF
+    aws s3 cp dist/.well-known/assetlinks.json "s3://$BUCKET/.well-known/assetlinks.json" \
+        --content-type "application/json" --cache-control "public,max-age=3600"
+else
+    print_warning "ANDROID_SHA256_CERT_FINGERPRINTS is unset; leaving /.well-known/assetlinks.json untouched. Android App Links will not verify until it is published."
+fi
 
 # A shared /post/<id> link is a client-side route with nothing behind it in S3,
 # so CloudFront must rewrite the resulting 403/404 to /index.html with a 200 or

@@ -255,10 +255,39 @@ mapping 403/404 to `/index.html` with a 200, so a cold load of a client-side
 `/post/<id>` route resolves at all; and the published function association
 itself.
 
-### Still to come
+### Opening the app instead of the browser (issue #382)
 
-On mobile a shared link opens the browser rather than the app. iOS Universal
-Links and Android App Links are a tracked follow-up (issue #382).
+On a phone with the app installed, a shared link opens the **app**, not the
+browser: iOS via Universal Links (`applinks:smiling.social` in the app's
+entitlements) and Android via App Links (an `autoVerify` intent-filter for
+`https://smiling.social/post/*`). Both are claimed by a file the OS fetches from
+the website at install time, published by `website/deploy-web.sh`:
+
+- `/.well-known/apple-app-site-association` — checked into
+  `website/public/.well-known/` and scoped to `/post/*`;
+- `/.well-known/assetlinks.json` — generated at deploy time, because it needs
+  the release signing certificate's SHA-256 fingerprint, which lives in Play
+  Console rather than the repo. Export `ANDROID_SHA256_CERT_FINGERPRINTS` to
+  publish it; without it the deploy leaves the file alone and Android App Links
+  simply do not verify (links keep opening the browser, which still works
+  because the web page is public).
+
+Only `/post/*` is claimed. Every other route — login, profiles, the privacy
+policy — belongs to the website, and claiming them would hijack links the app
+has no screen for.
+
+Each client parses the URL itself rather than letting the navigation framework
+resolve it (`ShareURL.parse` on iOS, `ShareLinks.parseSharedPostLink` on
+Android), because the post detail is an **authenticated** screen. The parsed
+post id goes onto the same small router a tapped push notification uses, which
+holds the request until a session exists — so a link opened while signed out
+waits for login instead of dropping the user on a screen with no session behind
+it. Both parsers are strict about scheme, host and path shape: a `VIEW` intent
+or an `.onOpenURL` callback can carry any URL, and one that merely looks similar
+must not navigate anywhere. A `#comment-<id>` fragment is parsed and the post
+still opens; scrolling to the specific comment is web-only today.
+
+If the app is not installed, the link opens the public web page as before.
 
 ## Text formatting (issue #318)
 
