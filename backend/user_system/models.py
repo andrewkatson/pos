@@ -16,6 +16,8 @@ from .constants import (
     POST_STATUS_REJECTED_FINAL,
     APPEAL_STATUS_PENDING, APPEAL_STATUS_APPROVED, APPEAL_STATUS_DENIED,
     APPEAL_TARGET_POST, APPEAL_TARGET_COMMENT, APPEAL_TARGET_BAN,
+    REVIEW_STATUS_PENDING, REVIEW_STATUS_CLEARED, REVIEW_STATUS_ESCALATED,
+    REVIEW_STATUS_HIDDEN, REVIEW_STATUS_DISMISSED, TERMINAL_REVIEW_STATUSES,
     FOLLOW_CATEGORY_CHOICES, FOLLOW_CATEGORY_FOLLOWING,
     POST_AUDIENCE_CHOICES, POST_AUDIENCE_PUBLIC,
     MAX_TAG_LENGTH,
@@ -488,6 +490,21 @@ class Post(models.Model):
         return self.hidden and self.hidden_reason not in NON_APPEALABLE_HIDDEN_REASONS
 
 
+class ReportQuerySet(models.QuerySet):
+    def active(self):
+        """Reports still standing against the content.
+
+        Retracting a report does not delete its row — it stamps retracted_time
+        (issue #467). The row lives on as a record that the account *filed* a
+        report, which is what the daily budget counts, so report-then-retract
+        cycling cannot refund budget and turn the cap into a formality. Every
+        question about the content itself ("is this reported?", "how many
+        reports?", "what did the reporters say?") asks this manager instead, so
+        a withdrawn report counts for nothing where it should not.
+        """
+        return self.filter(retracted_time__isnull=True)
+
+
 # A report on a post
 class PostReport(models.Model):
     user = models.ForeignKey(settings.AUTH_USER_MODEL,
@@ -496,6 +513,11 @@ class PostReport(models.Model):
     creation_time = models.DateTimeField(auto_now_add=True, null=True,
                                          blank=True)
     reason = models.TextField(null=True)
+    # Null while the report stands; set when its author withdraws it. See
+    # ReportQuerySet.active for why the row is kept rather than deleted.
+    retracted_time = models.DateTimeField(null=True, blank=True, default=None)
+
+    objects = ReportQuerySet.as_manager()
 
 
 # A like on a post
@@ -630,6 +652,10 @@ class CommentReport(models.Model):
     creation_time = models.DateTimeField(auto_now_add=True, null=True,
                                          blank=True)
     reason = models.TextField(null=True)
+    # As on PostReport: retraction stamps this rather than deleting the row.
+    retracted_time = models.DateTimeField(null=True, blank=True, default=None)
+
+    objects = ReportQuerySet.as_manager()
 
 
 # A like on a comment
@@ -779,6 +805,18 @@ class Appeal(models.Model):
                 # Expire rather than delete so the ban audit trail is kept.
                 self.ban.expires = timezone.now()
                 self.ban.save(update_fields=['expires'])
+            if self.post_id or self.comment_id:
+                # A human has now ruled that this content belongs on the site, so
+                # settle any report review of it (issue #467). Without this the
+                # review would keep its stale pre-appeal status, and — worse —
+                # content restored on appeal would be immune to nothing but
+                # re-reporting: dismissed is the status that makes it immune.
+                ModerationReview.objects.filter(
+                    post=self.post, comment=self.comment,
+                ).exclude(status=REVIEW_STATUS_DISMISSED).update(
+                    status=REVIEW_STATUS_DISMISSED, resolved_time=timezone.now(),
+                    resolved_by=resolved_by, updated=timezone.now(),
+                    resolution_note='Reports dismissed: the appeal against this content was approved')
             self._mark_resolved(APPEAL_STATUS_APPROVED, resolved_by, note)
         # Outside the transaction: never hold the row lock during SMTP, and do
         # not email if the transaction rolled back.
@@ -810,3 +848,138 @@ class Appeal(models.Model):
         # post), so fall back to a clear placeholder and always show the id.
         target = self.target if self.target is not None else "removed target"
         return f"{self.status} appeal {self.appeal_identifier} by {self.appellant} on {target}"
+
+
+class ModerationReviewManager(models.Manager):
+    def open(self):
+        """Reviews still moving through the pipeline (nothing decided yet)."""
+        return self.exclude(status__in=TERMINAL_REVIEW_STATUSES)
+
+    def escalated(self):
+        """Reviews waiting on a human moderator — the admin work queue."""
+        return self.filter(status=REVIEW_STATUS_ESCALATED)
+
+
+# What user reports on one post or comment add up to (issue #467).
+#
+# Reports do not hide content. Crossing a report count used to hide a post or
+# comment outright, which let any coordinated group take down anything and let a
+# single user be spammed into invisibility. Instead the first report opens one
+# of these rows and the *content* is re-examined: an automated re-review runs
+# the classifier cascade over the content alone (never over the report count or
+# the reporters' words, so reporters cannot influence the verdict), and content
+# it clears escalates to a human moderator once more reports arrive. Only those
+# two decisions — a classifier rejection or a moderator — ever hide anything.
+#
+# There is exactly one row per post/comment, reused for that content's whole
+# review lifetime, so the row *is* the current state: see the REVIEW_STATUS_*
+# constants. A terminal status (hidden/dismissed) is never reopened by further
+# reports, which is what makes piling on pointless.
+class ModerationReview(models.Model):
+    REVIEW_STATUS_CHOICES = [
+        (REVIEW_STATUS_PENDING, 'Pending automated review'),
+        (REVIEW_STATUS_CLEARED, 'Cleared by automated review'),
+        (REVIEW_STATUS_ESCALATED, 'Escalated to a moderator'),
+        (REVIEW_STATUS_HIDDEN, 'Content hidden'),
+        (REVIEW_STATUS_DISMISSED, 'Reports dismissed'),
+    ]
+
+    review_identifier = models.UUIDField(default=uuid.uuid4, primary_key=True, unique=True, editable=False)
+
+    # Exactly one target is set. CASCADE (not SET_NULL as on Appeal): a review is
+    # only ever about live content, so when the post or comment goes away there
+    # is nothing left to review and the row goes with it.
+    post = models.ForeignKey(Post, related_name='reviews', null=True, blank=True, on_delete=models.CASCADE)
+    comment = models.ForeignKey(Comment, related_name='reviews', null=True, blank=True, on_delete=models.CASCADE)
+
+    status = models.TextField(choices=REVIEW_STATUS_CHOICES, default=REVIEW_STATUS_PENDING)
+
+    # Live report count as of the last automated re-review, so "reports since we
+    # last looked at this" — the escalation trigger — is a subtraction rather
+    # than a second timestamped query. Reports that arrived before a verdict
+    # cannot push the same content over the escalation bar twice.
+    reports_at_last_review = models.IntegerField(default=0)
+    # Worker runs, so a re-review that keeps failing on an unreachable provider
+    # escalates to a human instead of retrying forever (and never hides).
+    review_attempts = models.IntegerField(default=0)
+
+    created = models.DateTimeField(auto_now_add=True)
+    updated = models.DateTimeField(auto_now=True)
+    reviewed_time = models.DateTimeField(null=True, blank=True, default=None)
+
+    resolved_time = models.DateTimeField(null=True, blank=True, default=None)
+    resolved_by = models.ForeignKey(settings.AUTH_USER_MODEL, related_name='moderation_reviews_resolved',
+                                    null=True, blank=True, on_delete=models.SET_NULL)
+    resolution_note = models.TextField(null=True, blank=True)
+
+    objects = ModerationReviewManager()
+
+    class Meta:
+        app_label = 'user_system'
+        ordering = ['-created']
+        constraints = [
+            # Exactly one target. Unlike Appeal this can be required outright:
+            # the FKs cascade rather than nulling out, so a row never survives
+            # losing its target.
+            models.CheckConstraint(
+                name='moderation_review_has_exactly_one_target',
+                condition=(
+                    (Q(post__isnull=False) & Q(comment__isnull=True))
+                    | (Q(post__isnull=True) & Q(comment__isnull=False))
+                ),
+            ),
+            # One review per post/comment, enforced at the DB level so two
+            # concurrent first reports cannot both create one.
+            models.UniqueConstraint(
+                fields=['post'], condition=Q(post__isnull=False),
+                name='unique_review_per_post',
+            ),
+            models.UniqueConstraint(
+                fields=['comment'], condition=Q(comment__isnull=False),
+                name='unique_review_per_comment',
+            ),
+        ]
+
+    @property
+    def target(self):
+        """The post or comment this review is about."""
+        return self.post or self.comment
+
+    @property
+    def target_kind(self):
+        return APPEAL_TARGET_POST if self.post_id else APPEAL_TARGET_COMMENT
+
+    @property
+    def is_terminal(self):
+        """Whether a decision has been made, so further reports change nothing."""
+        return self.status in TERMINAL_REVIEW_STATUSES
+
+    def reports(self):
+        """The reports standing against this content, newest first. Withdrawn
+        ones are excluded: they still count against their author's daily budget,
+        but they are not something a moderator should be shown or a review
+        should escalate on."""
+        if self.post_id:
+            return self.post.postreport_set.active().order_by('-creation_time')
+        return self.comment.commentreport_set.active().order_by('-creation_time')
+
+    def report_count(self):
+        return self.reports().count()
+
+    def reports_since_last_review(self):
+        """Reports filed since the automated re-review last ran on this content
+        — what the escalation bar is measured against."""
+        return max(self.report_count() - self.reports_at_last_review, 0)
+
+    def resolve(self, status, resolved_by=None, note=''):
+        """Record a human decision on this review (see moderation.hide_reviewed_content
+        / dismiss_reports, which also act on the content itself)."""
+        self.status = status
+        self.resolved_time = timezone.now()
+        self.resolved_by = resolved_by
+        if note:
+            self.resolution_note = note
+        self.save(update_fields=['status', 'resolved_time', 'resolved_by', 'resolution_note', 'updated'])
+
+    def __str__(self):
+        return f"{self.status} review of {self.target_kind} {self.target}"

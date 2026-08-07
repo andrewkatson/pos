@@ -10,8 +10,10 @@ from user_system.constants import (
     HIDDEN_REASON_CLASSIFIER_FINAL,
     HIDDEN_REASON_PENDING_CLASSIFICATION,
     PROFILE_IMAGE_STATUS_PENDING,
+    REVIEW_STATUS_ESCALATED,
+    REVIEW_STATUS_PENDING,
 )
-from user_system.models import Post, PositiveOnlySocialUser
+from user_system.models import ModerationReview, Post, PositiveOnlySocialUser
 
 logger = logging.getLogger(__name__)
 
@@ -33,9 +35,10 @@ class Command(BaseCommand):
         "Reconcile async post classification (issue #282): re-enqueue posts "
         "stuck in pending_classification past a threshold (alerting instead "
         "once their retry budget is exhausted — they stay hidden, fail "
-        "closed), and purge final-rejection tombstone rows old enough that "
-        "every client has reconciled. Run from cron alongside "
-        "cleanup_orphan_images."
+        "closed), re-enqueue report reviews stuck the same way (escalating "
+        "exhausted ones to the moderator queue — issue #467), and purge "
+        "final-rejection tombstone rows old enough that every client has "
+        "reconciled. Run from cron alongside cleanup_orphan_images."
     )
 
     def add_arguments(self, parser):
@@ -139,6 +142,41 @@ class Command(BaseCommand):
             else:
                 tasks.enqueue_profile_photo_classification(user.id)
 
+        # --- Stuck report reviews: re-enqueue or escalate (issue #467). ---
+        # Same reconciliation, opposite fail direction. Reported content is
+        # visible while its review is pending, so a review that fell out of the
+        # queue must not be left there silently: re-enqueue it, and once its
+        # retry budget is spent escalate it to the moderator queue rather than
+        # alerting into a log nobody reads — a human deciding is exactly the
+        # backstop this pipeline has, and a report may never fail closed into a
+        # hide.
+        stuck_reviews = ModerationReview.objects.filter(
+            status=REVIEW_STATUS_PENDING, updated__lte=stuck_cutoff,
+        ).only('review_identifier', 'review_attempts')
+        reviews_requeued = reviews_escalated = 0
+        for review in stuck_reviews.iterator():
+            if review.review_attempts >= CLASSIFICATION_MAX_ATTEMPTS:
+                reviews_escalated += 1
+                if dry_run:
+                    self.stdout.write(f"[dry-run] would escalate exhausted review {review.review_identifier}")
+                else:
+                    logger.error(
+                        "sweep_classifications: review %s has exhausted its %d attempts; "
+                        "escalating it to a moderator.",
+                        review.review_identifier, review.review_attempts)
+                    ModerationReview.objects.filter(
+                        pk=review.pk, status=REVIEW_STATUS_PENDING,
+                    ).update(status=REVIEW_STATUS_ESCALATED, updated=now,
+                             resolution_note="Automated review could not reach a verdict; "
+                                             "escalated for a moderator")
+                continue
+            reviews_requeued += 1
+            if dry_run:
+                self.stdout.write(f"[dry-run] would re-enqueue review {review.review_identifier} "
+                                  f"(attempts={review.review_attempts})")
+            else:
+                tasks.enqueue_report_review(review.review_identifier)
+
         # --- Old final-rejection tombstones: purge. ---
         tombstone_cutoff = now - timedelta(days=tombstone_days)
         tombstones = Post.objects.filter(
@@ -161,6 +199,8 @@ class Command(BaseCommand):
                    f"(fail-closed, {newly_alerted} newly alerted); "
                    f"{photos_requeued} stuck pending profile photo(s); {photos_exhausted} "
                    f"photo(s) exhausted (fail-closed, {photos_newly_alerted} newly alerted); "
+                   f"{reviews_requeued} stuck report review(s); {reviews_escalated} escalated "
+                   f"to a moderator; "
                    f"{purge_verb} {purged} tombstone(s) older than {tombstone_days}d.")
         self.stdout.write(summary)
         logger.info("sweep_classifications: %s", summary)
