@@ -1,15 +1,21 @@
+import os
+from unittest.mock import patch
+
 from django.urls import reverse
 
 from .test_constants import UserFields
 from .test_parent_case import PositiveOnlySocialTestCase
-from ..constants import Fields, MAX_BEFORE_HIDING_COMMENT, HIDDEN_REASON_REPORTS, HIDDEN_REASON_CLASSIFIER, \
-    HIDDEN_REASON_NONE
-from ..models import Comment
+from ..constants import Fields, HIDDEN_REASON_REPORTS, HIDDEN_REASON_CLASSIFIER, \
+    REVIEW_STATUS_CLEARED, REVIEW_STATUS_ESCALATED
+from ..models import Comment, ModerationReview
 
 # --- Constants ---
 invalid_session_management_token = '?'
 invalid_comment_identifier = '?'
 reason = "This is a negative comment"
+
+# Reporters available in setUp, comfortably more than any escalation bar.
+NUM_USERS = 8
 
 
 class RetractReportCommentTests(PositiveOnlySocialTestCase):
@@ -17,8 +23,8 @@ class RetractReportCommentTests(PositiveOnlySocialTestCase):
     def setUp(self):
         super().setUp()
 
-        # 1. Create User 0 (poster/commenter) and Users 1..MAX+1 (reporters)
-        self.make_post_with_users(MAX_BEFORE_HIDING_COMMENT + 2)
+        # 1. Create User 0 (poster/commenter) and Users 1..NUM_USERS-1 (reporters)
+        self.make_post_with_users(NUM_USERS)
 
         # 2. User 0 (the poster) makes the comment
         self.commenter_token = self.session_management_token
@@ -97,18 +103,19 @@ class RetractReportCommentTests(PositiveOnlySocialTestCase):
         self.assertEqual(response.status_code, 400)
         self.assertEqual(response.json(), {'error': 'Comment not reported yet'})
 
-    def test_retract_report_returns_good_response_and_deletes_report(self):
+    def test_retract_report_returns_good_response_and_withdraws_report(self):
         """
-        Tests the happy path: report, then retract, and the report row is gone.
+        Tests the happy path: report, then retract, and the report no longer
+        stands against the comment (its row is kept as a filing record — #467).
         """
         self._report(self.reporter_header)
-        self.assertEqual(self.comment.commentreport_set.count(), 1)
+        self.assertEqual(self.comment.commentreport_set.active().count(), 1)
 
         response = self.client.post(self.url, **self.reporter_header)
 
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.json(), {'message': 'Comment report retracted'})
-        self.assertEqual(self.comment.commentreport_set.count(), 0)
+        self.assertEqual(self.comment.commentreport_set.active().count(), 0)
 
     def test_can_report_again_after_retracting(self):
         """
@@ -122,42 +129,52 @@ class RetractReportCommentTests(PositiveOnlySocialTestCase):
 
         # Reporting again should now succeed instead of "Cannot report comment twice".
         self._report(self.reporter_header)
-        self.assertEqual(self.comment.commentreport_set.count(), 1)
+        self.assertEqual(self.comment.commentreport_set.active().count(), 1)
 
-    def test_retract_only_deletes_own_report(self):
+    def test_retract_only_withdraws_own_report(self):
         """
-        Tests that retracting removes only the caller's report, not other users'.
+        Tests that retracting withdraws only the caller's report, not other users'.
         """
         self._report(self.reporter_header)
         other_header = {'HTTP_AUTHORIZATION': f'Bearer {self.users[UserFields.TOKEN][2]}'}
         self._report(other_header)
-        self.assertEqual(self.comment.commentreport_set.count(), 2)
+        self.assertEqual(self.comment.commentreport_set.active().count(), 2)
 
         response = self.client.post(self.url, **self.reporter_header)
 
         self.assertEqual(response.status_code, 200)
-        self.assertEqual(self.comment.commentreport_set.count(), 1)
+        self.assertEqual(self.comment.commentreport_set.active().count(), 1)
 
-    def test_retract_unhides_comment_hidden_by_reports(self):
-        """
-        Tests that a comment hidden because reports crossed the threshold is
-        un-hidden when a retraction drops the count back under it.
-        """
-        # Cross the hiding threshold (MAX + 1 reports).
-        for i in range(1, MAX_BEFORE_HIDING_COMMENT + 2):
-            token = self.users[UserFields.TOKEN][i]
-            self._report({'HTTP_AUTHORIZATION': f'Bearer {token}'})
+    @patch.dict(os.environ, {"TESTING": "True"}, clear=True)
+    def test_retract_does_not_unhide_comment_hidden_by_a_moderator(self):
+        """Issue #467: as for posts, withdrawing reports does not undo a
+        moderator's decision to hide a comment."""
+        self._report(self.reporter_header)
+        self.comment.hidden = True
+        self.comment.hidden_reason = HIDDEN_REASON_REPORTS
+        self.comment.save()
 
+        response = self.client.post(self.url, **self.reporter_header)
+
+        self.assertEqual(response.status_code, 200)
         self.comment.refresh_from_db()
         self.assertTrue(self.comment.hidden)
         self.assertEqual(self.comment.hidden_reason, HIDDEN_REASON_REPORTS)
 
-        response = self.client.post(self.url, **self.reporter_header)
+    @patch.dict(os.environ, {"TESTING": "True"}, clear=True)
+    def test_retracting_every_report_takes_the_comment_off_the_moderator_queue(self):
+        """An escalation nobody is still reporting de-escalates itself."""
+        for i in range(1, NUM_USERS):
+            self._report({'HTTP_AUTHORIZATION': f'Bearer {self.users[UserFields.TOKEN][i]}'})
+        review = ModerationReview.objects.get(comment=self.comment)
+        self.assertEqual(review.status, REVIEW_STATUS_ESCALATED)
 
-        self.assertEqual(response.status_code, 200)
-        self.comment.refresh_from_db()
-        self.assertFalse(self.comment.hidden)
-        self.assertEqual(self.comment.hidden_reason, HIDDEN_REASON_NONE)
+        for i in range(1, NUM_USERS):
+            header = {'HTTP_AUTHORIZATION': f'Bearer {self.users[UserFields.TOKEN][i]}'}
+            self.assertEqual(self.client.post(self.url, **header).status_code, 200)
+
+        review.refresh_from_db()
+        self.assertEqual(review.status, REVIEW_STATUS_CLEARED)
 
     def test_retract_does_not_unhide_classifier_hidden_comment(self):
         """

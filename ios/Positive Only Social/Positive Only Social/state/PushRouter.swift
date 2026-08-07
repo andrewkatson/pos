@@ -8,13 +8,20 @@
 import Foundation
 import Combine
 
-/// A tiny shared bus the notification handler writes to and the UI observes, so
-/// tapping a "post rejected" notification opens that post. Kept separate from
-/// the notification plumbing so views depend only on this, not on UIKit/APNs.
+/// A tiny shared bus that writes "open this post" requests to the UI. Two things
+/// produce them: tapping a "post rejected" notification (issues #342/#343), and
+/// opening a shared `https://smiling.social/post/<id>` link as a Universal Link
+/// (issue #382). Kept separate from both bits of plumbing so views depend only
+/// on this, not on UIKit/APNs or URL parsing.
+///
+/// The request parks here until something consumes it, which is what makes a
+/// link opened while signed out work: `HomeView` only exists once logged in, so
+/// the id waits and routes as soon as it mounts rather than pushing an
+/// authenticated screen out of the Welcome flow.
 ///
 /// Push is a nudge, never the source of truth (#282 in-app reconciliation is):
-/// if nothing observes this — the app is mid-launch, the tab isn't mounted — the
-/// pending id is simply cleared and the user still finds the outcome in-app.
+/// if nothing ever observes this the pending id is simply cleared and the user
+/// still finds the outcome in-app.
 final class PushRouter: ObservableObject {
     static let shared = PushRouter()
 

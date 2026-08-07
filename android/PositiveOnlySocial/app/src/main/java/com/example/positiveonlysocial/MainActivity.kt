@@ -22,6 +22,7 @@ import com.example.positiveonlysocial.fcm.PushNavigator
 import com.example.positiveonlysocial.ui.navigation.NavGraph
 import com.example.positiveonlysocial.ui.preview.PreviewHelpers
 import com.example.positiveonlysocial.ui.theme.PositiveOnlySocialTheme
+import com.example.positiveonlysocial.util.ShareLinks
 
 class MainActivity : ComponentActivity() {
 
@@ -34,8 +35,10 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         maybeRequestNotificationPermission()
-        // The activity may have been launched by tapping a notification.
+        // The activity may have been launched by tapping a notification, or by
+        // opening a shared post link (issue #382).
         handleNotificationIntent(intent)
+        handleSharedLinkIntent(intent)
         setContent {
             PositiveOnlySocialTheme {
                 // A surface container using the 'background' color from the theme
@@ -58,6 +61,7 @@ class MainActivity : ComponentActivity() {
         // A tap while the app was already running delivers the intent here.
         setIntent(intent)
         handleNotificationIntent(intent)
+        handleSharedLinkIntent(intent)
     }
 
     private fun maybeRequestNotificationPermission() {
@@ -90,6 +94,23 @@ class MainActivity : ComponentActivity() {
             intent.removeExtra(PosFirebaseMessagingService.KEY_POST_IDENTIFIER)
             intent.removeExtra(PosFirebaseMessagingService.KEY_TYPE)
         }
+    }
+
+    /** Route to the post a shared App Link points at (issue #382).
+     *
+     * Deliberately goes through [PushNavigator] rather than letting NavHost
+     * handle the deep link itself: PostDetail is an authenticated screen, and
+     * NavHost would build a back stack straight to it even when the user is
+     * signed out. The navigator parks the request until the graph reports a
+     * session, which is the same path a tapped push notification takes. */
+    private fun handleSharedLinkIntent(intent: Intent?) {
+        if (intent == null || intent.action != Intent.ACTION_VIEW) return
+        val link = ShareLinks.parseSharedPostLink(intent.dataString) ?: return
+        PushNavigator.openPost(link.postIdentifier)
+        // Consume the data so an Activity recreation (rotation / process death)
+        // doesn't re-read the same link and navigate again, matching how the
+        // notification extras above are cleared.
+        intent.data = null
     }
 }
 

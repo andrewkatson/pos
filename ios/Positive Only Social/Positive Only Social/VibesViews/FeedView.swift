@@ -149,9 +149,12 @@ struct ForYouFeedView: View {
 
                         // The caption under the photo (issue #378). Text-only
                         // posts (#307) already render their caption as the tile
-                        // above, so it isn't repeated for them.
+                        // above, so it isn't repeated for them. The author's
+                        // chosen caption font (issue #318) applies here too, so
+                        // the feed matches the detail view (issue #450).
                         if post.imageUrl != nil {
                             Text(post.caption)
+                                .font(TextFormatting.captionFont(post.captionFont, size: UIFont.preferredFont(forTextStyle: .body).pointSize))
                                 .padding(.horizontal)
                                 .accessibilityIdentifier("PostCaption")
                         }
@@ -274,9 +277,12 @@ struct FollowingFeedView: View {
 
                         // The caption under the photo (issue #378). Text-only
                         // posts (#307) already render their caption as the tile
-                        // above, so it isn't repeated for them.
+                        // above, so it isn't repeated for them. The author's
+                        // chosen caption font (issue #318) applies here too, so
+                        // the feed matches the detail view (issue #450).
                         if post.imageUrl != nil {
                             Text(post.caption)
+                                .font(TextFormatting.captionFont(post.captionFont, size: UIFont.preferredFont(forTextStyle: .body).pointSize))
                                 .padding(.horizontal)
                                 .accessibilityIdentifier("PostCaption")
                         }
