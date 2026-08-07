@@ -320,7 +320,10 @@ styling means different things:
   fills the tile, so the color has no visible effect. To avoid promising a
   change that never appears, the composer **hides the background-color control
   while a photo is attached** and sends `default` for image posts (issue #421);
-  the font, which does style an image post's caption, stays available.
+  the font, which does style an image post's caption, stays available. The font
+  applies **wherever the caption is shown** — the feed row's caption under the
+  photo as well as the post detail view (issue #450) — so a post looks the same
+  whether it is scrolled past or opened.
 - **Comments** carry **inline** formatting (`body_formatting`): a list of range
   **spans** over the plain comment text, each `{start, end, bold, italic,
   size}`, where `size` is one of `small`/`normal`/`large`/`xlarge` and offsets

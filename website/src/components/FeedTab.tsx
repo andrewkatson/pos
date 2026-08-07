@@ -8,6 +8,7 @@ import PostThumbnail from './PostThumbnail'
 import PostActionBar from './PostActionBar'
 import { usePostActions } from './usePostActions'
 import Avatar from './Avatar'
+import { captionFontClass } from './textFormatting'
 
 type FeedType = 'forYou' | 'following'
 /** 'all' is the whole following feed; the others narrow it by group (#392). */
@@ -213,9 +214,13 @@ function FeedTab() {
               </button>
               {/* The caption under the photo (issue #378). Text-only posts (#307)
                   already render their caption as the tile above, so it isn't
-                  repeated for them. */}
+                  repeated for them. The author's chosen caption font (issue
+                  #318) applies here too, so the feed matches the detail view
+                  (issue #450). */}
               {post.image_url !== null && (
-                <p className="feed-post__caption">{post.caption}</p>
+                <p className={`feed-post__caption ${captionFontClass(post.caption_font)}`.trim()}>
+                  {post.caption}
+                </p>
               )}
               {/* Comment count and post time only appear here: feed rows have
                   the width for them, the square profile tiles don't (#249). */}
