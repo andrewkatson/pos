@@ -2,13 +2,17 @@ package com.example.positiveonlysocial.ui.main
 
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.AnnotatedString
+import androidx.compose.ui.text.ExperimentalTextApi
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.buildAnnotatedString
+import androidx.compose.ui.text.font.Font
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontStyle
+import androidx.compose.ui.text.font.FontVariation
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.TextUnit
 import androidx.compose.ui.unit.em
+import com.example.positiveonlysocial.R
 import com.example.positiveonlysocial.data.model.CommentFormatSpan
 
 /**
@@ -22,14 +26,41 @@ object TextFormatting {
     val backgroundOptions = listOf("default", "sky", "mint", "blush", "lemon", "lavender")
     val sizeOptions = listOf("small", "normal", "large", "xlarge")
 
+    /**
+     * The "rounded" caption font. Android has no rounded system family — unlike
+     * web (a `ui-rounded`-led stack) and iOS (`.system(design: .rounded)`) — so
+     * mapping the key to a generic family made the choice a silent no-op: it
+     * rendered exactly like "default". Nunito, bundled in `res/font`, is the
+     * closest match: a soft sans with rounded terminals. It is licensed under
+     * the SIL Open Font License (`licenses/Nunito-OFL.txt`).
+     *
+     * One variable font file covers every weight. `minSdk` is 26, which is also
+     * where Android gained variable-font support, so the `wght` axis always
+     * applies and no weight is ever synthesized. The registered weights are the
+     * ones captions actually render at: CaptionTile uses SemiBold, the
+     * composer's live preview uses Normal.
+     */
+    // The variation-settings overload of Font() is still ExperimentalTextApi.
+    // Opting in is contained to this one family; if it ever changes, the fix is
+    // to register per-weight static Nunito files instead.
+    @OptIn(ExperimentalTextApi::class)
+    private val roundedFontFamily = FontFamily(
+        Font(R.font.nunito_variable, FontWeight.Normal, variationSettings = weightAxis(400)),
+        Font(R.font.nunito_variable, FontWeight.SemiBold, variationSettings = weightAxis(600)),
+        Font(R.font.nunito_variable, FontWeight.Bold, variationSettings = weightAxis(700))
+    )
+
+    private fun weightAxis(weight: Int) =
+        FontVariation.Settings(FontVariation.weight(weight))
+
     /** The caption font for a font key, or null (the default system font).
      * Accepts null (an absent key) and treats it as the default. */
     fun fontFamily(key: String?): FontFamily? = when (key) {
         "serif" -> FontFamily.Serif
         "monospace" -> FontFamily.Monospace
-        // Compose has no rounded/handwriting built-ins; approximate with the
-        // closest generic families so the choice is still visibly distinct.
-        "rounded" -> FontFamily.SansSerif
+        "rounded" -> roundedFontFamily
+        // Compose has no handwriting built-in, but Cursive resolves to the
+        // system's script face (Dancing Script on AOSP), which is distinct.
         "handwriting" -> FontFamily.Cursive
         else -> null
     }
