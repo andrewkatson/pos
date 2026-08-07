@@ -9,9 +9,13 @@ import org.junit.Assert.assertNull
 import org.junit.Test
 
 /**
- * The caption-font half of the curated formatting keys (issue #318). The point
- * of these tests is that every offered key renders *differently*: a key that
- * maps to the same family as the default is a picker option that does nothing.
+ * The caption-font half of the curated formatting keys (issue #318).
+ *
+ * These assert the *mapping*, which is as far as a JVM test can go — nothing
+ * here rasterizes glyphs, so "these two families look different on screen" is
+ * not something they can prove. What they do rule out is the failure this
+ * suite was written for: a key resolving to one of the families that render as
+ * the theme's default sans, which makes it a picker option that does nothing.
  */
 class TextFormattingTest {
 

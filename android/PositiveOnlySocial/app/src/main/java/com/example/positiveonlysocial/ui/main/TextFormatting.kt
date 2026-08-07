@@ -36,9 +36,15 @@ object TextFormatting {
      *
      * One variable font file covers every weight. `minSdk` is 26, which is also
      * where Android gained variable-font support, so the `wght` axis always
-     * applies and no weight is ever synthesized. The registered weights are the
-     * ones captions actually render at: CaptionTile uses SemiBold, the
-     * composer's live preview uses Normal.
+     * applies.
+     *
+     * Captions render at two weights today — CaptionTile uses SemiBold, while
+     * the composer preview, the feed row (issue #450) and the detail view all
+     * use Normal. Bold is registered anyway: it costs nothing in a variable
+     * font, and without it a bold caption would be emboldened synthetically
+     * from the 600 instance instead of using the real 700 one. (Comments do
+     * carry inline bold spans, but they style weight only — `annotatedComment`
+     * sets no family — so a bold comment span never reaches this font.)
      */
     // The variation-settings overload of Font() is still ExperimentalTextApi.
     // Opting in is contained to this one family; if it ever changes, the fix is
