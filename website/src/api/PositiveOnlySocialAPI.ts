@@ -20,6 +20,7 @@ import type {
   DisableTotpResponse,
   FeedPost,
   FollowCategory,
+  GoogleLoginRequest,
   HiddenComment,
   HiddenPost,
   LoginRequest,
@@ -69,6 +70,9 @@ export interface PositiveOnlySocialAPI {
   // Authentication
   register(body: RegisterRequest): Promise<AuthResponse>
   login(body: LoginRequest): Promise<LoginResponse>
+  /** Exchange a Google ID token for a session, creating the account on first
+   * use (issue #10). Can answer with a two-factor challenge just like login. */
+  loginWithGoogle(body: GoogleLoginRequest): Promise<LoginResponse>
   loginWithRememberMe(body: LoginWithRememberMeRequest): Promise<LoginWithRememberMeResponse>
   logout(): Promise<MessageResponse>
   verifyIdentity(dateOfBirth: string): Promise<MessageResponse>

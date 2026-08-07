@@ -2,7 +2,9 @@ import hashlib
 import ipaddress
 import json
 import logging
+import re
 import secrets
+import string
 import uuid
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, date, timedelta
@@ -47,8 +49,13 @@ from .constants import Patterns, Params, POST_BATCH_SIZE, \
     INTEREST_CATEGORY_CHOICES, INTEREST_CATEGORY_SLUGS, \
     MAX_FREEFORM_INTERESTS, MAX_FREEFORM_INTEREST_LENGTH, REJECTED_TEXT_ECHO_LIMIT, \
     DEVICE_PLATFORMS, MAX_DEVICE_TOKEN_LENGTH, \
-    PUSH_TYPE_CHOICES, PUSH_TYPES
+    PUSH_TYPE_CHOICES, PUSH_TYPES, \
+    GOOGLE_SIGN_IN_UNAVAILABLE, INVALID_GOOGLE_TOKEN, GOOGLE_EMAIL_UNVERIFIED, \
+    GOOGLE_EMAIL_AMBIGUOUS, \
+    GENERATED_USERNAME_FALLBACK_PREFIX, MIN_GENERATED_USERNAME_LENGTH, \
+    MAX_GENERATED_USERNAME_ATTEMPTS
 from .feed_algorithm import feed_algorithm
+from .google_auth import GoogleTokenError, is_google_sign_in_configured, verify_google_id_token
 from .input_validator import is_valid_pattern
 from .models import LoginCookie, Session, Post, CommentThread, PositiveOnlySocialUser, Comment, CommentLike, \
     PostLike, SavedPost, UserBlock, UserBan, UserFollow, KnownDevice, Appeal, TwoFactorChallenge, RecoveryCode, \
@@ -612,6 +619,52 @@ def _issue_recovery_codes(user):
     return raw_codes
 
 
+def _issue_two_factor_challenge_if_enrolled(user, remember_me):
+    """Return a raw challenge token if `user` needs a second factor, else None.
+
+    Decides between "issue a challenge" and "mint a session" from a locked row
+    rather than from an unlocked read, which either 2FA endpoint can invalidate
+    underneath us: disable_totp would strand this login on a second step the
+    account can no longer satisfy, and confirm_totp would let it skip a second
+    factor the account now requires. Taking the lock unconditionally costs one
+    extra query on the login path and only ever serializes concurrent logins for
+    the same user.
+
+    Shared by every path that authenticates a user without a code in hand
+    (password login and Google sign-in), so enrolling in 2FA covers both.
+    """
+    raw_challenge = None
+    with transaction.atomic():
+        locked = get_user_model().objects.select_for_update().get(pk=user.pk)
+        if locked.totp_enabled:
+            # The account requires a second factor: hand back a short-lived
+            # challenge instead of a session, which login_user_2fa exchanges
+            # for the real one. Delete every existing challenge for the user
+            # first, so only one is ever valid at a time — otherwise the
+            # per-challenge attempt limit could be multiplied by requesting
+            # several challenges at once. The delete-then-create runs under
+            # this same lock so two concurrent logins can't interleave and
+            # leave more than one live challenge.
+            raw_challenge = secrets.token_hex(32)
+            locked.two_factor_challenges.all().delete()
+            locked.two_factor_challenges.create(
+                token_hash=hashlib.sha256(raw_challenge.encode()).hexdigest(),
+                expires=timezone.now() + timedelta(minutes=TWO_FACTOR_CHALLENGE_MINUTES),
+                remember_me=remember_me,
+            )
+    return raw_challenge
+
+
+def _two_factor_challenge_response(view_name, raw_challenge):
+    """The 200 a login answers with when the account still owes a second factor."""
+    response = log_and_return_json(view_name, {
+        Fields.two_factor_required: True,
+        Fields.challenge_token: raw_challenge,
+    })
+    response['Cache-Control'] = 'no-store'
+    return response
+
+
 def _read_remember_me(data, invalid_fields):
     """Read the optional `remember_me` flag from a request body.
 
@@ -632,8 +685,8 @@ def _read_remember_me(data, invalid_fields):
     error**: that is a caller sending something it believes means yes or no, and
     quietly reading it as "no" would hide the mistake rather than report it.
 
-    Shared by register and login_user so the two cannot drift apart on what a
-    missing or malformed flag means.
+    Shared by register, login_user and login_user_google so they cannot drift
+    apart on what a missing or malformed flag means.
     """
     raw = data.get(Fields.remember_me)
     if raw is None:
@@ -645,12 +698,18 @@ def _read_remember_me(data, invalid_fields):
         return False
 
 
-def _create_authenticated_session(view_name, request, user, ip, remember_me):
+def _create_authenticated_session(view_name, request, user, ip, remember_me, extra_response_fields=None):
     """Final step of a successful authentication: Django session login, the
     remember-me cookie (when requested), the API session token, and the
-    new-device email. Shared by login_user and login_user_2fa so a login that
-    went through the two-factor challenge ends in exactly the same state as a
-    plain one.
+    new-device email. Shared by login_user, login_user_2fa and login_user_google
+    so a login that went through the two-factor challenge — or through Google —
+    ends in exactly the same state as a plain one.
+
+    `extra_response_fields` is merged into the response body for callers that
+    have something extra to report about the login itself (Google sign-in says
+    whether it just created the account). It goes in first, so the session
+    fields every client depends on are written over it and can never be
+    displaced by a caller's key.
     """
     login(request, user)  # Logs into Django's session auth
 
@@ -666,11 +725,14 @@ def _create_authenticated_session(view_name, request, user, ip, remember_me):
     # User-Agent, so omitting it would record a blank one and skew the check.
     _record_device_and_maybe_notify(user, ip, request=request)
 
-    response_data = {
+    response_data = {}
+    if extra_response_fields:
+        response_data.update(extra_response_fields)
+    response_data.update({
         Fields.session_management_token: new_session.management_token,
         Fields.username: user.username,
         Fields.user_id: user.id,
-    }
+    })
     if remember_me and new_login_cookie:
         response_data[Fields.series_identifier] = new_login_cookie.series_identifier
         response_data[Fields.login_cookie_token] = new_login_cookie.token
@@ -927,41 +989,11 @@ def login_user(request):
             logger.warning(f"Login failed: Email not verified for user_id: {existing.id}")
             return log_and_return_json("login_user", {'error': EMAIL_NOT_VERIFIED}, status=403)
 
-        # The password checked out. Decide between "issue a challenge" and "mint
-        # a session" from a locked row rather than from the unlocked read above,
-        # which either endpoint can invalidate underneath us: disable_totp would
-        # strand this login on a second step the account can no longer satisfy,
-        # and confirm_totp would let it skip a second factor the account now
-        # requires. Taking the lock unconditionally costs one extra query on the
-        # login path and only ever serializes concurrent logins for the same user.
-        raw_challenge = None
-        with transaction.atomic():
-            locked = get_user_model().objects.select_for_update().get(pk=existing.pk)
-            if locked.totp_enabled:
-                # The account requires a second factor: hand back a short-lived
-                # challenge instead of a session, which login_user_2fa exchanges
-                # for the real one. Delete every existing challenge for the user
-                # first, so only one is ever valid at a time — otherwise the
-                # per-challenge attempt limit could be multiplied by requesting
-                # several challenges at once. The delete-then-create runs under
-                # this same lock so two concurrent logins can't interleave and
-                # leave more than one live challenge.
-                raw_challenge = secrets.token_hex(32)
-                locked.two_factor_challenges.all().delete()
-                locked.two_factor_challenges.create(
-                    token_hash=hashlib.sha256(raw_challenge.encode()).hexdigest(),
-                    expires=timezone.now() + timedelta(minutes=TWO_FACTOR_CHALLENGE_MINUTES),
-                    remember_me=remember_me,
-                )
-
+        # The password checked out; the account may still owe a second factor.
+        raw_challenge = _issue_two_factor_challenge_if_enrolled(existing, remember_me)
         if raw_challenge is not None:
             logger.info(f"Login requires two-factor code for user_id: {existing.id}")
-            response = log_and_return_json("login_user", {
-                Fields.two_factor_required: True,
-                Fields.challenge_token: raw_challenge,
-            })
-            response['Cache-Control'] = 'no-store'
-            return response
+            return _two_factor_challenge_response("login_user", raw_challenge)
 
         # The lock is deliberately released before the session is minted:
         # _create_authenticated_session can send a new-device email, and holding
@@ -974,6 +1006,253 @@ def login_user(request):
     else:
         logger.warning("Login failed: No user exists with that information")
         return log_and_return_json("login_user", {'error': "Invalid username or password"}, status=400)
+
+
+def _google_username_base(email):
+    """The stem of the username generated for a new Google account.
+
+    A Google account brings no username, so one is derived from the email local
+    part — familiar to its owner and usually free. Usernames must match
+    Patterns.alphanumeric, so everything that is not a word character is
+    stripped; the length is trimmed well short of the 500-character ceiling to
+    leave room for a numeric suffix.
+
+    The stem must still clear the positivity bar the app applies to a chosen
+    username, but the user never chose this one, so a rejection falls back to a
+    neutral stem rather than refusing the sign-in over their email address. The
+    classifier is best-effort for the same reason: an outage must not be the
+    thing that stops people signing up.
+    """
+    local_part = str(email).split('@')[0]
+    base = re.sub(r'\W', '', local_part)[:100]
+    if base:
+        try:
+            if not text_classifier_class.is_text_positive(base):
+                logger.info("Generated Google username stem was not positive; using the fallback")
+                base = ""
+        except Exception:
+            logger.exception("Could not classify a generated Google username stem; using the fallback")
+            base = ""
+    return base or GENERATED_USERNAME_FALLBACK_PREFIX
+
+
+def _google_username_candidate(base, attempt):
+    """One candidate username for `base`: bare on the first try, then suffixed.
+
+    A stem already long enough to be a valid username is offered as-is first, so
+    someone whose address is alice.wonderland@ becomes `alicewonderland` rather
+    than `alicewonderland4712`. Every later attempt (and every stem too short to
+    stand alone) gets fresh random digits — enough to reach the minimum length,
+    and never fewer than four, so a collision has somewhere to go.
+    """
+    if attempt == 0 and len(base) >= MIN_GENERATED_USERNAME_LENGTH:
+        return base
+    suffix_length = max(MIN_GENERATED_USERNAME_LENGTH - len(base), 4)
+    return base + ''.join(secrets.choice(string.digits) for _ in range(suffix_length))
+
+
+def _link_google_identity(user, claims):
+    """Attach a Google identity to the account we matched by verified email.
+
+    Returns the account that ends up holding it: normally `user`, but the row a
+    concurrent request linked first if that one won the race.
+    """
+    user.google_sub = claims['sub']
+    # Google vouching for the address settles our own verification too: an
+    # account still sitting on an unclicked link is now proven.
+    user.email_verified = True
+    user.email_verification_token = None
+    user.email_verification_token_expires = None
+    try:
+        # Named columns only, so a concurrent write to anything else on this row
+        # — a bio edit, a profile photo — isn't clobbered by a whole-row save
+        # from an instance that was read moments ago.
+        with transaction.atomic():
+            user.save(update_fields=[
+                'google_sub', 'email_verified',
+                'email_verification_token', 'email_verification_token_expires',
+            ])
+    except IntegrityError:
+        # google_sub is unique, so another request can have attached this same
+        # Google identity to a *different* row between the lookup and this
+        # write. Adopt whatever holds it now rather than 500 — the same
+        # reasoning as _create_user_for_google.
+        raced = get_user_model().objects.filter(google_sub=claims['sub']).first()
+        if raced is None:
+            raise
+        logger.info(f"A concurrent Google sign-in linked user_id: {raced.id} first; using it")
+        return raced
+
+    logger.info(f"Linked a Google identity to existing user_id: {user.id}")
+    return user
+
+
+def _create_user_for_google(request, claims, ip):
+    """Create the account behind a first-ever Google sign-in.
+
+    Returns `(user, created)`. `created` is False when a concurrent request beat
+    us to it and we adopted its row, so the caller doesn't greet the same person
+    as a new member twice; `(None, False)` means no account could be made.
+
+    The result matches registering without a date of birth (identity unverified,
+    not an adult), with two differences: the password is unusable, because there
+    is none to check and `login_user` must never accept one for this account;
+    and the address needs no verification email, because Google has already
+    proven the user owns it — the caller checks the `email_verified` claim
+    before ever getting here.
+    """
+    email = claims['email']
+    base = _google_username_base(email)
+
+    for attempt in range(MAX_GENERATED_USERNAME_ATTEMPTS):
+        candidate = _google_username_candidate(base, attempt)
+        if not is_valid_pattern(candidate, Patterns.alphanumeric):
+            continue
+        try:
+            # The unique constraints, not the lookups, are what actually decide:
+            # two Google sign-ins racing on the same generated name (or on a name
+            # someone registered a moment ago) make one insert fail, and that one
+            # simply draws different digits. The savepoint keeps the failure from
+            # poisoning any surrounding transaction.
+            with transaction.atomic():
+                new_user = get_user_model().objects.create_user(username=candidate, email=email)
+                new_user.set_unusable_password()
+                new_user.google_sub = claims['sub']
+                new_user.email_verified = True
+                new_user.save()
+        except IntegrityError:
+            # Two columns here are unique, and only one of them is worth
+            # retrying. If google_sub is the one that tripped, a concurrent
+            # first-ever sign-in for this same Google account won the race and
+            # has already made the account — no username would ever succeed, so
+            # looping would burn every attempt and end in a 500. Adopt the row
+            # the winner created instead; it is the same person's account.
+            raced = get_user_model().objects.filter(google_sub=claims['sub']).first()
+            if raced is not None:
+                logger.info(f"A concurrent Google sign-in created user_id: {raced.id} first; using it")
+                return raced, False
+            logger.info("Generated Google username was taken; retrying with another")
+            continue
+
+        # Stamp their join number now, in creation order, exactly as
+        # registration does, so the client can greet them with "You're member
+        # #n!" (issue #198).
+        _assign_membership_number(new_user)
+
+        # Record the signing-up device as known but don't email about it: the
+        # device they created the account on is not a device to warn them about.
+        # The _create_authenticated_session call that follows will see it as
+        # already known and stay quiet.
+        _record_device_and_maybe_notify(new_user, ip, request=request, notify=False)
+        return new_user, True
+
+    logger.error("Could not generate a free username for a Google sign-in")
+    return None, False
+
+
+@ratelimit(key=_get_client_ip, rate='10/m', block=True)
+@csrf_exempt
+@require_POST
+def login_user_google(request):
+    """Exchange a Google ID token for an ordinary session (issue #10).
+
+    Clients get the token from Google natively — Identity Services on the web,
+    a browser-based PKCE flow on iOS, Credential Manager on Android — and post
+    it here. Google's `sub` claim is the join key (see
+    PositiveOnlySocialUser.google_sub); the email is only used to find an
+    existing account to link the first time.
+
+    Ends in exactly the same state as a password login, including the two-factor
+    step: proving you hold the Google account is a first factor, not a bypass of
+    a second one the user deliberately turned on.
+    """
+    logger.info("Endpoint login_user_google invoked by IP or User")
+
+    if not is_google_sign_in_configured():
+        logger.warning("Google sign-in failed: no OAuth client IDs are configured")
+        return log_and_return_json("login_user_google", {'error': GOOGLE_SIGN_IN_UNAVAILABLE}, status=503)
+
+    data = _get_json_body(request)
+    if data is None:
+        logger.warning("Google sign-in failed: Invalid JSON data")
+        return log_and_return_json("login_user_google", {'error': "Invalid JSON data"}, status=400)
+
+    raw_token = data.get(Fields.id_token)
+    ip = _get_client_ip(None, request)
+
+    invalid_fields = []
+    if not raw_token or not is_valid_pattern(raw_token, Patterns.google_id_token):
+        invalid_fields.append(Params.id_token)
+    remember_me = _read_remember_me(data, invalid_fields)
+    if len(invalid_fields) > 0:
+        return log_and_return_json("login_user_google", {'error': f"Invalid fields {invalid_fields}"}, status=400)
+
+    try:
+        claims = verify_google_id_token(raw_token)
+    except GoogleTokenError:
+        # One opaque code for every way a token can fail to convince us; the
+        # specific reason is logged in google_auth, not returned.
+        logger.warning("Google sign-in failed: the ID token could not be verified")
+        return log_and_return_json("login_user_google", {'error': INVALID_GOOGLE_TOKEN}, status=401)
+
+    if not claims['email_verified']:
+        # Everything downstream — linking to an existing account, skipping our
+        # own verification email — rests on Google having proven the user owns
+        # this mailbox. An unverified claim proves nothing.
+        logger.warning("Google sign-in failed: Google has not verified the account's email address")
+        return log_and_return_json("login_user_google", {'error': GOOGLE_EMAIL_UNVERIFIED}, status=403)
+
+    created_account = False
+    existing = get_user_model().objects.filter(google_sub=claims['sub']).first()
+
+    if existing is None:
+        # No account is linked to this Google identity yet. Google has verified
+        # the address, which is at least as strong as our own email link, so an
+        # account already holding it is the same person: attach the Google
+        # identity to it rather than stranding them with a second account.
+        #
+        # Matched case-insensitively because accounts were registered with
+        # whatever case the user typed while Google normalizes what it asserts.
+        # Nothing enforces email uniqueness in the database, so more than one
+        # row can hold the address; linking would then have to pick one
+        # arbitrarily, and handing a Google identity to whichever row sorted
+        # first is not a guess worth making.
+        candidates = list(get_user_model().objects.filter(email__iexact=claims['email'])[:2])
+        if len(candidates) > 1:
+            logger.warning("Google sign-in failed: more than one account holds that email address")
+            return log_and_return_json("login_user_google", {
+                'error': GOOGLE_EMAIL_AMBIGUOUS,
+            }, status=409)
+        if candidates:
+            existing = _link_google_identity(candidates[0], claims)
+
+    if existing is None:
+        existing, created_account = _create_user_for_google(request, claims, ip)
+        if existing is None:
+            return log_and_return_json("login_user_google", {
+                'error': "Could not create an account for that Google identity. Please try again.",
+            }, status=500)
+        if created_account:
+            logger.info(f"Created an account from Google sign-in for user_id: {existing.id}")
+
+    if has_active_outright_ban(existing):
+        logger.warning(f"Google sign-in failed: Account banned for user_id: {existing.id}")
+        return log_and_return_json("login_user_google", {'error': ACCOUNT_BANNED}, status=403)
+
+    # Deliberately no email_verified gate here: a Google sign-in only gets this
+    # far with a Google-verified address, and both branches above set the flag.
+
+    raw_challenge = _issue_two_factor_challenge_if_enrolled(existing, remember_me)
+    if raw_challenge is not None:
+        logger.info(f"Google sign-in requires two-factor code for user_id: {existing.id}")
+        return _two_factor_challenge_response("login_user_google", raw_challenge)
+
+    extra_fields = {Fields.created_account: created_account}
+    if created_account:
+        extra_fields[Fields.membership_number] = existing.membership_number
+    return _create_authenticated_session(
+        "login_user_google", request, existing, ip, remember_me, extra_response_fields=extra_fields
+    )
 
 
 @ratelimit(key=_get_client_ip, rate='10/m', block=True)

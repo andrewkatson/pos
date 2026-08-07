@@ -37,6 +37,17 @@ import Foundation
     // can branch on it without depending on backend wording.
     static let invalidTwoFactorChallengeError = "invalid_two_factor_challenge"
     static let emailNotVerifiedMessage = "Please verify your email address first — check your inbox for the verification link."
+    // Error codes login/google/ answers with (issue #10), and the copy each maps
+    // to. The backend returns stable codes rather than prose (see
+    // backend/user_system/constants.py), so the wording lives here.
+    static let googleEmailUnverifiedError = "google_email_unverified"
+    static let googleEmailUnverifiedMessage = "Google hasn't verified the email address on that account, so we can't use it to sign you in."
+    static let googleEmailAmbiguousError = "google_email_ambiguous"
+    static let googleEmailAmbiguousMessage = "More than one account already uses that email address. Please sign in with your password."
+    static let invalidGoogleTokenError = "invalid_google_token"
+    static let googleSignInUnavailableError = "google_sign_in_unavailable"
+    static let googleSignInUnavailableMessage = "Google sign-in isn't available right now. Please sign in with your password."
+    static let googleSignInFailedMessage = "Google sign-in failed. Please try again."
     static let encodingError = "Failed to encode the request body: "
     static let emptyString = ""
     static let get = "GET"
@@ -77,6 +88,8 @@ import Foundation
     // Relationship-category endpoint and query key (issue #392).
     static let pathSegmentCategory = "category"
     static let queryKeyCategory = "category"
+    // POST login/google/ — exchange a Google ID token for a session (issue #10).
+    static let pathSegmentGoogle = "google"
     static let pathSegmentFollowers = "followers"
     static let pathSegmentFollowing = "following"
     static let pathSegmentLike = "like"

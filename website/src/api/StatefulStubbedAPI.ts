@@ -34,6 +34,7 @@ import type {
   DisableTotpResponse,
   FeedPost,
   FollowCategory,
+  GoogleLoginRequest,
   HiddenComment,
   HiddenPost,
   LoginRequest,
@@ -159,6 +160,9 @@ interface UserMock {
   interestCategories: Set<string>
   /** Freeform interest terms the user typed, lowercased, in entry order. */
   freeformInterests: string[]
+  /** Google's `sub` claim once this account has been linked to a Google
+   * identity (issue #10); null for password-only accounts. */
+  googleSub: string | null
 }
 
 interface TwoFactorChallengeMock {
@@ -239,6 +243,31 @@ function newId(): string {
   // Deterministic ids keep tests readable; crypto.randomUUID would also work.
   uuidCounter += 1
   return `stub-${uuidCounter}`
+}
+
+/** The claims we care about from a Google ID token's payload segment.
+ *
+ * Reading a JWT without checking its signature is only ever acceptable because
+ * this is the offline stub — the real backend verifies against Google's public
+ * keys before trusting a single claim (see backend/user_system/google_auth.py).
+ */
+function decodeIdTokenClaims(
+  idToken: string,
+): { sub?: string; email?: string; email_verified?: boolean } | null {
+  const payload = idToken.split('.')[1]
+  if (!payload) return null
+  try {
+    // base64url → base64 before atob, which only understands the latter, and
+    // restore the '=' padding a JWT segment omits. atob rejects a length of
+    // 4n+1 outright, so without this an otherwise valid token can throw
+    // depending on how long its claim set happens to be. The iOS and Android
+    // stubs pad the same way.
+    const base64 = payload.replace(/-/g, '+').replace(/_/g, '/')
+    const padded = base64.padEnd(Math.ceil(base64.length / 4) * 4, '=')
+    return JSON.parse(atob(padded))
+  } catch {
+    return null
+  }
 }
 
 /** Whole years from a YYYY-MM-DD date of birth to today, or null if malformed. */
@@ -375,6 +404,7 @@ export class StatefulStubbedAPI implements PositiveOnlySocialAPI {
       bio: '',
       interestCategories: new Set(),
       freeformInterests: [],
+      googleSub: null,
     }
     this.users.push(user)
 
@@ -448,6 +478,129 @@ export class StatefulStubbedAPI implements PositiveOnlySocialAPI {
       series_identifier: seriesIdentifier,
       login_cookie_token: loginCookieToken,
       membership_number: user.membershipNumber,
+    }
+  }
+
+  async loginWithGoogle(body: GoogleLoginRequest): Promise<LoginResponse> {
+    // The real backend verifies the token's signature against Google's public
+    // keys; the stub has no network and no keys, so it just reads the claims
+    // out of the payload segment. Enough to exercise every branch the UI cares
+    // about (new account, linking, 2FA) offline.
+    const claims = decodeIdTokenClaims(body.id_token)
+    if (!claims || !claims.sub || !claims.email) {
+      throw new ApiError(401, 'invalid_google_token')
+    }
+    // Verified has to be asserted, not merely not-denied: the backend requires
+    // `email_verified is True`, so a missing or non-boolean claim counts as
+    // unverified there and must here too, or the offline stub is more
+    // permissive than production.
+    if (claims.email_verified !== true) {
+      throw new ApiError(403, 'google_email_unverified')
+    }
+
+    const email = claims.email.toLowerCase()
+    let createdAccount = false
+    let user = this.users.find((u) => u.googleSub === claims.sub)
+
+    if (!user) {
+      // Google has verified the address, so an account already holding it is
+      // the same person: link rather than making them a second account.
+      user = this.users.find((u) => u.email.toLowerCase() === email)
+      if (user) {
+        user.googleSub = claims.sub
+        user.emailVerified = true
+        user.emailVerificationToken = null
+      }
+    }
+
+    if (!user) {
+      // Usernames must be at least 10 word characters, so a short local part is
+      // padded — matching _google_username_base in backend/user_system/views.py.
+      const base = email.split('@')[0].replace(/\W/g, '') || 'friend'
+      // Suffix length follows _google_username_candidate: enough digits to
+      // reach the ten-character minimum, and never fewer than four, so the
+      // offline names look like the ones production would hand out. (The
+      // backend draws its digits at random; the stub counts, so its output
+      // stays predictable for tests.)
+      const suffixLength = Math.max(10 - base.length, 4)
+      let username = base.length >= 10 ? base : base.padEnd(10, '0')
+      let suffix = 1
+      while (this.users.some((u) => u.username === username)) {
+        username = `${base}${String(suffix).padStart(suffixLength, '0')}`
+        suffix += 1
+      }
+
+      user = {
+        id: newId(),
+        username,
+        email,
+        // No password exists behind a Google account. The stub compares
+        // passwords as plain strings, so this is a value nobody could type
+        // rather than a readable placeholder somebody might — login() must
+        // never let anyone in with a guess.
+        passwordHash: `no-password-${newId()}`,
+        verificationToken: null,
+        resetToken: null,
+        emailVerified: true,
+        emailVerificationToken: null,
+        following: new Set(),
+        followCategories: new Map(),
+        followers: new Set(),
+        isVerified: false,
+        isAdult: false,
+        blocked: new Set(),
+        blockedBy: new Set(),
+        totpSecret: null,
+        totpEnabled: false,
+        recoveryCodes: new Set(),
+        savedPostIds: [],
+        profileImageUrl: null,
+        pendingProfileImageUrl: null,
+        profileImageStatus: 'none',
+        profileImageReasonCode: null,
+        membershipNumber:
+          this.users.reduce((max, u) => Math.max(max, u.membershipNumber), 0) + 1,
+        bio: '',
+        interestCategories: new Set(),
+        freeformInterests: [],
+        googleSub: claims.sub,
+      }
+      this.users.push(user)
+      createdAccount = true
+    }
+
+    // Holding the Google account is a first factor, not a bypass of the second.
+    if (user.totpEnabled) {
+      this.setToken(null)
+      const challengeToken = newId()
+      this.twoFactorChallenges.push({
+        challengeToken,
+        userId: user.id,
+        rememberMe: Boolean(body.remember_me),
+      })
+      return { two_factor_required: true, challenge_token: challengeToken }
+    }
+
+    const sessionToken = newId()
+    this.sessions.push({ managementToken: sessionToken, userId: user.id })
+
+    let seriesIdentifier: string | undefined
+    let loginCookieToken: string | undefined
+    if (body.remember_me) {
+      seriesIdentifier = newId()
+      loginCookieToken = newId()
+      this.loginCookies.push({ seriesIdentifier, token: loginCookieToken, userId: user.id })
+    }
+
+    this.setToken(sessionToken)
+    return {
+      session_management_token: sessionToken,
+      user_id: user.id,
+      username: user.username,
+      series_identifier: seriesIdentifier,
+      login_cookie_token: loginCookieToken,
+      created_account: createdAccount,
+      ...(createdAccount ? { membership_number: user.membershipNumber } : {}),
     }
   }
 

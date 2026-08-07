@@ -383,3 +383,46 @@
 .modal__confirm:hover {
   opacity: 0.85;
 }
+
+/* Google sign-in (issue #10). The button itself is an iframe Google renders and
+   styles; everything here is the space around it. */
+.auth-google {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 1rem;
+  width: 100%;
+  margin-top: 1.25rem;
+}
+
+/* "or" rule between the password form and the Google button. The lines are
+   drawn by the pseudo-elements so the label stays centred at any card width. */
+.auth-divider {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  width: 100%;
+  color: rgba(255, 255, 255, 0.45);
+  font-size: 0.85rem;
+}
+
+.auth-divider::before,
+.auth-divider::after {
+  content: '';
+  flex: 1;
+  height: 1px;
+  background: rgba(255, 255, 255, 0.15);
+}
+
+/* Google's iframe has a fixed pixel width; centring it keeps it aligned with
+   the full-width controls above even though it can't stretch to match them. */
+.auth-google__button {
+  display: flex;
+  justify-content: center;
+  width: 100%;
+  min-height: 44px;
+}
+
+.auth-google__button[hidden] {
+  display: none;
+}

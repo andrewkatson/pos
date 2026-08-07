@@ -99,7 +99,10 @@ class StatefulStubbedAPI : PositiveOnlySocialAPI {
         // Positive interest tags (issues #446/#35): weighting buckets (picks ∪
         // mapped freeform) and the freeform terms the user typed.
         val interestCategories: MutableList<String> = mutableListOf(),
-        val freeformInterests: MutableList<String> = mutableListOf()
+        val freeformInterests: MutableList<String> = mutableListOf(),
+        // Google's `sub` claim once this account is linked to a Google identity
+        // (issue #10); null for password-only accounts.
+        var googleSub: String? = null
     )
 
     // A pending two-factor login, issued by loginUser when the account has
@@ -298,6 +301,136 @@ class StatefulStubbedAPI : PositiveOnlySocialAPI {
                 loginCookieToken = cookieToken
             )
         )
+    }
+
+    override suspend fun loginWithGoogle(request: GoogleLoginRequest): Response<LoginResponse> {
+        // The real backend verifies the token against Google's public keys; the
+        // stub has neither a network nor the keys, so it reads the claims
+        // straight out of the payload segment. See google_auth.py for the check
+        // that actually matters.
+        val claims = decodeIdTokenClaims(request.idToken)
+        val sub = claims?.get("sub")
+        val rawEmail = claims?.get("email")
+        if (sub.isNullOrBlank() || rawEmail.isNullOrBlank()) {
+            return errorGeneric(401, Constants.INVALID_GOOGLE_TOKEN)
+        }
+        // Verified has to be asserted, not merely not-denied: the backend
+        // requires `email_verified is True`, so a missing or non-boolean claim
+        // counts as unverified there and must here too, or the stub is more
+        // permissive than production.
+        if (claims["email_verified"] != "true") {
+            return errorGeneric(403, Constants.GOOGLE_EMAIL_UNVERIFIED)
+        }
+        val email = rawEmail.lowercase()
+
+        var createdAccount = false
+        val linked = users.find { it.googleSub == sub }
+            // Google has verified the address, so an account already holding it
+            // is the same person: link rather than making a second account.
+            ?: users.find { it.email.lowercase() == email }?.also {
+                it.googleSub = sub
+                it.emailVerified = true
+                it.emailVerificationToken = null
+            }
+
+        val user = linked ?: run {
+            // Usernames need at least 10 word characters, so a short local part
+            // is padded — mirroring _google_username_base in the backend.
+            val stem = email.substringBefore('@').filter { it.isLetterOrDigit() || it == '_' }
+                .ifEmpty { "friend" }
+            var username = if (stem.length >= 10) stem else stem.padEnd(10, '0')
+            var suffix = 1
+            while (users.any { it.username == username }) {
+                username = stem + "%04d".format(suffix)
+                suffix += 1
+            }
+
+            val newUser = UserMock(
+                username = username,
+                email = email,
+                // No password exists behind a Google account. The stub compares
+                // passwords as plain strings, so this is a value nobody could
+                // type rather than a readable placeholder somebody might.
+                passwordHash = "no-password-${UUID.randomUUID()}",
+                membershipNumber = ++membershipCounter,
+                googleSub = sub,
+            )
+            users.add(newUser)
+            createdAccount = true
+            newUser
+        }
+
+        // Holding the Google account is a first factor, not a bypass of the second.
+        if (user.totpEnabled) {
+            twoFactorChallenges.removeIf { it.userId == user.id }
+            val challenge = TwoFactorChallengeMock(
+                challengeToken = UUID.randomUUID().toString(),
+                userId = user.id,
+                rememberMe = request.rememberMe.toBoolean(),
+                ip = request.ip
+            )
+            twoFactorChallenges.add(challenge)
+            return Response.success(
+                LoginResponse(twoFactorRequired = true, challengeToken = challenge.challengeToken)
+            )
+        }
+
+        val sessionToken = UUID.randomUUID().toString()
+        sessions.add(SessionMock(sessionToken, user.id, request.ip))
+        simulatedAuthToken = sessionToken
+
+        var seriesId: String? = null
+        var cookieToken: String? = null
+        if (request.rememberMe.toBoolean()) {
+            seriesId = UUID.randomUUID().toString()
+            cookieToken = UUID.randomUUID().toString()
+            loginCookies.add(LoginCookieMock(seriesId, cookieToken, user.id))
+        }
+
+        return Response.success(
+            LoginResponse(
+                sessionToken = sessionToken,
+                username = user.username,
+                userId = user.id,
+                seriesIdentifier = seriesId,
+                loginCookieToken = cookieToken,
+                createdAccount = createdAccount,
+                membershipNumber = if (createdAccount) user.membershipNumber else null
+            )
+        )
+    }
+
+    /**
+     * The claims the stub reads out of an *unverified* ID token payload, as
+     * strings so a boolean `email_verified` and a quoted one compare the same.
+     * Null when the token is not three base64url segments carrying a JSON
+     * object.
+     *
+     * java.util.Base64 rather than android.util.Base64 on purpose: this class
+     * is exercised by JVM unit tests, where the Android framework stubs return
+     * default values (unitTests.isReturnDefaultValues) and would silently
+     * decode everything to null.
+     *
+     * No padding is restored before decoding, unlike the website stub. That is
+     * not an oversight: java.util.Base64's decoder treats '=' as optional and
+     * decodes an unpadded segment of any valid length, whereas the browser's
+     * atob rejects a length of 4n+1 outright and so does need it. Verified
+     * against every length mod 4. The trimEnd is only there to drop padding
+     * that a token may or may not carry.
+     */
+    private fun decodeIdTokenClaims(idToken: String): Map<String, String>? {
+        val segments = idToken.split(".")
+        if (segments.size != 3) return null
+        return try {
+            val payload = String(
+                java.util.Base64.getUrlDecoder().decode(segments[1].trimEnd('=')),
+                Charsets.UTF_8,
+            )
+            com.google.gson.JsonParser.parseString(payload).asJsonObject.entrySet()
+                .associate { (key, value) -> key to value.asString }
+        } catch (e: Exception) {
+            null
+        }
     }
 
     override suspend fun loginUser2FA(request: LoginTwoFactorRequest): Response<AuthResponse> {

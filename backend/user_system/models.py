@@ -191,6 +191,15 @@ class PositiveOnlySocialUser(AbstractUser):
     # check is simply rejected and never stored. Empty string means "no bio".
     bio = models.TextField(default="", blank=True)
 
+    # Google sign-in (issue #10). The `sub` claim from a Google ID token: the
+    # stable, per-account identifier Google guarantees is never reused and never
+    # changes, which an email address is not (people rename mailboxes, and a
+    # freed address can be reassigned). It is therefore the join key, and the
+    # email is only ever used to *find* an existing account to link on the first
+    # Google sign-in. Null for every password-only account; unique so one Google
+    # account can never end up attached to two members.
+    google_sub = models.TextField(null=True, blank=True, unique=True, default=None)
+
     creation_time = models.DateTimeField(auto_now_add=True, null=True, blank=True)
     updated_time = models.DateTimeField(auto_now=True, null=True, blank=True)
 
