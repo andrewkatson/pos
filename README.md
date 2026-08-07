@@ -327,6 +327,12 @@ styling means different things:
   applies **wherever the caption is shown** — the feed row's caption under the
   photo as well as the post detail view (issue #450) — so a post looks the same
   whether it is scrolled past or opened.
+  Mapping a key to a *distinct* face is part of the contract, not a detail: web
+  and iOS reach `rounded` through a system face (`ui-rounded`,
+  `.system(design: .rounded)`), but Android has no rounded system family, so it
+  bundles Nunito (SIL Open Font License, `android/PositiveOnlySocial/licenses/`)
+  rather than falling back to a generic sans — a fallback would make picking
+  "Rounded" a silent no-op.
 - **Comments** carry **inline** formatting (`body_formatting`): a list of range
   **spans** over the plain comment text, each `{start, end, bold, italic,
   size}`, where `size` is one of `small`/`normal`/`large`/`xlarge` and offsets
