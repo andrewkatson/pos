@@ -96,6 +96,12 @@ fun PostDetailScreen(
         // per visible post/comment.
         val showActionSheetForPost by viewModel.showActionSheetForPost.collectAsState()
         val commentForAction by viewModel.commentForAction.collectAsState()
+        // Per-comment state the threads render from. Collected here for the same
+        // reason: CommentThreadView runs once per thread, so collecting inside it
+        // would mean a collector — and a recomposition of every thread on every
+        // update — per thread rather than per screen.
+        val reportedCommentIds by viewModel.reportedCommentIds.collectAsState()
+        val collapsedCommentIds by viewModel.collapsedCommentIds.collectAsState()
         val postWasDeleted by viewModel.postWasDeleted.collectAsState()
 
         // The post was deleted out from under this screen; pop back to the feed.
@@ -402,6 +408,8 @@ fun PostDetailScreen(
                         postId = postId,
                         currentUsername = currentUsername,
                         openCommentId = commentForAction?.id,
+                        reportedCommentIds = reportedCommentIds,
+                        collapsedCommentIds = collapsedCommentIds,
                         onAuthorClick = { username ->
                             navController.openProfileFor(username, currentUsername)
                         }
@@ -425,14 +433,17 @@ fun CommentThreadView(
     /** Needed for the per-comment share link in each comment's action menu. */
     postId: String,
     currentUsername: String?,
-    /** The comment whose action menu is open, if any — passed in rather than
-     * collected here, since this composable runs once per thread. */
+    /** The comment whose action menu is open, if any. This and the two sets
+     * below are passed in rather than collected here: this composable runs once
+     * per thread, so collecting would mean one collector per thread. */
     openCommentId: String?,
+    /** Comments the user has an active report against (issue #176). */
+    reportedCommentIds: Set<String>,
+    /** Comments whose thread below them is collapsed (issue #243). */
+    collapsedCommentIds: Set<String>,
     onAuthorClick: (String) -> Unit
 ) {
     val context = LocalContext.current
-    val reportedCommentIds by viewModel.reportedCommentIds.collectAsState()
-    val collapsedCommentIds by viewModel.collapsedCommentIds.collectAsState()
 
     // The action menu for one comment, anchored next to that row's ⋯ button.
     val commentMenu: @Composable (CommentViewData) -> Unit = { comment ->
