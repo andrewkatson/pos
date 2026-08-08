@@ -134,6 +134,10 @@ struct CommentRowView: View {
     let onUnlike: () -> Void
     let onLongPress: () -> Void
     let onAuthorTap: () -> Void
+    /// Opens "who liked this comment" (issue #478). Only reachable from your own
+    /// comment: the count is plain text on everyone else's, and the backend
+    /// answers for nobody else's.
+    let onOpenLikes: () -> Void
 
     var body: some View {
         HStack(alignment: .top, spacing: 10) {
@@ -219,10 +223,26 @@ struct CommentRowView: View {
                         .accessibilityLabel(comment.isLiked ? "Unlike comment" : "Like comment")
                     }
 
-                    Text("\(comment.likeCount) likes")
-                        .font(.caption)
-                        .foregroundColor(.secondary)
+                    // Tapping the count lists who liked it, but only on your own
+                    // comment — who liked someone else's is between them and
+                    // their likers (issue #478).
+                    if isOwn {
+                        Button {
+                            onOpenLikes()
+                        } label: {
+                            Text("\(comment.likeCount) likes")
+                                .font(.caption)
+                                .foregroundColor(.secondary)
+                        }
+                        .buttonStyle(.plain)
+                        .accessibilityLabel("\(comment.likeCount) likes, see who liked this comment")
                         .accessibilityIdentifier("CommentLikesCount")
+                    } else {
+                        Text("\(comment.likeCount) likes")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                            .accessibilityIdentifier("CommentLikesCount")
+                    }
                     
                     if isReported {
                         Image(systemName: "flag.fill")

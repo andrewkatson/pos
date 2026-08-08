@@ -81,6 +81,7 @@ import type {
 // test-friendly numbers and is not the source of truth for the real backend.
 const POST_BATCH_SIZE = 10
 const COMMENT_BATCH_SIZE = 10
+const LIKE_BATCH_SIZE = 10
 const MAX_BEFORE_HIDING_POST = 5
 const MAX_BEFORE_HIDING_COMMENT = 5
 
@@ -807,6 +808,24 @@ export class StatefulStubbedAPI implements PositiveOnlySocialAPI {
     }
   }
 
+  /** The accounts behind a set of likes, newest like first (issue #478).
+   * `likes` is a Set of user ids in the order the likes were added, so
+   * reversing it gives most-recent-first. Blocked accounts drop out in both
+   * directions, matching the backend — which additionally hides shadow-banned
+   * and cross-age-band likers, states this stub does not model. */
+  private likersOf(likes: Set<string>, viewer: UserMock): UserSearchResult[] {
+    return [...likes]
+      .reverse()
+      .map((id) => this.users.find((u) => u.id === id))
+      .filter((u): u is UserMock => !!u)
+      .filter((u) => !viewer.blocked.has(u.id) && !viewer.blockedBy.has(u.id))
+      .map((u) => ({
+        username: u.username,
+        identity_is_verified: u.isVerified,
+        ...this.authorAvatarFields(u.id),
+      }))
+  }
+
   /** The author-only classification fields merged into post payloads. */
   private authorStatusFields(post: PostMock, viewerId: string): Partial<FeedPost> {
     if (post.authorId !== viewerId) return {}
@@ -886,6 +905,17 @@ export class StatefulStubbedAPI implements PositiveOnlySocialAPI {
     }
     post.likes.delete(user.id)
     return { message: 'Post unliked' }
+  }
+
+  async getPostLikers(postIdentifier: string, batch: number): Promise<UserSearchResult[]> {
+    const user = this.requireUser()
+    const post = this.posts.find((p) => p.postIdentifier === postIdentifier)
+    // Owner-only: somebody else's post is reported exactly like a missing one,
+    // so the stub can't be used to discover whose post an identifier names.
+    if (!post || post.authorId !== user.id) {
+      throw new ApiError(400, 'No post with that identifier by that user')
+    }
+    return this.batch(this.likersOf(post.likes, user), batch, LIKE_BATCH_SIZE)
   }
 
   async savePost(postIdentifier: string): Promise<MessageResponse> {
@@ -1286,6 +1316,25 @@ export class StatefulStubbedAPI implements PositiveOnlySocialAPI {
     }
     comment.likes.delete(user.id)
     return { message: 'Comment unliked' }
+  }
+
+  async getCommentLikers(
+    postIdentifier: string,
+    commentThreadIdentifier: string,
+    commentIdentifier: string,
+    batch: number,
+  ): Promise<UserSearchResult[]> {
+    const user = this.requireUser()
+    const thread = this.commentThreads.find(
+      (t) => t.threadIdentifier === commentThreadIdentifier && t.postId === postIdentifier,
+    )
+    const comment = thread?.comments.find((c) => c.commentIdentifier === commentIdentifier)
+    // Owner-only in the same way getPostLikers is — owning the post is not
+    // owning the comment.
+    if (!comment || comment.authorId !== user.id) {
+      throw new ApiError(400, 'No comment with that identifier by that user')
+    }
+    return this.batch(this.likersOf(comment.likes, user), batch, LIKE_BATCH_SIZE)
   }
 
   async deleteComment(

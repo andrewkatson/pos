@@ -54,6 +54,7 @@ class StatefulStubbedAPI : PositiveOnlySocialAPI {
     // Constants from backend
     private val POST_BATCH_SIZE = 10
     private val COMMENT_BATCH_SIZE = 10
+    private val LIKE_BATCH_SIZE = 10
     private val MAX_BEFORE_HIDING_POST = 5
 
     // ============================================================================================
@@ -814,6 +815,20 @@ class StatefulStubbedAPI : PositiveOnlySocialAPI {
         return error(404, "Post not liked yet")
     }
 
+    /**
+     * Who liked one of the caller's own posts, newest like first (issue #478).
+     * Owner-only: somebody else's post is reported exactly like a missing one,
+     * so the stub can't be used to discover whose post an identifier names.
+     */
+    override suspend fun getPostLikers(token: String, postId: String, batch: Int): Response<List<User>> {
+        val user = getAuthorizedUser(token) ?: return errorGeneric(401, "Unauthorized")
+        val post = posts.find { it.postIdentifier == postId }
+        if (post == null || post.authorId != user.id) {
+            return errorGeneric(400, "No post with that identifier by that user")
+        }
+        return Response.success(likerBatch(post.likes, user, batch))
+    }
+
     override suspend fun savePost(token: String, postId: String): Response<GenericResponse> {
         val user = getAuthorizedUser(token) ?: return error(401, "Unauthorized")
         val post = posts.find { it.postIdentifier == postId }
@@ -1088,6 +1103,22 @@ class StatefulStubbedAPI : PositiveOnlySocialAPI {
             return Response.success(GenericResponse("Comment unliked", null))
         }
         return error(404, "Comment not liked yet")
+    }
+
+    /**
+     * Who liked one of the caller's own comments (issue #478). Owner-only in
+     * the same way [getPostLikers] is — owning the post is not owning the
+     * comment.
+     */
+    override suspend fun getCommentLikers(
+        token: String, postId: String, threadId: String, commentId: String, batch: Int
+    ): Response<List<User>> {
+        val user = getAuthorizedUser(token) ?: return errorGeneric(401, "Unauthorized")
+        val comment = findComment(postId, threadId, commentId)
+        if (comment == null || comment.authorId != user.id) {
+            return errorGeneric(400, "No comment with that identifier by that user")
+        }
+        return Response.success(likerBatch(comment.likes, user, batch))
     }
 
     override suspend fun deleteComment(token: String, postId: String, threadId: String, commentId: String): Response<GenericResponse> {
@@ -1624,6 +1655,22 @@ class StatefulStubbedAPI : PositiveOnlySocialAPI {
         if (start >= list.size) return emptyList()
         val end = (start + batchSize).coerceAtMost(list.size)
         return list.subList(start, end)
+    }
+
+    /**
+     * One batch of the accounts behind a set of likes, newest like first
+     * (issue #478). [likerIds] is in the order the likes were added, so
+     * reversing it gives most-recent-first. Blocked accounts drop out in both
+     * directions, matching the backend — which additionally hides shadow-banned
+     * and cross-age-band likers, states this stub does not model.
+     */
+    private fun likerBatch(likerIds: List<String>, viewer: UserMock, batch: Int): List<User> {
+        val likers = likerIds
+            .reversed()
+            .mapNotNull { id -> users.find { it.id == id } }
+            .filter { !viewer.blocked.contains(it.id) && !viewer.blockedBy.contains(it.id) }
+            .map { User(it.username, it.isVerified, approvedAvatarFor(it.id), approvedAvatarFor(it.id)) }
+        return getBatch(likers, batch, LIKE_BATCH_SIZE)
     }
 
     private fun findComment(postId: String, threadId: String, commentId: String): CommentMock? {

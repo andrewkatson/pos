@@ -101,6 +101,10 @@ export interface PositiveOnlySocialAPI {
   retractReportPost(postIdentifier: string): Promise<MessageResponse>
   likePost(postIdentifier: string): Promise<MessageResponse>
   unlikePost(postIdentifier: string): Promise<MessageResponse>
+  /** Who liked one of the signed-in user's own posts, newest like first,
+   * batched (issue #478). Owner-only: asking about somebody else's post is
+   * answered exactly like asking about one that does not exist. */
+  getPostLikers(postIdentifier: string, batch: number): Promise<UserSearchResult[]>
   /** Bookmark a post so it appears on the Saved Posts screen (issue #193). */
   savePost(postIdentifier: string): Promise<MessageResponse>
   unsavePost(postIdentifier: string): Promise<MessageResponse>
@@ -159,6 +163,14 @@ export interface PositiveOnlySocialAPI {
     commentThreadIdentifier: string,
     commentIdentifier: string,
   ): Promise<MessageResponse>
+  /** Who liked one of the signed-in user's own comments, newest like first,
+   * batched (issue #478). Owner-only, like getPostLikers. */
+  getCommentLikers(
+    postIdentifier: string,
+    commentThreadIdentifier: string,
+    commentIdentifier: string,
+    batch: number,
+  ): Promise<UserSearchResult[]>
   deleteComment(
     postIdentifier: string,
     commentThreadIdentifier: string,

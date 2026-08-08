@@ -29,7 +29,7 @@ from .classifiers.classifier_constants import REASON_PHRASES, GENERIC_REASON_COD
 from .classifiers.prefilter import prefilter_text
 from .constants import Patterns, Params, POST_BATCH_SIZE, MAX_BEFORE_HIDING_POST, MAX_BEFORE_HIDING_COMMENT, \
     MAX_CAPTION_LENGTH, MAX_COMMENT_LENGTH, MAX_BIO_LENGTH, \
-    COMMENT_BATCH_SIZE, Fields, COMMENT_THREAD_BATCH_SIZE, \
+    COMMENT_BATCH_SIZE, Fields, COMMENT_THREAD_BATCH_SIZE, LIKE_BATCH_SIZE, \
     VERIFY_RESET_MAX_ATTEMPTS, VERIFY_RESET_LOCKOUT_MINUTES, \
     ACCOUNT_BANNED, EMAIL_NOT_VERIFIED, EMAIL_VERIFICATION_TOKEN_HOURS, BAN_TYPE_OUTRIGHT, \
     HIDDEN_REASON_NONE, HIDDEN_REASON_REPORTS, HIDDEN_REASON_CLASSIFIER, \
@@ -2048,6 +2048,71 @@ def unlike_post(request, post_identifier):
         return log_and_return_json("unlike_post", {'error': "No post with that identifier"}, status=400)
 
 
+def _liker_batch(likes, viewer, batch):
+    """One batch of the accounts behind a set of like rows, newest like first.
+
+    `likes` is a PostLike/CommentLike QuerySet already narrowed to a single post
+    or comment. The accounts are run through searchable_users and the block
+    filters for the same reasons the follower/following lists are (issue #398):
+    a cross-age-band account must not be revealed at all, a shadow-banned one is
+    hidden from everyone but itself, and a blocked account (either direction)
+    stays out of the blocker's listings. So this list can be shorter than the
+    like count shown on the post — the count is the raw total, and a hidden
+    liker's like still counts toward it, exactly as their content still exists
+    while being invisible.
+
+    Ordering is by the like row's auto-increment id descending, i.e. most recent
+    like first. PostLike/CommentLike carry no timestamp, but the id is monotonic
+    with insertion order and unique per (user, target), so it is both the right
+    order and a fully deterministic one — batches can't drop or repeat a row the
+    way a non-unique sort key would.
+    """
+    like_id = likes.filter(user=OuterRef('pk')).values('id')[:1]
+    likers = PositiveOnlySocialUser.objects.filter(pk__in=likes.values('user_id'))
+    likers = searchable_users(likers, viewer).exclude(
+        pk__in=viewer.blocked.all()).exclude(pk__in=viewer.blocked_by.all())
+    likers = likers.annotate(like_id=Subquery(like_id)).order_by('-like_id')
+
+    return [
+        {
+            Fields.username: user.username,
+            Fields.identity_is_verified: user.identity_is_verified,
+            **_author_avatar_fields(user),
+        }
+        for user in get_queryset_batch(likers, batch, LIKE_BATCH_SIZE)
+    ]
+
+
+@api_login_required
+@ratelimit(key='user', rate='60/m', block=True)
+@require_GET
+def get_post_likers(request, post_identifier, batch):
+    """The users who liked one of the requester's own posts (issue #478).
+
+    Owner-only: the lookup is scoped to request.user's posts, so asking for
+    somebody else's post is indistinguishable from asking for one that does not
+    exist. Who liked a post is the author's information — a third party sees
+    only the count.
+    """
+    logger.info("Endpoint get_post_likers invoked by IP or User")
+    if not is_valid_pattern(post_identifier, Patterns.uuid4):
+        return log_and_return_json("get_post_likers", {'error': f"Invalid fields {Fields.post_identifier}"}, status=400)
+    if batch < 0:
+        return log_and_return_json("get_post_likers", {'error': "Invalid batch parameter"}, status=400)
+
+    try:
+        post = request.user.post_set.get(post_identifier=post_identifier)
+    except Post.DoesNotExist:
+        logger.warning(f"Get post likers failed: Post {post_identifier} not found for user_id: {request.user.id}")
+        return log_and_return_json("get_post_likers",
+                                   {'error': "No post with that identifier by that user"}, status=400)
+
+    users_data = _liker_batch(PostLike.objects.filter(post=post), request.user, batch)
+    logger.info(f"Get post likers successful: post_id: {post_identifier} count: {len(users_data)} "
+                f"for user_id: {request.user.id}")
+    return log_and_return_json("get_post_likers", users_data, safe=False)
+
+
 @csrf_exempt
 @api_login_required
 @ratelimit(key='user', rate='60/m', block=True)
@@ -2906,6 +2971,48 @@ def unlike_comment(request, post_identifier, comment_thread_identifier, comment_
 
     logger.info(f"Unlike comment successful: comment_id: {comment_identifier} for user_id: {request.user.id}")
     return log_and_return_json("unlike_comment", {'message': 'Comment unliked'})
+
+
+@api_login_required
+@ratelimit(key='user', rate='60/m', block=True)
+@require_GET
+def get_comment_likers(request, post_identifier, comment_thread_identifier, comment_identifier, batch):
+    """The users who liked one of the requester's own comments (issue #478).
+
+    Owner-only in the same way get_post_likers is: the lookup is scoped to
+    request.user's comments, so somebody else's comment is reported exactly like
+    a nonexistent one. No audience or age-band check is needed on top of that —
+    the caller authored the comment, and the author is always admitted to their
+    own content.
+    """
+    logger.info("Endpoint get_comment_likers invoked by IP or User")
+    invalid_fields = []
+    if not is_valid_pattern(post_identifier, Patterns.uuid4):
+        invalid_fields.append(Params.post_identifier)
+    if not is_valid_pattern(comment_thread_identifier, Patterns.uuid4):
+        invalid_fields.append(Params.comment_thread_identifier)
+    if not is_valid_pattern(comment_identifier, Patterns.uuid4):
+        invalid_fields.append(Params.comment_identifier)
+    if len(invalid_fields) > 0:
+        return log_and_return_json("get_comment_likers", {'error': f"Invalid fields {invalid_fields}"}, status=400)
+    if batch < 0:
+        return log_and_return_json("get_comment_likers", {'error': "Invalid batch parameter"}, status=400)
+
+    try:
+        comment = request.user.comment_set.get(
+            comment_identifier=comment_identifier,
+            comment_thread__comment_thread_identifier=comment_thread_identifier,
+            comment_thread__post__post_identifier=post_identifier
+        )
+    except Comment.DoesNotExist:
+        logger.warning(f"Get comment likers failed: Comment {comment_identifier} not found for user_id: {request.user.id}")
+        return log_and_return_json("get_comment_likers",
+                                   {'error': "No comment with that identifier by that user"}, status=400)
+
+    users_data = _liker_batch(CommentLike.objects.filter(comment=comment), request.user, batch)
+    logger.info(f"Get comment likers successful: comment_id: {comment_identifier} count: {len(users_data)} "
+                f"for user_id: {request.user.id}")
+    return log_and_return_json("get_comment_likers", users_data, safe=False)
 
 
 @csrf_exempt

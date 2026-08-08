@@ -16,6 +16,7 @@ import CharacterCounter from '../components/CharacterCounter'
 import { CaptionText } from '../components/CaptionText'
 import Avatar from '../components/Avatar'
 import FormattedText from '../components/FormattedText'
+import LikesModal, { type LikesTarget } from '../components/LikesModal'
 import { captionFontClass, TEXT_SIZE_OPTIONS } from '../components/textFormatting'
 import {
   applyStyleToRange,
@@ -173,6 +174,9 @@ function PostDetailView({ postId }: { postId: string }) {
   // item a retract confirmation is showing for (issues #304, #176).
   const [menuTarget, setMenuTarget] = useState<MenuTarget | null>(null)
   const [retractTarget, setRetractTarget] = useState<ReportTarget | null>(null)
+  // Whose likes the "who liked this" dialog is showing, or null when closed
+  // (issue #478). Only ever set from your own post or comment.
+  const [likesTarget, setLikesTarget] = useState<LikesTarget | null>(null)
   const [errorMessage, setErrorMessage] = useState<string | null>(null)
   // Shown only when Share fell back to copying the link (no OS share sheet), so
   // the user knows the link is on their clipboard (issue #34).
@@ -636,7 +640,20 @@ function PostDetailView({ postId }: { postId: string }) {
               {postLiked ? '♥' : '♡'}
             </button>
           )}
-          <span className="detail-likes">{postLikeCount} likes</span>
+          {/* Tapping the count lists who liked it, but only on your own post —
+              who liked someone else's is between them and their likers (#478). */}
+          {isOwnPost ? (
+            <button
+              type="button"
+              className="detail-likes detail-likes--button"
+              aria-haspopup="dialog"
+              onClick={() => setLikesTarget({ kind: 'post', postIdentifier: postId })}
+            >
+              {postLikeCount} likes
+            </button>
+          ) : (
+            <span className="detail-likes">{postLikeCount} likes</span>
+          )}
           {postReported && (
             <span className="flag-icon" aria-label="Reported">
               ⚑
@@ -748,6 +765,14 @@ function PostDetailView({ postId }: { postId: string }) {
                     isCollapsed={collapsedIds.has(root.id)}
                     onToggleCollapse={() => toggleCollapsed(root.id)}
                     onToggleLike={() => toggleCommentLike(root)}
+                    onOpenLikes={() =>
+                      setLikesTarget({
+                        kind: 'comment',
+                        postIdentifier: postId,
+                        commentThreadIdentifier: root.threadId,
+                        commentIdentifier: root.id,
+                      })
+                    }
                     onMenu={() => setMenuTarget({ type: 'comment', comment: root })}
                     onNavigate={() =>
                       navigate(profilePathFor(root.authorUsername))
@@ -770,6 +795,14 @@ function PostDetailView({ postId }: { postId: string }) {
                         isCollapsed={collapsedIds.has(reply.id)}
                         onToggleCollapse={() => toggleCollapsed(reply.id)}
                         onToggleLike={() => toggleCommentLike(reply)}
+                        onOpenLikes={() =>
+                          setLikesTarget({
+                            kind: 'comment',
+                            postIdentifier: postId,
+                            commentThreadIdentifier: reply.threadId,
+                            commentIdentifier: reply.id,
+                          })
+                        }
                         onMenu={() => setMenuTarget({ type: 'comment', comment: reply })}
                         onNavigate={() =>
                           navigate(profilePathFor(reply.authorUsername))
@@ -903,6 +936,10 @@ function PostDetailView({ postId }: { postId: string }) {
             </div>
           </div>
         </div>
+      )}
+
+      {likesTarget && (
+        <LikesModal target={likesTarget} onClose={() => setLikesTarget(null)} />
       )}
 
       {menuTarget && (
@@ -1089,6 +1126,9 @@ interface CommentRowProps {
   isCollapsed: boolean
   onToggleCollapse: () => void
   onToggleLike: () => void
+  /** Opens "who liked this comment" (issue #478). Wired only for your own
+   * comments — the backend answers for nobody else's. */
+  onOpenLikes: () => void
   onMenu: () => void
   onNavigate: () => void
 }
@@ -1098,6 +1138,7 @@ function CommentRow({
   isCollapsed,
   onToggleCollapse,
   onToggleLike,
+  onOpenLikes,
   onMenu,
   onNavigate,
 }: CommentRowProps) {
@@ -1178,7 +1219,21 @@ function CommentRow({
               {comment.isLiked ? '♥' : '♡'}
             </button>
           )}
-          <span>{comment.likeCount} likes</span>
+          {/* Same rule as the post's count: tappable only on your own comment
+              (issue #478). */}
+          {comment.isOwn ? (
+            <button
+              type="button"
+              className="comment-row__likes"
+              aria-label={`${comment.likeCount} ${comment.likeCount === 1 ? 'like' : 'likes'}, see who liked this comment`}
+              aria-haspopup="dialog"
+              onClick={onOpenLikes}
+            >
+              {comment.likeCount} likes
+            </button>
+          ) : (
+            <span>{comment.likeCount} likes</span>
+          )}
           {comment.isReported && (
             <span className="flag-icon" aria-label="Reported">
               ⚑

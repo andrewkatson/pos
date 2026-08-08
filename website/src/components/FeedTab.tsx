@@ -53,7 +53,7 @@ function FeedTab() {
   const [isLoading, setIsLoading] = useState(true)
   const [errorMessage, setErrorMessage] = useState<string | null>(null)
 
-  const { stateFor, toggleLike, toggleSave, openMenu, dialogs } = usePostActions({
+  const { stateFor, toggleLike, toggleSave, openMenu, openLikes, dialogs } = usePostActions({
     currentUsername: getCurrentUsername(),
     // Deleting from the feed drops the row rather than reloading the whole feed,
     // which would reshuffle the weighted ordering under the user (issue #267).
@@ -225,6 +225,7 @@ function FeedTab() {
                 onToggleLike={toggleLike}
                 onToggleSave={toggleSave}
                 onOpenMenu={openMenu}
+                onOpenLikes={openLikes}
                 onOpenPost={p => navigate(`/post/${p.post_identifier}`)}
                 showDetails
               />

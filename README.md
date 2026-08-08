@@ -84,6 +84,36 @@ advertises comments the viewer would not be shown.
 
 Deleting a post from a list removes just that row; the list is not reloaded,
 which would otherwise reshuffle the weighted feed ordering under the user.
+
+### Who liked this (issue #478)
+
+Tapping the **like count** on one of your **own** posts or comments opens a
+scrollable dialog listing everyone who liked it, newest like first, each row a
+tap-through to that user's profile. On anyone else's post or comment the count is
+shown but is not tappable: who liked a piece of content is its author's
+information, and a third party only ever sees the number.
+
+The endpoints are `GET /posts/<post_identifier>/likes/<batch>/` and
+`GET /posts/<post_identifier>/threads/<thread_identifier>/comments/<comment_identifier>/likes/<batch>/`.
+Both scope the lookup to the caller's own posts/comments, so asking about
+somebody else's is answered exactly like asking about one that does not exist —
+there is no oracle for whose content an identifier names. Owning the post is not
+owning the comment: only a comment's own author may list its likers.
+
+Likers arrive a batch at a time (`LIKE_BATCH_SIZE`) rather than all at once, so a
+post with thousands of likes costs one screenful of rows to open; the clients
+append the next batch on demand. Ordering is by the like row's auto-increment id
+descending — `PostLike`/`CommentLike` carry no timestamp, but the id is monotonic
+with insertion order and unique per (user, target), so batches can't drop or
+repeat a row.
+
+The list runs through `searchable_users` and the block filters for the same
+reasons the follower/following lists do: a cross-age-band account must not be
+revealed at all, a shadow-banned one stays hidden from everyone but itself, and a
+blocked account (either direction) stays out of the blocker's listings. So the
+list can be shorter than the like count shown on the post — the count is the raw
+total, and a hidden liker's like still counts toward it, exactly as their content
+still exists while being invisible.
 ## Hashtags (#tags)
 
 Captions can carry `#hashtags` (issue #379). When a post is created, the

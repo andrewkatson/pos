@@ -12,6 +12,7 @@ import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material.icons.filled.FavoriteBorder
 import androidx.compose.material.icons.filled.Flag
 import androidx.compose.material.icons.filled.MoreHoriz
+import androidx.compose.foundation.clickable
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Icon
@@ -28,6 +29,9 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import com.example.positiveonlysocial.data.model.Post
 import com.example.positiveonlysocial.models.viewmodels.PostListActions
+import androidx.compose.ui.platform.testTag
+import androidx.navigation.NavController
+import com.example.positiveonlysocial.models.viewmodels.LikesTarget
 import com.example.positiveonlysocial.util.ShareLinks
 
 /**
@@ -46,6 +50,9 @@ import com.example.positiveonlysocial.util.ShareLinks
  * @param onOpenComments when non-null, a comment-count control is shown that
  * opens the post (issue #249). The square profile-grid tiles pass null — there's
  * no room for it there.
+ * @param onOpenLikes when non-null, the like count on the signed-in user's *own*
+ * post opens "who liked this" (issue #478). Never wired on anyone else's post —
+ * the backend answers for nobody else's.
  */
 @Composable
 fun PostActionBar(
@@ -55,7 +62,8 @@ fun PostActionBar(
     onOpenMenu: () -> Unit,
     modifier: Modifier = Modifier,
     compact: Boolean = false,
-    onOpenComments: (() -> Unit)? = null
+    onOpenComments: (() -> Unit)? = null,
+    onOpenLikes: (() -> Unit)? = null
 ) {
     val buttonSize = if (compact) 32.dp else 48.dp
     val iconSize = if (compact) 16.dp else 24.dp
@@ -84,11 +92,21 @@ fun PostActionBar(
             }
         }
 
-        Text(
-            text = "${post.likeCount ?: 0}",
-            style = if (compact) MaterialTheme.typography.labelSmall
+        // Tapping the count lists who liked it, but only on your own post — who
+        // liked someone else's is between them and their likers (issue #478).
+        val likeCountStyle = if (compact) MaterialTheme.typography.labelSmall
             else MaterialTheme.typography.bodyMedium
-        )
+        if (isOwnPost && onOpenLikes != null) {
+            Text(
+                text = "${post.likeCount ?: 0}",
+                style = likeCountStyle,
+                modifier = Modifier
+                    .clickable { onOpenLikes() }
+                    .testTag("postLikeCount")
+            )
+        } else {
+            Text(text = "${post.likeCount ?: 0}", style = likeCountStyle)
+        }
 
         // How many comments the post has; tapping it opens the post so they can
         // be read (issue #249).
@@ -142,7 +160,7 @@ fun PostActionBar(
  * Reuses the same dialogs the post detail screen uses, so the two stay identical.
  */
 @Composable
-fun PostActionDialogs(actions: PostListActions) {
+fun PostActionDialogs(actions: PostListActions, navController: NavController) {
     // Used to launch the system share sheet from the action menu (issue #34).
     val context = LocalContext.current
 
@@ -150,7 +168,19 @@ fun PostActionDialogs(actions: PostListActions) {
     val postForAction by actions.postForAction.collectAsState()
     val postToReport by actions.postToReport.collectAsState()
     val postToRetract by actions.postToRetract.collectAsState()
+    val postForLikes by actions.postForLikes.collectAsState()
     val alertMessage by actions.alertMessage.collectAsState()
+
+    // "Who liked this" for one of your own posts (issue #478).
+    postForLikes?.let { post ->
+        LikesDialog(
+            target = LikesTarget.Post(post.postIdentifier),
+            navController = navController,
+            api = actions.api,
+            keychainHelper = actions.keychainHelper,
+            onDismiss = { actions.setPostForLikes(null) }
+        )
+    }
 
     postForAction?.let { post ->
         ActionSheetDialog(

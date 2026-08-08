@@ -13,6 +13,9 @@ struct PostDetailView: View {
     // Kept to build the ProfileView pushed when an author's name is tapped.
     private let api: Networking
     private let keychainHelper: KeychainHelperProtocol
+
+    // Kept so the "who liked this" sheet can name the post (issue #478).
+    private let postIdentifier: String
     
     // Set when a comment author's name is tapped to push their profile.
     // Comment rows navigate programmatically (rather than via NavigationLink)
@@ -23,6 +26,10 @@ struct PostDetailView: View {
     // Set when a #hashtag in the caption is tapped, to push its tag feed (#379).
     @State private var selectedTag: TagRoute? = nil
 
+    // Set when the like count on the signed-in user's own post or comment is
+    // tapped, to present "who liked this" as a sheet (issue #478).
+    @State private var likesTarget: LikesTarget? = nil
+
     // Selects the Profile tab when the tapped name is the signed-in user's own,
     // instead of pushing a second copy of their profile (issue #347).
     @Environment(\.selectTab) private var selectTab
@@ -32,6 +39,7 @@ struct PostDetailView: View {
         _viewModel = StateObject(wrappedValue: PostDetailViewModel(postIdentifier: postIdentifier, api: api, keychainHelper: keychainHelper))
         self.api = api
         self.keychainHelper = keychainHelper
+        self.postIdentifier = postIdentifier
     }
     
     var body: some View {
@@ -82,9 +90,24 @@ struct PostDetailView: View {
                                 }
                                 .accessibilityLabel(post.isLiked ? "Unlike post" : "Like post")
                             }
-                            Text("\(post.likeCount) likes")
-                                .font(.headline)
+                            // Tapping the count lists who liked it, but only on
+                            // your own post — who liked someone else's is
+                            // between them and their likers (issue #478).
+                            if viewModel.isOwnPost {
+                                Button {
+                                    likesTarget = .post(postIdentifier: postIdentifier)
+                                } label: {
+                                    Text("\(post.likeCount) likes")
+                                        .font(.headline)
+                                }
+                                .buttonStyle(.plain)
+                                .accessibilityLabel("\(post.likeCount) likes, see who liked this")
                                 .accessibilityIdentifier("PostLikesText")
+                            } else {
+                                Text("\(post.likeCount) likes")
+                                    .font(.headline)
+                                    .accessibilityIdentifier("PostLikesText")
+                            }
                             if viewModel.isPostReported {
                                 Image(systemName: "flag.fill")
                                     .foregroundColor(.red)
@@ -188,8 +211,14 @@ struct PostDetailView: View {
                                 } else {
                                     profileUser = User(username: username, identityIsVerified: false)
                                 }
+                            }, onOpenLikes: { comment in
+                                likesTarget = .comment(
+                                    postIdentifier: postIdentifier,
+                                    commentThreadIdentifier: comment.threadId,
+                                    commentIdentifier: comment.id
+                                )
                             })
-                           
+
                             .padding(.horizontal)
                         }
                     }
@@ -209,6 +238,11 @@ struct PostDetailView: View {
             if let user = profileUser {
                 ProfileView(user: user, api: api, keychainHelper: keychainHelper)
             }
+        }
+        // "Who liked this" for your own post or comment (issue #478). A sheet
+        // rather than a push, so it dismisses back to the post you were reading.
+        .sheet(item: $likesTarget) { target in
+            LikesView(target: target, api: api, keychainHelper: keychainHelper)
         }
         // Pushes the tag feed when a #hashtag in the caption is tapped (#379),
         // state-driven like the profile push above.

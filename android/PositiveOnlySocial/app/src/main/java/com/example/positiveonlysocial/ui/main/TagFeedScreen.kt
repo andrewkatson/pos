@@ -108,7 +108,7 @@ fun TagFeedScreen(
                     }
                 }
 
-                PostActionDialogs(postActions)
+                PostActionDialogs(postActions, navController)
             }
         }
     }

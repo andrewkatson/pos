@@ -556,7 +556,8 @@ fun ProfileBody(
                                     isOwnPost = post.authorUsername == currentUsername,
                                     onToggleLike = { postActions.toggleLike(post) },
                                     onOpenMenu = { postActions.setPostForAction(post) },
-                                    compact = true
+                                    compact = true,
+                                    onOpenLikes = { postActions.setPostForLikes(post) }
                                 )
                             }
 
@@ -573,7 +574,7 @@ fun ProfileBody(
     }
 
     // One set of confirmations for the whole grid.
-    PostActionDialogs(postActions)
+    PostActionDialogs(postActions, navController)
 }
 
 @Composable

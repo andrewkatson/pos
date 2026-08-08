@@ -5,6 +5,9 @@ struct CommentThreadView: View {
        @EnvironmentObject var viewModel: PostDetailViewModel
        let thread: CommentThreadViewData
        let onAuthorTap: (String) -> Void
+       /// Opens "who liked this comment" for one of the signed-in user's own
+       /// comments (issue #478). The owning screen presents the sheet.
+       let onOpenLikes: (CommentViewData) -> Void
 
        /// Hide every comment that sits below the first collapsed one in the
        /// thread, so tapping a comment's header folds away the comments under it
@@ -40,6 +43,9 @@ struct CommentThreadView: View {
                                   },
                                   onAuthorTap: {
                                       onAuthorTap(rootComment.authorUsername)
+                                  },
+                                  onOpenLikes: {
+                                      onOpenLikes(rootComment)
                                   })
                    // Tapping "Reply" opens the shared composer sheet, the same
                    // dialog used for a new comment on the post.
@@ -76,6 +82,9 @@ struct CommentThreadView: View {
                                           },
                                           onAuthorTap: {
                                               onAuthorTap(reply.authorUsername)
+                                          },
+                                          onOpenLikes: {
+                                              onOpenLikes(reply)
                                           })
                        }
                    }

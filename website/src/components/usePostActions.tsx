@@ -2,6 +2,7 @@ import { useState, type ReactNode } from 'react'
 import { apiClient } from '../api/client'
 import type { FeedPost } from '../api/types'
 import { postShareUrl, shareLink } from '../utils/shareLink'
+import LikesModal from './LikesModal'
 
 /** Anything can be thrown in JS, so never assume the caught value is an Error:
  * reading `.message` off a string or null would lose the text or throw again.
@@ -40,6 +41,9 @@ type Dialog =
   | { kind: 'report'; post: FeedPost }
   | { kind: 'retract'; post: FeedPost }
   | { kind: 'delete'; post: FeedPost }
+  // Who liked one of your own posts (issue #478). Only reachable from your own
+  // rows: the count is inert on everyone else's, and the backend refuses them.
+  | { kind: 'likes'; post: FeedPost }
   // Shown only when Share fell back to copying the link (no OS share sheet), so
   // the user gets confirmation the link is now on their clipboard (issue #34).
   | { kind: 'shareCopied' }
@@ -78,6 +82,7 @@ export function usePostActions({
   toggleLike: (post: FeedPost) => void
   toggleSave: (post: FeedPost) => void
   openMenu: (post: FeedPost) => void
+  openLikes: (post: FeedPost) => void
   dialogs: ReactNode
 } {
   const [overrides, setOverrides] = useState<Record<string, PostOverride>>({})
@@ -258,6 +263,13 @@ export function usePostActions({
         </div>
       )}
 
+      {dialog?.kind === 'likes' && (
+        <LikesModal
+          target={{ kind: 'post', postIdentifier: dialog.post.post_identifier }}
+          onClose={() => setDialog(null)}
+        />
+      )}
+
       {dialog?.kind === 'shareCopied' && (
         <div className="modal-overlay">
           <div className="modal" role="dialog" aria-modal="true" aria-label="Link copied">
@@ -358,6 +370,7 @@ export function usePostActions({
     toggleLike: post => void toggleLikeAsync(post),
     toggleSave: post => void toggleSaveAsync(post),
     openMenu: post => setDialog({ kind: 'menu', post }),
+    openLikes: post => setDialog({ kind: 'likes', post }),
     dialogs,
   }
 }
