@@ -184,6 +184,7 @@ class GetProfileDetailsTests(PositiveOnlySocialTestCase):
         self.assertEqual(data[Fields.following_count], 0)
         # A blocked requester cannot read the blocker's bio either (#380).
         self.assertEqual(data[Fields.bio], "")
+
     def test_profile_details_include_avatar_blurhash(self):
         """The header avatar's BlurHash (issue #460) is served with its URLs so
         the clients can blur it in while the photo loads."""

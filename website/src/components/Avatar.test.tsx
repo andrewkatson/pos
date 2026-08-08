@@ -28,6 +28,13 @@ describe('Avatar', () => {
     fireEvent.error(photo(container)!)
     expect(photo(container)!.getAttribute('src')).toBe('http://original/a.jpg')
     expect(blur(container)).not.toBeNull()
+
+    // And once the original fails too, the blur stays as the final fallback
+    // rather than dropping to the glyph — it's a truer stand-in for the photo.
+    fireEvent.error(photo(container)!)
+    expect(photo(container)).toBeNull()
+    expect(blur(container)).not.toBeNull()
+    expect(container.querySelector('.avatar')?.textContent).not.toContain('◍')
   })
 
   it('omits the placeholder when the user has no BlurHash', () => {

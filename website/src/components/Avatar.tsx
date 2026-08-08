@@ -23,11 +23,12 @@ interface AvatarProps {
  * the compressed URL first, then the full-resolution original if that fails to
  * load (the compressed copy is produced by an async Lambda and can 404 briefly
  * — see issues #252/#254), and finally the neutral `◍` placeholder glyph when
- * there is no photo at all or both URLs fail.
+ * there is no photo at all (or both URLs fail and there is no BlurHash).
  *
  * While the photo loads, its BlurHash preview (issue #460) sits behind it and is
  * shown instead of the flat placeholder circle — the same treatment
- * PostThumbnail gives post images — and stays put if the photo never loads.
+ * PostThumbnail gives post images — and stays put if the photo never loads,
+ * including after both URLs have failed.
  *
  * The inner view is keyed on the backing URLs, so changing them (a new upload, a
  * refreshed signed URL, or the compressed copy becoming available) remounts it
@@ -49,6 +50,18 @@ function AvatarImage({ src, originalSrc, blurhash, size = 'sm', className }: Ava
   const classes = ['avatar', `avatar--${size}`, className].filter(Boolean).join(' ')
 
   if (!resolved || failed) {
+    // Both URLs failed. Keep the blurred preview rather than dropping to the
+    // glyph — it is still a truer stand-in for the photo, and it matches what
+    // PostThumbnail (and the iOS/Android avatars) leave on screen when an image
+    // never loads. A user with no photo at all has no hash, so they get the
+    // glyph as before.
+    if (failed && blurhash) {
+      return (
+        <span className={classes} aria-hidden="true">
+          <BlurhashCanvas hash={blurhash} className="avatar__blur" />
+        </span>
+      )
+    }
     return (
       <span className={classes} aria-hidden="true">
         ◍

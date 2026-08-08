@@ -1,5 +1,6 @@
 package com.example.positiveonlysocial.ui.main
 
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.size
@@ -60,7 +61,29 @@ fun ProfileAvatar(
 
     val model = if (useOriginal) originalImageUrl else imageUrl
 
+    // Shown while the photo loads (and kept as the error image so an avatar whose
+    // compressed and original URLs both fail isn't left blank): the decoded
+    // BlurHash when the user has one (issue #460), otherwise the same flat gray
+    // circle as the no-photo case. Never null, mirroring PostImageWithFallback.
+    val blurBitmap = remember(blurHash) { BlurHashDecoder.decode(blurHash)?.asImageBitmap() }
+    val placeholderPainter = remember(blurBitmap) {
+        blurBitmap?.let { BitmapPainter(it) } ?: ColorPainter(Color.Gray)
+    }
+
     if (model == null || failed) {
+        // Both URLs failed: keep the blurred preview rather than dropping to the
+        // person icon — it is still a truer stand-in for the photo, and it is
+        // what the loading state was already showing. A user with no photo at
+        // all has no hash, so they get the neutral circle as before.
+        if (failed && blurBitmap != null) {
+            Image(
+                bitmap = blurBitmap,
+                contentDescription = contentDescription,
+                modifier = circle,
+                contentScale = ContentScale.Crop
+            )
+            return
+        }
         Box(
             modifier = circle.background(Color.Gray),
             contentAlignment = Alignment.Center
@@ -73,15 +96,6 @@ fun ProfileAvatar(
             )
         }
         return
-    }
-
-    // Shown while the photo loads (and kept as the error image so an avatar whose
-    // compressed and original URLs both fail isn't left blank): the decoded
-    // BlurHash when the user has one (issue #460), otherwise the same flat gray
-    // circle as the no-photo case. Never null, mirroring PostImageWithFallback.
-    val blurBitmap = remember(blurHash) { BlurHashDecoder.decode(blurHash)?.asImageBitmap() }
-    val placeholderPainter = remember(blurBitmap) {
-        blurBitmap?.let { BitmapPainter(it) } ?: ColorPainter(Color.Gray)
     }
 
     AsyncImage(
