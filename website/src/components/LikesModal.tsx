@@ -83,6 +83,11 @@ function LikesModal({ target, onClose }: LikesModalProps) {
       const myRequest = (requestId.current += 1)
       const isCurrent = () => isMounted.current && myRequest === requestId.current
 
+      // The mount fetch is deferred by a microtask, so a rapid open→close can
+      // land here after unmount. Bail before touching state or the network
+      // rather than firing a request whose result nobody will read.
+      if (!isCurrent()) return
+
       // Owned here rather than by the caller so every entry point — the mount
       // effect, a target change, "Load more" — shows the spinner and drops the
       // previous error. A replace also clears the list up front, so a switch to
