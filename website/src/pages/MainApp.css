@@ -826,6 +826,51 @@
   font-weight: 600;
 }
 
+/* ---- Anchored menu (the three-dots options menus, issue #477) ---- */
+
+/* Transparent: the menu is a lightweight popover, not a modal, so the page
+   stays visible behind it. It only exists to catch the dismissing click. */
+.anchored-menu__backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 110;
+}
+
+.anchored-menu {
+  position: fixed;
+  z-index: 111;
+  min-width: 11rem;
+  max-width: calc(100vw - 1rem);
+  background: #1a1a1a;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: 12px;
+  padding: 0.35rem;
+  display: flex;
+  flex-direction: column;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.55);
+}
+
+.anchored-menu__item {
+  background: none;
+  border: none;
+  border-radius: 8px;
+  color: #ffffff;
+  cursor: pointer;
+  font-size: 0.95rem;
+  padding: 0.6rem 0.9rem;
+  text-align: left;
+  white-space: nowrap;
+}
+
+.anchored-menu__item:hover,
+.anchored-menu__item:focus-visible {
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.anchored-menu__item--danger {
+  color: #ff6b6b;
+}
+
 /* ---- Modal overlay (shared by Settings dialogs) ---- */
 
 .modal-overlay {

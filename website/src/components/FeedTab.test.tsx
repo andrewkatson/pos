@@ -260,7 +260,8 @@ test('deleting your own post removes it without reloading the feed', async () =>
   renderTab()
 
   await userEvent.click(await screen.findByRole('button', { name: 'Options for post by me' }))
-  await userEvent.click(screen.getByRole('button', { name: 'Delete' }))
+  // The menu row, then the confirmation modal's button.
+  await userEvent.click(screen.getByRole('menuitem', { name: 'Delete' }))
   await userEvent.click(screen.getByRole('button', { name: 'Delete' }))
 
   await waitFor(() => expect(mockDeletePost).toHaveBeenCalledWith('p1'))

@@ -70,6 +70,16 @@ profile grid, and the Feed — without opening the post first:
 - **Delete**, offered only on your own posts.
 - **Share**, offered on every post (see [Sharing](#sharing)).
 
+Save, Report, Retract report, Delete and Share live behind a **three-dots (⋯)
+options menu** on the post's action row, and the post-detail screen offers the
+same menu for the post and for each comment. The menu opens **anchored to the
+three dots that were tapped** — a popover next to the button, not a dialog in
+the middle or at the top of the screen (issue #477) — so on a long list it is
+obvious which item the options belong to. On mobile a long-press on the post
+image or a comment opens that same menu, still positioned at that item's three
+dots. Confirmations the menu leads to (report reason, retract, delete) remain
+modal dialogs.
+
 Each feed row additionally shows the author, the caption under the photo, how
 long ago the post was made, and a comment count that opens the post when tapped.
 The square profile tiles omit these — there is no room for them. A text-only

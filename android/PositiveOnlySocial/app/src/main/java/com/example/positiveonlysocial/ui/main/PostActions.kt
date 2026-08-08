@@ -1,6 +1,7 @@
 package com.example.positiveonlysocial.ui.main
 
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -46,6 +47,9 @@ import com.example.positiveonlysocial.util.ShareLinks
  * @param onOpenComments when non-null, a comment-count control is shown that
  * opens the post (issue #249). The square profile-grid tiles pass null — there's
  * no room for it there.
+ * @param menu this post's [ActionMenu], rendered in a `Box` with the three-dots
+ * button so the dropdown opens right next to it (issue #477). Callers pass
+ * [PostActionMenu].
  */
 @Composable
 fun PostActionBar(
@@ -55,7 +59,8 @@ fun PostActionBar(
     onOpenMenu: () -> Unit,
     modifier: Modifier = Modifier,
     compact: Boolean = false,
-    onOpenComments: (() -> Unit)? = null
+    onOpenComments: (() -> Unit)? = null,
+    menu: @Composable () -> Unit = {}
 ) {
     val buttonSize = if (compact) 32.dp else 48.dp
     val iconSize = if (compact) 16.dp else 24.dp
@@ -122,52 +127,66 @@ fun PostActionBar(
             )
         }
 
-        IconButton(onClick = onOpenMenu, modifier = Modifier.size(buttonSize)) {
-            Icon(
-                Icons.Default.MoreHoriz,
-                contentDescription = "Options for post by ${post.authorUsername}",
-                modifier = Modifier.size(iconSize)
-            )
+        // The Box is what the dropdown anchors to, so the menu opens next to the
+        // button the user actually tapped rather than mid-screen (issue #477).
+        Box {
+            IconButton(onClick = onOpenMenu, modifier = Modifier.size(buttonSize)) {
+                Icon(
+                    Icons.Default.MoreHoriz,
+                    contentDescription = "Options for post by ${post.authorUsername}",
+                    modifier = Modifier.size(iconSize)
+                )
+            }
+            menu()
         }
     }
 }
 
 /**
- * The confirmations behind [PostActionBar]: the action menu (Delete on your own
- * post, Retract Report when you already reported it, Report otherwise), the
- * report composer, the retract confirmation, and the error alert. Rendered once
- * per list — a list shares one [PostListActions], which holds which post (if any)
- * each dialog is for.
+ * The action menu for one post in a list, anchored to that row's three-dots
+ * button. Rendered once per row, so it takes [expanded] and [isOwn] as plain
+ * values rather than collecting `postForAction` / `currentUsername` itself —
+ * one collector per list, not one per visible row.
+ *
+ * [expanded] is true for the post [PostActionBar]'s button set as the menu
+ * target.
+ */
+@Composable
+fun PostActionMenu(actions: PostListActions, post: Post, expanded: Boolean, isOwn: Boolean) {
+    val context = LocalContext.current
+
+    ActionMenu(
+        expanded = expanded,
+        isOwn = isOwn,
+        isReported = post.isReported,
+        itemLabel = "Post",
+        onDismiss = { actions.setPostForAction(null) },
+        onShare = { ShareLinks.shareText(context, ShareLinks.postUrl(post.postIdentifier)) },
+        onReport = { actions.setPostToReport(post) },
+        onRetract = { actions.setPostToRetract(post) },
+        onDelete = { actions.deletePost(post) },
+        // Save / unsave lives in the 3-dot menu on mobile (issue #412); web has a
+        // dedicated bookmark control.
+        isSaved = post.isSaved == true,
+        onToggleSave = { actions.toggleSave(post) }
+    )
+}
+
+/**
+ * The confirmations behind [PostActionBar]: the report composer, the retract
+ * confirmation, and the error alert. Rendered once per list — a list shares one
+ * [PostListActions], which holds which post (if any) each dialog is for.
+ *
+ * The action menu itself is not here: it's a [PostActionMenu] anchored to each
+ * row's three-dots button (issue #477).
  *
  * Reuses the same dialogs the post detail screen uses, so the two stay identical.
  */
 @Composable
 fun PostActionDialogs(actions: PostListActions) {
-    // Used to launch the system share sheet from the action menu (issue #34).
-    val context = LocalContext.current
-
-    val currentUsername by actions.currentUsername.collectAsState()
-    val postForAction by actions.postForAction.collectAsState()
     val postToReport by actions.postToReport.collectAsState()
     val postToRetract by actions.postToRetract.collectAsState()
     val alertMessage by actions.alertMessage.collectAsState()
-
-    postForAction?.let { post ->
-        ActionSheetDialog(
-            isOwn = post.authorUsername == currentUsername,
-            isReported = post.isReported,
-            itemLabel = "Post",
-            onDismiss = { actions.setPostForAction(null) },
-            onShare = { ShareLinks.shareText(context, ShareLinks.postUrl(post.postIdentifier)) },
-            onReport = { actions.setPostToReport(post) },
-            onRetract = { actions.setPostToRetract(post) },
-            onDelete = { actions.deletePost(post) },
-            // Save / unsave lives in the 3-dot menu on mobile (issue #412); web
-            // has a dedicated bookmark control.
-            isSaved = post.isSaved == true,
-            onToggleSave = { actions.toggleSave(post) }
-        )
-    }
 
     postToRetract?.let { post ->
         RetractReportDialog(
