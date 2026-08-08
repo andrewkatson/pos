@@ -1794,12 +1794,15 @@ class StatefulStubbedAPI : PositiveOnlySocialAPI {
 
     /**
      * One batch of the accounts behind a set of likes, newest like first
-     * (issue #478). [likerIds] is in the order the likes were added, so
-     * reversing it gives most-recent-first. Blocked accounts drop out in both
-     * directions, matching the backend — which additionally hides shadow-banned
-     * and cross-age-band likers, states this stub does not model.
+     * (issue #478). [likerIds] is the `likes` collection of a post or comment,
+     * which `mutableSetOf()` backs with a LinkedHashSet — so it iterates in the
+     * order the likes were added and reversing it gives most-recent-first, the
+     * ordering the backend gets from the like row's auto-increment id. Blocked
+     * accounts drop out in both directions, matching the backend — which
+     * additionally hides shadow-banned and cross-age-band likers, states this
+     * stub does not model.
      */
-    private fun likerBatch(likerIds: List<String>, viewer: UserMock, batch: Int): List<User> {
+    private fun likerBatch(likerIds: Collection<String>, viewer: UserMock, batch: Int): List<User> {
         val likers = likerIds
             .reversed()
             .mapNotNull { id -> users.find { it.id == id } }
