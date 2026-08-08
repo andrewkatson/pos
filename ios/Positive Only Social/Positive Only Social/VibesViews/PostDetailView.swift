@@ -105,6 +105,20 @@ struct PostDetailView: View {
                             }
                             .accessibilityLabel("Post options")
                             .accessibilityIdentifier("PostOptionsButton")
+                            // Anchored here rather than presented from the bottom
+                            // of the screen, so the options appear next to the
+                            // button that opened them (issue #477). The image's
+                            // long-press sets the same flag, so it opens the menu
+                            // at this button too.
+                            .popover(
+                                isPresented: $viewModel.showActionSheetForPost,
+                                attachmentAnchor: .rect(.bounds)
+                            ) {
+                                postMenu
+                                    // Without this a popover becomes a sheet in a
+                                    // compact size class — i.e. all of iPhone.
+                                    .presentationCompactAdaptation(.popover)
+                            }
                         }
                         HStack(alignment: .center, spacing: 6) {
                             // The author's profile photo (issue #7) next to their
@@ -229,65 +243,12 @@ struct PostDetailView: View {
             await Task { await viewModel.refresh() }.value
         }
         // --- Action menus (three-dots button or long-press) ---
-        // The post's menu offers Delete on the user's own post, Report on
-        // everyone else's — or Retract Report when the user already has an
-        // active report against it (issues #304, #176).
-        .confirmationDialog("Post", isPresented: $viewModel.showActionSheetForPost, titleVisibility: .hidden) {
-            // Share is offered for any post — your own and others' (issue #34).
-            Button("Share Post") {
-                viewModel.sharePost()
-            }
-            .accessibilityIdentifier("SharePostActionButton")
-            if viewModel.isOwnPost {
-                Button("Delete Post", role: .destructive) {
-                    viewModel.deletePost()
-                }
-                .accessibilityIdentifier("DeletePostActionButton")
-            } else if viewModel.isPostReported {
-                Button("Retract Report") {
-                    viewModel.showRetractDialogForPost = true
-                }
-                .accessibilityIdentifier("RetractReportPostActionButton")
-            } else {
-                Button("Report Post") {
-                    viewModel.showReportSheetForPost = true
-                }
-                .accessibilityIdentifier("ReportPostActionButton")
-            }
-        }
-        // The comment menu mirrors the post menu: Delete for the user's own
-        // comments, Report / Retract Report for everyone else's.
-        .confirmationDialog(
-            "Comment",
-            isPresented: Binding(
-                get: { viewModel.commentForAction != nil },
-                set: { if !$0 { viewModel.commentForAction = nil } }
-            ),
-            titleVisibility: .hidden,
-            presenting: viewModel.commentForAction
-        ) { comment in
-            // Share is offered for any comment — your own and others' (issue #34).
-            Button("Share Comment") {
-                viewModel.shareComment(comment)
-            }
-            .accessibilityIdentifier("ShareCommentActionButton")
-            if viewModel.isOwnComment(comment) {
-                Button("Delete Comment", role: .destructive) {
-                    viewModel.deleteComment(comment)
-                }
-                .accessibilityIdentifier("DeleteCommentActionButton")
-            } else if viewModel.isCommentReported(comment) {
-                Button("Retract Report") {
-                    viewModel.commentToRetract = comment
-                }
-                .accessibilityIdentifier("RetractReportCommentActionButton")
-            } else {
-                Button("Report Comment") {
-                    viewModel.commentToReport = comment
-                }
-                .accessibilityIdentifier("ReportCommentActionButton")
-            }
-        }
+        // NOTE (issue #477): the post's and each comment's action menus are no
+        // longer attached here. They're popovers anchored to the ⋯ button they
+        // belong to — `postMenu` on the header button above, and the comment
+        // menu on each `CommentRowView`'s button — so the options appear next to
+        // whichever three dots were tapped instead of rising from the bottom of
+        // the screen. A long-press still opens them by setting the same state.
         // --- Retract-report confirmations (issue #176) ---
         // Each shows the user's original report reason pre-populated so they
         // can see what they're retracting.
@@ -360,6 +321,60 @@ struct PostDetailView: View {
             if wasDeleted { dismiss() }
         }
         .environmentObject(viewModel) // Pass VM to subviews
+    }
+
+    /// The post's options, shown in the popover anchored to the header's ⋯
+    /// button (issue #477): Delete on the user's own post, Report on everyone
+    /// else's — or Retract Report when they already have an active report
+    /// against it (issues #304, #176). Each row closes the popover before
+    /// acting, since report and share present sheets of their own.
+    @ViewBuilder
+    private var postMenu: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            // Share is offered for any post — your own and others' (issue #34).
+            menuRow("Share Post", identifier: "SharePostActionButton") {
+                viewModel.sharePost()
+            }
+            if viewModel.isOwnPost {
+                menuRow("Delete Post", identifier: "DeletePostActionButton", isDestructive: true) {
+                    viewModel.deletePost()
+                }
+            } else if viewModel.isPostReported {
+                menuRow("Retract Report", identifier: "RetractReportPostActionButton") {
+                    viewModel.showRetractDialogForPost = true
+                }
+            } else {
+                menuRow("Report Post", identifier: "ReportPostActionButton") {
+                    viewModel.showReportSheetForPost = true
+                }
+            }
+        }
+        .padding(.vertical, 6)
+        .frame(minWidth: 200, alignment: .leading)
+    }
+
+    private func menuRow(
+        _ title: String,
+        identifier: String,
+        isDestructive: Bool = false,
+        action: @escaping () -> Void
+    ) -> some View {
+        Button {
+            // Dismiss the popover, then act one runloop turn later — see the
+            // matching note in PostActionBar.menuRow: requesting a sheet in the
+            // same update that dismisses the popover drops the sheet.
+            viewModel.showActionSheetForPost = false
+            DispatchQueue.main.async { action() }
+        } label: {
+            Text(title)
+                .foregroundColor(isDestructive ? .red : .primary)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.horizontal, 20)
+                .padding(.vertical, 12)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityIdentifier(identifier)
     }
 }
 

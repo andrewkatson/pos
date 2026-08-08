@@ -281,7 +281,8 @@ fun PostItem(
             onOpenMenu = { actions.setPostForAction(post) },
             onOpenComments = {
                 navController.navigate(Screen.PostDetail.createRoute(post.postIdentifier))
-            }
+            },
+            menu = { PostActionMenu(actions, post) }
         )
 
         // How long ago the post was made, at the same coarse granularity as the

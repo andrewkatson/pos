@@ -556,7 +556,8 @@ fun ProfileBody(
                                     isOwnPost = post.authorUsername == currentUsername,
                                     onToggleLike = { postActions.toggleLike(post) },
                                     onOpenMenu = { postActions.setPostForAction(post) },
-                                    compact = true
+                                    compact = true,
+                                    menu = { PostActionMenu(postActions, post) }
                                 )
                             }
 

@@ -5,6 +5,7 @@
 //  Created by Andrew Katson on 10/7/25.
 //
 
+import Foundation
 import SwiftUI
 import Kingfisher
 import UIKit
@@ -284,60 +285,105 @@ struct PostActionBar: View {
             .buttonStyle(.plain)
             .accessibilityIdentifier("PostListOptionsButton")
             .accessibilityLabel("Post options")
+            // Anchored to this row's ⋯ button rather than presented from the
+            // bottom of the screen, so the options appear where they were
+            // tapped (issue #477). Bound per row: only the post the user picked
+            // presents, even though every row watches the same view model.
+            .popover(
+                isPresented: Binding(
+                    get: { postActions.postForMenu?.id == post.id },
+                    set: { if !$0 { postActions.postForMenu = nil } }
+                ),
+                attachmentAnchor: .rect(.bounds)
+            ) {
+                postMenu(for: post)
+                    // Without this a popover becomes a sheet in a compact size
+                    // class — i.e. everywhere on iPhone, which is the bug.
+                    .presentationCompactAdaptation(.popover)
+            }
         }
         .font(.caption)
         .padding(.horizontal, 4)
         .padding(.vertical, 4)
     }
+
+    /// The options themselves: Delete on your own post, Retract Report when you
+    /// already reported it, Report otherwise — the same menu PostDetailView
+    /// shows. Each row closes the popover before acting, since the report and
+    /// share flows present sheets of their own.
+    @ViewBuilder
+    private func postMenu(for post: Post) -> some View {
+        VStack(alignment: .leading, spacing: 0) {
+            // Share is offered for any post — your own and others' (issue #34).
+            menuRow("Share Post", identifier: "SharePostListActionButton") {
+                postActions.share(post)
+            }
+            // Save / Unsave, offered on any post (issue #193/#412). Web has a
+            // dedicated bookmark control; on mobile it lives in this menu.
+            menuRow(
+                postActions.state(for: post).isSaved ? "Unsave Post" : "Save Post",
+                identifier: "SavePostListActionButton"
+            ) {
+                postActions.toggleSave(post)
+            }
+            if postActions.state(for: post).isOwn {
+                menuRow("Delete Post", identifier: "DeletePostListActionButton", isDestructive: true) {
+                    postActions.delete(post)
+                }
+            } else if postActions.state(for: post).isReported {
+                menuRow("Retract Report", identifier: "RetractReportPostListActionButton") {
+                    postActions.postToRetract = post
+                }
+            } else {
+                menuRow("Report Post", identifier: "ReportPostListActionButton") {
+                    postActions.postToReport = post
+                }
+            }
+        }
+        // The action row sets .font(.caption) for its icons; the menu is its own
+        // surface and reads at body size.
+        .font(.body)
+        .padding(.vertical, 6)
+        .frame(minWidth: 200, alignment: .leading)
+    }
+
+    private func menuRow(
+        _ title: String,
+        identifier: String,
+        isDestructive: Bool = false,
+        action: @escaping () -> Void
+    ) -> some View {
+        Button {
+            // Dismiss the popover, then act one runloop turn later. Most of
+            // these rows go on to present a sheet or alert, and asking for that
+            // presentation in the same update that dismisses the popover leaves
+            // UIKit with two presentations in flight and drops the second.
+            postActions.postForMenu = nil
+            DispatchQueue.main.async { action() }
+        } label: {
+            Text(title)
+                .foregroundColor(isDestructive ? .red : .primary)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.horizontal, 20)
+                .padding(.vertical, 12)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityIdentifier(identifier)
+    }
 }
 
-/// The confirmation dialog, report sheet, retract-report alert and error alert
-/// behind `PostActionBar`. They're attached once per list (rather than once per
-/// row) and driven by the post the user picked.
+/// The report sheet, retract-report alert and error alert behind
+/// `PostActionBar`. They're attached once per list (rather than once per row)
+/// and driven by the post the user picked.
+///
+/// The options menu itself is not here: it's a popover anchored to each row's ⋯
+/// button so it opens where it was tapped (issue #477).
 struct PostActionDialogs: ViewModifier {
     @ObservedObject var postActions: PostActionsViewModel
 
     func body(content: Content) -> some View {
         content
-            // Delete on your own post, Retract Report when you already reported
-            // it, Report otherwise — the same menu PostDetailView shows.
-            .confirmationDialog(
-                "Post",
-                isPresented: Binding(
-                    get: { postActions.postForMenu != nil },
-                    set: { if !$0 { postActions.postForMenu = nil } }
-                ),
-                titleVisibility: .hidden,
-                presenting: postActions.postForMenu
-            ) { post in
-                // Share is offered for any post — your own and others' (issue #34).
-                Button("Share Post") {
-                    postActions.share(post)
-                }
-                .accessibilityIdentifier("SharePostListActionButton")
-                // Save / Unsave, offered on any post (issue #193/#412). Web has a
-                // dedicated bookmark control; on mobile it lives in this menu.
-                Button(postActions.state(for: post).isSaved ? "Unsave Post" : "Save Post") {
-                    postActions.toggleSave(post)
-                }
-                .accessibilityIdentifier("SavePostListActionButton")
-                if postActions.state(for: post).isOwn {
-                    Button("Delete Post", role: .destructive) {
-                        postActions.delete(post)
-                    }
-                    .accessibilityIdentifier("DeletePostListActionButton")
-                } else if postActions.state(for: post).isReported {
-                    Button("Retract Report") {
-                        postActions.postToRetract = post
-                    }
-                    .accessibilityIdentifier("RetractReportPostListActionButton")
-                } else {
-                    Button("Report Post") {
-                        postActions.postToReport = post
-                    }
-                    .accessibilityIdentifier("ReportPostListActionButton")
-                }
-            }
             // Shows the user's original reason so they can see what they're
             // retracting (issue #176).
             .alert(

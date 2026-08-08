@@ -152,8 +152,9 @@ test('deleting your own post from the grid removes it and drops the count', asyn
   renderTab()
 
   await userEvent.click(await screen.findByRole('button', { name: 'Options for post by ada' }))
-  // Your own post offers Delete rather than Report.
-  await userEvent.click(screen.getByRole('button', { name: 'Delete' }))
+  // Your own post offers Delete rather than Report: the menu row, then the
+  // confirmation modal's button.
+  await userEvent.click(screen.getByRole('menuitem', { name: 'Delete' }))
   await userEvent.click(screen.getByRole('button', { name: 'Delete' }))
 
   await waitFor(() => expect(mockDeletePost).toHaveBeenCalledWith('p1'))

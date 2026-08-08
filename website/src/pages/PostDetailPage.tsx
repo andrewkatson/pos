@@ -15,6 +15,8 @@ import PostThumbnail from '../components/PostThumbnail'
 import CharacterCounter from '../components/CharacterCounter'
 import { CaptionText } from '../components/CaptionText'
 import Avatar from '../components/Avatar'
+import AnchoredMenu, { AnchoredMenuItem } from '../components/AnchoredMenu'
+import { anchorFrom, type MenuAnchor } from '../components/menuAnchor'
 import FormattedText from '../components/FormattedText'
 import { captionFontClass, TEXT_SIZE_OPTIONS } from '../components/textFormatting'
 import {
@@ -90,7 +92,11 @@ const COMMENT_AUDIENCE_BADGE: Partial<Record<PostAudience, string>> = {
 type ReportTarget = { type: 'post' } | { type: 'comment'; comment: CommentView }
 type DeleteTarget = { type: 'post' } | { type: 'comment'; comment: CommentView }
 // The three-dots menu next to the post caption / each comment (issue #304).
-type MenuTarget = { type: 'post' } | { type: 'comment'; comment: CommentView }
+// `anchor` is the rect of the ⋯ button that opened it, so the menu appears next
+// to that button rather than in the middle of the screen (issue #477).
+type MenuTarget = ({ type: 'post' } | { type: 'comment'; comment: CommentView }) & {
+  anchor: MenuAnchor
+}
 // The comment composer is shared between a brand-new post comment and a reply
 // to an existing thread, so both go through the same character-limit dialog.
 type ComposerTarget = { type: 'post' } | { type: 'reply'; thread: ThreadView }
@@ -649,8 +655,8 @@ function PostDetailView({ postId }: { postId: string }) {
             className="app-bar__back"
             style={{ marginLeft: 'auto' }}
             aria-label="Post options"
-            aria-haspopup="dialog"
-            onClick={() => setMenuTarget({ type: 'post' })}
+            aria-haspopup="menu"
+            onClick={e => setMenuTarget({ type: 'post', anchor: anchorFrom(e.currentTarget) })}
           >
             ⋯
           </button>
@@ -748,7 +754,7 @@ function PostDetailView({ postId }: { postId: string }) {
                     isCollapsed={collapsedIds.has(root.id)}
                     onToggleCollapse={() => toggleCollapsed(root.id)}
                     onToggleLike={() => toggleCommentLike(root)}
-                    onMenu={() => setMenuTarget({ type: 'comment', comment: root })}
+                    onMenu={anchor => setMenuTarget({ type: 'comment', comment: root, anchor })}
                     onNavigate={() =>
                       navigate(profilePathFor(root.authorUsername))
                     }
@@ -770,7 +776,7 @@ function PostDetailView({ postId }: { postId: string }) {
                         isCollapsed={collapsedIds.has(reply.id)}
                         onToggleCollapse={() => toggleCollapsed(reply.id)}
                         onToggleLike={() => toggleCommentLike(reply)}
-                        onMenu={() => setMenuTarget({ type: 'comment', comment: reply })}
+                        onMenu={anchor => setMenuTarget({ type: 'comment', comment: reply, anchor })}
                         onNavigate={() =>
                           navigate(profilePathFor(reply.authorUsername))
                         }
@@ -906,56 +912,23 @@ function PostDetailView({ postId }: { postId: string }) {
       )}
 
       {menuTarget && (
-        <div className="modal-overlay">
-          <div
-            className="modal"
-            role="dialog"
-            aria-modal="true"
-            aria-label={menuTarget.type === 'post' ? 'Post options' : 'Comment options'}
-          >
-            <h2 className="modal__title">
-              {menuTarget.type === 'post' ? 'Post options' : 'Comment options'}
-            </h2>
-            <div className="modal__actions">
-              <button type="button" className="modal__cancel" onClick={() => setMenuTarget(null)}>
-                Cancel
-              </button>
-              {/* Share is offered on every item, yours and everyone else's. */}
-              <button
-                type="button"
-                className="modal__confirm"
-                onClick={() => void menuShare(menuTarget)}
-              >
-                Share
-              </button>
-              {menuState(menuTarget).isOwn ? (
-                <button
-                  type="button"
-                  className="modal__confirm"
-                  onClick={() => menuDelete(menuTarget)}
-                >
-                  Delete
-                </button>
-              ) : menuState(menuTarget).isReported ? (
-                <button
-                  type="button"
-                  className="modal__confirm"
-                  onClick={() => menuRetract(menuTarget)}
-                >
-                  Retract Report
-                </button>
-              ) : (
-                <button
-                  type="button"
-                  className="modal__confirm"
-                  onClick={() => menuReport(menuTarget)}
-                >
-                  Report
-                </button>
-              )}
-            </div>
-          </div>
-        </div>
+        <AnchoredMenu
+          anchor={menuTarget.anchor}
+          label={menuTarget.type === 'post' ? 'Post options' : 'Comment options'}
+          onDismiss={() => setMenuTarget(null)}
+        >
+          {/* Share is offered on every item, yours and everyone else's. */}
+          <AnchoredMenuItem onClick={() => void menuShare(menuTarget)}>Share</AnchoredMenuItem>
+          {menuState(menuTarget).isOwn ? (
+            <AnchoredMenuItem destructive onClick={() => menuDelete(menuTarget)}>
+              Delete
+            </AnchoredMenuItem>
+          ) : menuState(menuTarget).isReported ? (
+            <AnchoredMenuItem onClick={() => menuRetract(menuTarget)}>Retract Report</AnchoredMenuItem>
+          ) : (
+            <AnchoredMenuItem onClick={() => menuReport(menuTarget)}>Report</AnchoredMenuItem>
+          )}
+        </AnchoredMenu>
       )}
 
       {shareCopiedOpen && (
@@ -1089,7 +1062,8 @@ interface CommentRowProps {
   isCollapsed: boolean
   onToggleCollapse: () => void
   onToggleLike: () => void
-  onMenu: () => void
+  /** `anchor` is the ⋯ button's rect, so the menu opens next to it (#477). */
+  onMenu: (anchor: MenuAnchor) => void
   onNavigate: () => void
 }
 
@@ -1141,10 +1115,10 @@ function CommentRow({
             className="comment-row__collapse"
             style={{ marginLeft: 0 }}
             aria-label={`Options for comment by ${comment.authorUsername}`}
-            aria-haspopup="dialog"
+            aria-haspopup="menu"
             onClick={e => {
               e.stopPropagation()
-              onMenu()
+              onMenu(anchorFrom(e.currentTarget))
             }}
           >
             ⋯

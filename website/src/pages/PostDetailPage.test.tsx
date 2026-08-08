@@ -313,11 +313,11 @@ test('own post: the options menu offers Delete, and deleting navigates away', as
   await screen.findByText('sunshine')
 
   await userEvent.click(screen.getByRole('button', { name: 'Post options' }))
-  const menu = screen.getByRole('dialog', { name: 'Post options' })
+  const menu = screen.getByRole('menu', { name: 'Post options' })
   // No Report control on your own post (issue: can't report your own post).
-  expect(within(menu).queryByRole('button', { name: 'Report' })).not.toBeInTheDocument()
+  expect(within(menu).queryByRole('menuitem', { name: 'Report' })).not.toBeInTheDocument()
 
-  await userEvent.click(within(menu).getByRole('button', { name: 'Delete' }))
+  await userEvent.click(within(menu).getByRole('menuitem', { name: 'Delete' }))
   // Confirm in the delete modal.
   const deleteDialog = screen.getByRole('dialog', { name: 'Delete item' })
   await userEvent.click(within(deleteDialog).getByRole('button', { name: 'Delete' }))
@@ -333,9 +333,9 @@ test('other users’ post: the options menu offers Report, and reporting works',
   await screen.findByText('sunshine')
 
   await userEvent.click(screen.getByRole('button', { name: 'Post options' }))
-  const menu = screen.getByRole('dialog', { name: 'Post options' })
-  expect(within(menu).queryByRole('button', { name: 'Delete' })).not.toBeInTheDocument()
-  await userEvent.click(within(menu).getByRole('button', { name: 'Report' }))
+  const menu = screen.getByRole('menu', { name: 'Post options' })
+  expect(within(menu).queryByRole('menuitem', { name: 'Delete' })).not.toBeInTheDocument()
+  await userEvent.click(within(menu).getByRole('menuitem', { name: 'Report' }))
 
   // The reason dialog opens; submitting sends the report.
   await userEvent.type(screen.getByLabelText('Reason for reporting'), 'not positive')
@@ -354,10 +354,10 @@ test('already-reported post: the menu offers Retract Report with the reason pre-
   await screen.findByText('sunshine')
 
   await userEvent.click(screen.getByRole('button', { name: 'Post options' }))
-  const menu = screen.getByRole('dialog', { name: 'Post options' })
+  const menu = screen.getByRole('menu', { name: 'Post options' })
   // Already reported: Retract replaces Report.
-  expect(within(menu).queryByRole('button', { name: 'Report' })).not.toBeInTheDocument()
-  await userEvent.click(within(menu).getByRole('button', { name: 'Retract Report' }))
+  expect(within(menu).queryByRole('menuitem', { name: 'Report' })).not.toBeInTheDocument()
+  await userEvent.click(within(menu).getByRole('menuitem', { name: 'Retract Report' }))
 
   // The retract dialog shows the original reason pre-populated (issue #176).
   const retractDialog = screen.getByRole('dialog', { name: 'Retract report' })
@@ -377,10 +377,10 @@ test('own comment: the options menu offers Delete, and deleting reloads', async 
   await screen.findByText('love this')
 
   await userEvent.click(screen.getByRole('button', { name: 'Options for comment by bob' }))
-  const menu = screen.getByRole('dialog', { name: 'Comment options' })
-  expect(within(menu).queryByRole('button', { name: 'Report' })).not.toBeInTheDocument()
+  const menu = screen.getByRole('menu', { name: 'Comment options' })
+  expect(within(menu).queryByRole('menuitem', { name: 'Report' })).not.toBeInTheDocument()
 
-  await userEvent.click(within(menu).getByRole('button', { name: 'Delete' }))
+  await userEvent.click(within(menu).getByRole('menuitem', { name: 'Delete' }))
   const deleteDialog = screen.getByRole('dialog', { name: 'Delete item' })
   await userEvent.click(within(deleteDialog).getByRole('button', { name: 'Delete' }))
   await waitFor(() => expect(mockDeleteComment).toHaveBeenCalledWith('p1', 't1', 'c1'))
@@ -396,8 +396,8 @@ test('already-reported comment: the menu offers Retract Report with the reason p
   await screen.findByText('love this')
 
   await userEvent.click(screen.getByRole('button', { name: 'Options for comment by bob' }))
-  const menu = screen.getByRole('dialog', { name: 'Comment options' })
-  await userEvent.click(within(menu).getByRole('button', { name: 'Retract Report' }))
+  const menu = screen.getByRole('menu', { name: 'Comment options' })
+  await userEvent.click(within(menu).getByRole('menuitem', { name: 'Retract Report' }))
 
   const retractDialog = screen.getByRole('dialog', { name: 'Retract report' })
   expect(within(retractDialog).getByLabelText('Your report reason')).toHaveValue('unkind words')
@@ -416,8 +416,8 @@ test('sharing a post copies its link when there is no OS share sheet (issue #34)
   await screen.findByText('sunshine')
 
   await userEvent.click(screen.getByRole('button', { name: 'Post options' }))
-  const menu = screen.getByRole('dialog', { name: 'Post options' })
-  await userEvent.click(within(menu).getByRole('button', { name: 'Share' }))
+  const menu = screen.getByRole('menu', { name: 'Post options' })
+  await userEvent.click(within(menu).getByRole('menuitem', { name: 'Share' }))
 
   await waitFor(() =>
     expect(writeText).toHaveBeenCalledWith(`${window.location.origin}/post/p1`),
@@ -436,8 +436,8 @@ test('sharing a comment copies a #comment-<id> deep link (issue #34)', async () 
   await screen.findByText('love this')
 
   await userEvent.click(screen.getByRole('button', { name: 'Options for comment by bob' }))
-  const menu = screen.getByRole('dialog', { name: 'Comment options' })
-  await userEvent.click(within(menu).getByRole('button', { name: 'Share' }))
+  const menu = screen.getByRole('menu', { name: 'Comment options' })
+  await userEvent.click(within(menu).getByRole('menuitem', { name: 'Share' }))
 
   await waitFor(() =>
     expect(writeText).toHaveBeenCalledWith(`${window.location.origin}/post/p1#comment-c1`),

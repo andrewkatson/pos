@@ -1,5 +1,6 @@
 import type { FeedPost } from '../api/types'
 import { formatRelativeTime } from '../utils/relativeTime'
+import { anchorFrom, type MenuAnchor } from './menuAnchor'
 import type { PostActionState } from './usePostActions'
 
 interface PostActionBarProps {
@@ -7,7 +8,8 @@ interface PostActionBarProps {
   state: PostActionState
   onToggleLike: (post: FeedPost) => void
   onToggleSave: (post: FeedPost) => void
-  onOpenMenu: (post: FeedPost) => void
+  /** `anchor` is the ⋯ button's rect, so the menu opens next to it (#477). */
+  onOpenMenu: (post: FeedPost, anchor: MenuAnchor) => void
   /** Opens the post; used by the comment-count indicator (issue #249). */
   onOpenPost?: (post: FeedPost) => void
   /** Shows the comment count and the post time. Feed rows have room for these
@@ -94,8 +96,8 @@ function PostActionBar({
         type="button"
         className="post-actions__menu"
         aria-label={`Options for post by ${post.author_username}`}
-        aria-haspopup="dialog"
-        onClick={() => onOpenMenu(post)}
+        aria-haspopup="menu"
+        onClick={e => onOpenMenu(post, anchorFrom(e.currentTarget))}
       >
         ⋯
       </button>
