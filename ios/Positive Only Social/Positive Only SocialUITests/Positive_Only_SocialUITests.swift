@@ -1340,6 +1340,12 @@ final class Positive_Only_SocialUITests: XCTestCase {
         expectation(for: NSPredicate(format: "count >= 1"), evaluatedWith: myPosts, handler: nil)
         waitForExpectations(timeout: TestConstants.timeout, handler: nil)
 
+        // Your own posts have no heart beside the count, so it says what it
+        // counts rather than showing a bare number (issue #476).
+        let likeCount = app.staticTexts.matching(identifier: "PostListLikeCount").element(boundBy: 0)
+        XCTAssertTrue(likeCount.waitForExistence(timeout: TestConstants.shortTimeout))
+        waitForLabel(likeCount, toEqual: "0 likes")
+
         let firstPost = myPosts.element(boundBy: 0)
         XCTAssertTrue(firstPost.waitForExistence(timeout: TestConstants.shortTimeout))
         firstPost.tap()

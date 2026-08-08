@@ -798,6 +798,8 @@ class PositiveOnlySocialIntegrationTests {
         // No like control on your own post — the backend rejects it.
         composeTestRule.onAllNodesWithContentDescription("Like post by $testUsername")
             .assertCountEquals(0)
+        // With no heart beside it, the count says what it counts (issue #476).
+        composeTestRule.onAllNodesWithText("0 likes").onFirst().assertExists()
 
         composeTestRule.onAllNodesWithContentDescription("Options for post by $testUsername")
             .onFirst().performClick()

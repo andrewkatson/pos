@@ -57,7 +57,10 @@ Posts can be acted on directly from any list — the Profile grid, another user'
 profile grid, and the Feed — without opening the post first:
 
 - **Like / unlike**, with the current like count. Hidden on your own posts,
-  which the backend refuses to let you like.
+  which the backend refuses to let you like. The count stays either way, but
+  without the heart to explain it the bare number is ambiguous, so on your own
+  posts it reads "n likes" — the label the post detail already uses (issue
+  #476).
 - **Save / unsave** (issue #193), a personal bookmark. Unlike a like it is
   offered on every post, including your own, since the saved list is a private
   collection rather than a public signal. Saved posts are collected on the
