@@ -187,6 +187,7 @@ final class PostDetailViewModel: ObservableObject {
                     authorUsername: postFields.author_username,
                     authorProfileImageURL: postFields.author_profile_image_url,
                     authorProfileImageOriginalURL: postFields.author_profile_image_original_url,
+                    authorProfileImageBlurHash: postFields.author_profile_image_blurhash,
                     createdDate: postFields.creation_time.flatMap { Self.parseOptionalDate($0) },
                     isReported: postFields.is_reported ?? false,
                     reportReason: postFields.report_reason
@@ -229,6 +230,7 @@ final class PostDetailViewModel: ObservableObject {
                                     authorUsername: field.author_username,
                                     authorProfileImageURL: field.author_profile_image_url,
                                     authorProfileImageOriginalURL: field.author_profile_image_original_url,
+                                    authorProfileImageBlurHash: field.author_profile_image_blurhash,
                                     body: field.body,
                                     formatting: field.body_formatting,
                                     audience: field.audience,
@@ -292,6 +294,7 @@ final class PostDetailViewModel: ObservableObject {
                 authorUsername: post.authorUsername,
                 authorProfileImageURL: post.authorProfileImageURL,
                 authorProfileImageOriginalURL: post.authorProfileImageOriginalURL,
+                authorProfileImageBlurHash: post.authorProfileImageBlurHash,
                 createdDate: post.createdDate,
                 isReported: post.isReported,
                 reportReason: post.reportReason
@@ -333,6 +336,7 @@ final class PostDetailViewModel: ObservableObject {
                 authorUsername: post.authorUsername,
                 authorProfileImageURL: post.authorProfileImageURL,
                 authorProfileImageOriginalURL: post.authorProfileImageOriginalURL,
+                authorProfileImageBlurHash: post.authorProfileImageBlurHash,
                 createdDate: post.createdDate,
                 isReported: post.isReported,
                 reportReason: post.reportReason
@@ -488,6 +492,7 @@ final class PostDetailViewModel: ObservableObject {
             authorUsername: oldComment.authorUsername,
             authorProfileImageURL: oldComment.authorProfileImageURL,
             authorProfileImageOriginalURL: oldComment.authorProfileImageOriginalURL,
+            authorProfileImageBlurHash: oldComment.authorProfileImageBlurHash,
             body: oldComment.body,
             formatting: oldComment.formatting,
             audience: oldComment.audience,
@@ -542,6 +547,7 @@ final class PostDetailViewModel: ObservableObject {
             authorUsername: oldComment.authorUsername,
             authorProfileImageURL: oldComment.authorProfileImageURL,
             authorProfileImageOriginalURL: oldComment.authorProfileImageOriginalURL,
+            authorProfileImageBlurHash: oldComment.authorProfileImageBlurHash,
             body: oldComment.body,
             formatting: oldComment.formatting,
             audience: oldComment.audience,
@@ -740,6 +746,8 @@ final class PostDetailViewModel: ObservableObject {
         /// none or on older responses.
         let author_profile_image_url: String?
         let author_profile_image_original_url: String?
+        /// That photo's BlurHash (issue #460), shown blurred while it loads.
+        let author_profile_image_blurhash: String?
     }
 
     private struct ThreadIDFields: Decodable {
@@ -759,6 +767,8 @@ final class PostDetailViewModel: ObservableObject {
         /// have none or on older responses.
         let author_profile_image_url: String?
         let author_profile_image_original_url: String?
+        /// That photo's BlurHash (issue #460), shown blurred while it loads.
+        let author_profile_image_blurhash: String?
         let creation_time: String
         let updated_time: String
         let comment_likes: Int

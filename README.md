@@ -765,15 +765,20 @@ posts (their image is deleted) and for text-only posts (which have no image), an
 is serialized as `image_blurhash` alongside `image_url` in every listing/detail
 payload. Older clients that don't know the field simply ignore it.
 
-Posts published before this feature shipped have no hash and still flash a grey
-tile. The `backfill_blurhash` management command (issue #438) is the one-off
-repair: it walks every post that has an `image_url` but a null `image_blurhash`
-and runs the same encoder the worker uses. It is safe to re-run — it only touches
-null hashes and never overwrites one the worker may have set — and a post whose
-image can't be fetched/encoded is left null (still grey) and examined at most
-once per run (so a broken object never loops the command); a later run
-re-attempts it, letting a transient failure recover. Supports `--dry-run`,
-`--limit`, and `--batch-size`.
+Profile photos carry a BlurHash of their own on exactly the same terms (issue
+#460) — see **Profile photos** below.
+
+Images published before this feature shipped have no hash and still flash a grey
+tile. The `backfill_blurhash` management command (issues #438/#460) is the one-off
+repair: it walks every post that has an `image_url` but a null `image_blurhash`,
+and every user with an approved `profile_image_url` but a null
+`profile_image_blurhash`, and runs the same encoder the worker uses. It is safe
+to re-run — it only touches null hashes and never overwrites one the worker may
+have set — and an image that can't be fetched/encoded is left null (still grey)
+and examined at most once per run (so a broken object never loops the command); a
+later run re-attempts it, letting a transient failure recover. Supports
+`--dry-run`, `--limit`, `--batch-size`, and `--target posts|profiles|all`
+(default `all`).
 
 ## Profile photos
 
@@ -783,6 +788,20 @@ with `author_profile_image_original_url` as the full-resolution fallback — the
 same CloudFront-signed compressed-plus-original pairing post images use (see
 **Serving post images** above), for the same reason (the compressed copy can
 briefly lag; #252/#254). Only an **approved** photo is ever shown to anyone else.
+
+An avatar is an image like any other, so it also carries a **BlurHash** (issue
+#460, see **BlurHash placeholders** above): `profile_image_blurhash` on the user,
+served as `author_profile_image_blurhash` next to the avatar URLs in every
+list/detail payload and as `profile_image_blurhash` in profile details. All three
+clients decode it into a blurred preview shown inside the avatar circle while the
+photo loads — search results, follower/blocked lists, feed and comment bylines,
+and the large profile header — instead of the flat placeholder. The worker
+computes it best-effort when it **approves** a photo (a pending or rejected
+upload is shown to nobody, so it needs none), it is always rewritten on approval
+so a new photo can never inherit the old one's blur, and it is cleared when the
+photo is removed. The hash is only serialized when the photo itself is — so a
+requester the profile has blocked gets neither, and a leftover hash can never
+blur in a picture that is no longer being served.
 
 Setting a photo reuses the post upload path: the client uploads a re-encoded,
 EXIF-stripped JPEG through the presigned-PUT flow (`POST /posts/upload-url/`,

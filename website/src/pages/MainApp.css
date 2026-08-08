@@ -341,20 +341,43 @@
 }
 
 /* ---- Avatar (profile photo, issue #7) ----
-   One component (components/Avatar.tsx) rendered at every username site. As an
-   <img> it is a circular, cover-cropped photo; as the `◍` placeholder span it
-   shares the same box so layout is identical whether or not a user has a photo. */
+   One component (components/Avatar.tsx) rendered at every username site. With a
+   photo it is a span wrapping the cover-cropped <img> (and, while that loads,
+   the BlurHash canvas behind it — issue #460); without one it is the same span
+   holding the `◍` glyph, so layout is identical whether or not a user has a
+   photo. `overflow: hidden` clips both the image and the blur to the circle, and
+   `position: relative` is what the absolutely-positioned canvas anchors to. */
 .avatar {
+  position: relative;
   display: inline-flex;
   align-items: center;
   justify-content: center;
   flex: none;
   border-radius: 50%;
-  object-fit: cover;
   background: rgba(255, 255, 255, 0.08);
   color: rgba(255, 255, 255, 0.5);
   overflow: hidden;
   line-height: 1;
+}
+
+/* The photo sits above the canvas and is transparent, so while it's still
+   loading the BlurHash shows through instead of the flat placeholder circle. */
+.avatar__img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  background: transparent;
+}
+
+.avatar__blur {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  /* The photo paints on top and receives the taps; the blur is decorative. */
+  pointer-events: none;
 }
 
 .avatar--sm {

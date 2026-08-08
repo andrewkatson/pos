@@ -113,6 +113,11 @@ struct Post: Codable, Identifiable, Hashable {
     /// both nil when the author has no approved photo or on older responses.
     let authorProfileImageUrl: String?
     let authorProfileImageOriginalUrl: String?
+    /// A BlurHash for that avatar (issue #460), decoded into a blurred preview
+    /// shown while the photo loads — the avatar counterpart of `blurHash` above.
+    /// Nil when the author has no photo, on older backends, or when the hash
+    /// could not be computed.
+    let authorProfileImageBlurHash: String?
     /// Author-only classification state (issue #282): present on the viewer's
     /// own posts so grids can render pending/rejected states. Other users'
     /// posts never carry these (their pending/hidden posts are filtered out
@@ -172,6 +177,7 @@ struct Post: Codable, Identifiable, Hashable {
         case authorUsername = "author_username"
         case authorProfileImageUrl = "author_profile_image_url"
         case authorProfileImageOriginalUrl = "author_profile_image_original_url"
+        case authorProfileImageBlurHash = "author_profile_image_blurhash"
         case postLikes = "post_likes"
         case isLiked = "is_liked"
         case isSaved = "is_saved"
@@ -198,6 +204,7 @@ struct Post: Codable, Identifiable, Hashable {
         authorUsername: String,
         authorProfileImageUrl: String? = nil,
         authorProfileImageOriginalUrl: String? = nil,
+        authorProfileImageBlurHash: String? = nil,
         postLikes: Int = 0,
         isLiked: Bool = false,
         isSaved: Bool = false,
@@ -222,6 +229,7 @@ struct Post: Codable, Identifiable, Hashable {
         self.authorUsername = authorUsername
         self.authorProfileImageUrl = authorProfileImageUrl
         self.authorProfileImageOriginalUrl = authorProfileImageOriginalUrl
+        self.authorProfileImageBlurHash = authorProfileImageBlurHash
         self.postLikes = postLikes
         self.isLiked = isLiked
         self.isSaved = isSaved
@@ -254,6 +262,9 @@ struct Post: Codable, Identifiable, Hashable {
         // or on older backends.
         authorProfileImageUrl = try container.decodeIfPresent(String.self, forKey: .authorProfileImageUrl)
         authorProfileImageOriginalUrl = try container.decodeIfPresent(String.self, forKey: .authorProfileImageOriginalUrl)
+        // The avatar's BlurHash (#460); absent on older backends and when the
+        // author has no photo.
+        authorProfileImageBlurHash = try container.decodeIfPresent(String.self, forKey: .authorProfileImageBlurHash)
         postLikes = try container.decodeIfPresent(Int.self, forKey: .postLikes) ?? 0
         isLiked = try container.decodeIfPresent(Bool.self, forKey: .isLiked) ?? false
         isSaved = try container.decodeIfPresent(Bool.self, forKey: .isSaved) ?? false
@@ -441,13 +452,18 @@ struct User: Codable, Identifiable, Hashable {
     /// tapped username) needs no avatar.
     var authorProfileImageUrl: String? = nil
     var authorProfileImageOriginalUrl: String? = nil
+    /// The photo's BlurHash (issue #460), decoded into a blurred preview shown
+    /// while it loads. Nil when there is no photo or on older responses.
+    var authorProfileImageBlurHash: String? = nil
 
     init(username: String, identityIsVerified: Bool,
-         authorProfileImageUrl: String? = nil, authorProfileImageOriginalUrl: String? = nil) {
+         authorProfileImageUrl: String? = nil, authorProfileImageOriginalUrl: String? = nil,
+         authorProfileImageBlurHash: String? = nil) {
         self.username = username
         self.identityIsVerified = identityIsVerified
         self.authorProfileImageUrl = authorProfileImageUrl
         self.authorProfileImageOriginalUrl = authorProfileImageOriginalUrl
+        self.authorProfileImageBlurHash = authorProfileImageBlurHash
     }
 
     enum CodingKeys: String, CodingKey {
@@ -455,6 +471,7 @@ struct User: Codable, Identifiable, Hashable {
         case identityIsVerified = "identity_is_verified"
         case authorProfileImageUrl = "author_profile_image_url"
         case authorProfileImageOriginalUrl = "author_profile_image_original_url"
+        case authorProfileImageBlurHash = "author_profile_image_blurhash"
     }
 
     init(from decoder: Decoder) throws {
@@ -463,6 +480,7 @@ struct User: Codable, Identifiable, Hashable {
         identityIsVerified = try container.decodeIfPresent(Bool.self, forKey: .identityIsVerified) ?? false
         authorProfileImageUrl = try container.decodeIfPresent(String.self, forKey: .authorProfileImageUrl)
         authorProfileImageOriginalUrl = try container.decodeIfPresent(String.self, forKey: .authorProfileImageOriginalUrl)
+        authorProfileImageBlurHash = try container.decodeIfPresent(String.self, forKey: .authorProfileImageBlurHash)
     }
 }
 
@@ -489,6 +507,10 @@ struct ProfileDetailsResponse: Codable, Identifiable, Hashable {
     /// both nil when they have no approved photo.
     var profileImageUrl: String? = nil
     var profileImageOriginalUrl: String? = nil
+    /// The photo's BlurHash (issue #460), decoded into a blurred preview shown
+    /// while the header avatar loads. Nil when there is no photo, on older
+    /// backends, or for a requester this profile has blocked.
+    var profileImageBlurHash: String? = nil
     /// Owner-only moderation state, present only when viewing your own profile
     /// (absent for anyone else). `profileImageStatus` is one of
     /// "none"/"pending"/"approved"/"rejected"; `pendingProfileImageUrl` lets the
@@ -517,6 +539,7 @@ struct ProfileDetailsResponse: Codable, Identifiable, Hashable {
         case membershipNumber = "membership_number"
         case profileImageUrl = "profile_image_url"
         case profileImageOriginalUrl = "profile_image_original_url"
+        case profileImageBlurHash = "profile_image_blurhash"
         case profileImageStatus = "profile_image_status"
         case profileImageReasonCode = "profile_image_reason_code"
         case pendingProfileImageUrl = "pending_profile_image_url"
@@ -779,6 +802,8 @@ struct PostDisplayData: Identifiable, Equatable {
     /// the author has no approved photo.
     var authorProfileImageURL: String? = nil
     var authorProfileImageOriginalURL: String? = nil
+    /// That photo's BlurHash (issue #460), shown blurred while it loads.
+    var authorProfileImageBlurHash: String? = nil
     /// When the post was created. Optional for backward compatibility with
     /// backend responses that predate the field.
     let createdDate: Date?
@@ -799,6 +824,8 @@ struct CommentViewData: Identifiable, Equatable {
     /// full-resolution fallback; both nil when the author has no approved photo.
     var authorProfileImageURL: String? = nil
     var authorProfileImageOriginalURL: String? = nil
+    /// That photo's BlurHash (issue #460), shown blurred while it loads.
+    var authorProfileImageBlurHash: String? = nil
     let body: String
     /// Inline formatting spans over `body` (issue #318); nil = plain text.
     var formatting: [CommentFormatSpan]? = nil

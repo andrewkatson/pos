@@ -142,6 +142,7 @@ struct CommentRowView: View {
             ProfileAvatarView(
                 imageUrl: comment.authorProfileImageURL,
                 originalImageUrl: comment.authorProfileImageOriginalURL,
+                blurHash: comment.authorProfileImageBlurHash,
                 size: 36
             )
 

@@ -148,6 +148,19 @@ class ProfilePhotoViewTests(PositiveOnlySocialTestCase):
         deleted = {c.args[0] for c in mock_delete.call_args_list}
         self.assertEqual(deleted, {live_url, pending_url})
 
+    @patch('user_system.views.delete_image')
+    def test_remove_clears_the_blurhash(self, _mock_delete):
+        """The BlurHash goes with the photo it described (issue #460): leaving it
+        would make a removed avatar keep flashing a blurred preview of itself."""
+        live_url = f'https://test-bucket.s3.amazonaws.com/{self.user.id}/live.jpeg'
+        PositiveOnlySocialUser.objects.filter(pk=self.user.pk).update(
+            profile_image_url=live_url, profile_image_blurhash='LEHV6nWB2yk8pyo0adR*.7kCMdnj')
+
+        response = self.client.post(self.remove_url, **self.valid_header)
+
+        self.assertEqual(response.status_code, 200)
+        self.assertIsNone(self._reload().profile_image_blurhash)
+
 
 class ProfilePhotoInProfileDetailsTests(PositiveOnlySocialTestCase):
     """The profile-details endpoint exposes the approved photo to everyone but

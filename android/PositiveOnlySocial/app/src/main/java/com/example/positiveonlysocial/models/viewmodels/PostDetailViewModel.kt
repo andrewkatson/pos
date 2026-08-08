@@ -272,7 +272,8 @@ class PostDetailViewModel(
                                 createdDate = parseBackendDate(c.creationTime) ?: Date(),
                                 authorProfileImageUrl = c.authorProfileImageUrl,
                                 authorProfileImageOriginalUrl = c.authorProfileImageOriginalUrl,
-                                audience = c.audience
+                                audience = c.audience,
+                                authorProfileImageBlurHash = c.authorProfileImageBlurHash
                             )
                         }
 

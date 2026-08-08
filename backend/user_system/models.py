@@ -175,6 +175,12 @@ class PositiveOnlySocialUser(AbstractUser):
     # PROFILE_IMAGE_STATUS_*.
     profile_image_url = models.TextField(null=True, blank=True, default=None)
     pending_profile_image_url = models.TextField(null=True, blank=True, default=None)
+    # BlurHash placeholder for the *approved* photo (issue #460), the avatar
+    # counterpart of Post.image_blurhash: computed best-effort by the worker when
+    # it approves a photo, cleared when the photo is removed, and never computed
+    # for a pending or rejected upload (nobody else may see those). Null means the
+    # clients fall back to their plain avatar placeholder.
+    profile_image_blurhash = models.TextField(null=True, blank=True, default=None)
     profile_image_status = models.TextField(default=PROFILE_IMAGE_STATUS_NONE)
     profile_image_reason_code = models.TextField(null=True, blank=True, default=None)
     profile_image_classification_attempts = models.IntegerField(default=0)

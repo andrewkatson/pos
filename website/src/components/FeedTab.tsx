@@ -192,6 +192,7 @@ function FeedTab() {
                 <Avatar
                   src={post.author_profile_image_url}
                   originalSrc={post.author_profile_image_original_url}
+                  blurhash={post.author_profile_image_blurhash}
                   username={post.author_username}
                   size="sm"
                 />
