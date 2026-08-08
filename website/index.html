@@ -5,6 +5,35 @@
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Good Vibes Only</title>
+    <!--
+      Site-level link preview (issue #381). This is a client-only SPA, so a
+      crawler never runs the router and every path it fetches from S3 returns
+      this same document — these tags are what a link to the site itself
+      unfurls as.
+
+      A *post* link (https://smiling.social/post/<id>) needs the post's own
+      title and image, which cannot come from a static file. CloudFront routes
+      crawler user-agents for /post/* to the backend's preview endpoint
+      instead; see website/cloudfront/link-preview.js.
+    -->
+    <meta
+      name="description"
+      content="A positivity-only social network. Share what made your day better."
+    />
+    <meta property="og:type" content="website" />
+    <meta property="og:site_name" content="Good Vibes Only" />
+    <meta property="og:title" content="Good Vibes Only" />
+    <meta
+      property="og:description"
+      content="A positivity-only social network. Share what made your day better."
+    />
+    <meta property="og:url" content="https://smiling.social/" />
+    <meta name="twitter:card" content="summary" />
+    <meta name="twitter:title" content="Good Vibes Only" />
+    <meta
+      name="twitter:description"
+      content="A positivity-only social network. Share what made your day better."
+    />
   </head>
   <body>
     <div id="root"></div>

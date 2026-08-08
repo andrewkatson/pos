@@ -3,6 +3,9 @@ import SwiftUI
 struct LoginView: View {
     let api: Networking
     let keychainHelper: KeychainHelperProtocol
+    /// Google sign-in (issue #10). Injected so previews and tests never reach
+    /// for a real ASWebAuthenticationSession.
+    var googleSignIn: GoogleSignInProviding = Config.googleSignIn
 
     // MARK: Environment Properties
     @EnvironmentObject var authManager: AuthenticationManager
@@ -96,6 +99,28 @@ struct LoginView: View {
         }
         .frame(maxWidth: .infinity, alignment: .trailing)
         .accessibilityIdentifier("ForgotPasswordButton")
+
+        // Hidden outright when this build has no Google client ID, rather than
+        // shown as a button that could only ever fail (see GoogleSignInConfig).
+        if googleSignIn.isConfigured {
+            HStack {
+                VStack { Divider() }
+                Text("or").font(.footnote).foregroundColor(.secondary)
+                VStack { Divider() }
+            }
+            Button(action: signInWithGoogle) {
+                HStack {
+                    Image(systemName: "g.circle.fill")
+                    Text("Sign in with Google").font(.headline).fontWeight(.semibold)
+                }
+                .foregroundColor(.white)
+                .padding().frame(maxWidth: .infinity)
+                .background(isLoading ? Color.gray : Color.black)
+                .cornerRadius(12)
+            }
+            .disabled(isLoading)
+            .accessibilityIdentifier("GoogleSignInButton")
+        }
     }
 
     @ViewBuilder
@@ -161,6 +186,72 @@ struct LoginView: View {
             }
             isLoading = false
         }
+    }
+
+    // MARK: - Google Sign-In Action (issue #10)
+    private func signInWithGoogle() {
+        Task {
+            isLoading = true
+            do {
+                let idToken = try await googleSignIn.signIn()
+                let responseData = try await api.loginWithGoogle(idToken: idToken, rememberMe: String(rememberMe), ip: "127.0.0.1")
+
+                // A 2FA-enrolled account answers with a challenge here too:
+                // holding the Google account is a first factor, not a way past
+                // the second.
+                if let challenge = try? JSONDecoder().decode(TwoFactorRequiredFields.self, from: responseData),
+                   challenge.twoFactorRequired {
+                    twoFactorChallengeToken = challenge.challengeToken
+                    twoFactorCode = ""
+                    isLoading = false
+                    return
+                }
+
+                let loginDetails = try JSONDecoder().decode(LoginResponseFields.self, from: responseData)
+                try completeLogin(with: loginDetails)
+            } catch GoogleSignInError.cancelled {
+                // Dismissing Google's sheet is a choice, not a failure — say
+                // nothing rather than popping an alert over it.
+                NSLog("%@", "Google sign-in cancelled by the user.")
+            } catch let error as GoogleSignInError {
+                errorMessage = error.errorDescription
+                showingErrorAlert = true
+                NSLog("%@", "🔴 Google sign-in failed with error: \(error)")
+            } catch let error as APIError {
+                handleGoogleSignInError(error)
+            } catch {
+                errorMessage = GVOAppConstants.googleSignInFailedMessage
+                showingErrorAlert = true
+                NSLog("%@", "🔴 Google sign-in failed with error: \(error)")
+            }
+            isLoading = false
+        }
+    }
+
+    /// The backend answers login/google/ with stable codes rather than prose
+    /// (see backend/user_system/constants.py), so the copy lives here. Anything
+    /// unrecognized falls through to the shared password-login handling, which
+    /// already reports transport failures readably.
+    private func handleGoogleSignInError(_ error: APIError) {
+        guard case .serverError(_, let code) = error else {
+            handleLoginError(error)
+            return
+        }
+        switch code {
+        case GVOAppConstants.googleEmailUnverifiedError:
+            errorMessage = GVOAppConstants.googleEmailUnverifiedMessage
+        case GVOAppConstants.googleEmailAmbiguousError:
+            errorMessage = GVOAppConstants.googleEmailAmbiguousMessage
+        case GVOAppConstants.googleSignInUnavailableError:
+            errorMessage = GVOAppConstants.googleSignInUnavailableMessage
+        case GVOAppConstants.invalidGoogleTokenError:
+            errorMessage = GVOAppConstants.googleSignInFailedMessage
+        default:
+            handleLoginError(error)
+            return
+        }
+        showingErrorAlert = true
+        NSLog("%@", "🔴 Google sign-in rejected with code: \(code)")
     }
 
     // MARK: - Two-Factor Verify Action

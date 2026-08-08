@@ -26,6 +26,14 @@ android {
         buildConfigField("String", "FCM_APPLICATION_ID", "\"${project.findProperty("FCM_APPLICATION_ID") ?: ""}\"")
         buildConfigField("String", "FCM_API_KEY", "\"${project.findProperty("FCM_API_KEY") ?: ""}\"")
         buildConfigField("String", "FCM_SENDER_ID", "\"${project.findProperty("FCM_SENDER_ID") ?: ""}\"")
+
+        // Google sign-in (issue #10). This is the *web* OAuth client ID, not the
+        // Android one — Credential Manager mints the ID token addressed to it,
+        // so it is the value the backend's GOOGLE_OAUTH_CLIENT_IDS must contain.
+        // Public (it ships in every APK), supplied via -P/gradle.properties like
+        // the FCM identifiers above. Empty means no Google button, so CI needs
+        // no Google credentials to build.
+        buildConfigField("String", "GOOGLE_WEB_CLIENT_ID", "\"${project.findProperty("GOOGLE_WEB_CLIENT_ID") ?: ""}\"")
     }
 
     buildTypes {
@@ -83,6 +91,12 @@ dependencies {
     // Forces firebase-messaging's transitive androidx.fragment 1.1.0 up past the
     // 1.3.0 that ActivityResult APIs require (see libs.versions.toml).
     implementation(libs.androidx.fragment)
+    // Google sign-in (issue #10). credentials is the API, the -play-services-auth
+    // artifact is the provider that serves the account picker, and googleid
+    // carries the GoogleIdTokenCredential the picker returns.
+    implementation(libs.androidx.credentials)
+    implementation(libs.androidx.credentials.play.services.auth)
+    implementation(libs.googleid)
     implementation(libs.io.coil.compose)
     implementation(libs.zxing.core)
     implementation(libs.androidx.material.icons.extended)

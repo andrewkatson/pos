@@ -1,5 +1,5 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
-import { Navigate, useNavigate, useParams } from 'react-router'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { Link, useLocation, useNavigate, useParams } from 'react-router'
 import { apiClient } from '../api/client'
 import { getCurrentUsername } from '../api/session'
 import type {
@@ -27,7 +27,12 @@ import {
 } from '../components/commentFormatting'
 import { formatRelativeTime } from '../utils/relativeTime'
 import { profilePathFor } from '../utils/profilePath'
-import { commentShareUrl, postShareUrl, shareLink } from '../utils/shareLink'
+import {
+  commentShareUrl,
+  postShareUrl,
+  shareLink,
+  sharedCommentId,
+} from '../utils/shareLink'
 import './MainApp.css'
 
 /** A comment enriched with per-user like/report state for the UI. */
@@ -88,6 +93,13 @@ const COMMENT_AUDIENCE_BADGE: Partial<Record<PostAudience, string>> = {
   family: 'Family',
 }
 
+// How many extra pages of comment threads a shared `#comment-<id>` link may
+// pull in while looking for its target (issue #381). The backend pages threads
+// COMMENT_THREAD_BATCH_SIZE (10) at a time, so this reaches ~50 threads deep —
+// enough for a real conversation, and bounded so a link to a comment that was
+// since removed or hidden costs a few requests rather than the whole thing.
+const MAX_SHARED_COMMENT_THREAD_BATCHES = 5
+
 type ReportTarget = { type: 'post' } | { type: 'comment'; comment: CommentView }
 type DeleteTarget = { type: 'post' } | { type: 'comment'; comment: CommentView }
 // The three-dots menu next to the post caption / each comment (issue #304).
@@ -102,6 +114,11 @@ type ComposerTarget = { type: 'post' } | { type: 'reply'; thread: ThreadView }
  * replies, and a three-dots menu per item offering Report / Retract Report /
  * Delete (issues #304, #176). Mirrors iOS PostDetailView / PostDetailViewModel.
  *
+ * This is also the page a shared link opens (issue #381), so it renders for
+ * signed-out visitors too: they read the post and its comments through the
+ * public endpoints and see a prompt to sign in instead of the controls that
+ * need a session.
+ *
  * Per-user like/report state comes from the API (is_liked / is_reported /
  * report_reason); local refs only backstop responses that omit those fields.
  *
@@ -110,19 +127,25 @@ type ComposerTarget = { type: 'post' } | { type: 'reply'; thread: ThreadView }
  */
 function PostDetailPage() {
   const { postId = '' } = useParams<{ postId: string }>()
-  // Comments/likes/reports require a session, so require one like HomePage.
-  if (!apiClient.isAuthenticated()) {
-    return <Navigate to="/login" replace />
-  }
-  return <PostDetailView key={postId} postId={postId} />
+  // Read once per mount rather than per render: the session cannot change
+  // underneath this page without a navigation, and a stable value keeps the
+  // load effect from re-running.
+  const [isSignedIn] = useState(() => apiClient.isAuthenticated())
+  return <PostDetailView key={postId} postId={postId} isSignedIn={isSignedIn} />
 }
 
-function PostDetailView({ postId }: { postId: string }) {
+function PostDetailView({ postId, isSignedIn }: { postId: string; isSignedIn: boolean }) {
   const navigate = useNavigate()
+  const location = useLocation()
 
   // The signed-in user, read once. Used to hide the like control on the user's
-  // own post/comments since the backend rejects liking your own content.
-  const [currentUsername] = useState(() => getCurrentUsername())
+  // own post/comments since the backend rejects liking your own content. Null
+  // for a signed-out visitor, who owns nothing on the page.
+  const [currentUsername] = useState(() => (isSignedIn ? getCurrentUsername() : null))
+
+  // The comment a shared `#comment-<id>` link points at, so the page can scroll
+  // to it once the threads have rendered.
+  const targetCommentId = useMemo(() => sharedCommentId(location.hash), [location.hash])
 
   // Track mount state so async loads that resolve after navigating away don't
   // set state on an unmounted view.
@@ -250,7 +273,9 @@ function PostDetailView({ postId }: { postId: string }) {
       // a post that loaded fine.
       let details: PostDetails
       try {
-        details = await apiClient.getPostDetails(postId)
+        details = isSignedIn
+          ? await apiClient.getPostDetails(postId)
+          : await apiClient.getPublicPostDetails(postId)
       } catch {
         if (isMounted.current) {
           setNotFound(true)
@@ -272,33 +297,58 @@ function PostDetailView({ postId }: { postId: string }) {
       // Read from the ref (not a captured value) so a coalesced re-run always
       // uses the latest requested group rather than a stale closure value.
       const group = requestedGroupRef.current
-      const groupFilter = group === 'all' ? undefined : group
+      // A signed-out visitor has no relationships, so the public endpoints take
+      // no category filter and the chips that set it are not rendered.
+      const groupFilter = !isSignedIn || group === 'all' ? undefined : group
       try {
-        const refs = await apiClient.getCommentsForPost(postId, 0, groupFilter)
-        const threadLists = await Promise.all(
-          refs.map(async ref => {
-            const comments = await apiClient.getCommentsForThread(
-              ref.comment_thread_identifier,
-              0,
-              groupFilter,
-            )
-            return { threadId: ref.comment_thread_identifier, comments }
-          }),
-        )
-        if (!isMounted.current) return
-
-        const built: ThreadView[] = threadLists
-          .filter(t => t.comments.length > 0)
-          .map(t => ({
-            threadId: t.threadId,
-            comments: t.comments
-              .slice()
-              .sort((a, b) => a.creation_time.localeCompare(b.creation_time))
-              .map(c => toView(c, t.threadId)),
-          }))
-          .sort((a, b) =>
-            (a.comments[0]?.createdTime ?? '').localeCompare(b.comments[0]?.createdTime ?? ''),
+        const built: ThreadView[] = []
+        let threadBatch = 0
+        for (;;) {
+          const refs = isSignedIn
+            ? await apiClient.getCommentsForPost(postId, threadBatch, groupFilter)
+            : await apiClient.getPublicCommentsForPost(postId, threadBatch)
+          if (refs.length === 0) break
+          const threadLists = await Promise.all(
+            refs.map(async ref => {
+              const comments = isSignedIn
+                ? await apiClient.getCommentsForThread(
+                    ref.comment_thread_identifier,
+                    0,
+                    groupFilter,
+                  )
+                : await apiClient.getPublicCommentsForThread(ref.comment_thread_identifier, 0)
+              return { threadId: ref.comment_thread_identifier, comments }
+            }),
           )
+          if (!isMounted.current) return
+
+          built.push(
+            ...threadLists
+              .filter(t => t.comments.length > 0)
+              .map(t => ({
+                threadId: t.threadId,
+                comments: t.comments
+                  .slice()
+                  .sort((a, b) => a.creation_time.localeCompare(b.creation_time))
+                  .map(c => toView(c, t.threadId)),
+              })),
+          )
+
+          // Normally one batch is all this page loads. The exception is a shared
+          // `#comment-<id>` link (issue #381): the backend pages threads 10 at a
+          // time, so a link to a comment in the 11th thread would land on a page
+          // that never renders it — the scroll would silently do nothing. Keep
+          // paging until it turns up, bounded so a link to an already-removed
+          // comment can't walk the whole conversation.
+          if (!targetCommentId) break
+          if (built.some(t => t.comments.some(c => c.id === targetCommentId))) break
+          threadBatch += 1
+          if (threadBatch >= MAX_SHARED_COMMENT_THREAD_BATCHES) break
+        }
+
+        built.sort((a, b) =>
+          (a.comments[0]?.createdTime ?? '').localeCompare(b.comments[0]?.createdTime ?? ''),
+        )
         setThreads(built)
         // Clear any stale "failed to load comments" message from a prior attempt.
         setErrorMessage(null)
@@ -319,13 +369,26 @@ function PostDetailView({ postId }: { postId: string }) {
     } finally {
       isLoadingRef.current = false
     }
-  }, [postId, currentUsername, commentGroup])
+  }, [postId, currentUsername, commentGroup, isSignedIn, targetCommentId])
 
   // Kick the initial load off a microtask so the fetch's setState calls don't
   // run synchronously inside the effect (React flags that as cascading renders).
   useEffect(() => {
     void Promise.resolve().then(loadAll)
   }, [loadAll])
+
+  // Bring the comment a shared `#comment-<id>` link points at into view once its
+  // thread has rendered (issue #381). The browser cannot do this itself: the
+  // element does not exist yet when the fragment is resolved on load. Runs at
+  // most once — after that the user is in charge of the scroll position.
+  const scrolledToSharedComment = useRef(false)
+  useEffect(() => {
+    if (!targetCommentId || scrolledToSharedComment.current || threads.length === 0) return
+    const element = document.getElementById(`comment-${targetCommentId}`)
+    if (!element) return
+    scrolledToSharedComment.current = true
+    element.scrollIntoView({ block: 'center' })
+  }, [targetCommentId, threads])
 
   // Manual refresh — the web equivalent of the iOS/Android pull-to-refresh — so
   // comments added by others can be pulled in without a full page reload.
@@ -345,7 +408,7 @@ function PostDetailView({ postId }: { postId: string }) {
   const isOwnPost = post?.author_username === currentUsername
 
   async function togglePostLike() {
-    if (isOwnPost) return
+    if (isOwnPost || !isSignedIn) return
     const liking = !postLiked
     setPostLiked(liking)
     setPostLikeCount(n => (liking ? n + 1 : Math.max(0, n - 1)))
@@ -372,7 +435,7 @@ function PostDetailView({ postId }: { postId: string }) {
   }
 
   async function toggleCommentLike(comment: CommentView) {
-    if (comment.isOwn) return
+    if (comment.isOwn || !isSignedIn) return
     const liking = !comment.isLiked
     if (liking) likedCommentIds.current.add(comment.id)
     else likedCommentIds.current.delete(comment.id)
@@ -576,10 +639,17 @@ function PostDetailView({ postId }: { postId: string }) {
     }
   }
 
+  // A shared link opened cold has no history entry to pop, so Back would be a
+  // dead control (issue #381). Send those visitors somewhere real instead.
+  function goBack() {
+    if (window.history.length <= 1) navigate(isSignedIn ? '/home' : '/')
+    else navigate(-1)
+  }
+
   if (isLoading && !post) {
     return (
       <div className="app-shell">
-        <DetailBar onBack={() => navigate(-1)} />
+        <DetailBar onBack={goBack} />
         <div className="center-spinner">
           <span className="spinner" />
         </div>
@@ -590,9 +660,18 @@ function PostDetailView({ postId }: { postId: string }) {
   if (notFound || !post) {
     return (
       <div className="app-shell">
-        <DetailBar onBack={() => navigate(-1)} />
+        <DetailBar onBack={goBack} />
         <main className="app-content">
           <p className="muted">Post not found.</p>
+          {/* Only public posts are readable without a session, so a shared link
+              to a friends-only post lands here — say so rather than leaving the
+              recipient thinking it was deleted. */}
+          {!isSignedIn && (
+            <p className="muted">
+              It may have been removed, or shared with a narrower audience.{' '}
+              <Link to="/login">Log in</Link> to check.
+            </p>
+          )}
         </main>
       </div>
     )
@@ -604,7 +683,7 @@ function PostDetailView({ postId }: { postId: string }) {
 
   return (
     <div className="app-shell">
-      <DetailBar onBack={() => navigate(-1)} />
+      <DetailBar onBack={goBack} />
 
       <main className="app-content">
         {errorMessage && (
@@ -625,11 +704,11 @@ function PostDetailView({ postId }: { postId: string }) {
           post={post}
           className="detail-image"
           variant="detail"
-          onDoubleClick={isOwnPost ? undefined : togglePostLike}
+          onDoubleClick={isOwnPost || !isSignedIn ? undefined : togglePostLike}
         />
 
         <div className="detail-meta">
-          {!isOwnPost && (
+          {!isOwnPost && isSignedIn && (
             <button
               type="button"
               className="heart"
@@ -701,40 +780,54 @@ function PostDetailView({ postId }: { postId: string }) {
             unparseable — omit the label rather than render an empty line. */}
         {postTime && <p className="detail-time">{postTime}</p>}
 
-        <div className="comment-form">
-          <button
-            type="button"
-            className="comment-compose-trigger"
-            onClick={() => openComposer({ type: 'post' })}
-          >
-            Add a comment...
-          </button>
-        </div>
+        {isSignedIn ? (
+          <div className="comment-form">
+            <button
+              type="button"
+              className="comment-compose-trigger"
+              onClick={() => openComposer({ type: 'post' })}
+            >
+              Add a comment...
+            </button>
+          </div>
+        ) : (
+          /* A shared link opened by someone with no account (issue #381): the
+             post and its comments are readable, but liking, commenting and
+             reporting all need one. Sharing deliberately isn't listed — it
+             still works signed out, so naming it here would imply the opposite. */
+          <p className="muted signed-out-prompt">
+            <Link to="/login">Log in</Link> or <Link to="/register">join</Link> to like,
+            comment, and post your own good vibes.
+          </p>
+        )}
 
         <h2 className="app-bar__title" style={{ fontSize: '1rem' }}>
           Comments
         </h2>
 
         {/* Filter the comment list by relationship group — the same toggles the
-            Following feed offers (issue #445). */}
-        <label className="comment-group-filter">
-          Show
-          <select
-            className="select-input"
-            aria-label="Filter comments by group"
-            value={commentGroup}
-            onChange={e => {
-              const next = e.target.value as CommentGroup
-              if (next !== commentGroup) setCommentGroup(next)
-            }}
-          >
-            {COMMENT_GROUP_OPTIONS.map(opt => (
-              <option key={opt.value} value={opt.value}>
-                {opt.label}
-              </option>
-            ))}
-          </select>
-        </label>
+            Following feed offers (issue #445). A signed-out visitor has no
+            relationships to filter by, so the chips are theirs to skip. */}
+        {isSignedIn && (
+          <label className="comment-group-filter">
+            Show
+            <select
+              className="select-input"
+              aria-label="Filter comments by group"
+              value={commentGroup}
+              onChange={e => {
+                const next = e.target.value as CommentGroup
+                if (next !== commentGroup) setCommentGroup(next)
+              }}
+            >
+              {COMMENT_GROUP_OPTIONS.map(opt => (
+                <option key={opt.value} value={opt.value}>
+                  {opt.label}
+                </option>
+              ))}
+            </select>
+          </label>
+        )}
 
         <button
           type="button"
@@ -762,6 +855,8 @@ function PostDetailView({ postId }: { postId: string }) {
                 {root && (
                   <CommentRow
                     comment={root}
+                    canLike={isSignedIn}
+                    isShared={root.id === targetCommentId}
                     isCollapsed={collapsedIds.has(root.id)}
                     onToggleCollapse={() => toggleCollapsed(root.id)}
                     onToggleLike={() => toggleCommentLike(root)}
@@ -779,19 +874,23 @@ function PostDetailView({ postId }: { postId: string }) {
                     }
                   />
                 )}
-                <button
-                  type="button"
-                  className="comment-reply-btn"
-                  onClick={() => openComposer({ type: 'reply', thread })}
-                >
-                  Reply
-                </button>
+                {isSignedIn && (
+                  <button
+                    type="button"
+                    className="comment-reply-btn"
+                    onClick={() => openComposer({ type: 'reply', thread })}
+                  >
+                    Reply
+                  </button>
+                )}
                 {replies.length > 0 && (
                   <div className="comment-replies">
                     {replies.map(reply => (
                       <CommentRow
                         key={reply.id}
                         comment={reply}
+                        canLike={isSignedIn}
+                        isShared={reply.id === targetCommentId}
                         isCollapsed={collapsedIds.has(reply.id)}
                         onToggleCollapse={() => toggleCollapsed(reply.id)}
                         onToggleLike={() => toggleCommentLike(reply)}
@@ -965,7 +1064,9 @@ function PostDetailView({ postId }: { postId: string }) {
               >
                 Share
               </button>
-              {menuState(menuTarget).isOwn ? (
+              {/* Report / Retract / Delete all need a session; a signed-out
+                  visitor gets Share and nothing else (issue #381). */}
+              {!isSignedIn ? null : menuState(menuTarget).isOwn ? (
                 <button
                   type="button"
                   className="modal__confirm"
@@ -1123,6 +1224,11 @@ function DetailBar({ onBack }: { onBack: () => void }) {
 
 interface CommentRowProps {
   comment: CommentView
+  /** False for a signed-out visitor, who has no session to like with. */
+  canLike: boolean
+  /** True when a `#comment-<id>` share link points at this comment, so it is
+   * marked out from the rest of the thread (issue #381). */
+  isShared: boolean
   isCollapsed: boolean
   onToggleCollapse: () => void
   onToggleLike: () => void
@@ -1135,6 +1241,8 @@ interface CommentRowProps {
 
 function CommentRow({
   comment,
+  canLike,
+  isShared,
   isCollapsed,
   onToggleCollapse,
   onToggleLike,
@@ -1143,7 +1251,11 @@ function CommentRow({
   onNavigate,
 }: CommentRowProps) {
   return (
-    <div className="comment-row">
+    // The id is the anchor a shared `#comment-<id>` link resolves against.
+    <div
+      id={`comment-${comment.id}`}
+      className={`comment-row${isShared ? ' comment-row--shared' : ''}`}
+    >
       <Avatar
         src={comment.authorAvatarUrl}
         originalSrc={comment.authorAvatarOriginalUrl}
@@ -1208,7 +1320,7 @@ function CommentRow({
           <FormattedText text={comment.body} spans={comment.formatting} />
         </p>
         <div className="comment-row__info">
-          {!comment.isOwn && (
+          {!comment.isOwn && canLike && (
             <button
               type="button"
               className="heart"

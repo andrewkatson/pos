@@ -63,6 +63,9 @@ profile grid, and the Feed — without opening the post first:
   collection rather than a public signal. Saved posts are collected on the
   **Saved Posts** screen, reachable from the Settings tab.
 - **Report**, with a reason. A flag marks posts you have an active report on.
+  Reporting opens a moderation review of the content; it never hides anything by
+  itself, however many people report the same post (see
+  [Reporting and user moderation](#reporting-and-user-moderation-issue-467)).
 - **Retract report**, which shows the reason you originally gave.
 - **Delete**, offered only on your own posts.
 - **Share**, offered on every post (see [Sharing](#sharing)).
@@ -233,12 +236,105 @@ Android fires an `ACTION_SEND` chooser, and the website uses the Web Share API
 when the browser offers it (typically mobile), otherwise copying the link to the
 clipboard and confirming with a "Link copied" prompt.
 
-This is deliberately the client-only first step. A shared link today opens the
-website and, because the single-post view is still behind auth, prompts a
-signed-out recipient to log in; on mobile it opens the browser rather than the
-app. Making a single post (and comment) publicly viewable with link-preview
-metadata, and adding iOS Universal Links / Android App Links so a shared link
-opens the app, are tracked follow-ups.
+### What a recipient sees (issue #381)
+
+A shared link opens the website's post page **whether or not the recipient has
+an account**. Signed out, the page is read-only: the image, caption, like count
+and the comment threads are all there, but liking, commenting, replying,
+reporting and the relationship filter are replaced by a prompt to log in or
+join. Share itself still works, so a link can be passed along.
+
+Comments are paged, and the post page has no "load more": it renders the first
+batch of threads (10) and the first batch of comments within each (30). That is
+the same for signed-in viewers — this page has never paged — so a very busy
+post shows its opening conversation rather than all of it.
+
+What is public is deliberately narrower than what a signed-in viewer sees. A
+signed-out visitor is resolved against a fixed anonymous viewer, so a post is
+served only when it is:
+
+- not hidden — approved, not pending classification, not hidden by reports, and
+  not a final-rejection tombstone;
+- `public` audience — a following/friends/family post is never public, because
+  an anonymous visitor is on nobody's follow list;
+- by an author who is **not shadow banned** (an outright ban stops the account
+  from acting but is not a content takedown, so their approved posts stay up);
+- by an author who is **not a verified minor** — an anonymous visitor's age is
+  unknown, which puts them in the adult band, and the two bands are mutually
+  invisible (see [Age and identity](#age-and-identity)). A minor's post is
+  therefore never served to the open internet.
+
+Comments are filtered by the same rule, so a public post can serve an empty
+comment list when every comment on it is hidden or narrowly scoped.
+
+Anything that fails these checks is reported as **404, identical to a post that
+never existed** — the endpoints cannot be used to probe moderation state. The
+answer does not depend on who asks: a signed-in browser, a signed-out one, and a
+crawler all get the same bytes.
+
+A comment link's `#comment-<id>` fragment is resolved by the post page itself.
+The API serves the **containing thread**, not the comment alone — a reply only
+makes sense inside the conversation it belongs to — and the page scrolls to that
+comment and marks it out.
+
+Because the page renders one batch of threads, a link into the 11th thread would
+otherwise point at something never rendered. So a fragment is the one thing that
+makes the page keep paging: it fetches further thread batches until the target
+appears, stopping at 5 batches (~50 threads). Earlier batches stay on screen, so
+the comment is read in context. This widens only the thread dimension — a
+comment past the 30th in its own thread still isn't reached, which would need
+real pagination on this screen.
+
+### Link previews
+
+The website is a client-only SPA, so a crawler that fetches
+`https://smiling.social/post/<id>` gets an empty root div and nothing to unfurl.
+CloudFront's viewer-request function (`website/cloudfront/link-preview.js`)
+redirects known link-preview crawlers — and only those — to a backend endpoint
+that returns a meta-only HTML document with the post's Open Graph and Twitter
+Card tags. Real browsers are untouched and get the SPA. The preview endpoint
+applies exactly the public-visibility rule above, so a post it may not show
+unfurls as the generic site card rather than leaking anything.
+
+Two pieces of CloudFront configuration make this work and are not managed by
+`website/deploy-web.sh` (which warns about the first): custom error responses
+mapping 403/404 to `/index.html` with a 200, so a cold load of a client-side
+`/post/<id>` route resolves at all; and the published function association
+itself.
+
+### Opening the app instead of the browser (issue #382)
+
+On a phone with the app installed, a shared link opens the **app**, not the
+browser: iOS via Universal Links (`applinks:smiling.social` in the app's
+entitlements) and Android via App Links (an `autoVerify` intent-filter for
+`https://smiling.social/post/*`). Both are claimed by a file the OS fetches from
+the website at install time, published by `website/deploy-web.sh`:
+
+- `/.well-known/apple-app-site-association` — checked into
+  `website/public/.well-known/` and scoped to `/post/*`;
+- `/.well-known/assetlinks.json` — generated at deploy time, because it needs
+  the release signing certificate's SHA-256 fingerprint, which lives in Play
+  Console rather than the repo. Export `ANDROID_SHA256_CERT_FINGERPRINTS` to
+  publish it; without it the deploy leaves the file alone and Android App Links
+  simply do not verify (links keep opening the browser, which still works
+  because the web page is public).
+
+Only `/post/*` is claimed. Every other route — login, profiles, the privacy
+policy — belongs to the website, and claiming them would hijack links the app
+has no screen for.
+
+Each client parses the URL itself rather than letting the navigation framework
+resolve it (`ShareURL.parse` on iOS, `ShareLinks.parseSharedPostLink` on
+Android), because the post detail is an **authenticated** screen. The parsed
+post id goes onto the same small router a tapped push notification uses, which
+holds the request until a session exists — so a link opened while signed out
+waits for login instead of dropping the user on a screen with no session behind
+it. Both parsers are strict about scheme, host and path shape: a `VIEW` intent
+or an `.onOpenURL` callback can carry any URL, and one that merely looks similar
+must not navigate anywhere. A `#comment-<id>` fragment is parsed and the post
+still opens; scrolling to the specific comment is web-only today.
+
+If the app is not installed, the link opens the public web page as before.
 
 ## Text formatting (issue #318)
 
@@ -257,7 +353,16 @@ styling means different things:
   fills the tile, so the color has no visible effect. To avoid promising a
   change that never appears, the composer **hides the background-color control
   while a photo is attached** and sends `default` for image posts (issue #421);
-  the font, which does style an image post's caption, stays available.
+  the font, which does style an image post's caption, stays available. The font
+  applies **wherever the caption is shown** — the feed row's caption under the
+  photo as well as the post detail view (issue #450) — so a post looks the same
+  whether it is scrolled past or opened.
+  Mapping a key to a *distinct* face is part of the contract, not a detail: web
+  and iOS reach `rounded` through a system face (`ui-rounded`,
+  `.system(design: .rounded)`), but Android has no rounded system family, so it
+  bundles Nunito (SIL Open Font License, `android/PositiveOnlySocial/licenses/`)
+  rather than falling back to a generic sans — a fallback would make picking
+  "Rounded" a silent no-op.
 - **Comments** carry **inline** formatting (`body_formatting`): a list of range
   **spans** over the plain comment text, each `{start, end, bold, italic,
   size}`, where `size` is one of `small`/`normal`/`large`/`xlarge` and offsets
@@ -348,10 +453,12 @@ own posts only.
 Without `REDIS_URL` (local dev, tests, CI) there is no queue, so the job runs
 eagerly in-process; production must set `REDIS_URL` and run the worker. The
 `sweep_classifications` management command (scheduled, like
-`cleanup_orphan_images`) re-enqueues posts **and pending profile photos** stuck
-pending past a threshold (default 15 min, `--stuck-minutes`), alerts (log error)
-once an item has exhausted its retry budget, and purges old final-rejection
-tombstones (default 7 days, `--tombstone-days`; preview with `--dry-run`).
+`cleanup_orphan_images`) re-enqueues posts, **pending profile photos** and
+**pending report reviews** stuck past a threshold (default 15 min,
+`--stuck-minutes`), alerts (log error) once an item has exhausted its retry
+budget — a report review escalates to the moderator queue instead, since its
+content is visible meanwhile — and purges old final-rejection tombstones
+(default 7 days, `--tombstone-days`; preview with `--dry-run`).
 
 On the app host these async pieces are provisioned by `backend/tools/setup-django.sh`
 as systemd units (see [Deploying and restarting services](#deploying-and-restarting-services)):
@@ -366,6 +473,66 @@ as systemd units (see [Deploying and restarting services](#deploying-and-restart
 
 Comments are still classified inline in the request (text-only, much smaller
 worst case); moving them to the same async flow is a tracked follow-up.
+
+## Reporting and user moderation (issue #467)
+
+Any user can **report** a post or comment with a reason, and retract that report
+later. What a report does *not* do is hide anything.
+
+Reporting used to be a headcount: past a fixed number of reports the content was
+hidden automatically, and dropping back under the bar un-hid it. That made
+takedown a group vote — any coordinated set of accounts could remove anything,
+and one user could be spammed into invisibility. A report count now hides
+nothing at all. Instead the first report on a piece of content opens a
+**moderation review** (`ModerationReview`, one row per post/comment, which *is*
+that content's review state), and the review has two stages:
+
+1. **Automated re-review.** The same classifier cascade that gates new posts is
+   re-run — the local word-list pre-filter first, then the text and image
+   cascades — over the **content alone**. The report count, the reporters, and
+   the reasons they typed are never shown to a model, so no report can influence
+   the verdict (and no crafted report reason can be written to steer it).
+   Rejected content is hidden as `hidden_reason: "classifier"` and its author is
+   emailed; content that passes stays visible and the review is marked
+   `cleared`. Two deliberate asymmetries: a *final* (normally non-appealable)
+   verdict on re-review is still recorded as **appealable**, since this content
+   was already published under an earlier verdict; and a provider outage
+   **escalates to a human** rather than hiding, so reports can never fail closed.
+2. **Human review.** Reports filed *after* a clear count toward escalation
+   (`REPORTS_AFTER_CLEAR_BEFORE_ESCALATION`, default 3), which puts the review in
+   the moderator queue — Django admin, *Moderation reviews*, filtered to
+   "Escalated to a moderator". There an admin either **hides** the content
+   (`hidden_reason: "reports"`, appealable) or **dismisses** the reports.
+
+A moderator's decision is terminal *as far as reports are concerned*: dismissed
+content is immune — further reports never reopen the case or spend another
+provider call on it, so piling on is pointless — while a moderator can still
+revisit their own decision from the queue (dismissing restores content the queue
+hid, which is how a mistaken hide is undone without making the author appeal).
+Approving an appeal likewise dismisses the content's review, so restored content
+is not left one report away from another automated pass.
+
+A review whose job never completes (worker crash, sustained provider outage) is
+not left silently pending while the content stays up: `sweep_classifications`
+re-enqueues stuck reviews and escalates the ones whose retry budget is spent
+straight to the moderator queue.
+
+Retracting a report never un-hides anything — hiding is a decision, not a
+reversible vote. The one thing a retraction does is de-escalate a review whose
+reports have *all* been withdrawn, sparing a moderator an empty queue entry.
+
+Reporter-side limits: the report endpoints are rate limited per user, and on top
+of that one account may file at most `MAX_REPORTS_PER_USER_PER_DAY` (default 30)
+reports per rolling 24 hours, counted across posts and comments together, so no
+single account can flood the queue. The budget counts **filings, not reports
+currently standing**: retracting a report does not give budget back. That is why
+a retraction stamps `retracted_time` on the report row instead of deleting it —
+a deleted row would let one account cycle report → retract → report and open
+unlimited reviews (each spending provider calls) while never holding more than
+one live report. Everything that asks about the content rather than about the
+reporter — is this reported, how many reports, what did the reporters say, does
+this escalate — reads `PostReport/CommentReport.objects.active()`, so a
+withdrawn report counts for nothing there.
 
 ## Push notifications
 
@@ -494,7 +661,8 @@ Whether a ban is temporary or permanent is controlled by the `expires` field
 and is independent of the ban type. A temporary ban lifts itself once
 `expires` passes — `UserBan.objects.active()` filters it out, so no scheduled
 job is needed. Escalation for ordinary users follows the ladder: warning
-(content hidden by reports) → temporary outright ban → permanent outright ban.
+(content hidden after [moderation review](#reporting-and-user-moderation-issue-467))
+→ temporary outright ban → permanent outright ban.
 
 ## Relationship categories & post audience
 
@@ -603,6 +771,91 @@ delete. It reuses the same `POST /user/delete/` endpoint, so the deleted data is
 exactly the cascade above; on success the local session is cleared and a
 confirmation is shown. A session already restored on page load skips straight to
 the confirmation step.
+
+## Signing in with Google
+
+Anyone can sign in — and sign up — with a Google account instead of a username
+and password (issue #10). Every client obtains a **Google ID token** natively
+and posts it to `login/google/`, which verifies it and hands back exactly the
+same session a password login would: same fields, same remember-me cookie, same
+new-device email. Nothing downstream of login knows or cares how the session was
+obtained.
+
+**Verification.** The backend checks the token's RS256 signature against
+Google's published keys, its issuer, its expiry, and — the part that matters —
+its **audience**, which must be one of the OAuth client IDs in
+`GOOGLE_OAUTH_CLIENT_IDS`. That list is the entire trust boundary: a token minted
+for someone else's Google app is just a signed statement addressed elsewhere.
+With the setting unset the endpoint refuses every request with
+`google_sign_in_unavailable`, so a deployment that has not been configured
+cannot accidentally accept anything. Google is also only ever trusted to assert
+an address it has itself verified: a token whose `email_verified` claim is false
+is rejected with `google_email_unverified`. Every way a *presented* token can
+fail verification — bad signature, wrong audience, expired — collapses into one
+opaque `invalid_google_token`, because telling a caller which check failed only
+helps someone probing the endpoint. Input that isn't shaped like a JWT at all is
+refused earlier, as an ordinary `Invalid fields [ID_TOKEN]` validation error
+alongside every other malformed request; that reveals nothing, and keeps the
+endpoint consistent with the rest of the API.
+
+**Which account it is.** Google's `sub` claim is the join key, stored on
+`PositiveOnlySocialUser.google_sub`. It is the only identifier Google guarantees
+is permanent and never reused; an email address is neither, so someone who
+renames their mailbox still lands on the same account. The email is used only
+once, on the first sign-in, to find an account to link to.
+
+**Linking.** If no account carries that `sub` yet but one already holds the
+email address, the two are the same person and the Google identity is attached to
+the existing account — matched case-insensitively, since accounts were registered
+with whatever case the user typed while Google normalizes what it asserts. Both
+ways in then work: the password still logs in, and so does Google. Because Google
+has proven ownership of the address, linking also settles our own email
+verification, so an account still sitting on an unclicked verification link
+becomes verified. Nothing enforces email uniqueness in the database; in the rare
+case that more than one account holds the address, the sign-in is refused with
+`google_email_ambiguous` rather than handing the Google identity to whichever row
+sorted first.
+
+Every rejection above is a stable machine-readable code, never prose — clients
+map `google_email_ambiguous`, `google_email_unverified`,
+`invalid_google_token` and `google_sign_in_unavailable` to their own copy, the
+same way they already do for `account_banned` and `email_not_verified`.
+
+**Creating an account.** Otherwise the sign-in creates one. A Google account
+brings no username, so one is generated from the email local part (non-word
+characters stripped, padded to the ten-character minimum, and given random digits
+if it is taken). The generated name still has to clear the positivity bar a
+chosen username does — but the user did not choose this one, so a rejection falls
+back to a neutral `friend…` name rather than refusing the sign-in over somebody's
+email address. The account gets a membership number in the usual join order,
+starts already email-verified, and has **no usable password**, so the password
+login path can never let anyone in with a guess. Like registering without a date
+of birth, it is left identity-unverified and not an adult. The response carries
+`created_account: true` and the new membership number so clients can greet a new
+member.
+
+**Two-factor authentication is not bypassed.** An account with 2FA enabled
+answers `login/google/` with the same short-lived challenge `login/` returns, and
+the code is exchanged at `login/2fa/` as usual. Holding the Google account is a
+first factor, not a way past a second one the user deliberately turned on. An
+active outright ban is refused here exactly as it is on every other login path.
+
+**Configuration.** Google issues a separate OAuth client ID per platform, and
+each mints tokens addressed to itself, so all of them go in the backend's
+comma-separated `GOOGLE_OAUTH_CLIENT_IDS`:
+
+| Surface | Client ID | Where it is set | How the token is obtained |
+| --- | --- | --- | --- |
+| Website | Web | `VITE_GOOGLE_CLIENT_ID` (see `website/deploy-web.sh`) | Google Identity Services, loaded from Google's CDN |
+| iOS | iOS | `GoogleSignInConfig.clientID` in `ios/…/api/GoogleSignIn.swift` | `ASWebAuthenticationSession` + OAuth 2.0 PKCE, no SDK |
+| Android | **Web** | `GOOGLE_WEB_CLIENT_ID` gradle property | Credential Manager (Sign in with Google) |
+
+Android really does want the *web* client ID — Credential Manager mints the token
+addressed to it — though an Android client ID keyed to the app's signing
+certificate must also exist in the same Google Cloud project. Every surface treats
+an unset client ID as "the feature is off" and simply shows no Google button, so
+CI and local runs need no Google credentials. Step-by-step wiring lives in
+[`GOOGLE_SIGN_IN_SETUP.md`](GOOGLE_SIGN_IN_SETUP.md).
 
 ## Email verification
 
@@ -920,11 +1173,14 @@ resolution trail.
 
 - **Content appeals** (hidden posts and comments) are filed in-app. A signed-in
   user can list their own hidden posts/comments and their existing appeals, and
-  submit an appeal, via the `appeals/...` endpoints. Both classifier-hidden and
-  report-hidden content is appealable. An item can be appealed only once.
-  Posts still pending classification (nothing has been decided yet) and
-  final classifier rejections (terminal by definition) are not appealable and
-  never appear on the appeals screens.
+  submit an appeal, via the `appeals/...` endpoints. Content hidden by the
+  classifier (including by the report-triggered re-review) and content a
+  moderator hid after reviewing reports are both appealable. An item can be
+  appealed only once. Posts still pending classification (nothing has been
+  decided yet) and final classifier rejections (terminal by definition) are not
+  appealable and never appear on the appeals screens. Approving an appeal also
+  dismisses any moderation review of that content, so it is not immediately
+  re-reviewed by the next report.
 - **Ban appeals** go through the email-reply flow described in the suspension
   email, not an in-app endpoint: an outright-banned user has no active session
   and cannot log in, so they cannot reach an authenticated endpoint. Admins can

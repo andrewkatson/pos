@@ -2,7 +2,9 @@ import hashlib
 import ipaddress
 import json
 import logging
+import re
 import secrets
+import string
 import uuid
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, date, timedelta
@@ -16,23 +18,23 @@ from django.contrib.auth.hashers import check_password, make_password
 from django.core.mail import send_mail
 from django.db import transaction, IntegrityError
 from django.db.models import Count, Max, OuterRef, Subquery
-from django.http import JsonResponse
+from django.http import HttpResponse, JsonResponse
 from django.utils import timezone
 from django.views.decorators.csrf import csrf_exempt
 from django.views.decorators.http import require_POST, require_GET, require_http_methods
 from django_ratelimit.decorators import ratelimit
 from django_ratelimit.exceptions import Ratelimited
 
-from . import tasks
+from . import link_preview, moderation, tasks
 from .classifiers import image_classifier, text_classifier, interest_classifier
 from .classifiers.classifier_constants import REASON_PHRASES, GENERIC_REASON_CODE
 from .classifiers.prefilter import prefilter_text
-from .constants import Patterns, Params, POST_BATCH_SIZE, MAX_BEFORE_HIDING_POST, MAX_BEFORE_HIDING_COMMENT, \
+from .constants import Patterns, Params, POST_BATCH_SIZE, \
     MAX_CAPTION_LENGTH, MAX_COMMENT_LENGTH, MAX_BIO_LENGTH, \
     COMMENT_BATCH_SIZE, Fields, COMMENT_THREAD_BATCH_SIZE, LIKE_BATCH_SIZE, \
     VERIFY_RESET_MAX_ATTEMPTS, VERIFY_RESET_LOCKOUT_MINUTES, \
     ACCOUNT_BANNED, EMAIL_NOT_VERIFIED, EMAIL_VERIFICATION_TOKEN_HOURS, BAN_TYPE_OUTRIGHT, \
-    HIDDEN_REASON_NONE, HIDDEN_REASON_REPORTS, HIDDEN_REASON_CLASSIFIER, \
+    HIDDEN_REASON_NONE, HIDDEN_REASON_CLASSIFIER, \
     HIDDEN_REASON_PENDING_CLASSIFICATION, NON_APPEALABLE_HIDDEN_REASONS, \
     POST_STATUS_PENDING, POST_STATUS_REJECTED, POST_STATUS_REJECTED_FINAL, \
     APPEAL_TARGET_POST, APPEAL_TARGET_COMMENT, APPEAL_TARGET_BAN, \
@@ -47,8 +49,13 @@ from .constants import Patterns, Params, POST_BATCH_SIZE, MAX_BEFORE_HIDING_POST
     INTEREST_CATEGORY_CHOICES, INTEREST_CATEGORY_SLUGS, \
     MAX_FREEFORM_INTERESTS, MAX_FREEFORM_INTEREST_LENGTH, REJECTED_TEXT_ECHO_LIMIT, \
     DEVICE_PLATFORMS, MAX_DEVICE_TOKEN_LENGTH, \
-    PUSH_TYPE_CHOICES, PUSH_TYPES
+    PUSH_TYPE_CHOICES, PUSH_TYPES, \
+    GOOGLE_SIGN_IN_UNAVAILABLE, INVALID_GOOGLE_TOKEN, GOOGLE_EMAIL_UNVERIFIED, \
+    GOOGLE_EMAIL_AMBIGUOUS, \
+    GENERATED_USERNAME_FALLBACK_PREFIX, MIN_GENERATED_USERNAME_LENGTH, \
+    MAX_GENERATED_USERNAME_ATTEMPTS
 from .feed_algorithm import feed_algorithm
+from .google_auth import GoogleTokenError, is_google_sign_in_configured, verify_google_id_token
 from .input_validator import is_valid_pattern
 from .models import LoginCookie, Session, Post, CommentThread, PositiveOnlySocialUser, Comment, CommentLike, \
     PostLike, SavedPost, UserBlock, UserBan, UserFollow, KnownDevice, Appeal, TwoFactorChallenge, RecoveryCode, \
@@ -60,7 +67,7 @@ from .s3 import delete_image, generate_presigned_upload, image_url_to_key, is_so
     strip_query_and_fragment
 from .tags import set_post_tags
 from .visibility import audience_admits, can_view_post, in_same_age_band, searchable_users, \
-    visible_comment_threads, visible_comments, visible_posts
+    visible_comment_threads, visible_comments, visible_posts, PUBLIC_VIEWER
 
 
 def _age_from_dob(dob):
@@ -612,12 +619,97 @@ def _issue_recovery_codes(user):
     return raw_codes
 
 
-def _create_authenticated_session(view_name, request, user, ip, remember_me):
+def _issue_two_factor_challenge_if_enrolled(user, remember_me):
+    """Return a raw challenge token if `user` needs a second factor, else None.
+
+    Decides between "issue a challenge" and "mint a session" from a locked row
+    rather than from an unlocked read, which either 2FA endpoint can invalidate
+    underneath us: disable_totp would strand this login on a second step the
+    account can no longer satisfy, and confirm_totp would let it skip a second
+    factor the account now requires. Taking the lock unconditionally costs one
+    extra query on the login path and only ever serializes concurrent logins for
+    the same user.
+
+    Shared by every path that authenticates a user without a code in hand
+    (password login and Google sign-in), so enrolling in 2FA covers both.
+    """
+    raw_challenge = None
+    with transaction.atomic():
+        locked = get_user_model().objects.select_for_update().get(pk=user.pk)
+        if locked.totp_enabled:
+            # The account requires a second factor: hand back a short-lived
+            # challenge instead of a session, which login_user_2fa exchanges
+            # for the real one. Delete every existing challenge for the user
+            # first, so only one is ever valid at a time — otherwise the
+            # per-challenge attempt limit could be multiplied by requesting
+            # several challenges at once. The delete-then-create runs under
+            # this same lock so two concurrent logins can't interleave and
+            # leave more than one live challenge.
+            raw_challenge = secrets.token_hex(32)
+            locked.two_factor_challenges.all().delete()
+            locked.two_factor_challenges.create(
+                token_hash=hashlib.sha256(raw_challenge.encode()).hexdigest(),
+                expires=timezone.now() + timedelta(minutes=TWO_FACTOR_CHALLENGE_MINUTES),
+                remember_me=remember_me,
+            )
+    return raw_challenge
+
+
+def _two_factor_challenge_response(view_name, raw_challenge):
+    """The 200 a login answers with when the account still owes a second factor."""
+    response = log_and_return_json(view_name, {
+        Fields.two_factor_required: True,
+        Fields.challenge_token: raw_challenge,
+    })
+    response['Cache-Control'] = 'no-store'
+    return response
+
+
+def _read_remember_me(data, invalid_fields):
+    """Read the optional `remember_me` flag from a request body.
+
+    **No value means "don't remember me".** Every client already treats the field
+    as optional — the website's own LoginRequest/RegisterRequest types mark it
+    so, and the API tests call login without it — and a caller that never wants a
+    remembered device should not have to say so.
+
+    "No value" covers both an absent key and an explicit JSON `null`, which
+    `data.get` cannot tell apart and which this API deliberately does not
+    distinguish anywhere: `date_of_birth`, `interest_categories` and
+    `interest_freeform` are all read the same way. Rejecting a `null` here alone
+    would be inconsistent, and would break any client that serializes an unset
+    optional as null rather than dropping the key — which is exactly the class of
+    failure this helper exists to stop.
+
+    **A value that is present and not null but unparseable is a validation
+    error**: that is a caller sending something it believes means yes or no, and
+    quietly reading it as "no" would hide the mistake rather than report it.
+
+    Shared by register, login_user and login_user_google so they cannot drift
+    apart on what a missing or malformed flag means.
+    """
+    raw = data.get(Fields.remember_me)
+    if raw is None:
+        return False
+    try:
+        return convert_to_bool(raw)
+    except TypeError:
+        invalid_fields.append(Params.remember_me)
+        return False
+
+
+def _create_authenticated_session(view_name, request, user, ip, remember_me, extra_response_fields=None):
     """Final step of a successful authentication: Django session login, the
     remember-me cookie (when requested), the API session token, and the
-    new-device email. Shared by login_user and login_user_2fa so a login that
-    went through the two-factor challenge ends in exactly the same state as a
-    plain one.
+    new-device email. Shared by login_user, login_user_2fa and login_user_google
+    so a login that went through the two-factor challenge — or through Google —
+    ends in exactly the same state as a plain one.
+
+    `extra_response_fields` is merged into the response body for callers that
+    have something extra to report about the login itself (Google sign-in says
+    whether it just created the account). It goes in first, so the session
+    fields every client depends on are written over it and can never be
+    displaced by a caller's key.
     """
     login(request, user)  # Logs into Django's session auth
 
@@ -633,11 +725,14 @@ def _create_authenticated_session(view_name, request, user, ip, remember_me):
     # User-Agent, so omitting it would record a blank one and skew the check.
     _record_device_and_maybe_notify(user, ip, request=request)
 
-    response_data = {
+    response_data = {}
+    if extra_response_fields:
+        response_data.update(extra_response_fields)
+    response_data.update({
         Fields.session_management_token: new_session.management_token,
         Fields.username: user.username,
         Fields.user_id: user.id,
-    }
+    })
     if remember_me and new_login_cookie:
         response_data[Fields.series_identifier] = new_login_cookie.series_identifier
         response_data[Fields.login_cookie_token] = new_login_cookie.token
@@ -667,7 +762,6 @@ def register(request):
     username = data.get(Fields.username)
     email = data.get(Fields.email)
     password = data.get(Fields.password)
-    remember_me_str = data.get(Fields.remember_me)
     ip = _get_client_ip(None, request)
     date_of_birth_str = data.get('date_of_birth')
 
@@ -705,11 +799,7 @@ def register(request):
         # rejected — the age gate only bites once an age is actually given.
         pass
 
-    try:
-        remember_me = convert_to_bool(remember_me_str)
-    except TypeError:
-        remember_me = False  # Default to false if invalid
-        invalid_fields.append(Params.remember_me)
+    remember_me = _read_remember_me(data, invalid_fields)
 
     if len(invalid_fields) > 0:
         logger.warning(f"Registration failed: Invalid fields {invalid_fields}")
@@ -871,7 +961,6 @@ def login_user(request):
 
     username_or_email = data.get(Fields.username_or_email)
     password = data.get(Fields.password)
-    remember_me_str = data.get(Fields.remember_me)
     ip = _get_client_ip(None, request)
 
     invalid_fields = []
@@ -882,11 +971,7 @@ def login_user(request):
     if not password or not is_valid_pattern(password, Patterns.login_password):
         invalid_fields.append(Params.password)
 
-    try:
-        remember_me = convert_to_bool(remember_me_str)
-    except TypeError:
-        remember_me = False
-        invalid_fields.append(Params.remember_me)
+    remember_me = _read_remember_me(data, invalid_fields)
     if len(invalid_fields) > 0:
         return log_and_return_json("login_user", {'error': f"Invalid fields {invalid_fields}"}, status=400)
 
@@ -904,41 +989,11 @@ def login_user(request):
             logger.warning(f"Login failed: Email not verified for user_id: {existing.id}")
             return log_and_return_json("login_user", {'error': EMAIL_NOT_VERIFIED}, status=403)
 
-        # The password checked out. Decide between "issue a challenge" and "mint
-        # a session" from a locked row rather than from the unlocked read above,
-        # which either endpoint can invalidate underneath us: disable_totp would
-        # strand this login on a second step the account can no longer satisfy,
-        # and confirm_totp would let it skip a second factor the account now
-        # requires. Taking the lock unconditionally costs one extra query on the
-        # login path and only ever serializes concurrent logins for the same user.
-        raw_challenge = None
-        with transaction.atomic():
-            locked = get_user_model().objects.select_for_update().get(pk=existing.pk)
-            if locked.totp_enabled:
-                # The account requires a second factor: hand back a short-lived
-                # challenge instead of a session, which login_user_2fa exchanges
-                # for the real one. Delete every existing challenge for the user
-                # first, so only one is ever valid at a time — otherwise the
-                # per-challenge attempt limit could be multiplied by requesting
-                # several challenges at once. The delete-then-create runs under
-                # this same lock so two concurrent logins can't interleave and
-                # leave more than one live challenge.
-                raw_challenge = secrets.token_hex(32)
-                locked.two_factor_challenges.all().delete()
-                locked.two_factor_challenges.create(
-                    token_hash=hashlib.sha256(raw_challenge.encode()).hexdigest(),
-                    expires=timezone.now() + timedelta(minutes=TWO_FACTOR_CHALLENGE_MINUTES),
-                    remember_me=remember_me,
-                )
-
+        # The password checked out; the account may still owe a second factor.
+        raw_challenge = _issue_two_factor_challenge_if_enrolled(existing, remember_me)
         if raw_challenge is not None:
             logger.info(f"Login requires two-factor code for user_id: {existing.id}")
-            response = log_and_return_json("login_user", {
-                Fields.two_factor_required: True,
-                Fields.challenge_token: raw_challenge,
-            })
-            response['Cache-Control'] = 'no-store'
-            return response
+            return _two_factor_challenge_response("login_user", raw_challenge)
 
         # The lock is deliberately released before the session is minted:
         # _create_authenticated_session can send a new-device email, and holding
@@ -951,6 +1006,253 @@ def login_user(request):
     else:
         logger.warning("Login failed: No user exists with that information")
         return log_and_return_json("login_user", {'error': "Invalid username or password"}, status=400)
+
+
+def _google_username_base(email):
+    """The stem of the username generated for a new Google account.
+
+    A Google account brings no username, so one is derived from the email local
+    part — familiar to its owner and usually free. Usernames must match
+    Patterns.alphanumeric, so everything that is not a word character is
+    stripped; the length is trimmed well short of the 500-character ceiling to
+    leave room for a numeric suffix.
+
+    The stem must still clear the positivity bar the app applies to a chosen
+    username, but the user never chose this one, so a rejection falls back to a
+    neutral stem rather than refusing the sign-in over their email address. The
+    classifier is best-effort for the same reason: an outage must not be the
+    thing that stops people signing up.
+    """
+    local_part = str(email).split('@')[0]
+    base = re.sub(r'\W', '', local_part)[:100]
+    if base:
+        try:
+            if not text_classifier_class.is_text_positive(base):
+                logger.info("Generated Google username stem was not positive; using the fallback")
+                base = ""
+        except Exception:
+            logger.exception("Could not classify a generated Google username stem; using the fallback")
+            base = ""
+    return base or GENERATED_USERNAME_FALLBACK_PREFIX
+
+
+def _google_username_candidate(base, attempt):
+    """One candidate username for `base`: bare on the first try, then suffixed.
+
+    A stem already long enough to be a valid username is offered as-is first, so
+    someone whose address is alice.wonderland@ becomes `alicewonderland` rather
+    than `alicewonderland4712`. Every later attempt (and every stem too short to
+    stand alone) gets fresh random digits — enough to reach the minimum length,
+    and never fewer than four, so a collision has somewhere to go.
+    """
+    if attempt == 0 and len(base) >= MIN_GENERATED_USERNAME_LENGTH:
+        return base
+    suffix_length = max(MIN_GENERATED_USERNAME_LENGTH - len(base), 4)
+    return base + ''.join(secrets.choice(string.digits) for _ in range(suffix_length))
+
+
+def _link_google_identity(user, claims):
+    """Attach a Google identity to the account we matched by verified email.
+
+    Returns the account that ends up holding it: normally `user`, but the row a
+    concurrent request linked first if that one won the race.
+    """
+    user.google_sub = claims['sub']
+    # Google vouching for the address settles our own verification too: an
+    # account still sitting on an unclicked link is now proven.
+    user.email_verified = True
+    user.email_verification_token = None
+    user.email_verification_token_expires = None
+    try:
+        # Named columns only, so a concurrent write to anything else on this row
+        # — a bio edit, a profile photo — isn't clobbered by a whole-row save
+        # from an instance that was read moments ago.
+        with transaction.atomic():
+            user.save(update_fields=[
+                'google_sub', 'email_verified',
+                'email_verification_token', 'email_verification_token_expires',
+            ])
+    except IntegrityError:
+        # google_sub is unique, so another request can have attached this same
+        # Google identity to a *different* row between the lookup and this
+        # write. Adopt whatever holds it now rather than 500 — the same
+        # reasoning as _create_user_for_google.
+        raced = get_user_model().objects.filter(google_sub=claims['sub']).first()
+        if raced is None:
+            raise
+        logger.info(f"A concurrent Google sign-in linked user_id: {raced.id} first; using it")
+        return raced
+
+    logger.info(f"Linked a Google identity to existing user_id: {user.id}")
+    return user
+
+
+def _create_user_for_google(request, claims, ip):
+    """Create the account behind a first-ever Google sign-in.
+
+    Returns `(user, created)`. `created` is False when a concurrent request beat
+    us to it and we adopted its row, so the caller doesn't greet the same person
+    as a new member twice; `(None, False)` means no account could be made.
+
+    The result matches registering without a date of birth (identity unverified,
+    not an adult), with two differences: the password is unusable, because there
+    is none to check and `login_user` must never accept one for this account;
+    and the address needs no verification email, because Google has already
+    proven the user owns it — the caller checks the `email_verified` claim
+    before ever getting here.
+    """
+    email = claims['email']
+    base = _google_username_base(email)
+
+    for attempt in range(MAX_GENERATED_USERNAME_ATTEMPTS):
+        candidate = _google_username_candidate(base, attempt)
+        if not is_valid_pattern(candidate, Patterns.alphanumeric):
+            continue
+        try:
+            # The unique constraints, not the lookups, are what actually decide:
+            # two Google sign-ins racing on the same generated name (or on a name
+            # someone registered a moment ago) make one insert fail, and that one
+            # simply draws different digits. The savepoint keeps the failure from
+            # poisoning any surrounding transaction.
+            with transaction.atomic():
+                new_user = get_user_model().objects.create_user(username=candidate, email=email)
+                new_user.set_unusable_password()
+                new_user.google_sub = claims['sub']
+                new_user.email_verified = True
+                new_user.save()
+        except IntegrityError:
+            # Two columns here are unique, and only one of them is worth
+            # retrying. If google_sub is the one that tripped, a concurrent
+            # first-ever sign-in for this same Google account won the race and
+            # has already made the account — no username would ever succeed, so
+            # looping would burn every attempt and end in a 500. Adopt the row
+            # the winner created instead; it is the same person's account.
+            raced = get_user_model().objects.filter(google_sub=claims['sub']).first()
+            if raced is not None:
+                logger.info(f"A concurrent Google sign-in created user_id: {raced.id} first; using it")
+                return raced, False
+            logger.info("Generated Google username was taken; retrying with another")
+            continue
+
+        # Stamp their join number now, in creation order, exactly as
+        # registration does, so the client can greet them with "You're member
+        # #n!" (issue #198).
+        _assign_membership_number(new_user)
+
+        # Record the signing-up device as known but don't email about it: the
+        # device they created the account on is not a device to warn them about.
+        # The _create_authenticated_session call that follows will see it as
+        # already known and stay quiet.
+        _record_device_and_maybe_notify(new_user, ip, request=request, notify=False)
+        return new_user, True
+
+    logger.error("Could not generate a free username for a Google sign-in")
+    return None, False
+
+
+@ratelimit(key=_get_client_ip, rate='10/m', block=True)
+@csrf_exempt
+@require_POST
+def login_user_google(request):
+    """Exchange a Google ID token for an ordinary session (issue #10).
+
+    Clients get the token from Google natively — Identity Services on the web,
+    a browser-based PKCE flow on iOS, Credential Manager on Android — and post
+    it here. Google's `sub` claim is the join key (see
+    PositiveOnlySocialUser.google_sub); the email is only used to find an
+    existing account to link the first time.
+
+    Ends in exactly the same state as a password login, including the two-factor
+    step: proving you hold the Google account is a first factor, not a bypass of
+    a second one the user deliberately turned on.
+    """
+    logger.info("Endpoint login_user_google invoked by IP or User")
+
+    if not is_google_sign_in_configured():
+        logger.warning("Google sign-in failed: no OAuth client IDs are configured")
+        return log_and_return_json("login_user_google", {'error': GOOGLE_SIGN_IN_UNAVAILABLE}, status=503)
+
+    data = _get_json_body(request)
+    if data is None:
+        logger.warning("Google sign-in failed: Invalid JSON data")
+        return log_and_return_json("login_user_google", {'error': "Invalid JSON data"}, status=400)
+
+    raw_token = data.get(Fields.id_token)
+    ip = _get_client_ip(None, request)
+
+    invalid_fields = []
+    if not raw_token or not is_valid_pattern(raw_token, Patterns.google_id_token):
+        invalid_fields.append(Params.id_token)
+    remember_me = _read_remember_me(data, invalid_fields)
+    if len(invalid_fields) > 0:
+        return log_and_return_json("login_user_google", {'error': f"Invalid fields {invalid_fields}"}, status=400)
+
+    try:
+        claims = verify_google_id_token(raw_token)
+    except GoogleTokenError:
+        # One opaque code for every way a token can fail to convince us; the
+        # specific reason is logged in google_auth, not returned.
+        logger.warning("Google sign-in failed: the ID token could not be verified")
+        return log_and_return_json("login_user_google", {'error': INVALID_GOOGLE_TOKEN}, status=401)
+
+    if not claims['email_verified']:
+        # Everything downstream — linking to an existing account, skipping our
+        # own verification email — rests on Google having proven the user owns
+        # this mailbox. An unverified claim proves nothing.
+        logger.warning("Google sign-in failed: Google has not verified the account's email address")
+        return log_and_return_json("login_user_google", {'error': GOOGLE_EMAIL_UNVERIFIED}, status=403)
+
+    created_account = False
+    existing = get_user_model().objects.filter(google_sub=claims['sub']).first()
+
+    if existing is None:
+        # No account is linked to this Google identity yet. Google has verified
+        # the address, which is at least as strong as our own email link, so an
+        # account already holding it is the same person: attach the Google
+        # identity to it rather than stranding them with a second account.
+        #
+        # Matched case-insensitively because accounts were registered with
+        # whatever case the user typed while Google normalizes what it asserts.
+        # Nothing enforces email uniqueness in the database, so more than one
+        # row can hold the address; linking would then have to pick one
+        # arbitrarily, and handing a Google identity to whichever row sorted
+        # first is not a guess worth making.
+        candidates = list(get_user_model().objects.filter(email__iexact=claims['email'])[:2])
+        if len(candidates) > 1:
+            logger.warning("Google sign-in failed: more than one account holds that email address")
+            return log_and_return_json("login_user_google", {
+                'error': GOOGLE_EMAIL_AMBIGUOUS,
+            }, status=409)
+        if candidates:
+            existing = _link_google_identity(candidates[0], claims)
+
+    if existing is None:
+        existing, created_account = _create_user_for_google(request, claims, ip)
+        if existing is None:
+            return log_and_return_json("login_user_google", {
+                'error': "Could not create an account for that Google identity. Please try again.",
+            }, status=500)
+        if created_account:
+            logger.info(f"Created an account from Google sign-in for user_id: {existing.id}")
+
+    if has_active_outright_ban(existing):
+        logger.warning(f"Google sign-in failed: Account banned for user_id: {existing.id}")
+        return log_and_return_json("login_user_google", {'error': ACCOUNT_BANNED}, status=403)
+
+    # Deliberately no email_verified gate here: a Google sign-in only gets this
+    # far with a Google-verified address, and both branches above set the flag.
+
+    raw_challenge = _issue_two_factor_challenge_if_enrolled(existing, remember_me)
+    if raw_challenge is not None:
+        logger.info(f"Google sign-in requires two-factor code for user_id: {existing.id}")
+        return _two_factor_challenge_response("login_user_google", raw_challenge)
+
+    extra_fields = {Fields.created_account: created_account}
+    if created_account:
+        extra_fields[Fields.membership_number] = existing.membership_number
+    return _create_authenticated_session(
+        "login_user_google", request, existing, ip, remember_me, extra_response_fields=extra_fields
+    )
 
 
 @ratelimit(key=_get_client_ip, rate='10/m', block=True)
@@ -1910,21 +2212,22 @@ def report_post(request, post_identifier):
             logger.warning(f"Report post failed: Cannot report own post for user_id: {request.user.id}")
             return log_and_return_json("report_post", {'error': "Cannot report own post"}, status=400)
 
-        if post.postreport_set.filter(user=request.user).exists():
+        if post.postreport_set.active().filter(user=request.user).exists():
             logger.warning(f"Report post failed: Post already reported by user_id: {request.user.id}")
             return log_and_return_json("report_post", {'error': "Cannot report post twice"}, status=400)
+
+        if moderation.daily_report_limit_reached(request.user):
+            logger.warning(f"Report post failed: Daily report limit reached by user_id: {request.user.id}")
+            return log_and_return_json("report_post", {'error': "Daily report limit reached"}, status=400)
 
         post.postreport_set.create(user=request.user, reason=reason)
         logger.info(f"Post reported successful: post_id: {post_identifier} by user_id: {request.user.id}")
 
-        # Only hide (and stamp the reason) if it is not already hidden, so a
-        # post already hidden by the classifier keeps its original reason and
-        # the appeal flow can still tell why it was hidden.
-        if not post.hidden and post.postreport_set.count() > MAX_BEFORE_HIDING_POST:
-            post.hidden = True
-            post.hidden_reason = HIDDEN_REASON_REPORTS
-            post.save()
-            logger.info(f"Post hidden due to reports: post_id: {post_identifier}")
+        # A report never hides anything (issue #467): it opens a moderation
+        # review, which re-examines the post itself and escalates to a human
+        # moderator if enough people keep flagging content the re-review
+        # cleared. See user_system/moderation.py.
+        moderation.record_report(post=post)
 
         return log_and_return_json("report_post", {'message': 'Post reported'})
     else:
@@ -1956,22 +2259,23 @@ def retract_report_post(request, post_identifier):
         logger.warning(f"Retract report post failed: Post {post_identifier} not visible to user_id: {request.user.id}")
         return log_and_return_json("retract_report_post", {'error': "No post with that identifier"}, status=400)
 
-    deleted_count, _ = post.postreport_set.filter(user=request.user).delete()
-    if deleted_count == 0:
+    # Stamped, not deleted (issue #467): the row stays as a record that this
+    # account filed a report, so the daily budget counts it and report-then-
+    # retract cycling cannot refund budget. active() makes it stop counting as a
+    # report of the post everywhere else.
+    retracted_count = post.postreport_set.active().filter(user=request.user).update(
+        retracted_time=timezone.now())
+    if retracted_count == 0:
         logger.warning(f"Retract report post failed: Post not reported by user_id: {request.user.id}")
         return log_and_return_json("retract_report_post", {'error': "Post not reported yet"}, status=400)
 
     logger.info(f"Post report retracted: post_id: {post_identifier} by user_id: {request.user.id}")
 
-    # If the retraction takes the report count back under the hiding threshold,
-    # un-hide the post — but only when reports were what hid it. Content hidden
-    # by the classifier or with no recorded reason stays hidden.
-    if post.hidden and post.hidden_reason == HIDDEN_REASON_REPORTS \
-            and post.postreport_set.count() <= MAX_BEFORE_HIDING_POST:
-        post.hidden = False
-        post.hidden_reason = HIDDEN_REASON_NONE
-        post.save()
-        logger.info(f"Post un-hidden after report retraction: post_id: {post_identifier}")
+    # A retraction never un-hides anything (issue #467). Hiding is a decision by
+    # the classifier or a moderator, not a reversible group vote, so the only
+    # thing withdrawing a report can do is take an escalation nobody is still
+    # reporting back off the moderator's queue.
+    moderation.withdraw_report(post=post)
 
     return log_and_return_json("retract_report_post", {'message': 'Post report retracted'})
 
@@ -2378,7 +2682,7 @@ def build_post_interaction_state(user, posts):
         # The caller's own report reason per post, so clients can offer "retract
         # report" with the original reason pre-filled instead of "report".
         my_report_reasons = dict(
-            user.postreport_set
+            user.postreport_set.active()
             .filter(post__in=posts)
             .values_list('post_id', 'reason')
         )
@@ -2608,7 +2912,7 @@ def get_post_details(request, post_identifier):
         total_likes = post.postlike_set.count()
         # The caller's own report (if any), so clients can offer "retract
         # report" with the original reason pre-filled instead of "report".
-        my_report = post.postreport_set.filter(user=request.user).first()
+        my_report = post.postreport_set.active().filter(user=request.user).first()
         post_data = {
             Fields.post_identifier: post.post_identifier,
             Fields.image_url: sign_compressed_url(post.image_url),
@@ -3101,20 +3405,20 @@ def report_comment(request, post_identifier, comment_thread_identifier, comment_
         logger.warning(f"Report comment failed: Cannot report own comment for user_id: {request.user.id}")
         return log_and_return_json("report_comment", {'error': "Cannot report own comment"}, status=400)
 
-    if comment.commentreport_set.filter(user=request.user).exists():
+    if comment.commentreport_set.active().filter(user=request.user).exists():
         logger.warning(f"Report comment failed: Already reported by user_id: {request.user.id}")
         return log_and_return_json("report_comment", {'error': "Cannot report comment twice"}, status=400)
+
+    if moderation.daily_report_limit_reached(request.user):
+        logger.warning(f"Report comment failed: Daily report limit reached by user_id: {request.user.id}")
+        return log_and_return_json("report_comment", {'error': "Daily report limit reached"}, status=400)
 
     comment.commentreport_set.create(user=request.user, reason=reason)
     logger.info(f"Report comment successful: comment_id: {comment_identifier} by user_id: {request.user.id}")
 
-    # Only hide (and stamp the reason) if it is not already hidden, so a comment
-    # already hidden by the classifier keeps its original reason.
-    if not comment.hidden and comment.commentreport_set.count() > MAX_BEFORE_HIDING_COMMENT:
-        comment.hidden = True
-        comment.hidden_reason = HIDDEN_REASON_REPORTS
-        comment.save()
-        logger.info(f"Comment hidden due to reports: comment_id: {comment_identifier}")
+    # As for posts, a report never hides a comment (issue #467) — it opens a
+    # moderation review of the comment itself. See user_system/moderation.py.
+    moderation.record_report(comment=comment)
 
     return log_and_return_json("report_comment", {'message': 'Comment reported'})
 
@@ -3154,22 +3458,18 @@ def retract_report_comment(request, post_identifier, comment_thread_identifier, 
         logger.warning(f"Retract report comment failed: Comment {comment_identifier} not visible to user_id: {request.user.id}")
         return log_and_return_json("retract_report_comment", {'error': "Comment not found"}, status=400)
 
-    deleted_count, _ = comment.commentreport_set.filter(user=request.user).delete()
-    if deleted_count == 0:
+    # Stamped, not deleted, exactly as for posts (issue #467).
+    retracted_count = comment.commentreport_set.active().filter(user=request.user).update(
+        retracted_time=timezone.now())
+    if retracted_count == 0:
         logger.warning(f"Retract report comment failed: Comment not reported by user_id: {request.user.id}")
         return log_and_return_json("retract_report_comment", {'error': "Comment not reported yet"}, status=400)
 
     logger.info(f"Comment report retracted: comment_id: {comment_identifier} by user_id: {request.user.id}")
 
-    # If the retraction takes the report count back under the hiding threshold,
-    # un-hide the comment — but only when reports were what hid it. Content
-    # hidden by the classifier or with no recorded reason stays hidden.
-    if comment.hidden and comment.hidden_reason == HIDDEN_REASON_REPORTS \
-            and comment.commentreport_set.count() <= MAX_BEFORE_HIDING_COMMENT:
-        comment.hidden = False
-        comment.hidden_reason = HIDDEN_REASON_NONE
-        comment.save()
-        logger.info(f"Comment un-hidden after report retraction: comment_id: {comment_identifier}")
+    # As for posts, a retraction never un-hides anything (issue #467); it only
+    # clears an escalation nobody is still reporting.
+    moderation.withdraw_report(comment=comment)
 
     return log_and_return_json("retract_report_comment", {'message': 'Comment report retracted'})
 
@@ -3262,7 +3562,7 @@ def get_comments_for_thread(request, comment_thread_identifier, batch):
     # set above), so clients can offer "retract report" with the original
     # reason pre-filled instead of "report".
     my_report_reasons = dict(
-        request.user.commentreport_set
+        request.user.commentreport_set.active()
         .filter(comment__in=batched_comments)
         .values_list('comment_id', 'reason')
     )
@@ -3293,6 +3593,232 @@ def get_comments_for_thread(request, comment_thread_identifier, batch):
         for comment in batched_comments
     ]
     return log_and_return_json("get_comments_for_thread", comments_data, safe=False)
+
+
+# =============================================================================
+# PUBLIC (SIGNED-OUT) SHARE VIEWS — issue #381
+# =============================================================================
+#
+# A shared link (`https://smiling.social/post/<id>`, optionally with a
+# `#comment-<id>` fragment) has to open something usable for a recipient who has
+# no account. These endpoints are the read-only, unauthenticated half of that:
+# the post, its comment threads, and an HTML document a link-preview crawler can
+# unfurl.
+#
+# Every one of them resolves visibility against `PUBLIC_VIEWER` rather than
+# `request.user`, so the answer does not depend on who is asking — a signed-in
+# browser, a signed-out one, and Slack's crawler all get identical bytes. That
+# makes the public surface exactly: not hidden, not pending, not a
+# final-rejection tombstone, author not shadow banned, `audience` public, and
+# author not a verified minor. Anything else is reported as 404, the same as a
+# post that never existed, so the endpoints cannot be used to probe moderation
+# state or enumerate restricted-audience posts.
+#
+# They are rate limited by client IP (there is no user to key on) and never
+# serialize per-viewer state (is_liked / is_saved / is_reported / report_reason)
+# or the author-only classification fields — there is no viewer to have it.
+
+# Comment exposure for the `#comment-<id>` fragment shipped in Scope A (#34):
+# the public view serves the *containing thread*, batched exactly like the
+# signed-in view, and the fragment is resolved client-side by scrolling to that
+# comment. Serving a single comment in isolation would strip the conversation a
+# shared reply only makes sense inside of, and would need its own endpoint to
+# say "this comment lives in that thread" anyway. Batched, not exhaustive: the
+# client pages through thread batches to find a shared comment (see
+# PostDetailPage), so these stay ordinary paginated listings.
+
+def _public_post_fields(post):
+    """A post serialized for a signed-out viewer.
+
+    The signed-in payload minus everything that is about the viewer: no
+    like/save/report flags (nobody to have them) and no author-only
+    classification status (a public post is approved by construction)."""
+    return {
+        Fields.post_identifier: post.post_identifier,
+        Fields.image_url: sign_compressed_url(post.image_url),
+        # Full-res original, used as a client fallback while the async
+        # Lambda-generated compressed copy is still missing (#252/#254).
+        Fields.original_image_url: sign_original_url(post.image_url),
+        Fields.image_blurhash: post.image_blurhash,
+        Fields.caption: post.caption,
+        **_caption_style_fields(post),
+        Fields.creation_time: post.creation_time,
+        Fields.post_likes: post.postlike_set.count(),
+        Fields.author_username: post.author.username,
+        Fields.audience: post.audience,
+        **_author_avatar_fields(post.author),
+        **_post_tags(post),
+    }
+
+
+def _get_public_post(post_identifier):
+    """The post behind a shared link, or None when it is missing or not public.
+
+    Collapsing "no such post" and "not publicly visible" into one None is the
+    point: callers turn both into the same 404."""
+    if not is_valid_pattern(post_identifier, Patterns.uuid4):
+        return None
+    post = get_post_with_identifier(post_identifier)
+    if post is None or not can_view_post(post, PUBLIC_VIEWER):
+        return None
+    return post
+
+
+@ratelimit(key=_get_client_ip, rate='60/m', block=True)
+@require_GET
+def get_public_post_details(request, post_identifier):
+    """A shared post, for a recipient who is not logged in (issue #381)."""
+    logger.info("Endpoint get_public_post_details invoked by IP")
+    post = _get_public_post(post_identifier)
+    if post is None:
+        # No explicit warning here: log_and_return_json already logs one for any
+        # status >= 400, and on an unauthenticated endpoint a 404 is a routine
+        # outcome anyone can trigger at will (a link to a deleted post, a probed
+        # uuid). Logging it twice at warning level is how a real signal gets
+        # buried. Same below, and in the other public views.
+        return log_and_return_json(
+            "get_public_post_details", {'error': "No post with that identifier"}, status=404)
+    return log_and_return_json("get_public_post_details", _public_post_fields(post))
+
+
+@ratelimit(key=_get_client_ip, rate='60/m', block=True)
+@require_GET
+def get_public_comments_for_post(request, post_identifier, batch):
+    """Comment threads on a shared post, for a signed-out viewer.
+
+    No `?category=` filter: the relationship toggle (issue #445) is meaningless
+    without a viewer to have relationships."""
+    logger.info("Endpoint get_public_comments_for_post invoked by IP")
+    if batch < 0:
+        return log_and_return_json(
+            "get_public_comments_for_post", {'error': "Invalid batch parameter"}, status=400)
+
+    post = _get_public_post(post_identifier)
+    if post is None:
+        return log_and_return_json(
+            "get_public_comments_for_post", {'error': "No post with that identifier"}, status=404)
+
+    comment_threads = visible_comment_threads(post.commentthread_set.all(), PUBLIC_VIEWER)
+    relevant_comment_threads = feed_algorithm_class.get_comment_threads_weighted_for_post(comment_threads)
+    # get_queryset_batch, not get_batch: the latter calls len() and so evaluates
+    # every ranked thread on the post before slicing. That is a cost anyone can
+    # impose here without an account, so let the DB apply LIMIT/OFFSET instead.
+    # Dropping the .count() guard that used to precede this removes another
+    # whole-queryset aggregate — an empty batch already serializes to [].
+    batched_comment_threads = get_queryset_batch(
+        relevant_comment_threads, batch, COMMENT_THREAD_BATCH_SIZE)
+    data = [{Fields.comment_thread_identifier: ct.comment_thread_identifier} for ct in batched_comment_threads]
+    return log_and_return_json("get_public_comments_for_post", data, safe=False)
+
+
+@ratelimit(key=_get_client_ip, rate='60/m', block=True)
+@require_GET
+def get_public_comments_for_thread(request, comment_thread_identifier, batch):
+    """Comments within a thread on a shared post, for a signed-out viewer.
+
+    A thread on a post that is not publicly visible 404s even when the thread id
+    is known, so a leaked thread id cannot be used to read a restricted post's
+    conversation."""
+    logger.info("Endpoint get_public_comments_for_thread invoked by IP")
+    if not is_valid_pattern(comment_thread_identifier, Patterns.uuid4):
+        return log_and_return_json(
+            "get_public_comments_for_thread", {'error': "Invalid comment thread identifier"}, status=400)
+    if batch < 0:
+        return log_and_return_json(
+            "get_public_comments_for_thread", {'error': "Invalid batch parameter"}, status=400)
+
+    comment_thread = get_comment_thread_with_identifier(comment_thread_identifier)
+    if not comment_thread or not can_view_post(comment_thread.post, PUBLIC_VIEWER):
+        return log_and_return_json(
+            "get_public_comments_for_thread", {'error': "No comment thread with that identifier"}, status=404)
+
+    # Mirrors get_comments_for_thread: resolve the visible ids first, then rank a
+    # clean queryset built from them, so the audience join's fan-out cannot
+    # inflate the like-count weighting.
+    visible_comment_ids = visible_comments(
+        comment_thread.comment_set.all(), PUBLIC_VIEWER
+    ).values_list('comment_identifier', flat=True)
+    comments = Comment.objects.filter(
+        comment_identifier__in=visible_comment_ids
+    ).select_related('author')
+    relevant_comments = feed_algorithm_class.get_comments_weighted_for_thread(comments)
+    # DB-level LIMIT/OFFSET rather than get_batch's len(), for the same reason as
+    # the thread listing above.
+    batched_comments = get_queryset_batch(relevant_comments, batch, COMMENT_BATCH_SIZE)
+    # Like counts for the whole batch in one grouped query (no N+1 COUNT).
+    like_counts = dict(
+        CommentLike.objects
+        .filter(comment__in=batched_comments)
+        .values('comment_id')
+        .annotate(count=Count('comment_id'))
+        .values_list('comment_id', 'count')
+    )
+    comments_data = [
+        {
+            Fields.comment_identifier: comment.comment_identifier,
+            Fields.body: comment.body,
+            Fields.body_formatting: comment.body_formatting,
+            Fields.audience: comment.audience,
+            Fields.author_username: comment.author.username,
+            **_author_avatar_fields(comment.author),
+            Fields.creation_time: comment.creation_time,
+            Fields.updated_time: comment.updated_time,
+            Fields.comment_likes: like_counts.get(comment.comment_identifier, 0),
+        }
+        for comment in batched_comments
+    ]
+    return log_and_return_json("get_public_comments_for_thread", comments_data, safe=False)
+
+
+def _post_canonical_url(post_identifier):
+    """The website URL a shared post link points at — the URL that was shared,
+    and the one a preview must declare as canonical."""
+    return f"{settings.FRONTEND_BASE_URL}/post/{post_identifier}"
+
+
+@ratelimit(key=_get_client_ip, rate='60/m', block=True)
+@require_GET
+def get_post_link_preview(request, post_identifier):
+    """Open Graph / Twitter Card HTML for a shared post link (issue #381).
+
+    The website is a client-only SPA, so a crawler fetching
+    `https://smiling.social/post/<id>` sees an empty root div. CloudFront routes
+    crawler user-agents here instead (see `website/cloudfront/link-preview.js`),
+    and this returns a tiny meta-only document describing the post.
+
+    A post that is missing or not publicly visible gets the generic site card
+    with a 404 status rather than an error page, so a crawler unfurls something
+    sane and cannot tell the two cases apart.
+
+    The response is cached only briefly: `og:image` is a CloudFront-signed URL
+    that expires, so a long-lived cached document would eventually hand crawlers
+    an image they cannot fetch.
+    """
+    logger.info("Endpoint get_post_link_preview invoked by IP")
+    post = _get_public_post(post_identifier)
+    if post is None:
+        # info, not warning: this path builds its own response rather than going
+        # through log_and_return_json, and unfurling a link to a since-deleted
+        # or moderated post is the expected case it exists to handle, not a
+        # problem worth paging anyone about.
+        logger.info(f"Post link preview: Post {post_identifier} not publicly visible")
+        response = HttpResponse(
+            link_preview.render_missing_preview(site_url=settings.FRONTEND_BASE_URL),
+            content_type='text/html; charset=utf-8',
+            status=404,
+        )
+    else:
+        response = HttpResponse(
+            link_preview.render_post_preview(
+                title=f"{post.author.username} on {link_preview.SITE_NAME}",
+                description=link_preview.truncate_description(post.caption),
+                canonical_url=_post_canonical_url(post.post_identifier),
+                image_url=sign_compressed_url(post.image_url),
+            ),
+            content_type='text/html; charset=utf-8',
+        )
+    response['Cache-Control'] = 'public, max-age=300'
+    return response
 
 
 # =============================================================================

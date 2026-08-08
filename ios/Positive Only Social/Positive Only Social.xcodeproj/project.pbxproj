@@ -43,6 +43,7 @@
 			membershipExceptions = (
 				api/Config.swift,
 				api/ErrorHelpers.swift,
+				api/GoogleSignIn.swift,
 				api/Models.swift,
 				api/Networking.swift,
 				api/RealAPI.swift,
@@ -105,6 +106,7 @@
 			membershipExceptions = (
 				api/Config.swift,
 				api/ErrorHelpers.swift,
+				api/GoogleSignIn.swift,
 				api/Models.swift,
 				api/Networking.swift,
 				api/RealAPI.swift,
