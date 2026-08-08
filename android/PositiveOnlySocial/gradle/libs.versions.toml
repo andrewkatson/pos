@@ -26,8 +26,16 @@ firebaseBom = "33.7.0"
 # lint check on registerForActivityResult in MainActivity. Pin it forward; nothing
 # else in the app depends on fragment directly.
 fragment = "1.8.6"
+# Google sign-in via Credential Manager (issue #10). credentials-play-services-auth
+# is the Play Services-backed provider that actually serves the Google account
+# picker; androidx.credentials alone is only the API surface.
+credentials = "1.6.0"
+googleid = "1.1.1"
 
 [libraries]
+androidx-credentials = { module = "androidx.credentials:credentials", version.ref = "credentials" }
+androidx-credentials-play-services-auth = { module = "androidx.credentials:credentials-play-services-auth", version.ref = "credentials" }
+googleid = { module = "com.google.android.libraries.identity.googleid:googleid", version.ref = "googleid" }
 firebase-bom = { module = "com.google.firebase:firebase-bom", version.ref = "firebaseBom" }
 firebase-messaging = { module = "com.google.firebase:firebase-messaging" }
 androidx-fragment = { group = "androidx.fragment", name = "fragment", version.ref = "fragment" }

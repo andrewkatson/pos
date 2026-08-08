@@ -267,9 +267,14 @@ fun PostItem(
 
         // The caption under the photo (issue #378). Text-only posts (#307)
         // already render their caption as the tile above, so it isn't repeated
-        // for them.
+        // for them. The author's chosen caption font (issue #318) applies here
+        // too, so the feed matches the detail view (issue #450).
         if (post.imageUrl != null) {
-            Text(text = post.caption, modifier = Modifier.testTag("PostCaption"))
+            Text(
+                text = post.caption,
+                fontFamily = TextFormatting.fontFamily(post.captionFont),
+                modifier = Modifier.testTag("PostCaption")
+            )
         }
 
         // Like / comment count / report / retract / delete without leaving the

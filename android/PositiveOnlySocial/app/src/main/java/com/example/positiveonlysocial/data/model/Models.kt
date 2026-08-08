@@ -56,7 +56,24 @@ data class LoginResponse(
     val username: String? = null,
     @SerializedName("user_id") val userId: String? = null,
     @SerializedName("series_identifier") val seriesIdentifier: String? = null,
-    @SerializedName("login_cookie_token") val loginCookieToken: String? = null
+    @SerializedName("login_cookie_token") val loginCookieToken: String? = null,
+    // Only sent by login/google/ (issue #10): whether that sign-in created the
+    // account rather than logging in to an existing one, and the new member's
+    // join number. Nullable like everything else here — Gson ignores Kotlin
+    // defaults for absent JSON, so a non-null field would decode to null anyway.
+    @SerializedName("created_account") val createdAccount: Boolean? = null,
+    @SerializedName("membership_number") val membershipNumber: Int? = null
+)
+
+/**
+ * Google sign-in (issue #10). `idToken` is what Credential Manager hands back;
+ * the backend verifies it against Google's public keys and exchanges it for an
+ * ordinary session.
+ */
+data class GoogleLoginRequest(
+    @SerializedName("id_token") val idToken: String,
+    @SerializedName("remember_me") val rememberMe: String,
+    val ip: String
 )
 
 /** Second login step: exactly one of totpCode / recoveryCode is set (Gson omits nulls). */

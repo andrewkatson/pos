@@ -8,9 +8,11 @@ BAN_TYPE_SHADOW = "shadow"
 
 # Why a post or comment is hidden. Empty string means no hide reason is
 # recorded — the content may still be hidden (e.g. report-based hiding that
-# predates this field) but without a recorded cause. "reports" is set when
-# enough users report it; "classifier" is set when the AI classifier rejected
-# it but the rejection is appealable. "pending_classification" marks a post
+# predates this field) but without a recorded cause. "reports" is set when a
+# human moderator hides content after reviewing user reports about it (a report
+# count alone never hides anything — see issue #467); "classifier" is set when
+# the AI classifier rejected it but the rejection is appealable, including a
+# rejection from the report-triggered re-review. "pending_classification" marks a post
 # that has been created but not yet classified (nothing to appeal yet);
 # "classifier_final" is a terminal, non-appealable rejection kept as a
 # tombstone until the sweep purges it.
@@ -202,6 +204,47 @@ TOTP_ISSUER = "Positive Only Social"
 # rather than prose that could be reworded or localized.
 INVALID_TWO_FACTOR_CHALLENGE = "invalid_two_factor_challenge"
 
+# Google sign-in (issue #10). Clients obtain a Google ID token natively and
+# post it to login/google/; the server verifies it against Google's public keys
+# and exchanges it for an ordinary session.
+#
+# Returned when the deployment has no GOOGLE_OAUTH_CLIENT_IDS configured. With
+# no audience to check against, no ID token could ever be trusted, so the
+# endpoint refuses rather than accepting tokens minted for someone else's app.
+# Clients hide the Google button when their own client ID is unset, so this is
+# the belt-and-braces case of a client that asks anyway.
+GOOGLE_SIGN_IN_UNAVAILABLE = "google_sign_in_unavailable"
+
+# Returned when the presented token is not a valid, unexpired Google ID token
+# issued for one of our OAuth clients. Deliberately one code for every failure
+# mode (bad signature, wrong audience, expired, malformed): telling a caller
+# *which* check failed only helps someone probing the endpoint.
+INVALID_GOOGLE_TOKEN = "invalid_google_token"
+
+# Returned when the token is genuine but Google has not verified the address on
+# it. The whole basis for linking a Google identity to an existing account — and
+# for skipping our own verification email on a new one — is that Google has
+# proven the user owns that mailbox, so an unverified claim is worth nothing.
+GOOGLE_EMAIL_UNVERIFIED = "google_email_unverified"
+
+# Returned when more than one account already holds the address on the token, so
+# there is no single account to link the Google identity to. Nothing enforces
+# email uniqueness in the database, so this is possible (two accounts registered
+# with addresses differing only in case), and picking one arbitrarily is not a
+# guess worth making. A stable code like the two above rather than prose, so
+# clients can show their own copy without depending on backend wording.
+GOOGLE_EMAIL_AMBIGUOUS = "google_email_ambiguous"
+
+# A Google account carries no username, so the first sign-in generates one from
+# the email local part. Generated names must still satisfy Patterns.alphanumeric
+# (at least 10 word characters), so a short local part is padded and a taken name
+# gets a numeric suffix. GENERATED_USERNAME_FALLBACK_PREFIX is used when the
+# local part yields nothing usable — or when the text classifier rejects what it
+# yielded, which must not block a sign-in over a name the user never chose.
+GENERATED_USERNAME_FALLBACK_PREFIX = "friend"
+MIN_GENERATED_USERNAME_LENGTH = 10
+MAX_GENERATED_USERNAME_ATTEMPTS = 20
+
 # Regex Patterns to check against
 class Patterns:
     password = r"^(?=.*[0-9])(?=.*[a-z])(?=.*[A-Z])(?=\S+$).{8,}$"
@@ -230,6 +273,12 @@ class Patterns:
     alphanumeric_with_special_chars = r"^[\w\W]+$"
     totp_code = r"^\d{6}$"
     recovery_code = r"^[0-9a-f]{10}$"
+    # A JWS in compact serialization — three base64url segments — which is the
+    # shape of a Google ID token. This is only a cheap "don't bother Google with
+    # obvious junk" gate; the signature, issuer, audience and expiry are all
+    # checked properly by google.oauth2.id_token during verification. The upper
+    # bound keeps an attacker from making us hash a megabyte of base64.
+    google_id_token = r"^[A-Za-z0-9_-]{4,2048}\.[A-Za-z0-9_-]{4,4096}\.[A-Za-z0-9_-]{4,2048}$"
     hex_token = r"^[0-9a-f]{64}$"
     # A single hashtag, without the leading '#'. Word characters only (unicode
     # letters, digits, underscore), matching what extract_tag_names harvests
@@ -274,6 +323,7 @@ class Params:
     token = "TOKEN"
     notification_type = "TYPE"
     enabled = "ENABLED"
+    id_token = "ID_TOKEN"
 
 class Fields:
     is_adult = 'is_adult'
@@ -359,6 +409,11 @@ class Fields:
     has_appeal = "has_appeal"
     two_factor_required = "two_factor_required"
     challenge_token = "challenge_token"
+    # The Google ID token a client posts to login/google/, and the flag the
+    # response sets when that sign-in created the account rather than logging
+    # in to an existing one (so clients can greet a brand-new member).
+    id_token = "id_token"
+    created_account = "created_account"
     totp_code = "totp_code"
     recovery_code = "recovery_code"
     totp_secret = "totp_secret"
@@ -482,9 +537,52 @@ MAX_INTEREST_TAGS_PER_POST = 3
 # value surfaces on-interest posts more aggressively. Tunable.
 INTEREST_BOOST = 0.5
 
-# Number of reports before hiding
-MAX_BEFORE_HIDING_POST = 10
-MAX_BEFORE_HIDING_COMMENT = 5
+# =============================================================================
+# USER REPORTS & MODERATION REVIEW (issue #467)
+# =============================================================================
+# Reports used to hide content by headcount: past N reports a post or comment
+# was hidden automatically. That is trivially abusable — a coordinated group
+# could take down anything, and a user could be spammed off the platform — so
+# a report count now hides nothing at all. Instead the first report on a piece
+# of content opens a ModerationReview, which drives two stages:
+#
+#   1. Automated re-review. The same classifier cascade that gated the content
+#      at creation is re-run on the CONTENT ALONE — the number of reports and
+#      the reporters' own words are never shown to the model, so nothing a
+#      reporter does can influence the verdict. Only a rejection hides the
+#      content (appealably, reason "classifier"). A provider outage escalates
+#      to a human instead of hiding: reports can never fail closed.
+#   2. Human review. Content the re-review cleared is escalated to the admin
+#      queue once REPORTS_AFTER_CLEAR_BEFORE_ESCALATION further reports arrive.
+#      A moderator hides it (reason "reports") or dismisses the reports, and a
+#      dismissal is terminal — the content is immune to further review, so a
+#      brigade cannot reopen it by piling on.
+#
+# Lifecycle of a ModerationReview. "pending" is queued for automated review;
+# "cleared" means the re-review found nothing (content stays visible);
+# "escalated" is waiting on a human; "hidden" and "dismissed" are the terminal
+# outcomes of a decision (by the classifier or a moderator).
+REVIEW_STATUS_PENDING = "pending"
+REVIEW_STATUS_CLEARED = "cleared"
+REVIEW_STATUS_ESCALATED = "escalated"
+REVIEW_STATUS_HIDDEN = "hidden"
+REVIEW_STATUS_DISMISSED = "dismissed"
+
+# Statuses no further report can move a review out of: a decision has been made
+# about this content, so piling on more reports achieves nothing.
+TERMINAL_REVIEW_STATUSES = (REVIEW_STATUS_HIDDEN, REVIEW_STATUS_DISMISSED)
+
+# How many reports arriving AFTER an automated re-review cleared the content
+# escalate it to a human moderator. Deliberately small: escalating costs a queue
+# entry, never a hide, so there is no harm in a low bar — and no benefit to a
+# brigade in crossing it, since the outcome is a person looking at the content.
+REPORTS_AFTER_CLEAR_BEFORE_ESCALATION = 3
+
+# Most reports one account may file per rolling 24 hours, counted across posts
+# and comments together. Well above what a genuine user files and far below what
+# mass-reporting needs, so one account cannot flood the review queue. Enforced
+# on top of the per-endpoint rate limits.
+MAX_REPORTS_PER_USER_PER_DAY = 30
 
 # =============================================================================
 # TEXT FORMATTING (issue #318)

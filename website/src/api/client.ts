@@ -26,6 +26,7 @@ import type {
   DisableTotpResponse,
   FeedPost,
   FollowCategory,
+  GoogleLoginRequest,
   HiddenComment,
   HiddenPost,
   LoginRequest,
@@ -104,6 +105,32 @@ export const INVALID_TWO_FACTOR_CHALLENGE = 'invalid_two_factor_challenge'
 /** User-facing message shown wherever the email_not_verified error surfaces. */
 export const EMAIL_NOT_VERIFIED_MESSAGE =
   'Please verify your email address first — check your inbox for the verification link.'
+
+/** Error codes login/google/ answers with (issue #10), and the copy each maps
+ * to. The backend returns stable codes rather than prose (see constants.py), so
+ * the user-facing wording lives here. */
+export const GOOGLE_EMAIL_UNVERIFIED = 'google_email_unverified'
+export const GOOGLE_EMAIL_UNVERIFIED_MESSAGE =
+  "Google hasn't verified the email address on that account, so we can't use it to sign you in."
+export const GOOGLE_EMAIL_AMBIGUOUS = 'google_email_ambiguous'
+export const GOOGLE_EMAIL_AMBIGUOUS_MESSAGE =
+  'More than one account already uses that email address. Please sign in with your password.'
+export const INVALID_GOOGLE_TOKEN = 'invalid_google_token'
+export const GOOGLE_SIGN_IN_UNAVAILABLE = 'google_sign_in_unavailable'
+export const GOOGLE_SIGN_IN_UNAVAILABLE_MESSAGE =
+  "Google sign-in isn't available right now. Please sign in with your password."
+export const GOOGLE_SIGN_IN_FAILED_MESSAGE = 'Google sign-in failed. Please try again.'
+
+/** Maps a Google sign-in error code to its copy. A code that isn't here (a
+ * transport failure, say) already carries readable wording of its own. */
+export const GOOGLE_SIGN_IN_MESSAGES: Readonly<Record<string, string>> = {
+  [ACCOUNT_BANNED]: ACCOUNT_SUSPENDED_MESSAGE,
+  [EMAIL_NOT_VERIFIED]: EMAIL_NOT_VERIFIED_MESSAGE,
+  [GOOGLE_EMAIL_UNVERIFIED]: GOOGLE_EMAIL_UNVERIFIED_MESSAGE,
+  [GOOGLE_EMAIL_AMBIGUOUS]: GOOGLE_EMAIL_AMBIGUOUS_MESSAGE,
+  [INVALID_GOOGLE_TOKEN]: GOOGLE_SIGN_IN_FAILED_MESSAGE,
+  [GOOGLE_SIGN_IN_UNAVAILABLE]: GOOGLE_SIGN_IN_UNAVAILABLE_MESSAGE,
+}
 
 /**
  * Friendly, user-facing copy for an HTTP status code, used when the backend did
@@ -385,6 +412,18 @@ export class ApiClient implements PositiveOnlySocialAPI {
     return result
   }
 
+  async loginWithGoogle(body: GoogleLoginRequest): Promise<LoginResponse> {
+    const result = await this.request<LoginResponse>('POST', '/login/google/', { body })
+    if (isTwoFactorRequired(result)) {
+      // Holding the Google account is a first factor, not a bypass of the
+      // second — no session until loginWithTwoFactor completes.
+      this.setToken(null)
+    } else {
+      this.setToken(result.session_management_token)
+    }
+    return result
+  }
+
   async loginWithTwoFactor(body: LoginTwoFactorRequest): Promise<AuthResponse> {
     const result = await this.request<AuthResponse>('POST', '/login/2fa/', { body })
     this.setToken(result.session_management_token)
@@ -555,6 +594,35 @@ export class ApiClient implements PositiveOnlySocialAPI {
     return this.request<PostStatusResponse>('GET', `/posts/${postIdentifier}/status/`, {
       auth: true,
     })
+  }
+
+  // ===========================================================================
+  // PUBLIC SHARE ENDPOINTS (issue #381)
+  // ===========================================================================
+  // Deliberately sent without `auth: true` even when a session exists: the
+  // backend resolves these against a fixed anonymous viewer, so sending a token
+  // would change nothing but would leak the session to a read that does not
+  // need it.
+
+  getPublicPostDetails(postIdentifier: string): Promise<PostDetails> {
+    return this.request<PostDetails>('GET', `/public/posts/${postIdentifier}/details/`)
+  }
+
+  getPublicCommentsForPost(postIdentifier: string, batch: number): Promise<CommentThreadRef[]> {
+    return this.request<CommentThreadRef[]>(
+      'GET',
+      `/public/posts/${postIdentifier}/comments/${batch}/`,
+    )
+  }
+
+  getPublicCommentsForThread(
+    commentThreadIdentifier: string,
+    batch: number,
+  ): Promise<Comment[]> {
+    return this.request<Comment[]>(
+      'GET',
+      `/public/threads/${commentThreadIdentifier}/comments/${batch}/`,
+    )
   }
 
   // ===========================================================================
