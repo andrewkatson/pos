@@ -314,7 +314,11 @@ fun PostDetailScreen(
                                         "${post.likeCount} likes",
                                         fontWeight = FontWeight.Bold,
                                         modifier = Modifier
-                                            .clickable { likesTarget = LikesTarget.Post(postId) }
+                                            // The text already reads "<n> likes";
+                                            // the label says what tapping it does.
+                                            .clickable(onClickLabel = "See who liked this") {
+                                                likesTarget = LikesTarget.Post(postId)
+                                            }
                                             .testTag("postLikesCount")
                                     )
                                 } else {
@@ -657,7 +661,7 @@ fun CommentRow(
                         fontSize = 12.sp,
                         color = Color.Gray,
                         modifier = Modifier
-                            .clickable { onOpenLikes() }
+                            .clickable(onClickLabel = "See who liked this comment") { onOpenLikes() }
                             .testTag("commentLikesCount")
                     )
                 } else {

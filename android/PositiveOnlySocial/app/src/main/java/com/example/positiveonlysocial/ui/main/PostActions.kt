@@ -30,6 +30,8 @@ import androidx.compose.ui.unit.dp
 import com.example.positiveonlysocial.data.model.Post
 import com.example.positiveonlysocial.models.viewmodels.PostListActions
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.navigation.NavController
 import com.example.positiveonlysocial.models.viewmodels.LikesTarget
 import com.example.positiveonlysocial.util.ShareLinks
@@ -97,12 +99,23 @@ fun PostActionBar(
         val likeCountStyle = if (compact) MaterialTheme.typography.labelSmall
             else MaterialTheme.typography.bodyMedium
         if (isOwnPost && onOpenLikes != null) {
+            val likeCount = post.likeCount ?: 0
             Text(
-                text = "${post.likeCount ?: 0}",
+                text = "$likeCount",
                 style = likeCountStyle,
                 modifier = Modifier
-                    .clickable { onOpenLikes() }
-                    .testTag("postLikeCount")
+                    // The visible text here is the bare number, which on its own
+                    // announces as just "2"; spell out what it counts, and label
+                    // the click so TalkBack says what opening it does. Scoped to
+                    // the author like the sibling controls, so several of your
+                    // own posts in one grid stay individually addressable.
+                    .clickable(onClickLabel = "See who liked this") { onOpenLikes() }
+                    .semantics {
+                        contentDescription =
+                            "$likeCount ${if (likeCount == 1) "like" else "likes"} " +
+                                "on the post by ${post.authorUsername}"
+                    }
+                    .testTag("postLikesCount")
             )
         } else {
             Text(text = "${post.likeCount ?: 0}", style = likeCountStyle)

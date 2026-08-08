@@ -181,6 +181,9 @@
   background: none;
   border: none;
   color: inherit;
+  /* `font: inherit` too, or the UA button font would make the count read
+     differently from the plain <span> it replaces on other people's rows. */
+  font: inherit;
   cursor: pointer;
   padding: 0;
 }

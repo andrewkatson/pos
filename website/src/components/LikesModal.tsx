@@ -49,6 +49,9 @@ function LikesModal({ target, onClose }: LikesModalProps) {
     }
   }, [])
 
+  // Monotonic id for the in-flight load; see the guard in `load` below.
+  const requestId = useRef(0)
+
   const [users, setUsers] = useState<UserSearchResult[]>([])
   const [page, setPage] = useState(0)
   const [canLoadMore, setCanLoadMore] = useState(false)
@@ -72,6 +75,14 @@ function LikesModal({ target, onClose }: LikesModalProps) {
 
   const load = useCallback(
     async (pageToLoad: number, replace: boolean) => {
+      // Sequence number claimed before the await, so a response that arrives
+      // after a newer load started is dropped instead of overwriting it. Without
+      // it, switching the dialog to another post while the first fetch is still
+      // in flight lets the slower response win — and its `finally` would clear
+      // the spinner while the newer request is still running.
+      const myRequest = (requestId.current += 1)
+      const isCurrent = () => isMounted.current && myRequest === requestId.current
+
       // Owned here rather than by the caller so every entry point — the mount
       // effect, a target change, "Load more" — shows the spinner and drops the
       // previous error. A replace also clears the list up front, so a switch to
@@ -86,7 +97,7 @@ function LikesModal({ target, onClose }: LikesModalProps) {
       }
       try {
         const batch = await fetcher(pageToLoad)
-        if (!isMounted.current) return
+        if (!isCurrent()) return
         if (replace) {
           setUsers(batch)
           setCanLoadMore(batch.length > 0)
@@ -98,13 +109,13 @@ function LikesModal({ target, onClose }: LikesModalProps) {
           setPage(prev => prev + 1)
         }
       } catch (err) {
-        if (!isMounted.current) return
+        if (!isCurrent()) return
         // A failed page leaves what is already listed in place and stops paging,
         // so the dialog degrades to "here is what we have" rather than emptying.
         setCanLoadMore(false)
         setErrorMessage(err instanceof Error && err.message ? err.message : 'Failed to load likes.')
       } finally {
-        if (isMounted.current) setIsLoading(false)
+        if (isCurrent()) setIsLoading(false)
       }
     },
     [fetcher],

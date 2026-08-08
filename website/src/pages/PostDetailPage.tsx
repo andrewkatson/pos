@@ -725,6 +725,7 @@ function PostDetailView({ postId, isSignedIn }: { postId: string; isSignedIn: bo
             <button
               type="button"
               className="detail-likes detail-likes--button"
+              aria-label={`${postLikeCount} ${postLikeCount === 1 ? 'like' : 'likes'}, see who liked this`}
               aria-haspopup="dialog"
               onClick={() => setLikesTarget({ kind: 'post', postIdentifier: postId })}
             >

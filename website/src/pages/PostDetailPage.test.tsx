@@ -679,7 +679,9 @@ test('the like count on your own post opens the likers dialog', async () => {
   mockGetPostLikers.mockResolvedValue([{ username: 'grace', identity_is_verified: false }])
   renderDetail()
 
-  await userEvent.click(await screen.findByRole('button', { name: '3 likes' }))
+  await userEvent.click(
+    await screen.findByRole('button', { name: '3 likes, see who liked this' }),
+  )
 
   expect(await screen.findByRole('dialog', { name: 'Likes' })).toBeInTheDocument()
   expect(screen.getByText('grace')).toBeInTheDocument()
@@ -692,7 +694,7 @@ test("the like count on someone else's post is plain text", async () => {
 
   await screen.findByText('sunshine')
   expect(screen.getByText('3 likes')).toBeInTheDocument()
-  expect(screen.queryByRole('button', { name: '3 likes' })).not.toBeInTheDocument()
+  expect(screen.queryByRole('button', { name: /see who liked this/ })).not.toBeInTheDocument()
   expect(mockGetPostLikers).not.toHaveBeenCalled()
 })
 
