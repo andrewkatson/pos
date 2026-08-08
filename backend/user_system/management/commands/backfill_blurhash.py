@@ -121,12 +121,14 @@ class Command(BaseCommand):
         updated = 0
         skipped = 0
         processed = 0
-        # Cursor by primary key (a UUID) rather than re-selecting "still null"
-        # rows: a row whose image can't be encoded stays null, so a null-only
-        # filter would hand it back every batch and loop forever within this run.
-        # Advancing past each pk guarantees this run terminates and processes each
-        # failure at most once. (A later run still re-examines any remaining nulls,
-        # which is intended: a transient S3/encode failure gets another attempt.)
+        # Cursor by this target's primary key (target.pk_field — post_identifier
+        # for posts, id for users; both are UUIDs) rather than re-selecting
+        # "still null" rows: a row whose image can't be encoded stays null, so a
+        # null-only filter would hand it back every batch and loop forever within
+        # this run. Advancing past each pk guarantees this run terminates and
+        # processes each failure at most once. (A later run still re-examines any
+        # remaining nulls, which is intended: a transient S3/encode failure gets
+        # another attempt.)
         last_pk = None
         while True:
             if limit is not None and processed >= limit:
