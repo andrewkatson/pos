@@ -992,3 +992,88 @@ test('setInterests bounds the echoed text of a huge rejected term (#446)', async
   // Still clearly over the per-term limit.
   expect(echoed.length).toBeGreaterThan(100)
 })
+
+// --- Who liked this (#478) ---------------------------------------------------
+
+test('the author sees who liked their post, newest like first', async () => {
+  const api = new StatefulStubbedAPI()
+  await register(api, 'author')
+  const post = await api.createPost({
+    image_url: 'https://example.com/a.jpg',
+    caption: 'a sunny day',
+  })
+
+  await register(api, 'early')
+  await api.likePost(post.post_identifier)
+  await register(api, 'later')
+  await api.likePost(post.post_identifier)
+
+  await api.login({ username_or_email: 'author', password: 'password123' })
+  const likers = await api.getPostLikers(post.post_identifier, 0)
+
+  expect(likers.map((u) => u.username)).toEqual(['later', 'early'])
+})
+
+test("you cannot see who liked someone else's post", async () => {
+  const api = new StatefulStubbedAPI()
+  await register(api, 'author')
+  const post = await api.createPost({
+    image_url: 'https://example.com/a.jpg',
+    caption: 'a sunny day',
+  })
+
+  await register(api, 'viewer')
+  await api.likePost(post.post_identifier)
+
+  await expect(api.getPostLikers(post.post_identifier, 0)).rejects.toThrow(ApiError)
+})
+
+test('a post nobody liked lists nobody', async () => {
+  const api = new StatefulStubbedAPI()
+  await register(api, 'author')
+  const post = await api.createPost({
+    image_url: 'https://example.com/a.jpg',
+    caption: 'a sunny day',
+  })
+
+  expect(await api.getPostLikers(post.post_identifier, 0)).toEqual([])
+})
+
+test('the comment author sees who liked their comment; the post author does not', async () => {
+  const api = new StatefulStubbedAPI()
+  await register(api, 'author')
+  const post = await api.createPost({
+    image_url: 'https://example.com/a.jpg',
+    caption: 'a sunny day',
+  })
+
+  await register(api, 'commenter')
+  const comment = await api.commentOnPost(post.post_identifier, 'lovely')
+
+  await register(api, 'fan')
+  await api.likeComment(
+    post.post_identifier,
+    comment.comment_thread_identifier,
+    comment.comment_identifier,
+  )
+
+  await api.login({ username_or_email: 'commenter', password: 'password123' })
+  const likers = await api.getCommentLikers(
+    post.post_identifier,
+    comment.comment_thread_identifier,
+    comment.comment_identifier,
+    0,
+  )
+  expect(likers.map((u) => u.username)).toEqual(['fan'])
+
+  // Owning the post is not owning the comment.
+  await api.login({ username_or_email: 'author', password: 'password123' })
+  await expect(
+    api.getCommentLikers(
+      post.post_identifier,
+      comment.comment_thread_identifier,
+      comment.comment_identifier,
+      0,
+    ),
+  ).rejects.toThrow(ApiError)
+})

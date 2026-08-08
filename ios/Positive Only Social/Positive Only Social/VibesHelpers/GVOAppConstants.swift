@@ -93,6 +93,8 @@ import Foundation
     static let pathSegmentFollowers = "followers"
     static let pathSegmentFollowing = "following"
     static let pathSegmentLike = "like"
+    // GET .../likes/<batch>/ — who liked one of your own posts/comments (#478).
+    static let pathSegmentLikes = "likes"
     static let pathSegmentLogin = "login"
     static let pathSegmentLogout = "logout"
     // GET /me/ — the signed-in account's own username + email (#194/#197).

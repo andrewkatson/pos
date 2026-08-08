@@ -419,3 +419,36 @@ describe('google sign-in (issue #10)', () => {
     )
   })
 })
+
+describe('like listings (#478)', () => {
+  test('getPostLikers gets /posts/<id>/likes/<batch>/ with the bearer token', async () => {
+    const fetchFn = vi.fn().mockResolvedValue(jsonResponse(200, []))
+    const client = new ApiClient({ baseUrl: 'https://api.test', token: 'tok', fetchFn })
+
+    await client.getPostLikers('post-1', 3)
+
+    const [url, init] = fetchFn.mock.calls[0]
+    expect(url).toBe('https://api.test/posts/post-1/likes/3/')
+    expect((init as RequestInit).method).toBe('GET')
+    expect((init as RequestInit).headers).toMatchObject({ Authorization: 'Bearer tok' })
+  })
+
+  test('getCommentLikers gets the comment likes path', async () => {
+    const fetchFn = vi.fn().mockResolvedValue(jsonResponse(200, []))
+    const client = new ApiClient({ baseUrl: 'https://api.test', token: 'tok', fetchFn })
+
+    await client.getCommentLikers('post-1', 'thread-1', 'comment-1', 0)
+
+    const [url] = fetchFn.mock.calls[0]
+    expect(url).toBe('https://api.test/posts/post-1/threads/thread-1/comments/comment-1/likes/0/')
+  })
+
+  test("someone else's post is refused, so the dialog never opens for it", async () => {
+    const fetchFn = vi
+      .fn()
+      .mockResolvedValue(jsonResponse(400, { error: 'No post with that identifier by that user' }))
+    const client = new ApiClient({ baseUrl: 'https://api.test', token: 'tok', fetchFn })
+
+    await expect(client.getPostLikers('post-1', 0)).rejects.toThrow(ApiError)
+  })
+})

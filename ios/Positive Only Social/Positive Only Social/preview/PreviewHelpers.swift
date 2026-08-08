@@ -234,6 +234,20 @@ struct MockedAPI: Networking {
         return try encodeGenericSuccess()
     }
 
+    func getPostLikers(sessionManagementToken: String, postIdentifier: String, batch: Int) async throws -> Data {
+        // One batch only, so the preview shows the list without a Load more.
+        guard batch == 0 else { return try encode([User]()) }
+        return try encode([
+            User(username: "liker_1", identityIsVerified: true),
+            User(username: "liker_2", identityIsVerified: false)
+        ])
+    }
+
+    func getCommentLikers(sessionManagementToken: String, postIdentifier: String, commentThreadIdentifier: String, commentIdentifier: String, batch: Int) async throws -> Data {
+        guard batch == 0 else { return try encode([User]()) }
+        return try encode([User(username: "liker_1", identityIsVerified: false)])
+    }
+
     func savePost(sessionManagementToken: String, postIdentifier: String) async throws -> Data {
         return try encodeGenericSuccess()
     }

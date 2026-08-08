@@ -452,6 +452,11 @@ COMMENT_BATCH_SIZE = 30
 # Size of comment thread batches
 COMMENT_THREAD_BATCH_SIZE = 10
 
+# Size of "who liked this" batches (issue #478). Larger than a post batch
+# because a liker row is a single line of text and an avatar, so a scroll
+# through them costs far less than a screen of images.
+LIKE_BATCH_SIZE = 30
+
 # Maximum lengths for user-authored text, counted as unicode code points
 # (Python's len() on a str is code-point based, so these limits are unicode
 # aware rather than restricted to ASCII bytes).

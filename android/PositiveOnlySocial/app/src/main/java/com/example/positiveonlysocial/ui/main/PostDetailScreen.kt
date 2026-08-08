@@ -25,6 +25,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
@@ -44,6 +45,7 @@ import com.example.positiveonlysocial.ui.components.isWithinLength
 import com.example.positiveonlysocial.ui.navigation.Screen
 import com.example.positiveonlysocial.data.model.CommentViewData
 import com.example.positiveonlysocial.data.security.KeychainHelperProtocol
+import com.example.positiveonlysocial.models.viewmodels.LikesTarget
 import com.example.positiveonlysocial.models.viewmodels.PostDetailViewModel
 import com.example.positiveonlysocial.models.viewmodels.PostDetailViewModelFactory
 import com.example.positiveonlysocial.ui.navigation.openProfileFor
@@ -90,6 +92,10 @@ fun PostDetailScreen(
         val commentToReport by viewModel.commentToReport.collectAsState()
         val threadToReplyTo by viewModel.threadToReplyTo.collectAsState()
 
+        // Which post/comment the "who liked this" dialog is open for, or null
+        // when closed (issue #478). Only ever set from your own content.
+        var likesTarget by remember { mutableStateOf<LikesTarget?>(null) }
+
         // Long-press action menus (Report vs Delete, depending on ownership).
         val showActionSheetForPost by viewModel.showActionSheetForPost.collectAsState()
         val commentForAction by viewModel.commentForAction.collectAsState()
@@ -112,6 +118,17 @@ fun PostDetailScreen(
                         Text("OK")
                     }
                 }
+            )
+        }
+
+        // "Who liked this" for your own post or comment (issue #478).
+        likesTarget?.let { target ->
+            LikesDialog(
+                target = target,
+                navController = navController,
+                api = api,
+                keychainHelper = keychainHelper,
+                onDismiss = { likesTarget = null }
             )
         }
 
@@ -289,7 +306,20 @@ fun PostDetailScreen(
                                         )
                                     }
                                 }
-                                Text("${post.likeCount} likes", fontWeight = FontWeight.Bold)
+                                // Tapping the count lists who liked it, but
+                                // only on your own post — who liked someone
+                                // else's is between them and their likers (#478).
+                                if (isOwnPost) {
+                                    Text(
+                                        "${post.likeCount} likes",
+                                        fontWeight = FontWeight.Bold,
+                                        modifier = Modifier
+                                            .clickable { likesTarget = LikesTarget.Post(postId) }
+                                            .testTag("postLikesCount")
+                                    )
+                                } else {
+                                    Text("${post.likeCount} likes", fontWeight = FontWeight.Bold)
+                                }
                                 Spacer(modifier = Modifier.weight(1f))
                                 if (post.isReported) {
                                     Icon(Icons.Default.Flag, contentDescription = "Reported", tint = Color.Red)
@@ -407,6 +437,9 @@ fun PostDetailScreen(
                         currentUsername = currentUsername,
                         onAuthorClick = { username ->
                             navController.openProfileFor(username, currentUsername)
+                        },
+                        onOpenLikes = { comment ->
+                            likesTarget = LikesTarget.Comment(postId, comment.threadId, comment.id)
                         }
                     )
                 }
@@ -426,7 +459,10 @@ fun CommentThreadView(
     thread: CommentThreadViewData,
     viewModel: PostDetailViewModel,
     currentUsername: String?,
-    onAuthorClick: (String) -> Unit
+    onAuthorClick: (String) -> Unit,
+    /** Opens "who liked this comment" for one of the signed-in user's own
+     * comments (issue #478). The owning screen shows the dialog. */
+    onOpenLikes: (CommentViewData) -> Unit
 ) {
     val reportedCommentIds by viewModel.reportedCommentIds.collectAsState()
     val collapsedCommentIds by viewModel.collapsedCommentIds.collectAsState()
@@ -448,7 +484,8 @@ fun CommentThreadView(
                 onLike = { viewModel.likeComment(rootComment, rootComment.threadId) },
                 onUnlike = { viewModel.unlikeComment(rootComment, rootComment.threadId) },
                 onLongPress = { viewModel.setCommentForAction(rootComment) },
-                onAuthorClick = onAuthorClick
+                onAuthorClick = onAuthorClick,
+                onOpenLikes = { onOpenLikes(rootComment) }
             )
 
             // Reply Input for Thread
@@ -471,7 +508,8 @@ fun CommentThreadView(
                         onLike = { viewModel.likeComment(reply, reply.threadId) },
                         onUnlike = { viewModel.unlikeComment(reply, reply.threadId) },
                         onLongPress = { viewModel.setCommentForAction(reply) },
-                        onAuthorClick = onAuthorClick
+                        onAuthorClick = onAuthorClick,
+                        onOpenLikes = { onOpenLikes(reply) }
                     )
                 }
             }
@@ -490,7 +528,10 @@ fun CommentRow(
     onLike: () -> Unit,
     onUnlike: () -> Unit,
     onLongPress: () -> Unit,
-    onAuthorClick: (String) -> Unit
+    onAuthorClick: (String) -> Unit,
+    /** Opens "who liked this comment" (issue #478). Only reachable from your own
+     * comment: the count is plain text on everyone else's. */
+    onOpenLikes: () -> Unit
 ) {
     Row(
         modifier = Modifier
@@ -608,7 +649,20 @@ fun CommentRow(
                     }
                     Spacer(modifier = Modifier.width(4.dp))
                 }
-                Text("${comment.likeCount} likes", fontSize = 12.sp, color = Color.Gray)
+                // Same rule as the post's count: tappable only on your own
+                // comment (issue #478).
+                if (isOwn) {
+                    Text(
+                        "${comment.likeCount} likes",
+                        fontSize = 12.sp,
+                        color = Color.Gray,
+                        modifier = Modifier
+                            .clickable { onOpenLikes() }
+                            .testTag("commentLikesCount")
+                    )
+                } else {
+                    Text("${comment.likeCount} likes", fontSize = 12.sp, color = Color.Gray)
+                }
                 Spacer(modifier = Modifier.width(8.dp))
                 if (isReported) {
                     Icon(Icons.Default.Flag, contentDescription = "Reported", tint = Color.Red)

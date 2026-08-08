@@ -16,6 +16,8 @@ vi.mock('../api/client', () => ({
     getPublicCommentsForThread: vi.fn(),
     likePost: vi.fn(),
     unlikePost: vi.fn(),
+    getPostLikers: vi.fn(),
+    getCommentLikers: vi.fn(),
     reportPost: vi.fn(),
     retractReportPost: vi.fn(),
     deletePost: vi.fn(),
@@ -44,6 +46,8 @@ const mockDeleteComment = vi.mocked(apiClient.deleteComment)
 const mockReportPost = vi.mocked(apiClient.reportPost)
 const mockRetractReportPost = vi.mocked(apiClient.retractReportPost)
 const mockRetractReportComment = vi.mocked(apiClient.retractReportComment)
+const mockGetPostLikers = vi.mocked(apiClient.getPostLikers)
+const mockGetCommentLikers = vi.mocked(apiClient.getCommentLikers)
 
 const post: PostDetails = {
   post_identifier: 'p1',
@@ -102,6 +106,8 @@ beforeEach(() => {
   mockReportPost.mockReset().mockResolvedValue({ message: 'ok' })
   mockRetractReportPost.mockReset().mockResolvedValue({ message: 'ok' })
   mockRetractReportComment.mockReset().mockResolvedValue({ message: 'ok' })
+  mockGetPostLikers.mockReset().mockResolvedValue([])
+  mockGetCommentLikers.mockReset().mockResolvedValue([])
 })
 
 afterEach(() => {
@@ -664,4 +670,57 @@ test('a plain post link marks out nothing', async () => {
   await screen.findByText('totally agree')
 
   expect(document.querySelector('.comment-row--shared')).toBeNull()
+})
+
+// ---- Who liked this (issue #478) ----
+
+test('the like count on your own post opens the likers dialog', async () => {
+  localStorage.setItem('username', 'ada')
+  mockGetPostLikers.mockResolvedValue([{ username: 'grace', identity_is_verified: false }])
+  renderDetail()
+
+  await userEvent.click(await screen.findByRole('button', { name: '3 likes' }))
+
+  expect(await screen.findByRole('dialog', { name: 'Likes' })).toBeInTheDocument()
+  expect(screen.getByText('grace')).toBeInTheDocument()
+  expect(mockGetPostLikers).toHaveBeenCalledWith('p1', 0)
+})
+
+test("the like count on someone else's post is plain text", async () => {
+  localStorage.setItem('username', 'someone-else')
+  renderDetail()
+
+  await screen.findByText('sunshine')
+  expect(screen.getByText('3 likes')).toBeInTheDocument()
+  expect(screen.queryByRole('button', { name: '3 likes' })).not.toBeInTheDocument()
+  expect(mockGetPostLikers).not.toHaveBeenCalled()
+})
+
+test('the like count on your own comment opens the comment likers dialog', async () => {
+  localStorage.setItem('username', 'bob')
+  mockGetThreadRefs.mockResolvedValue([{ comment_thread_identifier: 't1' }])
+  mockGetThreadComments.mockResolvedValue([comment])
+  mockGetCommentLikers.mockResolvedValue([{ username: 'grace', identity_is_verified: false }])
+  renderDetail()
+
+  await userEvent.click(
+    await screen.findByRole('button', { name: '1 like, see who liked this comment' }),
+  )
+
+  expect(await screen.findByRole('dialog', { name: 'Comment likes' })).toBeInTheDocument()
+  expect(screen.getByText('grace')).toBeInTheDocument()
+  expect(mockGetCommentLikers).toHaveBeenCalledWith('p1', 't1', 'c1', 0)
+})
+
+test("the like count on someone else's comment is plain text", async () => {
+  localStorage.setItem('username', 'ada')
+  mockGetThreadRefs.mockResolvedValue([{ comment_thread_identifier: 't1' }])
+  mockGetThreadComments.mockResolvedValue([comment])
+  renderDetail()
+
+  await screen.findByText('love this')
+  expect(
+    screen.queryByRole('button', { name: /see who liked this comment/ }),
+  ).not.toBeInTheDocument()
+  expect(mockGetCommentLikers).not.toHaveBeenCalled()
 })

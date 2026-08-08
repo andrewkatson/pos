@@ -1236,6 +1236,17 @@ final class StatefulStubbedAPI: Networking {
         return try createEmptySuccessResponse()
     }
 
+    /// Who liked one of the caller's own posts, newest like first (issue #478).
+    /// Owner-only: somebody else's post is reported exactly like a missing one,
+    /// so the stub can't be used to discover whose post an identifier names.
+    func getPostLikers(sessionManagementToken: String, postIdentifier: String, batch: Int) async throws -> Data {
+        await simulateNetwork()
+        guard let user = findUser(bySessionToken: sessionManagementToken) else { throw APIError.badServerResponse(statusCode: 401) }
+        guard let post = posts.first(where: { $0.postIdentifier == postIdentifier }),
+              post.authorId == user.id else { throw APIError.badServerResponse(statusCode: 400) }
+        return try likerBatch(likerUsernames: post.likes, viewer: user, batch: batch)
+    }
+
     func savePost(sessionManagementToken: String, postIdentifier: String) async throws -> Data {
         await simulateNetwork()
         guard let saver = findUser(bySessionToken: sessionManagementToken) else { throw APIError.badServerResponse(statusCode: 400) }
@@ -1523,6 +1534,49 @@ final class StatefulStubbedAPI: Networking {
         
         comments[commentIndex].likes.remove(at: likeIndex)
         return try createEmptySuccessResponse()
+    }
+
+    /// Who liked one of the caller's own comments, newest like first (#478).
+    /// Owner-only in the same way `getPostLikers` is — owning the post is not
+    /// owning the comment.
+    func getCommentLikers(sessionManagementToken: String, postIdentifier: String, commentThreadIdentifier: String, commentIdentifier: String, batch: Int) async throws -> Data {
+        await simulateNetwork()
+        guard let user = findUser(bySessionToken: sessionManagementToken) else { throw APIError.badServerResponse(statusCode: 401) }
+        guard let comment = comments.first(where: { $0.commentIdentifier == commentIdentifier }),
+              comment.authorUsername == user.username else { throw APIError.badServerResponse(statusCode: 400) }
+        return try likerBatch(likerUsernames: comment.likes, viewer: user, batch: batch)
+    }
+
+    /// One `pageSize` batch of the accounts behind a set of likes, newest like
+    /// first (issue #478). `likerUsernames` is in the order the likes were
+    /// added, so reversing it gives most-recent-first. Blocked accounts drop out
+    /// in both directions, matching the backend — which additionally hides
+    /// shadow-banned and cross-age-band likers, states this stub does not model.
+    private func likerBatch(likerUsernames: [String], viewer: MockUser, batch: Int) throws -> Data {
+        struct Fields: Codable {
+            let username: String
+            let identity_is_verified: Bool
+            let author_profile_image_url: String?
+            let author_profile_image_original_url: String?
+        }
+
+        let likers = likerUsernames
+            .reversed()
+            .compactMap { name in users.first(where: { $0.username == name }) }
+            .filter { !viewer.blocked.contains($0.id) && !viewer.blockedBy.contains($0.id) }
+
+        let startIndex = batch * pageSize
+        guard startIndex < likers.count else {
+            return try createSerializedListResponse(fieldsList: [Fields]())
+        }
+        let endIndex = min(startIndex + pageSize, likers.count)
+
+        let fieldObjects = likers[startIndex..<endIndex].map { user -> Fields in
+            let avatar = user.profileImageStatus == "approved" ? user.profileImageUrl : nil
+            return Fields(username: user.username, identity_is_verified: user.identityIsVerified,
+                          author_profile_image_url: avatar, author_profile_image_original_url: avatar)
+        }
+        return try createSerializedListResponse(fieldsList: fieldObjects)
     }
 
     func deleteComment(sessionManagementToken: String, postIdentifier: String, commentThreadIdentifier: String, commentIdentifier: String) async throws -> Data {
