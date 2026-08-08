@@ -144,18 +144,20 @@ fun PostActionBar(
 
 /**
  * The action menu for one post in a list, anchored to that row's three-dots
- * button. Open when [actions] holds this post as the menu target, which is what
- * [PostActionBar]'s button sets.
+ * button. Rendered once per row, so it takes [expanded] and [isOwn] as plain
+ * values rather than collecting `postForAction` / `currentUsername` itself —
+ * one collector per list, not one per visible row.
+ *
+ * [expanded] is true for the post [PostActionBar]'s button set as the menu
+ * target.
  */
 @Composable
-fun PostActionMenu(actions: PostListActions, post: Post) {
-    val currentUsername by actions.currentUsername.collectAsState()
-    val postForAction by actions.postForAction.collectAsState()
+fun PostActionMenu(actions: PostListActions, post: Post, expanded: Boolean, isOwn: Boolean) {
     val context = LocalContext.current
 
     ActionMenu(
-        expanded = postForAction?.postIdentifier == post.postIdentifier,
-        isOwn = post.authorUsername == currentUsername,
+        expanded = expanded,
+        isOwn = isOwn,
         isReported = post.isReported,
         itemLabel = "Post",
         onDismiss = { actions.setPostForAction(null) },

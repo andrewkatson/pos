@@ -1,4 +1,11 @@
-import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react'
+import {
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useState,
+  type KeyboardEvent as ReactKeyboardEvent,
+  type ReactNode,
+} from 'react'
 import type { MenuAnchor } from './menuAnchor'
 
 interface AnchoredMenuProps {
@@ -27,7 +34,12 @@ const VIEWPORT_MARGIN = 8
  *
  * Dismissed by clicking the transparent backdrop or pressing Escape — a
  * backdrop rather than a document-level click listener so a click on a menu row
- * can't be read as a click outside.
+ * can't be read as a click outside. It also closes on a scroll or resize, since
+ * its placement is a snapshot of where the button was and would otherwise drift
+ * away from it.
+ *
+ * Keyboard: focus moves into the menu on open, the arrow keys / Home / End walk
+ * the rows and Escape closes — what `role="menu"` promises assistive tech.
  */
 function AnchoredMenu({ anchor, label, onDismiss, children }: AnchoredMenuProps) {
   const menuRef = useRef<HTMLDivElement>(null)
@@ -58,30 +70,84 @@ function AnchoredMenu({ anchor, label, onDismiss, children }: AnchoredMenuProps)
     setPlacement({ top, left })
   }, [anchor])
 
+  // Escape is handled at the window rather than on the menu, so it still closes
+  // the menu if focus has wandered off it.
   useEffect(() => {
-    function onKeyDown(event: KeyboardEvent) {
+    function onEscape(event: KeyboardEvent) {
       if (event.key === 'Escape') onDismiss()
     }
-    window.addEventListener('keydown', onKeyDown)
-    return () => window.removeEventListener('keydown', onKeyDown)
+    window.addEventListener('keydown', onEscape)
+    return () => window.removeEventListener('keydown', onEscape)
   }, [onDismiss])
+
+  // The placement above is a snapshot of where the button was, so let the menu
+  // go rather than let it drift away from its anchor. Capture phase, so a scroll
+  // inside any container counts, not just the window's own.
+  useEffect(() => {
+    window.addEventListener('scroll', onDismiss, true)
+    window.addEventListener('resize', onDismiss)
+    return () => {
+      window.removeEventListener('scroll', onDismiss, true)
+      window.removeEventListener('resize', onDismiss)
+    }
+  }, [onDismiss])
+
+  // Opening a menu moves focus into it, so a keyboard user isn't left behind on
+  // the button with an open menu they can't reach.
+  useEffect(() => {
+    menuItems(menuRef.current)[0]?.focus()
+  }, [])
+
+  function onKeyDown(event: ReactKeyboardEvent<HTMLDivElement>) {
+    const items = menuItems(menuRef.current)
+    if (items.length === 0) return
+    // -1 when focus is somewhere else entirely, which the +1/-1 below turn into
+    // the first/last row — the conventional entry points for ↓ and ↑.
+    const current = items.indexOf(document.activeElement as HTMLButtonElement)
+    let next: number
+    switch (event.key) {
+      case 'ArrowDown':
+        next = (current + 1) % items.length
+        break
+      case 'ArrowUp':
+        next = (current - 1 + items.length) % items.length
+        break
+      case 'Home':
+        next = 0
+        break
+      case 'End':
+        next = items.length - 1
+        break
+      default:
+        return
+    }
+    // Only now, once the key is one we handle: ↑/↓ would otherwise scroll the
+    // page out from under the menu.
+    event.preventDefault()
+    items[next]?.focus()
+  }
 
   return (
     <>
-      {/* Invisible, but it takes the click that closes the menu — and keeps the
-          page from being scrolled out from under an anchored menu. */}
+      {/* Invisible; it exists to take the click that closes the menu. */}
       <div className="anchored-menu__backdrop" onClick={onDismiss} />
       <div
         ref={menuRef}
         className="anchored-menu"
         role="menu"
         aria-label={label}
+        onKeyDown={onKeyDown}
         style={{ top: `${placement.top}px`, left: `${placement.left}px` }}
       >
         {children}
       </div>
     </>
   )
+}
+
+/** The menu's rows, in DOM order, for arrow-key navigation. */
+function menuItems(menu: HTMLDivElement | null): HTMLButtonElement[] {
+  return Array.from(menu?.querySelectorAll<HTMLButtonElement>('[role="menuitem"]') ?? [])
 }
 
 interface AnchoredMenuItemProps {

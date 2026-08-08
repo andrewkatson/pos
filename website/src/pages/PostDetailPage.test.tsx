@@ -11,6 +11,9 @@ vi.mock('../api/client', () => ({
     getPostDetails: vi.fn(),
     getCommentsForPost: vi.fn(),
     getCommentsForThread: vi.fn(),
+    getPublicPostDetails: vi.fn(),
+    getPublicCommentsForPost: vi.fn(),
+    getPublicCommentsForThread: vi.fn(),
     likePost: vi.fn(),
     unlikePost: vi.fn(),
     reportPost: vi.fn(),
@@ -30,6 +33,10 @@ import { apiClient } from '../api/client'
 const mockGetDetails = vi.mocked(apiClient.getPostDetails)
 const mockGetThreadRefs = vi.mocked(apiClient.getCommentsForPost)
 const mockGetThreadComments = vi.mocked(apiClient.getCommentsForThread)
+const mockIsAuthenticated = vi.mocked(apiClient.isAuthenticated)
+const mockGetPublicDetails = vi.mocked(apiClient.getPublicPostDetails)
+const mockGetPublicThreadRefs = vi.mocked(apiClient.getPublicCommentsForPost)
+const mockGetPublicThreadComments = vi.mocked(apiClient.getPublicCommentsForThread)
 const mockLikePost = vi.mocked(apiClient.likePost)
 const mockCommentOnPost = vi.mocked(apiClient.commentOnPost)
 const mockDeletePost = vi.mocked(apiClient.deletePost)
@@ -78,9 +85,13 @@ beforeEach(() => {
     removeItem: (key: string) => store.delete(key),
     clear: () => store.clear(),
   })
+  mockIsAuthenticated.mockReset().mockReturnValue(true)
   mockGetDetails.mockReset().mockResolvedValue(post)
   mockGetThreadRefs.mockReset().mockResolvedValue([])
   mockGetThreadComments.mockReset().mockResolvedValue([])
+  mockGetPublicDetails.mockReset().mockResolvedValue(post)
+  mockGetPublicThreadRefs.mockReset().mockResolvedValue([])
+  mockGetPublicThreadComments.mockReset().mockResolvedValue([])
   mockLikePost.mockReset().mockResolvedValue({ message: 'ok' })
   mockCommentOnPost.mockReset().mockResolvedValue({
     comment_thread_identifier: 't1',
@@ -444,15 +455,213 @@ test('sharing a comment copies a #comment-<id> deep link (issue #34)', async () 
   )
 })
 
-test('redirects to login when unauthenticated', () => {
-  vi.mocked(apiClient.isAuthenticated).mockReturnValueOnce(false)
-  render(
-    <MemoryRouter initialEntries={['/post/p1']}>
+// =============================================================================
+// Signed out — a shared link opened by someone with no account (issue #381)
+// =============================================================================
+
+function renderSignedOut(entry = '/post/p1') {
+  mockIsAuthenticated.mockReturnValue(false)
+  return render(
+    <MemoryRouter initialEntries={[entry]}>
       <Routes>
         <Route path="/post/:postId" element={<PostDetailPage />} />
         <Route path="/login" element={<div>Login page</div>} />
+        <Route path="/register" element={<div>Register page</div>} />
+        <Route path="/profile/:username" element={<div>Profile page</div>} />
       </Routes>
     </MemoryRouter>,
   )
-  expect(screen.getByText('Login page')).toBeInTheDocument()
+}
+
+test('a signed-out visitor reads the post through the public endpoints', async () => {
+  mockGetPublicThreadRefs.mockResolvedValue([{ comment_thread_identifier: 't1' }])
+  mockGetPublicThreadComments.mockResolvedValue([comment])
+  renderSignedOut()
+
+  expect(await screen.findByText('sunshine')).toBeInTheDocument()
+  expect(await screen.findByText('love this')).toBeInTheDocument()
+  expect(mockGetPublicDetails).toHaveBeenCalledWith('p1')
+  expect(mockGetPublicThreadRefs).toHaveBeenCalledWith('p1', 0)
+  expect(mockGetPublicThreadComments).toHaveBeenCalledWith('t1', 0)
+  // No session, so the authenticated endpoints are never reached for.
+  expect(mockGetDetails).not.toHaveBeenCalled()
+  expect(mockGetThreadRefs).not.toHaveBeenCalled()
+})
+
+test('a signed-out visitor is no longer bounced to the login page', async () => {
+  renderSignedOut()
+
+  expect(await screen.findByText('sunshine')).toBeInTheDocument()
+  expect(screen.queryByText('Login page')).not.toBeInTheDocument()
+})
+
+test('a signed-out visitor gets a sign-in prompt instead of the session-only controls', async () => {
+  mockGetPublicThreadRefs.mockResolvedValue([{ comment_thread_identifier: 't1' }])
+  mockGetPublicThreadComments.mockResolvedValue([comment])
+  renderSignedOut()
+  await screen.findByText('love this')
+
+  expect(screen.getByRole('link', { name: 'Log in' })).toBeInTheDocument()
+  expect(screen.getByRole('link', { name: 'join' })).toBeInTheDocument()
+  expect(screen.queryByRole('button', { name: 'Add a comment...' })).not.toBeInTheDocument()
+  expect(screen.queryByRole('button', { name: 'Reply' })).not.toBeInTheDocument()
+  expect(screen.queryByRole('button', { name: 'Like post' })).not.toBeInTheDocument()
+  expect(screen.queryByRole('button', { name: 'Like comment' })).not.toBeInTheDocument()
+  // The relationship filter needs relationships, which an anonymous visitor
+  // does not have.
+  expect(screen.queryByLabelText('Filter comments by group')).not.toBeInTheDocument()
+  // Read-only detail is still all there.
+  expect(screen.getByText('3 likes')).toBeInTheDocument()
+})
+
+test('a signed-out visitor is offered Share and nothing that needs a session', async () => {
+  renderSignedOut()
+  await screen.findByText('sunshine')
+
+  await userEvent.click(screen.getByRole('button', { name: 'Post options' }))
+  const menu = screen.getByRole('menu', { name: 'Post options' })
+  expect(within(menu).getByRole('menuitem', { name: 'Share' })).toBeInTheDocument()
+  expect(within(menu).queryByRole('menuitem', { name: 'Report' })).not.toBeInTheDocument()
+  expect(within(menu).queryByRole('menuitem', { name: 'Delete' })).not.toBeInTheDocument()
+})
+
+test('a signed-out visitor is told a missing post may just be private', async () => {
+  mockGetPublicDetails.mockRejectedValue(new Error('404'))
+  renderSignedOut()
+
+  expect(await screen.findByText('Post not found.')).toBeInTheDocument()
+  expect(screen.getByText(/shared with a narrower audience/)).toBeInTheDocument()
+})
+
+// =============================================================================
+// The #comment-<id> fragment a shared comment link carries (issues #34/#381)
+// =============================================================================
+
+// The fragment is only honored for a well-formed comment id, so these use real
+// UUIDs rather than the short ids the rest of the file uses.
+const ROOT_ID = 'bbbbbbbb-cccc-4ddd-8eee-ffffffffffff'
+const REPLY_ID = '12345678-90ab-4cde-8f01-234567890abc'
+const rootComment: Comment = { ...comment, comment_identifier: ROOT_ID }
+const replyComment: Comment = {
+  ...comment,
+  comment_identifier: REPLY_ID,
+  body: 'totally agree',
+  author_username: 'cara',
+  creation_time: '2024-01-02T00:00:00.000Z',
+}
+
+test('every comment is addressable by a #comment-<id> anchor', async () => {
+  mockGetThreadRefs.mockResolvedValue([{ comment_thread_identifier: 't1' }])
+  mockGetThreadComments.mockResolvedValue([rootComment])
+  renderDetail()
+  await screen.findByText('love this')
+
+  expect(document.getElementById(`comment-${ROOT_ID}`)).toBeInTheDocument()
+})
+
+test('a shared comment link marks out the comment it points at', async () => {
+  mockGetPublicThreadRefs.mockResolvedValue([{ comment_thread_identifier: 't1' }])
+  mockGetPublicThreadComments.mockResolvedValue([rootComment, replyComment])
+  renderSignedOut(`/post/p1#comment-${REPLY_ID}`)
+  await screen.findByText('totally agree')
+
+  await waitFor(() =>
+    expect(document.getElementById(`comment-${REPLY_ID}`)).toHaveClass('comment-row--shared'),
+  )
+  expect(document.getElementById(`comment-${ROOT_ID}`)).not.toHaveClass('comment-row--shared')
+})
+
+test('a shared comment link scrolls that comment into view', async () => {
+  // The highlight and the scroll are separate mechanisms: a comment that is
+  // marked but off-screen is still a broken share link, so assert the scroll
+  // itself rather than inferring it from the class.
+  const scrollIntoView = vi.spyOn(Element.prototype, 'scrollIntoView')
+  mockGetPublicThreadRefs.mockResolvedValue([{ comment_thread_identifier: 't1' }])
+  mockGetPublicThreadComments.mockResolvedValue([rootComment, replyComment])
+  renderSignedOut(`/post/p1#comment-${REPLY_ID}`)
+  await screen.findByText('totally agree')
+
+  await waitFor(() => expect(scrollIntoView).toHaveBeenCalled())
+  expect(scrollIntoView.mock.instances[0]).toBe(document.getElementById(`comment-${REPLY_ID}`))
+  scrollIntoView.mockRestore()
+})
+
+test('a plain post link scrolls nowhere', async () => {
+  const scrollIntoView = vi.spyOn(Element.prototype, 'scrollIntoView')
+  mockGetPublicThreadRefs.mockResolvedValue([{ comment_thread_identifier: 't1' }])
+  mockGetPublicThreadComments.mockResolvedValue([rootComment, replyComment])
+  renderSignedOut()
+  await screen.findByText('totally agree')
+
+  expect(scrollIntoView).not.toHaveBeenCalled()
+  scrollIntoView.mockRestore()
+})
+
+test('a shared comment link pages past the first batch to reach its comment', async () => {
+  // The backend pages threads 10 at a time and this screen has no "load more",
+  // so without this a link to a comment in the 11th thread would render a page
+  // that never contains it and scroll nowhere (issue #381).
+  mockGetPublicThreadRefs.mockImplementation((_postId: string, batch: number) =>
+    Promise.resolve(
+      batch === 0
+        ? [{ comment_thread_identifier: 't1' }]
+        : batch === 1
+          ? [{ comment_thread_identifier: 't2' }]
+          : [],
+    ),
+  )
+  mockGetPublicThreadComments.mockImplementation((threadId: string) =>
+    Promise.resolve(threadId === 't1' ? [rootComment] : [replyComment]),
+  )
+
+  renderSignedOut(`/post/p1#comment-${REPLY_ID}`)
+
+  // The target lives in the second batch, so it had to be fetched to appear.
+  expect(await screen.findByText('totally agree')).toBeInTheDocument()
+  expect(mockGetPublicThreadRefs).toHaveBeenCalledWith('p1', 1)
+  await waitFor(() =>
+    expect(document.getElementById(`comment-${REPLY_ID}`)).toHaveClass('comment-row--shared'),
+  )
+  // The earlier batch stays on the page, so the comment is read in context.
+  expect(screen.getByText('love this')).toBeInTheDocument()
+})
+
+test('a plain post link loads only the first batch', async () => {
+  // Paging past batch 0 is strictly for reaching a shared comment; an ordinary
+  // visit must not pull the whole conversation.
+  mockGetPublicThreadRefs.mockResolvedValue([{ comment_thread_identifier: 't1' }])
+  mockGetPublicThreadComments.mockResolvedValue([rootComment])
+
+  renderSignedOut()
+  await screen.findByText('love this')
+
+  expect(mockGetPublicThreadRefs).toHaveBeenCalledTimes(1)
+  expect(mockGetPublicThreadRefs).toHaveBeenCalledWith('p1', 0)
+})
+
+test('a shared comment link that is never found stops at the batch cap', async () => {
+  // A link to a since-removed or moderated comment must cost a bounded number
+  // of requests, not walk the entire thread list.
+  mockGetPublicThreadRefs.mockImplementation((_postId: string, batch: number) =>
+    Promise.resolve(batch < 20 ? [{ comment_thread_identifier: `t${batch}` }] : []),
+  )
+  mockGetPublicThreadComments.mockResolvedValue([rootComment])
+
+  renderSignedOut(`/post/p1#comment-${REPLY_ID}`)
+  // Every batch returns the same comment body, so several rows carry it.
+  await screen.findAllByText('love this')
+
+  await waitFor(() => expect(mockGetPublicThreadRefs).toHaveBeenCalledTimes(5))
+  // Still capped after everything settles.
+  expect(mockGetPublicThreadRefs).toHaveBeenCalledTimes(5)
+  expect(document.querySelector('.comment-row--shared')).toBeNull()
+})
+
+test('a plain post link marks out nothing', async () => {
+  mockGetPublicThreadRefs.mockResolvedValue([{ comment_thread_identifier: 't1' }])
+  mockGetPublicThreadComments.mockResolvedValue([rootComment, replyComment])
+  renderSignedOut()
+  await screen.findByText('totally agree')
+
+  expect(document.querySelector('.comment-row--shared')).toBeNull()
 })

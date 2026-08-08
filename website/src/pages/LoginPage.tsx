@@ -1,11 +1,14 @@
 import { useEffect, useState, type FormEvent } from 'react'
 import { useNavigate, useSearchParams } from 'react-router'
+import GoogleSignInButton from '../components/GoogleSignInButton'
 import Logo from '../components/Logo'
 import {
   ACCOUNT_BANNED,
   ACCOUNT_SUSPENDED_MESSAGE,
   EMAIL_NOT_VERIFIED,
   EMAIL_NOT_VERIFIED_MESSAGE,
+  GOOGLE_SIGN_IN_FAILED_MESSAGE,
+  GOOGLE_SIGN_IN_MESSAGES,
   INVALID_TWO_FACTOR_CHALLENGE,
   apiClient,
 } from '../api/client'
@@ -116,6 +119,37 @@ function LoginPage() {
       } else {
         setErrorMessage(apiErr.message ?? 'Login failed. Please check your credentials.')
       }
+    } finally {
+      setIsLoading(false)
+    }
+  }
+
+  /** Google handed us an ID token; trade it for a session (issue #10). */
+  async function handleGoogleCredential(idToken: string) {
+    if (isLoading) return
+    setErrorMessage(null)
+    setIsLoading(true)
+    try {
+      const response = await apiClient.loginWithGoogle({
+        id_token: idToken,
+        remember_me: rememberMe,
+      })
+      if (isTwoFactorRequired(response)) {
+        // Same reasoning as the password path: no session has been issued yet,
+        // so nothing stale may be left behind to look like one.
+        clearSession()
+        setChallengeToken(response.challenge_token)
+        return
+      }
+      completeLogin(response)
+    } catch (err) {
+      const apiErr = err as ApiError
+      // The backend answers with stable codes, not prose (see constants.py), so
+      // the copy lives client-side. An unmapped message is a transport failure
+      // that already reads well on its own.
+      setErrorMessage(
+        GOOGLE_SIGN_IN_MESSAGES[apiErr.message] ?? apiErr.message ?? GOOGLE_SIGN_IN_FAILED_MESSAGE,
+      )
     } finally {
       setIsLoading(false)
     }
@@ -311,6 +345,14 @@ function LoginPage() {
             >
               Forgot Password?
             </button>
+
+            {/* Sits below the password form so the primary path stays first,
+                and honours the same "Remember Me" toggle above it. */}
+            <GoogleSignInButton
+              onCredential={handleGoogleCredential}
+              onError={setErrorMessage}
+              disabled={isLoading}
+            />
           </>
         )}
       </div>

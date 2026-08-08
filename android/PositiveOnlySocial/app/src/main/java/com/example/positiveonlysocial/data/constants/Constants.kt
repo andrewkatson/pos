@@ -26,6 +26,20 @@ object Constants {
     // on backend wording. Mirrors login_user_2fa in the backend.
     const val INVALID_TWO_FACTOR_CHALLENGE = "invalid_two_factor_challenge"
 
+    // Google sign-in (issue #10). Error codes login/google/ can answer with, and
+    // the prose each maps to on the login screen.
+    const val GOOGLE_SIGN_IN_UNAVAILABLE = "google_sign_in_unavailable"
+    const val INVALID_GOOGLE_TOKEN = "invalid_google_token"
+    const val GOOGLE_EMAIL_UNVERIFIED = "google_email_unverified"
+    const val GOOGLE_SIGN_IN_UNAVAILABLE_MESSAGE =
+        "Google sign-in isn't available right now. Please sign in with your password."
+    const val GOOGLE_EMAIL_UNVERIFIED_MESSAGE =
+        "Google hasn't verified the email address on that account, so we can't use it to sign you in."
+    const val GOOGLE_EMAIL_AMBIGUOUS = "google_email_ambiguous"
+    const val GOOGLE_EMAIL_AMBIGUOUS_MESSAGE =
+        "More than one account already uses that email address. Please sign in with your password."
+    const val GOOGLE_SIGN_IN_FAILED_MESSAGE = "Google sign-in failed. Please try again."
+
     // Support address shown under "Contact Us" in Settings for feedback and help
     // (issue #194). Distinct from the user's own contact info, which is loaded
     // from GET /me/.

@@ -122,6 +122,9 @@ fun ProfileBody(
 
     val postActions = viewModel.postActions
     val currentUsername by postActions.currentUsername.collectAsState()
+    // Which post's action menu is open, collected once here rather than in every
+    // grid tile's PostActionMenu.
+    val postForAction by postActions.postForAction.collectAsState()
 
     // Own profile-photo controls (issue #7). Picking a photo reuses the same
     // system picker as NewPostScreen; the bytes are read here (it needs a
@@ -557,7 +560,15 @@ fun ProfileBody(
                                     onToggleLike = { postActions.toggleLike(post) },
                                     onOpenMenu = { postActions.setPostForAction(post) },
                                     compact = true,
-                                    menu = { PostActionMenu(postActions, post) }
+                                    menu = {
+                                        PostActionMenu(
+                                            postActions,
+                                            post,
+                                            expanded = postForAction?.postIdentifier ==
+                                                post.postIdentifier,
+                                            isOwn = post.authorUsername == currentUsername
+                                        )
+                                    }
                                 )
                             }
 

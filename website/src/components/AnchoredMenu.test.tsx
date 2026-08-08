@@ -17,8 +17,15 @@ function stubRects({ menuWidth, menuHeight }: { menuWidth: number; menuHeight: n
   })
 }
 
+// jsdom shares one window across a file's tests, so a test that resizes it has
+// to put it back or it leaks into everything that runs after.
+const originalWidth = window.innerWidth
+const originalHeight = window.innerHeight
+
 afterEach(() => {
   vi.restoreAllMocks()
+  window.innerWidth = originalWidth
+  window.innerHeight = originalHeight
 })
 
 test('opens below the anchor and right-aligned with it', () => {
@@ -102,6 +109,57 @@ test('dismisses on a click outside and on Escape', async () => {
 
   await userEvent.click(document.querySelector('.anchored-menu__backdrop') as HTMLElement)
   expect(onDismiss).toHaveBeenCalledTimes(2)
+})
+
+test('closes on scroll, since its placement is a snapshot of the button', () => {
+  const onDismiss = vi.fn()
+  render(
+    <AnchoredMenu
+      anchor={{ top: 100, bottom: 120, right: 200 }}
+      label="Post options"
+      onDismiss={onDismiss}
+    >
+      <AnchoredMenuItem onClick={() => {}}>Share</AnchoredMenuItem>
+    </AnchoredMenu>,
+  )
+
+  // Capture phase, so a scroll in any container reaches the listener.
+  document.body.dispatchEvent(new Event('scroll', { bubbles: false }))
+  expect(onDismiss).toHaveBeenCalledTimes(1)
+
+  window.dispatchEvent(new Event('resize'))
+  expect(onDismiss).toHaveBeenCalledTimes(2)
+})
+
+test('focuses the first row and walks the rows with the arrow keys', async () => {
+  render(
+    <AnchoredMenu
+      anchor={{ top: 100, bottom: 120, right: 200 }}
+      label="Post options"
+      onDismiss={() => {}}
+    >
+      <AnchoredMenuItem onClick={() => {}}>Share</AnchoredMenuItem>
+      <AnchoredMenuItem onClick={() => {}}>Report</AnchoredMenuItem>
+    </AnchoredMenu>,
+  )
+
+  const share = screen.getByRole('menuitem', { name: 'Share' })
+  const report = screen.getByRole('menuitem', { name: 'Report' })
+  // Opening the menu moves focus into it.
+  expect(share).toHaveFocus()
+
+  await userEvent.keyboard('{ArrowDown}')
+  expect(report).toHaveFocus()
+  // ...and it wraps around at each end.
+  await userEvent.keyboard('{ArrowDown}')
+  expect(share).toHaveFocus()
+  await userEvent.keyboard('{ArrowUp}')
+  expect(report).toHaveFocus()
+
+  await userEvent.keyboard('{Home}')
+  expect(share).toHaveFocus()
+  await userEvent.keyboard('{End}')
+  expect(report).toHaveFocus()
 })
 
 test('anchorFrom snapshots the edges the placement needs', () => {

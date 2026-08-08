@@ -34,6 +34,7 @@ import type {
   DisableTotpResponse,
   FeedPost,
   FollowCategory,
+  GoogleLoginRequest,
   HiddenComment,
   HiddenPost,
   LoginRequest,
@@ -77,12 +78,10 @@ import type {
 
 // Stub-specific tuning values, matching the iOS/Android StatefulStubbedAPI
 // stubs. These intentionally differ from backend/user_system/constants.py
-// (which uses larger batches and report thresholds); the stub favors small,
-// test-friendly numbers and is not the source of truth for the real backend.
+// (which uses larger batches); the stub favors small, test-friendly numbers and
+// is not the source of truth for the real backend.
 const POST_BATCH_SIZE = 10
 const COMMENT_BATCH_SIZE = 10
-const MAX_BEFORE_HIDING_POST = 5
-const MAX_BEFORE_HIDING_COMMENT = 5
 
 // The stub has no clock-based TOTP; this fixed code is the one the stub
 // accepts, mirroring the fixed codes in the iOS/Android stubs.
@@ -161,6 +160,9 @@ interface UserMock {
   interestCategories: Set<string>
   /** Freeform interest terms the user typed, lowercased, in entry order. */
   freeformInterests: string[]
+  /** Google's `sub` claim once this account has been linked to a Google
+   * identity (issue #10); null for password-only accounts. */
+  googleSub: string | null
 }
 
 interface TwoFactorChallengeMock {
@@ -241,6 +243,31 @@ function newId(): string {
   // Deterministic ids keep tests readable; crypto.randomUUID would also work.
   uuidCounter += 1
   return `stub-${uuidCounter}`
+}
+
+/** The claims we care about from a Google ID token's payload segment.
+ *
+ * Reading a JWT without checking its signature is only ever acceptable because
+ * this is the offline stub — the real backend verifies against Google's public
+ * keys before trusting a single claim (see backend/user_system/google_auth.py).
+ */
+function decodeIdTokenClaims(
+  idToken: string,
+): { sub?: string; email?: string; email_verified?: boolean } | null {
+  const payload = idToken.split('.')[1]
+  if (!payload) return null
+  try {
+    // base64url → base64 before atob, which only understands the latter, and
+    // restore the '=' padding a JWT segment omits. atob rejects a length of
+    // 4n+1 outright, so without this an otherwise valid token can throw
+    // depending on how long its claim set happens to be. The iOS and Android
+    // stubs pad the same way.
+    const base64 = payload.replace(/-/g, '+').replace(/_/g, '/')
+    const padded = base64.padEnd(Math.ceil(base64.length / 4) * 4, '=')
+    return JSON.parse(atob(padded))
+  } catch {
+    return null
+  }
 }
 
 /** Whole years from a YYYY-MM-DD date of birth to today, or null if malformed. */
@@ -377,6 +404,7 @@ export class StatefulStubbedAPI implements PositiveOnlySocialAPI {
       bio: '',
       interestCategories: new Set(),
       freeformInterests: [],
+      googleSub: null,
     }
     this.users.push(user)
 
@@ -450,6 +478,129 @@ export class StatefulStubbedAPI implements PositiveOnlySocialAPI {
       series_identifier: seriesIdentifier,
       login_cookie_token: loginCookieToken,
       membership_number: user.membershipNumber,
+    }
+  }
+
+  async loginWithGoogle(body: GoogleLoginRequest): Promise<LoginResponse> {
+    // The real backend verifies the token's signature against Google's public
+    // keys; the stub has no network and no keys, so it just reads the claims
+    // out of the payload segment. Enough to exercise every branch the UI cares
+    // about (new account, linking, 2FA) offline.
+    const claims = decodeIdTokenClaims(body.id_token)
+    if (!claims || !claims.sub || !claims.email) {
+      throw new ApiError(401, 'invalid_google_token')
+    }
+    // Verified has to be asserted, not merely not-denied: the backend requires
+    // `email_verified is True`, so a missing or non-boolean claim counts as
+    // unverified there and must here too, or the offline stub is more
+    // permissive than production.
+    if (claims.email_verified !== true) {
+      throw new ApiError(403, 'google_email_unverified')
+    }
+
+    const email = claims.email.toLowerCase()
+    let createdAccount = false
+    let user = this.users.find((u) => u.googleSub === claims.sub)
+
+    if (!user) {
+      // Google has verified the address, so an account already holding it is
+      // the same person: link rather than making them a second account.
+      user = this.users.find((u) => u.email.toLowerCase() === email)
+      if (user) {
+        user.googleSub = claims.sub
+        user.emailVerified = true
+        user.emailVerificationToken = null
+      }
+    }
+
+    if (!user) {
+      // Usernames must be at least 10 word characters, so a short local part is
+      // padded — matching _google_username_base in backend/user_system/views.py.
+      const base = email.split('@')[0].replace(/\W/g, '') || 'friend'
+      // Suffix length follows _google_username_candidate: enough digits to
+      // reach the ten-character minimum, and never fewer than four, so the
+      // offline names look like the ones production would hand out. (The
+      // backend draws its digits at random; the stub counts, so its output
+      // stays predictable for tests.)
+      const suffixLength = Math.max(10 - base.length, 4)
+      let username = base.length >= 10 ? base : base.padEnd(10, '0')
+      let suffix = 1
+      while (this.users.some((u) => u.username === username)) {
+        username = `${base}${String(suffix).padStart(suffixLength, '0')}`
+        suffix += 1
+      }
+
+      user = {
+        id: newId(),
+        username,
+        email,
+        // No password exists behind a Google account. The stub compares
+        // passwords as plain strings, so this is a value nobody could type
+        // rather than a readable placeholder somebody might — login() must
+        // never let anyone in with a guess.
+        passwordHash: `no-password-${newId()}`,
+        verificationToken: null,
+        resetToken: null,
+        emailVerified: true,
+        emailVerificationToken: null,
+        following: new Set(),
+        followCategories: new Map(),
+        followers: new Set(),
+        isVerified: false,
+        isAdult: false,
+        blocked: new Set(),
+        blockedBy: new Set(),
+        totpSecret: null,
+        totpEnabled: false,
+        recoveryCodes: new Set(),
+        savedPostIds: [],
+        profileImageUrl: null,
+        pendingProfileImageUrl: null,
+        profileImageStatus: 'none',
+        profileImageReasonCode: null,
+        membershipNumber:
+          this.users.reduce((max, u) => Math.max(max, u.membershipNumber), 0) + 1,
+        bio: '',
+        interestCategories: new Set(),
+        freeformInterests: [],
+        googleSub: claims.sub,
+      }
+      this.users.push(user)
+      createdAccount = true
+    }
+
+    // Holding the Google account is a first factor, not a bypass of the second.
+    if (user.totpEnabled) {
+      this.setToken(null)
+      const challengeToken = newId()
+      this.twoFactorChallenges.push({
+        challengeToken,
+        userId: user.id,
+        rememberMe: Boolean(body.remember_me),
+      })
+      return { two_factor_required: true, challenge_token: challengeToken }
+    }
+
+    const sessionToken = newId()
+    this.sessions.push({ managementToken: sessionToken, userId: user.id })
+
+    let seriesIdentifier: string | undefined
+    let loginCookieToken: string | undefined
+    if (body.remember_me) {
+      seriesIdentifier = newId()
+      loginCookieToken = newId()
+      this.loginCookies.push({ seriesIdentifier, token: loginCookieToken, userId: user.id })
+    }
+
+    this.setToken(sessionToken)
+    return {
+      session_management_token: sessionToken,
+      user_id: user.id,
+      username: user.username,
+      series_identifier: seriesIdentifier,
+      login_cookie_token: loginCookieToken,
+      created_account: createdAccount,
+      ...(createdAccount ? { membership_number: user.membershipNumber } : {}),
     }
   }
 
@@ -766,9 +917,18 @@ export class StatefulStubbedAPI implements PositiveOnlySocialAPI {
   }
 
   /** Stubbed async classifier (#282): a caption containing 'borderline'
-   * becomes an appealable rejection; everything else is approved. */
+   * becomes an appealable rejection; everything else is approved.
+   *
+   * A caption containing 'moderated' stands in for content a human moderator
+   * hid after reviewing user reports (issue #467). Since report counts hide
+   * nothing, that decision — which no client-side action can reproduce — is the
+   * only way content reaches hidden_reason 'reports', so the stub needs a seam
+   * for it. */
   private classifyPost(post: PostMock): void {
-    if (post.caption.includes('borderline')) {
+    if (post.caption.includes('moderated')) {
+      post.hidden = true
+      post.hiddenReason = 'reports'
+    } else if (post.caption.includes('borderline')) {
       post.hidden = true
       post.hiddenReason = 'classifier'
       post.reasonCode = 'guidelines'
@@ -776,6 +936,22 @@ export class StatefulStubbedAPI implements PositiveOnlySocialAPI {
       post.hidden = false
       post.hiddenReason = ''
     }
+  }
+
+  /** The report-triggered re-review (issue #467), stubbed.
+   *
+   * A report is not a vote: it re-examines the CONTENT, and only a rejection
+   * hides anything — the number of reports never enters into it. The stub's
+   * seam for content the creation-time classifier let through but a re-review
+   * rejects is the word 'reviewable'; anything else stays visible however many
+   * people report it. */
+  private reviewReportedContent(
+    content: { hidden: boolean; hiddenReason: string },
+    text: string,
+  ): void {
+    if (content.hidden || !text.includes('reviewable')) return
+    content.hidden = true
+    content.hiddenReason = 'classifier'
   }
 
   /** Author-facing classification status, mirroring Post.classification_status. */
@@ -839,10 +1015,7 @@ export class StatefulStubbedAPI implements PositiveOnlySocialAPI {
       throw new ApiError(400, 'Cannot report post twice')
     }
     post.reports.set(user.id, reason)
-    if (post.reports.size > MAX_BEFORE_HIDING_POST) {
-      post.hidden = true
-      post.hiddenReason = 'reports'
-    }
+    this.reviewReportedContent(post, post.caption)
     return { message: 'Post reported' }
   }
 
@@ -852,16 +1025,9 @@ export class StatefulStubbedAPI implements PositiveOnlySocialAPI {
     if (!post.reports.has(user.id)) {
       throw new ApiError(400, 'Post not reported yet')
     }
+    // Retracting never un-hides either: hiding is a moderation decision, not a
+    // reversible group vote (issue #467).
     post.reports.delete(user.id)
-    // Un-hide only when reports were what hid it, mirroring the backend.
-    if (
-      post.hidden &&
-      post.hiddenReason === 'reports' &&
-      post.reports.size <= MAX_BEFORE_HIDING_POST
-    ) {
-      post.hidden = false
-      post.hiddenReason = ''
-    }
     return { message: 'Post report retracted' }
   }
 
@@ -1090,6 +1256,127 @@ export class StatefulStubbedAPI implements PositiveOnlySocialAPI {
       ...this.authorAvatarFields(post.authorId),
       ...this.authorStatusFields(post, user.id),
     }
+  }
+
+  // ---------------------------------------------------------------------------
+  // Public share endpoints (issue #381)
+  // ---------------------------------------------------------------------------
+
+  /** Whether an author is a verified minor, whose content an anonymous visitor
+   * never sees: that visitor's age is unknown, so it sits in the adult band and
+   * the two bands are mutually invisible (issue #329). Mirrors
+   * visibility.is_minor. */
+  private isVerifiedMinor(authorId: string): boolean {
+    const author = this.users.find((u) => u.id === authorId)
+    return !!author?.isVerified && !author.isAdult
+  }
+
+  /** Whether a post is visible to a signed-out visitor: live, public-audience,
+   * and not by a verified minor.
+   *
+   * That is the backend's PUBLIC_VIEWER rule *minus the shadow-ban clause* —
+   * this stub has no ban model at all (no path here knows about UserBan,
+   * including the authenticated `canViewPost`), so a shadow-banned author's
+   * post stays visible in the stub where the real backend would hide it. Do
+   * not read this as production visibility: `visibility.py` is the authority,
+   * and the moderation rules are covered by the backend tests
+   * (`test_public_share_views.py`), not from here. */
+  private isPubliclyVisible(post: PostMock): boolean {
+    if (post.hiddenReason === 'classifier_final') return false
+    if (post.hidden) return false
+    if (post.audience !== 'public') return false
+    return !this.isVerifiedMinor(post.authorId)
+  }
+
+  /** Comments in a thread a signed-out visitor may see. The same rule as posts,
+   * because the backend runs `visible_comments` against the same anonymous
+   * viewer: not hidden, public audience, and not by a verified minor — a
+   * minor's comment is no more public than a minor's post, even on someone
+   * else's public post. There is no viewer, so no author-owns-it or category
+   * rule applies, and the same shadow-ban caveat as `isPubliclyVisible` holds:
+   * the stub has no ban model, so a shadow-banned author's comment survives
+   * here where the backend drops it. */
+  private publiclyVisibleComments(thread: CommentThreadMock): CommentMock[] {
+    return thread.comments.filter(
+      (c) => !c.hidden && c.audience === 'public' && !this.isVerifiedMinor(c.authorId),
+    )
+  }
+
+  private requirePublicPost(postIdentifier: string): PostMock {
+    const post = this.posts.find((p) => p.postIdentifier === postIdentifier)
+    // A post that exists but isn't public reads exactly like a missing one, so
+    // the endpoint can't be used to probe moderation state.
+    if (!post || !this.isPubliclyVisible(post)) {
+      throw new ApiError(404, 'No post with that identifier')
+    }
+    return post
+  }
+
+  async getPublicPostDetails(postIdentifier: string): Promise<PostDetails> {
+    const post = this.requirePublicPost(postIdentifier)
+    const author = this.users.find((u) => u.id === post.authorId)
+    // No is_liked/is_saved/is_reported/report_reason and no author-only status:
+    // there is no viewer to have them.
+    return {
+      post_identifier: post.postIdentifier,
+      image_url: post.imageUrl,
+      original_image_url: post.imageUrl,
+      caption: post.caption,
+      caption_font: post.captionFont,
+      background_color: post.backgroundColor,
+      creation_time: new Date(post.creationTime).toISOString(),
+      post_likes: post.likes.size,
+      author_username: author ? author.username : '',
+      audience: post.audience,
+      tags: post.tags,
+      ...this.authorAvatarFields(post.authorId),
+    }
+  }
+
+  async getPublicCommentsForPost(
+    postIdentifier: string,
+    batch: number,
+  ): Promise<CommentThreadRef[]> {
+    const post = this.requirePublicPost(postIdentifier)
+    const threads = this.commentThreads
+      .filter((t) => t.postId === post.postIdentifier)
+      .filter((t) => this.publiclyVisibleComments(t).length > 0)
+    return this.batch(threads, batch, COMMENT_BATCH_SIZE).map((t) => ({
+      comment_thread_identifier: t.threadIdentifier,
+    }))
+  }
+
+  async getPublicCommentsForThread(
+    commentThreadIdentifier: string,
+    batch: number,
+  ): Promise<Comment[]> {
+    const thread = this.commentThreads.find(
+      (t) => t.threadIdentifier === commentThreadIdentifier,
+    )
+    // A leaked thread id is not a back door into a non-public post's
+    // conversation: the post must be public too.
+    if (!thread) {
+      throw new ApiError(404, 'No comment thread with that identifier')
+    }
+    this.requirePublicPost(thread.postId)
+    const visible = this.publiclyVisibleComments(thread).sort(
+      (a, b) => a.creationTime - b.creationTime,
+    )
+    return this.batch(visible, batch, COMMENT_BATCH_SIZE).map((c) => {
+      const author = this.users.find((u) => u.id === c.authorId)
+      const time = new Date(c.creationTime).toISOString()
+      return {
+        comment_identifier: c.commentIdentifier,
+        body: c.body,
+        body_formatting: c.bodyFormatting,
+        audience: c.audience,
+        author_username: author ? author.username : '',
+        ...this.authorAvatarFields(c.authorId),
+        creation_time: time,
+        updated_time: time,
+        comment_likes: c.likes.size,
+      }
+    })
   }
 
   async getPostStatus(postIdentifier: string): Promise<PostStatusResponse> {
@@ -1323,10 +1610,7 @@ export class StatefulStubbedAPI implements PositiveOnlySocialAPI {
       throw new ApiError(400, 'Cannot report comment twice')
     }
     comment.reports.set(user.id, reason)
-    if (comment.reports.size > MAX_BEFORE_HIDING_COMMENT) {
-      comment.hidden = true
-      comment.hiddenReason = 'reports'
-    }
+    this.reviewReportedContent(comment, comment.body)
     return { message: 'Comment reported' }
   }
 
@@ -1341,15 +1625,6 @@ export class StatefulStubbedAPI implements PositiveOnlySocialAPI {
       throw new ApiError(400, 'Comment not reported yet')
     }
     comment.reports.delete(user.id)
-    // Un-hide only when reports were what hid it, mirroring the backend.
-    if (
-      comment.hidden &&
-      comment.hiddenReason === 'reports' &&
-      comment.reports.size <= MAX_BEFORE_HIDING_COMMENT
-    ) {
-      comment.hidden = false
-      comment.hiddenReason = ''
-    }
     return { message: 'Comment report retracted' }
   }
 
