@@ -90,11 +90,12 @@ fun PostDetailScreen(
         val commentToReport by viewModel.commentToReport.collectAsState()
         val threadToReplyTo by viewModel.threadToReplyTo.collectAsState()
 
-        // The post's action menu (Report vs Delete, depending on ownership),
-        // opened by its three-dots button or a long-press on the image. Each
-        // comment's equivalent is collected inside CommentThreadView, where that
-        // row's menu is anchored.
+        // The action menus (Report vs Delete, depending on ownership), opened by
+        // a three-dots button or a long-press. Collected once here — the menus
+        // themselves are anchored per row, but a collector per row would mean one
+        // per visible post/comment.
         val showActionSheetForPost by viewModel.showActionSheetForPost.collectAsState()
+        val commentForAction by viewModel.commentForAction.collectAsState()
         val postWasDeleted by viewModel.postWasDeleted.collectAsState()
 
         // The post was deleted out from under this screen; pop back to the feed.
@@ -400,6 +401,7 @@ fun PostDetailScreen(
                         viewModel = viewModel,
                         postId = postId,
                         currentUsername = currentUsername,
+                        openCommentId = commentForAction?.id,
                         onAuthorClick = { username ->
                             navController.openProfileFor(username, currentUsername)
                         }
@@ -423,19 +425,19 @@ fun CommentThreadView(
     /** Needed for the per-comment share link in each comment's action menu. */
     postId: String,
     currentUsername: String?,
+    /** The comment whose action menu is open, if any — passed in rather than
+     * collected here, since this composable runs once per thread. */
+    openCommentId: String?,
     onAuthorClick: (String) -> Unit
 ) {
     val context = LocalContext.current
     val reportedCommentIds by viewModel.reportedCommentIds.collectAsState()
     val collapsedCommentIds by viewModel.collapsedCommentIds.collectAsState()
-    // Which comment's action menu is open, so each row can anchor its own
-    // dropdown to its three-dots button (issue #477).
-    val commentForAction by viewModel.commentForAction.collectAsState()
 
     // The action menu for one comment, anchored next to that row's ⋯ button.
     val commentMenu: @Composable (CommentViewData) -> Unit = { comment ->
         ActionMenu(
-            expanded = commentForAction?.id == comment.id,
+            expanded = openCommentId == comment.id,
             isOwn = comment.authorUsername == currentUsername,
             isReported = comment.isReported || reportedCommentIds.contains(comment.id),
             itemLabel = "Comment",
