@@ -735,6 +735,7 @@ function PostDetailView({ postId, isSignedIn }: { postId: string; isSignedIn: bo
             style={{ marginLeft: 'auto' }}
             aria-label="Post options"
             aria-haspopup="menu"
+            aria-expanded={menuTarget?.type === 'post'}
             onClick={e => setMenuTarget({ type: 'post', anchor: anchorFrom(e.currentTarget) })}
           >
             ⋯
@@ -850,6 +851,9 @@ function PostDetailView({ postId, isSignedIn }: { postId: string; isSignedIn: bo
                     onToggleCollapse={() => toggleCollapsed(root.id)}
                     onToggleLike={() => toggleCommentLike(root)}
                     onMenu={anchor => setMenuTarget({ type: 'comment', comment: root, anchor })}
+                    isMenuOpen={
+                      menuTarget?.type === 'comment' && menuTarget.comment.id === root.id
+                    }
                     onNavigate={() =>
                       navigate(profilePathFor(root.authorUsername))
                     }
@@ -876,6 +880,9 @@ function PostDetailView({ postId, isSignedIn }: { postId: string; isSignedIn: bo
                         onToggleCollapse={() => toggleCollapsed(reply.id)}
                         onToggleLike={() => toggleCommentLike(reply)}
                         onMenu={anchor => setMenuTarget({ type: 'comment', comment: reply, anchor })}
+                        isMenuOpen={
+                          menuTarget?.type === 'comment' && menuTarget.comment.id === reply.id
+                        }
                         onNavigate={() =>
                           navigate(profilePathFor(reply.authorUsername))
                         }
@@ -1170,6 +1177,9 @@ interface CommentRowProps {
   onToggleLike: () => void
   /** `anchor` is the ⋯ button's rect, so the menu opens next to it (#477). */
   onMenu: (anchor: MenuAnchor) => void
+  /** Whether this comment's options menu is the one currently open, announced
+   * on the ⋯ button as aria-expanded. */
+  isMenuOpen: boolean
   onNavigate: () => void
 }
 
@@ -1181,6 +1191,7 @@ function CommentRow({
   onToggleCollapse,
   onToggleLike,
   onMenu,
+  isMenuOpen,
   onNavigate,
 }: CommentRowProps) {
   return (
@@ -1228,6 +1239,7 @@ function CommentRow({
             style={{ marginLeft: 0 }}
             aria-label={`Options for comment by ${comment.authorUsername}`}
             aria-haspopup="menu"
+            aria-expanded={isMenuOpen}
             onClick={e => {
               e.stopPropagation()
               onMenu(anchorFrom(e.currentTarget))

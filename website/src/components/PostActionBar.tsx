@@ -10,6 +10,9 @@ interface PostActionBarProps {
   onToggleSave: (post: FeedPost) => void
   /** `anchor` is the ⋯ button's rect, so the menu opens next to it (#477). */
   onOpenMenu: (post: FeedPost, anchor: MenuAnchor) => void
+  /** Whether this post's options menu is the one currently open, announced on
+   * the ⋯ button as aria-expanded. */
+  isMenuOpen?: boolean
   /** Opens the post; used by the comment-count indicator (issue #249). */
   onOpenPost?: (post: FeedPost) => void
   /** Shows the comment count and the post time. Feed rows have room for these
@@ -31,6 +34,7 @@ function PostActionBar({
   onToggleLike,
   onToggleSave,
   onOpenMenu,
+  isMenuOpen = false,
   onOpenPost,
   showDetails = false,
 }: PostActionBarProps) {
@@ -97,6 +101,7 @@ function PostActionBar({
         className="post-actions__menu"
         aria-label={`Options for post by ${post.author_username}`}
         aria-haspopup="menu"
+        aria-expanded={isMenuOpen}
         onClick={e => onOpenMenu(post, anchorFrom(e.currentTarget))}
       >
         ⋯

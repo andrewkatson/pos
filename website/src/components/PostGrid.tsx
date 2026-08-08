@@ -35,7 +35,7 @@ function statusBadgeLabel(post: FeedPost): string | null {
  */
 function PostGrid({ posts, currentUsername, onPostDeleted, onPostUnsaved, onError }: PostGridProps) {
   const navigate = useNavigate()
-  const { stateFor, toggleLike, toggleSave, openMenu, dialogs } = usePostActions({
+  const { stateFor, toggleLike, toggleSave, openMenu, openMenuPostId, dialogs } = usePostActions({
     currentUsername,
     onPostDeleted,
     onPostUnsaved,
@@ -72,6 +72,7 @@ function PostGrid({ posts, currentUsername, onPostDeleted, onPostUnsaved, onErro
                 onToggleLike={toggleLike}
                 onToggleSave={toggleSave}
                 onOpenMenu={openMenu}
+                isMenuOpen={openMenuPostId === post.post_identifier}
               />
             </div>
           )

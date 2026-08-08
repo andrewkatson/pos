@@ -82,6 +82,9 @@ export function usePostActions({
   toggleLike: (post: FeedPost) => void
   toggleSave: (post: FeedPost) => void
   openMenu: (post: FeedPost, anchor: MenuAnchor) => void
+  /** The post whose options menu is open, so its ⋯ button can say so with
+   * aria-expanded. Null when no menu is open. */
+  openMenuPostId: string | null
   dialogs: ReactNode
 } {
   const [overrides, setOverrides] = useState<Record<string, PostOverride>>({})
@@ -345,6 +348,7 @@ export function usePostActions({
     toggleLike: post => void toggleLikeAsync(post),
     toggleSave: post => void toggleSaveAsync(post),
     openMenu: (post, anchor) => setDialog({ kind: 'menu', post, anchor }),
+    openMenuPostId: dialog?.kind === 'menu' ? dialog.post.post_identifier : null,
     dialogs,
   }
 }

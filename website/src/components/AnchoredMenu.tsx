@@ -129,8 +129,11 @@ function AnchoredMenu({ anchor, label, onDismiss, children }: AnchoredMenuProps)
 
   return (
     <>
-      {/* Invisible; it exists to take the click that closes the menu. */}
-      <div className="anchored-menu__backdrop" onClick={onDismiss} />
+      {/* Invisible; it exists to take the click that closes the menu. Hidden
+          from assistive tech, which would otherwise meet a huge unlabeled
+          clickable region — a keyboard or screen-reader user closes the menu
+          with Escape, not by clicking around it. */}
+      <div className="anchored-menu__backdrop" aria-hidden="true" onClick={onDismiss} />
       <div
         ref={menuRef}
         className="anchored-menu"
