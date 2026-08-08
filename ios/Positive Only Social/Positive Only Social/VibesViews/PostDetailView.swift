@@ -112,6 +112,7 @@ struct PostDetailView: View {
                             ProfileAvatarView(
                                 imageUrl: post.authorProfileImageURL,
                                 originalImageUrl: post.authorProfileImageOriginalURL,
+                                blurHash: post.authorProfileImageBlurHash,
                                 size: 28
                             )
                             // Tap the author's name to open their profile, same

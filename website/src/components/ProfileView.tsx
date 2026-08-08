@@ -418,6 +418,14 @@ function ProfileView({ username, isOwnProfile, currentUsername }: ProfileViewPro
             // avatar (the approved photo stays visible while a new one is under
             // review) rather than dropping to the placeholder.
             originalSrc={profile?.profile_image_original_url}
+            // The hash describes the *approved* photo, so it is withheld while
+            // the owner is previewing a pending upload: blurring in the old
+            // picture behind the new one would just look like a glitch.
+            blurhash={
+              isOwnProfile && profile?.pending_profile_image_url
+                ? null
+                : profile?.profile_image_blurhash
+            }
             username={username}
             size="lg"
           />

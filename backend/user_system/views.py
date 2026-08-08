@@ -2506,11 +2506,18 @@ def _author_avatar_fields(user):
     fallback, mirroring image_url/original_image_url for posts — the same
     CloudFront-signed URLs post images use (sign_* returns None for a missing
     photo and degrades to the unsigned bucket URL when CloudFront is not
-    configured). Both are None when the user has no approved photo."""
+    configured). Both are None when the user has no approved photo.
+
+    The avatar's BlurHash (issue #460) rides along so the clients can render a
+    blurred preview of the actual photo while it loads, exactly as they already do
+    for post images. It is tied to the live URL — sent only when that photo is
+    actually being served — so a stale hash can never blur in for an avatar the
+    viewer isn't allowed to see."""
     live_url = user.profile_image_url if user is not None else None
     return {
         Fields.author_profile_image_url: sign_compressed_url(live_url),
         Fields.author_profile_image_original_url: sign_original_url(live_url),
+        Fields.author_profile_image_blurhash: user.profile_image_blurhash if live_url else None,
     }
 
 
@@ -4014,9 +4021,13 @@ def remove_profile_photo(request):
     user.pending_profile_image_url = None
     user.profile_image_status = PROFILE_IMAGE_STATUS_NONE
     user.profile_image_reason_code = None
+    # Cleared with the photo it described (issue #460): leaving it would make a
+    # removed avatar keep flashing a blurred preview of itself.
+    user.profile_image_blurhash = None
     user.save(update_fields=[
         'profile_image_url', 'pending_profile_image_url',
         'profile_image_status', 'profile_image_reason_code',
+        'profile_image_blurhash',
     ])
 
     for url in (live_url, pending_url):
@@ -4644,6 +4655,11 @@ def get_profile_details(request, username):
         Fields.is_adult: profile_user.is_adult,
         Fields.profile_image_url: sign_compressed_url(live_avatar),
         Fields.profile_image_original_url: sign_original_url(live_avatar),
+        # Keyed off live_avatar, so a requester the profile has blocked gets no
+        # hash either — a blurred preview of the photo they were denied would
+        # leak it back, one placeholder at a time.
+        Fields.profile_image_blurhash: (
+            profile_user.profile_image_blurhash if live_avatar else None),
         # Public join number — everyone can see "member #n" on any profile (#198).
         Fields.membership_number: profile_user.membership_number,
         # Empty string means the user has not set a bio (or the requester is

@@ -102,6 +102,7 @@ struct ForYouFeedView: View {
                             ProfileAvatarView(
                                 imageUrl: post.authorProfileImageUrl,
                                 originalImageUrl: post.authorProfileImageOriginalUrl,
+                                blurHash: post.authorProfileImageBlurHash,
                                 size: 32
                             )
                             AuthorNameLink(
@@ -228,6 +229,7 @@ struct FollowingFeedView: View {
                             ProfileAvatarView(
                                 imageUrl: post.authorProfileImageUrl,
                                 originalImageUrl: post.authorProfileImageOriginalUrl,
+                                blurHash: post.authorProfileImageBlurHash,
                                 size: 32
                             )
                             AuthorNameLink(

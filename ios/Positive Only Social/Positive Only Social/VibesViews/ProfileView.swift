@@ -141,6 +141,7 @@ struct ProfileBodyView: View {
             ProfileAvatarView(
                 imageUrl: viewModel.headerAvatarUrl,
                 originalImageUrl: viewModel.headerAvatarOriginalUrl,
+                blurHash: viewModel.headerAvatarBlurHash,
                 size: 96
             )
             .padding(.top)

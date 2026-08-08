@@ -315,7 +315,8 @@ fun PostDetailScreen(
                                     imageUrl = post.authorProfileImageUrl,
                                     originalImageUrl = post.authorProfileImageOriginalUrl,
                                     contentDescription = null,
-                                    size = 28.dp
+                                    size = 28.dp,
+                                    blurHash = post.authorProfileImageBlurHash
                                 )
                                 Spacer(modifier = Modifier.width(8.dp))
                                 // Tap the author's name to open their profile,
@@ -525,7 +526,8 @@ fun CommentRow(
             imageUrl = comment.authorProfileImageUrl,
             originalImageUrl = comment.authorProfileImageOriginalUrl,
             contentDescription = null,
-            size = 32.dp
+            size = 32.dp,
+            blurHash = comment.authorProfileImageBlurHash
         )
 
         Spacer(modifier = Modifier.width(8.dp))

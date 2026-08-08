@@ -43,6 +43,8 @@ interface CommentView {
    * fallback), or null when they have none (issue #7). */
   authorAvatarUrl: string | null
   authorAvatarOriginalUrl: string | null
+  /** BlurHash of that photo (issue #460), shown blurred while it loads. */
+  authorAvatarBlurhash: string | null
   body: string
   /** Inline formatting spans over `body` (issue #318); null = plain text. */
   formatting: CommentFormatSpan[] | null
@@ -253,6 +255,7 @@ function PostDetailView({ postId, isSignedIn }: { postId: string; isSignedIn: bo
         authorUsername: c.author_username,
         authorAvatarUrl: c.author_profile_image_url ?? null,
         authorAvatarOriginalUrl: c.author_profile_image_original_url ?? null,
+        authorAvatarBlurhash: c.author_profile_image_blurhash ?? null,
         body: c.body,
         formatting: c.body_formatting ?? null,
         audience: c.audience ?? 'public',
@@ -739,6 +742,7 @@ function PostDetailView({ postId, isSignedIn }: { postId: string; isSignedIn: bo
           <Avatar
             src={post.author_profile_image_url}
             originalSrc={post.author_profile_image_original_url}
+            blurhash={post.author_profile_image_blurhash}
             username={post.author_username}
             size="sm"
           />
@@ -1218,6 +1222,7 @@ function CommentRow({
       <Avatar
         src={comment.authorAvatarUrl}
         originalSrc={comment.authorAvatarOriginalUrl}
+        blurhash={comment.authorAvatarBlurhash}
         username={comment.authorUsername}
         size="sm"
       />

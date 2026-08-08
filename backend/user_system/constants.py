@@ -343,6 +343,9 @@ class Fields:
     # the pending/rejected state of a photo still under async review.
     profile_image_url = "profile_image_url"
     profile_image_original_url = "profile_image_original_url"
+    # The avatar's BlurHash (issue #460) — the profile counterpart of
+    # image_blurhash. Null until the worker has computed one (or when it failed).
+    profile_image_blurhash = "profile_image_blurhash"
     pending_profile_image_url = "pending_profile_image_url"
     profile_image_status = "profile_image_status"
     profile_image_reason_code = "profile_image_reason_code"
@@ -351,6 +354,7 @@ class Fields:
     # mirroring image_url/original_image_url for posts).
     author_profile_image_url = "author_profile_image_url"
     author_profile_image_original_url = "author_profile_image_original_url"
+    author_profile_image_blurhash = "author_profile_image_blurhash"
     caption = "caption"
     caption_font = "caption_font"
     background_color = "background_color"

@@ -9,6 +9,7 @@ invalid_session_management_token = '?'
 invalid_username = '??!!'  # A malformed username
 other_username = 'Barbara123'
 non_existent_username = 'Charlie222'
+PROFILE_BLURHASH = 'LEHV6nWB2yk8pyo0adR*.7kCMdnj'
 
 
 class GetProfileDetailsTests(PositiveOnlySocialTestCase):
@@ -183,3 +184,35 @@ class GetProfileDetailsTests(PositiveOnlySocialTestCase):
         self.assertEqual(data[Fields.following_count], 0)
         # A blocked requester cannot read the blocker's bio either (#380).
         self.assertEqual(data[Fields.bio], "")
+
+    def test_profile_details_include_avatar_blurhash(self):
+        """The header avatar's BlurHash (issue #460) is served with its URLs so
+        the clients can blur it in while the photo loads."""
+        avatar = f'https://test-bucket.s3.amazonaws.com/{self.profile_user.id}/avatar.jpeg'
+        PositiveOnlySocialUser.objects.filter(pk=self.profile_user.pk).update(
+            profile_image_url=avatar, profile_image_blurhash=PROFILE_BLURHASH)
+
+        url = reverse('get_profile_details', kwargs={'username': self.profile_username})
+        data = self.client.get(url, **self.valid_header).json()
+
+        self.assertEqual(data[Fields.profile_image_blurhash], PROFILE_BLURHASH)
+
+    def test_avatar_blurhash_hidden_when_blocked_by(self):
+        """A requester the profile has blocked gets no hash either — a blurred
+        preview of the avatar they were denied would leak it back."""
+        avatar = f'https://test-bucket.s3.amazonaws.com/{self.profile_user.id}/avatar.jpeg'
+        PositiveOnlySocialUser.objects.filter(pk=self.profile_user.pk).update(
+            profile_image_url=avatar, profile_image_blurhash=PROFILE_BLURHASH)
+        self.profile_user.blocked.add(self.requesting_user)
+
+        url = reverse('get_profile_details', kwargs={'username': self.profile_username})
+        data = self.client.get(url, **self.valid_header).json()
+
+        self.assertIsNone(data[Fields.profile_image_url])
+        self.assertIsNone(data[Fields.profile_image_blurhash])
+
+    def test_avatar_blurhash_is_null_without_a_photo(self):
+        url = reverse('get_profile_details', kwargs={'username': self.profile_username})
+        data = self.client.get(url, **self.valid_header).json()
+
+        self.assertIsNone(data[Fields.profile_image_blurhash])

@@ -71,6 +71,8 @@ struct Positive_Only_SocialTests_PostActionsViewModel {
             "image_blurhash": "LEHV6nWB2yk8pyo0adR*.7kCMdnj",
             "caption": "Hello",
             "author_username": "someone",
+            "author_profile_image_url": "https://example.com/avatar.jpg",
+            "author_profile_image_blurhash": "L6PZfSjE.AyE_3t7t7R**0o#DgR4",
             "post_likes": 3,
             "is_liked": true,
             "is_saved": true,
@@ -91,6 +93,8 @@ struct Positive_Only_SocialTests_PostActionsViewModel {
         #expect(post.commentCount == 7)
         #expect(post.createdDate != nil, "The Django-style timestamp should parse")
         #expect(post.blurHash == "LEHV6nWB2yk8pyo0adR*.7kCMdnj", "The BlurHash placeholder decodes (#387)")
+        #expect(post.authorProfileImageBlurHash == "L6PZfSjE.AyE_3t7t7R**0o#DgR4",
+                "The avatar's BlurHash decodes too (#460)")
     }
 
     @Test func testPostDecoding_OlderResponseWithoutInteractionState_StillDecodes() throws {
@@ -114,6 +118,8 @@ struct Positive_Only_SocialTests_PostActionsViewModel {
         #expect(post.commentCount == 0)
         #expect(post.createdDate == nil, "No timestamp means no relative-time label")
         #expect(post.blurHash == nil, "An older response omits the BlurHash (#387)")
+        #expect(post.authorProfileImageBlurHash == nil,
+                "...and the avatar's BlurHash with it (#460)")
     }
 
     @Test func testFeedListing_IncludesLikeReportAndCommentState() async throws {

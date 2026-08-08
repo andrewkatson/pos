@@ -241,7 +241,8 @@ fun PostItem(
                 originalImageUrl = post.authorProfileImageOriginalUrl,
                 // Decorative — the author username is rendered right next to it.
                 contentDescription = null,
-                size = 32.dp
+                size = 32.dp,
+                blurHash = post.authorProfileImageBlurHash
             )
             Text(
                 text = post.authorUsername,

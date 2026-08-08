@@ -19,6 +19,10 @@ import Kingfisher
 /// `PostDetailImage` for post images (issues #252, #254), and the same
 /// compressed→original fallback the website's `Avatar` uses.
 ///
+/// While the photo loads, its BlurHash preview (issue #460) stands in for the
+/// flat `person.circle.fill` placeholder — the same treatment `GridPostImage`
+/// gives post images, sharing the same vendored `BlurHashImage` decoder.
+///
 /// Backed by Kingfisher rather than AsyncImage for the same reasons the post
 /// image views are: AsyncImage is one-shot, so a load that fails or gets
 /// cancelled (scrolling, navigation transitions) parks the avatar on the
@@ -29,6 +33,10 @@ struct ProfileAvatarView: View {
     let imageUrl: String?
     /// Full-resolution fallback used if the compressed URL fails to load.
     let originalImageUrl: String?
+    /// BlurHash of the photo (issue #460), decoded into a blurred preview shown
+    /// while it loads. Nil (no photo, older backend, or an uncomputable hash)
+    /// just falls back to the neutral placeholder symbol.
+    var blurHash: String? = nil
     /// The diameter of the circular avatar in points.
     var size: CGFloat = 32
 
@@ -64,7 +72,7 @@ struct ProfileAvatarView: View {
                 // isn't in the bucket yet; only HTTP errors are retried, not
                 // cancellations.
                 .retry(maxCount: 2, interval: .seconds(1))
-                .placeholder { placeholder }
+                .placeholder { blurHashPlaceholder }
                 .onFailure { error in
                     // A cancelled load isn't a missing image — the avatar reloads
                     // the same URL when it next appears, so save the fallback for
@@ -74,6 +82,21 @@ struct ProfileAvatarView: View {
                         useOriginal = true
                     }
                 }
+                .resizable()
+                .scaledToFill()
+        } else {
+            placeholder
+        }
+    }
+
+    /// What KFImage shows while the photo loads: the decoded BlurHash when the
+    /// user has one (issue #460), otherwise the neutral symbol. Decoding only
+    /// runs while the placeholder is on screen, and at a tiny size, so it stays
+    /// cheap even in a list of avatars.
+    @ViewBuilder
+    private var blurHashPlaceholder: some View {
+        if let blurHash, let image = BlurHashImage.decode(blurHash, size: BlurHashImage.decodeSize) {
+            Image(uiImage: image)
                 .resizable()
                 .scaledToFill()
         } else {
