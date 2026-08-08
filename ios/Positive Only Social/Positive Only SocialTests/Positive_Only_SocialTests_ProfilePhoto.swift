@@ -155,6 +155,9 @@ struct Positive_Only_SocialTests_ProfilePhoto {
     // MARK: - Avatar BlurHash (issue #460)
 
     @Test func testProfileDetails_DecodesTheAvatarBlurHash() throws {
+        // is_blocked/identity_is_verified/is_adult are non-Optional on the
+        // struct, so the synthesized decoder *requires* their keys even though
+        // they have Swift defaults — the payload has to carry them.
         let json = """
         {
             "username": "alice",
@@ -162,6 +165,9 @@ struct Positive_Only_SocialTests_ProfilePhoto {
             "follower_count": 0,
             "following_count": 0,
             "is_following": false,
+            "is_blocked": false,
+            "identity_is_verified": false,
+            "is_adult": false,
             "profile_image_url": "https://bucket/alice.jpeg",
             "profile_image_blurhash": "LEHV6nWB2yk8pyo0adR*.7kCMdnj"
         }
@@ -197,6 +203,9 @@ struct Positive_Only_SocialTests_ProfilePhoto {
             "follower_count": 0,
             "following_count": 0,
             "is_following": false,
+            "is_blocked": false,
+            "identity_is_verified": false,
+            "is_adult": false,
             "profile_image_url": "https://bucket/bob.jpeg"
         }
         """.data(using: .utf8)!
