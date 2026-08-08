@@ -72,10 +72,21 @@ function LikesModal({ target, onClose }: LikesModalProps) {
 
   const load = useCallback(
     async (pageToLoad: number, replace: boolean) => {
+      // Owned here rather than by the caller so every entry point — the mount
+      // effect, a target change, "Load more" — shows the spinner and drops the
+      // previous error. A replace also clears the list up front, so a switch to
+      // a different post can't leave the old post's likers on screen while the
+      // new batch is in flight. Matches the iOS/Android view models.
+      setIsLoading(true)
+      setErrorMessage(null)
+      if (replace) {
+        setUsers([])
+        setCanLoadMore(false)
+        setPage(0)
+      }
       try {
         const batch = await fetcher(pageToLoad)
         if (!isMounted.current) return
-        setErrorMessage(null)
         if (replace) {
           setUsers(batch)
           setCanLoadMore(batch.length > 0)
@@ -151,14 +162,7 @@ function LikesModal({ target, onClose }: LikesModalProps) {
       )}
 
       {canLoadMore && !isLoading && users.length > 0 && (
-        <button
-          type="button"
-          className="load-more"
-          onClick={() => {
-            setIsLoading(true)
-            void load(page, false)
-          }}
-        >
+        <button type="button" className="load-more" onClick={() => void load(page, false)}>
           Load more
         </button>
       )}

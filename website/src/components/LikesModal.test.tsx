@@ -146,3 +146,25 @@ test('a first load that fails shows the error instead of claiming nobody liked i
   expect(await screen.findByRole('alert')).toHaveTextContent('Network is down')
   expect(screen.queryByText('No one has liked this yet.')).not.toBeInTheDocument()
 })
+
+test('switching to another target clears the previous list rather than showing it stale', async () => {
+  mockPostLikers.mockResolvedValueOnce([liker('alice')])
+  mockCommentLikers.mockResolvedValueOnce([liker('carol')])
+  const onClose = vi.fn()
+  const { rerender } = render(
+    <MemoryRouter initialEntries={['/post/post-1']}>
+      <LikesModal target={POST_TARGET} onClose={onClose} />
+    </MemoryRouter>,
+  )
+
+  expect(await screen.findByText('alice')).toBeInTheDocument()
+
+  rerender(
+    <MemoryRouter initialEntries={['/post/post-1']}>
+      <LikesModal target={COMMENT_TARGET} onClose={onClose} />
+    </MemoryRouter>,
+  )
+
+  expect(await screen.findByText('carol')).toBeInTheDocument()
+  expect(screen.queryByText('alice')).not.toBeInTheDocument()
+})

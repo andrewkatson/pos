@@ -78,8 +78,9 @@ import type {
 
 // Stub-specific tuning values, matching the iOS/Android StatefulStubbedAPI
 // stubs. These intentionally differ from backend/user_system/constants.py
-// (which uses larger batches); the stub favors small, test-friendly numbers and
-// is not the source of truth for the real backend.
+// (which uses larger batches — 30 for comments and likes); the stub favors
+// small, test-friendly numbers and is not the source of truth for the real
+// backend.
 const POST_BATCH_SIZE = 10
 const COMMENT_BATCH_SIZE = 10
 const LIKE_BATCH_SIZE = 10

@@ -51,7 +51,11 @@ class StatefulStubbedAPI : PositiveOnlySocialAPI {
     // Set this variable before making authenticated calls.
     var simulatedAuthToken: String? = null
 
-    // Constants from backend
+    // Stub-specific tuning values, matching the website/iOS StatefulStubbedAPI
+    // stubs. These intentionally differ from backend/user_system/constants.py
+    // (which uses larger batches — 30 for comments and likes); the stub favors
+    // small, test-friendly numbers and is not the source of truth for the real
+    // backend.
     private val POST_BATCH_SIZE = 10
     private val COMMENT_BATCH_SIZE = 10
     private val LIKE_BATCH_SIZE = 10
