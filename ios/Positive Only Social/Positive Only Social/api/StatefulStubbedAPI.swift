@@ -1542,7 +1542,12 @@ final class StatefulStubbedAPI: Networking {
     func getCommentLikers(sessionManagementToken: String, postIdentifier: String, commentThreadIdentifier: String, commentIdentifier: String, batch: Int) async throws -> Data {
         await simulateNetwork()
         guard let user = findUser(bySessionToken: sessionManagementToken) else { throw APIError.badServerResponse(statusCode: 401) }
+        // Scoped by post + thread + comment, the way the backend's query joins
+        // them (and the web/Android stubs do), so a mismatched post or thread is
+        // refused here rather than quietly answering for the comment anyway.
         guard let comment = comments.first(where: { $0.commentIdentifier == commentIdentifier }),
+              comment.threadId == commentThreadIdentifier,
+              findCommentThread(byIdentifier: commentThreadIdentifier)?.postId == postIdentifier,
               comment.authorUsername == user.username else { throw APIError.badServerResponse(statusCode: 400) }
         return try likerBatch(likerUsernames: comment.likes, viewer: user, batch: batch)
     }

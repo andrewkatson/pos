@@ -169,6 +169,45 @@ struct Positive_Only_SocialTests_LikesViewModel {
         #expect(theirs.errorMessage != nil)
     }
 
+    @Test func testCommentLikers_RefusedWhenThePostOrThreadDoesNotMatch() async throws {
+        // The comment id alone must not be enough: the backend joins comment ->
+        // thread -> post, so a mismatched post or thread is "not found".
+        let (authorToken, _) = try await registerUser(username: "author")
+        let postIdentifier = try await makePost(token: authorToken)
+        let otherPostIdentifier = try await makePost(token: authorToken)
+
+        let (commenterToken, commenter) = try await registerUser(username: "commenter")
+        let commentData = try await stubAPI.commentOnPost(
+            sessionManagementToken: commenterToken, postIdentifier: postIdentifier, commentText: "lovely")
+        struct CommentFields: Decodable { let comment_thread_identifier: String; let comment_identifier: String }
+        let comment = try JSONDecoder().decode(CommentFields.self, from: commentData)
+
+        let account = "commenter_account"
+        try await setupLoggedInUser(user: commenter, token: commenterToken, account: account)
+
+        // Right comment, wrong post.
+        let wrongPost = LikesViewModel(
+            target: .comment(
+                postIdentifier: otherPostIdentifier,
+                commentThreadIdentifier: comment.comment_thread_identifier,
+                commentIdentifier: comment.comment_identifier),
+            api: stubAPI, keychainHelper: keychainHelper, account: account)
+        await wrongPost.load()
+        #expect(wrongPost.users.isEmpty)
+        #expect(wrongPost.errorMessage != nil)
+
+        // Right comment, wrong thread.
+        let wrongThread = LikesViewModel(
+            target: .comment(
+                postIdentifier: postIdentifier,
+                commentThreadIdentifier: UUID().uuidString,
+                commentIdentifier: comment.comment_identifier),
+            api: stubAPI, keychainHelper: keychainHelper, account: account)
+        await wrongThread.load()
+        #expect(wrongThread.users.isEmpty)
+        #expect(wrongThread.errorMessage != nil)
+    }
+
     // --- Target metadata ---
 
     /// The sheet is titled for what it lists. Written through a view model so
