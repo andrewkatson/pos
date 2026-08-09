@@ -90,9 +90,18 @@ fun PostDetailScreen(
         val commentToReport by viewModel.commentToReport.collectAsState()
         val threadToReplyTo by viewModel.threadToReplyTo.collectAsState()
 
-        // Long-press action menus (Report vs Delete, depending on ownership).
+        // The action menus (Report vs Delete, depending on ownership), opened by
+        // a three-dots button or a long-press. Collected once here — the menus
+        // themselves are anchored per row, but a collector per row would mean one
+        // per visible post/comment.
         val showActionSheetForPost by viewModel.showActionSheetForPost.collectAsState()
         val commentForAction by viewModel.commentForAction.collectAsState()
+        // Per-comment state the threads render from. Collected here for the same
+        // reason: CommentThreadView runs once per thread, so collecting inside it
+        // would mean a collector — and a recomposition of every thread on every
+        // update — per thread rather than per screen.
+        val reportedCommentIds by viewModel.reportedCommentIds.collectAsState()
+        val collapsedCommentIds by viewModel.collapsedCommentIds.collectAsState()
         val postWasDeleted by viewModel.postWasDeleted.collectAsState()
 
         // The post was deleted out from under this screen; pop back to the feed.
@@ -115,40 +124,11 @@ fun PostDetailScreen(
             )
         }
 
-        // The post's action menu (three-dots button or long-press): Delete on
-        // the user's own post, Report on everyone else's — or Retract Report
-        // when they already reported it (issues #304, #176).
-        if (showActionSheetForPost) {
-            val isOwnPost = postDetail?.authorUsername == currentUsername
-            ActionSheetDialog(
-                isOwn = isOwnPost,
-                isReported = postDetail?.isReported == true,
-                itemLabel = "Post",
-                onDismiss = { viewModel.setShowActionSheetForPost(false) },
-                onShare = { ShareLinks.shareText(context, ShareLinks.postUrl(postId)) },
-                onReport = { viewModel.setShowReportSheetForPost(true) },
-                onRetract = { viewModel.setShowRetractDialogForPost(true) },
-                onDelete = { viewModel.deletePost() }
-            )
-        }
-
-        // The comment's action menu mirrors the post's.
-        val reportedCommentIds by viewModel.reportedCommentIds.collectAsState()
-        commentForAction?.let { comment ->
-            val isOwnComment = comment.authorUsername == currentUsername
-            ActionSheetDialog(
-                isOwn = isOwnComment,
-                isReported = comment.isReported || reportedCommentIds.contains(comment.id),
-                itemLabel = "Comment",
-                onDismiss = { viewModel.setCommentForAction(null) },
-                onShare = {
-                    ShareLinks.shareText(context, ShareLinks.commentUrl(postId, comment.id))
-                },
-                onReport = { viewModel.setCommentToReport(comment) },
-                onRetract = { viewModel.setCommentToRetract(comment) },
-                onDelete = { viewModel.deleteComment(comment, comment.threadId) }
-            )
-        }
+        // NOTE: the post's and each comment's action menus are no longer rendered
+        // here. They're [ActionMenu] dropdowns anchored next to the three-dots
+        // button they belong to (issue #477), so they live beside those buttons —
+        // the post header below and CommentRow. A long-press still opens them by
+        // setting the same state; the menu just appears at that item's button.
 
         // Retract-report confirmations, pre-populated with the user's original
         // reason (issue #176).
@@ -295,9 +275,30 @@ fun PostDetailScreen(
                                     Icon(Icons.Default.Flag, contentDescription = "Reported", tint = Color.Red)
                                 }
                                 // Three-dots menu: the discoverable alternative to
-                                // long-pressing the image (issue #304).
-                                IconButton(onClick = { viewModel.setShowActionSheetForPost(true) }) {
-                                    Icon(Icons.Default.MoreHoriz, contentDescription = "Post options")
+                                // long-pressing the image (issue #304). The Box is
+                                // what the dropdown anchors to, so the menu opens
+                                // next to this button — for the long-press too,
+                                // since both set the same state (issue #477).
+                                Box {
+                                    IconButton(onClick = { viewModel.setShowActionSheetForPost(true) }) {
+                                        Icon(Icons.Default.MoreHoriz, contentDescription = "Post options")
+                                    }
+                                    // Delete on the user's own post, Report on
+                                    // everyone else's — or Retract Report when
+                                    // they already reported it (issues #304, #176).
+                                    ActionMenu(
+                                        expanded = showActionSheetForPost,
+                                        isOwn = isOwnPost,
+                                        isReported = post.isReported,
+                                        itemLabel = "Post",
+                                        onDismiss = { viewModel.setShowActionSheetForPost(false) },
+                                        onShare = {
+                                            ShareLinks.shareText(context, ShareLinks.postUrl(postId))
+                                        },
+                                        onReport = { viewModel.setShowReportSheetForPost(true) },
+                                        onRetract = { viewModel.setShowRetractDialogForPost(true) },
+                                        onDelete = { viewModel.deletePost() }
+                                    )
                                 }
                             }
                             
@@ -404,7 +405,11 @@ fun PostDetailScreen(
                     CommentThreadView(
                         thread = thread,
                         viewModel = viewModel,
+                        postId = postId,
                         currentUsername = currentUsername,
+                        openCommentId = commentForAction?.id,
+                        reportedCommentIds = reportedCommentIds,
+                        collapsedCommentIds = collapsedCommentIds,
                         onAuthorClick = { username ->
                             navController.openProfileFor(username, currentUsername)
                         }
@@ -425,11 +430,37 @@ fun PostDetailScreen(
 fun CommentThreadView(
     thread: CommentThreadViewData,
     viewModel: PostDetailViewModel,
+    /** Needed for the per-comment share link in each comment's action menu. */
+    postId: String,
     currentUsername: String?,
+    /** The comment whose action menu is open, if any. This and the two sets
+     * below are passed in rather than collected here: this composable runs once
+     * per thread, so collecting would mean one collector per thread. */
+    openCommentId: String?,
+    /** Comments the user has an active report against (issue #176). */
+    reportedCommentIds: Set<String>,
+    /** Comments whose thread below them is collapsed (issue #243). */
+    collapsedCommentIds: Set<String>,
     onAuthorClick: (String) -> Unit
 ) {
-    val reportedCommentIds by viewModel.reportedCommentIds.collectAsState()
-    val collapsedCommentIds by viewModel.collapsedCommentIds.collectAsState()
+    val context = LocalContext.current
+
+    // The action menu for one comment, anchored next to that row's ⋯ button.
+    val commentMenu: @Composable (CommentViewData) -> Unit = { comment ->
+        ActionMenu(
+            expanded = openCommentId == comment.id,
+            isOwn = comment.authorUsername == currentUsername,
+            isReported = comment.isReported || reportedCommentIds.contains(comment.id),
+            itemLabel = "Comment",
+            onDismiss = { viewModel.setCommentForAction(null) },
+            onShare = {
+                ShareLinks.shareText(context, ShareLinks.commentUrl(postId, comment.id))
+            },
+            onReport = { viewModel.setCommentToReport(comment) },
+            onRetract = { viewModel.setCommentToRetract(comment) },
+            onDelete = { viewModel.deleteComment(comment, comment.threadId) }
+        )
+    }
 
     // Hide every comment that sits below the first collapsed one in the thread,
     // so tapping a comment's header folds away the comments under it (issue #243).
@@ -448,7 +479,8 @@ fun CommentThreadView(
                 onLike = { viewModel.likeComment(rootComment, rootComment.threadId) },
                 onUnlike = { viewModel.unlikeComment(rootComment, rootComment.threadId) },
                 onLongPress = { viewModel.setCommentForAction(rootComment) },
-                onAuthorClick = onAuthorClick
+                onAuthorClick = onAuthorClick,
+                menu = { commentMenu(rootComment) }
             )
 
             // Reply Input for Thread
@@ -471,7 +503,8 @@ fun CommentThreadView(
                         onLike = { viewModel.likeComment(reply, reply.threadId) },
                         onUnlike = { viewModel.unlikeComment(reply, reply.threadId) },
                         onLongPress = { viewModel.setCommentForAction(reply) },
-                        onAuthorClick = onAuthorClick
+                        onAuthorClick = onAuthorClick,
+                        menu = { commentMenu(reply) }
                     )
                 }
             }
@@ -490,7 +523,9 @@ fun CommentRow(
     onLike: () -> Unit,
     onUnlike: () -> Unit,
     onLongPress: () -> Unit,
-    onAuthorClick: (String) -> Unit
+    onAuthorClick: (String) -> Unit,
+    /** The row's [ActionMenu], anchored next to its three-dots button (#477). */
+    menu: @Composable () -> Unit = {}
 ) {
     Row(
         modifier = Modifier
@@ -572,17 +607,21 @@ fun CommentRow(
                 Spacer(modifier = Modifier.width(4.dp))
                 // Three-dots menu next to the timestamp: the discoverable
                 // alternative to long-pressing the comment (issue #304). Opens
-                // the same action menu (Report / Retract Report / Delete).
-                IconButton(
-                    onClick = { onLongPress() },
-                    modifier = Modifier.size(24.dp)
-                ) {
-                    Icon(
-                        Icons.Default.MoreHoriz,
-                        contentDescription = "Options for comment by ${comment.authorUsername}",
-                        tint = Color.Gray,
-                        modifier = Modifier.size(16.dp)
-                    )
+                // the same action menu (Report / Retract Report / Delete), which
+                // the Box anchors right next to this button (issue #477).
+                Box {
+                    IconButton(
+                        onClick = { onLongPress() },
+                        modifier = Modifier.size(24.dp)
+                    ) {
+                        Icon(
+                            Icons.Default.MoreHoriz,
+                            contentDescription = "Options for comment by ${comment.authorUsername}",
+                            tint = Color.Gray,
+                            modifier = Modifier.size(16.dp)
+                        )
+                    }
+                    menu()
                 }
                 Spacer(modifier = Modifier.weight(1f))
                 // Chevron hint for the collapse state of the thread below.
@@ -624,9 +663,16 @@ fun CommentRow(
  * else's, or Retract Report when they already have an active report against it
  * (issues #304, #176) — so you can never report your own post or comment, plus a
  * Share action available for any post or comment (issue #34).
+ *
+ * It is a [DropdownMenu], so it opens against whatever layout node encloses it
+ * rather than in the middle of the screen (issue #477): put it in a `Box` with
+ * the three-dots button and it appears right next to the button that was
+ * tapped. There's no Cancel row — tapping outside it or pressing back closes it,
+ * the standard way to dismiss a menu.
  */
 @Composable
-fun ActionSheetDialog(
+fun ActionMenu(
+    expanded: Boolean,
     isOwn: Boolean,
     isReported: Boolean,
     itemLabel: String,
@@ -641,54 +687,36 @@ fun ActionSheetDialog(
     isSaved: Boolean = false,
     onToggleSave: (() -> Unit)? = null
 ) {
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        title = { Text(itemLabel) },
-        // Share (and Save) aren't confirm/dismiss actions and AlertDialog only
-        // exposes those two button slots, so they live in the body content as
-        // full-width buttons. Share is offered for any post or comment, own or
-        // not (issue #34); Save only when a save handler is supplied.
-        text = {
-            Column {
-                TextButton(
-                    onClick = { onShare(); onDismiss() },
-                    modifier = Modifier.fillMaxWidth()
-                ) {
-                    Text("Share $itemLabel")
-                }
-                if (onToggleSave != null) {
-                    TextButton(
-                        onClick = { onToggleSave(); onDismiss() },
-                        modifier = Modifier.fillMaxWidth()
-                    ) {
-                        Text(if (isSaved) "Unsave $itemLabel" else "Save $itemLabel")
-                    }
-                }
-            }
-        },
-        // The primary action lives in the confirmButton slot so it's laid out and
-        // announced as the dialog's main action; more options can be added later.
-        confirmButton = {
-            if (isOwn) {
-                TextButton(onClick = { onDelete(); onDismiss() }) {
-                    Text("Delete $itemLabel")
-                }
-            } else if (isReported) {
-                TextButton(onClick = { onRetract(); onDismiss() }) {
-                    Text("Retract Report")
-                }
-            } else {
-                TextButton(onClick = { onReport(); onDismiss() }) {
-                    Text("Report $itemLabel")
-                }
-            }
-        },
-        dismissButton = {
-            TextButton(onClick = onDismiss) {
-                Text("Cancel")
-            }
+    DropdownMenu(expanded = expanded, onDismissRequest = onDismiss) {
+        // Share is offered for any post or comment, own or not (issue #34);
+        // Save only when a save handler is supplied.
+        DropdownMenuItem(
+            text = { Text("Share $itemLabel") },
+            onClick = { onShare(); onDismiss() }
+        )
+        if (onToggleSave != null) {
+            DropdownMenuItem(
+                text = { Text(if (isSaved) "Unsave $itemLabel" else "Save $itemLabel") },
+                onClick = { onToggleSave(); onDismiss() }
+            )
         }
-    )
+        if (isOwn) {
+            DropdownMenuItem(
+                text = { Text("Delete $itemLabel") },
+                onClick = { onDelete(); onDismiss() }
+            )
+        } else if (isReported) {
+            DropdownMenuItem(
+                text = { Text("Retract Report") },
+                onClick = { onRetract(); onDismiss() }
+            )
+        } else {
+            DropdownMenuItem(
+                text = { Text("Report $itemLabel") },
+                onClick = { onReport(); onDismiss() }
+            )
+        }
+    }
 }
 
 /**

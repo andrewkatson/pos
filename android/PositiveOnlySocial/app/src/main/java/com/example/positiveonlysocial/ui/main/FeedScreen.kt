@@ -82,6 +82,9 @@ fun ForYouFeed(
 
     val postActions = viewModel.postActions
     val currentUsername by postActions.currentUsername.collectAsState()
+    // Which post's action menu is open, collected once here rather than in every
+    // row's PostActionMenu.
+    val postForAction by postActions.postForAction.collectAsState()
 
     LaunchedEffect(Unit) {
         if (posts.isEmpty()) {
@@ -104,7 +107,8 @@ fun ForYouFeed(
                     post = post,
                     navController = navController,
                     actions = postActions,
-                    currentUsername = currentUsername
+                    currentUsername = currentUsername,
+                    openMenuPostId = postForAction?.postIdentifier
                 )
 
                 if (post == posts.lastOrNull()) {
@@ -145,6 +149,9 @@ fun FollowingFeed(
 
     val postActions = viewModel.postActions
     val currentUsername by postActions.currentUsername.collectAsState()
+    // Which post's action menu is open, collected once here rather than in every
+    // row's PostActionMenu.
+    val postForAction by postActions.postForAction.collectAsState()
 
     LaunchedEffect(Unit) {
         if (posts.isEmpty()) {
@@ -191,7 +198,8 @@ fun FollowingFeed(
                     post = post,
                     navController = navController,
                     actions = postActions,
-                    currentUsername = currentUsername
+                    currentUsername = currentUsername,
+                    openMenuPostId = postForAction?.postIdentifier
                 )
 
                 if (post == posts.lastOrNull()) {
@@ -221,7 +229,9 @@ fun PostItem(
     post: com.example.positiveonlysocial.data.model.Post,
     navController: NavController,
     actions: PostListActions,
-    currentUsername: String?
+    currentUsername: String?,
+    /** The post whose action menu is open, if any — see [PostActionMenu]. */
+    openMenuPostId: String? = null
 ) {
     Column(
         modifier = Modifier.fillMaxWidth(),
@@ -286,6 +296,14 @@ fun PostItem(
             onOpenMenu = { actions.setPostForAction(post) },
             onOpenComments = {
                 navController.navigate(Screen.PostDetail.createRoute(post.postIdentifier))
+            },
+            menu = {
+                PostActionMenu(
+                    actions,
+                    post,
+                    expanded = openMenuPostId == post.postIdentifier,
+                    isOwn = post.authorUsername == currentUsername
+                )
             }
         )
 

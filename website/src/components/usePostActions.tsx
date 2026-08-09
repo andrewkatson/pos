@@ -2,6 +2,8 @@ import { useState, type ReactNode } from 'react'
 import { apiClient } from '../api/client'
 import type { FeedPost } from '../api/types'
 import { postShareUrl, shareLink } from '../utils/shareLink'
+import AnchoredMenu, { AnchoredMenuItem } from './AnchoredMenu'
+import type { MenuAnchor } from './menuAnchor'
 
 /** Anything can be thrown in JS, so never assume the caught value is an Error:
  * reading `.message` off a string or null would lose the text or throw again.
@@ -36,7 +38,9 @@ export interface PostActionState {
 }
 
 type Dialog =
-  | { kind: 'menu'; post: FeedPost }
+  // `anchor` is the ⋯ button's rect: the menu hangs off the button that opened
+  // it rather than sitting in the middle of the screen (issue #477).
+  | { kind: 'menu'; post: FeedPost; anchor: MenuAnchor }
   | { kind: 'report'; post: FeedPost }
   | { kind: 'retract'; post: FeedPost }
   | { kind: 'delete'; post: FeedPost }
@@ -77,7 +81,10 @@ export function usePostActions({
   stateFor: (post: FeedPost) => PostActionState
   toggleLike: (post: FeedPost) => void
   toggleSave: (post: FeedPost) => void
-  openMenu: (post: FeedPost) => void
+  openMenu: (post: FeedPost, anchor: MenuAnchor) => void
+  /** The post whose options menu is open, so its ⋯ button can say so with
+   * aria-expanded. Null when no menu is open. */
+  openMenuPostId: string | null
   dialogs: ReactNode
 } {
   const [overrides, setOverrides] = useState<Record<string, PostOverride>>({})
@@ -210,52 +217,35 @@ export function usePostActions({
   const dialogs = (
     <>
       {dialog?.kind === 'menu' && (
-        <div className="modal-overlay">
-          <div className="modal" role="dialog" aria-modal="true" aria-label="Post options">
-            <h2 className="modal__title">Post options</h2>
-            <div className="modal__actions">
-              <button type="button" className="modal__cancel" onClick={() => setDialog(null)}>
-                Cancel
-              </button>
-              {/* Share is offered on every post, yours and everyone else's. */}
-              <button
-                type="button"
-                className="modal__confirm"
-                onClick={() => void sharePost(dialog.post)}
-              >
-                Share
-              </button>
-              {stateFor(dialog.post).isOwn ? (
-                <button
-                  type="button"
-                  className="modal__confirm"
-                  onClick={() => setDialog({ kind: 'delete', post: dialog.post })}
-                >
-                  Delete
-                </button>
-              ) : stateFor(dialog.post).isReported ? (
-                <button
-                  type="button"
-                  className="modal__confirm"
-                  onClick={() => setDialog({ kind: 'retract', post: dialog.post })}
-                >
-                  Retract Report
-                </button>
-              ) : (
-                <button
-                  type="button"
-                  className="modal__confirm"
-                  onClick={() => {
-                    setReportReason('')
-                    setDialog({ kind: 'report', post: dialog.post })
-                  }}
-                >
-                  Report
-                </button>
-              )}
-            </div>
-          </div>
-        </div>
+        <AnchoredMenu
+          anchor={dialog.anchor}
+          label="Post options"
+          onDismiss={() => setDialog(null)}
+        >
+          {/* Share is offered on every post, yours and everyone else's. */}
+          <AnchoredMenuItem onClick={() => void sharePost(dialog.post)}>Share</AnchoredMenuItem>
+          {stateFor(dialog.post).isOwn ? (
+            <AnchoredMenuItem
+              destructive
+              onClick={() => setDialog({ kind: 'delete', post: dialog.post })}
+            >
+              Delete
+            </AnchoredMenuItem>
+          ) : stateFor(dialog.post).isReported ? (
+            <AnchoredMenuItem onClick={() => setDialog({ kind: 'retract', post: dialog.post })}>
+              Retract Report
+            </AnchoredMenuItem>
+          ) : (
+            <AnchoredMenuItem
+              onClick={() => {
+                setReportReason('')
+                setDialog({ kind: 'report', post: dialog.post })
+              }}
+            >
+              Report
+            </AnchoredMenuItem>
+          )}
+        </AnchoredMenu>
       )}
 
       {dialog?.kind === 'shareCopied' && (
@@ -357,7 +347,8 @@ export function usePostActions({
     stateFor,
     toggleLike: post => void toggleLikeAsync(post),
     toggleSave: post => void toggleSaveAsync(post),
-    openMenu: post => setDialog({ kind: 'menu', post }),
+    openMenu: (post, anchor) => setDialog({ kind: 'menu', post, anchor }),
+    openMenuPostId: dialog?.kind === 'menu' ? dialog.post.post_identifier : null,
     dialogs,
   }
 }

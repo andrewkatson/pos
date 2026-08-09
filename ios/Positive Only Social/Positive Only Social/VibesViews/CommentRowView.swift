@@ -1,4 +1,5 @@
 
+import Foundation
 import SwiftUI
 import UIKit
 
@@ -119,6 +120,10 @@ enum TextFormatting {
 }
 
 struct CommentRowView: View {
+    /// Owns which comment's action menu is open, so this row can anchor that
+    /// menu to its own ⋯ button (issue #477). Injected by `PostDetailView`,
+    /// the same object `CommentThreadView` reads.
+    @EnvironmentObject var viewModel: PostDetailViewModel
     let comment: CommentViewData
     let isReported: Bool
     /// Whether this comment was authored by the signed-in user. The backend
@@ -191,6 +196,23 @@ struct CommentRowView: View {
                     }
                     .accessibilityLabel("Options for comment by \(comment.authorUsername)")
                     .accessibilityIdentifier("CommentOptionsButton")
+                    // Anchored to this row's ⋯ button rather than presented from
+                    // the bottom of the screen, so the options appear where they
+                    // were tapped (issue #477). Bound per row, so only the
+                    // comment the user picked presents — and the row's
+                    // long-press, which sets the same state, opens it here too.
+                    .popover(
+                        isPresented: Binding(
+                            get: { viewModel.commentForAction?.id == comment.id },
+                            set: { if !$0 { viewModel.commentForAction = nil } }
+                        ),
+                        attachmentAnchor: .rect(.bounds)
+                    ) {
+                        commentMenu
+                            // Without this a popover becomes a sheet in a compact
+                            // size class — i.e. everywhere on iPhone.
+                            .presentationCompactAdaptation(.popover)
+                    }
                     Spacer()
                     Image(systemName: isCollapsed ? "chevron.right" : "chevron.down")
                         .font(.caption2)
@@ -254,5 +276,61 @@ struct CommentRowView: View {
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("CommentStack")
         .accessibilityAddTraits(.isButton)
+    }
+
+    /// This comment's options, shown in the popover anchored to its ⋯ button
+    /// (issue #477). Mirrors the post menu: Delete for the user's own comments,
+    /// Report / Retract Report for everyone else's (issues #304, #176). Each row
+    /// closes the popover before acting, since report and share present sheets.
+    @ViewBuilder
+    private var commentMenu: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            // Share is offered for any comment — yours and others' (issue #34).
+            menuRow("Share Comment", identifier: "ShareCommentActionButton") {
+                viewModel.shareComment(comment)
+            }
+            if viewModel.isOwnComment(comment) {
+                menuRow("Delete Comment", identifier: "DeleteCommentActionButton", isDestructive: true) {
+                    viewModel.deleteComment(comment)
+                }
+            } else if viewModel.isCommentReported(comment) {
+                menuRow("Retract Report", identifier: "RetractReportCommentActionButton") {
+                    viewModel.commentToRetract = comment
+                }
+            } else {
+                menuRow("Report Comment", identifier: "ReportCommentActionButton") {
+                    viewModel.commentToReport = comment
+                }
+            }
+        }
+        // The comment header sets .caption on its icons; the menu is its own
+        // surface and reads at body size.
+        .font(.body)
+        .padding(.vertical, 6)
+        .frame(minWidth: 200, alignment: .leading)
+    }
+
+    private func menuRow(
+        _ title: String,
+        identifier: String,
+        isDestructive: Bool = false,
+        action: @escaping () -> Void
+    ) -> some View {
+        Button {
+            // Dismiss the popover, then act one runloop turn later — see the
+            // matching note in PostActionBar.menuRow: requesting a sheet in the
+            // same update that dismisses the popover drops the sheet.
+            viewModel.commentForAction = nil
+            DispatchQueue.main.async { action() }
+        } label: {
+            Text(title)
+                .foregroundColor(isDestructive ? .red : .primary)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.horizontal, 20)
+                .padding(.vertical, 12)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityIdentifier(identifier)
     }
 }
