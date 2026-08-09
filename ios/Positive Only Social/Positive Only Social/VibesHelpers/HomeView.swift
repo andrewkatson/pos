@@ -241,7 +241,10 @@ struct PostActionBar: View {
                 .accessibilityIdentifier("PostListLikeButton")
                 .accessibilityLabel(state.isLiked ? "Unlike post" : "Like post")
             }
-            Text("\(state.likeCount)")
+            // With no heart beside it the bare number says nothing about what it
+            // counts, so your own posts spell it out the way PostDetailView does
+            // (issue #476).
+            Text(state.isOwn ? "\(state.likeCount) likes" : "\(state.likeCount)")
                 .foregroundColor(.secondary)
                 .accessibilityIdentifier("PostListLikeCount")
             if state.isReported {

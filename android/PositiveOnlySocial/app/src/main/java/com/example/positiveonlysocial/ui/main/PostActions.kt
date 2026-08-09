@@ -84,8 +84,12 @@ fun PostActionBar(
             }
         }
 
+        // With no heart beside it the bare number says nothing about what it
+        // counts, so your own posts spell it out the way PostDetailScreen does
+        // (issue #476).
+        val likeCount = post.likeCount ?: 0
         Text(
-            text = "${post.likeCount ?: 0}",
+            text = if (isOwnPost) "$likeCount likes" else "$likeCount",
             style = if (compact) MaterialTheme.typography.labelSmall
             else MaterialTheme.typography.bodyMedium
         )

@@ -55,7 +55,12 @@ function PostActionBar({
           {state.isLiked ? '♥' : '♡'}
         </button>
       )}
-      <span className="post-actions__count">{state.likeCount}</span>
+      {/* With no heart beside it the bare number says nothing about what it
+          counts, so your own posts spell it out the way the post detail does
+          (issue #476). */}
+      <span className="post-actions__count">
+        {state.isOwn ? `${state.likeCount} likes` : state.likeCount}
+      </span>
 
       {/* Tapping the comment count opens the post, where the threads live. */}
       {showDetails && onOpenPost && commentCount !== undefined && (
