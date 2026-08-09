@@ -1,6 +1,8 @@
 package com.example.positiveonlysocial.ui.main
 
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -12,7 +14,6 @@ import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material.icons.filled.FavoriteBorder
 import androidx.compose.material.icons.filled.Flag
 import androidx.compose.material.icons.filled.MoreHoriz
-import androidx.compose.foundation.clickable
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Icon
@@ -26,14 +27,12 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.unit.dp
-import com.example.positiveonlysocial.data.model.Post
-import com.example.positiveonlysocial.models.viewmodels.PostListActions
 import androidx.compose.ui.platform.testTag
-import androidx.compose.ui.semantics.contentDescription
-import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.unit.dp
 import androidx.navigation.NavController
+import com.example.positiveonlysocial.data.model.Post
 import com.example.positiveonlysocial.models.viewmodels.LikesTarget
+import com.example.positiveonlysocial.models.viewmodels.PostListActions
 import com.example.positiveonlysocial.util.ShareLinks
 
 /**
@@ -55,6 +54,9 @@ import com.example.positiveonlysocial.util.ShareLinks
  * @param onOpenLikes when non-null, the like count on the signed-in user's *own*
  * post opens "who liked this" (issue #478). Never wired on anyone else's post —
  * the backend answers for nobody else's.
+ * @param menu this post's [ActionMenu], rendered in a `Box` with the three-dots
+ * button so the dropdown opens right next to it (issue #477). Callers pass
+ * [PostActionMenu].
  */
 @Composable
 fun PostActionBar(
@@ -65,7 +67,8 @@ fun PostActionBar(
     modifier: Modifier = Modifier,
     compact: Boolean = false,
     onOpenComments: (() -> Unit)? = null,
-    onOpenLikes: (() -> Unit)? = null
+    onOpenLikes: (() -> Unit)? = null,
+    menu: @Composable () -> Unit = {}
 ) {
     val buttonSize = if (compact) 32.dp else 48.dp
     val iconSize = if (compact) 16.dp else 24.dp
@@ -94,31 +97,28 @@ fun PostActionBar(
             }
         }
 
-        // Tapping the count lists who liked it, but only on your own post — who
-        // liked someone else's is between them and their likers (issue #478).
+        // With no heart beside it the bare number says nothing about what it
+        // counts, so your own posts spell it out the way PostDetailScreen does
+        // (issue #476) — and tapping that label lists who liked it, since who
+        // liked someone else's post is between them and their likers (#478).
+        val likeCount = post.likeCount ?: 0
         val likeCountStyle = if (compact) MaterialTheme.typography.labelSmall
             else MaterialTheme.typography.bodyMedium
         if (isOwnPost && onOpenLikes != null) {
-            val likeCount = post.likeCount ?: 0
             Text(
-                text = "$likeCount",
+                text = "$likeCount likes",
                 style = likeCountStyle,
+                // The text already says what it counts; the click label is what
+                // tells TalkBack that tapping it opens anything.
                 modifier = Modifier
-                    // The visible text here is the bare number, which on its own
-                    // announces as just "2"; spell out what it counts, and label
-                    // the click so TalkBack says what opening it does. Scoped to
-                    // the author like the sibling controls, so several of your
-                    // own posts in one grid stay individually addressable.
                     .clickable(onClickLabel = "See who liked this") { onOpenLikes() }
-                    .semantics {
-                        contentDescription =
-                            "$likeCount ${if (likeCount == 1) "like" else "likes"} " +
-                                "on the post by ${post.authorUsername}"
-                    }
                     .testTag("postLikesCount")
             )
         } else {
-            Text(text = "${post.likeCount ?: 0}", style = likeCountStyle)
+            Text(
+                text = if (isOwnPost) "$likeCount likes" else "$likeCount",
+                style = likeCountStyle
+            )
         }
 
         // How many comments the post has; tapping it opens the post so they can
@@ -153,35 +153,67 @@ fun PostActionBar(
             )
         }
 
-        IconButton(onClick = onOpenMenu, modifier = Modifier.size(buttonSize)) {
-            Icon(
-                Icons.Default.MoreHoriz,
-                contentDescription = "Options for post by ${post.authorUsername}",
-                modifier = Modifier.size(iconSize)
-            )
+        // The Box is what the dropdown anchors to, so the menu opens next to the
+        // button the user actually tapped rather than mid-screen (issue #477).
+        Box {
+            IconButton(onClick = onOpenMenu, modifier = Modifier.size(buttonSize)) {
+                Icon(
+                    Icons.Default.MoreHoriz,
+                    contentDescription = "Options for post by ${post.authorUsername}",
+                    modifier = Modifier.size(iconSize)
+                )
+            }
+            menu()
         }
     }
 }
 
 /**
- * The confirmations behind [PostActionBar]: the action menu (Delete on your own
- * post, Retract Report when you already reported it, Report otherwise), the
- * report composer, the retract confirmation, and the error alert. Rendered once
- * per list — a list shares one [PostListActions], which holds which post (if any)
- * each dialog is for.
+ * The action menu for one post in a list, anchored to that row's three-dots
+ * button. Rendered once per row, so it takes [expanded] and [isOwn] as plain
+ * values rather than collecting `postForAction` / `currentUsername` itself —
+ * one collector per list, not one per visible row.
+ *
+ * [expanded] is true for the post [PostActionBar]'s button set as the menu
+ * target.
+ */
+@Composable
+fun PostActionMenu(actions: PostListActions, post: Post, expanded: Boolean, isOwn: Boolean) {
+    val context = LocalContext.current
+
+    ActionMenu(
+        expanded = expanded,
+        isOwn = isOwn,
+        isReported = post.isReported,
+        itemLabel = "Post",
+        onDismiss = { actions.setPostForAction(null) },
+        onShare = { ShareLinks.shareText(context, ShareLinks.postUrl(post.postIdentifier)) },
+        onReport = { actions.setPostToReport(post) },
+        onRetract = { actions.setPostToRetract(post) },
+        onDelete = { actions.deletePost(post) },
+        // Save / unsave lives in the 3-dot menu on mobile (issue #412); web has a
+        // dedicated bookmark control.
+        isSaved = post.isSaved == true,
+        onToggleSave = { actions.toggleSave(post) }
+    )
+}
+
+/**
+ * The confirmations behind [PostActionBar]: the report composer, the retract
+ * confirmation, and the error alert. Rendered once per list — a list shares one
+ * [PostListActions], which holds which post (if any) each dialog is for.
+ *
+ * The action menu itself is not here: it's a [PostActionMenu] anchored to each
+ * row's three-dots button (issue #477). The "who liked this" dialog (issue #478)
+ * is here, though — it is a dialog, not an anchored menu.
  *
  * Reuses the same dialogs the post detail screen uses, so the two stay identical.
  */
 @Composable
 fun PostActionDialogs(actions: PostListActions, navController: NavController) {
-    // Used to launch the system share sheet from the action menu (issue #34).
-    val context = LocalContext.current
-
-    val currentUsername by actions.currentUsername.collectAsState()
-    val postForAction by actions.postForAction.collectAsState()
+    val postForLikes by actions.postForLikes.collectAsState()
     val postToReport by actions.postToReport.collectAsState()
     val postToRetract by actions.postToRetract.collectAsState()
-    val postForLikes by actions.postForLikes.collectAsState()
     val alertMessage by actions.alertMessage.collectAsState()
 
     // "Who liked this" for one of your own posts (issue #478).
@@ -192,23 +224,6 @@ fun PostActionDialogs(actions: PostListActions, navController: NavController) {
             api = actions.api,
             keychainHelper = actions.keychainHelper,
             onDismiss = { actions.setPostForLikes(null) }
-        )
-    }
-
-    postForAction?.let { post ->
-        ActionSheetDialog(
-            isOwn = post.authorUsername == currentUsername,
-            isReported = post.isReported,
-            itemLabel = "Post",
-            onDismiss = { actions.setPostForAction(null) },
-            onShare = { ShareLinks.shareText(context, ShareLinks.postUrl(post.postIdentifier)) },
-            onReport = { actions.setPostToReport(post) },
-            onRetract = { actions.setPostToRetract(post) },
-            onDelete = { actions.deletePost(post) },
-            // Save / unsave lives in the 3-dot menu on mobile (issue #412); web
-            // has a dedicated bookmark control.
-            isSaved = post.isSaved == true,
-            onToggleSave = { actions.toggleSave(post) }
         )
     }
 

@@ -1,5 +1,6 @@
 import type { FeedPost } from '../api/types'
 import { formatRelativeTime } from '../utils/relativeTime'
+import { anchorFrom, type MenuAnchor } from './menuAnchor'
 import type { PostActionState } from './usePostActions'
 
 interface PostActionBarProps {
@@ -7,7 +8,11 @@ interface PostActionBarProps {
   state: PostActionState
   onToggleLike: (post: FeedPost) => void
   onToggleSave: (post: FeedPost) => void
-  onOpenMenu: (post: FeedPost) => void
+  /** `anchor` is the ⋯ button's rect, so the menu opens next to it (#477). */
+  onOpenMenu: (post: FeedPost, anchor: MenuAnchor) => void
+  /** Whether this post's options menu is the one currently open, announced on
+   * the ⋯ button as aria-expanded. */
+  isMenuOpen?: boolean
   /** Opens "who liked this" (issue #478). Wired only for your own posts — the
    * backend answers for nobody else's. */
   onOpenLikes: (post: FeedPost) => void
@@ -32,6 +37,7 @@ function PostActionBar({
   onToggleLike,
   onToggleSave,
   onOpenMenu,
+  isMenuOpen = false,
   onOpenLikes,
   onOpenPost,
   showDetails = false,
@@ -59,8 +65,10 @@ function PostActionBar({
           {state.isLiked ? '♥' : '♡'}
         </button>
       )}
-      {/* Tapping the count opens the list of who liked it — but only on your own
-          post: who liked someone else's is between them and their likers
+      {/* With no heart beside it the bare number says nothing about what it
+          counts, so your own posts spell it out the way the post detail does
+          (issue #476) — and tapping that label opens the list of who liked it,
+          since who liked someone else's post is between them and their likers
           (issue #478). */}
       {state.isOwn ? (
         <button
@@ -70,7 +78,7 @@ function PostActionBar({
           aria-haspopup="dialog"
           onClick={() => onOpenLikes(post)}
         >
-          <span className="post-actions__count">{state.likeCount}</span>
+          <span className="post-actions__count">{state.likeCount} likes</span>
         </button>
       ) : (
         <span className="post-actions__count">{state.likeCount}</span>
@@ -113,8 +121,9 @@ function PostActionBar({
         type="button"
         className="post-actions__menu"
         aria-label={`Options for post by ${post.author_username}`}
-        aria-haspopup="dialog"
-        onClick={() => onOpenMenu(post)}
+        aria-haspopup="menu"
+        aria-expanded={isMenuOpen}
+        onClick={e => onOpenMenu(post, anchorFrom(e.currentTarget))}
       >
         ⋯
       </button>

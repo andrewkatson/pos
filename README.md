@@ -57,7 +57,10 @@ Posts can be acted on directly from any list — the Profile grid, another user'
 profile grid, and the Feed — without opening the post first:
 
 - **Like / unlike**, with the current like count. Hidden on your own posts,
-  which the backend refuses to let you like.
+  which the backend refuses to let you like. The count stays either way, but
+  without the heart to explain it the bare number is ambiguous, so on your own
+  posts it reads "n likes" — the label the post detail already uses (issue
+  #476).
 - **Save / unsave** (issue #193), a personal bookmark. Unlike a like it is
   offered on every post, including your own, since the saved list is a private
   collection rather than a public signal. Saved posts are collected on the
@@ -69,6 +72,16 @@ profile grid, and the Feed — without opening the post first:
 - **Retract report**, which shows the reason you originally gave.
 - **Delete**, offered only on your own posts.
 - **Share**, offered on every post (see [Sharing](#sharing)).
+
+Save, Report, Retract report, Delete and Share live behind a **three-dots (⋯)
+options menu** on the post's action row, and the post-detail screen offers the
+same menu for the post and for each comment. The menu opens **anchored to the
+three dots that were tapped** — a popover next to the button, not a dialog in
+the middle or at the top of the screen (issue #477) — so on a long list it is
+obvious which item the options belong to. On mobile a long-press on the post
+image or a comment opens that same menu, still positioned at that item's three
+dots. Confirmations the menu leads to (report reason, retract, delete) remain
+modal dialogs.
 
 Each feed row additionally shows the author, the caption under the photo, how
 long ago the post was made, and a comment count that opens the post when tapped.
@@ -1048,15 +1061,20 @@ posts (their image is deleted) and for text-only posts (which have no image), an
 is serialized as `image_blurhash` alongside `image_url` in every listing/detail
 payload. Older clients that don't know the field simply ignore it.
 
-Posts published before this feature shipped have no hash and still flash a grey
-tile. The `backfill_blurhash` management command (issue #438) is the one-off
-repair: it walks every post that has an `image_url` but a null `image_blurhash`
-and runs the same encoder the worker uses. It is safe to re-run — it only touches
-null hashes and never overwrites one the worker may have set — and a post whose
-image can't be fetched/encoded is left null (still grey) and examined at most
-once per run (so a broken object never loops the command); a later run
-re-attempts it, letting a transient failure recover. Supports `--dry-run`,
-`--limit`, and `--batch-size`.
+Profile photos carry a BlurHash of their own on exactly the same terms (issue
+#460) — see **Profile photos** below.
+
+Images published before this feature shipped have no hash and still flash a grey
+tile. The `backfill_blurhash` management command (issues #438/#460) is the one-off
+repair: it walks every post that has an `image_url` but a null `image_blurhash`,
+and every user with an approved `profile_image_url` but a null
+`profile_image_blurhash`, and runs the same encoder the worker uses. It is safe
+to re-run — it only touches null hashes and never overwrites one the worker may
+have set — and an image that can't be fetched/encoded is left null (still grey)
+and examined at most once per run (so a broken object never loops the command); a
+later run re-attempts it, letting a transient failure recover. Supports
+`--dry-run`, `--limit`, `--batch-size`, and `--target posts|profiles|all`
+(default `all`).
 
 ## Profile photos
 
@@ -1066,6 +1084,20 @@ with `author_profile_image_original_url` as the full-resolution fallback — the
 same CloudFront-signed compressed-plus-original pairing post images use (see
 **Serving post images** above), for the same reason (the compressed copy can
 briefly lag; #252/#254). Only an **approved** photo is ever shown to anyone else.
+
+An avatar is an image like any other, so it also carries a **BlurHash** (issue
+#460, see **BlurHash placeholders** above): `profile_image_blurhash` on the user,
+served as `author_profile_image_blurhash` next to the avatar URLs in every
+list/detail payload and as `profile_image_blurhash` in profile details. All three
+clients decode it into a blurred preview shown inside the avatar circle while the
+photo loads — search results, follower/blocked lists, feed and comment bylines,
+and the large profile header — instead of the flat placeholder. The worker
+computes it best-effort when it **approves** a photo (a pending or rejected
+upload is shown to nobody, so it needs none), it is always rewritten on approval
+so a new photo can never inherit the old one's blur, and it is cleared when the
+photo is removed. The hash is only serialized when the photo itself is — so a
+requester the profile has blocked gets neither, and a leftover hash can never
+blur in a picture that is no longer being served.
 
 Setting a photo reuses the post upload path: the client uploads a re-encoded,
 EXIF-stripped JPEG through the presigned-PUT flow (`POST /posts/upload-url/`,
