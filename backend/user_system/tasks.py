@@ -753,6 +753,14 @@ def classify_profile_photo(user_id):
             f"Provider unavailable while classifying profile photo for user {user_id}")
 
     allowed = bool(result)
+
+    # Best-effort BlurHash placeholder for the avatar (issue #460), the profile
+    # counterpart of the one classify_post computes. Done here, before the
+    # transaction, so the (slow) S3 fetch + encode never pins the row lock, and
+    # only for an approval — a rejected upload's image is deleted below, and a
+    # pending one is never shown to anyone, so neither needs a placeholder.
+    profile_image_blurhash = compute_blurhash(pending_url) if allowed else None
+
     old_live_url = None
     rejected_url = None
     with transaction.atomic():
@@ -773,6 +781,10 @@ def classify_profile_photo(user_id):
             claimed.pending_profile_image_url = None
             claimed.profile_image_status = PROFILE_IMAGE_STATUS_APPROVED
             claimed.profile_image_reason_code = None
+            # Always assigned (it is in update_fields below), so the previous
+            # photo's hash can never survive as a placeholder for a new one —
+            # a None here just means "no placeholder", never "the old blur".
+            claimed.profile_image_blurhash = profile_image_blurhash
         else:
             # Drop the rejected photo; keep any previously approved photo intact
             # so a bad new upload does not wipe out a good current avatar.
@@ -783,6 +795,7 @@ def classify_profile_photo(user_id):
         claimed.save(update_fields=[
             'profile_image_url', 'pending_profile_image_url',
             'profile_image_status', 'profile_image_reason_code',
+            'profile_image_blurhash',
         ])
 
     # Side effects only after the one-time transition has committed, so they can

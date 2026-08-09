@@ -100,7 +100,8 @@ fun FollowListScreen(
                             imageUrl = user.authorProfileImageUrl,
                             originalImageUrl = user.authorProfileImageOriginalUrl,
                             contentDescription = null,
-                            size = 32.dp
+                            size = 32.dp,
+                            blurHash = user.authorProfileImageBlurHash
                         )
                         Spacer(Modifier.width(8.dp))
                         Text(user.username)

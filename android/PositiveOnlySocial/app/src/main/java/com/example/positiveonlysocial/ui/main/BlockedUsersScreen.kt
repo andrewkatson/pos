@@ -88,7 +88,8 @@ fun BlockedUsersScreen(
                             originalImageUrl = user.authorProfileImageOriginalUrl,
                             // Decorative — the username is rendered next to it.
                             contentDescription = null,
-                            size = 32.dp
+                            size = 32.dp,
+                            blurHash = user.authorProfileImageBlurHash
                         )
                         Spacer(Modifier.width(8.dp))
                         Text(user.username)

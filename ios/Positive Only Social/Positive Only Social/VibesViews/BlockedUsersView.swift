@@ -27,6 +27,7 @@ struct BlockedUsersView: View {
                     ProfileAvatarView(
                         imageUrl: user.authorProfileImageUrl,
                         originalImageUrl: user.authorProfileImageOriginalUrl,
+                        blurHash: user.authorProfileImageBlurHash,
                         size: 32
                     )
                     Text(user.username)

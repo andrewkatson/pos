@@ -331,7 +331,12 @@ data class Post(
     // instead of a black box. Nullable because Gson ignores Kotlin defaults for
     // absent JSON (older backends and text-only posts omit it → null). Appended
     // last so positional constructions are unaffected.
-    @SerializedName("image_blurhash") val blurHash: String? = null
+    @SerializedName("image_blurhash") val blurHash: String? = null,
+    // The author avatar's BlurHash (issue #460) — the profile counterpart of
+    // blurHash above, decoded into a blurred preview shown while the avatar
+    // loads. Nullable for the same Gson reason (absent on older backends and
+    // when the author has no photo). Appended last.
+    @SerializedName("author_profile_image_blurhash") val authorProfileImageBlurHash: String? = null
 )
 
 // --- Comment DTOs ---
@@ -376,7 +381,11 @@ data class CommentDto(
     // Who may see this comment (issue #445); null/absent is treated as public.
     // Nullable so responses that predate the field still deserialize (Gson
     // ignores Kotlin defaults for absent JSON).
-    @SerializedName("audience") val audience: String? = null
+    @SerializedName("audience") val audience: String? = null,
+    // The comment author avatar's BlurHash (issue #460), shown blurred while the
+    // avatar loads. Nullable (Gson ignores Kotlin defaults for absent JSON) and
+    // appended last so positional constructions are unaffected.
+    @SerializedName("author_profile_image_blurhash") val authorProfileImageBlurHash: String? = null
 )
 
 // --- User/Profile DTOs ---
@@ -389,7 +398,9 @@ data class User(
     // blocked-users list so their avatar shows next to the name; null when they
     // have no approved photo, and absent on responses that predate the field.
     @SerializedName("author_profile_image_url") val authorProfileImageUrl: String? = null,
-    @SerializedName("author_profile_image_original_url") val authorProfileImageOriginalUrl: String? = null
+    @SerializedName("author_profile_image_original_url") val authorProfileImageOriginalUrl: String? = null,
+    // That photo's BlurHash (issue #460), shown blurred while the avatar loads.
+    @SerializedName("author_profile_image_blurhash") val authorProfileImageBlurHash: String? = null
 )
 
 // Renamed from ProfileDto to ProfileDetailsResponse to match Swift
@@ -414,6 +425,10 @@ data class ProfileDetailsResponse(
     // others) everywhere their name appears. Null when there is no approved photo.
     @SerializedName("profile_image_url") val profileImageUrl: String? = null,
     @SerializedName("profile_image_original_url") val profileImageOriginalUrl: String? = null,
+    // That photo's BlurHash (issue #460), shown blurred while the header avatar
+    // loads. Null when there is no photo, on older backends, or for a requester
+    // this profile has blocked.
+    @SerializedName("profile_image_blurhash") val profileImageBlurHash: String? = null,
     // Owner-only moderation state, present only when viewing your own profile
     // (the backend omits these for everyone else). profileImageStatus is one of
     // "none"|"pending"|"approved"|"rejected"; pendingProfileImageUrl is the
@@ -722,7 +737,9 @@ data class CommentViewData(
     // the end with a default so existing positional constructions are unaffected.
     val formatting: List<CommentFormatSpan>? = null,
     // Who may see this comment (issue #445); null/"public" shows no scope badge.
-    val audience: String? = null
+    val audience: String? = null,
+    // That avatar's BlurHash (issue #460), shown blurred while the photo loads.
+    val authorProfileImageBlurHash: String? = null
 )
 
 data class CommentThreadViewData(
