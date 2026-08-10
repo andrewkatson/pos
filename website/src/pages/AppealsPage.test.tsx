@@ -77,7 +77,7 @@ test('lists hidden posts and comments with their reason', async () => {
   expect(await screen.findByText('a flagged caption')).toBeInTheDocument()
   expect(screen.getByText('Flagged by automated review')).toBeInTheDocument()
   expect(screen.getByText('a flagged comment')).toBeInTheDocument()
-  expect(screen.getByText('Hidden after user reports')).toBeInTheDocument()
+  expect(screen.getByText('Hidden by a moderator after user reports')).toBeInTheDocument()
 })
 
 test('shows empty states when nothing is hidden or appealed', async () => {

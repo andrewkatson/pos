@@ -152,8 +152,9 @@ test('deleting your own post from the grid removes it and drops the count', asyn
   renderTab()
 
   await userEvent.click(await screen.findByRole('button', { name: 'Options for post by ada' }))
-  // Your own post offers Delete rather than Report.
-  await userEvent.click(screen.getByRole('button', { name: 'Delete' }))
+  // Your own post offers Delete rather than Report: the menu row, then the
+  // confirmation modal's button.
+  await userEvent.click(screen.getByRole('menuitem', { name: 'Delete' }))
   await userEvent.click(screen.getByRole('button', { name: 'Delete' }))
 
   await waitFor(() => expect(mockDeletePost).toHaveBeenCalledWith('p1'))
@@ -172,6 +173,21 @@ test('does not offer a like control on your own posts', async () => {
   renderTab()
   await screen.findByRole('button', { name: 'Post by ada' })
   expect(screen.queryByRole('button', { name: 'Like post' })).not.toBeInTheDocument()
+})
+
+test('labels the like count on your own posts, which have no heart (#476)', async () => {
+  // Without the heart the number needs to say what it counts.
+  mockGetPosts.mockResolvedValue([
+    {
+      post_identifier: 'p1',
+      image_url: 'http://img/1.jpg',
+      author_username: 'ada',
+      caption: 'hi',
+      post_likes: 5,
+    },
+  ])
+  renderTab()
+  expect(await screen.findByText('5 likes')).toBeInTheDocument()
 })
 
 test('refresh reloads the user posts from the first page', async () => {

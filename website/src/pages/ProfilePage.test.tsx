@@ -229,7 +229,7 @@ test('reports a post from the grid', async () => {
   renderProfile()
 
   await userEvent.click(await screen.findByRole('button', { name: 'Options for post by bob' }))
-  await userEvent.click(screen.getByRole('button', { name: 'Report' }))
+  await userEvent.click(screen.getByRole('menuitem', { name: 'Report' }))
   await userEvent.type(screen.getByLabelText('Reason for reporting'), 'mean')
   await userEvent.click(screen.getByRole('button', { name: 'Submit Report' }))
 
@@ -254,7 +254,7 @@ test('offers retract report when the post is already reported', async () => {
   renderProfile()
 
   await userEvent.click(await screen.findByRole('button', { name: 'Options for post by bob' }))
-  await userEvent.click(screen.getByRole('button', { name: 'Retract Report' }))
+  await userEvent.click(screen.getByRole('menuitem', { name: 'Retract Report' }))
   // The original reason is shown back to the user before they confirm.
   expect(screen.getByLabelText('Your report reason')).toHaveValue('was mean')
   await userEvent.click(screen.getByRole('button', { name: 'Retract Report' }))
@@ -272,7 +272,7 @@ test('does not offer delete on another user post', async () => {
   renderProfile()
 
   await userEvent.click(await screen.findByRole('button', { name: 'Options for post by bob' }))
-  expect(screen.queryByRole('button', { name: 'Delete' })).not.toBeInTheDocument()
+  expect(screen.queryByRole('menuitem', { name: 'Delete' })).not.toBeInTheDocument()
 })
 
 test('redirects to login when unauthenticated', () => {

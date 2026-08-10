@@ -367,3 +367,88 @@ describe('setBio (#380)', () => {
   })
 })
 
+
+describe('google sign-in (issue #10)', () => {
+  test('loginWithGoogle posts the ID token to /login/google/ and stores the session', async () => {
+    const fetchFn = vi.fn().mockResolvedValue(
+      jsonResponse(200, {
+        session_management_token: 'tok',
+        user_id: 'u1',
+        username: 'hopefulperson',
+        created_account: true,
+        membership_number: 7,
+      }),
+    )
+    const client = new ApiClient({ baseUrl: 'https://api.test', fetchFn })
+
+    const response = await client.loginWithGoogle({ id_token: 'a.b.c', remember_me: true })
+
+    const [url, init] = fetchFn.mock.calls[0]
+    expect(url).toBe('https://api.test/login/google/')
+    expect(JSON.parse((init as RequestInit).body as string)).toEqual({
+      id_token: 'a.b.c',
+      remember_me: true,
+    })
+    expect(client.getToken()).toBe('tok')
+    expect('created_account' in response && response.created_account).toBe(true)
+  })
+
+  test('loginWithGoogle does not store a session token when 2fa is required', async () => {
+    // Holding the Google account is a first factor, not a bypass of the second.
+    const fetchFn = vi
+      .fn()
+      .mockResolvedValue(
+        jsonResponse(200, { two_factor_required: true, challenge_token: 'c'.repeat(64) }),
+      )
+    const client = new ApiClient({ fetchFn })
+
+    const response = await client.loginWithGoogle({ id_token: 'a.b.c' })
+
+    expect('two_factor_required' in response).toBe(true)
+    expect(client.isAuthenticated()).toBe(false)
+  })
+
+  test('an unconfigured backend surfaces its google_sign_in_unavailable code', async () => {
+    const fetchFn = vi
+      .fn()
+      .mockResolvedValue(jsonResponse(503, { error: 'google_sign_in_unavailable' }))
+    const client = new ApiClient({ fetchFn })
+
+    await expect(client.loginWithGoogle({ id_token: 'a.b.c' })).rejects.toThrow(
+      'google_sign_in_unavailable',
+    )
+  })
+})
+
+describe('like listings (#478)', () => {
+  test('getPostLikers gets /posts/<id>/likes/<batch>/ with the bearer token', async () => {
+    const fetchFn = vi.fn().mockResolvedValue(jsonResponse(200, []))
+    const client = new ApiClient({ baseUrl: 'https://api.test', token: 'tok', fetchFn })
+
+    await client.getPostLikers('post-1', 3)
+
+    const [url, init] = fetchFn.mock.calls[0]
+    expect(url).toBe('https://api.test/posts/post-1/likes/3/')
+    expect((init as RequestInit).method).toBe('GET')
+    expect((init as RequestInit).headers).toMatchObject({ Authorization: 'Bearer tok' })
+  })
+
+  test('getCommentLikers gets the comment likes path', async () => {
+    const fetchFn = vi.fn().mockResolvedValue(jsonResponse(200, []))
+    const client = new ApiClient({ baseUrl: 'https://api.test', token: 'tok', fetchFn })
+
+    await client.getCommentLikers('post-1', 'thread-1', 'comment-1', 0)
+
+    const [url] = fetchFn.mock.calls[0]
+    expect(url).toBe('https://api.test/posts/post-1/threads/thread-1/comments/comment-1/likes/0/')
+  })
+
+  test("someone else's post is refused, so the dialog never opens for it", async () => {
+    const fetchFn = vi
+      .fn()
+      .mockResolvedValue(jsonResponse(400, { error: 'No post with that identifier by that user' }))
+    const client = new ApiClient({ baseUrl: 'https://api.test', token: 'tok', fetchFn })
+
+    await expect(client.getPostLikers('post-1', 0)).rejects.toThrow(ApiError)
+  })
+})

@@ -21,7 +21,7 @@ function AppealsPage() {
 
 const REASON_LABEL: Record<string, string> = {
   classifier: 'Flagged by automated review',
-  reports: 'Hidden after user reports',
+  reports: 'Hidden by a moderator after user reports',
   '': 'Hidden',
 }
 

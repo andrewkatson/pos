@@ -24,6 +24,11 @@ protocol Networking {
     /// Logs the user in if they exist.
     func loginUser(usernameOrEmail: String, password: String, rememberMe: String, ip: String) async throws -> Data
 
+    /// Exchanges a Google ID token for a session, creating the account on the
+    /// first sign-in (issue #10). Answers with a two-factor challenge for an
+    /// enrolled account, exactly like `loginUser`.
+    func loginWithGoogle(idToken: String, rememberMe: String, ip: String) async throws -> Data
+
     /// Logs the user in using a "remember me" token.
     /// This is used if the user's series identifier and login cookie token exist and match what is on record.
     func loginUserWithRememberMe(sessionManagementToken: String, seriesIdentifier: String, loginCookieToken: String, ip: String) async throws -> Data
@@ -125,6 +130,12 @@ protocol Networking {
     /// Unlikes a post.
     func unlikePost(sessionManagementToken: String, postIdentifier: String) async throws -> Data
 
+    /// Gets a batch of the users who liked one of the signed-in user's own
+    /// posts, newest like first (issue #478). Owner-only: asking about somebody
+    /// else's post is answered exactly like asking about one that does not
+    /// exist, so who liked a post is never revealed to a third party.
+    func getPostLikers(sessionManagementToken: String, postIdentifier: String, batch: Int) async throws -> Data
+
     /// Saves a post to the viewer's saved collection (issue #193/#412).
     func savePost(sessionManagementToken: String, postIdentifier: String) async throws -> Data
 
@@ -166,6 +177,11 @@ protocol Networking {
     /// Unlikes a specific comment.
     /// Note: Corrected a typo from the original URL pattern `/str:comment_identifier` to `/<str:comment_identifier>`.
     func unlikeComment(sessionManagementToken: String, postIdentifier: String, commentThreadIdentifier: String, commentIdentifier: String) async throws -> Data
+
+    /// Gets a batch of the users who liked one of the signed-in user's own
+    /// comments, newest like first (issue #478). Owner-only, like
+    /// `getPostLikers` — owning the post is not owning the comment.
+    func getCommentLikers(sessionManagementToken: String, postIdentifier: String, commentThreadIdentifier: String, commentIdentifier: String, batch: Int) async throws -> Data
 
     /// Deletes a comment.
     func deleteComment(sessionManagementToken: String, postIdentifier: String, commentThreadIdentifier: String, commentIdentifier: String) async throws -> Data

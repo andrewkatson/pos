@@ -25,6 +25,9 @@ urlpatterns = [
     # POST /login/
     path('login/', views.login_user, name='login_user'),
 
+    # POST /login/google/
+    path('login/google/', views.login_user_google, name='login_user_google'),
+
     # POST /login/remember/
     path('login/remember/', views.login_user_with_remember_me, name='login_user_with_remember_me'),
 
@@ -88,6 +91,10 @@ urlpatterns = [
     # POST /posts/<uuid:post_identifier>/unlike/ (Token in header)
     path('posts/<uuid:post_identifier>/unlike/', views.unlike_post, name='unlike_post'),
 
+    # GET /posts/<uuid:post_identifier>/likes/<int:batch>/ (Token in header)
+    # — who liked the post, owner only
+    path('posts/<uuid:post_identifier>/likes/<int:batch>/', views.get_post_likers, name='get_post_likers'),
+
     # POST /posts/<uuid:post_identifier>/save/ (Token in header)
     path('posts/<uuid:post_identifier>/save/', views.save_post, name='save_post'),
 
@@ -143,6 +150,12 @@ urlpatterns = [
         'posts/<uuid:post_identifier>/threads/<uuid:comment_thread_identifier>/comments/<uuid:comment_identifier>/unlike/',
         views.unlike_comment, name='unlike_comment'),
 
+    # GET /.../comments/<uuid:comment_identifier>/likes/<int:batch>/ (Token in header)
+    # — who liked the comment, owner only
+    path(
+        'posts/<uuid:post_identifier>/threads/<uuid:comment_thread_identifier>/comments/<uuid:comment_identifier>/likes/<int:batch>/',
+        views.get_comment_likers, name='get_comment_likers'),
+
     # POST /.../comments/<uuid:comment_identifier>/delete/ (Token in header)
     path(
         'posts/<uuid:post_identifier>/threads/<uuid:comment_thread_identifier>/comments/<uuid:comment_identifier>/delete/',
@@ -157,6 +170,33 @@ urlpatterns = [
     path(
         'posts/<uuid:post_identifier>/threads/<uuid:comment_thread_identifier>/comments/<uuid:comment_identifier>/report/retract/',
         views.retract_report_comment, name='retract_report_comment'),
+
+    # =========================================================================
+    # PUBLIC SHARE VIEWS (issue #381) — no token, IP rate limited
+    # =========================================================================
+    # These back a shared https://smiling.social/post/<id> link for a recipient
+    # who has no account. They serve only public, approved, non-shadow-banned
+    # content whose author is not a verified minor — an account that never
+    # verified an age has an unknown one and stays in the general pool, so
+    # "not a verified minor" is the rule, not "an adult". Everything else 404s
+    # exactly like a missing post. See the PUBLIC SHARE VIEWS section in views.py.
+
+    # GET /public/posts/<uuid:post_identifier>/details/
+    path('public/posts/<uuid:post_identifier>/details/', views.get_public_post_details,
+         name='get_public_post_details'),
+
+    # GET /public/posts/<uuid:post_identifier>/comments/<int:batch>/
+    path('public/posts/<uuid:post_identifier>/comments/<int:batch>/', views.get_public_comments_for_post,
+         name='get_public_comments_for_post'),
+
+    # GET /public/threads/<uuid:comment_thread_identifier>/comments/<int:batch>/
+    path('public/threads/<uuid:comment_thread_identifier>/comments/<int:batch>/',
+         views.get_public_comments_for_thread, name='get_public_comments_for_thread'),
+
+    # GET /public/posts/<uuid:post_identifier>/preview/ — Open Graph HTML for
+    # link-preview crawlers, which CloudFront routes here by user-agent.
+    path('public/posts/<uuid:post_identifier>/preview/', views.get_post_link_preview,
+         name='get_post_link_preview'),
 
     # =========================================================================
     # USER & PROFILE

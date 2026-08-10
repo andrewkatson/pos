@@ -331,17 +331,12 @@ test('changePassword enforces the current password and strength, then updates it
 
 async function makeReportHiddenPost(api: StatefulStubbedAPI) {
   await register(api, 'author')
-  const post = await api.createPost({
+  // 'moderated' is the stub's seam for content a moderator hid after reviewing
+  // reports (issue #467) — reporting it repeatedly would hide nothing.
+  return api.createPost({
     image_url: 'https://example.com/a.jpg',
-    caption: 'flagged caption',
+    caption: 'moderated caption',
   })
-  // Report past the stub hide threshold (one report per distinct user).
-  for (let i = 0; i < 6; i += 1) {
-    await register(api, `reporter${i}`)
-    await api.reportPost(post.post_identifier, 'bad')
-  }
-  await api.login({ username_or_email: 'author', password: 'password123' })
-  return post
 }
 
 test('getHiddenPosts is empty when nothing is hidden', async () => {
@@ -753,23 +748,40 @@ test('unsaving removes the post from the saved list', async () => {
 
 test('a since-hidden post drops off the saved list', async () => {
   const api = new StatefulStubbedAPI()
+  // 'reviewable' is the stub's seam for content the report-triggered re-review
+  // rejects (issue #467) — it passes at creation and is hidden once reported.
   await register(api, 'author')
-  const post = await api.createPost({ caption: 'one' })
+  const post = await api.createPost({ caption: 'reviewable one' })
 
   // The saver bookmarks it while it is still visible.
   await register(api, 'saver')
   await api.savePost(post.post_identifier)
   expect((await api.getSavedPosts(0)).length).toBe(1)
 
-  // Enough distinct users report it to push it over the stub's hide threshold.
+  // One report is enough — but only because the content itself fails review.
+  await register(api, 'reporter')
+  await api.reportPost(post.post_identifier, 'bad')
+
+  // Back as the saver: the now-hidden post no longer renders on the list.
+  await api.login({ username_or_email: 'saver', password: 'password123' })
+  expect(await api.getSavedPosts(0)).toEqual([])
+})
+
+test('no number of reports hides a post whose content passes review (#467)', async () => {
+  const api = new StatefulStubbedAPI()
+  await register(api, 'author')
+  const post = await api.createPost({ caption: 'a perfectly fine caption' })
+
   for (let i = 0; i < 6; i += 1) {
     await register(api, `reporter${i}`)
     await api.reportPost(post.post_identifier, 'bad')
   }
 
-  // Back as the saver: the now-hidden post no longer renders on the list.
-  await api.login({ username_or_email: 'saver', password: 'password123' })
-  expect(await api.getSavedPosts(0)).toEqual([])
+  // Still visible to a fresh viewer: reports open a moderation review in the
+  // real backend, they are not a takedown vote.
+  await register(api, 'viewer')
+  const feed = await api.getFeed(0)
+  expect(feed.some((p) => p.post_identifier === post.post_identifier)).toBe(true)
 })
 
 test('setProfilePhoto reports pending then serializes the approved photo (#7)', async () => {
@@ -979,4 +991,89 @@ test('setInterests bounds the echoed text of a huge rejected term (#446)', async
   expect(echoed.endsWith('…')).toBe(true)
   // Still clearly over the per-term limit.
   expect(echoed.length).toBeGreaterThan(100)
+})
+
+// --- Who liked this (#478) ---------------------------------------------------
+
+test('the author sees who liked their post, newest like first', async () => {
+  const api = new StatefulStubbedAPI()
+  await register(api, 'author')
+  const post = await api.createPost({
+    image_url: 'https://example.com/a.jpg',
+    caption: 'a sunny day',
+  })
+
+  await register(api, 'early')
+  await api.likePost(post.post_identifier)
+  await register(api, 'later')
+  await api.likePost(post.post_identifier)
+
+  await api.login({ username_or_email: 'author', password: 'password123' })
+  const likers = await api.getPostLikers(post.post_identifier, 0)
+
+  expect(likers.map((u) => u.username)).toEqual(['later', 'early'])
+})
+
+test("you cannot see who liked someone else's post", async () => {
+  const api = new StatefulStubbedAPI()
+  await register(api, 'author')
+  const post = await api.createPost({
+    image_url: 'https://example.com/a.jpg',
+    caption: 'a sunny day',
+  })
+
+  await register(api, 'viewer')
+  await api.likePost(post.post_identifier)
+
+  await expect(api.getPostLikers(post.post_identifier, 0)).rejects.toThrow(ApiError)
+})
+
+test('a post nobody liked lists nobody', async () => {
+  const api = new StatefulStubbedAPI()
+  await register(api, 'author')
+  const post = await api.createPost({
+    image_url: 'https://example.com/a.jpg',
+    caption: 'a sunny day',
+  })
+
+  expect(await api.getPostLikers(post.post_identifier, 0)).toEqual([])
+})
+
+test('the comment author sees who liked their comment; the post author does not', async () => {
+  const api = new StatefulStubbedAPI()
+  await register(api, 'author')
+  const post = await api.createPost({
+    image_url: 'https://example.com/a.jpg',
+    caption: 'a sunny day',
+  })
+
+  await register(api, 'commenter')
+  const comment = await api.commentOnPost(post.post_identifier, 'lovely')
+
+  await register(api, 'fan')
+  await api.likeComment(
+    post.post_identifier,
+    comment.comment_thread_identifier,
+    comment.comment_identifier,
+  )
+
+  await api.login({ username_or_email: 'commenter', password: 'password123' })
+  const likers = await api.getCommentLikers(
+    post.post_identifier,
+    comment.comment_thread_identifier,
+    comment.comment_identifier,
+    0,
+  )
+  expect(likers.map((u) => u.username)).toEqual(['fan'])
+
+  // Owning the post is not owning the comment.
+  await api.login({ username_or_email: 'author', password: 'password123' })
+  await expect(
+    api.getCommentLikers(
+      post.post_identifier,
+      comment.comment_thread_identifier,
+      comment.comment_identifier,
+      0,
+    ),
+  ).rejects.toThrow(ApiError)
 })

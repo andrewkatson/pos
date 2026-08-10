@@ -27,7 +27,7 @@ import com.example.positiveonlysocial.ui.theme.PositiveOnlySocialTheme
 
 private fun hiddenReasonLabel(reason: String): String = when (reason) {
     "classifier" -> "Flagged by automated review"
-    "reports" -> "Hidden after user reports"
+    "reports" -> "Hidden by a moderator after user reports"
     else -> "Hidden"
 }
 

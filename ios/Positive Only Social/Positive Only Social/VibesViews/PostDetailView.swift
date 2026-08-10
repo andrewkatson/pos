@@ -13,6 +13,9 @@ struct PostDetailView: View {
     // Kept to build the ProfileView pushed when an author's name is tapped.
     private let api: Networking
     private let keychainHelper: KeychainHelperProtocol
+
+    // Kept so the "who liked this" sheet can name the post (issue #478).
+    private let postIdentifier: String
     
     // Set when a comment author's name is tapped to push their profile.
     // Comment rows navigate programmatically (rather than via NavigationLink)
@@ -23,6 +26,10 @@ struct PostDetailView: View {
     // Set when a #hashtag in the caption is tapped, to push its tag feed (#379).
     @State private var selectedTag: TagRoute? = nil
 
+    // Set when the like count on the signed-in user's own post or comment is
+    // tapped, to present "who liked this" as a sheet (issue #478).
+    @State private var likesTarget: LikesTarget? = nil
+
     // Selects the Profile tab when the tapped name is the signed-in user's own,
     // instead of pushing a second copy of their profile (issue #347).
     @Environment(\.selectTab) private var selectTab
@@ -32,6 +39,7 @@ struct PostDetailView: View {
         _viewModel = StateObject(wrappedValue: PostDetailViewModel(postIdentifier: postIdentifier, api: api, keychainHelper: keychainHelper))
         self.api = api
         self.keychainHelper = keychainHelper
+        self.postIdentifier = postIdentifier
     }
     
     var body: some View {
@@ -82,9 +90,24 @@ struct PostDetailView: View {
                                 }
                                 .accessibilityLabel(post.isLiked ? "Unlike post" : "Like post")
                             }
-                            Text("\(post.likeCount) likes")
-                                .font(.headline)
+                            // Tapping the count lists who liked it, but only on
+                            // your own post — who liked someone else's is
+                            // between them and their likers (issue #478).
+                            if viewModel.isOwnPost {
+                                Button {
+                                    likesTarget = .post(postIdentifier: postIdentifier)
+                                } label: {
+                                    Text("\(post.likeCount) likes")
+                                        .font(.headline)
+                                }
+                                .buttonStyle(.plain)
+                                .accessibilityLabel("\(post.likeCount) likes, see who liked this")
                                 .accessibilityIdentifier("PostLikesText")
+                            } else {
+                                Text("\(post.likeCount) likes")
+                                    .font(.headline)
+                                    .accessibilityIdentifier("PostLikesText")
+                            }
                             if viewModel.isPostReported {
                                 Image(systemName: "flag.fill")
                                     .foregroundColor(.red)
@@ -105,6 +128,20 @@ struct PostDetailView: View {
                             }
                             .accessibilityLabel("Post options")
                             .accessibilityIdentifier("PostOptionsButton")
+                            // Anchored here rather than presented from the bottom
+                            // of the screen, so the options appear next to the
+                            // button that opened them (issue #477). The image's
+                            // long-press sets the same flag, so it opens the menu
+                            // at this button too.
+                            .popover(
+                                isPresented: $viewModel.showActionSheetForPost,
+                                attachmentAnchor: .rect(.bounds)
+                            ) {
+                                postMenu
+                                    // Without this a popover becomes a sheet in a
+                                    // compact size class — i.e. all of iPhone.
+                                    .presentationCompactAdaptation(.popover)
+                            }
                         }
                         HStack(alignment: .center, spacing: 6) {
                             // The author's profile photo (issue #7) next to their
@@ -112,6 +149,7 @@ struct PostDetailView: View {
                             ProfileAvatarView(
                                 imageUrl: post.authorProfileImageURL,
                                 originalImageUrl: post.authorProfileImageOriginalURL,
+                                blurHash: post.authorProfileImageBlurHash,
                                 size: 28
                             )
                             // Tap the author's name to open their profile, same
@@ -188,8 +226,14 @@ struct PostDetailView: View {
                                 } else {
                                     profileUser = User(username: username, identityIsVerified: false)
                                 }
+                            }, onOpenLikes: { comment in
+                                likesTarget = .comment(
+                                    postIdentifier: postIdentifier,
+                                    commentThreadIdentifier: comment.threadId,
+                                    commentIdentifier: comment.id
+                                )
                             })
-                           
+
                             .padding(.horizontal)
                         }
                     }
@@ -210,6 +254,11 @@ struct PostDetailView: View {
                 ProfileView(user: user, api: api, keychainHelper: keychainHelper)
             }
         }
+        // "Who liked this" for your own post or comment (issue #478). A sheet
+        // rather than a push, so it dismisses back to the post you were reading.
+        .sheet(item: $likesTarget) { target in
+            LikesView(target: target, api: api, keychainHelper: keychainHelper)
+        }
         // Pushes the tag feed when a #hashtag in the caption is tapped (#379),
         // state-driven like the profile push above.
         .navigationDestination(isPresented: Binding(
@@ -229,65 +278,12 @@ struct PostDetailView: View {
             await Task { await viewModel.refresh() }.value
         }
         // --- Action menus (three-dots button or long-press) ---
-        // The post's menu offers Delete on the user's own post, Report on
-        // everyone else's — or Retract Report when the user already has an
-        // active report against it (issues #304, #176).
-        .confirmationDialog("Post", isPresented: $viewModel.showActionSheetForPost, titleVisibility: .hidden) {
-            // Share is offered for any post — your own and others' (issue #34).
-            Button("Share Post") {
-                viewModel.sharePost()
-            }
-            .accessibilityIdentifier("SharePostActionButton")
-            if viewModel.isOwnPost {
-                Button("Delete Post", role: .destructive) {
-                    viewModel.deletePost()
-                }
-                .accessibilityIdentifier("DeletePostActionButton")
-            } else if viewModel.isPostReported {
-                Button("Retract Report") {
-                    viewModel.showRetractDialogForPost = true
-                }
-                .accessibilityIdentifier("RetractReportPostActionButton")
-            } else {
-                Button("Report Post") {
-                    viewModel.showReportSheetForPost = true
-                }
-                .accessibilityIdentifier("ReportPostActionButton")
-            }
-        }
-        // The comment menu mirrors the post menu: Delete for the user's own
-        // comments, Report / Retract Report for everyone else's.
-        .confirmationDialog(
-            "Comment",
-            isPresented: Binding(
-                get: { viewModel.commentForAction != nil },
-                set: { if !$0 { viewModel.commentForAction = nil } }
-            ),
-            titleVisibility: .hidden,
-            presenting: viewModel.commentForAction
-        ) { comment in
-            // Share is offered for any comment — your own and others' (issue #34).
-            Button("Share Comment") {
-                viewModel.shareComment(comment)
-            }
-            .accessibilityIdentifier("ShareCommentActionButton")
-            if viewModel.isOwnComment(comment) {
-                Button("Delete Comment", role: .destructive) {
-                    viewModel.deleteComment(comment)
-                }
-                .accessibilityIdentifier("DeleteCommentActionButton")
-            } else if viewModel.isCommentReported(comment) {
-                Button("Retract Report") {
-                    viewModel.commentToRetract = comment
-                }
-                .accessibilityIdentifier("RetractReportCommentActionButton")
-            } else {
-                Button("Report Comment") {
-                    viewModel.commentToReport = comment
-                }
-                .accessibilityIdentifier("ReportCommentActionButton")
-            }
-        }
+        // NOTE (issue #477): the post's and each comment's action menus are no
+        // longer attached here. They're popovers anchored to the ⋯ button they
+        // belong to — `postMenu` on the header button above, and the comment
+        // menu on each `CommentRowView`'s button — so the options appear next to
+        // whichever three dots were tapped instead of rising from the bottom of
+        // the screen. A long-press still opens them by setting the same state.
         // --- Retract-report confirmations (issue #176) ---
         // Each shows the user's original report reason pre-populated so they
         // can see what they're retracting.
@@ -360,6 +356,60 @@ struct PostDetailView: View {
             if wasDeleted { dismiss() }
         }
         .environmentObject(viewModel) // Pass VM to subviews
+    }
+
+    /// The post's options, shown in the popover anchored to the header's ⋯
+    /// button (issue #477): Delete on the user's own post, Report on everyone
+    /// else's — or Retract Report when they already have an active report
+    /// against it (issues #304, #176). Each row closes the popover before
+    /// acting, since report and share present sheets of their own.
+    @ViewBuilder
+    private var postMenu: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            // Share is offered for any post — your own and others' (issue #34).
+            menuRow("Share Post", identifier: "SharePostActionButton") {
+                viewModel.sharePost()
+            }
+            if viewModel.isOwnPost {
+                menuRow("Delete Post", identifier: "DeletePostActionButton", isDestructive: true) {
+                    viewModel.deletePost()
+                }
+            } else if viewModel.isPostReported {
+                menuRow("Retract Report", identifier: "RetractReportPostActionButton") {
+                    viewModel.showRetractDialogForPost = true
+                }
+            } else {
+                menuRow("Report Post", identifier: "ReportPostActionButton") {
+                    viewModel.showReportSheetForPost = true
+                }
+            }
+        }
+        .padding(.vertical, 6)
+        .frame(minWidth: 200, alignment: .leading)
+    }
+
+    private func menuRow(
+        _ title: String,
+        identifier: String,
+        isDestructive: Bool = false,
+        action: @escaping () -> Void
+    ) -> some View {
+        Button {
+            // Dismiss the popover, then act one runloop turn later — see the
+            // matching note in PostActionBar.menuRow: requesting a sheet in the
+            // same update that dismisses the popover drops the sheet.
+            viewModel.showActionSheetForPost = false
+            DispatchQueue.main.async { action() }
+        } label: {
+            Text(title)
+                .foregroundColor(isDestructive ? .red : .primary)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.horizontal, 20)
+                .padding(.vertical, 12)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityIdentifier(identifier)
     }
 }
 

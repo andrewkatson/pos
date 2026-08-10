@@ -35,6 +35,20 @@ class MockPositiveOnlySocialAPI : PositiveOnlySocialAPI {
         )
     }
 
+    override suspend fun loginWithGoogle(request: GoogleLoginRequest): Response<LoginResponse> {
+        return Response.success(
+            LoginResponse(
+                sessionToken = "mock_session_token",
+                username = "mockgoogleuser",
+                userId = "00000000-0000-0000-0000-000000000001",
+                seriesIdentifier = "mock_series_id",
+                loginCookieToken = "mock_login_cookie",
+                createdAccount = true,
+                membershipNumber = 1
+            )
+        )
+    }
+
     // --- Two-Factor Authentication (issue #348) ---
 
     override suspend fun loginUser2FA(request: LoginTwoFactorRequest): Response<AuthResponse> {
@@ -343,6 +357,32 @@ class MockPositiveOnlySocialAPI : PositiveOnlySocialAPI {
                 error = null
             )
         )
+    }
+
+    override suspend fun getPostLikers(
+        token: String,
+        postId: String,
+        batch: Int
+    ): Response<List<User>> {
+        // One batch only, so the preview shows the list without a Load more.
+        if (batch > 0) return Response.success(emptyList())
+        return Response.success(
+            listOf(
+                User(username = "liker_1", identityIsVerified = true),
+                User(username = "liker_2", identityIsVerified = false)
+            )
+        )
+    }
+
+    override suspend fun getCommentLikers(
+        token: String,
+        postId: String,
+        threadId: String,
+        commentId: String,
+        batch: Int
+    ): Response<List<User>> {
+        if (batch > 0) return Response.success(emptyList())
+        return Response.success(listOf(User(username = "liker_1", identityIsVerified = false)))
     }
 
     override suspend fun likePost(token: String, postId: String): Response<GenericResponse> {

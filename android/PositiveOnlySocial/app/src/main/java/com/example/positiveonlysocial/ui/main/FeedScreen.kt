@@ -82,6 +82,9 @@ fun ForYouFeed(
 
     val postActions = viewModel.postActions
     val currentUsername by postActions.currentUsername.collectAsState()
+    // Which post's action menu is open, collected once here rather than in every
+    // row's PostActionMenu.
+    val postForAction by postActions.postForAction.collectAsState()
 
     LaunchedEffect(Unit) {
         if (posts.isEmpty()) {
@@ -104,7 +107,8 @@ fun ForYouFeed(
                     post = post,
                     navController = navController,
                     actions = postActions,
-                    currentUsername = currentUsername
+                    currentUsername = currentUsername,
+                    openMenuPostId = postForAction?.postIdentifier
                 )
 
                 if (post == posts.lastOrNull()) {
@@ -124,7 +128,7 @@ fun ForYouFeed(
         }
 
         // One set of confirmations for every post in the feed.
-        PostActionDialogs(postActions)
+        PostActionDialogs(postActions, navController)
     }
 }
 
@@ -145,6 +149,9 @@ fun FollowingFeed(
 
     val postActions = viewModel.postActions
     val currentUsername by postActions.currentUsername.collectAsState()
+    // Which post's action menu is open, collected once here rather than in every
+    // row's PostActionMenu.
+    val postForAction by postActions.postForAction.collectAsState()
 
     LaunchedEffect(Unit) {
         if (posts.isEmpty()) {
@@ -191,7 +198,8 @@ fun FollowingFeed(
                     post = post,
                     navController = navController,
                     actions = postActions,
-                    currentUsername = currentUsername
+                    currentUsername = currentUsername,
+                    openMenuPostId = postForAction?.postIdentifier
                 )
 
                 if (post == posts.lastOrNull()) {
@@ -211,7 +219,7 @@ fun FollowingFeed(
         }
 
         // One set of confirmations for every post in the feed.
-        PostActionDialogs(postActions)
+        PostActionDialogs(postActions, navController)
         }
     }
 }
@@ -221,7 +229,9 @@ fun PostItem(
     post: com.example.positiveonlysocial.data.model.Post,
     navController: NavController,
     actions: PostListActions,
-    currentUsername: String?
+    currentUsername: String?,
+    /** The post whose action menu is open, if any — see [PostActionMenu]. */
+    openMenuPostId: String? = null
 ) {
     Column(
         modifier = Modifier.fillMaxWidth(),
@@ -241,7 +251,8 @@ fun PostItem(
                 originalImageUrl = post.authorProfileImageOriginalUrl,
                 // Decorative — the author username is rendered right next to it.
                 contentDescription = null,
-                size = 32.dp
+                size = 32.dp,
+                blurHash = post.authorProfileImageBlurHash
             )
             Text(
                 text = post.authorUsername,
@@ -266,9 +277,14 @@ fun PostItem(
 
         // The caption under the photo (issue #378). Text-only posts (#307)
         // already render their caption as the tile above, so it isn't repeated
-        // for them.
+        // for them. The author's chosen caption font (issue #318) applies here
+        // too, so the feed matches the detail view (issue #450).
         if (post.imageUrl != null) {
-            Text(text = post.caption, modifier = Modifier.testTag("PostCaption"))
+            Text(
+                text = post.caption,
+                fontFamily = TextFormatting.fontFamily(post.captionFont),
+                modifier = Modifier.testTag("PostCaption")
+            )
         }
 
         // Like / comment count / report / retract / delete without leaving the
@@ -281,6 +297,15 @@ fun PostItem(
             onOpenMenu = { actions.setPostForAction(post) },
             onOpenComments = {
                 navController.navigate(Screen.PostDetail.createRoute(post.postIdentifier))
+            },
+            onOpenLikes = { actions.setPostForLikes(post) },
+            menu = {
+                PostActionMenu(
+                    actions,
+                    post,
+                    expanded = openMenuPostId == post.postIdentifier,
+                    isOwn = post.authorUsername == currentUsername
+                )
             }
         )
 

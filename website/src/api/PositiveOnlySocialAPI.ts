@@ -20,6 +20,7 @@ import type {
   DisableTotpResponse,
   FeedPost,
   FollowCategory,
+  GoogleLoginRequest,
   HiddenComment,
   HiddenPost,
   LoginRequest,
@@ -69,6 +70,9 @@ export interface PositiveOnlySocialAPI {
   // Authentication
   register(body: RegisterRequest): Promise<AuthResponse>
   login(body: LoginRequest): Promise<LoginResponse>
+  /** Exchange a Google ID token for a session, creating the account on first
+   * use (issue #10). Can answer with a two-factor challenge just like login. */
+  loginWithGoogle(body: GoogleLoginRequest): Promise<LoginResponse>
   loginWithRememberMe(body: LoginWithRememberMeRequest): Promise<LoginWithRememberMeResponse>
   logout(): Promise<MessageResponse>
   verifyIdentity(dateOfBirth: string): Promise<MessageResponse>
@@ -101,6 +105,10 @@ export interface PositiveOnlySocialAPI {
   retractReportPost(postIdentifier: string): Promise<MessageResponse>
   likePost(postIdentifier: string): Promise<MessageResponse>
   unlikePost(postIdentifier: string): Promise<MessageResponse>
+  /** Who liked one of the signed-in user's own posts, newest like first,
+   * batched (issue #478). Owner-only: asking about somebody else's post is
+   * answered exactly like asking about one that does not exist. */
+  getPostLikers(postIdentifier: string, batch: number): Promise<UserSearchResult[]>
   /** Bookmark a post so it appears on the Saved Posts screen (issue #193). */
   savePost(postIdentifier: string): Promise<MessageResponse>
   unsavePost(postIdentifier: string): Promise<MessageResponse>
@@ -118,6 +126,20 @@ export interface PositiveOnlySocialAPI {
   getPostDetails(postIdentifier: string): Promise<PostDetails>
   /** Classification status of one of the caller's own posts (issue #282). */
   getPostStatus(postIdentifier: string): Promise<PostStatusResponse>
+
+  // Public share endpoints (issue #381). These need no session: they back a
+  // shared https://smiling.social/post/<id> link opened by someone who is not
+  // logged in. They serve only genuinely public content (not hidden, not
+  // pending, author not shadow banned, audience 'public', author not a verified
+  // minor) and carry no per-viewer state — `is_liked` / `is_saved` /
+  // `is_reported` / `report_reason` are absent, since there is no viewer to
+  // have them. Anything else 404s exactly like a post that never existed.
+  getPublicPostDetails(postIdentifier: string): Promise<PostDetails>
+  getPublicCommentsForPost(postIdentifier: string, batch: number): Promise<CommentThreadRef[]>
+  getPublicCommentsForThread(
+    commentThreadIdentifier: string,
+    batch: number,
+  ): Promise<Comment[]>
 
   // Comments. `formatting` carries optional inline styling spans (issue #318);
   // `audience` scopes who may see the comment (issue #445, omitted = 'public').
@@ -159,6 +181,14 @@ export interface PositiveOnlySocialAPI {
     commentThreadIdentifier: string,
     commentIdentifier: string,
   ): Promise<MessageResponse>
+  /** Who liked one of the signed-in user's own comments, newest like first,
+   * batched (issue #478). Owner-only, like getPostLikers. */
+  getCommentLikers(
+    postIdentifier: string,
+    commentThreadIdentifier: string,
+    commentIdentifier: string,
+    batch: number,
+  ): Promise<UserSearchResult[]>
   deleteComment(
     postIdentifier: string,
     commentThreadIdentifier: string,

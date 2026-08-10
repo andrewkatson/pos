@@ -31,11 +31,28 @@ export interface AuthResponse {
    * case the backend couldn't assign one at signup.
    */
   membership_number?: number | null
+  /**
+   * Set by the Google sign-in response (issue #10): true when that sign-in
+   * created the account rather than logging in to an existing one, so a
+   * brand-new member can be greeted rather than dropped straight into a feed.
+   * Absent on every other auth response.
+   */
+  created_account?: boolean
 }
 
 export interface LoginRequest {
   username_or_email: string
   password: string
+  remember_me?: boolean
+}
+
+/**
+ * Google sign-in (issue #10). `id_token` is the JWT Google Identity Services
+ * hands back in its credential callback; the backend verifies it against
+ * Google's public keys and exchanges it for an ordinary session.
+ */
+export interface GoogleLoginRequest {
+  id_token: string
   remember_me?: boolean
 }
 
@@ -335,6 +352,10 @@ export interface SetInterestsResponse {
 export interface AuthorAvatarFields {
   author_profile_image_url?: string | null
   author_profile_image_original_url?: string | null
+  /** BlurHash of the avatar (issue #460), decoded into a blurred preview shown
+   * while the photo loads — the avatar counterpart of a post's `image_blurhash`.
+   * Null when the author has no photo or the hash could not be computed. */
+  author_profile_image_blurhash?: string | null
 }
 
 /**
@@ -536,6 +557,9 @@ export interface ProfileDetails {
    * fallback, or null when they have none. Shown to everyone. */
   profile_image_url?: string | null
   profile_image_original_url?: string | null
+  /** BlurHash of that photo (issue #460), rendered as a blurred preview while it
+   * loads. Null when there is no photo (or the viewer is blocked by them). */
+  profile_image_blurhash?: string | null
   /** Owner-only: the moderation state of a photo still under review (or the
    * last rejected upload). Present only when viewing your own profile, so your
    * client can show a "reviewing" / "not approved" affordance; never returned

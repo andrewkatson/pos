@@ -231,6 +231,23 @@ EMAIL_HOST_PASSWORD = os.environ.get("EMAIL_PASS")
 _frontend_base_url = os.environ.get("FRONTEND_BASE_URL", "").strip()
 FRONTEND_BASE_URL = (_frontend_base_url or "https://smiling.social").rstrip('/')
 
+# Google sign-in (issue #10). Every OAuth client ID that may appear in the `aud`
+# claim of an ID token we accept — one per platform (web, iOS, Android), since
+# Google issues a separate client ID for each and mints tokens addressed to the
+# client that asked. Comma-separated, e.g.
+#   GOOGLE_OAUTH_CLIENT_IDS="123-web.apps.googleusercontent.com,123-ios.apps.googleusercontent.com"
+#
+# This list is the entire trust boundary: a token is only as meaningful as the
+# audience it was minted for, so anything not named here is somebody else's app
+# and is rejected. Left unset, login/google/ is off (the "unset env var means the
+# feature is a no-op" pattern used for push), which keeps CI and local runs from
+# needing Google credentials.
+GOOGLE_OAUTH_CLIENT_IDS = [
+    client_id.strip()
+    for client_id in os.environ.get("GOOGLE_OAUTH_CLIENT_IDS", "").split(",")
+    if client_id.strip()
+]
+
 
 DATETIME_FORMAT = f"iso-8601"
 L10N=False
@@ -299,6 +316,28 @@ FCM_CREDENTIALS = os.environ.get("FCM_CREDENTIALS", "")
 FCM_CREDENTIALS_PATH = os.environ.get("FCM_CREDENTIALS_PATH", "").strip()
 
 # Logging Configuration
+#
+# Every backend process writes to this one file: three gunicorn workers, the
+# classification worker, and each oneshot management command (sweep, cleanup).
+# The file handler must therefore never rename the file itself — that was the
+# bug in issue #484. With a per-process TimedRotatingFileHandler, the first
+# process to log after midnight renamed user_system.log to user_system.log.<date>
+# and opened a fresh file; every other process then hit logging's "Already rolled
+# over" early return in doRollover (the dated file exists, so it returns *before*
+# reopening the stream) and kept its file descriptor on the renamed file forever.
+# The long-lived gunicorn workers stayed pinned to a rotated file while a
+# brand-new sweep_classifications process opened user_system.log by path every 15
+# minutes — so the live log looked like nothing but sweeps and a login wrote
+# nothing to it at all.
+#
+# WatchedFileHandler stats the path before each record and reopens when the inode
+# changes, so rotation can be done out-of-process by logrotate (installed by
+# backend/tools/setup-django.sh) and every process follows the new inode. The
+# rotator must use `create`, not `copytruncate`: truncating keeps the inode, so
+# the reopen check would never fire.
+#
+# {process:d} is in the format because the file is shared — without a pid the
+# interleaved lines from four-plus processes are not attributable.
 log_dir = BASE_DIR / 'logs'
 log_dir.mkdir(exist_ok=True)
 
@@ -307,7 +346,7 @@ LOGGING = {
     'disable_existing_loggers': False,
     'formatters': {
         'verbose': {
-            'format': '{levelname} {asctime} {module} {message}',
+            'format': '{levelname} {asctime} {process:d} {module} {message}',
             'style': '{',
         },
     },
@@ -320,11 +359,8 @@ LOGGING = {
         },
         'file': {
             'level': 'DEBUG',
-            'class': 'logging.handlers.TimedRotatingFileHandler',
+            'class': 'logging.handlers.WatchedFileHandler',
             'filename': BASE_DIR / 'logs' / 'user_system.log',
-            'when': 'midnight',
-            'interval': 1,
-            'backupCount': 7,
             'formatter': 'verbose',
         },
     },

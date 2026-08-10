@@ -48,6 +48,9 @@ struct MockUser {
     // mapped freeform) and the freeform terms the user typed.
     var interestCategories: [String] = []
     var freeformInterests: [String] = []
+    // Google's `sub` claim once this account is linked to a Google identity
+    // (issue #10); nil for password-only accounts.
+    var googleSub: String? = nil
 
     init(username: String, email: String, passwordHash: String) {
         self.username = username
@@ -258,7 +261,11 @@ final class StatefulStubbedAPI: Networking {
 
     // MARK: - Configuration
     public var simulatedLatency: TimeInterval = 0.1
-    private let maxReportsBeforeHiding = 5
+    /// The stub's seam for content the creation-time classifier let through but
+    /// the report-triggered re-review rejects (issue #467). A report count hides
+    /// nothing at all, so this word in a caption or comment body is the only way
+    /// reporting changes what the stub returns.
+    private let reviewRejectedMarker = "reviewable"
     private let awsStubBucket = "https://stub-bucket.s3.us-east-2.amazonaws.com/"
     public var pageSize = 2 // Make this small for easier testing
     public private(set) var getPostsInFeedCallCount = 0
@@ -587,6 +594,130 @@ final class StatefulStubbedAPI: Networking {
                 user_id: user.id.uuidString
             ))
         }
+    }
+
+    func loginWithGoogle(idToken: String, rememberMe: String, ip: String) async throws -> Data {
+        await simulateNetwork()
+
+        // The real backend verifies the token against Google's public keys; the
+        // stub has neither a network nor the keys, so it reads the claims
+        // straight out of the payload segment (see google_auth.py for what the
+        // real check does).
+        guard let claims = Self.decodeIdTokenClaims(idToken),
+              let sub = claims.sub, let rawEmail = claims.email else {
+            throw APIError.serverError(statusCode: 401, serverMessage: "invalid_google_token")
+        }
+        // Verified has to be asserted, not merely not-denied: the backend
+        // requires `email_verified is True`, so a missing claim counts as
+        // unverified there and must here too, or the stub is more permissive
+        // than production.
+        if claims.email_verified != true {
+            throw APIError.serverError(statusCode: 403, serverMessage: "google_email_unverified")
+        }
+        let email = rawEmail.lowercased()
+
+        var createdAccount = false
+        var index = users.firstIndex { $0.googleSub == sub }
+        if index == nil {
+            // Google has verified the address, so an account already holding it
+            // is the same person: link rather than making a second account.
+            if let existing = users.firstIndex(where: { $0.email.lowercased() == email }) {
+                users[existing].googleSub = sub
+                users[existing].emailVerified = true
+                users[existing].emailVerificationToken = nil
+                index = existing
+            }
+        }
+        if index == nil {
+            // Usernames need at least 10 word characters, so a short local part
+            // is padded — mirroring _google_username_base in the backend.
+            let localPart = String(email.split(separator: "@").first ?? "")
+            let base = localPart.filter { $0.isLetter || $0.isNumber || $0 == "_" }
+            let stem = base.isEmpty ? "friend" : base
+            var username = stem.count >= 10 ? stem : stem + String(repeating: "0", count: 10 - stem.count)
+            var suffix = 1
+            while findUser(byUsername: username) != nil {
+                username = stem + String(format: "%04d", suffix)
+                suffix += 1
+            }
+
+            // No password exists behind a Google account. The stub compares
+            // passwords as plain strings, so this is a value nobody could type
+            // rather than a readable placeholder somebody might.
+            var newUser = MockUser(username: username, email: email, passwordHash: "no-password-\(UUID().uuidString)")
+            newUser.googleSub = sub
+            membershipCounter += 1
+            newUser.membershipNumber = membershipCounter
+            users.append(newUser)
+            index = users.count - 1
+            createdAccount = true
+        }
+
+        guard let userIndex = index else {
+            throw APIError.serverError(statusCode: 500, serverMessage: "Could not create an account")
+        }
+        let user = users[userIndex]
+
+        // Holding the Google account is a first factor, not a bypass of the second.
+        if user.totpEnabled {
+            twoFactorChallenges.removeAll { $0.userId == user.id }
+            let challenge = MockTwoFactorChallenge(
+                challengeToken: generateToken(),
+                userId: user.id,
+                rememberMe: Bool(rememberMe.lowercased()) ?? false,
+                ip: ip
+            )
+            twoFactorChallenges.append(challenge)
+            struct Fields: Codable { let two_factor_required: Bool; let challenge_token: String }
+            return try createSerializedResponse(fields: Fields(two_factor_required: true, challenge_token: challenge.challengeToken))
+        }
+
+        sessions.removeAll { $0.userId == user.id }
+        let newSession = MockSession(managementToken: generateToken(), userId: user.id, ip: ip)
+        sessions.append(newSession)
+
+        struct Fields: Codable {
+            let session_management_token, username, user_id: String
+            let series_identifier, login_cookie_token: String?
+            let created_account: Bool
+            let membership_number: Int?
+        }
+        var seriesIdentifier: String? = nil
+        var loginCookieToken: String? = nil
+        if Bool(rememberMe.lowercased()) ?? false {
+            let cookie = MockLoginCookie(seriesIdentifier: UUID().uuidString, token: generateToken(), userId: user.id)
+            loginCookies.append(cookie)
+            seriesIdentifier = cookie.seriesIdentifier
+            loginCookieToken = cookie.token
+        }
+        return try createSerializedResponse(fields: Fields(
+            session_management_token: newSession.managementToken,
+            username: user.username,
+            user_id: user.id.uuidString,
+            series_identifier: seriesIdentifier,
+            login_cookie_token: loginCookieToken,
+            created_account: createdAccount,
+            membership_number: createdAccount ? user.membershipNumber : nil
+        ))
+    }
+
+    /// The claims the stub reads out of an unverified ID token payload.
+    struct StubGoogleClaims: Decodable {
+        let sub: String?
+        let email: String?
+        let email_verified: Bool?
+    }
+
+    static func decodeIdTokenClaims(_ idToken: String) -> StubGoogleClaims? {
+        let segments = idToken.split(separator: ".", omittingEmptySubsequences: false)
+        guard segments.count == 3 else { return nil }
+        var payload = String(segments[1])
+            .replacingOccurrences(of: "-", with: "+")
+            .replacingOccurrences(of: "_", with: "/")
+        // base64url drops the padding that Data(base64Encoded:) insists on.
+        while payload.count % 4 != 0 { payload += "=" }
+        guard let data = Data(base64Encoded: payload) else { return nil }
+        return try? JSONDecoder().decode(StubGoogleClaims.self, from: data)
     }
 
     func loginUserWithRememberMe(sessionManagementToken: String, seriesIdentifier: String, loginCookieToken: String, ip: String) async throws -> Data {
@@ -1061,9 +1192,12 @@ final class StatefulStubbedAPI: Networking {
         if posts[postIndex].reports.contains(where: { $0.username == reporter.username }) { throw APIError.badServerResponse(statusCode: 400) }
         
         posts[postIndex].reports.append((reporter.username, reason))
-        if posts[postIndex].reports.count > maxReportsBeforeHiding {
+        // Mirrors the backend's report-triggered re-review (issue #467): the
+        // report re-examines the CONTENT, and only a rejection hides it — the
+        // number of reports never enters into it.
+        if !posts[postIndex].isHidden && posts[postIndex].caption.contains(reviewRejectedMarker) {
             posts[postIndex].isHidden = true
-            posts[postIndex].hiddenReason = "reports"
+            posts[postIndex].hiddenReason = "classifier"
         }
         return try createEmptySuccessResponse()
     }
@@ -1074,13 +1208,9 @@ final class StatefulStubbedAPI: Networking {
         guard let postIndex = posts.firstIndex(where: { $0.postIdentifier == postIdentifier }) else { throw APIError.badServerResponse(statusCode: 400) }
         guard let reportIndex = posts[postIndex].reports.firstIndex(where: { $0.username == retractor.username }) else { throw APIError.badServerResponse(statusCode: 400) }
 
+        // Retracting never un-hides: hiding is a moderation decision, not a
+        // reversible group vote (issue #467).
         posts[postIndex].reports.remove(at: reportIndex)
-        // Un-hide only when reports were what hid it, mirroring the backend.
-        if posts[postIndex].isHidden && posts[postIndex].hiddenReason == "reports"
-            && posts[postIndex].reports.count <= maxReportsBeforeHiding {
-            posts[postIndex].isHidden = false
-            posts[postIndex].hiddenReason = ""
-        }
         return try createEmptySuccessResponse()
     }
 
@@ -1104,6 +1234,17 @@ final class StatefulStubbedAPI: Networking {
         
         posts[postIndex].likes.remove(at: likeIndex)
         return try createEmptySuccessResponse()
+    }
+
+    /// Who liked one of the caller's own posts, newest like first (issue #478).
+    /// Owner-only: somebody else's post is reported exactly like a missing one,
+    /// so the stub can't be used to discover whose post an identifier names.
+    func getPostLikers(sessionManagementToken: String, postIdentifier: String, batch: Int) async throws -> Data {
+        await simulateNetwork()
+        guard let user = findUser(bySessionToken: sessionManagementToken) else { throw APIError.badServerResponse(statusCode: 401) }
+        guard let post = posts.first(where: { $0.postIdentifier == postIdentifier }),
+              post.authorId == user.id else { throw APIError.badServerResponse(statusCode: 400) }
+        return try likerBatch(likerUsernames: post.likes, viewer: user, batch: batch)
     }
 
     func savePost(sessionManagementToken: String, postIdentifier: String) async throws -> Data {
@@ -1395,6 +1536,54 @@ final class StatefulStubbedAPI: Networking {
         return try createEmptySuccessResponse()
     }
 
+    /// Who liked one of the caller's own comments, newest like first (#478).
+    /// Owner-only in the same way `getPostLikers` is — owning the post is not
+    /// owning the comment.
+    func getCommentLikers(sessionManagementToken: String, postIdentifier: String, commentThreadIdentifier: String, commentIdentifier: String, batch: Int) async throws -> Data {
+        await simulateNetwork()
+        guard let user = findUser(bySessionToken: sessionManagementToken) else { throw APIError.badServerResponse(statusCode: 401) }
+        // Scoped by post + thread + comment, the way the backend's query joins
+        // them (and the web/Android stubs do), so a mismatched post or thread is
+        // refused here rather than quietly answering for the comment anyway.
+        guard let comment = comments.first(where: { $0.commentIdentifier == commentIdentifier }),
+              comment.threadId == commentThreadIdentifier,
+              findCommentThread(byIdentifier: commentThreadIdentifier)?.postId == postIdentifier,
+              comment.authorUsername == user.username else { throw APIError.badServerResponse(statusCode: 400) }
+        return try likerBatch(likerUsernames: comment.likes, viewer: user, batch: batch)
+    }
+
+    /// One `pageSize` batch of the accounts behind a set of likes, newest like
+    /// first (issue #478). `likerUsernames` is in the order the likes were
+    /// added, so reversing it gives most-recent-first. Blocked accounts drop out
+    /// in both directions, matching the backend — which additionally hides
+    /// shadow-banned and cross-age-band likers, states this stub does not model.
+    private func likerBatch(likerUsernames: [String], viewer: MockUser, batch: Int) throws -> Data {
+        struct Fields: Codable {
+            let username: String
+            let identity_is_verified: Bool
+            let author_profile_image_url: String?
+            let author_profile_image_original_url: String?
+        }
+
+        let likers = likerUsernames
+            .reversed()
+            .compactMap { name in users.first(where: { $0.username == name }) }
+            .filter { !viewer.blocked.contains($0.id) && !viewer.blockedBy.contains($0.id) }
+
+        let startIndex = batch * pageSize
+        guard startIndex < likers.count else {
+            return try createSerializedListResponse(fieldsList: [Fields]())
+        }
+        let endIndex = min(startIndex + pageSize, likers.count)
+
+        let fieldObjects = likers[startIndex..<endIndex].map { user -> Fields in
+            let avatar = user.profileImageStatus == "approved" ? user.profileImageUrl : nil
+            return Fields(username: user.username, identity_is_verified: user.identityIsVerified,
+                          author_profile_image_url: avatar, author_profile_image_original_url: avatar)
+        }
+        return try createSerializedListResponse(fieldsList: fieldObjects)
+    }
+
     func deleteComment(sessionManagementToken: String, postIdentifier: String, commentThreadIdentifier: String, commentIdentifier: String) async throws -> Data {
         await simulateNetwork()
         guard let user = findUser(bySessionToken: sessionManagementToken) else { throw APIError.badServerResponse(statusCode: 400) }
@@ -1416,9 +1605,11 @@ final class StatefulStubbedAPI: Networking {
         if comments[commentIndex].reports.contains(where: { $0.username == reporter.username }) { throw APIError.badServerResponse(statusCode: 400) }
         
         comments[commentIndex].reports.append((reporter.username, reason))
-        if comments[commentIndex].reports.count > maxReportsBeforeHiding {
+        // As for posts, the report re-reviews the comment's own text and only a
+        // rejection hides it (issue #467).
+        if !comments[commentIndex].isHidden && comments[commentIndex].body.contains(reviewRejectedMarker) {
             comments[commentIndex].isHidden = true
-            comments[commentIndex].hiddenReason = "reports"
+            comments[commentIndex].hiddenReason = "classifier"
         }
         return try createEmptySuccessResponse()
     }
@@ -1430,12 +1621,6 @@ final class StatefulStubbedAPI: Networking {
         guard let reportIndex = comments[commentIndex].reports.firstIndex(where: { $0.username == retractor.username }) else { throw APIError.badServerResponse(statusCode: 400) }
 
         comments[commentIndex].reports.remove(at: reportIndex)
-        // Un-hide only when reports were what hid it, mirroring the backend.
-        if comments[commentIndex].isHidden && comments[commentIndex].hiddenReason == "reports"
-            && comments[commentIndex].reports.count <= maxReportsBeforeHiding {
-            comments[commentIndex].isHidden = false
-            comments[commentIndex].hiddenReason = ""
-        }
         return try createEmptySuccessResponse()
     }
 

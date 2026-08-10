@@ -79,7 +79,7 @@ struct AppealsView: View {
     private func reasonLabel(_ reason: String) -> String {
         switch reason {
         case "classifier": return "Flagged by automated review"
-        case "reports": return "Hidden after user reports"
+        case "reports": return "Hidden by a moderator after user reports"
         default: return "Hidden"
         }
     }

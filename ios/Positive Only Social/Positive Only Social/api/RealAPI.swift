@@ -75,6 +75,12 @@ final class RealAPI: Networking {
         let remember_me: String
         let ip: String
     }
+
+    private struct GoogleLoginBody: Encodable {
+        let id_token: String
+        let remember_me: String
+        let ip: String
+    }
     
     private struct RememberMeBody: Encodable {
         let session_management_token: String
@@ -346,6 +352,19 @@ final class RealAPI: Networking {
         )
     }
     
+    /// Exchanges a Google ID token for a session, creating the account on the
+    /// first sign-in. Can answer with a two-factor challenge, like loginUser.
+    func loginWithGoogle(idToken: String, rememberMe: String, ip: String) async throws -> Data {
+        let body = GoogleLoginBody(id_token: idToken, remember_me: rememberMe, ip: ip)
+        let requestBody = try encode(body)
+
+        return try await performRequest(
+            pathSegments: [GVOAppConstants.pathSegmentLogin, GVOAppConstants.pathSegmentGoogle],
+            method: .post,
+            body: requestBody
+        )
+    }
+
     /// Second step of a two-factor login: exchanges the challenge for a session.
     func loginUser2FA(challengeToken: String, totpCode: String?, recoveryCode: String?, ip: String) async throws -> Data {
         let body = Login2FABody(challenge_token: challengeToken, totp_code: totpCode, recovery_code: recoveryCode, ip: ip)
@@ -636,6 +655,16 @@ final class RealAPI: Networking {
         )
     }
 
+    /// Gets a batch of the users who liked one of the caller's own posts (#478).
+    func getPostLikers(sessionManagementToken: String, postIdentifier: String, batch: Int) async throws -> Data {
+        // GET posts/<id>/likes/<batch>/ with auth. Owner-only server-side.
+        return try await performRequest(
+            pathSegments: [GVOAppConstants.pathSegmentPosts, postIdentifier, GVOAppConstants.pathSegmentLikes, String(batch)],
+            method: .get,
+            authToken: sessionManagementToken
+        )
+    }
+
     /// Saves a post to the viewer's saved collection (issue #193/#412).
     func savePost(sessionManagementToken: String, postIdentifier: String) async throws -> Data {
         // This is a POST request, no body, with auth. ID is in path.
@@ -756,6 +785,16 @@ final class RealAPI: Networking {
         )
     }
     
+    /// Gets a batch of the users who liked one of the caller's own comments (#478).
+    func getCommentLikers(sessionManagementToken: String, postIdentifier: String, commentThreadIdentifier: String, commentIdentifier: String, batch: Int) async throws -> Data {
+        // GET .../comments/<id>/likes/<batch>/ with auth. Owner-only server-side.
+        return try await performRequest(
+            pathSegments: [GVOAppConstants.pathSegmentPosts, postIdentifier, GVOAppConstants.pathSegmentThreads, commentThreadIdentifier, GVOAppConstants.pathSegmentComments, commentIdentifier, GVOAppConstants.pathSegmentLikes, String(batch)],
+            method: .get,
+            authToken: sessionManagementToken
+        )
+    }
+
     /// Deletes a comment.
     func deleteComment(sessionManagementToken: String, postIdentifier: String, commentThreadIdentifier: String, commentIdentifier: String) async throws -> Data {
         // This is a POST request, no body, with auth. IDs are in path.

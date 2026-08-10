@@ -89,6 +89,56 @@ class RegisterTests(PositiveOnlySocialTestCase):
 
         self.assertEqual(response.status_code, 400)
 
+    def test_non_string_remember_me_is_a_validation_error_not_a_crash(self):
+        """
+        A JSON number is neither a bool nor a parseable string. It used to reach
+        `.lower()` and raise AttributeError, which no caller catches, so the
+        request came back as a 500 instead of a validation error.
+        """
+        data = self.valid_data.copy()
+        data['remember_me'] = 1
+
+        response = self.client.post(self.url, data=data, content_type='application/json')
+
+        self.assertEqual(response.status_code, 400)
+
+    @patch.dict(os.environ, {"TESTING": "True"}, clear=True)
+    def test_null_remember_me_is_treated_as_omitted(self):
+        """
+        An explicit JSON null means "no value", exactly like leaving the key out.
+        This API does not distinguish the two anywhere — date_of_birth and the
+        interest fields are read the same way — and a client that serializes an
+        unset optional as null rather than dropping the key must not be rejected.
+        """
+        data = self.valid_data.copy()
+        data['remember_me'] = None
+
+        response = self.client.post(self.url, data=data, content_type='application/json')
+
+        self.assertEqual(response.status_code, 201)
+        self.assertNotIn(Fields.login_cookie_token, response.json())
+
+    @patch.dict(os.environ, {"TESTING": "True"}, clear=True)
+    def test_omitted_remember_me_registers_without_remembering(self):
+        """
+        'remember_me' is optional — the website's own RegisterRequest type marks
+        it so. Leaving it out must create the account without a remembered
+        device, not fail with a 500 (which is what the AttributeError from
+        `None.lower()` used to produce).
+        """
+        data = self.valid_data.copy()
+        del data['remember_me']
+
+        response = self.client.post(self.url, data=data, content_type='application/json')
+
+        self.assertEqual(response.status_code, 201)
+        fields = response.json()
+        self.assertIn(Fields.session_management_token, fields)
+        # No remembered device was asked for, so none is issued.
+        self.assertNotIn(Fields.series_identifier, fields)
+        self.assertNotIn(Fields.login_cookie_token, fields)
+        self.assertIsNotNone(get_user_model().objects.filter(username=self.local_username).first())
+
     @patch.dict(os.environ, {"TESTING": "True"}, clear=True)
     def test_user_already_exists_returns_bad_response(self):
         """

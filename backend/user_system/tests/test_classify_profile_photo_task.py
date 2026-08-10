@@ -16,9 +16,11 @@ REJECTED = ClassificationResult(allowed=False, reason_code='nudity')
 PROVIDER_FAILURE = ClassificationResult(allowed=False, provider_failure=True)
 
 IMAGE = 'user_system.tasks.image_classifier_class.is_image_positive'
+BLURHASH = 'user_system.tasks.compute_blurhash'
 
 PENDING_URL = 'https://test-bucket.s3.amazonaws.com/user/pending.jpeg'
 OLD_LIVE_URL = 'https://test-bucket.s3.amazonaws.com/user/old.jpeg'
+FAKE_BLURHASH = 'LEHV6nWB2yk8pyo0adR*.7kCMdnj'
 
 
 class ClassifyProfilePhotoTaskTests(TestCase):
@@ -131,3 +133,66 @@ class ClassifyProfilePhotoTaskTests(TestCase):
         self.assertEqual(self.user.profile_image_status, PROFILE_IMAGE_STATUS_PENDING)
         self.assertEqual(self.user.pending_profile_image_url, new_url)
         mock_delete.assert_not_called()
+
+
+class ClassifyProfilePhotoBlurHashTests(TestCase):
+    """The avatar BlurHash the worker records on approval (issue #460), the
+    profile counterpart of the post placeholder in ClassifyPostTaskTests."""
+
+    def setUp(self):
+        super().setUp()
+        self.user = PositiveOnlySocialUser.objects.create_user(
+            username='avatar_blur_user', email='avatarblur@test.com', password='x')
+        self.user.pending_profile_image_url = PENDING_URL
+        self.user.profile_image_status = PROFILE_IMAGE_STATUS_PENDING
+        self.user.save()
+
+    def _run(self):
+        tasks.classify_profile_photo(str(self.user.id))
+        self.user.refresh_from_db()
+
+    @patch(BLURHASH, return_value=FAKE_BLURHASH)
+    @patch(IMAGE, return_value=ALLOWED)
+    def test_approval_stores_blurhash_for_the_promoted_photo(self, _image, mock_blur):
+        self._run()
+        # Encoded from the pending upload — the one that just became live.
+        mock_blur.assert_called_once_with(PENDING_URL)
+        self.assertEqual(self.user.profile_image_url, PENDING_URL)
+        self.assertEqual(self.user.profile_image_blurhash, FAKE_BLURHASH)
+
+    @patch(BLURHASH, return_value=None)
+    @patch(IMAGE, return_value=ALLOWED)
+    def test_approval_tolerates_blurhash_failure(self, _image, _blur):
+        """The hash is decorative: an encode failure never blocks the approval —
+        the photo still goes live, just without a placeholder."""
+        self._run()
+        self.assertEqual(self.user.profile_image_status, PROFILE_IMAGE_STATUS_APPROVED)
+        self.assertEqual(self.user.profile_image_url, PENDING_URL)
+        self.assertIsNone(self.user.profile_image_blurhash)
+
+    @patch(BLURHASH, return_value=None)
+    @patch(IMAGE, return_value=ALLOWED)
+    def test_approval_clears_a_previous_photos_hash(self, _image, _blur):
+        """A new photo whose hash can't be computed must not inherit the old
+        photo's blur — that would preview the wrong picture."""
+        PositiveOnlySocialUser.objects.filter(pk=self.user.pk).update(
+            profile_image_url=OLD_LIVE_URL, profile_image_blurhash='stale-hash')
+        with patch('user_system.tasks.delete_image'):
+            self._run()
+        self.assertEqual(self.user.profile_image_url, PENDING_URL)
+        self.assertIsNone(self.user.profile_image_blurhash)
+
+    @patch('user_system.tasks.delete_image')
+    @patch(BLURHASH, return_value=FAKE_BLURHASH)
+    @patch(IMAGE, return_value=REJECTED)
+    def test_rejection_computes_nothing_and_keeps_the_live_hash(
+            self, _image, mock_blur, _delete):
+        """A rejected upload is deleted and never shown, so it needs no
+        placeholder — and the still-live photo keeps the hash it already had."""
+        PositiveOnlySocialUser.objects.filter(pk=self.user.pk).update(
+            profile_image_url=OLD_LIVE_URL, profile_image_blurhash='live-hash')
+        self._run()
+        mock_blur.assert_not_called()
+        self.assertEqual(self.user.profile_image_status, PROFILE_IMAGE_STATUS_REJECTED)
+        self.assertEqual(self.user.profile_image_url, OLD_LIVE_URL)
+        self.assertEqual(self.user.profile_image_blurhash, 'live-hash')

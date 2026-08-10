@@ -8,6 +8,7 @@ vi.mock('../api/client', () => ({
   apiClient: {
     getFeed: vi.fn(),
     getFollowedFeed: vi.fn(),
+    getPostLikers: vi.fn(),
     likePost: vi.fn(),
     unlikePost: vi.fn(),
     savePost: vi.fn(),
@@ -24,6 +25,7 @@ const mockGetFollowed = vi.mocked(apiClient.getFollowedFeed)
 const mockLikePost = vi.mocked(apiClient.likePost)
 const mockSavePost = vi.mocked(apiClient.savePost)
 const mockDeletePost = vi.mocked(apiClient.deletePost)
+const mockGetPostLikers = vi.mocked(apiClient.getPostLikers)
 
 function renderTab() {
   return render(
@@ -46,6 +48,7 @@ beforeEach(() => {
   mockLikePost.mockReset().mockResolvedValue({ message: 'ok' })
   mockSavePost.mockReset().mockResolvedValue({ message: 'Post saved' })
   mockDeletePost.mockReset().mockResolvedValue({ message: 'ok' })
+  mockGetPostLikers.mockReset().mockResolvedValue([])
   // getCurrentUsername reads storage; 'ada' is another user in these feeds
   // unless a test says otherwise.
   vi.stubGlobal('localStorage', {
@@ -93,6 +96,43 @@ test('shows the caption under the photo for an image post (#378)', async () => {
   await screen.findByRole('button', { name: 'Open post by ada' })
   const caption = container.querySelector('.feed-post__caption')
   expect(caption).toHaveTextContent('a lovely day')
+})
+
+test("applies the author's caption font to the feed caption (#450)", async () => {
+  mockGetFeed.mockResolvedValue([
+    {
+      post_identifier: 'p1',
+      image_url: 'http://img/1.jpg',
+      author_username: 'ada',
+      caption: 'a lovely day',
+      caption_font: 'serif',
+    },
+  ])
+  mockGetFollowed.mockResolvedValue([])
+  const { container } = renderTab()
+
+  await screen.findByRole('button', { name: 'Open post by ada' })
+  expect(container.querySelector('.feed-post__caption')).toHaveClass('caption-font--serif')
+})
+
+test('leaves the feed caption unstyled when the post has no font (#450)', async () => {
+  // Older payloads omit caption_font, and `default` means "no override" — either
+  // way the caption keeps the feed's own styling and gains no font class.
+  mockGetFeed.mockResolvedValue([
+    {
+      post_identifier: 'p1',
+      image_url: 'http://img/1.jpg',
+      author_username: 'ada',
+      caption: 'a lovely day',
+      caption_font: 'default',
+    },
+  ])
+  mockGetFollowed.mockResolvedValue([])
+  const { container } = renderTab()
+
+  await screen.findByRole('button', { name: 'Open post by ada' })
+  expect(container.querySelector('.feed-post__caption')).toHaveClass('feed-post__caption')
+  expect(container.querySelector('[class*="caption-font--"]')).toBeNull()
 })
 
 test('does not repeat the caption below a text-only post (#378)', async () => {
@@ -223,7 +263,8 @@ test('deleting your own post removes it without reloading the feed', async () =>
   renderTab()
 
   await userEvent.click(await screen.findByRole('button', { name: 'Options for post by me' }))
-  await userEvent.click(screen.getByRole('button', { name: 'Delete' }))
+  // The menu row, then the confirmation modal's button.
+  await userEvent.click(screen.getByRole('menuitem', { name: 'Delete' }))
   await userEvent.click(screen.getByRole('button', { name: 'Delete' }))
 
   await waitFor(() => expect(mockDeletePost).toHaveBeenCalledWith('p1'))
@@ -341,4 +382,52 @@ test('tapping another user name in the feed goes to their profile page', async (
 
   await userEvent.click(await screen.findByRole('button', { name: 'ada' }))
   expect(screen.getByText('Profile page')).toBeInTheDocument()
+})
+
+// ---- Who liked this (issue #478) ----
+
+test('the like count on your own feed row opens the likers dialog', async () => {
+  mockGetFeed.mockResolvedValue([
+    {
+      post_identifier: 'p1',
+      image_url: 'http://img/1.jpg',
+      author_username: 'me',
+      caption: 'mine',
+      post_likes: 2,
+    },
+  ])
+  mockGetFollowed.mockResolvedValue([])
+  mockGetPostLikers.mockResolvedValue([
+    { username: 'ada', identity_is_verified: false },
+    { username: 'grace', identity_is_verified: false },
+  ])
+  renderTab()
+
+  await userEvent.click(
+    await screen.findByRole('button', { name: '2 likes, see who liked this' }),
+  )
+
+  expect(await screen.findByText('ada')).toBeInTheDocument()
+  expect(screen.getByText('grace')).toBeInTheDocument()
+  expect(mockGetPostLikers).toHaveBeenCalledWith('p1', 0)
+})
+
+test("the like count on someone else's feed row is not tappable", async () => {
+  mockGetFeed.mockResolvedValue([
+    {
+      post_identifier: 'p1',
+      image_url: 'http://img/1.jpg',
+      author_username: 'ada',
+      caption: 'hi',
+      post_likes: 2,
+    },
+  ])
+  mockGetFollowed.mockResolvedValue([])
+  renderTab()
+
+  await screen.findByRole('button', { name: 'Open post by ada' })
+  expect(
+    screen.queryByRole('button', { name: /see who liked this/ }),
+  ).not.toBeInTheDocument()
+  expect(mockGetPostLikers).not.toHaveBeenCalled()
 })

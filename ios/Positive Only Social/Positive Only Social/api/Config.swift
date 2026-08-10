@@ -8,12 +8,23 @@
 import Foundation
 
 struct Config {
-    
+
     static let _api : Networking = isUITesting() ? StatefulStubbedAPI() : RealAPI()
-    
+
     static var api: Networking {
         get {
             return _api
+        }
+    }
+
+    // Google sign-in (issue #10). Under UI tests there is no real consent
+    // screen to drive, so the stub hands back a token the stubbed API decodes —
+    // the same swap `api` above makes.
+    static let _googleSignIn: GoogleSignInProviding = isUITesting() ? StubbedGoogleSignIn() : GoogleSignInProvider()
+
+    static var googleSignIn: GoogleSignInProviding {
+        get {
+            return _googleSignIn
         }
     }
 }

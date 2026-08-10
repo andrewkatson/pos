@@ -122,6 +122,9 @@ fun ProfileBody(
 
     val postActions = viewModel.postActions
     val currentUsername by postActions.currentUsername.collectAsState()
+    // Which post's action menu is open, collected once here rather than in every
+    // grid tile's PostActionMenu.
+    val postForAction by postActions.postForAction.collectAsState()
 
     // Own profile-photo controls (issue #7). Picking a photo reuses the same
     // system picker as NewPostScreen; the bytes are read here (it needs a
@@ -264,7 +267,11 @@ fun ProfileBody(
                 // contentDescription would make TalkBack announce it twice (the
                 // website uses alt="" and iOS accessibilityHidden for the same).
                 contentDescription = null,
-                size = 96.dp
+                size = 96.dp,
+                // The hash describes the *approved* photo, so it is withheld
+                // while the owner previews a pending upload: blurring in the old
+                // picture behind the new one would just read as a glitch.
+                blurHash = if (pendingAvatar != null) null else profileDetails?.profileImageBlurHash
             )
 
             // Own-profile photo controls: add/change and remove, plus the
@@ -556,7 +563,17 @@ fun ProfileBody(
                                     isOwnPost = post.authorUsername == currentUsername,
                                     onToggleLike = { postActions.toggleLike(post) },
                                     onOpenMenu = { postActions.setPostForAction(post) },
-                                    compact = true
+                                    compact = true,
+                                    onOpenLikes = { postActions.setPostForLikes(post) },
+                                    menu = {
+                                        PostActionMenu(
+                                            postActions,
+                                            post,
+                                            expanded = postForAction?.postIdentifier ==
+                                                post.postIdentifier,
+                                            isOwn = post.authorUsername == currentUsername
+                                        )
+                                    }
                                 )
                             }
 
@@ -573,7 +590,7 @@ fun ProfileBody(
     }
 
     // One set of confirmations for the whole grid.
-    PostActionDialogs(postActions)
+    PostActionDialogs(postActions, navController)
 }
 
 @Composable

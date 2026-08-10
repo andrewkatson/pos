@@ -300,6 +300,18 @@ test('the preview shows the caption as a tile for a text-only post (#418)', asyn
   expect(screen.getByRole('img', { name: 'a sunny thought' })).toBeInTheDocument()
 })
 
+test("the preview applies the chosen font to an image post's caption (#450)", async () => {
+  const { container } = render(<NewPostTab onPosted={() => {}} />)
+
+  await userEvent.upload(screen.getByLabelText('Choose a photo'), makeFile())
+  await userEvent.type(screen.getByLabelText('Caption'), 'a sunny thought')
+  await userEvent.selectOptions(screen.getByLabelText('Font'), 'serif')
+
+  // With a photo attached the caption sits under the image, exactly as the feed
+  // renders it — and carries the chosen font there too.
+  expect(container.querySelector('.feed-post__caption')).toHaveClass('caption-font--serif')
+})
+
 test('shows an error when there is no signed-in user', async () => {
   vi.stubGlobal('localStorage', {
     getItem: vi.fn(() => null),

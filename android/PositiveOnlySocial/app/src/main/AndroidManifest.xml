@@ -30,6 +30,30 @@
 
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
+
+            <!-- App Links for shared post links (issue #382). autoVerify makes
+                 Android check https://smiling.social/.well-known/assetlinks.json
+                 for this package + signing certificate at install time; only
+                 then does the link open the app instead of the browser. Both
+                 hosts serve the same site, so a link shared with the www.
+                 prefix opens the app too.
+
+                 Scoped to /post/ rather than the whole site on purpose: every
+                 other route (login, profiles, the privacy policy) belongs to
+                 the website, and claiming them would hijack links the app has
+                 no screen for. MainActivity parses the URL and routes it
+                 through the same navigator a tapped push notification uses, so
+                 a link opened while signed out waits for login instead of
+                 dropping the user on an authenticated screen. -->
+            <intent-filter android:autoVerify="true">
+                <action android:name="android.intent.action.VIEW" />
+
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+
+                <data android:scheme="https" android:host="smiling.social" android:pathPrefix="/post/" />
+                <data android:scheme="https" android:host="www.smiling.social" android:pathPrefix="/post/" />
+            </intent-filter>
         </activity>
 
         <!-- Receives FCM push (issues #342/#343). onNewToken re-registers the
