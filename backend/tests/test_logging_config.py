@@ -111,14 +111,24 @@ def test_handler_reopens_when_its_open_file_is_no_longer_the_named_one(tmp_path)
            "logrotate sequence this asserts cannot be simulated there. "
            "The deployment target is Linux and CI runs Linux.",
 )
-def test_handler_follows_the_file_after_an_external_rotate(tmp_path):
-    """The behaviour logrotate depends on: reopen the path when the inode changes.
+@pytest.mark.parametrize('recreate_after_rename', [True, False], ids=['create', 'mid-rotate'])
+def test_handler_follows_the_file_after_an_external_rotate(tmp_path, recreate_after_rename):
+    """End-to-end logrotate behaviour: records land in the live file, not the rotated one.
 
-    A `TimedRotatingFileHandler` fails this — after the rename its stream still
+    Two points in the rotate sequence, because logrotate's `create` is two steps
+    and a record can arrive between them:
+
+    - `create` — rename, then the new file exists. This is the steady state the
+      installed config produces, and what the README documents.
+    - `mid-rotate` — rename, and a record arrives before the new file is created.
+      The handler must create it rather than fall back to the rotated inode.
+
+    A `TimedRotatingFileHandler` fails both: after the rename its stream still
     points at the rotated file, which is exactly how gunicorn's records went
     missing from the live log.
     """
     log_path = tmp_path / 'user_system.log'
+    rotated_path = tmp_path / 'user_system.log.1'
     logger = logging.getLogger('user_system.tests.rotation')
     logger.setLevel(logging.INFO)
     logger.propagate = False
@@ -129,11 +139,12 @@ def test_handler_follows_the_file_after_an_external_rotate(tmp_path):
         logger.info('before-rotate')
 
         # Stand in for logrotate: rename the live file, leaving the handler's
-        # descriptor on the rotated one. `create` (a fresh inode) is what the
-        # installed config does; `copytruncate` would keep the inode and defeat
-        # the reopen check, which is why the README forbids it.
-        rotated_path = tmp_path / 'user_system.log.1'
+        # descriptor on the rotated one, then `create` the replacement. Note it
+        # is `create` and not `copytruncate` — truncating keeps the inode, so the
+        # handler's check would never fire, which is why the README forbids it.
         os.rename(log_path, rotated_path)
+        if recreate_after_rename:
+            log_path.touch()
 
         logger.info('after-rotate')
     finally:

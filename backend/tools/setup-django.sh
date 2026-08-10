@@ -78,6 +78,12 @@ DATABASE_PORT="5432"
 ADMIN_IP_ALLOWLIST=""                 # optional: exact public IP(s) allowed to reach /admin
 REDIS_URL=""                          # optional: enables queue mode + the classification worker
 
+# Set false by setup_log_rotation if logrotate rejects the config it writes, so
+# print_summary can repeat the warning at the end of the run. Unlike a dead
+# service, a bad logrotate config produces no symptom until the disk fills, so
+# the one error line must not be left to scroll past.
+LOGROTATE_CONFIG_VALID=true
+
 ###############################################################################
 # Helper Functions
 ###############################################################################
@@ -683,11 +689,18 @@ EOF
     # so it rotated nothing. Remove it so the two do not both claim the log.
     sudo rm -f /etc/logrotate.d/gunicorn
 
-    # Fail loudly here rather than silently never rotating: a bad config makes
-    # logrotate skip the file and the log grows without bound.
+    # Validate rather than assume. A rejected config makes logrotate skip the
+    # file and the log grows without bound, with no symptom until the disk fills.
+    #
+    # Non-fatal, like every other verification in this script (gunicorn, the
+    # worker, both timers all report and continue) — aborting provisioning at the
+    # second-to-last step over a rotation config would leave the host in a worse
+    # state than finishing it. The flag carries the failure to print_summary so
+    # the operator still sees it after the run scrolls by.
     if sudo logrotate --debug /etc/logrotate.d/smiling-social-django > /dev/null 2>&1; then
         print_status "Log rotation configured for $BACKEND_DIR/logs/user_system.log"
     else
+        LOGROTATE_CONFIG_VALID=false
         print_error "logrotate rejected /etc/logrotate.d/smiling-social-django. Check:"
         print_error "  sudo logrotate --debug /etc/logrotate.d/smiling-social-django"
     fi
@@ -788,7 +801,17 @@ print_summary() {
     echo "  - View Gunicorn logs: sudo journalctl -u gunicorn -f"
     echo "  - View classification worker logs: sudo journalctl -u classification-worker -f"
     echo "  - View Nginx logs: sudo tail -f /var/log/nginx/error.log"
+    echo "  - View the shared Django log: tail -f $BACKEND_DIR/logs/user_system.log"
     echo ""
+    if [ "$LOGROTATE_CONFIG_VALID" != true ]; then
+        echo -e "${RED}ACTION REQUIRED:${NC} logrotate rejected the config this script wrote, so"
+        echo "      $BACKEND_DIR/logs/user_system.log will NOT be rotated and will grow"
+        echo "      until it fills the disk. Every backend process shares that one file and"
+        echo "      none of them rotates it (see the Backend logs section of README.md)."
+        echo "      Diagnose with:"
+        echo "        sudo logrotate --debug /etc/logrotate.d/smiling-social-django"
+        echo ""
+    fi
     if ! grep -Eq '^REDIS_URL="?[^"]' "$BACKEND_DIR/.env"; then
         echo -e "${YELLOW}NOTE:${NC} REDIS_URL is unset — running in eager mode (classification on the"
         echo "      request path, and rate limiting via the DatabaseCache 'rate_limit_cache'"
