@@ -34,6 +34,9 @@ function liker(username: string): UserSearchResult {
   return { username, identity_is_verified: false }
 }
 
+// A valid canonical BlurHash (the Wolt example string).
+const BLURHASH = 'LEHV6nWB2yk8pyo0adR*.7kCMdnj'
+
 beforeEach(() => {
   mockPostLikers.mockReset().mockResolvedValue([])
   mockCommentLikers.mockReset().mockResolvedValue([])
@@ -145,6 +148,21 @@ test('a first load that fails shows the error instead of claiming nobody liked i
 
   expect(await screen.findByRole('alert')).toHaveTextContent('Network is down')
   expect(screen.queryByText('No one has liked this yet.')).not.toBeInTheDocument()
+})
+
+test('a liker’s avatar gets its BlurHash preview, like every other avatar list', async () => {
+  mockPostLikers.mockResolvedValue([
+    { ...liker('alice'), author_profile_image_url: 'http://compressed/a.jpg', author_profile_image_blurhash: BLURHASH },
+  ])
+  const onClose = vi.fn()
+  const { container } = render(
+    <MemoryRouter initialEntries={['/post/post-1']}>
+      <LikesModal target={POST_TARGET} onClose={onClose} />
+    </MemoryRouter>,
+  )
+
+  await screen.findByText('alice')
+  expect(container.querySelector('canvas.avatar__blur')).not.toBeNull()
 })
 
 test('switching to another target clears the previous list rather than showing it stale', async () => {

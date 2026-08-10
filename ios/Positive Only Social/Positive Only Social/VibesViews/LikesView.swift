@@ -43,6 +43,7 @@ struct LikesView: View {
                             ProfileAvatarView(
                                 imageUrl: user.authorProfileImageUrl,
                                 originalImageUrl: user.authorProfileImageOriginalUrl,
+                                blurHash: user.authorProfileImageBlurHash,
                                 size: 28
                             )
                             Text(user.username)

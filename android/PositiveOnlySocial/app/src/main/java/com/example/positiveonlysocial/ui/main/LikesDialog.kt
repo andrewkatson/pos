@@ -101,7 +101,8 @@ fun LikesDialog(
                             imageUrl = user.authorProfileImageUrl,
                             originalImageUrl = user.authorProfileImageOriginalUrl,
                             contentDescription = null,
-                            size = 28.dp
+                            size = 28.dp,
+                            blurHash = user.authorProfileImageBlurHash
                         )
                         Spacer(Modifier.width(8.dp))
                         Text(user.username)
