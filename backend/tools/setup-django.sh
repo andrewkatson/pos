@@ -222,6 +222,11 @@ update_system() {
 }
 
 install_dependencies() {
+    # logrotate is load-bearing here, not incidental: Django's WatchedFileHandler
+    # deliberately never rotates the shared log itself (issue #484), so logrotate
+    # is the only thing that does. Ubuntu's server images ship it, but a minimal
+    # or container base may not — declare it rather than inherit it, or the log
+    # grows until it fills the disk.
     print_status "Installing system dependencies..."
     sudo apt install -y \
         python3-pip \
@@ -235,7 +240,8 @@ install_dependencies() {
         build-essential \
         libpq-dev \
         curl \
-        ufw
+        ufw \
+        logrotate
 }
 
 setup_firewall() {
@@ -704,6 +710,15 @@ EOF
         print_error "logrotate rejected /etc/logrotate.d/smiling-social-django. Check:"
         print_error "  sudo logrotate --debug /etc/logrotate.d/smiling-social-django"
     fi
+
+    # A valid config is only half of it — logrotate.timer is what actually fires
+    # the rotation. A masked or disabled timer rotates nothing and looks exactly
+    # like success, so check it too and route it to the same warning.
+    if ! systemctl is-enabled --quiet logrotate.timer 2>/dev/null; then
+        LOGROTATE_CONFIG_VALID=false
+        print_error "logrotate.timer is not enabled — the config above would never run. Fix with:"
+        print_error "  sudo systemctl enable --now logrotate.timer"
+    fi
 }
 
 install_health_check_script() {
@@ -804,12 +819,13 @@ print_summary() {
     echo "  - View the shared Django log: tail -f $BACKEND_DIR/logs/user_system.log"
     echo ""
     if [ "$LOGROTATE_CONFIG_VALID" != true ]; then
-        echo -e "${RED}ACTION REQUIRED:${NC} logrotate rejected the config this script wrote, so"
+        echo -e "${RED}ACTION REQUIRED:${NC} log rotation is not working (see the errors above), so"
         echo "      $BACKEND_DIR/logs/user_system.log will NOT be rotated and will grow"
         echo "      until it fills the disk. Every backend process shares that one file and"
         echo "      none of them rotates it (see the Backend logs section of README.md)."
         echo "      Diagnose with:"
         echo "        sudo logrotate --debug /etc/logrotate.d/smiling-social-django"
+        echo "        systemctl status logrotate.timer"
         echo ""
     fi
     if ! grep -Eq '^REDIS_URL="?[^"]' "$BACKEND_DIR/.env"; then
