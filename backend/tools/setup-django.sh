@@ -78,6 +78,12 @@ DATABASE_PORT="5432"
 ADMIN_IP_ALLOWLIST=""                 # optional: exact public IP(s) allowed to reach /admin
 REDIS_URL=""                          # optional: enables queue mode + the classification worker
 
+# Set false by setup_log_rotation if logrotate rejects the config it writes, so
+# print_summary can repeat the warning at the end of the run. Unlike a dead
+# service, a bad logrotate config produces no symptom until the disk fills, so
+# the one error line must not be left to scroll past.
+LOGROTATE_CONFIG_VALID=true
+
 ###############################################################################
 # Helper Functions
 ###############################################################################
@@ -216,6 +222,11 @@ update_system() {
 }
 
 install_dependencies() {
+    # logrotate is load-bearing here, not incidental: Django's WatchedFileHandler
+    # deliberately never rotates the shared log itself (issue #484), so logrotate
+    # is the only thing that does. Ubuntu's server images ship it, but a minimal
+    # or container base may not — declare it rather than inherit it, or the log
+    # grows until it fills the disk.
     print_status "Installing system dependencies..."
     sudo apt install -y \
         python3-pip \
@@ -229,7 +240,8 @@ install_dependencies() {
         build-essential \
         libpq-dev \
         curl \
-        ufw
+        ufw \
+        logrotate
 }
 
 setup_firewall() {
@@ -646,25 +658,77 @@ EOF
 }
 
 setup_log_rotation() {
+    # Rotates the shared Django log, $BACKEND_DIR/logs/user_system.log.
+    #
+    # Rotation MUST happen out-of-process (issue #484). Every backend process —
+    # 3 gunicorn workers, the classification worker, and each oneshot sweep /
+    # cleanup run — has that one file open. When each process rotated it itself
+    # (settings.py used to configure a TimedRotatingFileHandler), the first one
+    # past midnight renamed the file and the rest took logging's "Already rolled
+    # over" early return and kept writing to the renamed file forever, so only
+    # the short-lived sweep process — which reopens the path on every run — still
+    # landed in the live log. settings.py now uses WatchedFileHandler, which
+    # reopens the path whenever the inode changes, and logrotate does the
+    # renaming for everyone at once.
+    #
+    # `create` (not `copytruncate`) is required: copytruncate reuses the inode,
+    # so WatchedFileHandler's inode check would never fire. `su` lets logrotate
+    # rename inside a directory owned by $APP_USER rather than root. rotate 7
+    # matches the retention the old in-process handler had (backupCount=7).
     print_status "Setting up log rotation..."
 
-    sudo tee /etc/logrotate.d/gunicorn > /dev/null << EOF
-$APP_DIR/*.log {
+    sudo tee /etc/logrotate.d/smiling-social-django > /dev/null << EOF
+$BACKEND_DIR/logs/user_system.log {
     daily
     missingok
-    rotate 14
+    rotate 7
     compress
     delaycompress
     notifempty
+    su $APP_USER www-data
     create 0640 $APP_USER www-data
-    sharedscripts
-    postrotate
-        systemctl reload gunicorn > /dev/null 2>&1 || true
-    endscript
 }
 EOF
 
-    print_status "Log rotation configured"
+    # Supersedes the old config, which globbed $APP_DIR/*.log — a path nothing
+    # ever wrote to (gunicorn logs to journald, Django logs a directory deeper),
+    # so it rotated nothing. Remove it so the two do not both claim the log.
+    sudo rm -f /etc/logrotate.d/gunicorn
+
+    # Validate rather than assume. A rejected config makes logrotate skip the
+    # file and the log grows without bound, with no symptom until the disk fills.
+    #
+    # Non-fatal, like every other verification in this script (gunicorn, the
+    # worker, both timers all report and continue) — aborting provisioning at the
+    # second-to-last step over a rotation config would leave the host in a worse
+    # state than finishing it. The flag carries the failure to print_summary so
+    # the operator still sees it after the run scrolls by.
+    if sudo logrotate --debug /etc/logrotate.d/smiling-social-django > /dev/null 2>&1; then
+        print_status "Log rotation configured for $BACKEND_DIR/logs/user_system.log"
+    else
+        LOGROTATE_CONFIG_VALID=false
+        print_error "logrotate rejected /etc/logrotate.d/smiling-social-django. Check:"
+        print_error "  sudo logrotate --debug /etc/logrotate.d/smiling-social-django"
+    fi
+
+    # A valid config is only half of it — something has to fire it, and a config
+    # nothing runs rotates nothing while looking exactly like success.
+    #
+    # Accept either scheduler the Debian family uses. Modern Ubuntu ships
+    # logrotate.timer; older images (20.04 and back) have no such unit and run
+    # /etc/cron.daily/logrotate instead. Testing only for the timer would print
+    # ACTION REQUIRED on a cron-driven host whose rotation is working perfectly,
+    # and a warning that cries wolf is worse than no warning at all.
+    if systemctl is-enabled --quiet logrotate.timer 2>/dev/null; then
+        print_status "Rotation scheduled by logrotate.timer"
+    elif [ -x /etc/cron.daily/logrotate ]; then
+        print_status "Rotation scheduled by /etc/cron.daily/logrotate"
+    else
+        LOGROTATE_CONFIG_VALID=false
+        print_error "Nothing schedules logrotate (no enabled logrotate.timer, no"
+        print_error "/etc/cron.daily/logrotate), so the config above would never fire. Try:"
+        print_error "  sudo systemctl enable --now logrotate.timer"
+    fi
 }
 
 install_health_check_script() {
@@ -687,6 +751,10 @@ set_permissions() {
     # Re-assert 600 on the secrets file — the recursive chmod above would have
     # made it world-readable.
     sudo chmod 600 "$BACKEND_DIR/.env"
+    # Same for the request log, which carries usernames and endpoint payloads:
+    # match the 0640 the logrotate config above recreates it with, so the
+    # permissions do not silently loosen between rotations.
+    sudo chmod 0640 "$BACKEND_DIR/logs/user_system.log" 2>/dev/null || true
 }
 
 create_update_script() {
@@ -758,7 +826,18 @@ print_summary() {
     echo "  - View Gunicorn logs: sudo journalctl -u gunicorn -f"
     echo "  - View classification worker logs: sudo journalctl -u classification-worker -f"
     echo "  - View Nginx logs: sudo tail -f /var/log/nginx/error.log"
+    echo "  - View the shared Django log: tail -f $BACKEND_DIR/logs/user_system.log"
     echo ""
+    if [ "$LOGROTATE_CONFIG_VALID" != true ]; then
+        echo -e "${RED}ACTION REQUIRED:${NC} log rotation is not working (see the errors above), so"
+        echo "      $BACKEND_DIR/logs/user_system.log will NOT be rotated and will grow"
+        echo "      until it fills the disk. Every backend process shares that one file and"
+        echo "      none of them rotates it (see the Backend logs section of README.md)."
+        echo "      Diagnose with:"
+        echo "        sudo logrotate --debug /etc/logrotate.d/smiling-social-django"
+        echo "        systemctl status logrotate.timer   # or: ls -l /etc/cron.daily/logrotate"
+        echo ""
+    fi
     if ! grep -Eq '^REDIS_URL="?[^"]' "$BACKEND_DIR/.env"; then
         echo -e "${YELLOW}NOTE:${NC} REDIS_URL is unset — running in eager mode (classification on the"
         echo "      request path, and rate limiting via the DatabaseCache 'rate_limit_cache'"
