@@ -948,3 +948,61 @@ Only in queue mode is a worker needed, so `setup-django.sh` installs
 nginx, the classification worker (active/enabled, or "stranding!" if enabled but
 dead), the two timers (last/next run), and best-effort `classification` queue
 depth — so a silently dead worker is visible at a glance.
+
+### Backend logs (issue #484)
+
+Every unit in the table above logs to the **same** file,
+`backend/logs/user_system.log`, and also to stdout (so `journalctl -u gunicorn -f`
+and `journalctl -u classification-worker -f` carry the same records).
+
+Because the file is shared, **rotation happens out-of-process, via logrotate** —
+`settings.py` configures `logging.handlers.WatchedFileHandler`, which reopens the
+path whenever the inode changes. Nothing inside Django renames the log.
+
+That is a fix, not a preference. The old config gave every process its own
+`TimedRotatingFileHandler`. At the first log record after midnight one process
+renamed `user_system.log` to `user_system.log.<date>` and opened a fresh file;
+every other process then found the dated file already present and took logging's
+"Already rolled over" early return in `doRollover`, which returns *before*
+reopening the stream — so it kept its descriptor on the renamed file
+indefinitely. The long-lived gunicorn workers ended up pinned to a rotated file,
+while `sweep-classifications` — a new process every 15 minutes, opening the log
+by path — always got the live one. The symptom was a `user_system.log` containing
+nothing but sweep output: logins and every other request were still being logged,
+just appended to a `user_system.log.<date>` file nobody was tailing.
+
+Two rules follow, and breaking either brings the bug back:
+
+- **Never configure a rotating handler in `LOGGING`.** `backend/tests/test_logging_config.py`
+  fails the build if one reappears, and covers the reopen-on-rotate behavior.
+- **The logrotate config must use `create`, never `copytruncate`.** Truncating
+  reuses the inode, so `WatchedFileHandler`'s check never fires and every process
+  keeps appending past the truncation point.
+
+`setup-django.sh` installs `/etc/logrotate.d/smiling-social-django` (daily,
+`rotate 7`). **Hosts provisioned before this change do not have it** — the old
+config globbed `$APP_DIR/*.log`, a path nothing writes to, so it rotated nothing,
+and `~/update-app.sh` does not install logrotate configs. Without the new one the
+log now grows unbounded, so run this once per existing host:
+
+```bash
+sudo tee /etc/logrotate.d/smiling-social-django > /dev/null <<'EOF'
+/var/www/smiling-social/pos/backend/logs/user_system.log {
+    daily
+    missingok
+    rotate 7
+    compress
+    delaycompress
+    notifempty
+    su ubuntu www-data
+    create 0640 ubuntu www-data
+}
+EOF
+sudo rm -f /etc/logrotate.d/gunicorn
+sudo logrotate --debug /etc/logrotate.d/smiling-social-django
+```
+
+Then restart gunicorn and the worker so they pick up the new handler. The
+`user_system.log.<date>` files the old handler left behind are not managed by
+logrotate's naming — delete them by hand once you have read anything you need
+out of them (they hold the request logs that went missing).

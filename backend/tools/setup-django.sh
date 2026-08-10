@@ -646,25 +646,51 @@ EOF
 }
 
 setup_log_rotation() {
+    # Rotates the shared Django log, $BACKEND_DIR/logs/user_system.log.
+    #
+    # Rotation MUST happen out-of-process (issue #484). Every backend process —
+    # 3 gunicorn workers, the classification worker, and each oneshot sweep /
+    # cleanup run — has that one file open. When each process rotated it itself
+    # (settings.py used to configure a TimedRotatingFileHandler), the first one
+    # past midnight renamed the file and the rest took logging's "Already rolled
+    # over" early return and kept writing to the renamed file forever, so only
+    # the short-lived sweep process — which reopens the path on every run — still
+    # landed in the live log. settings.py now uses WatchedFileHandler, which
+    # reopens the path whenever the inode changes, and logrotate does the
+    # renaming for everyone at once.
+    #
+    # `create` (not `copytruncate`) is required: copytruncate reuses the inode,
+    # so WatchedFileHandler's inode check would never fire. `su` lets logrotate
+    # rename inside a directory owned by $APP_USER rather than root. rotate 7
+    # matches the retention the old in-process handler had (backupCount=7).
     print_status "Setting up log rotation..."
 
-    sudo tee /etc/logrotate.d/gunicorn > /dev/null << EOF
-$APP_DIR/*.log {
+    sudo tee /etc/logrotate.d/smiling-social-django > /dev/null << EOF
+$BACKEND_DIR/logs/user_system.log {
     daily
     missingok
-    rotate 14
+    rotate 7
     compress
     delaycompress
     notifempty
+    su $APP_USER www-data
     create 0640 $APP_USER www-data
-    sharedscripts
-    postrotate
-        systemctl reload gunicorn > /dev/null 2>&1 || true
-    endscript
 }
 EOF
 
-    print_status "Log rotation configured"
+    # Supersedes the old config, which globbed $APP_DIR/*.log — a path nothing
+    # ever wrote to (gunicorn logs to journald, Django logs a directory deeper),
+    # so it rotated nothing. Remove it so the two do not both claim the log.
+    sudo rm -f /etc/logrotate.d/gunicorn
+
+    # Fail loudly here rather than silently never rotating: a bad config makes
+    # logrotate skip the file and the log grows without bound.
+    if sudo logrotate --debug /etc/logrotate.d/smiling-social-django > /dev/null 2>&1; then
+        print_status "Log rotation configured for $BACKEND_DIR/logs/user_system.log"
+    else
+        print_error "logrotate rejected /etc/logrotate.d/smiling-social-django. Check:"
+        print_error "  sudo logrotate --debug /etc/logrotate.d/smiling-social-django"
+    fi
 }
 
 install_health_check_script() {
@@ -687,6 +713,10 @@ set_permissions() {
     # Re-assert 600 on the secrets file — the recursive chmod above would have
     # made it world-readable.
     sudo chmod 600 "$BACKEND_DIR/.env"
+    # Same for the request log, which carries usernames and endpoint payloads:
+    # match the 0640 the logrotate config above recreates it with, so the
+    # permissions do not silently loosen between rotations.
+    sudo chmod 0640 "$BACKEND_DIR/logs/user_system.log" 2>/dev/null || true
 }
 
 create_update_script() {
