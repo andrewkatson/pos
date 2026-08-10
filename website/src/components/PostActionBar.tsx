@@ -13,6 +13,9 @@ interface PostActionBarProps {
   /** Whether this post's options menu is the one currently open, announced on
    * the ⋯ button as aria-expanded. */
   isMenuOpen?: boolean
+  /** Opens "who liked this" (issue #478). Wired only for your own posts — the
+   * backend answers for nobody else's. */
+  onOpenLikes: (post: FeedPost) => void
   /** Opens the post; used by the comment-count indicator (issue #249). */
   onOpenPost?: (post: FeedPost) => void
   /** Shows the comment count and the post time. Feed rows have room for these
@@ -35,6 +38,7 @@ function PostActionBar({
   onToggleSave,
   onOpenMenu,
   isMenuOpen = false,
+  onOpenLikes,
   onOpenPost,
   showDetails = false,
 }: PostActionBarProps) {
@@ -63,10 +67,22 @@ function PostActionBar({
       )}
       {/* With no heart beside it the bare number says nothing about what it
           counts, so your own posts spell it out the way the post detail does
-          (issue #476). */}
-      <span className="post-actions__count">
-        {state.isOwn ? `${state.likeCount} likes` : state.likeCount}
-      </span>
+          (issue #476) — and tapping that label opens the list of who liked it,
+          since who liked someone else's post is between them and their likers
+          (issue #478). */}
+      {state.isOwn ? (
+        <button
+          type="button"
+          className="post-actions__likes"
+          aria-label={`${state.likeCount} ${state.likeCount === 1 ? 'like' : 'likes'}, see who liked this`}
+          aria-haspopup="dialog"
+          onClick={() => onOpenLikes(post)}
+        >
+          <span className="post-actions__count">{state.likeCount} likes</span>
+        </button>
+      ) : (
+        <span className="post-actions__count">{state.likeCount}</span>
+      )}
 
       {/* Tapping the comment count opens the post, where the threads live. */}
       {showDetails && onOpenPost && commentCount !== undefined && (

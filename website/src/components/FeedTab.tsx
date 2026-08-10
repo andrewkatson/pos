@@ -54,14 +54,15 @@ function FeedTab() {
   const [isLoading, setIsLoading] = useState(true)
   const [errorMessage, setErrorMessage] = useState<string | null>(null)
 
-  const { stateFor, toggleLike, toggleSave, openMenu, openMenuPostId, dialogs } = usePostActions({
-    currentUsername: getCurrentUsername(),
-    // Deleting from the feed drops the row rather than reloading the whole feed,
-    // which would reshuffle the weighted ordering under the user (issue #267).
-    onPostDeleted: postIdentifier =>
-      setPosts(prev => prev.filter(post => post.post_identifier !== postIdentifier)),
-    onError: setErrorMessage,
-  })
+  const { stateFor, toggleLike, toggleSave, openMenu, openMenuPostId, openLikes, dialogs } =
+    usePostActions({
+      currentUsername: getCurrentUsername(),
+      // Deleting from the feed drops the row rather than reloading the whole
+      // feed, which would reshuffle the weighted ordering under the user (#267).
+      onPostDeleted: postIdentifier =>
+        setPosts(prev => prev.filter(post => post.post_identifier !== postIdentifier)),
+      onError: setErrorMessage,
+    })
 
   const fetcher = useCallback(
     (batch: number) =>
@@ -232,6 +233,7 @@ function FeedTab() {
                 onToggleSave={toggleSave}
                 onOpenMenu={openMenu}
                 isMenuOpen={openMenuPostId === post.post_identifier}
+                onOpenLikes={openLikes}
                 onOpenPost={p => navigate(`/post/${p.post_identifier}`)}
                 showDetails
               />

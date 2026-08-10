@@ -35,8 +35,11 @@ private const val TAG = "PostListActions"
  * the shared dialogs against it.
  */
 class PostListActions(
-    private val api: PositiveOnlySocialAPI,
-    private val keychainHelper: KeychainHelperProtocol,
+    // Public so the shared dialogs can build the "who liked this" list
+    // (issue #478) from the same API/session the actions already use, rather
+    // than every list screen threading them through separately.
+    val api: PositiveOnlySocialAPI,
+    val keychainHelper: KeychainHelperProtocol,
     private val scope: CoroutineScope,
     private val posts: MutableStateFlow<List<Post>>,
     private val account: String = "userSessionToken"
@@ -62,6 +65,16 @@ class PostListActions(
 
     private val _postToRetract = MutableStateFlow<Post?>(null)
     val postToRetract: StateFlow<Post?> = _postToRetract.asStateFlow()
+
+    // The post whose "who liked this" dialog is showing (issue #478). Only ever
+    // set for the signed-in user's own posts — the count is inert on everyone
+    // else's, and the backend refuses them.
+    private val _postForLikes = MutableStateFlow<Post?>(null)
+    val postForLikes: StateFlow<Post?> = _postForLikes.asStateFlow()
+
+    fun setPostForLikes(post: Post?) {
+        _postForLikes.value = post
+    }
 
     init {
         _currentUsername.value = loadSession()?.username

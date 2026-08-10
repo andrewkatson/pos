@@ -180,4 +180,39 @@ struct Positive_Only_SocialTests_RealAPI {
         // `URL.path` strips the trailing slash `RealAPI` appends.
         #expect(CapturingURLProtocol.lastRequestURL?.path == "/user_index/profile/bio")
     }
+
+    // "Who liked this" (issue #478) must GET posts/<id>/likes/<batch>/.
+    @Test func testGetPostLikersUsesPostLikesBatchPath() async throws {
+        CapturingURLProtocol.lastRequestURL = nil
+        URLProtocol.registerClass(CapturingURLProtocol.self)
+        defer { URLProtocol.unregisterClass(CapturingURLProtocol.self) }
+
+        _ = try await RealAPI().getPostLikers(
+            sessionManagementToken: "token",
+            postIdentifier: "11111111-1111-1111-1111-111111111111",
+            batch: 2)
+
+        // `URL.path` strips the trailing slash `RealAPI` appends.
+        #expect(
+            CapturingURLProtocol.lastRequestURL?.path
+                == "/user_index/posts/11111111-1111-1111-1111-111111111111/likes/2")
+    }
+
+    // The comment variant hangs off the thread/comment path (issue #478).
+    @Test func testGetCommentLikersUsesCommentLikesBatchPath() async throws {
+        CapturingURLProtocol.lastRequestURL = nil
+        URLProtocol.registerClass(CapturingURLProtocol.self)
+        defer { URLProtocol.unregisterClass(CapturingURLProtocol.self) }
+
+        _ = try await RealAPI().getCommentLikers(
+            sessionManagementToken: "token",
+            postIdentifier: "11111111-1111-1111-1111-111111111111",
+            commentThreadIdentifier: "22222222-2222-2222-2222-222222222222",
+            commentIdentifier: "33333333-3333-3333-3333-333333333333",
+            batch: 0)
+
+        #expect(
+            CapturingURLProtocol.lastRequestURL?.path
+                == "/user_index/posts/11111111-1111-1111-1111-111111111111/threads/22222222-2222-2222-2222-222222222222/comments/33333333-3333-3333-3333-333333333333/likes/0")
+    }
 }

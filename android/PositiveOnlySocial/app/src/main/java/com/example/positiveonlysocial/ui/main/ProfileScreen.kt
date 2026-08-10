@@ -564,6 +564,7 @@ fun ProfileBody(
                                     onToggleLike = { postActions.toggleLike(post) },
                                     onOpenMenu = { postActions.setPostForAction(post) },
                                     compact = true,
+                                    onOpenLikes = { postActions.setPostForLikes(post) },
                                     menu = {
                                         PostActionMenu(
                                             postActions,
@@ -589,7 +590,7 @@ fun ProfileBody(
     }
 
     // One set of confirmations for the whole grid.
-    PostActionDialogs(postActions)
+    PostActionDialogs(postActions, navController)
 }
 
 @Composable

@@ -550,6 +550,12 @@ export class ApiClient implements PositiveOnlySocialAPI {
     })
   }
 
+  getPostLikers(postIdentifier: string, batch: number): Promise<UserSearchResult[]> {
+    return this.request<UserSearchResult[]>('GET', `/posts/${postIdentifier}/likes/${batch}/`, {
+      auth: true,
+    })
+  }
+
   savePost(postIdentifier: string): Promise<MessageResponse> {
     return this.request<MessageResponse>('POST', `/posts/${postIdentifier}/save/`, { auth: true })
   }
@@ -710,6 +716,19 @@ export class ApiClient implements PositiveOnlySocialAPI {
     return this.request<MessageResponse>(
       'POST',
       `/posts/${postIdentifier}/threads/${commentThreadIdentifier}/comments/${commentIdentifier}/unlike/`,
+      { auth: true },
+    )
+  }
+
+  getCommentLikers(
+    postIdentifier: string,
+    commentThreadIdentifier: string,
+    commentIdentifier: string,
+    batch: number,
+  ): Promise<UserSearchResult[]> {
+    return this.request<UserSearchResult[]>(
+      'GET',
+      `/posts/${postIdentifier}/threads/${commentThreadIdentifier}/comments/${commentIdentifier}/likes/${batch}/`,
       { auth: true },
     )
   }

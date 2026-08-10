@@ -128,7 +128,7 @@ fun ForYouFeed(
         }
 
         // One set of confirmations for every post in the feed.
-        PostActionDialogs(postActions)
+        PostActionDialogs(postActions, navController)
     }
 }
 
@@ -219,7 +219,7 @@ fun FollowingFeed(
         }
 
         // One set of confirmations for every post in the feed.
-        PostActionDialogs(postActions)
+        PostActionDialogs(postActions, navController)
         }
     }
 }
@@ -298,6 +298,7 @@ fun PostItem(
             onOpenComments = {
                 navController.navigate(Screen.PostDetail.createRoute(post.postIdentifier))
             },
+            onOpenLikes = { actions.setPostForLikes(post) },
             menu = {
                 PostActionMenu(
                     actions,

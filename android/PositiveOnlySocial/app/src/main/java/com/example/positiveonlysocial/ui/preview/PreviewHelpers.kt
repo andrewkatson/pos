@@ -359,6 +359,32 @@ class MockPositiveOnlySocialAPI : PositiveOnlySocialAPI {
         )
     }
 
+    override suspend fun getPostLikers(
+        token: String,
+        postId: String,
+        batch: Int
+    ): Response<List<User>> {
+        // One batch only, so the preview shows the list without a Load more.
+        if (batch > 0) return Response.success(emptyList())
+        return Response.success(
+            listOf(
+                User(username = "liker_1", identityIsVerified = true),
+                User(username = "liker_2", identityIsVerified = false)
+            )
+        )
+    }
+
+    override suspend fun getCommentLikers(
+        token: String,
+        postId: String,
+        threadId: String,
+        commentId: String,
+        batch: Int
+    ): Response<List<User>> {
+        if (batch > 0) return Response.success(emptyList())
+        return Response.success(listOf(User(username = "liker_1", identityIsVerified = false)))
+    }
+
     override suspend fun likePost(token: String, postId: String): Response<GenericResponse> {
         return Response.success(
             GenericResponse(

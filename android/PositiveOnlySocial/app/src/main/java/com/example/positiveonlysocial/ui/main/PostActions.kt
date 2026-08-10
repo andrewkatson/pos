@@ -1,5 +1,6 @@
 package com.example.positiveonlysocial.ui.main
 
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Row
@@ -26,8 +27,11 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.dp
+import androidx.navigation.NavController
 import com.example.positiveonlysocial.data.model.Post
+import com.example.positiveonlysocial.models.viewmodels.LikesTarget
 import com.example.positiveonlysocial.models.viewmodels.PostListActions
 import com.example.positiveonlysocial.util.ShareLinks
 
@@ -47,6 +51,9 @@ import com.example.positiveonlysocial.util.ShareLinks
  * @param onOpenComments when non-null, a comment-count control is shown that
  * opens the post (issue #249). The square profile-grid tiles pass null — there's
  * no room for it there.
+ * @param onOpenLikes when non-null, the like count on the signed-in user's *own*
+ * post opens "who liked this" (issue #478). Never wired on anyone else's post —
+ * the backend answers for nobody else's.
  * @param menu this post's [ActionMenu], rendered in a `Box` with the three-dots
  * button so the dropdown opens right next to it (issue #477). Callers pass
  * [PostActionMenu].
@@ -60,6 +67,7 @@ fun PostActionBar(
     modifier: Modifier = Modifier,
     compact: Boolean = false,
     onOpenComments: (() -> Unit)? = null,
+    onOpenLikes: (() -> Unit)? = null,
     menu: @Composable () -> Unit = {}
 ) {
     val buttonSize = if (compact) 32.dp else 48.dp
@@ -91,13 +99,27 @@ fun PostActionBar(
 
         // With no heart beside it the bare number says nothing about what it
         // counts, so your own posts spell it out the way PostDetailScreen does
-        // (issue #476).
+        // (issue #476) — and tapping that label lists who liked it, since who
+        // liked someone else's post is between them and their likers (#478).
         val likeCount = post.likeCount ?: 0
-        Text(
-            text = if (isOwnPost) "$likeCount likes" else "$likeCount",
-            style = if (compact) MaterialTheme.typography.labelSmall
+        val likeCountStyle = if (compact) MaterialTheme.typography.labelSmall
             else MaterialTheme.typography.bodyMedium
-        )
+        if (isOwnPost && onOpenLikes != null) {
+            Text(
+                text = "$likeCount likes",
+                style = likeCountStyle,
+                // The text already says what it counts; the click label is what
+                // tells TalkBack that tapping it opens anything.
+                modifier = Modifier
+                    .clickable(onClickLabel = "See who liked this") { onOpenLikes() }
+                    .testTag("postLikesCount")
+            )
+        } else {
+            Text(
+                text = if (isOwnPost) "$likeCount likes" else "$likeCount",
+                style = likeCountStyle
+            )
+        }
 
         // How many comments the post has; tapping it opens the post so they can
         // be read (issue #249).
@@ -182,15 +204,28 @@ fun PostActionMenu(actions: PostListActions, post: Post, expanded: Boolean, isOw
  * [PostListActions], which holds which post (if any) each dialog is for.
  *
  * The action menu itself is not here: it's a [PostActionMenu] anchored to each
- * row's three-dots button (issue #477).
+ * row's three-dots button (issue #477). The "who liked this" dialog (issue #478)
+ * is here, though — it is a dialog, not an anchored menu.
  *
  * Reuses the same dialogs the post detail screen uses, so the two stay identical.
  */
 @Composable
-fun PostActionDialogs(actions: PostListActions) {
+fun PostActionDialogs(actions: PostListActions, navController: NavController) {
+    val postForLikes by actions.postForLikes.collectAsState()
     val postToReport by actions.postToReport.collectAsState()
     val postToRetract by actions.postToRetract.collectAsState()
     val alertMessage by actions.alertMessage.collectAsState()
+
+    // "Who liked this" for one of your own posts (issue #478).
+    postForLikes?.let { post ->
+        LikesDialog(
+            target = LikesTarget.Post(post.postIdentifier),
+            navController = navController,
+            api = actions.api,
+            keychainHelper = actions.keychainHelper,
+            onDismiss = { actions.setPostForLikes(null) }
+        )
+    }
 
     postToRetract?.let { post ->
         RetractReportDialog(

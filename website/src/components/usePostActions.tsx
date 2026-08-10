@@ -3,6 +3,7 @@ import { apiClient } from '../api/client'
 import type { FeedPost } from '../api/types'
 import { postShareUrl, shareLink } from '../utils/shareLink'
 import AnchoredMenu, { AnchoredMenuItem } from './AnchoredMenu'
+import LikesModal from './LikesModal'
 import type { MenuAnchor } from './menuAnchor'
 
 /** Anything can be thrown in JS, so never assume the caught value is an Error:
@@ -44,6 +45,9 @@ type Dialog =
   | { kind: 'report'; post: FeedPost }
   | { kind: 'retract'; post: FeedPost }
   | { kind: 'delete'; post: FeedPost }
+  // Who liked one of your own posts (issue #478). Only reachable from your own
+  // rows: the count is inert on everyone else's, and the backend refuses them.
+  | { kind: 'likes'; post: FeedPost }
   // Shown only when Share fell back to copying the link (no OS share sheet), so
   // the user gets confirmation the link is now on their clipboard (issue #34).
   | { kind: 'shareCopied' }
@@ -85,6 +89,7 @@ export function usePostActions({
   /** The post whose options menu is open, so its ⋯ button can say so with
    * aria-expanded. Null when no menu is open. */
   openMenuPostId: string | null
+  openLikes: (post: FeedPost) => void
   dialogs: ReactNode
 } {
   const [overrides, setOverrides] = useState<Record<string, PostOverride>>({})
@@ -248,6 +253,13 @@ export function usePostActions({
         </AnchoredMenu>
       )}
 
+      {dialog?.kind === 'likes' && (
+        <LikesModal
+          target={{ kind: 'post', postIdentifier: dialog.post.post_identifier }}
+          onClose={() => setDialog(null)}
+        />
+      )}
+
       {dialog?.kind === 'shareCopied' && (
         <div className="modal-overlay">
           <div className="modal" role="dialog" aria-modal="true" aria-label="Link copied">
@@ -349,6 +361,7 @@ export function usePostActions({
     toggleSave: post => void toggleSaveAsync(post),
     openMenu: (post, anchor) => setDialog({ kind: 'menu', post, anchor }),
     openMenuPostId: dialog?.kind === 'menu' ? dialog.post.post_identifier : null,
+    openLikes: post => setDialog({ kind: 'likes', post }),
     dialogs,
   }
 }

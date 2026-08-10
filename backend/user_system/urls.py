@@ -91,6 +91,10 @@ urlpatterns = [
     # POST /posts/<uuid:post_identifier>/unlike/ (Token in header)
     path('posts/<uuid:post_identifier>/unlike/', views.unlike_post, name='unlike_post'),
 
+    # GET /posts/<uuid:post_identifier>/likes/<int:batch>/ (Token in header)
+    # — who liked the post, owner only
+    path('posts/<uuid:post_identifier>/likes/<int:batch>/', views.get_post_likers, name='get_post_likers'),
+
     # POST /posts/<uuid:post_identifier>/save/ (Token in header)
     path('posts/<uuid:post_identifier>/save/', views.save_post, name='save_post'),
 
@@ -145,6 +149,12 @@ urlpatterns = [
     path(
         'posts/<uuid:post_identifier>/threads/<uuid:comment_thread_identifier>/comments/<uuid:comment_identifier>/unlike/',
         views.unlike_comment, name='unlike_comment'),
+
+    # GET /.../comments/<uuid:comment_identifier>/likes/<int:batch>/ (Token in header)
+    # — who liked the comment, owner only
+    path(
+        'posts/<uuid:post_identifier>/threads/<uuid:comment_thread_identifier>/comments/<uuid:comment_identifier>/likes/<int:batch>/',
+        views.get_comment_likers, name='get_comment_likers'),
 
     # POST /.../comments/<uuid:comment_identifier>/delete/ (Token in header)
     path(

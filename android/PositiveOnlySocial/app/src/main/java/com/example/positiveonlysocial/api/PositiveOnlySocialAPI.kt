@@ -196,6 +196,17 @@ interface PositiveOnlySocialAPI {
         @Path("post_id") postId: String
     ): Response<GenericResponse>
 
+    // Who liked one of the signed-in user's own posts, newest like first,
+    // batched (issue #478). Owner-only: asking about somebody else's post is
+    // answered exactly like asking about one that does not exist, so who liked
+    // a post is never revealed to a third party.
+    @GET("posts/{post_id}/likes/{batch}/")
+    suspend fun getPostLikers(
+        @Header("Authorization") token: String,
+        @Path("post_id") postId: String,
+        @Path("batch") batch: Int
+    ): Response<List<User>>
+
     // Save / unsave a post to the viewer's saved collection (issue #193/#412).
     @POST("posts/{post_id}/save/")
     suspend fun savePost(
@@ -243,6 +254,17 @@ interface PositiveOnlySocialAPI {
         @Path("thread_id") threadId: String,
         @Path("comment_id") commentId: String
     ): Response<GenericResponse>
+
+    // Who liked one of the signed-in user's own comments (issue #478).
+    // Owner-only, like getPostLikers — owning the post is not owning the comment.
+    @GET("posts/{post_id}/threads/{thread_id}/comments/{comment_id}/likes/{batch}/")
+    suspend fun getCommentLikers(
+        @Header("Authorization") token: String,
+        @Path("post_id") postId: String,
+        @Path("thread_id") threadId: String,
+        @Path("comment_id") commentId: String,
+        @Path("batch") batch: Int
+    ): Response<List<User>>
 
     @POST("posts/{post_id}/threads/{thread_id}/comments/{comment_id}/delete/")
     suspend fun deleteComment(
