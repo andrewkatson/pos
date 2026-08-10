@@ -9,6 +9,22 @@ from .constants import (
 from .models import Comment, UserBan, UserFollow
 
 
+# The viewer a signed-out visitor is represented by on the public share
+# endpoints (issue #381). Every helper below already reads a `None` viewer
+# correctly, so passing it through yields exactly the public rule without a
+# parallel set of query builders:
+#   - `Q(author=viewer)` becomes `author IS NULL`, which matches nothing (the FK
+#     is non-null), so the "you always see your own content" branch never fires
+#     and pending/hidden/report-hidden content stays invisible;
+#   - `_audience_q` / `_audience_allows` fall through to public-audience only,
+#     since an anonymous visitor is on nobody's follow list;
+#   - `_same_age_band_q` / `in_same_age_band` treat an unknown age as the adult
+#     band, so a verified minor's post is never served to the open internet.
+# Passed explicitly (rather than defaulting to `request.user`) so a signed-in
+# browser hitting a public URL gets the same bytes a crawler would.
+PUBLIC_VIEWER = None
+
+
 def _shadow_banned_user_ids():
     """User ids with a shadow ban currently in effect, usable as a subquery."""
     return UserBan.objects.active().filter(ban_type=BAN_TYPE_SHADOW).values_list('user_id', flat=True)

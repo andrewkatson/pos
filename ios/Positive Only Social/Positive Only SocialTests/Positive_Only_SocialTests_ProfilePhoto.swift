@@ -151,4 +151,90 @@ struct Positive_Only_SocialTests_ProfilePhoto {
         #expect(vm.headerAvatarUrl == nil, "Header avatar should clear after removal")
         #expect(vm.hasProfilePhoto == false)
     }
+
+    // MARK: - Avatar BlurHash (issue #460)
+
+    @Test func testProfileDetails_DecodesTheAvatarBlurHash() throws {
+        // is_blocked/identity_is_verified/is_adult are non-Optional on the
+        // struct, so the synthesized decoder *requires* their keys even though
+        // they have Swift defaults — the payload has to carry them.
+        let json = """
+        {
+            "username": "alice",
+            "post_count": 1,
+            "follower_count": 0,
+            "following_count": 0,
+            "is_following": false,
+            "is_blocked": false,
+            "identity_is_verified": false,
+            "is_adult": false,
+            "profile_image_url": "https://bucket/alice.jpeg",
+            "profile_image_blurhash": "LEHV6nWB2yk8pyo0adR*.7kCMdnj"
+        }
+        """.data(using: .utf8)!
+
+        let details = try JSONDecoder().decode(ProfileDetailsResponse.self, from: json)
+
+        #expect(details.profileImageBlurHash == "LEHV6nWB2yk8pyo0adR*.7kCMdnj")
+    }
+
+    @Test func testSearchResult_DecodesTheAvatarBlurHash() throws {
+        let json = """
+        [{
+            "username": "alice",
+            "identity_is_verified": true,
+            "author_profile_image_url": "https://bucket/alice.jpeg",
+            "author_profile_image_blurhash": "LEHV6nWB2yk8pyo0adR*.7kCMdnj"
+        }]
+        """.data(using: .utf8)!
+
+        let users = try JSONDecoder().decode([User].self, from: json)
+
+        #expect(users.first?.authorProfileImageBlurHash == "LEHV6nWB2yk8pyo0adR*.7kCMdnj")
+    }
+
+    @Test func testProfileDetails_WithoutTheBlurHashStillDecodes() throws {
+        // An older backend omits the field entirely; the header then falls back
+        // to the plain placeholder rather than failing the decode.
+        let json = """
+        {
+            "username": "bob",
+            "post_count": 0,
+            "follower_count": 0,
+            "following_count": 0,
+            "is_following": false,
+            "is_blocked": false,
+            "identity_is_verified": false,
+            "is_adult": false,
+            "profile_image_url": "https://bucket/bob.jpeg"
+        }
+        """.data(using: .utf8)!
+
+        let details = try JSONDecoder().decode(ProfileDetailsResponse.self, from: json)
+
+        #expect(details.profileImageBlurHash == nil)
+    }
+
+    @Test func testHeaderBlurHash_IsWithheldWhileAPendingUploadIsPreviewed() async throws {
+        // The hash describes the approved photo, so it must not blur the old
+        // picture in behind a pending preview of a different one.
+        let keychain: KeychainHelperProtocol = MockKeychainHelper()
+        let token = try await registerUser("blurowner")
+        let account = "blurowner_account"
+        let session = UserSession(sessionToken: token, username: "blurowner", userId: "1", isIdentityVerified: false)
+        try keychain.save(session, for: GVOAppConstants.keychainService, account: account)
+
+        let vm = ProfileViewModel(user: User(username: "blurowner", identityIsVerified: false),
+                                  api: stub, keychainHelper: keychain, account: account)
+        vm.profileDetails = ProfileDetailsResponse(
+            username: "blurowner", postCount: 0, followerCount: 0, followingCount: 0,
+            isFollowing: false,
+            profileImageUrl: "https://bucket/live.jpeg",
+            profileImageBlurHash: "LEHV6nWB2yk8pyo0adR*.7kCMdnj",
+            pendingProfileImageUrl: "https://bucket/pending.jpeg")
+
+        #expect(vm.isOwnProfile == true)
+        #expect(vm.headerAvatarUrl == "https://bucket/pending.jpeg")
+        #expect(vm.headerAvatarBlurHash == nil)
+    }
 }

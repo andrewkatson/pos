@@ -13,6 +13,14 @@ interface PositiveOnlySocialAPI {
     @POST("login/")
     suspend fun loginUser(@Body request: LoginRequest): Response<LoginResponse>
 
+    /**
+     * Exchange a Google ID token for a session, creating the account on the
+     * first sign-in (issue #10). Answers with a two-factor challenge for an
+     * enrolled account, exactly like [loginUser].
+     */
+    @POST("login/google/")
+    suspend fun loginWithGoogle(@Body request: GoogleLoginRequest): Response<LoginResponse>
+
     @POST("login/remember/")
     suspend fun loginUserWithRememberMe(@Body request: TokenRefreshRequest): Response<TokenRefreshResponse>
 

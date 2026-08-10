@@ -1,47 +1,7 @@
-import { useEffect, useRef, useState, type MouseEventHandler } from 'react'
-import { decode } from 'blurhash'
+import { useState, type MouseEventHandler } from 'react'
 import type { FeedPost } from '../api/types'
+import BlurhashCanvas from './BlurhashCanvas'
 import CaptionTile from './CaptionTile'
-
-// The BlurHash is decoded at a small size and CSS-scaled up to fill the tile;
-// a handful of pixels is all a blurred preview needs and keeps the decode cheap.
-const BLUR_DECODE_SIZE = 32
-
-/**
- * A blurred preview of a post image decoded from its BlurHash (issue #387),
- * drawn to a small canvas and CSS-scaled to fill the tile. Shown underneath the
- * real <img> while it loads (and left in place if the image never loads) so a
- * loading tile is a soft blur of the actual photo instead of a grey square.
- */
-function BlurhashCanvas({ hash }: { hash: string }) {
-  const canvasRef = useRef<HTMLCanvasElement>(null)
-  useEffect(() => {
-    const canvas = canvasRef.current
-    if (!canvas) return
-    // A malformed hash makes decode throw; swallow it so a bad value just
-    // yields no placeholder rather than crashing the render.
-    let pixels: Uint8ClampedArray
-    try {
-      pixels = decode(hash, BLUR_DECODE_SIZE, BLUR_DECODE_SIZE)
-    } catch {
-      return
-    }
-    const ctx = canvas.getContext('2d')
-    if (!ctx) return
-    const imageData = ctx.createImageData(BLUR_DECODE_SIZE, BLUR_DECODE_SIZE)
-    imageData.data.set(pixels)
-    ctx.putImageData(imageData, 0, 0)
-  }, [hash])
-  return (
-    <canvas
-      ref={canvasRef}
-      className="post-thumbnail__blur"
-      width={BLUR_DECODE_SIZE}
-      height={BLUR_DECODE_SIZE}
-      aria-hidden="true"
-    />
-  )
-}
 
 /**
  * A post's image with the compressed→original fallback: renders the compressed
@@ -110,7 +70,9 @@ function PostThumbnail({
   // background. The image itself is transparent so it never paints over the blur.
   return (
     <span className={className ? `post-thumbnail ${className}` : 'post-thumbnail'}>
-      {blurhash && !loaded && <BlurhashCanvas hash={blurhash} />}
+      {blurhash && !loaded && (
+        <BlurhashCanvas hash={blurhash} className="post-thumbnail__blur" />
+      )}
       <img
         className="post-thumbnail__img"
         src={src}

@@ -1,5 +1,6 @@
 import type { FeedPost } from '../api/types'
 import { formatRelativeTime } from '../utils/relativeTime'
+import { anchorFrom, type MenuAnchor } from './menuAnchor'
 import type { PostActionState } from './usePostActions'
 
 interface PostActionBarProps {
@@ -7,7 +8,11 @@ interface PostActionBarProps {
   state: PostActionState
   onToggleLike: (post: FeedPost) => void
   onToggleSave: (post: FeedPost) => void
-  onOpenMenu: (post: FeedPost) => void
+  /** `anchor` is the ⋯ button's rect, so the menu opens next to it (#477). */
+  onOpenMenu: (post: FeedPost, anchor: MenuAnchor) => void
+  /** Whether this post's options menu is the one currently open, announced on
+   * the ⋯ button as aria-expanded. */
+  isMenuOpen?: boolean
   /** Opens the post; used by the comment-count indicator (issue #249). */
   onOpenPost?: (post: FeedPost) => void
   /** Shows the comment count and the post time. Feed rows have room for these
@@ -29,6 +34,7 @@ function PostActionBar({
   onToggleLike,
   onToggleSave,
   onOpenMenu,
+  isMenuOpen = false,
   onOpenPost,
   showDetails = false,
 }: PostActionBarProps) {
@@ -55,7 +61,12 @@ function PostActionBar({
           {state.isLiked ? '♥' : '♡'}
         </button>
       )}
-      <span className="post-actions__count">{state.likeCount}</span>
+      {/* With no heart beside it the bare number says nothing about what it
+          counts, so your own posts spell it out the way the post detail does
+          (issue #476). */}
+      <span className="post-actions__count">
+        {state.isOwn ? `${state.likeCount} likes` : state.likeCount}
+      </span>
 
       {/* Tapping the comment count opens the post, where the threads live. */}
       {showDetails && onOpenPost && commentCount !== undefined && (
@@ -94,8 +105,9 @@ function PostActionBar({
         type="button"
         className="post-actions__menu"
         aria-label={`Options for post by ${post.author_username}`}
-        aria-haspopup="dialog"
-        onClick={() => onOpenMenu(post)}
+        aria-haspopup="menu"
+        aria-expanded={isMenuOpen}
+        onClick={e => onOpenMenu(post, anchorFrom(e.currentTarget))}
       >
         ⋯
       </button>

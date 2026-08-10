@@ -11,8 +11,9 @@ from ..constants import (
     HIDDEN_REASON_CLASSIFIER, HIDDEN_REASON_CLASSIFIER_FINAL,
     HIDDEN_REASON_PENDING_CLASSIFICATION,
     PROFILE_IMAGE_STATUS_PENDING,
+    REVIEW_STATUS_ESCALATED,
 )
-from ..models import PositiveOnlySocialUser, Post
+from ..models import ModerationReview, PositiveOnlySocialUser, Post
 
 
 def _backdate(post, **delta):
@@ -177,3 +178,40 @@ class SweepClassificationsTests(TestCase):
         # Fail closed: the photo stays pending, never shown, alert recorded.
         self.assertEqual(self.user.profile_image_status, PROFILE_IMAGE_STATUS_PENDING)
         self.assertTrue(self.user.profile_image_classification_alerted)
+
+    # --- Stuck report reviews (issue #467) --------------------------------
+
+    def _pending_review(self, attempts=0, minutes_ago=30):
+        """A report review left pending, as if its job fell out of the queue."""
+        post = self.user.post_set.create(caption='a reported caption')
+        review = ModerationReview.objects.create(post=post, review_attempts=attempts)
+        ModerationReview.objects.filter(pk=review.pk).update(
+            updated=timezone.now() - timedelta(minutes=minutes_ago))
+        return review
+
+    @patch('user_system.tasks.enqueue_report_review')
+    def test_stuck_report_review_is_reenqueued(self, mock_enqueue):
+        review = self._pending_review()
+        out = self._run()
+        mock_enqueue.assert_called_once_with(review.review_identifier)
+        self.assertIn('1 stuck report review', out)
+
+    @patch('user_system.tasks.enqueue_report_review')
+    def test_recent_report_review_is_left_alone(self, mock_enqueue):
+        self._pending_review(minutes_ago=1)
+        self._run()
+        mock_enqueue.assert_not_called()
+
+    @patch('user_system.tasks.enqueue_report_review')
+    def test_exhausted_report_review_escalates_to_a_moderator(self, mock_enqueue):
+        """The opposite fail direction to classification: reported content is
+        visible while its review is pending, so an unresolvable review goes to a
+        human rather than being left in a log nobody reads — and never hides."""
+        review = self._pending_review(attempts=CLASSIFICATION_MAX_ATTEMPTS)
+        with self.assertLogs('user_system.management.commands.sweep_classifications', level='ERROR'):
+            out = self._run()
+        mock_enqueue.assert_not_called()
+        self.assertIn('1 escalated to a moderator', out)
+        review.refresh_from_db()
+        self.assertEqual(review.status, REVIEW_STATUS_ESCALATED)
+        self.assertFalse(review.post.hidden)

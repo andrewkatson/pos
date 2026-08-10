@@ -95,6 +95,43 @@ test('shows the caption under the photo for an image post (#378)', async () => {
   expect(caption).toHaveTextContent('a lovely day')
 })
 
+test("applies the author's caption font to the feed caption (#450)", async () => {
+  mockGetFeed.mockResolvedValue([
+    {
+      post_identifier: 'p1',
+      image_url: 'http://img/1.jpg',
+      author_username: 'ada',
+      caption: 'a lovely day',
+      caption_font: 'serif',
+    },
+  ])
+  mockGetFollowed.mockResolvedValue([])
+  const { container } = renderTab()
+
+  await screen.findByRole('button', { name: 'Open post by ada' })
+  expect(container.querySelector('.feed-post__caption')).toHaveClass('caption-font--serif')
+})
+
+test('leaves the feed caption unstyled when the post has no font (#450)', async () => {
+  // Older payloads omit caption_font, and `default` means "no override" — either
+  // way the caption keeps the feed's own styling and gains no font class.
+  mockGetFeed.mockResolvedValue([
+    {
+      post_identifier: 'p1',
+      image_url: 'http://img/1.jpg',
+      author_username: 'ada',
+      caption: 'a lovely day',
+      caption_font: 'default',
+    },
+  ])
+  mockGetFollowed.mockResolvedValue([])
+  const { container } = renderTab()
+
+  await screen.findByRole('button', { name: 'Open post by ada' })
+  expect(container.querySelector('.feed-post__caption')).toHaveClass('feed-post__caption')
+  expect(container.querySelector('[class*="caption-font--"]')).toBeNull()
+})
+
 test('does not repeat the caption below a text-only post (#378)', async () => {
   // The tile above already shows it; a second copy underneath would be redundant.
   mockGetFeed.mockResolvedValue([
@@ -223,7 +260,8 @@ test('deleting your own post removes it without reloading the feed', async () =>
   renderTab()
 
   await userEvent.click(await screen.findByRole('button', { name: 'Options for post by me' }))
-  await userEvent.click(screen.getByRole('button', { name: 'Delete' }))
+  // The menu row, then the confirmation modal's button.
+  await userEvent.click(screen.getByRole('menuitem', { name: 'Delete' }))
   await userEvent.click(screen.getByRole('button', { name: 'Delete' }))
 
   await waitFor(() => expect(mockDeletePost).toHaveBeenCalledWith('p1'))

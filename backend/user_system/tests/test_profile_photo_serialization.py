@@ -9,10 +9,14 @@ from ..models import PositiveOnlySocialUser
 from ..views import get_user_with_username
 
 
+AVATAR_BLURHASH = 'LEHV6nWB2yk8pyo0adR*.7kCMdnj'
+
+
 def _approved_avatar_for(user):
     url = f'https://test-bucket.s3.amazonaws.com/{user.id}/avatar.jpeg'
     PositiveOnlySocialUser.objects.filter(pk=user.pk).update(
-        profile_image_url=url, profile_image_status=PROFILE_IMAGE_STATUS_APPROVED)
+        profile_image_url=url, profile_image_status=PROFILE_IMAGE_STATUS_APPROVED,
+        profile_image_blurhash=AVATAR_BLURHASH)
     return url
 
 
@@ -101,3 +105,47 @@ class ProfilePhotoSerializationTests(PositiveOnlySocialTestCase):
         row = next(r for r in data if r[Fields.author_username] == author.username)
         self.assertIsNone(row[Fields.author_profile_image_url])
         self.assertIsNone(row[Fields.author_profile_image_original_url])
+        self.assertIsNone(row[Fields.author_profile_image_blurhash])
+
+    def test_grid_includes_author_avatar_blurhash(self):
+        """The avatar's BlurHash rides along with its URLs (issue #460) so the
+        clients can blur it in while the photo loads."""
+        self.make_post_and_login_user()
+        author = get_user_with_username(self.local_username)
+        _approved_avatar_for(author)
+
+        header = {'HTTP_AUTHORIZATION': f'Bearer {self.session_management_token}'}
+        url = reverse('get_posts_for_user', kwargs={'username': author.username, 'batch': 0})
+        data = self.client.get(url, **header).json()
+
+        row = next(r for r in data if r[Fields.author_username] == author.username)
+        self.assertEqual(row[Fields.author_profile_image_blurhash], AVATAR_BLURHASH)
+
+    def test_search_includes_avatar_blurhash(self):
+        self.register_user_and_setup_local_fields()
+        searcher_header = {'HTTP_AUTHORIZATION': f'Bearer {self.session_management_token}'}
+        target = self.make_user_with_prefix(prefix='blurtarget')
+        target_user = get_user_with_username(target['username'])
+        _approved_avatar_for(target_user)
+
+        fragment = target_user.username[:5]
+        url = reverse('get_users_matching_fragment', kwargs={'username_fragment': fragment})
+        data = self.client.get(url, **searcher_header).json()
+
+        row = next(r for r in data if r[Fields.username] == target_user.username)
+        self.assertEqual(row[Fields.author_profile_image_blurhash], AVATAR_BLURHASH)
+
+    def test_blurhash_is_withheld_without_a_live_photo(self):
+        """A hash left over from a removed photo must never be serialized on its
+        own: the clients would blur in a picture that is no longer shown."""
+        self.make_post_and_login_user()
+        author = get_user_with_username(self.local_username)
+        PositiveOnlySocialUser.objects.filter(pk=author.pk).update(
+            profile_image_url=None, profile_image_blurhash=AVATAR_BLURHASH)
+
+        header = {'HTTP_AUTHORIZATION': f'Bearer {self.session_management_token}'}
+        url = reverse('get_posts_for_user', kwargs={'username': author.username, 'batch': 0})
+        data = self.client.get(url, **header).json()
+
+        row = next(r for r in data if r[Fields.author_username] == author.username)
+        self.assertIsNone(row[Fields.author_profile_image_blurhash])

@@ -8,7 +8,11 @@ import { isWithinLimit, MAX_CAPTION_LENGTH } from '../auth/requirements'
 import CharacterCounter from './CharacterCounter'
 import Avatar from './Avatar'
 import CaptionTile from './CaptionTile'
-import { BACKGROUND_COLOR_OPTIONS, CAPTION_FONT_OPTIONS } from './textFormatting'
+import {
+  BACKGROUND_COLOR_OPTIONS,
+  CAPTION_FONT_OPTIONS,
+  captionFontClass,
+} from './textFormatting'
 
 interface NewPostTabProps {
   /** Called after a successful post so the shell can switch back to the Home tab. */
@@ -322,9 +326,12 @@ function NewPostTab({ onPosted }: NewPostTabProps) {
             )}
           </div>
           {/* An image post shows its caption below the photo, matching the feed;
-              a text-only post already shows it as the tile above. */}
+              a text-only post already shows it as the tile above. The chosen
+              font applies either way (issue #450). */}
           {previewSrc && trimmedCaption && (
-            <p className="feed-post__caption">{trimmedCaption}</p>
+            <p className={`feed-post__caption ${captionFontClass(captionFont)}`.trim()}>
+              {trimmedCaption}
+            </p>
           )}
         </article>
       </div>

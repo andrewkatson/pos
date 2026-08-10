@@ -1,15 +1,21 @@
+import os
+from unittest.mock import patch
+
 from django.urls import reverse
 
 from .test_constants import UserFields
 from .test_parent_case import PositiveOnlySocialTestCase
-from ..constants import Fields, MAX_BEFORE_HIDING_POST, HIDDEN_REASON_REPORTS, HIDDEN_REASON_CLASSIFIER, \
-    HIDDEN_REASON_NONE
-from ..models import Post
+from ..constants import HIDDEN_REASON_REPORTS, HIDDEN_REASON_CLASSIFIER, \
+    REVIEW_STATUS_CLEARED, REVIEW_STATUS_ESCALATED
+from ..models import ModerationReview, Post
 
 # --- Constants ---
 invalid_session_management_token = '?'
 invalid_post_identifier = '?'
 reason = "This is a negative post"
+
+# Reporters available in setUp, comfortably more than any escalation bar.
+NUM_USERS = 8
 
 
 class RetractReportPostTests(PositiveOnlySocialTestCase):
@@ -17,9 +23,8 @@ class RetractReportPostTests(PositiveOnlySocialTestCase):
     def setUp(self):
         super().setUp()
 
-        # 1. Create User 0 (poster) and Users 1..MAX+1 (reporters)
-        # Total users = MAX + 2
-        self.make_post_with_users(MAX_BEFORE_HIDING_POST + 2)
+        # 1. Create User 0 (poster) and Users 1..NUM_USERS-1 (reporters)
+        self.make_post_with_users(NUM_USERS)
 
         # 2. Get the first "reporter's" info (User 1)
         self.reporter_token = self.users[UserFields.TOKEN][1]
@@ -80,18 +85,19 @@ class RetractReportPostTests(PositiveOnlySocialTestCase):
         self.assertEqual(response.status_code, 400)
         self.assertEqual(response.json(), {'error': 'Post not reported yet'})
 
-    def test_retract_report_returns_good_response_and_deletes_report(self):
+    def test_retract_report_returns_good_response_and_withdraws_report(self):
         """
-        Tests the happy path: report, then retract, and the report row is gone.
+        Tests the happy path: report, then retract, and the report no longer
+        stands against the post (its row is kept as a filing record — #467).
         """
         self._report(self.reporter_header)
-        self.assertEqual(self.post.postreport_set.count(), 1)
+        self.assertEqual(self.post.postreport_set.active().count(), 1)
 
         response = self.client.post(self.url, **self.reporter_header)
 
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.json(), {'message': 'Post report retracted'})
-        self.assertEqual(self.post.postreport_set.count(), 0)
+        self.assertEqual(self.post.postreport_set.active().count(), 0)
 
     def test_can_report_again_after_retracting(self):
         """
@@ -105,42 +111,55 @@ class RetractReportPostTests(PositiveOnlySocialTestCase):
 
         # Reporting again should now succeed instead of "Cannot report post twice".
         self._report(self.reporter_header)
-        self.assertEqual(self.post.postreport_set.count(), 1)
+        self.assertEqual(self.post.postreport_set.active().count(), 1)
 
-    def test_retract_only_deletes_own_report(self):
+    def test_retract_only_withdraws_own_report(self):
         """
-        Tests that retracting removes only the caller's report, not other users'.
+        Tests that retracting withdraws only the caller's report, not other users'.
         """
         self._report(self.reporter_header)
         other_header = {'HTTP_AUTHORIZATION': f'Bearer {self.users[UserFields.TOKEN][2]}'}
         self._report(other_header)
-        self.assertEqual(self.post.postreport_set.count(), 2)
+        self.assertEqual(self.post.postreport_set.active().count(), 2)
 
         response = self.client.post(self.url, **self.reporter_header)
 
         self.assertEqual(response.status_code, 200)
-        self.assertEqual(self.post.postreport_set.count(), 1)
+        self.assertEqual(self.post.postreport_set.active().count(), 1)
 
-    def test_retract_unhides_post_hidden_by_reports(self):
-        """
-        Tests that a post hidden because reports crossed the threshold is
-        un-hidden when a retraction drops the count back under it.
-        """
-        # Cross the hiding threshold (MAX + 1 reports).
-        for i in range(1, MAX_BEFORE_HIDING_POST + 2):
-            token = self.users[UserFields.TOKEN][i]
-            self._report({'HTTP_AUTHORIZATION': f'Bearer {token}'})
+    @patch.dict(os.environ, {"TESTING": "True"}, clear=True)
+    def test_retract_does_not_unhide_post_hidden_by_a_moderator(self):
+        """Issue #467: hiding is a decision, not a reversible group vote. A post a
+        moderator hid after reviewing reports stays hidden when the reporters
+        withdraw — only an appeal (or the moderator) can bring it back."""
+        self._report(self.reporter_header)
+        self.post.hidden = True
+        self.post.hidden_reason = HIDDEN_REASON_REPORTS
+        self.post.save()
 
+        response = self.client.post(self.url, **self.reporter_header)
+
+        self.assertEqual(response.status_code, 200)
         self.post.refresh_from_db()
         self.assertTrue(self.post.hidden)
         self.assertEqual(self.post.hidden_reason, HIDDEN_REASON_REPORTS)
 
-        response = self.client.post(self.url, **self.reporter_header)
+    @patch.dict(os.environ, {"TESTING": "True"}, clear=True)
+    def test_retracting_every_report_takes_the_post_off_the_moderator_queue(self):
+        """An escalation nobody is still reporting has nothing for a moderator to
+        look at, so the last retraction de-escalates it."""
+        for i in range(1, NUM_USERS):
+            self._report({'HTTP_AUTHORIZATION': f'Bearer {self.users[UserFields.TOKEN][i]}'})
+        review = ModerationReview.objects.get(post=self.post)
+        self.assertEqual(review.status, REVIEW_STATUS_ESCALATED)
 
-        self.assertEqual(response.status_code, 200)
-        self.post.refresh_from_db()
-        self.assertFalse(self.post.hidden)
-        self.assertEqual(self.post.hidden_reason, HIDDEN_REASON_NONE)
+        for i in range(1, NUM_USERS):
+            header = {'HTTP_AUTHORIZATION': f'Bearer {self.users[UserFields.TOKEN][i]}'}
+            self.assertEqual(self.client.post(self.url, **header).status_code, 200)
+
+        review.refresh_from_db()
+        self.assertEqual(review.status, REVIEW_STATUS_CLEARED)
+        self.assertEqual(self.post.postreport_set.active().count(), 0)
 
     def test_retract_does_not_unhide_classifier_hidden_post(self):
         """
@@ -160,28 +179,15 @@ class RetractReportPostTests(PositiveOnlySocialTestCase):
         self.assertTrue(self.post.hidden)
         self.assertEqual(self.post.hidden_reason, HIDDEN_REASON_CLASSIFIER)
 
-    def test_retract_does_not_unhide_while_still_over_threshold(self):
-        """
-        Tests that the post stays hidden if the report count is still over the
-        threshold after one retraction.
-        """
-        # MAX + 2 users total, so users 1..MAX+1 give MAX+1 reports; hiding
-        # trips at count > MAX. After one retraction the count is MAX+... we
-        # need count to remain > MAX, so add one more reporting user first.
-        extra = self.make_user_with_prefix(prefix='extrareporter')
-        self._report({'HTTP_AUTHORIZATION': f'Bearer {extra[Fields.session_management_token]}'})
-        for i in range(1, MAX_BEFORE_HIDING_POST + 2):
-            token = self.users[UserFields.TOKEN][i]
-            self._report({'HTTP_AUTHORIZATION': f'Bearer {token}'})
-
-        self.post.refresh_from_db()
-        self.assertTrue(self.post.hidden)
-        self.assertEqual(self.post.postreport_set.count(), MAX_BEFORE_HIDING_POST + 2)
+    @patch.dict(os.environ, {"TESTING": "True"}, clear=True)
+    def test_retracting_one_of_many_reports_keeps_the_escalation(self):
+        """One reporter backing out does not clear an escalation others are still
+        asking for."""
+        for i in range(1, NUM_USERS):
+            self._report({'HTTP_AUTHORIZATION': f'Bearer {self.users[UserFields.TOKEN][i]}'})
 
         response = self.client.post(self.url, **self.reporter_header)
 
         self.assertEqual(response.status_code, 200)
-        self.post.refresh_from_db()
-        # Count dropped to MAX + 1, still over the "count > MAX" hiding bar.
-        self.assertTrue(self.post.hidden)
-        self.assertEqual(self.post.hidden_reason, HIDDEN_REASON_REPORTS)
+        review = ModerationReview.objects.get(post=self.post)
+        self.assertEqual(review.status, REVIEW_STATUS_ESCALATED)

@@ -35,6 +35,20 @@ class MockPositiveOnlySocialAPI : PositiveOnlySocialAPI {
         )
     }
 
+    override suspend fun loginWithGoogle(request: GoogleLoginRequest): Response<LoginResponse> {
+        return Response.success(
+            LoginResponse(
+                sessionToken = "mock_session_token",
+                username = "mockgoogleuser",
+                userId = "00000000-0000-0000-0000-000000000001",
+                seriesIdentifier = "mock_series_id",
+                loginCookieToken = "mock_login_cookie",
+                createdAccount = true,
+                membershipNumber = 1
+            )
+        )
+    }
+
     // --- Two-Factor Authentication (issue #348) ---
 
     override suspend fun loginUser2FA(request: LoginTwoFactorRequest): Response<AuthResponse> {

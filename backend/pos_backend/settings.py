@@ -231,6 +231,23 @@ EMAIL_HOST_PASSWORD = os.environ.get("EMAIL_PASS")
 _frontend_base_url = os.environ.get("FRONTEND_BASE_URL", "").strip()
 FRONTEND_BASE_URL = (_frontend_base_url or "https://smiling.social").rstrip('/')
 
+# Google sign-in (issue #10). Every OAuth client ID that may appear in the `aud`
+# claim of an ID token we accept — one per platform (web, iOS, Android), since
+# Google issues a separate client ID for each and mints tokens addressed to the
+# client that asked. Comma-separated, e.g.
+#   GOOGLE_OAUTH_CLIENT_IDS="123-web.apps.googleusercontent.com,123-ios.apps.googleusercontent.com"
+#
+# This list is the entire trust boundary: a token is only as meaningful as the
+# audience it was minted for, so anything not named here is somebody else's app
+# and is rejected. Left unset, login/google/ is off (the "unset env var means the
+# feature is a no-op" pattern used for push), which keeps CI and local runs from
+# needing Google credentials.
+GOOGLE_OAUTH_CLIENT_IDS = [
+    client_id.strip()
+    for client_id in os.environ.get("GOOGLE_OAUTH_CLIENT_IDS", "").split(",")
+    if client_id.strip()
+]
+
 
 DATETIME_FORMAT = f"iso-8601"
 L10N=False

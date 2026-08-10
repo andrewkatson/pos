@@ -38,14 +38,28 @@ def hash_string_sha256(input_string):
 
 
 def convert_to_bool(str_value):
-    """Converts a string to boolean."""
+    """Convert a bool, or the string 'true'/'false' in any case, to a bool.
 
-    if type(str_value) == bool:
+    Raises TypeError for everything else — including None and non-string types
+    like an int or a dict, which arrive whenever a client sends
+    `"remember_me": 1` or omits the field entirely.
+
+    That "everything else" matters: callers catch TypeError to turn a bad value
+    into a 400, so a non-string input has to raise TypeError and not the
+    AttributeError a bare `.lower()` used to raise. AttributeError escaped every
+    caller's except clause, so a request that merely left the field out came back
+    as a 500 instead of a validation error.
+    """
+    if isinstance(str_value, bool):
         return str_value
 
-    if str_value.lower() == 'true':
+    if not isinstance(str_value, str):
+        raise TypeError('Invalid input')
+
+    lowered = str_value.lower()
+    if lowered == 'true':
         return True
-    elif str_value.lower() == 'false':
+    elif lowered == 'false':
         return False
     else:
         raise TypeError('Invalid input')

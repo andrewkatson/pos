@@ -5,11 +5,27 @@ import { vi, beforeEach, afterEach } from 'vitest'
 import RegisterPage from './RegisterPage'
 
 vi.mock('../api/client', () => ({
-  apiClient: { register: vi.fn(), setToken: vi.fn(), getInterestOptions: vi.fn() },
+  apiClient: {
+    register: vi.fn(),
+    loginWithGoogle: vi.fn(),
+    setToken: vi.fn(),
+    getInterestOptions: vi.fn(),
+  },
+}))
+
+// The Google button is Google's own iframe, drawn by a script we never load in
+// tests. Stub it down to a plain button handing back a canned credential.
+vi.mock('../components/GoogleSignInButton', () => ({
+  default: ({ onCredential }: { onCredential: (idToken: string) => void }) => (
+    <button type="button" onClick={() => onCredential('a.google.token')}>
+      Sign up with Google
+    </button>
+  ),
 }))
 
 import { apiClient } from '../api/client'
 const mockRegister = vi.mocked(apiClient.register)
+const mockLoginWithGoogle = vi.mocked(apiClient.loginWithGoogle)
 const mockGetInterestOptions = vi.mocked(apiClient.getInterestOptions)
 
 // Credentials that satisfy the backend patterns mirrored on the client:
@@ -43,6 +59,7 @@ let sessionStorageMock: typeof localStorageMock
 
 beforeEach(() => {
   mockRegister.mockReset()
+  mockLoginWithGoogle.mockReset()
   mockGetInterestOptions.mockReset().mockResolvedValue({
     options: [
       { slug: 'nature', name: 'Nature' },
@@ -292,4 +309,81 @@ test('welcome greeting still appears (without a number) when none was assigned',
 
   await userEvent.click(screen.getByRole('button', { name: 'Continue' }))
   expect(await screen.findByText('Check Email')).toBeInTheDocument()
+})
+
+// ---------------------------------------------------------------------------
+// Google sign-up (issue #10)
+// ---------------------------------------------------------------------------
+
+test('a Google credential still has to pass the privacy policy gate', async () => {
+  renderRegisterPage()
+
+  await userEvent.click(screen.getByRole('button', { name: 'Sign up with Google' }))
+
+  // Accepting the policy is a condition of creating an account, and Google's
+  // button can't be made to ask for it first — so it is asked afterwards.
+  expect(screen.getByRole('dialog', { name: 'Privacy Policy' })).toBeInTheDocument()
+  expect(mockLoginWithGoogle).not.toHaveBeenCalled()
+})
+
+test('declining the privacy policy discards the Google credential', async () => {
+  renderRegisterPage()
+
+  await userEvent.click(screen.getByRole('button', { name: 'Sign up with Google' }))
+  await userEvent.click(screen.getByRole('button', { name: 'Cancel' }))
+
+  expect(mockLoginWithGoogle).not.toHaveBeenCalled()
+})
+
+test('accepting the policy creates the account and greets the new member', async () => {
+  mockLoginWithGoogle.mockResolvedValueOnce({
+    session_management_token: 'google-token',
+    user_id: 'u1',
+    username: 'hopefulperson',
+    created_account: true,
+    membership_number: 7,
+  })
+  renderRegisterPage()
+
+  await userEvent.click(screen.getByRole('button', { name: 'Sign up with Google' }))
+  await userEvent.click(screen.getByRole('button', { name: 'Ok' }))
+
+  expect(mockLoginWithGoogle).toHaveBeenCalledWith({ id_token: 'a.google.token' })
+  expect(await screen.findByText(/You're member #7!/)).toBeInTheDocument()
+  // Google has already verified the address, so there is no inbox to visit.
+  expect(screen.queryByText(/Check your email/)).not.toBeInTheDocument()
+})
+
+test('a Google sign-up goes straight into the app, not to the check-email page', async () => {
+  mockLoginWithGoogle.mockResolvedValueOnce({
+    session_management_token: 'google-token',
+    user_id: 'u1',
+    username: 'hopefulperson',
+    created_account: true,
+  })
+  renderRegisterPage()
+
+  await userEvent.click(screen.getByRole('button', { name: 'Sign up with Google' }))
+  await userEvent.click(screen.getByRole('button', { name: 'Ok' }))
+  await userEvent.click(await screen.findByRole('button', { name: 'Continue' }))
+
+  expect(screen.getByText('Home')).toBeInTheDocument()
+  // The session is kept, unlike the password path which clears it pending
+  // email verification.
+  expect(sessionStorageMock.setItem).toHaveBeenCalledWith('session_token', 'google-token')
+})
+
+test('an existing 2FA account is pointed at the login page rather than stranded', async () => {
+  mockLoginWithGoogle.mockResolvedValueOnce({
+    two_factor_required: true,
+    challenge_token: 'c'.repeat(64),
+  })
+  renderRegisterPage()
+
+  await userEvent.click(screen.getByRole('button', { name: 'Sign up with Google' }))
+  await userEvent.click(screen.getByRole('button', { name: 'Ok' }))
+
+  // Only an existing account can owe a second factor, and the code step lives
+  // on the login page.
+  expect(await screen.findByRole('alert')).toHaveTextContent('Login page')
 })

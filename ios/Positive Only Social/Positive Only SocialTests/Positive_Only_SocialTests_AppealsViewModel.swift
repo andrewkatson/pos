@@ -31,19 +31,18 @@ struct Positive_Only_SocialTests_AppealsViewModel {
         try keychainHelper.save(session, for: GVOAppConstants.keychainService, account: account)
     }
 
-    /// Author posts, then enough other users report it to hide it. Returns the
-    /// author's token and the hidden post id.
+    /// Author posts something a report gets re-reviewed and hidden for (issue
+    /// #467 — a report count hides nothing, the content's own verdict does).
+    /// Returns the author's token and the hidden post id.
     private func makeReportHiddenPost() async throws -> (authorToken: String, postId: String) {
         let authorToken = try await register("author")
         let makeData = try await stubAPI.makePost(
-            sessionManagementToken: authorToken, imageURL: "https://example.com/a.jpg", caption: "flagged caption")
+            sessionManagementToken: authorToken, imageURL: "https://example.com/a.jpg", caption: "reviewable caption")
         struct PostFields: Decodable { let post_identifier: String }
         let postId = try JSONDecoder().decode(PostFields.self, from: makeData).post_identifier
 
-        for i in 0..<6 {
-            let reporterToken = try await register("reporter\(i)")
-            _ = try await stubAPI.reportPost(sessionManagementToken: reporterToken, postIdentifier: postId, reason: "bad")
-        }
+        let reporterToken = try await register("reporter")
+        _ = try await stubAPI.reportPost(sessionManagementToken: reporterToken, postIdentifier: postId, reason: "bad")
         return (authorToken, postId)
     }
 
@@ -57,7 +56,7 @@ struct Positive_Only_SocialTests_AppealsViewModel {
 
         #expect(vm.hiddenPosts.count == 1)
         #expect(vm.hiddenPosts.first?.postIdentifier == postId)
-        #expect(vm.hiddenPosts.first?.hiddenReason == "reports")
+        #expect(vm.hiddenPosts.first?.hiddenReason == "classifier")
         #expect(vm.hiddenPosts.first?.hasAppeal == false)
         #expect(vm.appeals.isEmpty)
     }

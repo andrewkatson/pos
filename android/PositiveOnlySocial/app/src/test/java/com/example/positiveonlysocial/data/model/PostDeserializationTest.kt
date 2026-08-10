@@ -246,6 +246,27 @@ class PostDeserializationTest {
 
         assertNull(post.authorProfileImageUrl)
         assertNull(post.authorProfileImageOriginalUrl)
+        assertNull(post.authorProfileImageBlurHash)
+    }
+
+    @Test
+    fun `post json maps author_profile_image_blurhash to authorProfileImageBlurHash`() {
+        // The avatar's BlurHash (issue #460) rides along with its URLs, so the
+        // row can blur the real photo in while it loads.
+        val json = """
+            {
+              "post_identifier": "p7",
+              "image_url": "https://example.com/g.jpg",
+              "caption": "hi",
+              "author_username": "alice",
+              "author_profile_image_url": "https://example.com/avatar-small.jpg",
+              "author_profile_image_blurhash": "LEHV6nWB2yk8pyo0adR*.7kCMdnj"
+            }
+        """.trimIndent()
+
+        val post = gson.fromJson(json, Post::class.java)
+
+        assertEquals("LEHV6nWB2yk8pyo0adR*.7kCMdnj", post.authorProfileImageBlurHash)
     }
 
     @Test
@@ -267,6 +288,8 @@ class PostDeserializationTest {
 
         assertEquals("https://example.com/avatar-small.jpg", comment.authorProfileImageUrl)
         assertEquals("https://example.com/avatar-full.jpg", comment.authorProfileImageOriginalUrl)
+        // Absent here (older backend / no photo), so it stays null.
+        assertNull(comment.authorProfileImageBlurHash)
     }
 
     @Test
@@ -295,6 +318,28 @@ class PostDeserializationTest {
         assertEquals("pending", profile.profileImageStatus)
         assertNull(profile.profileImageReasonCode)
         assertEquals("https://example.com/pending.jpg", profile.pendingProfileImageUrl)
+        // Omitted by this payload, so the header falls back to the plain circle.
+        assertNull(profile.profileImageBlurHash)
+    }
+
+    @Test
+    fun `profile details json maps profile_image_blurhash (issue 460)`() {
+        val json = """
+            {
+              "username": "alice",
+              "post_count": 2,
+              "follower_count": 5,
+              "following_count": 3,
+              "is_following": false,
+              "profile_image_url": "https://example.com/avatar-small.jpg",
+              "profile_image_original_url": "https://example.com/avatar-full.jpg",
+              "profile_image_blurhash": "LEHV6nWB2yk8pyo0adR*.7kCMdnj"
+            }
+        """.trimIndent()
+
+        val profile = gson.fromJson(json, ProfileDetailsResponse::class.java)
+
+        assertEquals("LEHV6nWB2yk8pyo0adR*.7kCMdnj", profile.profileImageBlurHash)
     }
 
     @Test

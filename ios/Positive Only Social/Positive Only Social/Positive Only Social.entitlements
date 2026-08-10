@@ -4,5 +4,14 @@
 <dict>
 	<key>aps-environment</key>
 	<string>development</string>
+	<!-- Universal Links for shared post links (issue #382). Both hosts serve
+	     the same site, so a link shared with the www. prefix opens the app too.
+	     Requires https://smiling.social/.well-known/apple-app-site-association
+	     to list this app id — see website/public/.well-known/. -->
+	<key>com.apple.developer.associated-domains</key>
+	<array>
+		<string>applinks:smiling.social</string>
+		<string>applinks:www.smiling.social</string>
+	</array>
 </dict>
 </plist>

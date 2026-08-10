@@ -107,6 +107,15 @@ class ProfileViewModel: ObservableObject {
         profileDetails?.profileImageOriginalUrl
     }
 
+    /// The BlurHash preview for the header avatar (issue #460). Withheld while
+    /// the owner previews a pending upload, because the hash describes the
+    /// *approved* photo: blurring in the old picture behind the new one would
+    /// just read as a glitch.
+    var headerAvatarBlurHash: String? {
+        if isOwnProfile, profileDetails?.pendingProfileImageUrl != nil { return nil }
+        return profileDetails?.profileImageBlurHash
+    }
+
     /// The owner-only moderation status of the profile photo ("pending",
     /// "rejected", ...), used to show a review/try-again hint. Nil on someone
     /// else's profile.

@@ -108,7 +108,8 @@ fun HomeScreen(
                                     originalImageUrl = user.authorProfileImageOriginalUrl,
                                     // Decorative — the username is rendered next to it.
                                     contentDescription = null,
-                                    size = 40.dp
+                                    size = 40.dp,
+                                    blurHash = user.authorProfileImageBlurHash
                                 )
                                 Spacer(modifier = Modifier.width(16.dp))
                                 Text(

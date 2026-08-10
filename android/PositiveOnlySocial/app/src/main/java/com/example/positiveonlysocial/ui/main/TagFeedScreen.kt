@@ -45,6 +45,9 @@ fun TagFeedScreen(
 
         val postActions = viewModel.postActions
         val currentUsername by postActions.currentUsername.collectAsState()
+        // Which post's action menu is open, collected once here rather than in
+        // every row's PostActionMenu.
+        val postForAction by postActions.postForAction.collectAsState()
 
         LaunchedEffect(Unit) {
             if (posts.isEmpty()) {
@@ -89,7 +92,8 @@ fun TagFeedScreen(
                             post = post,
                             navController = navController,
                             actions = postActions,
-                            currentUsername = currentUsername
+                            currentUsername = currentUsername,
+                            openMenuPostId = postForAction?.postIdentifier
                         )
 
                         if (post == posts.lastOrNull()) {
