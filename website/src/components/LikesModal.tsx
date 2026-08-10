@@ -163,6 +163,7 @@ function LikesModal({ target, onClose }: LikesModalProps) {
               <Avatar
                 src={user.author_profile_image_url}
                 originalSrc={user.author_profile_image_original_url}
+                blurhash={user.author_profile_image_blurhash}
                 username={user.username}
                 size="sm"
               />

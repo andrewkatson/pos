@@ -20,16 +20,21 @@ function BlurhashCanvas({ hash, className }: { hash: string; className: string }
   useEffect(() => {
     const canvas = canvasRef.current
     if (!canvas) return
+    const ctx = canvas.getContext('2d')
+    if (!ctx) return
     // A malformed hash makes decode throw; swallow it so a bad value just
-    // yields no placeholder rather than crashing the render.
+    // yields no placeholder rather than crashing the render. Clear the canvas
+    // rather than simply bailing: this effect re-runs on the same canvas when
+    // `hash` changes, so returning early would leave the *previous* hash's
+    // pixels standing in as this image's placeholder — a blurred preview of the
+    // wrong photo, which is worse than no preview at all.
     let pixels: Uint8ClampedArray
     try {
       pixels = decode(hash, BLUR_DECODE_SIZE, BLUR_DECODE_SIZE)
     } catch {
+      ctx.clearRect(0, 0, BLUR_DECODE_SIZE, BLUR_DECODE_SIZE)
       return
     }
-    const ctx = canvas.getContext('2d')
-    if (!ctx) return
     const imageData = ctx.createImageData(BLUR_DECODE_SIZE, BLUR_DECODE_SIZE)
     imageData.data.set(pixels)
     ctx.putImageData(imageData, 0, 0)
