@@ -1275,7 +1275,10 @@ log now grows unbounded, so run this once per existing host:
 
 ```bash
 sudo apt install -y logrotate
-sudo systemctl enable --now logrotate.timer
+# Modern Ubuntu schedules logrotate with a systemd timer. Older images have no
+# such unit and run /etc/cron.daily/logrotate instead, where this reports
+# "Unit logrotate.timer not found" and the '|| true' keeps that harmless.
+sudo systemctl enable --now logrotate.timer || true
 sudo tee /etc/logrotate.d/smiling-social-django > /dev/null <<'EOF'
 /var/www/smiling-social/pos/backend/logs/user_system.log {
     daily
@@ -1293,10 +1296,12 @@ sudo logrotate --debug /etc/logrotate.d/smiling-social-django
 ```
 
 The install and `enable --now` are usually no-ops — Ubuntu's server images ship
-logrotate with its timer enabled — but nothing in Django rotates this file any
-more, so both are worth asserting rather than assuming. A missing binary and a
-disabled timer fail the same silent way as a bad config: no rotation, no
-symptom, until the disk fills.
+logrotate already scheduled — but nothing in Django rotates this file any more,
+so both are worth asserting rather than assuming. A missing binary and an
+unscheduled logrotate fail the same silent way as a bad config: no rotation, no
+symptom, until the disk fills. Either scheduler is fine; `setup-django.sh`
+accepts `logrotate.timer` or `/etc/cron.daily/logrotate` and only warns when
+neither is present.
 
 Then restart gunicorn and the worker so they pick up the new handler. The
 `user_system.log.<date>` files the old handler left behind are not managed by

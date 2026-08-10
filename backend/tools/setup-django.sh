@@ -711,12 +711,22 @@ EOF
         print_error "  sudo logrotate --debug /etc/logrotate.d/smiling-social-django"
     fi
 
-    # A valid config is only half of it — logrotate.timer is what actually fires
-    # the rotation. A masked or disabled timer rotates nothing and looks exactly
-    # like success, so check it too and route it to the same warning.
-    if ! systemctl is-enabled --quiet logrotate.timer 2>/dev/null; then
+    # A valid config is only half of it — something has to fire it, and a config
+    # nothing runs rotates nothing while looking exactly like success.
+    #
+    # Accept either scheduler the Debian family uses. Modern Ubuntu ships
+    # logrotate.timer; older images (20.04 and back) have no such unit and run
+    # /etc/cron.daily/logrotate instead. Testing only for the timer would print
+    # ACTION REQUIRED on a cron-driven host whose rotation is working perfectly,
+    # and a warning that cries wolf is worse than no warning at all.
+    if systemctl is-enabled --quiet logrotate.timer 2>/dev/null; then
+        print_status "Rotation scheduled by logrotate.timer"
+    elif [ -x /etc/cron.daily/logrotate ]; then
+        print_status "Rotation scheduled by /etc/cron.daily/logrotate"
+    else
         LOGROTATE_CONFIG_VALID=false
-        print_error "logrotate.timer is not enabled — the config above would never run. Fix with:"
+        print_error "Nothing schedules logrotate (no enabled logrotate.timer, no"
+        print_error "/etc/cron.daily/logrotate), so the config above would never fire. Try:"
         print_error "  sudo systemctl enable --now logrotate.timer"
     fi
 }
@@ -825,7 +835,7 @@ print_summary() {
         echo "      none of them rotates it (see the Backend logs section of README.md)."
         echo "      Diagnose with:"
         echo "        sudo logrotate --debug /etc/logrotate.d/smiling-social-django"
-        echo "        systemctl status logrotate.timer"
+        echo "        systemctl status logrotate.timer   # or: ls -l /etc/cron.daily/logrotate"
         echo ""
     fi
     if ! grep -Eq '^REDIS_URL="?[^"]' "$BACKEND_DIR/.env"; then
