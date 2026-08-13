@@ -94,10 +94,11 @@ test('shows the terms and privacy links, opened in a new tab', () => {
   // A new tab so reading the terms doesn't discard a half-filled form or a
   // Google credential waiting on the consent modal (issue #493).
   expect(terms).toHaveAttribute('target', '_blank')
-  expect(screen.getByRole('link', { name: 'Privacy Policy' })).toHaveAttribute(
-    'href',
-    '/privacy-policy',
-  )
+  // ...which means the opened tab must not get a handle on this one.
+  expect(terms).toHaveAttribute('rel', 'noopener noreferrer')
+  const privacy = screen.getByRole('link', { name: 'Privacy Policy' })
+  expect(privacy).toHaveAttribute('href', '/privacy-policy')
+  expect(privacy).toHaveAttribute('rel', 'noopener noreferrer')
 })
 
 test('register button is disabled when form is incomplete', () => {

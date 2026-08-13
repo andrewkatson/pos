@@ -467,14 +467,14 @@ function RegisterPage() {
         {/* Covers both ways in — the form above and the Google button (issue
             #493). Both links open in a new tab so reading them doesn't throw
             away a half-filled form or a Google credential waiting on the
-            consent modal. */}
+            consent modal; `noopener` keeps the new tab off `window.opener`. */}
         <p className="auth-legal">
           By creating an account you agree to our{' '}
           <Link
             to="/terms-of-service"
             className="auth-legal__link"
             target="_blank"
-            rel="noreferrer"
+            rel="noopener noreferrer"
           >
             Terms of Service
           </Link>{' '}
@@ -483,7 +483,7 @@ function RegisterPage() {
             to="/privacy-policy"
             className="auth-legal__link"
             target="_blank"
-            rel="noreferrer"
+            rel="noopener noreferrer"
           >
             Privacy Policy
           </Link>.
