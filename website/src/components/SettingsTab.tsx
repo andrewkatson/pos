@@ -4,7 +4,7 @@ import { apiClient } from '../api/client'
 import { clearSession } from '../api/session'
 import type { CurrentUser, NotificationPreference } from '../api/types'
 import { PRIVACY_POLICY_TEXT } from '../privacyPolicy'
-import { TERMS_OF_SERVICE_SECTIONS } from '../termsOfService'
+import { TERMS_OF_SERVICE_LAST_UPDATED, TERMS_OF_SERVICE_SECTIONS } from '../termsOfService'
 import Modal from './Modal'
 import InterestsModal from './InterestsModal'
 import {
@@ -396,7 +396,9 @@ function SettingsTab() {
           policy they scroll inside the dialog rather than growing it past the
           viewport (issue #493). */}
       {activeModal === 'terms' && (
-        <Modal title="Terms of Service">
+        // The date sits outside the scroll container, so which version this is
+        // stays on screen while the sections scroll past it.
+        <Modal title="Terms of Service" body={`Last updated ${TERMS_OF_SERVICE_LAST_UPDATED}`}>
           <div className="terms-modal">
             {TERMS_OF_SERVICE_SECTIONS.map(section => (
               <section key={section.heading}>
