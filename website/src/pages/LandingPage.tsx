@@ -49,6 +49,11 @@ function LandingPage() {
         <Link to="/privacy-policy" className="landing__footer-link">
           Privacy Policy
         </Link>
+        {/* Google's OAuth consent screen requires a terms link reachable from
+            the app's home page, so it sits here beside the privacy policy. */}
+        <Link to="/terms-of-service" className="landing__footer-link">
+          Terms of Service
+        </Link>
         <Link to="/delete-account" className="landing__footer-link">
           Delete Account
         </Link>

@@ -115,6 +115,13 @@ test('privacy policy can be shown', async () => {
   expect(screen.getByRole('dialog', { name: 'Privacy Policy' })).toBeInTheDocument()
 })
 
+test('terms of service can be shown', async () => {
+  renderTab()
+  await userEvent.click(screen.getByRole('button', { name: 'Terms of Service' }))
+  const dialog = screen.getByRole('dialog', { name: 'Terms of Service' })
+  expect(within(dialog).getByRole('heading', { name: 'What you may post' })).toBeInTheDocument()
+})
+
 test('opens the hidden content & appeals page', async () => {
   renderTab()
   await userEvent.click(screen.getByRole('button', { name: 'Hidden Content & Appeals' }))

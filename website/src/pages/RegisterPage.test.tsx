@@ -87,6 +87,19 @@ test('renders all registration fields', () => {
   expect(screen.getByLabelText('Confirm Password')).toBeInTheDocument()
 })
 
+test('shows the terms and privacy links, opened in a new tab', () => {
+  renderRegisterPage()
+  const terms = screen.getByRole('link', { name: 'Terms of Service' })
+  expect(terms).toHaveAttribute('href', '/terms-of-service')
+  // A new tab so reading the terms doesn't discard a half-filled form or a
+  // Google credential waiting on the consent modal (issue #493).
+  expect(terms).toHaveAttribute('target', '_blank')
+  expect(screen.getByRole('link', { name: 'Privacy Policy' })).toHaveAttribute(
+    'href',
+    '/privacy-policy',
+  )
+})
+
 test('register button is disabled when form is incomplete', () => {
   renderRegisterPage()
   expect(screen.getByRole('button', { name: 'Register' })).toBeDisabled()

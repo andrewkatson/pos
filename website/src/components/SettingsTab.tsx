@@ -4,6 +4,7 @@ import { apiClient } from '../api/client'
 import { clearSession } from '../api/session'
 import type { CurrentUser, NotificationPreference } from '../api/types'
 import { PRIVACY_POLICY_TEXT } from '../privacyPolicy'
+import { TERMS_OF_SERVICE_SECTIONS } from '../termsOfService'
 import Modal from './Modal'
 import InterestsModal from './InterestsModal'
 import {
@@ -17,6 +18,7 @@ type ActiveModal =
   | 'delete'
   | 'verify'
   | 'privacy'
+  | 'terms'
   | 'enable2fa'
   | 'disable2fa'
   | 'changePassword'
@@ -214,6 +216,13 @@ function SettingsTab() {
         >
           Privacy Policy
         </button>
+        <button
+          type="button"
+          className="settings-row"
+          onClick={() => setActiveModal('terms')}
+        >
+          Terms of Service
+        </button>
       </div>
 
       {notifPrefs.length > 0 && (
@@ -375,6 +384,27 @@ function SettingsTab() {
 
       {activeModal === 'privacy' && (
         <Modal title="Privacy Policy" body={PRIVACY_POLICY_TEXT}>
+          <div className="modal__actions">
+            <button type="button" className="modal__confirm" onClick={close}>
+              Ok
+            </button>
+          </div>
+        </Modal>
+      )}
+
+      {/* The terms run to several sections, so unlike the one-paragraph privacy
+          policy they scroll inside the dialog rather than growing it past the
+          viewport (issue #493). */}
+      {activeModal === 'terms' && (
+        <Modal title="Terms of Service">
+          <div className="terms-modal">
+            {TERMS_OF_SERVICE_SECTIONS.map(section => (
+              <section key={section.heading}>
+                <h3 className="terms-modal__heading">{section.heading}</h3>
+                <p className="modal__body">{section.body}</p>
+              </section>
+            ))}
+          </div>
           <div className="modal__actions">
             <button type="button" className="modal__confirm" onClick={close}>
               Ok
