@@ -98,6 +98,7 @@ test('shows the terms and privacy links, opened in a new tab', () => {
   expect(terms).toHaveAttribute('rel', 'noopener noreferrer')
   const privacy = screen.getByRole('link', { name: 'Privacy Policy' })
   expect(privacy).toHaveAttribute('href', '/privacy-policy')
+  expect(privacy).toHaveAttribute('target', '_blank')
   expect(privacy).toHaveAttribute('rel', 'noopener noreferrer')
 })
 
