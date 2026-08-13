@@ -26,6 +26,7 @@ import com.example.positiveonlysocial.data.model.TotpSetupResponse
 import com.example.positiveonlysocial.data.model.InterestOption
 import com.example.positiveonlysocial.data.model.RejectedInterest
 import com.example.positiveonlysocial.ui.components.InterestPicker
+import com.example.positiveonlysocial.ui.components.TermsOfServiceDialog
 import com.google.zxing.BarcodeFormat
 import com.google.zxing.qrcode.QRCodeWriter
 import androidx.lifecycle.viewmodel.compose.viewModel
@@ -91,6 +92,9 @@ fun SettingsScreen(
         val showingErrorAlert by viewModel.showingErrorAlert.collectAsState()
 
         var showingPrivacyPolicy by remember { mutableStateOf(false) }
+        // The terms are too long for a plain alert, so they get their own
+        // scrollable dialog (issue #493).
+        var showingTermsOfService by remember { mutableStateOf(false) }
 
         // Two-factor authentication dialogs (issue #348).
         var showingEnrollTwoFactor by remember { mutableStateOf(false) }
@@ -357,6 +361,10 @@ fun SettingsScreen(
             )
         }
 
+        if (showingTermsOfService) {
+            TermsOfServiceDialog(onDismiss = { showingTermsOfService = false })
+        }
+
         if (showingLogoutConfirm) {
             AlertDialog(
                 onDismissRequest = { showingLogoutConfirm = false },
@@ -525,6 +533,12 @@ fun SettingsScreen(
 
             ListListItem(text = "Privacy Policy") {
                 showingPrivacyPolicy = true
+            }
+
+            HorizontalDivider()
+
+            ListListItem(text = "Terms of Service") {
+                showingTermsOfService = true
             }
 
             HorizontalDivider()

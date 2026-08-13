@@ -22,6 +22,8 @@ struct SettingsView: View {
     @State private var dateOfBirth = Date()
     @State private var showingDatePicker = false
     @State private var showingPrivacyPolicy = false
+    // The terms are too long for an alert, so they get their own sheet (#493).
+    @State private var showingTermsOfService = false
 
     // Two-factor authentication sheets (issue #348).
     @State private var showingEnrollTwoFactor = false
@@ -110,6 +112,12 @@ struct SettingsView: View {
                     } label: {
                         Text("Privacy Policy")
                     }.accessibilityIdentifier("PrivacyPolicyButton")
+
+                    Button {
+                        showingTermsOfService = true
+                    } label: {
+                        Text("Terms of Service")
+                    }.accessibilityIdentifier("TermsOfServiceButton")
                 }
 
                 // MARK: - Appeals Section
@@ -238,6 +246,9 @@ struct SettingsView: View {
                 Button("Ok", role: .cancel) { }
             } message: {
                 Text(GVOAppConstants.privacyPolicyText)
+            }
+            .sheet(isPresented: $showingTermsOfService) {
+                TermsOfServiceView()
             }
             .alert("Two-Factor Authentication", isPresented: $viewModel.showingTwoFactorStatusAlert) {
                 Button("OK", role: .cancel) { }
