@@ -97,6 +97,7 @@
 				VibesViews/SettingsView.swift,
 				VibesViews/ShareActivityView.swift,
 				VibesViews/TagFeedView.swift,
+				VibesViews/TermsOfServiceView.swift,
 				VibesViews/VerifyResetView.swift,
 			);
 			target = 248836DF2E6282C5002D47F1 /* Positive Only SocialTests */;
@@ -160,6 +161,7 @@
 				VibesViews/SettingsView.swift,
 				VibesViews/ShareActivityView.swift,
 				VibesViews/TagFeedView.swift,
+				VibesViews/TermsOfServiceView.swift,
 				VibesViews/VerifyResetView.swift,
 			);
 			target = 248836E92E6282C5002D47F1 /* Positive Only SocialUITests */;

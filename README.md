@@ -785,6 +785,58 @@ exactly the cascade above; on success the local session is cleared and a
 confirmation is shown. A session already restored on page load skips straight to
 the confirmation step.
 
+## Terms of service (issue #493)
+
+The website serves the terms at `https://smiling.social/terms-of-service`, a
+public page needing no session, next to the privacy policy it mirrors. Google's
+OAuth consent screen requires a terms URL that is reachable from the app's home
+page before it will verify the app, and both app stores ask for the same, so the
+**landing-page footer links to it** alongside "Privacy Policy" and "Delete
+Account", and the two legal pages cross-link to each other.
+
+The text lives in `website/src/termsOfService.ts` as an ordered list of
+`{heading, body}` sections — one source shared by the public page and the
+Settings → "Terms of Service" modal, so the signed-out and signed-in copies
+cannot drift (the privacy policy does the same with `website/src/privacyPolicy.ts`).
+Both unauthenticated pages share `website/src/pages/LegalPage.css`.
+
+**Every client carries the terms, not just the website.** OAuth needs only the
+one URL above — the consent screen is configured per Google Cloud project, and
+all three clients authenticate against it — but Apple's UGC rules expect the
+terms to be agreed to and readable inside the app, so iOS and Android each ship
+their own copy the way they already ship the privacy policy:
+
+| Surface | Text | Where it is shown |
+| --- | --- | --- |
+| Website | `website/src/termsOfService.ts` | `/terms-of-service` page, Settings modal |
+| iOS | `GVOAppConstants.termsOfServiceSections` | `TermsOfServiceView` sheet, from Settings and Register |
+| Android | `Constants.TERMS_OF_SERVICE_SECTIONS` | `TermsOfServiceDialog`, from Settings and Register |
+
+The section list is duplicated per client, exactly as `privacyPolicyText` /
+`PRIVACY_POLICY_TEXT` already are — there is no endpoint serving policy text —
+so a wording change has to be made in all three places. The privacy policy is a
+single paragraph and fits an alert; the terms run to ten sections, so on both
+mobile clients they get a scrollable sheet/dialog rather than an alert.
+
+On mobile, registering is the acceptance: the register screen carries the same
+"By creating an account you agree to our Terms of Service" line the website
+does, with the terms one tap away, since a signed-out user cannot reach
+Settings. The privacy policy stays the confirmation dialog that Register already
+puts up on both clients.
+
+What the terms cover follows the behavior documented elsewhere in this file:
+the 16+ [age floor and the adult/minor split](#age-and-identity), the
+[content guidelines](#overview), [automated moderation](#post-classification-async),
+[bans and shadow bans](#banning), [appeals](#appeals), what
+[Google sign-in](#signing-in-with-google) shares, and what
+[account deletion](#account--data-deletion) removes. Changing any of that
+behavior means updating the terms text with it. The website's register page
+carries a
+"By creating an account you agree to our Terms of Service and Privacy Policy"
+line covering both the form and the Google button; its links open in a new tab
+so reading them cannot discard a half-filled form or a Google credential still
+waiting on the privacy-policy confirmation.
+
 ## Signing in with Google
 
 Anyone can sign in — and sign up — with a Google account instead of a username

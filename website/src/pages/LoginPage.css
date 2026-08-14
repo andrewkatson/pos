@@ -263,6 +263,24 @@
   margin: -0.5rem 0 0;
 }
 
+/* The terms/privacy acceptance line under the register form (issue #493). */
+.auth-legal {
+  margin: 0;
+  font-size: 0.8rem;
+  line-height: 1.5;
+  text-align: center;
+  color: rgba(255, 255, 255, 0.5);
+}
+
+.auth-legal__link {
+  color: rgba(255, 255, 255, 0.75);
+  text-decoration: underline;
+}
+
+.auth-legal__link:hover {
+  color: #ffffff;
+}
+
 /* ---- Password requirement hints ---- */
 
 .auth-hints {

@@ -26,6 +26,7 @@ function renderWithRouter(initialPath = '/') {
         <Route path="/register" element={<div>Register page</div>} />
         <Route path="/home" element={<div>Home page</div>} />
         <Route path="/privacy-policy" element={<div>Privacy policy page</div>} />
+        <Route path="/terms-of-service" element={<div>Terms of service page</div>} />
         <Route path="/delete-account" element={<div>Delete account page</div>} />
       </Routes>
     </MemoryRouter>,
@@ -57,6 +58,14 @@ test('Privacy Policy link navigates to /privacy-policy', async () => {
   renderWithRouter()
   await userEvent.click(screen.getByRole('link', { name: 'Privacy Policy' }))
   expect(screen.getByText('Privacy policy page')).toBeInTheDocument()
+})
+
+// Google's OAuth consent screen requires the terms to be reachable from the
+// home page, so this link is part of the sign-in-with-Google setup (issue #493).
+test('Terms of Service link navigates to /terms-of-service', async () => {
+  renderWithRouter()
+  await userEvent.click(screen.getByRole('link', { name: 'Terms of Service' }))
+  expect(screen.getByText('Terms of service page')).toBeInTheDocument()
 })
 
 test('Delete Account link navigates to /delete-account', async () => {

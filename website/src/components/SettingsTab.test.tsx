@@ -3,6 +3,7 @@ import userEvent from '@testing-library/user-event'
 import { MemoryRouter, Routes, Route } from 'react-router'
 import { vi, beforeEach, afterEach, test, expect } from 'vitest'
 import SettingsTab from './SettingsTab'
+import { TERMS_OF_SERVICE_LAST_UPDATED } from '../termsOfService'
 
 vi.mock('../api/client', () => ({
   apiClient: {
@@ -113,6 +114,17 @@ test('privacy policy can be shown', async () => {
   renderTab()
   await userEvent.click(screen.getByRole('button', { name: 'Privacy Policy' }))
   expect(screen.getByRole('dialog', { name: 'Privacy Policy' })).toBeInTheDocument()
+})
+
+test('terms of service can be shown', async () => {
+  renderTab()
+  await userEvent.click(screen.getByRole('button', { name: 'Terms of Service' }))
+  const dialog = screen.getByRole('dialog', { name: 'Terms of Service' })
+  expect(within(dialog).getByRole('heading', { name: 'What you may post' })).toBeInTheDocument()
+  // Which version this is, same as the public page shows.
+  expect(
+    within(dialog).getByText(`Last updated ${TERMS_OF_SERVICE_LAST_UPDATED}`),
+  ).toBeInTheDocument()
 })
 
 test('opens the hidden content & appeals page', async () => {
