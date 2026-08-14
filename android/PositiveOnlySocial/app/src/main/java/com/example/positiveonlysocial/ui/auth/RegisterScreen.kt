@@ -28,6 +28,7 @@ import com.example.positiveonlysocial.data.model.RegisterRequest
 import com.example.positiveonlysocial.data.model.InterestOption
 import com.example.positiveonlysocial.data.model.InterestVocabulary
 import com.example.positiveonlysocial.ui.components.InterestPicker
+import com.example.positiveonlysocial.ui.components.TermsOfServiceDialog
 import com.example.positiveonlysocial.ui.dismissKeyboardOnTap
 import com.example.positiveonlysocial.ui.navigation.Screen
 import com.example.positiveonlysocial.ui.theme.PositiveOnlySocialTheme
@@ -48,6 +49,9 @@ fun RegisterScreen(
         var errorMessage by remember { mutableStateOf<String?>(null) }
         var showingErrorAlert by remember { mutableStateOf(false) }
         var showingPrivacyPolicy by remember { mutableStateOf(false) }
+        // The terms are accepted by registering; this dialog is how they can be
+        // read first, since a signed-out user cannot reach Settings (#493).
+        var showingTermsOfService by remember { mutableStateOf(false) }
 
         // Optional positive interests collected during sign-up (issues #446/#35),
         // sent along in the register call since the account has no session yet.
@@ -142,6 +146,10 @@ fun RegisterScreen(
                     }
                 }
             )
+        }
+
+        if (showingTermsOfService) {
+            TermsOfServiceDialog(onDismiss = { showingTermsOfService = false })
         }
 
         if (showingErrorAlert) {
@@ -292,6 +300,17 @@ fun RegisterScreen(
             if (isLoading) {
                 CircularProgressIndicator()
             } else {
+                // Registering is the acceptance; the button opens the text so it
+                // can be read beforehand (issue #493). The privacy policy is the
+                // confirmation dialog Register already puts up.
+                Text(
+                    text = "By creating an account you agree to our",
+                    style = MaterialTheme.typography.bodySmall
+                )
+                TextButton(onClick = { showingTermsOfService = true }) {
+                    Text("Terms of Service", style = MaterialTheme.typography.bodySmall)
+                }
+
                 Button(
                     onClick = {
                         showingPrivacyPolicy = true
