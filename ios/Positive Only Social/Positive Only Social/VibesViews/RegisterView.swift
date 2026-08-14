@@ -30,6 +30,9 @@ struct RegisterView: View {
     @State private var errorMessage: String?
     @State private var showingErrorAlert = false
     @State private var showingPrivacyPolicy = false
+    // The terms are accepted by registering; this sheet is how they can be read
+    // first, since a signed-out user cannot reach Settings (issue #493).
+    @State private var showingTermsOfService = false
 
     // Optional positive interests collected during sign-up (issues #446/#35),
     // sent along in the register call since the account has no session yet.
@@ -171,6 +174,23 @@ struct RegisterView: View {
             if isLoading {
                 ProgressView()
             } else {
+                // Registering is the acceptance; the button opens the text so
+                // it can be read beforehand (issue #493). The privacy policy is
+                // the confirmation alert Register already puts up. Kept above
+                // the Register button so that button stays the last thing in
+                // the scroll view, where the UI tests reach for it.
+                VStack(spacing: 2) {
+                    Text("By creating an account you agree to our")
+                        .font(.footnote)
+                        .foregroundColor(.secondary)
+                    Button("Terms of Service") {
+                        showingTermsOfService = true
+                    }
+                    .font(.footnote)
+                    .accessibilityIdentifier("RegisterTermsOfServiceButton")
+                }
+                .padding(.bottom, 4)
+
                 Button(action: { showingPrivacyPolicy = true }) {
                     Text("Register")
                         .font(.headline)
@@ -209,6 +229,9 @@ struct RegisterView: View {
                 Button("Cancel", role: .cancel) { }
             } message: {
                 Text(GVOAppConstants.privacyPolicyText)
+            }
+            .sheet(isPresented: $showingTermsOfService) {
+                TermsOfServiceView()
             }
         }
     }

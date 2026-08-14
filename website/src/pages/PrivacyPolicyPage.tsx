@@ -1,7 +1,7 @@
 import { Link } from 'react-router'
 import Logo from '../components/Logo'
 import { PRIVACY_POLICY_TEXT } from '../privacyPolicy'
-import './PrivacyPolicyPage.css'
+import './LegalPage.css'
 
 /**
  * Unauthenticated privacy policy page, reachable at /privacy-policy without
@@ -10,19 +10,23 @@ import './PrivacyPolicyPage.css'
  */
 function PrivacyPolicyPage() {
   return (
-    <div className="privacy-page">
-      <nav className="privacy-page__nav">
-        <Link to="/" className="privacy-page__home-link">
+    <div className="legal-page">
+      <nav className="legal-page__nav">
+        <Link to="/" className="legal-page__home-link">
           <Logo size={32} />
         </Link>
       </nav>
 
-      <main className="privacy-page__main">
-        <h1 className="privacy-page__title">Privacy Policy</h1>
-        <p className="privacy-page__body">{PRIVACY_POLICY_TEXT}</p>
-        <p className="privacy-page__body privacy-page__deletion">
-          To permanently delete your account and all associated data, visit the{' '}
-          <Link to="/delete-account" className="privacy-page__deletion-link">
+      <main className="legal-page__main">
+        <h1 className="legal-page__title">Privacy Policy</h1>
+        <p className="legal-page__body">{PRIVACY_POLICY_TEXT}</p>
+        <p className="legal-page__body legal-page__aside">
+          Using Good Vibes Only is also subject to the{' '}
+          <Link to="/terms-of-service" className="legal-page__link">
+            Terms of Service
+          </Link>. To permanently delete your account and all associated data,
+          visit the{' '}
+          <Link to="/delete-account" className="legal-page__link">
             account &amp; data deletion page
           </Link>.
         </p>

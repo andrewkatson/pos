@@ -24,6 +24,16 @@ The Android app really does use the **web** client ID: Credential Manager mints
 the ID token addressed to that client. The Android client ID exists so Google
 can check the calling app's signature.
 
+The consent screen itself wants an application home page and two links Google
+checks are publicly reachable from it (issue #493) — the website serves both,
+and the landing-page footer links to them:
+
+| Field | Value |
+| --- | --- |
+| Application home page | `https://smiling.social` |
+| Privacy policy link | `https://smiling.social/privacy-policy` |
+| Terms of service link | `https://smiling.social/terms-of-service` |
+
 ## 2. Backend
 
 Every client ID that may appear in a token's `aud` claim must be listed, comma
