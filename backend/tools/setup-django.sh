@@ -412,6 +412,14 @@ run_django_setup() {
 }
 
 setup_gunicorn_service() {
+    # WorkingDirectory below is also where gunicorn looks for its config file:
+    # it auto-loads ./gunicorn.conf.py (checked in at backend/gunicorn.conf.py)
+    # without any -c flag. Nothing in this unit says so, which is exactly why it
+    # is worth saying here — that file is where `keepalive` is set, and a 502
+    # traced to keepalive would otherwise send you looking at this ExecStart.
+    #
+    # Flags below still override the file, so keep host-specific wiring (--bind,
+    # --workers) here and settings common to every host there.
     print_status "Setting up Gunicorn systemd service..."
 
     sudo tee /etc/systemd/system/gunicorn.service > /dev/null << EOF

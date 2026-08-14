@@ -1319,6 +1319,42 @@ nginx, the classification worker (active/enabled, or "stranding!" if enabled but
 dead), the two timers (last/next run), and best-effort `classification` queue
 depth — so a silently dead worker is visible at a glance.
 
+### gunicorn tuning, and the keepalive that must beat the load balancer
+
+`backend/gunicorn.conf.py` holds the gunicorn settings that are the same on every
+host. **Nothing passes it with `-c`** — gunicorn auto-loads `./gunicorn.conf.py`
+from its working directory, and the systemd unit's `WorkingDirectory` is
+`backend/`. Reading the unit alone gives no hint the file exists, so look for it
+before concluding a setting "isn't configured anywhere".
+
+Command-line flags in `ExecStart` override the file, so the split is: per-host
+wiring (`--bind`, `--workers`) in the unit, everything shared in the file.
+
+The one setting there is `keepalive = 75`, and it needs to stay **above the ALB's
+idle timeout** (60s). The API is reached through CloudFront → ALB → gunicorn, and
+the ALB pools upstream connections. If gunicorn's keepalive is the shorter of the
+two, the ALB reuses a connection gunicorn has already begun closing, the request
+lands in a socket being torn down, and the client gets a **502** — intermittently,
+under load, in a way that looks like an application fault rather than a timeout
+mismatch. Gunicorn's default is 2 seconds, so this is not a value to leave unset.
+
+Two ways it silently reverts to 2 seconds:
+
+- **Misspelling it.** The config-file setting is `keepalive`; the *command-line
+  flag* is `--keep-alive`. Gunicorn's loader skips names it does not recognize,
+  so `keep_alive = 5` in this file is accepted, ignored, and never warned about.
+- **Raising the ALB's idle timeout above 75** without raising this to match.
+
+Check the ALB's current value with:
+
+```bash
+aws elbv2 describe-load-balancer-attributes --region us-east-2 \
+    --load-balancer-arn <arn> \
+    --query "Attributes[?Key=='idle_timeout.timeout_seconds'].Value" --output text
+```
+
+Changing this file needs only a `sudo systemctl restart gunicorn`, not a deploy.
+
 ### Backend logs (issue #484)
 
 Every unit in the table above logs to the **same** file,
