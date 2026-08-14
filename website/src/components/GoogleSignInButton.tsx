@@ -62,7 +62,7 @@ function GoogleSignInButton({
     loadGoogleIdentityServices()
       .then(google => {
         if (cancelled || !containerRef.current) return
-        google.id.initialize({
+        google.accounts.id.initialize({
           client_id: googleClientId(),
           callback: response => onCredentialRef.current(response.credential),
           // Never sign someone in without them asking: a returning visitor
@@ -70,7 +70,7 @@ function GoogleSignInButton({
           // Google session they forgot they had.
           auto_select: false,
         })
-        google.id.renderButton(containerRef.current, {
+        google.accounts.id.renderButton(containerRef.current, {
           type: 'standard',
           theme: 'filled_black',
           size: 'large',

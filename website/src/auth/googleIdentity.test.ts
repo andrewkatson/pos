@@ -7,13 +7,22 @@ import {
   resetGoogleIdentityServicesForTests,
 } from './googleIdentity'
 
-/** Stand-in for the `google` global the real GIS script installs. */
+/** Stand-in for the `google` global the real GIS script installs.
+ *
+ * The `accounts` layer is not decoration: the real script installs
+ * `google.accounts.id`, and a fake that flattens it to `google.id` will happily
+ * pass a suite written against the same mistake while the browser sees a
+ * `google` global the code cannot find its way into. Keep this shaped like the
+ * script's actual output, not like whatever the code currently reads.
+ */
 function fakeGoogle() {
   return {
-    id: {
-      initialize: vi.fn(),
-      renderButton: vi.fn(),
-      disableAutoSelect: vi.fn(),
+    accounts: {
+      id: {
+        initialize: vi.fn(),
+        renderButton: vi.fn(),
+        disableAutoSelect: vi.fn(),
+      },
     },
   }
 }
@@ -106,6 +115,22 @@ test('a failed load rejects and can be retried', async () => {
 
 test('a script that loads without installing an id API is a failure', async () => {
   const pending = loadGoogleIdentityServices()
+  scriptTag()?.dispatchEvent(new Event('load'))
+  await expect(pending).rejects.toThrow('without an id API')
+})
+
+test('the id API is looked for under accounts, not on the google global itself', async () => {
+  // Regression guard. GIS installs `google.accounts.id`; reading `google.id`
+  // instead produced a global that was present but never found, so the loader
+  // reported "loaded without an id API" and the button never rendered — while
+  // every test passed, because the fakes were flattened the same way.
+  //
+  // Installing the WRONG shape must therefore still be a failure. If someone
+  // reintroduces the flattened lookup, this is the test that fails.
+  const pending = loadGoogleIdentityServices()
+  window.google = {
+    id: { initialize: vi.fn(), renderButton: vi.fn(), disableAutoSelect: vi.fn() },
+  } as unknown as typeof window.google
   scriptTag()?.dispatchEvent(new Event('load'))
   await expect(pending).rejects.toThrow('without an id API')
 })
