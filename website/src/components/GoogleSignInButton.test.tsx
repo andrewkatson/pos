@@ -13,19 +13,21 @@ vi.mock('../auth/googleIdentity', async importOriginal => {
 /** Captures the callback GIS would invoke, so a test can "pick an account". */
 function fakeGoogle() {
   let callback: ((response: GoogleCredentialResponse) => void) | null = null
-  const google = {
-    id: {
-      initialize: vi.fn((config: { callback: (r: GoogleCredentialResponse) => void }) => {
-        callback = config.callback
-      }),
-      renderButton: vi.fn(),
-      disableAutoSelect: vi.fn(),
-    },
+  // Shaped like what the real script installs — `google.accounts.id`, not
+  // `google.id`. Flattening it here would let the component read a namespace
+  // the browser never exposes and still pass every test.
+  const id = {
+    initialize: vi.fn((config: { callback: (r: GoogleCredentialResponse) => void }) => {
+      callback = config.callback
+    }),
+    renderButton: vi.fn(),
+    disableAutoSelect: vi.fn(),
   }
+  const google = { accounts: { id } }
   return {
     google: google as unknown as GoogleIdentityServices,
     signInAs: (credential: string) => callback?.({ credential }),
-    google_: google,
+    google_: { id },
   }
 }
 

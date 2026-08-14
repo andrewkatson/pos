@@ -42,28 +42,37 @@ export interface GoogleCredentialResponse {
   credential: string
 }
 
+// The script installs a single `window.google` global and hangs everything off
+// `google.accounts` — the ID-token API this app uses is `google.accounts.id`,
+// NOT `google.id`. The namespace is easy to drop when writing the type by hand,
+// and dropping it fails in the worst possible way: the script loads fine, the
+// `google` global is present, and only the lookup misses, so the loader reports
+// "loaded but installed nothing usable" and the button never renders. Tests
+// cannot catch that on their own — a fake shaped like the mistake passes.
 export interface GoogleIdentityServices {
-  id: {
-    initialize(config: {
-      client_id: string
-      callback: (response: GoogleCredentialResponse) => void
-      auto_select?: boolean
-      cancel_on_tap_outside?: boolean
-      use_fedcm_for_prompt?: boolean
-    }): void
-    renderButton(
-      parent: HTMLElement,
-      options: {
-        type?: 'standard' | 'icon'
-        theme?: 'outline' | 'filled_blue' | 'filled_black'
-        size?: 'small' | 'medium' | 'large'
-        text?: 'signin_with' | 'signup_with' | 'continue_with' | 'signin'
-        shape?: 'rectangular' | 'pill' | 'circle' | 'square'
-        width?: number
-        logo_alignment?: 'left' | 'center'
-      },
-    ): void
-    disableAutoSelect(): void
+  accounts: {
+    id: {
+      initialize(config: {
+        client_id: string
+        callback: (response: GoogleCredentialResponse) => void
+        auto_select?: boolean
+        cancel_on_tap_outside?: boolean
+        use_fedcm_for_prompt?: boolean
+      }): void
+      renderButton(
+        parent: HTMLElement,
+        options: {
+          type?: 'standard' | 'icon'
+          theme?: 'outline' | 'filled_blue' | 'filled_black'
+          size?: 'small' | 'medium' | 'large'
+          text?: 'signin_with' | 'signup_with' | 'continue_with' | 'signin'
+          shape?: 'rectangular' | 'pill' | 'circle' | 'square'
+          width?: number
+          logo_alignment?: 'left' | 'center'
+        },
+      ): void
+      disableAutoSelect(): void
+    }
   }
 }
 
@@ -80,7 +89,7 @@ let loadPromise: Promise<GoogleIdentityServices> | null = null
 
 /** Load the GIS script, resolving with the `google` global it installs. */
 export function loadGoogleIdentityServices(): Promise<GoogleIdentityServices> {
-  if (window.google?.id) {
+  if (window.google?.accounts?.id) {
     return Promise.resolve(window.google)
   }
   if (loadPromise) {
@@ -108,7 +117,7 @@ export function loadGoogleIdentityServices(): Promise<GoogleIdentityServices> {
     script.addEventListener(
       'load',
       () => {
-        if (window.google?.id) {
+        if (window.google?.accounts?.id) {
           resolve(window.google)
         } else {
           // Loaded but installed nothing usable, which is no better than not
