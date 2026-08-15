@@ -9,6 +9,7 @@ import com.example.positiveonlysocial.data.constants.Constants
 import com.example.positiveonlysocial.data.model.Post
 import com.example.positiveonlysocial.data.model.UserSession
 import com.example.positiveonlysocial.data.security.KeychainHelperProtocol
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -86,6 +87,10 @@ class FeedViewModel(
                     Log.e(TAG, "Failed to refresh feed: ${response.code()} $message")
                     _loadError.value = message
                 }
+            } catch (e: CancellationException) {
+                // The scope going away isn't a load failure, and must not leave
+                // an error message behind on the way out.
+                throw e
             } catch (e: Exception) {
                 Log.e(TAG, "Failed to refresh feed", e)
                 _loadError.value = ApiErrors.messageFor(e, fallback = FEED_LOAD_FAILED)
@@ -128,6 +133,8 @@ class FeedViewModel(
                     Log.e(TAG, "Failed to fetch feed: ${response.code()} $message")
                     _loadError.value = message
                 }
+            } catch (e: CancellationException) {
+                throw e
             } catch (e: Exception) {
                 Log.e(TAG, "Failed to fetch feed", e)
                 _loadError.value = ApiErrors.messageFor(e, fallback = FEED_LOAD_FAILED)
