@@ -2,6 +2,7 @@ package com.example.positiveonlysocial.data.auth
 
 import com.example.positiveonlysocial.data.model.UserSession
 import com.example.positiveonlysocial.data.security.KeychainHelperProtocol
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
@@ -91,6 +92,26 @@ class AuthenticationManagerTest {
         // behind it comes back empty.
         assertFalse(manager.isLoggedIn.value)
         assertNull(manager.session.value)
+    }
+
+    @Test
+    fun `cancellation stays cancellation instead of becoming a login failure`() = runTest {
+        // A cancelled login hasn't failed to persist anything — rewriting it as a
+        // SessionPersistenceException would put "we couldn't save your login" in
+        // front of the user for something that never happened, and would swallow
+        // the cancellation on the way.
+        val manager = AuthenticationManager(
+            FakeKeychainHelper(saveFailure = CancellationException("scope went away"))
+        )
+
+        try {
+            manager.login(session)
+            fail("cancellation should propagate")
+        } catch (e: SessionPersistenceException) {
+            fail("cancellation was rewritten as a persistence failure")
+        } catch (e: CancellationException) {
+            assertEquals("scope went away", e.message)
+        }
     }
 
     @Test

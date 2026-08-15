@@ -4,6 +4,7 @@ import android.util.Log
 import com.example.positiveonlysocial.data.constants.Constants
 import com.example.positiveonlysocial.data.model.UserSession
 import com.example.positiveonlysocial.data.security.KeychainHelperProtocol
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -143,6 +144,15 @@ class AuthenticationManager(
                     service = keychainService,
                     account = sessionAccount
                 )
+            } catch (e: CancellationException) {
+                // A cancelled login is not a failed one. Without this, the catch
+                // below would rewrite it as a SessionPersistenceException, which
+                // the login screen shows to the user as "we couldn't save your
+                // login" — a report of something that never happened. Not
+                // reachable while the only call in the try is a blocking write,
+                // but this is a suspend function, so anything suspending added
+                // in here later would make it so silently.
+                throw e
             } catch (e: Exception) {
                 Log.e(TAG, "Failed to save session", e)
                 _session.value = null
