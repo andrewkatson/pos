@@ -85,6 +85,23 @@ test('the button label follows the page it is on', async () => {
   expect(google_.id.renderButton.mock.calls[0][1]).toMatchObject({ text: 'signup_with' })
 })
 
+// Not a style preference, which is why it is pinned. A visitor signed in to
+// Google gets the personalised button as a cross-origin iframe with a white
+// interior that no stylesheet of ours can repaint, so the auth pages went white
+// to match it. Asking for a dark theme here puts a dark pill inside that white
+// surround and brings back the white box the light pages exist to avoid — a
+// regression nothing else in this suite would catch, since it only appears for
+// signed-in visitors and only in a real browser.
+test('asks for the theme the light auth pages are built around', async () => {
+  const { google, google_ } = fakeGoogle()
+  loadGoogleIdentityServices.mockResolvedValue(google)
+
+  render(<GoogleSignInButton onCredential={vi.fn()} />)
+
+  await waitFor(() => expect(google_.id.renderButton).toHaveBeenCalled())
+  expect(google_.id.renderButton.mock.calls[0][1]).toMatchObject({ theme: 'filled_blue' })
+})
+
 test('hides the button while a sign-in is already in flight', async () => {
   const { google, google_ } = fakeGoogle()
   loadGoogleIdentityServices.mockResolvedValue(google)

@@ -1,13 +1,117 @@
 /* ============================================================
-   Shared auth-page styles (used by LoginPage + RegisterPage)
+   Shared auth-page styles (all eight `.auth-page` screens: login,
+   register, check-email, delete-account, request-reset, reset-password,
+   verify-email, verify-reset)
    ============================================================ */
 
+/* The auth pages are light; the rest of the app is dark (see MainApp.css).
+   That split is not a style preference — it is what makes Google sign-in
+   presentable, and the reasoning is recorded above `.auth-google` below.
+
+   Several rules in this file are shared with the dark app: `.modal*` is used
+   by Modal.tsx, SettingsTab, LikesModal and friends; `.spinner` by FeedTab and
+   ProfileView; `.toggle` by SettingsTab; `.auth-input` by NewPostTab. This
+   stylesheet is bundled globally, so lightening those selectors directly would
+   have repainted half the app. Instead every colour below is a token: the dark
+   values live on `:root` and are exactly what the app rendered before this file
+   was themed, and `.auth-page` overrides them for its own subtree. Anything
+   inside an auth page gets the light values by inheritance, and nothing else
+   changes. No auth screen portals its modals out of `.auth-page`, so the
+   override reaches all of them.
+
+   The `fg` ladder is named by weight rather than by role because the same
+   greys are reused across unrelated elements; each step maps 1:1 onto an
+   opacity that was already in this file. */
+:root {
+  --auth-bg: #000000;
+  --auth-surface: #1a1a1a;
+
+  --auth-fg: #ffffff;
+  --auth-fg-strong: rgba(255, 255, 255, 0.75);
+  --auth-fg-muted: rgba(255, 255, 255, 0.7);
+  --auth-fg-soft: rgba(255, 255, 255, 0.6);
+  --auth-fg-subtle: rgba(255, 255, 255, 0.5);
+  --auth-fg-dim: rgba(255, 255, 255, 0.45);
+  --auth-fg-faint: rgba(255, 255, 255, 0.4);
+
+  --auth-border: rgba(255, 255, 255, 0.15);
+  --auth-border-modal: rgba(255, 255, 255, 0.12);
+  --auth-border-cancel: rgba(255, 255, 255, 0.2);
+  --auth-border-cancel-hover: rgba(255, 255, 255, 0.4);
+  --auth-divider-line: rgba(255, 255, 255, 0.15);
+
+  --auth-accent: #5ba4dc;
+  --auth-on-accent: #ffffff;
+  --auth-accent-ring: rgba(91, 164, 220, 0.3);
+
+  --auth-danger: #ff6b6b;
+  --auth-danger-bg: rgba(220, 50, 50, 0.18);
+  --auth-danger-border: rgba(220, 50, 50, 0.4);
+  --auth-success: #4caf50;
+
+  /* Disabled buttons and the unchecked toggle track. */
+  --auth-inert: #444444;
+  --auth-on-inert: #ffffff;
+  --auth-knob: #ffffff;
+
+  --auth-overlay: rgba(0, 0, 0, 0.7);
+}
+
 .auth-page {
+  /* #ffffff exactly, not an off-white: Google's sign-in iframe paints its own
+     white interior, and any near-white here would show as a seam around it. */
+  --auth-bg: #ffffff;
+  --auth-surface: #ffffff;
+
+  --auth-fg: #16181d;
+  --auth-fg-strong: rgba(22, 24, 29, 0.78);
+  --auth-fg-muted: rgba(22, 24, 29, 0.7);
+  --auth-fg-soft: rgba(22, 24, 29, 0.62);
+  /* The bottom of the ladder stops at 0.6 rather than tracking the dark
+     theme's 0.5/0.45/0.4. Everything wearing these three greys is small text —
+     the legal line at 0.8rem, the "or" divider at 0.85rem, the password hints
+     at 0.78rem — and grey-on-white loses contrast far faster than grey-on-black
+     does. At the dark theme's alphas they land at 2.9-4.0:1, under the 4.5:1
+     AA needs at those sizes; 0.6 is where #16181d on #ffffff clears it. They
+     stay distinct steps in the light theme because they sit on different
+     backgrounds, not because the alphas differ. */
+  --auth-fg-subtle: rgba(22, 24, 29, 0.62);
+  --auth-fg-dim: rgba(22, 24, 29, 0.6);
+  --auth-fg-faint: rgba(22, 24, 29, 0.6);
+
+  --auth-border: rgba(22, 24, 29, 0.22);
+  --auth-border-modal: rgba(22, 24, 29, 0.14);
+  --auth-border-cancel: rgba(22, 24, 29, 0.28);
+  --auth-border-cancel-hover: rgba(22, 24, 29, 0.5);
+  --auth-divider-line: rgba(22, 24, 29, 0.14);
+
+  /* Darker than the brand #5ba4dc, which only carries white text on a dark
+     page: on white it drops to ~2.2:1 and fails AA for both button labels and
+     link text. This shade keeps the hue and clears 5:1. */
+  --auth-accent: #1b6ea4;
+  --auth-on-accent: #ffffff;
+  --auth-accent-ring: rgba(27, 110, 164, 0.28);
+
+  --auth-danger: #c62828;
+  --auth-danger-bg: rgba(198, 40, 40, 0.08);
+  --auth-danger-border: rgba(198, 40, 40, 0.32);
+  --auth-success: #2e7d32;
+
+  /* Disabled controls are exempt from the contrast rules, but the dark theme
+     puts white on #444 at ~9:1 and a disabled button whose label has vanished
+     reads as a broken button rather than a waiting one. 0.7 holds ~5:1 and
+     still looks plainly inactive next to the enabled accent. */
+  --auth-inert: #cdd3da;
+  --auth-on-inert: rgba(22, 24, 29, 0.7);
+  --auth-knob: #ffffff;
+
+  --auth-overlay: rgba(22, 24, 29, 0.45);
+
   min-height: 100vh;
   display: flex;
   align-items: center;
   justify-content: center;
-  background-color: #000000;
+  background-color: var(--auth-bg);
   padding: 1.5rem;
 }
 
@@ -23,7 +127,7 @@
   align-self: flex-start;
   background: none;
   border: none;
-  color: rgba(255, 255, 255, 0.6);
+  color: var(--auth-fg-soft);
   font-size: 0.9rem;
   cursor: pointer;
   padding: 0;
@@ -31,7 +135,7 @@
 }
 
 .auth-back:hover {
-  color: #ffffff;
+  color: var(--auth-fg);
 }
 
 .auth-logo {
@@ -43,7 +147,7 @@
   margin: 0;
   font-size: 1.75rem;
   font-weight: 700;
-  color: #ffffff;
+  color: var(--auth-fg);
   text-align: center;
 }
 
@@ -54,10 +158,10 @@
   align-items: flex-start;
   gap: 0.75rem;
   padding: 0.85rem 1rem;
-  background: rgba(220, 50, 50, 0.18);
-  border: 1px solid rgba(220, 50, 50, 0.4);
+  background: var(--auth-danger-bg);
+  border: 1px solid var(--auth-danger-border);
   border-radius: 10px;
-  color: #ff6b6b;
+  color: var(--auth-danger);
   font-size: 0.9rem;
 }
 
@@ -69,7 +173,7 @@
 .auth-error__dismiss {
   background: none;
   border: none;
-  color: #ff6b6b;
+  color: var(--auth-danger);
   cursor: pointer;
   font-size: 0.85rem;
   padding: 0;
@@ -92,14 +196,14 @@
 
 .auth-label {
   font-size: 0.875rem;
-  color: rgba(255, 255, 255, 0.7);
+  color: var(--auth-fg-muted);
 }
 
 .auth-input {
-  background: #1a1a1a;
-  border: 1px solid rgba(255, 255, 255, 0.15);
+  background: var(--auth-surface);
+  border: 1px solid var(--auth-border);
   border-radius: 10px;
-  color: #ffffff;
+  color: var(--auth-fg);
   padding: 0.75rem 1rem;
   font-size: 1rem;
   width: 100%;
@@ -109,7 +213,7 @@
 
 .auth-input:focus {
   outline: none;
-  border-color: #5ba4dc;
+  border-color: var(--auth-accent);
 }
 
 .auth-input:disabled {
@@ -143,7 +247,7 @@
   display: inline-block;
   width: 44px;
   height: 26px;
-  background: #444;
+  background: var(--auth-inert);
   border-radius: 999px;
   transition: background 0.2s ease;
   position: relative;
@@ -156,13 +260,13 @@
   left: 3px;
   width: 20px;
   height: 20px;
-  background: #ffffff;
+  background: var(--auth-knob);
   border-radius: 50%;
   transition: transform 0.2s ease;
 }
 
 .toggle input:checked + .toggle__track {
-  background: #5ba4dc;
+  background: var(--auth-accent);
 }
 
 .toggle input:checked + .toggle__track::after {
@@ -174,7 +278,7 @@
 }
 
 .toggle input:focus-visible + .toggle__track {
-  outline: 2px solid #5ba4dc;
+  outline: 2px solid var(--auth-accent);
   outline-offset: 3px;
 }
 
@@ -188,8 +292,8 @@
   font-size: 1rem;
   cursor: pointer;
   border: none;
-  background: #5ba4dc;
-  color: #ffffff;
+  background: var(--auth-accent);
+  color: var(--auth-on-accent);
   transition: opacity 0.15s ease;
 }
 
@@ -197,8 +301,11 @@
   opacity: 0.85;
 }
 
+/* The label colour has to move with the background: white on the dark theme's
+   #444 reads fine, but white on a light grey disabled button does not. */
 .auth-button:disabled {
-  background: #444;
+  background: var(--auth-inert);
+  color: var(--auth-on-inert);
   cursor: not-allowed;
 }
 
@@ -214,8 +321,8 @@
   display: inline-block;
   width: 28px;
   height: 28px;
-  border: 3px solid rgba(91, 164, 220, 0.3);
-  border-top-color: #5ba4dc;
+  border: 3px solid var(--auth-accent-ring);
+  border-top-color: var(--auth-accent);
   border-radius: 50%;
   animation: spin 0.75s linear infinite;
 }
@@ -231,7 +338,7 @@
 .auth-link {
   background: none;
   border: none;
-  color: #5ba4dc;
+  color: var(--auth-accent);
   font-size: 0.9rem;
   cursor: pointer;
   padding: 0;
@@ -251,7 +358,7 @@
 
 .auth-instructions {
   font-size: 0.9rem;
-  color: rgba(255, 255, 255, 0.75);
+  color: var(--auth-fg-strong);
   margin: 0 0 0.25rem;
 }
 
@@ -259,7 +366,7 @@
 
 .auth-mismatch {
   font-size: 0.8rem;
-  color: #ff6b6b;
+  color: var(--auth-danger);
   margin: -0.5rem 0 0;
 }
 
@@ -269,16 +376,16 @@
   font-size: 0.8rem;
   line-height: 1.5;
   text-align: center;
-  color: rgba(255, 255, 255, 0.5);
+  color: var(--auth-fg-subtle);
 }
 
 .auth-legal__link {
-  color: rgba(255, 255, 255, 0.75);
+  color: var(--auth-fg-strong);
   text-decoration: underline;
 }
 
 .auth-legal__link:hover {
-  color: #ffffff;
+  color: var(--auth-fg);
 }
 
 /* ---- Password requirement hints ---- */
@@ -300,18 +407,18 @@
 }
 
 .auth-hint--met {
-  color: #4caf50;
+  color: var(--auth-success);
 }
 
 /* A required-but-unmet requirement is a hard blocker, so it reads red rather
    than the neutral grey used before — grey made it look optional (issue #413).
    Optional suggestions stay neutral so they never look like failures. */
 .auth-hint--unmet {
-  color: #ff6b6b;
+  color: var(--auth-danger);
 }
 
 .auth-hint--optional {
-  color: rgba(255, 255, 255, 0.4);
+  color: var(--auth-fg-faint);
 }
 
 .auth-hint--met::before {
@@ -331,7 +438,7 @@
 .modal-overlay {
   position: fixed;
   inset: 0;
-  background: rgba(0, 0, 0, 0.7);
+  background: var(--auth-overlay);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -340,8 +447,8 @@
 }
 
 .modal {
-  background: #1a1a1a;
-  border: 1px solid rgba(255, 255, 255, 0.12);
+  background: var(--auth-surface);
+  border: 1px solid var(--auth-border-modal);
   border-radius: 16px;
   padding: 1.75rem;
   max-width: 480px;
@@ -355,14 +462,14 @@
   margin: 0;
   font-size: 1.2rem;
   font-weight: 700;
-  color: #ffffff;
+  color: var(--auth-fg);
 }
 
 .modal__body {
   margin: 0;
   font-size: 0.9rem;
   line-height: 1.55;
-  color: rgba(255, 255, 255, 0.75);
+  color: var(--auth-fg-strong);
 }
 
 .modal__actions {
@@ -373,9 +480,9 @@
 
 .modal__cancel {
   background: none;
-  border: 1px solid rgba(255, 255, 255, 0.2);
+  border: 1px solid var(--auth-border-cancel);
   border-radius: 8px;
-  color: rgba(255, 255, 255, 0.7);
+  color: var(--auth-fg-muted);
   font-size: 0.95rem;
   padding: 0.55rem 1.2rem;
   cursor: pointer;
@@ -383,14 +490,14 @@
 }
 
 .modal__cancel:hover {
-  border-color: rgba(255, 255, 255, 0.4);
+  border-color: var(--auth-border-cancel-hover);
 }
 
 .modal__confirm {
-  background: #5ba4dc;
+  background: var(--auth-accent);
   border: none;
   border-radius: 8px;
-  color: #ffffff;
+  color: var(--auth-on-accent);
   font-size: 0.95rem;
   font-weight: 600;
   padding: 0.55rem 1.2rem;
@@ -402,14 +509,30 @@
   opacity: 0.85;
 }
 
-/* Google sign-in (issue #10). Google draws the button itself and ships the
-   stylesheet for it, so most of what follows is the space around it — but not
-   all of it. Despite the name, GIS renders the button as ordinary elements in
-   *our* document (a `div[role=button]`, class `.nsm7Bb-HzV7m-LgbsSe`), not in
-   an iframe; the one iframe it appends is 0×0 and carries no UI. Google's
-   internals are therefore reachable from here, which is what lets the last rule
-   in this section repaint part of the button. Reach in only where there is no
-   supported option, and expect the class names to be obfuscated. */
+/* ---- Google sign-in (issue #10) ---- */
+
+/* Why these pages are light.
+ *
+ * GIS renders this button two different ways, and which one you get depends on
+ * the visitor, not on anything we pass:
+ *
+ *   - signed out of Google — real elements in our own document, themeable via
+ *     the `theme` option, and reachable from this stylesheet;
+ *   - signed in to Google — a cross-origin iframe from accounts.google.com
+ *     carrying the personalised "Sign in as <name>" button.
+ *
+ * The iframe paints a white interior and ignores the `theme` we hand it (the
+ * theme does reach it — it is right there in the iframe's query string — it
+ * just does not apply to the surround). Being cross-origin, nothing in this
+ * file can repaint it: not a more specific selector, not `!important`. On the
+ * black page these screens used to have, that surround showed up as a white box
+ * around the button, and no CSS could remove it.
+ *
+ * So the page matches the button instead of the other way round. With the page
+ * at #ffffff the surround is invisible, and `filled_blue` sits on it cleanly.
+ * Anything that darkens these pages brings the white box straight back — the
+ * background colour here is load-bearing, not decorative.
+ */
 .auth-google {
   display: flex;
   flex-direction: column;
@@ -426,7 +549,7 @@
   align-items: center;
   gap: 0.75rem;
   width: 100%;
-  color: rgba(255, 255, 255, 0.45);
+  color: var(--auth-fg-dim);
   font-size: 0.85rem;
 }
 
@@ -435,11 +558,11 @@
   content: '';
   flex: 1;
   height: 1px;
-  background: rgba(255, 255, 255, 0.15);
+  background: var(--auth-divider-line);
 }
 
-/* Google sizes the button to its own label — 187px, not the 420px card — so
-   centring is what keeps it aligned with the full-width controls above. */
+/* Google sizes the button to its own label, not to the 420px card, so centring
+   is what keeps it aligned with the full-width controls above. */
 .auth-google__button {
   display: flex;
   justify-content: center;
@@ -449,26 +572,4 @@
 
 .auth-google__button[hidden] {
   display: none;
-}
-
-/* Google's `filled_black` button is dark (#202124) apart from one thing: it
-   seats the "G" on a hard-coded white 36px plate, the tile from its older
-   button artwork. On a page whose background is pure black that plate is the
-   only white pixels on the screen, so the button reads as a white box with a
-   dark border rather than as a dark button. Clearing the plate leaves the
-   coloured G directly on the pill, which is how Google's own current dark
-   button looks; nothing about the logo itself is altered.
-
-   Two things this selector is doing deliberately:
-
-     - It names Google's obfuscated class, which is not a public API. That is
-       the only handle the plate has. If Google renames it the rule stops
-       matching and the button falls back to today's appearance — the failure
-       is cosmetic, never broken layout, so this is safe to leave in place.
-     - It carries three classes to outrank Google's own two-class rule. Google
-       injects its stylesheet at render time, i.e. *after* this bundled one, so
-       an equal-specificity rule here would lose the tie on document order and
-       silently do nothing. */
-.auth-google__button .nsm7Bb-HzV7m-LgbsSe .nsm7Bb-HzV7m-LgbsSe-Bz112c-haAclf {
-  background-color: transparent;
 }
