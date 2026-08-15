@@ -402,8 +402,14 @@
   opacity: 0.85;
 }
 
-/* Google sign-in (issue #10). The button itself is an iframe Google renders and
-   styles; everything here is the space around it. */
+/* Google sign-in (issue #10). Google draws the button itself and ships the
+   stylesheet for it, so most of what follows is the space around it — but not
+   all of it. Despite the name, GIS renders the button as ordinary elements in
+   *our* document (a `div[role=button]`, class `.nsm7Bb-HzV7m-LgbsSe`), not in
+   an iframe; the one iframe it appends is 0×0 and carries no UI. Google's
+   internals are therefore reachable from here, which is what lets the last rule
+   in this section repaint part of the button. Reach in only where there is no
+   supported option, and expect the class names to be obfuscated. */
 .auth-google {
   display: flex;
   flex-direction: column;
@@ -432,8 +438,8 @@
   background: rgba(255, 255, 255, 0.15);
 }
 
-/* Google's iframe has a fixed pixel width; centring it keeps it aligned with
-   the full-width controls above even though it can't stretch to match them. */
+/* Google sizes the button to its own label — 187px, not the 420px card — so
+   centring is what keeps it aligned with the full-width controls above. */
 .auth-google__button {
   display: flex;
   justify-content: center;
