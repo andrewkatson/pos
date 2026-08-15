@@ -5,6 +5,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyItemScope
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -16,6 +17,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.viewmodel.compose.viewModel
@@ -79,6 +81,7 @@ fun ForYouFeed(
     val posts by viewModel.feedPosts.collectAsState()
     val isLoadingNextPage by viewModel.isLoadingNextPage.collectAsState()
     val isRefreshing by viewModel.isRefreshing.collectAsState()
+    val loadError by viewModel.loadError.collectAsState()
 
     val postActions = viewModel.postActions
     val currentUsername by postActions.currentUsername.collectAsState()
@@ -125,10 +128,38 @@ fun ForYouFeed(
                     }
                 }
             }
+
+            if (posts.isEmpty() && !isLoadingNextPage && !isRefreshing) {
+                item { FeedPlaceholder(loadError) }
+            }
         }
 
         // One set of confirmations for every post in the feed.
         PostActionDialogs(postActions, navController)
+    }
+}
+
+/**
+ * What an empty feed says for itself (issue #503). Before this, a feed that
+ * failed to load — no readable session, an unreachable backend — was
+ * indistinguishable from one that had simply scrolled to its end: both were a
+ * blank screen under the tab bar. Rendered as a lazy item so the pull-to-refresh
+ * gesture still works with nothing in the list.
+ */
+@Composable
+private fun LazyItemScope.FeedPlaceholder(loadError: String?) {
+    Box(
+        modifier = Modifier.fillParentMaxSize(),
+        contentAlignment = androidx.compose.ui.Alignment.Center
+    ) {
+        Text(
+            text = loadError ?: "No posts yet. Pull down to refresh.",
+            textAlign = TextAlign.Center,
+            color = if (loadError != null) MaterialTheme.colorScheme.error else Color.Gray,
+            modifier = Modifier
+                .padding(24.dp)
+                .testTag("FeedPlaceholder")
+        )
     }
 }
 
@@ -145,6 +176,7 @@ fun FollowingFeed(
     val posts by viewModel.followingPosts.collectAsState()
     val isLoadingNextPage by viewModel.isLoadingNextPage.collectAsState()
     val isRefreshing by viewModel.isRefreshing.collectAsState()
+    val loadError by viewModel.loadError.collectAsState()
     val selectedCategory by viewModel.selectedCategory.collectAsState()
 
     val postActions = viewModel.postActions
@@ -215,6 +247,10 @@ fun FollowingFeed(
                         CircularProgressIndicator()
                     }
                 }
+            }
+
+            if (posts.isEmpty() && !isLoadingNextPage && !isRefreshing) {
+                item { FeedPlaceholder(loadError) }
             }
         }
 

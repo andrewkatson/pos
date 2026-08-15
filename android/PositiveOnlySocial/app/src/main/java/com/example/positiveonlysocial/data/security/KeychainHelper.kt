@@ -2,12 +2,16 @@ package com.example.positiveonlysocial.data.security
 
 import android.content.Context
 import android.content.SharedPreferences
+import android.util.Log
 import androidx.security.crypto.EncryptedSharedPreferences
 import androidx.security.crypto.MasterKey
 import com.google.gson.Gson
 import java.io.IOException
 import java.security.GeneralSecurityException
+import java.security.KeyStore
 import androidx.core.content.edit
+
+private const val TAG = "KeychainHelper"
 
 /**
  * Kotlin equivalent of the KeychainHelperProtocol.
@@ -63,25 +67,89 @@ class KeychainHelper(context: Context) : KeychainHelperProtocol {
 
     private val gson = Gson()
 
+    private val appContext = context.applicationContext
+
     // A single, hardcoded file name for all secure preferences.
     // The 'service' and 'account' params will be used to create unique *keys*
     // inside this one encrypted file.
+    //
+    // Kept in sync with the <exclude> entries in res/xml/backup_rules.xml and
+    // res/xml/data_extraction_rules.xml, which keep this file (and only this
+    // file) out of cloud backup and device-to-device transfer.
     private val prefsFilename = "positive_only_social_secure_prefs"
 
-    private val encryptedPrefs: SharedPreferences by lazy {
+    private val encryptedPrefs: SharedPreferences by lazy { openEncryptedPrefs() }
+
+    private fun createEncryptedPrefs(): SharedPreferences {
         // 1. Create the Master Key from the Android Keystore
-        val masterKey = MasterKey.Builder(context.applicationContext)
+        val masterKey = MasterKey.Builder(appContext)
             .setKeyScheme(MasterKey.KeyScheme.AES256_GCM)
             .build()
 
         // 2. Create the EncryptedSharedPreferences instance
-        EncryptedSharedPreferences.create(
-            context.applicationContext,
+        return EncryptedSharedPreferences.create(
+            appContext,
             prefsFilename,
             masterKey,
             EncryptedSharedPreferences.PrefKeyEncryptionScheme.AES256_SIV,
             EncryptedSharedPreferences.PrefValueEncryptionScheme.AES256_GCM
         )
+    }
+
+    /**
+     * Opens the encrypted store, discarding and rebuilding it if the existing
+     * one can't be read (issue #503).
+     *
+     * The store is only openable while the AndroidKeyStore still holds the
+     * master key that encrypted it. That pairing breaks when the file outlives
+     * the key — a backup restored onto a new device, a keystore entry
+     * invalidated by a lock-screen credential reset, a vendor keystore that
+     * loses entries across an update. When it does, *every* open throws, so the
+     * app can no longer read or write a session and each screen silently
+     * renders nothing.
+     *
+     * Recovery deliberately throws the contents away rather than trying to
+     * salvage them: undecryptable ciphertext has no salvage path, and what is
+     * stored here is a session token and remember-me tokens, so the whole cost
+     * of being wrong is one sign-in. Being wrong the other way — leaving the
+     * store unopenable — bricks the app until the user clears its data.
+     *
+     * Catching broadly is deliberate for the same reason. Tink surfaces a
+     * damaged keyset as several unrelated types (an [IOException] subclass, a
+     * [GeneralSecurityException], or a plain [RuntimeException] out of the
+     * keystore), and there is no benefit to staying wedged on the ones we
+     * failed to enumerate.
+     */
+    private fun openEncryptedPrefs(): SharedPreferences = try {
+        createEncryptedPrefs()
+    } catch (e: Exception) {
+        Log.w(TAG, "Secure storage is unreadable; discarding it and starting fresh", e)
+        discardUnreadableStore()
+        // Not caught: if a store we just deleted still can't be created, the
+        // device's keystore is broken in a way we can't paper over, and the
+        // callers report it rather than pretending the write succeeded.
+        createEncryptedPrefs()
+    }
+
+    /**
+     * Removes both halves of the broken pairing: the preferences file (which
+     * also holds Tink's data keysets) and the master key that encrypts them.
+     * Each step is independently best-effort — a partial cleanup still leaves
+     * [createEncryptedPrefs] a consistent pair to rebuild from.
+     */
+    private fun discardUnreadableStore() {
+        try {
+            appContext.deleteSharedPreferences(prefsFilename)
+        } catch (e: Exception) {
+            Log.w(TAG, "Failed to delete $prefsFilename", e)
+        }
+        try {
+            KeyStore.getInstance("AndroidKeyStore")
+                .apply { load(null) }
+                .deleteEntry(MasterKey.DEFAULT_MASTER_KEY_ALIAS)
+        } catch (e: Exception) {
+            Log.w(TAG, "Failed to delete the master key", e)
+        }
     }
 
     /**

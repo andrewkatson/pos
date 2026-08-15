@@ -20,6 +20,17 @@ object Constants {
     const val EMAIL_NOT_VERIFIED_MESSAGE =
         "Please verify your email address first — check your inbox for the verification link."
 
+    // Shown when a session was issued but couldn't be written to secure storage
+    // (issue #503). Every screen reads the session back out of the keychain, so
+    // an unpersisted session can't load anything — the user is told instead of
+    // being dropped into an empty signed-in shell.
+    const val SESSION_STORAGE_FAILED_MESSAGE =
+        "We couldn't save your login on this device. Please try again, or restart the app if this keeps happening."
+
+    // Shown on a screen whose data needs a session that isn't there.
+    const val SESSION_MISSING_MESSAGE =
+        "You're not signed in on this device anymore. Please sign in again."
+
     // Error code the backend returns from login/2fa/ when the challenge is gone
     // (expired, already used, or invalidated). A stable code like the two above,
     // so the login screen can drop back to the password form without depending
