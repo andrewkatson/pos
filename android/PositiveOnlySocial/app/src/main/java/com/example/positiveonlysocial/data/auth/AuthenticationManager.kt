@@ -133,6 +133,14 @@ class AuthenticationManager(
      * @throws SessionPersistenceException if the session could not be written to
      * secure storage. The manager stays logged out in that case, because a
      * session only this object knows about is one no screen can load with.
+     *
+     * A failed write clears [session] and [isLoggedIn] rather than leaving them
+     * untouched, which matters if this is ever used to refresh a live session
+     * rather than to establish a first one. Holding "logged in" while the store
+     * that every screen reads from has just refused a write is the precise state
+     * issue #503 was: signed-in shell, nothing behind it. Whatever was in the
+     * keychain before is not a fallback — when the store is unopenable it can't
+     * be read either, and no screen consults this object's copy.
      */
     suspend fun login(sessionData: UserSession) {
         // Use mutex.withLock to ensure atomic operation
