@@ -88,6 +88,35 @@ class FeedViewModelSessionTest {
     }
 
     @Test
+    fun `fetchFeed surfaces the backend's own error message`() = runTest {
+        // The error body is a one-shot stream. Reading it for a log line before
+        // handing the response to ApiErrors leaves nothing to parse, and the user
+        // silently gets the generic fallback instead of what the backend said.
+        val api: PositiveOnlySocialAPI = mock()
+        whenever(api.getPostsInFeed("token123", 0)).thenReturn(
+            Response.error(429, """{"error":"You're doing that too often."}""".toResponseBody())
+        )
+        val viewModel = FeedViewModel(api, keychainReturning(session))
+
+        viewModel.fetchFeed()
+
+        assertEquals("You're doing that too often.", viewModel.loadError.value)
+    }
+
+    @Test
+    fun `fetchFollowingFeed surfaces the backend's own error message`() = runTest {
+        val api: PositiveOnlySocialAPI = mock()
+        whenever(api.getFollowedPosts("token123", 0, null)).thenReturn(
+            Response.error(429, """{"error":"You're doing that too often."}""".toResponseBody())
+        )
+        val viewModel = FollowingFeedViewModel(api, keychainReturning(session))
+
+        viewModel.fetchFollowingFeed()
+
+        assertEquals("You're doing that too often.", viewModel.loadError.value)
+    }
+
+    @Test
     fun `a successful fetch clears a previous error`() = runTest {
         val api: PositiveOnlySocialAPI = mock()
         whenever(api.getPostsInFeed("token123", 0))

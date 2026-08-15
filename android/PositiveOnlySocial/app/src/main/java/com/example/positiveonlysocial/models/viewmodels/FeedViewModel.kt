@@ -79,8 +79,12 @@ class FeedViewModel(
                     currentPage = if (newPosts.isEmpty()) 0 else 1
                     _loadError.value = null
                 } else {
-                    Log.e(TAG, "Failed to refresh feed: ${response.errorBody()?.string()}")
-                    _loadError.value = ApiErrors.messageFor(response, fallback = FEED_LOAD_FAILED)
+                    // Resolve the message before logging: the error body is a
+                    // one-shot stream, so reading it here would leave ApiErrors
+                    // nothing to extract the backend's own wording from.
+                    val message = ApiErrors.messageFor(response, fallback = FEED_LOAD_FAILED)
+                    Log.e(TAG, "Failed to refresh feed: ${response.code()} $message")
+                    _loadError.value = message
                 }
             } catch (e: Exception) {
                 Log.e(TAG, "Failed to refresh feed", e)
@@ -118,8 +122,11 @@ class FeedViewModel(
                     }
                     _loadError.value = null
                 } else {
-                    Log.e(TAG, "Failed to fetch feed: ${response.errorBody()?.string()}")
-                    _loadError.value = ApiErrors.messageFor(response, fallback = FEED_LOAD_FAILED)
+                    // See refreshFeed: the message has to be resolved before the
+                    // one-shot error body is read for the log.
+                    val message = ApiErrors.messageFor(response, fallback = FEED_LOAD_FAILED)
+                    Log.e(TAG, "Failed to fetch feed: ${response.code()} $message")
+                    _loadError.value = message
                 }
             } catch (e: Exception) {
                 Log.e(TAG, "Failed to fetch feed", e)

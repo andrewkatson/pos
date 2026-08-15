@@ -90,8 +90,12 @@ class FollowingFeedViewModel(
                     currentPage = if (newPosts.isEmpty()) 0 else 1
                     _loadError.value = null
                 } else {
-                    Log.e(TAG, "Failed to refresh following feed: ${response.errorBody()?.string()}")
-                    _loadError.value = ApiErrors.messageFor(response, fallback = FOLLOWING_FEED_LOAD_FAILED)
+                    // Resolve the message before logging: the error body is a
+                    // one-shot stream, so reading it here would leave ApiErrors
+                    // nothing to extract the backend's own wording from.
+                    val message = ApiErrors.messageFor(response, fallback = FOLLOWING_FEED_LOAD_FAILED)
+                    Log.e(TAG, "Failed to refresh following feed: ${response.code()} $message")
+                    _loadError.value = message
                 }
             } catch (e: Exception) {
                 Log.e(TAG, "Failed to refresh following feed", e)
@@ -129,8 +133,11 @@ class FollowingFeedViewModel(
                     }
                     _loadError.value = null
                 } else {
-                    Log.e(TAG, "Failed to fetch following feed: ${response.errorBody()?.string()}")
-                    _loadError.value = ApiErrors.messageFor(response, fallback = FOLLOWING_FEED_LOAD_FAILED)
+                    // See refreshFollowingFeed: the message has to be resolved
+                    // before the one-shot error body is read for the log.
+                    val message = ApiErrors.messageFor(response, fallback = FOLLOWING_FEED_LOAD_FAILED)
+                    Log.e(TAG, "Failed to fetch following feed: ${response.code()} $message")
+                    _loadError.value = message
                 }
             } catch (e: Exception) {
                 Log.e(TAG, "Failed to fetch following feed", e)
