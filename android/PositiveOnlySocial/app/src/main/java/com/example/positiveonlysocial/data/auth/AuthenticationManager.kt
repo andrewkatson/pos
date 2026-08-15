@@ -1,6 +1,7 @@
 package com.example.positiveonlysocial.data.auth
 
 import android.util.Log
+import com.example.positiveonlysocial.data.constants.Constants
 import com.example.positiveonlysocial.data.model.UserSession
 import com.example.positiveonlysocial.data.security.KeychainHelperProtocol
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -10,6 +11,18 @@ import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 
 private const val TAG = "AuthenticationManager"
+
+/**
+ * Thrown by [AuthenticationManager.login] when a freshly issued session could not
+ * be written to secure storage (issue #503).
+ *
+ * Screens read the session back out of the keychain rather than from memory, so a
+ * session that was never persisted can't load anything. Swallowing the failure
+ * put the user inside a signed-in shell where every screen rendered blank; the
+ * caller must keep them on the login screen and say what happened instead.
+ */
+class SessionPersistenceException(cause: Throwable) :
+    Exception(Constants.SESSION_STORAGE_FAILED_MESSAGE, cause)
 
 /**
  * Manages the user's authentication state and session data.
@@ -116,6 +129,9 @@ class AuthenticationManager(
      * This function is 'suspend' as it performs secure disk I/O.
      *
      * @param sessionData The new session to save and publish.
+     * @throws SessionPersistenceException if the session could not be written to
+     * secure storage. The manager stays logged out in that case, because a
+     * session only this object knows about is one no screen can load with.
      */
     suspend fun login(sessionData: UserSession) {
         // Use mutex.withLock to ensure atomic operation
@@ -127,15 +143,16 @@ class AuthenticationManager(
                     service = keychainService,
                     account = sessionAccount
                 )
-
-                // Publish the new session and state
-                _session.value = sessionData
-                _isLoggedIn.value = true
-
             } catch (e: Exception) {
                 Log.e(TAG, "Failed to save session", e)
-                // Here you might want to propagate the error
+                _session.value = null
+                _isLoggedIn.value = false
+                throw SessionPersistenceException(e)
             }
+
+            // Publish the new session and state
+            _session.value = sessionData
+            _isLoggedIn.value = true
         }
     }
 

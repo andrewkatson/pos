@@ -28,6 +28,7 @@ import com.example.positiveonlysocial.data.auth.AuthenticationManager
 import com.example.positiveonlysocial.data.auth.GoogleSignInFailure
 import com.example.positiveonlysocial.data.auth.GoogleSignInProvider
 import com.example.positiveonlysocial.data.auth.GoogleSignInProviding
+import com.example.positiveonlysocial.data.auth.SessionPersistenceException
 import com.example.positiveonlysocial.data.constants.Constants
 import com.example.positiveonlysocial.data.model.GoogleLoginRequest
 import com.example.positiveonlysocial.data.model.LoginRequest
@@ -104,7 +105,17 @@ fun LoginScreen(
                 userId = userId,
                 isIdentityVerified = false
             )
-            authManager.login(session)
+            // A session that can't be written to secure storage is useless: every
+            // screen loads it back from the keychain, so entering the app anyway
+            // meant a signed-in shell where everything rendered blank (issue
+            // #503). Stay on the login screen and say so instead.
+            try {
+                authManager.login(session)
+            } catch (e: SessionPersistenceException) {
+                errorMessage = e.message ?: Constants.SESSION_STORAGE_FAILED_MESSAGE
+                showingErrorAlert = true
+                return
+            }
 
             // Persist (or clear) the remember-me tokens so WelcomeScreen can
             // silently re-authenticate on the next launch. Mirrors iOS

@@ -3,7 +3,9 @@ package com.example.positiveonlysocial.models.viewmodels
 import android.util.Log
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.example.positiveonlysocial.api.ApiErrors
 import com.example.positiveonlysocial.api.PositiveOnlySocialAPI
+import com.example.positiveonlysocial.data.constants.Constants
 import com.example.positiveonlysocial.data.model.FollowCategory
 import com.example.positiveonlysocial.data.model.Post
 import com.example.positiveonlysocial.data.model.UserSession
@@ -29,6 +31,13 @@ class FollowingFeedViewModel(
 
     private val _isRefreshing = MutableStateFlow(false)
     val isRefreshing: StateFlow<Boolean> = _isRefreshing.asStateFlow()
+
+    /**
+     * Why the feed is empty, when it's empty because something went wrong rather
+     * than because there is nothing to show (issue #503). Mirrors [FeedViewModel].
+     */
+    private val _loadError = MutableStateFlow<String?>(null)
+    val loadError: StateFlow<String?> = _loadError.asStateFlow()
 
     // Optional group filter (issue #392): null is the whole following feed.
     private val _selectedCategory = MutableStateFlow<FollowCategory?>(null)
@@ -66,9 +75,10 @@ class FollowingFeedViewModel(
 
         viewModelScope.launch {
             try {
-                val userSession = keychainHelper.load(UserSession::class.java, service, account)
+                val userSession = loadSession()
                 if (userSession == null) {
                     Log.e(TAG, "No active session found — cannot refresh following feed")
+                    _loadError.value = Constants.SESSION_MISSING_MESSAGE
                     return@launch
                 }
 
@@ -78,11 +88,14 @@ class FollowingFeedViewModel(
                     _followingPosts.value = newPosts
                     canLoadMore = newPosts.isNotEmpty()
                     currentPage = if (newPosts.isEmpty()) 0 else 1
+                    _loadError.value = null
                 } else {
                     Log.e(TAG, "Failed to refresh following feed: ${response.errorBody()?.string()}")
+                    _loadError.value = ApiErrors.messageFor(response, fallback = FOLLOWING_FEED_LOAD_FAILED)
                 }
             } catch (e: Exception) {
                 Log.e(TAG, "Failed to refresh following feed", e)
+                _loadError.value = ApiErrors.messageFor(e, fallback = FOLLOWING_FEED_LOAD_FAILED)
             } finally {
                 _isRefreshing.value = false
             }
@@ -98,9 +111,10 @@ class FollowingFeedViewModel(
 
         viewModelScope.launch {
             try {
-                val userSession = keychainHelper.load(UserSession::class.java, service, account)
+                val userSession = loadSession()
                 if (userSession == null) {
                     Log.e(TAG, "No active session found — cannot fetch following feed")
+                    _loadError.value = Constants.SESSION_MISSING_MESSAGE
                     return@launch
                 }
 
@@ -113,14 +127,28 @@ class FollowingFeedViewModel(
                         _followingPosts.value += newPosts
                         currentPage += 1
                     }
+                    _loadError.value = null
                 } else {
                     Log.e(TAG, "Failed to fetch following feed: ${response.errorBody()?.string()}")
+                    _loadError.value = ApiErrors.messageFor(response, fallback = FOLLOWING_FEED_LOAD_FAILED)
                 }
             } catch (e: Exception) {
                 Log.e(TAG, "Failed to fetch following feed", e)
+                _loadError.value = ApiErrors.messageFor(e, fallback = FOLLOWING_FEED_LOAD_FAILED)
             } finally {
                 _isLoadingNextPage.value = false
             }
         }
     }
+
+    /** See [FeedViewModel.loadSession] — a read that throws is "no session" too. */
+    private fun loadSession(): UserSession? = try {
+        keychainHelper.load(UserSession::class.java, service, account)
+    } catch (e: Exception) {
+        Log.e(TAG, "Failed to read the stored session", e)
+        null
+    }
 }
+
+private const val FOLLOWING_FEED_LOAD_FAILED =
+    "We couldn't load this feed. Pull down to try again."
