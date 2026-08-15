@@ -155,7 +155,14 @@ private fun LazyItemScope.FeedPlaceholder(loadError: String?) {
         Text(
             text = loadError ?: "No posts yet. Pull down to refresh.",
             textAlign = TextAlign.Center,
-            color = if (loadError != null) MaterialTheme.colorScheme.error else Color.Gray,
+            // Themed rather than a fixed gray: this screen follows the system
+            // light/dark setting, and a hardcoded gray reads as washed out
+            // against a light surface.
+            color = if (loadError != null) {
+                MaterialTheme.colorScheme.error
+            } else {
+                MaterialTheme.colorScheme.onSurfaceVariant
+            },
             modifier = Modifier
                 .padding(24.dp)
                 .testTag("FeedPlaceholder")

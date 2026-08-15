@@ -75,7 +75,10 @@ class KeychainHelper(context: Context) : KeychainHelperProtocol {
     //
     // Kept in sync with the <exclude> entries in res/xml/backup_rules.xml and
     // res/xml/data_extraction_rules.xml, which keep this file (and only this
-    // file) out of cloud backup and device-to-device transfer.
+    // file) out of cloud backup and device-to-device transfer. Those entries
+    // name the file as it lands on disk — "positive_only_social_secure_prefs.xml",
+    // this value plus the .xml suffix SharedPreferences appends — so renaming
+    // here means renaming there too, suffix included.
     private val prefsFilename = "positive_only_social_secure_prefs"
 
     private val encryptedPrefs: SharedPreferences by lazy { openEncryptedPrefs() }
