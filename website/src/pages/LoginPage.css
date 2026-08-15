@@ -402,8 +402,14 @@
   opacity: 0.85;
 }
 
-/* Google sign-in (issue #10). The button itself is an iframe Google renders and
-   styles; everything here is the space around it. */
+/* Google sign-in (issue #10). Google draws the button itself and ships the
+   stylesheet for it, so most of what follows is the space around it — but not
+   all of it. Despite the name, GIS renders the button as ordinary elements in
+   *our* document (a `div[role=button]`, class `.nsm7Bb-HzV7m-LgbsSe`), not in
+   an iframe; the one iframe it appends is 0×0 and carries no UI. Google's
+   internals are therefore reachable from here, which is what lets the last rule
+   in this section repaint part of the button. Reach in only where there is no
+   supported option, and expect the class names to be obfuscated. */
 .auth-google {
   display: flex;
   flex-direction: column;
@@ -432,8 +438,8 @@
   background: rgba(255, 255, 255, 0.15);
 }
 
-/* Google's iframe has a fixed pixel width; centring it keeps it aligned with
-   the full-width controls above even though it can't stretch to match them. */
+/* Google sizes the button to its own label — 187px, not the 420px card — so
+   centring is what keeps it aligned with the full-width controls above. */
 .auth-google__button {
   display: flex;
   justify-content: center;
@@ -443,4 +449,26 @@
 
 .auth-google__button[hidden] {
   display: none;
+}
+
+/* Google's `filled_black` button is dark (#202124) apart from one thing: it
+   seats the "G" on a hard-coded white 36px plate, the tile from its older
+   button artwork. On a page whose background is pure black that plate is the
+   only white pixels on the screen, so the button reads as a white box with a
+   dark border rather than as a dark button. Clearing the plate leaves the
+   coloured G directly on the pill, which is how Google's own current dark
+   button looks; nothing about the logo itself is altered.
+
+   Two things this selector is doing deliberately:
+
+     - It names Google's obfuscated class, which is not a public API. That is
+       the only handle the plate has. If Google renames it the rule stops
+       matching and the button falls back to today's appearance — the failure
+       is cosmetic, never broken layout, so this is safe to leave in place.
+     - It carries three classes to outrank Google's own two-class rule. Google
+       injects its stylesheet at render time, i.e. *after* this bundled one, so
+       an equal-specificity rule here would lose the tie on document order and
+       silently do nothing. */
+.auth-google__button .nsm7Bb-HzV7m-LgbsSe .nsm7Bb-HzV7m-LgbsSe-Bz112c-haAclf {
+  background-color: transparent;
 }

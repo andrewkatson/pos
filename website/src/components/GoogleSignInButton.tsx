@@ -10,7 +10,7 @@ interface GoogleSignInButtonProps {
   onCredential: (idToken: string) => void
   /** Called when Google itself could not be reached or set up. */
   onError?: (message: string) => void
-  /** Google's button is an iframe we cannot disable, so it is hidden instead. */
+  /** Google's button takes no `disabled` attribute, so it is hidden instead. */
   disabled?: boolean
   /** 'signin_with' on the login page, 'signup_with' on the register page. */
   text?: 'signin_with' | 'signup_with' | 'continue_with'
@@ -108,9 +108,9 @@ function GoogleSignInButton({
       <div
         ref={containerRef}
         className="auth-google__button"
-        // Google renders an iframe we cannot put a `disabled` attribute on, so
-        // it is hidden outright while a request is in flight — a click that
-        // arrived mid-login would start a second one.
+        // Google renders a `div[role=button]`, which takes no `disabled`
+        // attribute, so it is hidden outright while a request is in flight — a
+        // click that arrived mid-login would start a second one.
         hidden={disabled}
         data-testid="google-sign-in-button"
       />
