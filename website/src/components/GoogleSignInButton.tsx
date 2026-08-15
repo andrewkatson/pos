@@ -72,7 +72,14 @@ function GoogleSignInButton({
         })
         google.accounts.id.renderButton(containerRef.current, {
           type: 'standard',
-          theme: 'filled_black',
+          // Paired with the light auth pages, and the pairing is deliberate:
+          // when the visitor is signed in to Google this button arrives as a
+          // cross-origin iframe with a white interior we cannot restyle, so the
+          // page is white to match it. A dark theme here would put a dark pill
+          // inside that white surround and reinstate the white box the light
+          // pages exist to avoid. See the `.auth-google` comment in
+          // LoginPage.css before changing either half.
+          theme: 'filled_blue',
           size: 'large',
           shape: 'pill',
           text,
@@ -108,9 +115,11 @@ function GoogleSignInButton({
       <div
         ref={containerRef}
         className="auth-google__button"
-        // Google renders a `div[role=button]`, which takes no `disabled`
-        // attribute, so it is hidden outright while a request is in flight — a
-        // click that arrived mid-login would start a second one.
+        // Hidden outright while a request is in flight — a click that arrived
+        // mid-login would start a second one. Hiding rather than disabling
+        // because neither thing Google renders here can be disabled: signed
+        // out it is a `div[role=button]`, signed in a cross-origin iframe, and
+        // `disabled` means nothing to either.
         hidden={disabled}
         data-testid="google-sign-in-button"
       />

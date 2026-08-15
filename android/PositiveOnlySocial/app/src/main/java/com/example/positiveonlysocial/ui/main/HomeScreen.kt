@@ -16,10 +16,12 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.NavController
 import com.example.positiveonlysocial.api.PositiveOnlySocialAPI
+import com.example.positiveonlysocial.data.constants.Constants
 import com.example.positiveonlysocial.data.security.KeychainHelperProtocol
 import com.example.positiveonlysocial.models.viewmodels.HomeViewModel
 import com.example.positiveonlysocial.models.viewmodels.HomeViewModelFactory
@@ -130,9 +132,9 @@ fun HomeScreen(
                     }
                 }
             } else {
-                // The signed-in user's own profile. Null only before the stored
-                // session has been read, which is effectively never once signed in.
-                currentUsername?.let { username ->
+                // The signed-in user's own profile.
+                val username = currentUsername
+                if (username != null) {
                     ProfileBody(
                         navController = navController,
                         api = api,
@@ -141,6 +143,28 @@ fun HomeScreen(
                         // Takes the space left under the search bar.
                         modifier = Modifier.weight(1f)
                     )
+                } else {
+                    // No readable session behind this screen. That should be
+                    // unreachable — you can't get here without signing in — but
+                    // when secure storage failed it *was* reachable, and the
+                    // `?.let` that used to be here rendered nothing at all, so
+                    // the whole profile silently vanished (issue #503). Say what
+                    // happened instead of showing an empty tab.
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .weight(1f),
+                        contentAlignment = androidx.compose.ui.Alignment.Center
+                    ) {
+                        Text(
+                            text = Constants.SESSION_MISSING_MESSAGE,
+                            textAlign = TextAlign.Center,
+                            color = MaterialTheme.colorScheme.error,
+                            modifier = Modifier
+                                .padding(24.dp)
+                                .testTag("NoSessionNotice")
+                        )
+                    }
                 }
             }
         }

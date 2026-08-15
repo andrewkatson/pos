@@ -1,7 +1,10 @@
 /* ============================================================
    Shared styles for the authenticated app surface:
    HomePage shell + tabs, PostDetailPage, ProfilePage.
-   Mirrors the dark theme used by the auth pages (LoginPage.css).
+   This surface is dark. The auth pages are not — LoginPage.css turned light so
+   that Google's sign-in iframe, whose white interior we cannot restyle, stops
+   showing as a white box. The shared pieces that both surfaces use (.modal*,
+   .spinner, .toggle, .auth-input) are tokenised there and stay dark here.
    ============================================================ */
 
 .app-shell {
