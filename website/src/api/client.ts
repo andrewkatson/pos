@@ -774,11 +774,15 @@ export class ApiClient implements PositiveOnlySocialAPI {
   // USERS & PROFILES
   // ===========================================================================
 
-  searchUsers(usernameFragment: string): Promise<UserSearchResult[]> {
-    return this.request<UserSearchResult[]>('GET', `/users/search/${usernameFragment}/`, {
+  searchUsers(usernameFragment: string, batch = 0): Promise<UserSearchResult[]> {
+  return this.request<UserSearchResult[]>(
+    'GET',
+    `/users/search/${usernameFragment}/?batch=${batch}`,
+    {
       auth: true,
-    })
-  }
+    },
+  )
+}
 
   followUser(username: string, category?: FollowCategory): Promise<MessageResponse> {
     return this.request<MessageResponse>('POST', `/users/${username}/follow/`, {

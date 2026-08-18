@@ -3841,6 +3841,22 @@ def get_users_matching_fragment(request, username_fragment):
     if not is_valid_pattern(username_fragment, Patterns.short_alphanumeric):
         return log_and_return_json("get_users_matching_fragment", {'error': "Invalid username fragment"}, status=400)
 
+    
+    try:
+        batch = int(request.GET.get('batch', 0))
+    except (TypeError, ValueError):
+        return log_and_return_json(
+            "get_users_matching_fragment",
+            {'error': "Invalid batch parameter"},
+            status=400,
+        )
+
+    if batch < 0:
+        return log_and_return_json(
+            "get_users_matching_fragment",
+            {'error': "Invalid batch parameter"},
+            status=400,
+        )
     # We only get the first 10 users because we don't support endlessly scrolling through
     # user results in the search bar.
     users = PositiveOnlySocialUser.objects.filter(
@@ -3853,7 +3869,9 @@ def get_users_matching_fragment(request, username_fragment):
     # So if I blocked someone, I can still search them.
     # But if someone blocked me, I cannot search them.
     users_who_blocked_me = request.user.blocked_by.all()
-    users = searchable_users(users.exclude(pk__in=users_who_blocked_me), request.user)[:10]
+    users = searchable_users(users.exclude(pk__in=users_who_blocked_me), request.user,).order_by('username', 'pk')
+
+    users = get_queryset_batch(users, batch, 10)
 
     users_data = [
         {
