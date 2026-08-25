@@ -317,6 +317,62 @@
   font-weight: 500;
 }
 
+.search-results__view-all {
+  width: 100%;
+  padding: 12px;
+  border: none;
+  background: transparent;
+  cursor: pointer;
+  font: inherit;
+  font-weight: 600;
+}
+
+.search-results__view-all:disabled {
+  cursor: default;
+  opacity: 0.6;
+}
+
+.search-results-dialog__backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+  background: rgba(0, 0, 0, 0.5);
+}
+
+.search-results-dialog {
+  width: 100%;
+  max-width: 500px;
+  max-height: 80vh;
+  overflow-y: auto;
+  border-radius: 12px;
+  background: #111;
+}
+
+.search-results-dialog__header {
+  position: sticky;
+  top: 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 16px;
+  background: inherit;
+}
+
+.search-results-dialog__header h2 {
+  margin: 0;
+}
+
+.search-results-dialog__header button {
+  border: none;
+  background: transparent;
+  cursor: pointer;
+  font-size: 24px;
+}
+
 /* ---- User search results ---- */
 
 .user-list {
