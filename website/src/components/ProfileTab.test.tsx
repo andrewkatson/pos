@@ -210,7 +210,7 @@ test('searches users after typing 3+ characters and navigates to a profile', asy
 
   await userEvent.type(screen.getByLabelText('Search for users'), 'bob')
   const result = await screen.findByText('bob')
-  await waitFor(() => expect(mockSearch).toHaveBeenCalledWith('bob',0))
+  await waitFor(() => expect(mockSearch).toHaveBeenCalledWith('bob', 0))
   await userEvent.click(result)
   expect(screen.getByText('Profile page')).toBeInTheDocument()
 })
@@ -244,6 +244,30 @@ test('shows View all results when more search results exist', async () => {
   })
 
   expect(screen.getByRole('button', { name: 'View all results' })).toBeInTheDocument()
+})
+
+test('keeps first-batch results when checking for more results fails', async () => {
+  mockGetPosts.mockResolvedValue([])
+
+  const firstBatch = Array.from({ length: 10 }, (_, index) => ({
+    username: `bob${index}`,
+    identity_is_verified: false,
+  }))
+
+  mockSearch.mockResolvedValueOnce(firstBatch).mockRejectedValueOnce(new Error('Request failed'))
+
+  renderTab()
+
+  await userEvent.type(screen.getByLabelText('Search for users'), 'bob')
+
+  expect(await screen.findByText('bob0')).toBeInTheDocument()
+
+  await waitFor(() => {
+    expect(mockSearch).toHaveBeenCalledWith('bob', 1)
+  })
+
+  expect(screen.getByText('bob9')).toBeInTheDocument()
+  expect(screen.queryByRole('button', { name: 'View all results' })).not.toBeInTheDocument()
 })
 
 test('does not show View all results when all search results fit in the first batch', async () => {

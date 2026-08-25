@@ -84,7 +84,8 @@ class GetUsersMatchingFragmentTests(PositiveOnlySocialTestCase):
         # Verify the correct users were returned
         found_usernames = {user['username'] for user in responses}
         self.assertIn(self.first_username, found_usernames)
-        self.assertIn(self.second_username,  found_usernames)
+        self.assertIn(self.second_username, found_usernames)
+
     def test_search_results_are_returned_in_batches_of_ten(self):
         """
         Tests that user search returns ten matching users per batch and that
@@ -98,39 +99,37 @@ class GetUsersMatchingFragmentTests(PositiveOnlySocialTestCase):
         # setUp already created two matching users. Create twelve more so there
         # are fourteen matching users in total.
         for index in range(12):
-            user_fields = self.make_user_with_prefix(
-            f'{username_fragment}_{index:02d}'
-        )
+            user_fields = self.make_user_with_prefix(f'{username_fragment}_{index:02d}')
             matching_usernames.add(user_fields[Fields.username])
 
         expected_usernames = sorted(matching_usernames)
 
         url = reverse(
-        'get_users_matching_fragment',
-        kwargs={'username_fragment': username_fragment},
+            'get_users_matching_fragment',
+            kwargs={'username_fragment': username_fragment},
         )
 
         first_response = self.client.get(
-        url,
-        {'batch': 0},
-        **self.valid_header,
-        )   
+            url,
+            {'batch': 0},
+            **self.valid_header,
+        )
         second_response = self.client.get(
-        url,
-        {'batch': 1},
-        **self.valid_header,
+            url,
+            {'batch': 1},
+            **self.valid_header,
         )
 
         self.assertEqual(first_response.status_code, 200)
         self.assertEqual(second_response.status_code, 200)
 
         first_batch = [
-        user[Fields.username]
-        for user in first_response.json()
+            user[Fields.username]
+            for user in first_response.json()
         ]
         second_batch = [
-        user[Fields.username]
-        for user in second_response.json()
+            user[Fields.username]
+            for user in second_response.json()
         ]
 
         self.assertEqual(first_batch, expected_usernames[:10])
@@ -138,39 +137,38 @@ class GetUsersMatchingFragmentTests(PositiveOnlySocialTestCase):
 
     def test_non_numeric_batch_returns_bad_response(self):
         url = reverse(
-        'get_users_matching_fragment',
-        kwargs={'username_fragment': username_fragment},
+            'get_users_matching_fragment',
+            kwargs={'username_fragment': username_fragment},
         )
 
         response = self.client.get(
-        url,
-        {'batch': 'invalid'},
-        **self.valid_header,
+            url,
+            {'batch': 'invalid'},
+            **self.valid_header,
         )
 
         self.assertEqual(response.status_code, 400)
         self.assertEqual(
-        response.json(),
-        {'error': 'Invalid batch parameter'},
+            response.json(),
+            {'error': 'Invalid batch parameter'},
         )
-
 
     def test_batch_below_zero_returns_bad_response(self):
         url = reverse(
-        'get_users_matching_fragment',
-        kwargs={'username_fragment': username_fragment},
+            'get_users_matching_fragment',
+            kwargs={'username_fragment': username_fragment},
         )
 
         response = self.client.get(
-        url,
-        {'batch': -1},
-        **self.valid_header,
+            url,
+            {'batch': -1},
+            **self.valid_header,
         )
 
         self.assertEqual(response.status_code, 400)
         self.assertEqual(
-        response.json(),
-        {'error': 'Invalid batch parameter'},
+            response.json(),
+            {'error': 'Invalid batch parameter'},
         )
 
     def test_search_fragment_excludes_self(self):

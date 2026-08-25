@@ -61,10 +61,18 @@ function ProfileTab() {
 
         // If the first batch is full, check whether another result exists.
         if (results.length === 10) {
-          const nextBatch = await apiClient.searchUsers(query, 1)
+          try {
+            const nextBatch = await apiClient.searchUsers(query, 1)
 
-          if (!cancelled && isMounted.current) {
-            setHasMoreResults(nextBatch.length > 0)
+            if (!cancelled && isMounted.current) {
+              setHasMoreResults(nextBatch.length > 0)
+            }
+          } catch {
+            // Keep the successful first batch visible if the optional
+            // check for additional results fails.
+            if (!cancelled && isMounted.current) {
+              setHasMoreResults(false)
+            }
           }
         } else {
           setHasMoreResults(false)

@@ -3857,8 +3857,8 @@ def get_users_matching_fragment(request, username_fragment):
             {'error': "Invalid batch parameter"},
             status=400,
         )
-    # We only get the first 10 users because we don't support endlessly scrolling through
-    # user results in the search bar.
+    # Results are returned in deterministic batches of ten so the search bar
+    # can show the first batch and the dialog can load the remaining matches.
     users = PositiveOnlySocialUser.objects.filter(
         username__istartswith=username_fragment
     ).exclude(pk=request.user.pk)

@@ -316,6 +316,7 @@
   line-clamp: 3;
   font-weight: 500;
 }
+
 .search-results__view-all {
   width: 100%;
   padding: 12px;
@@ -348,7 +349,7 @@
   max-height: 80vh;
   overflow-y: auto;
   border-radius: 12px;
-  background: #111
+  background: #111;
 }
 
 .search-results-dialog__header {
@@ -371,6 +372,7 @@
   cursor: pointer;
   font-size: 24px;
 }
+
 /* ---- User search results ---- */
 
 .user-list {
