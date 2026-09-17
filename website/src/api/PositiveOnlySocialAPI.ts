@@ -207,7 +207,7 @@ export interface PositiveOnlySocialAPI {
   ): Promise<MessageResponse>
 
   // Users & profiles
-  searchUsers(usernameFragment: string): Promise<UserSearchResult[]>
+  searchUsers(usernameFragment: string, batch?: number): Promise<UserSearchResult[]>
   /** Follow a user, optionally categorizing them at the same time (issue
    * #392). Omitting `category` uses the default 'following' bucket. */
   followUser(username: string, category?: FollowCategory): Promise<MessageResponse>

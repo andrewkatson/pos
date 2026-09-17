@@ -210,9 +210,185 @@ test('searches users after typing 3+ characters and navigates to a profile', asy
 
   await userEvent.type(screen.getByLabelText('Search for users'), 'bob')
   const result = await screen.findByText('bob')
-  await waitFor(() => expect(mockSearch).toHaveBeenCalledWith('bob'))
+  await waitFor(() => expect(mockSearch).toHaveBeenCalledWith('bob', 0))
   await userEvent.click(result)
   expect(screen.getByText('Profile page')).toBeInTheDocument()
+})
+
+test('shows View all results when more search results exist', async () => {
+  mockGetPosts.mockResolvedValue([])
+
+  const firstBatch = Array.from({ length: 10 }, (_, index) => ({
+    username: `bob${index}`,
+    identity_is_verified: false,
+  }))
+
+  mockSearch
+    .mockResolvedValueOnce(firstBatch)
+    .mockResolvedValueOnce([
+      {
+        username: 'bob10',
+        identity_is_verified: false,
+      },
+    ])
+
+  renderTab()
+
+  await userEvent.type(screen.getByLabelText('Search for users'), 'bob')
+
+  expect(await screen.findByText('bob0')).toBeInTheDocument()
+
+  await waitFor(() => {
+    expect(mockSearch).toHaveBeenCalledWith('bob', 0)
+    expect(mockSearch).toHaveBeenCalledWith('bob', 1)
+  })
+
+  expect(screen.getByRole('button', { name: 'View all results' })).toBeInTheDocument()
+})
+
+test('keeps first-batch results when checking for more results fails', async () => {
+  mockGetPosts.mockResolvedValue([])
+
+  const firstBatch = Array.from({ length: 10 }, (_, index) => ({
+    username: `bob${index}`,
+    identity_is_verified: false,
+  }))
+
+  mockSearch.mockResolvedValueOnce(firstBatch).mockRejectedValueOnce(new Error('Request failed'))
+
+  renderTab()
+
+  await userEvent.type(screen.getByLabelText('Search for users'), 'bob')
+
+  expect(await screen.findByText('bob0')).toBeInTheDocument()
+
+  await waitFor(() => {
+    expect(mockSearch).toHaveBeenCalledWith('bob', 1)
+  })
+
+  expect(screen.getByText('bob9')).toBeInTheDocument()
+  expect(screen.queryByRole('button', { name: 'View all results' })).not.toBeInTheDocument()
+})
+
+test('does not show View all results when all search results fit in the first batch', async () => {
+  mockGetPosts.mockResolvedValue([])
+
+  mockSearch.mockResolvedValue([
+    {
+      username: 'bob',
+      identity_is_verified: false,
+    },
+  ])
+
+  renderTab()
+
+  await userEvent.type(screen.getByLabelText('Search for users'), 'bob')
+
+  expect(await screen.findByText('bob')).toBeInTheDocument()
+
+  expect(
+    screen.queryByRole('button', { name: 'View all results' }),
+  ).not.toBeInTheDocument()
+
+  expect(mockSearch).toHaveBeenCalledWith('bob', 0)
+})
+
+test('opens a dialog containing all search results', async () => {
+  mockGetPosts.mockResolvedValue([])
+
+  const firstBatch = Array.from({ length: 10 }, (_, index) => ({
+    username: `bob${index}`,
+    identity_is_verified: false,
+  }))
+
+  const secondBatch = [
+    {
+      username: 'bob10',
+      identity_is_verified: false,
+    },
+    {
+      username: 'bob11',
+      identity_is_verified: false,
+    },
+  ]
+
+  mockSearch
+    .mockResolvedValueOnce(firstBatch)
+    .mockResolvedValueOnce(secondBatch)
+    .mockResolvedValueOnce(secondBatch)
+
+  renderTab()
+
+  await userEvent.type(screen.getByLabelText('Search for users'), 'bob')
+
+  const viewAllButton = await screen.findByRole('button', {
+    name: 'View all results',
+  })
+
+  await userEvent.click(viewAllButton)
+
+  const dialog = await screen.findByRole('dialog', {
+    name: 'Search results',
+  })
+
+  expect(dialog).toBeInTheDocument()
+
+  expect(screen.getAllByText('bob0').length).toBeGreaterThan(0)
+  expect(screen.getByText('bob10')).toBeInTheDocument()
+  expect(screen.getByText('bob11')).toBeInTheDocument()
+
+  await waitFor(() => {
+    expect(mockSearch).toHaveBeenCalledWith('bob', 1)
+  })
+})
+
+test('closes the all search results dialog', async () => {
+  mockGetPosts.mockResolvedValue([])
+
+  const firstBatch = Array.from({ length: 10 }, (_, index) => ({
+    username: `bob${index}`,
+    identity_is_verified: false,
+  }))
+
+  const secondBatch = [
+    {
+      username: 'bob10',
+      identity_is_verified: false,
+    },
+  ]
+
+  mockSearch
+    .mockResolvedValueOnce(firstBatch)
+    .mockResolvedValueOnce(secondBatch)
+    .mockResolvedValueOnce(secondBatch)
+
+  renderTab()
+
+  await userEvent.type(screen.getByLabelText('Search for users'), 'bob')
+
+  await userEvent.click(
+    await screen.findByRole('button', {
+      name: 'View all results',
+    }),
+  )
+
+  expect(
+    await screen.findByRole('dialog', {
+      name: 'Search results',
+    }),
+  ).toBeInTheDocument()
+
+  await userEvent.click(
+    screen.getByRole('button', {
+      name: 'Close search results',
+    }),
+  )
+
+  expect(
+    screen.queryByRole('dialog', {
+      name: 'Search results',
+    }),
+  ).not.toBeInTheDocument()
 })
 
 test('shows an In review badge on a pending post and clears it once approved (#282)', async () => {
