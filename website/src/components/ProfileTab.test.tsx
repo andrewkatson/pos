@@ -564,6 +564,38 @@ test('keeps Tab cycling inside the open dialog', async () => {
   expect(close).toHaveFocus()
 })
 
+test('keeps Tab inside the dialog while Load more is disabled and focused', async () => {
+  mockGetPosts.mockResolvedValue([])
+
+  mockSearch
+    .mockResolvedValueOnce(batchOf('bob', 0, 10))
+    .mockResolvedValueOnce(batchOf('bob', 10, 10))
+    // Batch 2 never resolves, so "Load more" stays disabled with focus on it.
+    .mockImplementationOnce(() => new Promise(() => {}))
+
+  renderTab()
+
+  await userEvent.type(screen.getByLabelText('Search for users'), 'bob')
+  await userEvent.click(await screen.findByRole('button', { name: 'View all results' }))
+  const dialog = await screen.findByRole('dialog', { name: 'Search results' })
+
+  const loadMore = screen.getByRole('button', { name: 'Load more' })
+  await userEvent.click(loadMore)
+  expect(loadMore).toBeDisabled()
+  expect(loadMore).toHaveFocus()
+
+  // A disabled element is no longer tabbable, so the browser's own Tab would
+  // leave the dialog; the trap must wrap to the first control instead.
+  await userEvent.keyboard('{Tab}')
+  expect(screen.getByRole('button', { name: 'Close search results' })).toHaveFocus()
+
+  // And Shift+Tab from the same spot wraps to the last tabbable control.
+  loadMore.focus()
+  await userEvent.keyboard('{Shift>}{Tab}{/Shift}')
+  expect(dialog).toContainElement(document.activeElement as HTMLElement)
+  expect(document.activeElement).toHaveTextContent('bob19')
+})
+
 test('shows an In review badge on a pending post and clears it once approved (#282)', async () => {
   // Classification is asynchronous: the grid shows the author's pending post
   // with an "In review" badge and a short bounded poll reconciles the outcome.

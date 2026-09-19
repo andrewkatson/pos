@@ -181,12 +181,16 @@ function ProfileTab() {
 
       const first = focusable[0]
       const last = focusable[focusable.length - 1]
-      const active = document.activeElement
+      // Index in the tabbable list, or -1 when focus is outside the dialog or
+      // on something no longer tabbable — e.g. the "Load more" button, which
+      // is disabled while its request is in flight but keeps focus. Either
+      // way the browser's default Tab would land behind the modal, so wrap.
+      const index = focusable.indexOf(document.activeElement as HTMLElement)
 
-      if (event.shiftKey && (active === first || !dialog.contains(active))) {
+      if (event.shiftKey && (index <= 0)) {
         event.preventDefault()
         last.focus()
-      } else if (!event.shiftKey && (active === last || !dialog.contains(active))) {
+      } else if (!event.shiftKey && (index === -1 || index === focusable.length - 1)) {
         event.preventDefault()
         first.focus()
       }
