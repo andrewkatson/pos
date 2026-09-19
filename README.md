@@ -32,6 +32,21 @@ hosts the user-search bar; while a search is active the results list replaces
 the profile body. Follow and Block are hidden on your own profile, since
 neither applies to yourself.
 
+**User search** (`GET /users/search/<fragment>/?batch=N`) matches usernames by
+case-insensitive prefix and returns them in deterministic batches of ten,
+ordered by username; `batch` defaults to 0, and a batch shorter than ten means
+there are no more. The search bar fires for queries of three or more characters
+(debounced) and shows the first batch inline. On the website, if that batch is
+full the client also fetches batch 1 to decide whether to offer a **View all
+results** button; that button opens a dialog listing everything fetched so far
+with a **Load more** control that pages one further batch per press — never a
+loop over every batch, since the endpoint is rate-limited to 30 requests per
+minute per user. Retyping discards any in-flight page for the old query. The
+dialog is a proper modal: focus moves into it on open, Tab cycles within it,
+Escape closes it, and focus returns to the button that opened it. iOS and
+Android currently show the first batch only. Results run through
+`searchable_users` and the block filters described under **Blocking**.
+
 Your **Followers** and **Following** counts are tappable on your own profile
 only: each opens a list of those users, and tapping a name opens that user's
 profile. These lists are private — you can only see your own. The endpoints
