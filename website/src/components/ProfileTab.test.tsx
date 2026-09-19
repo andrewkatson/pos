@@ -210,9 +210,390 @@ test('searches users after typing 3+ characters and navigates to a profile', asy
 
   await userEvent.type(screen.getByLabelText('Search for users'), 'bob')
   const result = await screen.findByText('bob')
-  await waitFor(() => expect(mockSearch).toHaveBeenCalledWith('bob'))
+  await waitFor(() => expect(mockSearch).toHaveBeenCalledWith('bob', 0))
   await userEvent.click(result)
   expect(screen.getByText('Profile page')).toBeInTheDocument()
+})
+
+test('shows View all results when more search results exist', async () => {
+  mockGetPosts.mockResolvedValue([])
+
+  const firstBatch = Array.from({ length: 10 }, (_, index) => ({
+    username: `bob${index}`,
+    identity_is_verified: false,
+  }))
+
+  mockSearch
+    .mockResolvedValueOnce(firstBatch)
+    .mockResolvedValueOnce([
+      {
+        username: 'bob10',
+        identity_is_verified: false,
+      },
+    ])
+
+  renderTab()
+
+  await userEvent.type(screen.getByLabelText('Search for users'), 'bob')
+
+  expect(await screen.findByText('bob0')).toBeInTheDocument()
+
+  await waitFor(() => {
+    expect(mockSearch).toHaveBeenCalledWith('bob', 0)
+    expect(mockSearch).toHaveBeenCalledWith('bob', 1)
+  })
+
+  expect(screen.getByRole('button', { name: 'View all results' })).toBeInTheDocument()
+})
+
+test('keeps first-batch results when checking for more results fails', async () => {
+  mockGetPosts.mockResolvedValue([])
+
+  const firstBatch = Array.from({ length: 10 }, (_, index) => ({
+    username: `bob${index}`,
+    identity_is_verified: false,
+  }))
+
+  mockSearch.mockResolvedValueOnce(firstBatch).mockRejectedValueOnce(new Error('Request failed'))
+
+  renderTab()
+
+  await userEvent.type(screen.getByLabelText('Search for users'), 'bob')
+
+  expect(await screen.findByText('bob0')).toBeInTheDocument()
+
+  await waitFor(() => {
+    expect(mockSearch).toHaveBeenCalledWith('bob', 1)
+  })
+
+  expect(screen.getByText('bob9')).toBeInTheDocument()
+  expect(screen.queryByRole('button', { name: 'View all results' })).not.toBeInTheDocument()
+})
+
+test('does not show View all results when all search results fit in the first batch', async () => {
+  mockGetPosts.mockResolvedValue([])
+
+  mockSearch.mockResolvedValue([
+    {
+      username: 'bob',
+      identity_is_verified: false,
+    },
+  ])
+
+  renderTab()
+
+  await userEvent.type(screen.getByLabelText('Search for users'), 'bob')
+
+  expect(await screen.findByText('bob')).toBeInTheDocument()
+
+  expect(
+    screen.queryByRole('button', { name: 'View all results' }),
+  ).not.toBeInTheDocument()
+
+  expect(mockSearch).toHaveBeenCalledWith('bob', 0)
+})
+
+test('opens a dialog containing all search results', async () => {
+  mockGetPosts.mockResolvedValue([])
+
+  const firstBatch = Array.from({ length: 10 }, (_, index) => ({
+    username: `bob${index}`,
+    identity_is_verified: false,
+  }))
+
+  const secondBatch = [
+    {
+      username: 'bob10',
+      identity_is_verified: false,
+    },
+    {
+      username: 'bob11',
+      identity_is_verified: false,
+    },
+  ]
+
+  mockSearch
+    .mockResolvedValueOnce(firstBatch)
+    .mockResolvedValueOnce(secondBatch)
+    .mockResolvedValueOnce(secondBatch)
+
+  renderTab()
+
+  await userEvent.type(screen.getByLabelText('Search for users'), 'bob')
+
+  const viewAllButton = await screen.findByRole('button', {
+    name: 'View all results',
+  })
+
+  await userEvent.click(viewAllButton)
+
+  const dialog = await screen.findByRole('dialog', {
+    name: 'Search results',
+  })
+
+  expect(dialog).toBeInTheDocument()
+
+  expect(screen.getAllByText('bob0').length).toBeGreaterThan(0)
+  expect(screen.getByText('bob10')).toBeInTheDocument()
+  expect(screen.getByText('bob11')).toBeInTheDocument()
+
+  await waitFor(() => {
+    expect(mockSearch).toHaveBeenCalledWith('bob', 1)
+  })
+})
+
+test('closes the all search results dialog', async () => {
+  mockGetPosts.mockResolvedValue([])
+
+  const firstBatch = Array.from({ length: 10 }, (_, index) => ({
+    username: `bob${index}`,
+    identity_is_verified: false,
+  }))
+
+  const secondBatch = [
+    {
+      username: 'bob10',
+      identity_is_verified: false,
+    },
+  ]
+
+  mockSearch
+    .mockResolvedValueOnce(firstBatch)
+    .mockResolvedValueOnce(secondBatch)
+    .mockResolvedValueOnce(secondBatch)
+
+  renderTab()
+
+  await userEvent.type(screen.getByLabelText('Search for users'), 'bob')
+
+  await userEvent.click(
+    await screen.findByRole('button', {
+      name: 'View all results',
+    }),
+  )
+
+  expect(
+    await screen.findByRole('dialog', {
+      name: 'Search results',
+    }),
+  ).toBeInTheDocument()
+
+  await userEvent.click(
+    screen.getByRole('button', {
+      name: 'Close search results',
+    }),
+  )
+
+  expect(
+    screen.queryByRole('dialog', {
+      name: 'Search results',
+    }),
+  ).not.toBeInTheDocument()
+})
+
+function batchOf(prefix: string, start: number, count: number) {
+  return Array.from({ length: count }, (_, index) => ({
+    username: `${prefix}${start + index}`,
+    identity_is_verified: false,
+  }))
+}
+
+test('opening the dialog reuses the second batch instead of refetching it', async () => {
+  mockGetPosts.mockResolvedValue([])
+
+  mockSearch
+    .mockResolvedValueOnce(batchOf('bob', 0, 10))
+    .mockResolvedValueOnce(batchOf('bob', 10, 2))
+
+  renderTab()
+
+  await userEvent.type(screen.getByLabelText('Search for users'), 'bob')
+
+  await userEvent.click(await screen.findByRole('button', { name: 'View all results' }))
+
+  await screen.findByRole('dialog', { name: 'Search results' })
+
+  expect(screen.getByText('bob11')).toBeInTheDocument()
+  // Batch 0 and the batch-1 check only — no third request to open the dialog.
+  expect(mockSearch).toHaveBeenCalledTimes(2)
+  expect(screen.queryByRole('button', { name: 'Load more' })).not.toBeInTheDocument()
+})
+
+test('pages further results one batch per Load more press', async () => {
+  mockGetPosts.mockResolvedValue([])
+
+  mockSearch
+    .mockResolvedValueOnce(batchOf('bob', 0, 10))
+    .mockResolvedValueOnce(batchOf('bob', 10, 10))
+    .mockResolvedValueOnce(batchOf('bob', 20, 10))
+    .mockResolvedValueOnce(batchOf('bob', 30, 3))
+
+  renderTab()
+
+  await userEvent.type(screen.getByLabelText('Search for users'), 'bob')
+
+  await userEvent.click(await screen.findByRole('button', { name: 'View all results' }))
+
+  await screen.findByRole('dialog', { name: 'Search results' })
+  expect(screen.getByText('bob19')).toBeInTheDocument()
+  expect(screen.queryByText('bob20')).not.toBeInTheDocument()
+  // Nothing beyond the batch-1 check is fetched until the user asks for it.
+  expect(mockSearch).toHaveBeenCalledTimes(2)
+
+  await userEvent.click(screen.getByRole('button', { name: 'Load more' }))
+
+  expect(await screen.findByText('bob29')).toBeInTheDocument()
+  expect(mockSearch).toHaveBeenCalledWith('bob', 2)
+  expect(mockSearch).toHaveBeenCalledTimes(3)
+
+  await userEvent.click(screen.getByRole('button', { name: 'Load more' }))
+
+  expect(await screen.findByText('bob32')).toBeInTheDocument()
+  expect(mockSearch).toHaveBeenCalledWith('bob', 3)
+  // A short batch means there is nothing left to load.
+  expect(screen.queryByRole('button', { name: 'Load more' })).not.toBeInTheDocument()
+})
+
+test('reports a failed Load more without losing loaded results', async () => {
+  mockGetPosts.mockResolvedValue([])
+
+  mockSearch
+    .mockResolvedValueOnce(batchOf('bob', 0, 10))
+    .mockResolvedValueOnce(batchOf('bob', 10, 10))
+    .mockRejectedValueOnce(new Error('Request failed'))
+
+  renderTab()
+
+  await userEvent.type(screen.getByLabelText('Search for users'), 'bob')
+  await userEvent.click(await screen.findByRole('button', { name: 'View all results' }))
+  await screen.findByRole('dialog', { name: 'Search results' })
+
+  await userEvent.click(screen.getByRole('button', { name: 'Load more' }))
+
+  expect(await screen.findByRole('alert')).toHaveTextContent("Couldn't load more results")
+  expect(screen.getByText('bob19')).toBeInTheDocument()
+  expect(screen.getByRole('button', { name: 'Load more' })).toBeEnabled()
+})
+
+test('drops a Load more response that arrives after the query changed', async () => {
+  mockGetPosts.mockResolvedValue([])
+
+  let resolveBatch2: (value: { username: string; identity_is_verified: boolean }[]) => void =
+    () => {}
+
+  mockSearch
+    .mockResolvedValueOnce(batchOf('bob', 0, 10))
+    .mockResolvedValueOnce(batchOf('bob', 10, 10))
+    .mockImplementationOnce(
+      () =>
+        new Promise(resolve => {
+          resolveBatch2 = resolve
+        }),
+    )
+    .mockResolvedValue([{ username: 'carl', identity_is_verified: false }])
+
+  renderTab()
+
+  const input = screen.getByLabelText('Search for users')
+  await userEvent.type(input, 'bob')
+  await userEvent.click(await screen.findByRole('button', { name: 'View all results' }))
+  await screen.findByRole('dialog', { name: 'Search results' })
+
+  await userEvent.click(screen.getByRole('button', { name: 'Load more' }))
+  expect(screen.getByRole('button', { name: 'Loading...' })).toBeDisabled()
+
+  // Retyping closes the dialog and starts a new search while batch 2 of the
+  // old query is still in flight.
+  await userEvent.clear(input)
+  await userEvent.type(input, 'carl')
+  expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+
+  expect(await screen.findByText('carl')).toBeInTheDocument()
+
+  resolveBatch2(batchOf('bob', 20, 10))
+
+  // The stale batch must not appear under the new query, and the new query's
+  // (single-batch) results offer no "View all".
+  await waitFor(() => expect(screen.queryByText('bob20')).not.toBeInTheDocument())
+  expect(screen.queryByRole('button', { name: 'View all results' })).not.toBeInTheDocument()
+})
+
+test('moves focus into the dialog and back to the opener on close', async () => {
+  mockGetPosts.mockResolvedValue([])
+
+  mockSearch.mockResolvedValueOnce(batchOf('bob', 0, 10)).mockResolvedValueOnce(batchOf('bob', 10, 1))
+
+  renderTab()
+
+  await userEvent.type(screen.getByLabelText('Search for users'), 'bob')
+
+  const viewAll = await screen.findByRole('button', { name: 'View all results' })
+  await userEvent.click(viewAll)
+
+  const dialog = await screen.findByRole('dialog', { name: 'Search results' })
+  expect(dialog).toContainElement(document.activeElement as HTMLElement)
+  expect(screen.getByRole('button', { name: 'Close search results' })).toHaveFocus()
+
+  await userEvent.keyboard('{Escape}')
+
+  expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+  expect(viewAll).toHaveFocus()
+})
+
+test('keeps Tab cycling inside the open dialog', async () => {
+  mockGetPosts.mockResolvedValue([])
+
+  mockSearch.mockResolvedValueOnce(batchOf('bob', 0, 10)).mockResolvedValueOnce(batchOf('bob', 10, 1))
+
+  renderTab()
+
+  await userEvent.type(screen.getByLabelText('Search for users'), 'bob')
+  await userEvent.click(await screen.findByRole('button', { name: 'View all results' }))
+  const dialog = await screen.findByRole('dialog', { name: 'Search results' })
+
+  const close = screen.getByRole('button', { name: 'Close search results' })
+  expect(close).toHaveFocus()
+
+  // Shift+Tab from the first control wraps to the last one, still inside.
+  await userEvent.keyboard('{Shift>}{Tab}{/Shift}')
+  expect(dialog).toContainElement(document.activeElement as HTMLElement)
+  expect(close).not.toHaveFocus()
+
+  // Tab from the last control wraps back to the first.
+  await userEvent.keyboard('{Tab}')
+  expect(close).toHaveFocus()
+})
+
+test('keeps Tab inside the dialog while Load more is disabled and focused', async () => {
+  mockGetPosts.mockResolvedValue([])
+
+  mockSearch
+    .mockResolvedValueOnce(batchOf('bob', 0, 10))
+    .mockResolvedValueOnce(batchOf('bob', 10, 10))
+    // Batch 2 never resolves, so "Load more" stays disabled with focus on it.
+    .mockImplementationOnce(() => new Promise(() => {}))
+
+  renderTab()
+
+  await userEvent.type(screen.getByLabelText('Search for users'), 'bob')
+  await userEvent.click(await screen.findByRole('button', { name: 'View all results' }))
+  const dialog = await screen.findByRole('dialog', { name: 'Search results' })
+
+  const loadMore = screen.getByRole('button', { name: 'Load more' })
+  await userEvent.click(loadMore)
+  expect(loadMore).toBeDisabled()
+  expect(loadMore).toHaveFocus()
+
+  // A disabled element is no longer tabbable, so the browser's own Tab would
+  // leave the dialog; the trap must wrap to the first control instead.
+  await userEvent.keyboard('{Tab}')
+  expect(screen.getByRole('button', { name: 'Close search results' })).toHaveFocus()
+
+  // And Shift+Tab from the same spot wraps to the last tabbable control.
+  loadMore.focus()
+  await userEvent.keyboard('{Shift>}{Tab}{/Shift}')
+  expect(dialog).toContainElement(document.activeElement as HTMLElement)
+  expect(document.activeElement).toHaveTextContent('bob19')
 })
 
 test('shows an In review badge on a pending post and clears it once approved (#282)', async () => {

@@ -1682,16 +1682,20 @@ export class StatefulStubbedAPI implements PositiveOnlySocialAPI {
   // Users & profiles
   // ---------------------------------------------------------------------------
 
-  async searchUsers(usernameFragment: string): Promise<UserSearchResult[]> {
+  async searchUsers(usernameFragment: string, batch = 0): Promise<UserSearchResult[]> {
     const current = this.requireUser()
+    const batchSize = 10
+    const startingIndex = batch * batchSize
+
     return this.users
       .filter(
         (u) =>
-          u.username.toLowerCase().includes(usernameFragment.toLowerCase()) &&
+          u.username.toLowerCase().startsWith(usernameFragment.toLowerCase()) &&
           u.id !== current.id &&
           !current.blockedBy.has(u.id),
       )
-      .slice(0, 10)
+      .sort((a, b) => a.username.localeCompare(b.username))
+      .slice(startingIndex, startingIndex + batchSize)
       .map((u) => ({
         username: u.username,
         identity_is_verified: u.isVerified,
