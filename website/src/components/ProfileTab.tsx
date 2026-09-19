@@ -32,10 +32,24 @@ function ProfileTab() {
 
   const [searchText, setSearchText] = useState('')
   const [searchResults, setSearchResults] = useState<UserSearchResult[]>([])
-  const [hasMoreResults, setHasMoreResults] = useState(false)
+  // Results beyond the first batch, shown only in the "all results" dialog.
+  // The debounced search already fetches batch 1 to decide whether to offer
+  // "View all results", so that batch is kept rather than requested again.
+  const [moreResults, setMoreResults] = useState<UserSearchResult[]>([])
+  // Whether the last batch fetched was full, i.e. another may exist. The
+  // endpoint is rate-limited (30/min), so the dialog pages one batch per
+  // "Load more" press instead of fetching every batch up front.
+  const [canLoadMore, setCanLoadMore] = useState(false)
+  const [nextBatch, setNextBatch] = useState(2)
   const [showAllResults, setShowAllResults] = useState(false)
-  const [allSearchResults, setAllSearchResults] = useState<UserSearchResult[]>([])
-  const [isLoadingAllResults, setIsLoadingAllResults] = useState(false)
+  const [isLoadingMore, setIsLoadingMore] = useState(false)
+  const [loadMoreFailed, setLoadMoreFailed] = useState(false)
+
+  // Bumped whenever the query changes so a "Load more" response for an old
+  // query is dropped instead of being spliced into the new query's results.
+  const searchGeneration = useRef(0)
+
+  const hasMoreResults = moreResults.length > 0
 
   // Debounced user search (500ms), only firing for 3+ character queries. The
   // setState lives in the timeout callback (not synchronously in the effect);
@@ -59,28 +73,34 @@ function ProfileTab() {
 
         setSearchResults(results)
 
-        // If the first batch is full, check whether another result exists.
+        // If the first batch is full, fetch the second to learn whether more
+        // results exist; it doubles as the first page of the dialog.
         if (results.length === 10) {
           try {
-            const nextBatch = await apiClient.searchUsers(query, 1)
+            const secondBatch = await apiClient.searchUsers(query, 1)
 
             if (!cancelled && isMounted.current) {
-              setHasMoreResults(nextBatch.length > 0)
+              setMoreResults(secondBatch)
+              setCanLoadMore(secondBatch.length === 10)
+              setNextBatch(2)
             }
           } catch {
             // Keep the successful first batch visible if the optional
             // check for additional results fails.
             if (!cancelled && isMounted.current) {
-              setHasMoreResults(false)
+              setMoreResults([])
+              setCanLoadMore(false)
             }
           }
         } else {
-          setHasMoreResults(false)
+          setMoreResults([])
+          setCanLoadMore(false)
         }
       } catch {
         if (!cancelled && isMounted.current) {
           setSearchResults([])
-          setHasMoreResults(false)
+          setMoreResults([])
+          setCanLoadMore(false)
         }
       }
     }, 500)
@@ -92,11 +112,14 @@ function ProfileTab() {
   }, [searchText])
 
   function handleSearchChange(value: string) {
+    searchGeneration.current += 1
     setSearchText(value)
 
-    setShowAllResults(false)
-    setAllSearchResults([])
-    setHasMoreResults(false)
+    closeAllResults()
+    setMoreResults([])
+    setCanLoadMore(false)
+    setIsLoadingMore(false)
+    setLoadMoreFailed(false)
 
     if (value.trim().length < 3) {
       setSearchResults([])
@@ -105,40 +128,104 @@ function ProfileTab() {
 
   const isSearching = searchText.trim().length > 0
 
-  async function openAllSearchResults() {
-    const query = searchText.trim()
+  // Focus lifecycle for the results dialog: remember what opened it so focus
+  // can go back there on close (the "View all results" button, normally).
+  const dialogRef = useRef<HTMLDivElement>(null)
+  const dialogOpenerRef = useRef<HTMLElement | null>(null)
 
-    if (query.length < 3) {
+  function openAllResults() {
+    dialogOpenerRef.current =
+      document.activeElement instanceof HTMLElement ? document.activeElement : null
+    setShowAllResults(true)
+  }
+
+  function closeAllResults() {
+    setShowAllResults(false)
+
+    const opener = dialogOpenerRef.current
+    dialogOpenerRef.current = null
+    // The opener may already be gone (e.g. the query was cleared), in which
+    // case there is nothing sensible to hand focus back to.
+    if (opener?.isConnected) {
+      opener.focus()
+    }
+  }
+
+  // While the dialog is open: move focus into it, close on Escape, and keep
+  // Tab cycling inside it so a keyboard user can't land on the page behind
+  // the backdrop — what `aria-modal` promises assistive tech.
+  useEffect(() => {
+    if (!showAllResults) {
       return
     }
 
-    setIsLoadingAllResults(true)
+    const dialog = dialogRef.current
+    focusableIn(dialog)[0]?.focus()
+
+    function onKeyDown(event: KeyboardEvent) {
+      if (event.key === 'Escape') {
+        event.preventDefault()
+        closeAllResults()
+        return
+      }
+
+      if (event.key !== 'Tab' || !dialog) {
+        return
+      }
+
+      const focusable = focusableIn(dialog)
+      if (focusable.length === 0) {
+        event.preventDefault()
+        return
+      }
+
+      const first = focusable[0]
+      const last = focusable[focusable.length - 1]
+      const active = document.activeElement
+
+      if (event.shiftKey && (active === first || !dialog.contains(active))) {
+        event.preventDefault()
+        last.focus()
+      } else if (!event.shiftKey && (active === last || !dialog.contains(active))) {
+        event.preventDefault()
+        first.focus()
+      }
+    }
+
+    window.addEventListener('keydown', onKeyDown)
+    return () => window.removeEventListener('keydown', onKeyDown)
+  }, [showAllResults])
+
+  async function loadMoreResults() {
+    const query = searchText.trim()
+
+    if (query.length < 3 || isLoadingMore || !canLoadMore) {
+      return
+    }
+
+    const generation = searchGeneration.current
+    const batch = nextBatch
+
+    setIsLoadingMore(true)
+    setLoadMoreFailed(false)
 
     try {
-      const results: UserSearchResult[] = [...searchResults]
-      let batch = 1
+      const results = await apiClient.searchUsers(query, batch)
 
-      while (true) {
-        const nextBatch = await apiClient.searchUsers(query, batch)
-
-        results.push(...nextBatch)
-
-        if (nextBatch.length < 10) {
-          break
-        }
-
-        batch += 1
+      if (!isMounted.current || generation !== searchGeneration.current) {
+        return
       }
 
-      if (isMounted.current && searchText.trim() === query) {
-        setAllSearchResults(results)
-        setShowAllResults(true)
-      }
+      setMoreResults(previous => [...previous, ...results])
+      setCanLoadMore(results.length === 10)
+      setNextBatch(batch + 1)
     } catch {
-      // Keep the existing inline results visible if loading all results fails.
+      if (isMounted.current && generation === searchGeneration.current) {
+        setLoadMoreFailed(true)
+      }
     } finally {
-      if (isMounted.current) {
-        setIsLoadingAllResults(false)
+      if (isMounted.current && generation === searchGeneration.current) {
+        setIsLoadingMore(false)
       }
     }
   }
@@ -147,7 +234,7 @@ function ProfileTab() {
   // tab, not navigate to /home — we're on /home, so that would look like a
   // dead tap. Clearing the query drops back to the profile body.
   function openSearchResult(resultUsername: string) {
-    setShowAllResults(false)
+    closeAllResults()
 
     if (resultUsername === username) {
       handleSearchChange('')
@@ -198,10 +285,9 @@ function ProfileTab() {
             <button
               type="button"
               className="search-results__view-all"
-              onClick={openAllSearchResults}
-              disabled={isLoadingAllResults}
+              onClick={openAllResults}
             >
-              {isLoadingAllResults ? 'Loading...' : 'View all results'}
+              View all results
             </button>
           )}
 
@@ -218,11 +304,9 @@ function ProfileTab() {
       )}
 
       {showAllResults && (
-        <div
-          className="search-results-dialog__backdrop"
-          onClick={() => setShowAllResults(false)}
-        >
+        <div className="search-results-dialog__backdrop" onClick={closeAllResults}>
           <div
+            ref={dialogRef}
             className="search-results-dialog"
             role="dialog"
             aria-modal="true"
@@ -235,14 +319,14 @@ function ProfileTab() {
               <button
                 type="button"
                 aria-label="Close search results"
-                onClick={() => setShowAllResults(false)}
+                onClick={closeAllResults}
               >
                 ×
               </button>
             </div>
 
             <div className="user-list">
-              {allSearchResults.map(user => (
+              {[...searchResults, ...moreResults].map(user => (
                 <button
                   key={user.username}
                   type="button"
@@ -266,11 +350,41 @@ function ProfileTab() {
                   )}
                 </button>
               ))}
+
+              {loadMoreFailed && (
+                <p className="muted" role="alert">
+                  Couldn't load more results. Try again.
+                </p>
+              )}
+
+              {canLoadMore && (
+                <button
+                  type="button"
+                  className="search-results__view-all"
+                  onClick={loadMoreResults}
+                  disabled={isLoadingMore}
+                >
+                  {isLoadingMore ? 'Loading...' : 'Load more'}
+                </button>
+              )}
             </div>
           </div>
         </div>
       )}
     </div>
+  )
+}
+
+/** Tabbable descendants of `root`, in DOM order. */
+function focusableIn(root: HTMLElement | null): HTMLElement[] {
+  if (!root) {
+    return []
+  }
+
+  return Array.from(
+    root.querySelectorAll<HTMLElement>(
+      'button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])',
+    ),
   )
 }
 
