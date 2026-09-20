@@ -279,6 +279,10 @@ struct NewPostView: View {
         }
     }
 
+    /// The preview's media height, shared by the photo and its placeholder so
+    /// the layout doesn't jump when a photo is picked.
+    private let previewMediaHeight: CGFloat = 160
+
     /// An image post as the feed lays it out: the photo (or a placeholder that
     /// holds its place until one is picked) with the caption underneath in the
     /// chosen font (issue #450).
@@ -291,14 +295,14 @@ struct NewPostView: View {
                     .resizable()
                     .scaledToFill()
                     .frame(maxWidth: .infinity)
-                    .frame(height: 160)
+                    .frame(height: previewMediaHeight)
                     .clipped()
                     .clipShape(RoundedRectangle(cornerRadius: 10))
             } else {
                 RoundedRectangle(cornerRadius: 10)
                     .fill(Color(.secondarySystemFill))
                     .frame(maxWidth: .infinity)
-                    .frame(height: 120)
+                    .frame(height: previewMediaHeight)
                     .overlay(
                         Text("Your photo will appear here")
                             .foregroundColor(.secondary)

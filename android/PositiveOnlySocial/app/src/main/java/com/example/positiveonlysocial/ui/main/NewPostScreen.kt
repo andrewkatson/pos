@@ -517,6 +517,9 @@ private fun ImagePostPreview(
     isPlaceholder: Boolean,
     captionFont: String
 ) {
+    // Shared by the photo and its placeholder so the layout doesn't jump when
+    // a photo is picked.
+    val mediaHeight = 160.dp
     Column(
         modifier = Modifier
             .fillMaxWidth()
@@ -529,7 +532,7 @@ private fun ImagePostPreview(
                 contentDescription = null,
                 modifier = Modifier
                     .fillMaxWidth()
-                    .height(160.dp),
+                    .height(mediaHeight),
                 contentScale = ContentScale.Crop
             )
         } else {
@@ -538,7 +541,7 @@ private fun ImagePostPreview(
                 shape = RoundedCornerShape(12.dp),
                 modifier = Modifier
                     .fillMaxWidth()
-                    .height(120.dp)
+                    .height(mediaHeight)
             ) {
                 Box(contentAlignment = Alignment.Center) {
                     Text(
