@@ -1,6 +1,6 @@
 //
 //  HomeView.swift
-//  Positive Only Social
+//  Vibes
 //
 //  Created by Andrew Katson on 10/7/25.
 //

@@ -1,6 +1,6 @@
 //
 //  TagFeedView.swift
-//  Positive Only Social
+//  Vibes
 //
 //  Hashtag support (issue #379): the tag feed a user opens by tapping a
 //  #hashtag in a caption, plus the caption view that makes those tags tappable.

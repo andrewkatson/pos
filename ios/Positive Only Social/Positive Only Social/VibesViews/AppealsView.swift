@@ -1,6 +1,6 @@
 //
 //  AppealsView.swift
-//  Positive Only Social
+//  Vibes
 //
 //  Lists the signed-in user's own hidden posts and comments (each appealable
 //  once) and the status of appeals they have filed. Reached from Settings.

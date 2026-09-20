@@ -1,6 +1,6 @@
 //
 //  ProfileAvatarView.swift
-//  Positive Only Social
+//  Vibes
 //
 //  A user's profile photo (issue #7), rendered as a circular avatar next to
 //  their name everywhere it appears — feed rows, post detail, comment rows,

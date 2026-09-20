@@ -1,6 +1,6 @@
 //
 //  AuthRequirements.swift
-//  Positive Only Social
+//  Vibes
 //
 //  Client-side mirrors of the backend validation patterns in
 //  backend/user_system/constants.py. Keeping these in one place lets the live

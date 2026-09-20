@@ -1,6 +1,6 @@
 //
 //  SecureInputField.swift
-//  Positive Only Social
+//  Vibes
 //
 //  A secure text field that preserves its contents across focus changes.
 //
