@@ -18,6 +18,7 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.unit.dp
 import androidx.navigation.NavController
@@ -508,7 +509,9 @@ private fun StyleKeyDropdown(
 /**
  * An image post as the feed lays it out: the photo (or a placeholder that holds
  * its place until one is picked) with the caption underneath in the chosen font
- * (issues #450, #520).
+ * (issues #450, #520). The media is the same width-derived 1:1 square the feed
+ * crops every post to (FeedScreen), for both states, so the preview matches the
+ * published post and doesn't jump when a photo is picked.
  */
 @Composable
 private fun ImagePostPreview(
@@ -517,9 +520,6 @@ private fun ImagePostPreview(
     isPlaceholder: Boolean,
     captionFont: String
 ) {
-    // Shared by the photo and its placeholder so the layout doesn't jump when
-    // a photo is picked.
-    val mediaHeight = 160.dp
     Column(
         modifier = Modifier
             .fillMaxWidth()
@@ -532,7 +532,8 @@ private fun ImagePostPreview(
                 contentDescription = null,
                 modifier = Modifier
                     .fillMaxWidth()
-                    .height(mediaHeight),
+                    .aspectRatio(1f)
+                    .clip(RoundedCornerShape(12.dp)),
                 contentScale = ContentScale.Crop
             )
         } else {
@@ -541,7 +542,7 @@ private fun ImagePostPreview(
                 shape = RoundedCornerShape(12.dp),
                 modifier = Modifier
                     .fillMaxWidth()
-                    .height(mediaHeight)
+                    .aspectRatio(1f)
             ) {
                 Box(contentAlignment = Alignment.Center) {
                     Text(

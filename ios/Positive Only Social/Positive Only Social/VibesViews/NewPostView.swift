@@ -279,35 +279,30 @@ struct NewPostView: View {
         }
     }
 
-    /// The preview's media height, shared by the photo and its placeholder so
-    /// the layout doesn't jump when a photo is picked.
-    private let previewMediaHeight: CGFloat = 160
-
     /// An image post as the feed lays it out: the photo (or a placeholder that
     /// holds its place until one is picked) with the caption underneath in the
-    /// chosen font (issue #450).
+    /// chosen font (issue #450). The media is the same width-derived 1:1
+    /// square the feed crops every post to (FeedView), for both states, so the
+    /// preview matches the published post and doesn't jump when a photo is
+    /// picked.
     private var imagePostPreview: some View {
         VStack(alignment: .leading, spacing: 8) {
-            if let selectedImageData,
-               let uiImage = UIImage(data: selectedImageData)
-            {
-                Image(uiImage: uiImage)
-                    .resizable()
-                    .scaledToFill()
-                    .frame(maxWidth: .infinity)
-                    .frame(height: previewMediaHeight)
-                    .clipped()
-                    .clipShape(RoundedRectangle(cornerRadius: 10))
-            } else {
-                RoundedRectangle(cornerRadius: 10)
-                    .fill(Color(.secondarySystemFill))
-                    .frame(maxWidth: .infinity)
-                    .frame(height: previewMediaHeight)
-                    .overlay(
+            Color(.secondarySystemFill)
+                .aspectRatio(1, contentMode: .fit)
+                .overlay {
+                    if let selectedImageData,
+                       let uiImage = UIImage(data: selectedImageData)
+                    {
+                        Image(uiImage: uiImage)
+                            .resizable()
+                            .scaledToFill()
+                    } else {
                         Text("Your photo will appear here")
                             .foregroundColor(.secondary)
-                    )
-            }
+                    }
+                }
+                .clipped()
+                .clipShape(RoundedRectangle(cornerRadius: 10))
             Text(previewCaption)
                 .font(TextFormatting.captionFont(captionFont, size: UIFont.preferredFont(forTextStyle: .body).pointSize))
                 .foregroundColor(caption.isEmpty ? .secondary : .primary)
