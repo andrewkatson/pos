@@ -148,6 +148,11 @@ function NewPostTab({ onPosted }: NewPostTabProps) {
       const result = await apiClient.createPost(
         imageUrl ? { ...base, image_url: imageUrl } : base,
       )
+      // Back to a fresh composer, including the Text tab and its expanded
+      // formatting group — otherwise a second post would open on an empty
+      // Image tab with Share disabled.
+      setPostType('text')
+      setFormattingOpen(true)
       setFile(null)
       setPreviewUrl(null)
       setCaption('')

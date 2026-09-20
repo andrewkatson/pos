@@ -381,8 +381,13 @@ struct NewPostView: View {
                     successAlertMessage = "Your post was shared successfully!"
                 }
 
-                // Reset the form and show the success alert
+                // Reset the form and show the success alert. That includes the
+                // Text tab and its expanded formatting group — otherwise a
+                // second post would open on an empty Image tab with Share
+                // disabled.
                 isLoading = false
+                postType = .text
+                isFormattingExpanded = true
                 caption = ""
                 captionFont = "default"
                 backgroundColor = "default"

@@ -424,3 +424,23 @@ test("the Image tab previews the caption under a photo placeholder before a phot
   await userEvent.type(screen.getByLabelText('Caption'), 'a real caption')
   expect(container.querySelector('.feed-post__caption')).toHaveTextContent('a real caption')
 })
+
+test('a successful image post resets the composer to the Text tab (#520)', async () => {
+  mockUploadImage.mockResolvedValue(
+    'https://goodvibesonly-images.s3.us-east-2.amazonaws.com/user-123/abc.jpeg',
+  )
+  mockCreatePost.mockResolvedValue({ post_identifier: 'p1' })
+  render(<NewPostTab onPosted={() => {}} />)
+
+  await switchToImagePost()
+  await userEvent.upload(screen.getByLabelText('Choose a photo'), makeFile())
+  await userEvent.type(screen.getByLabelText('Caption'), 'great day')
+  await userEvent.click(screen.getByRole('button', { name: 'Share Post' }))
+  await screen.findByText('Your post was shared successfully!')
+
+  // Otherwise the next post would open on an empty Image tab with Share
+  // disabled; instead it's a fresh Text composer with formatting expanded.
+  expect(screen.getByRole('tab', { name: 'Text' })).toHaveAttribute('aria-selected', 'true')
+  expect(screen.queryByLabelText('Choose a photo')).not.toBeInTheDocument()
+  expect(screen.getByText('Text formatting').closest('details')).toHaveAttribute('open')
+})

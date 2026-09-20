@@ -98,7 +98,11 @@ fun NewPostScreen(
                 confirmButton = {
                     Button(onClick = { 
                         showSuccessAlert = false
-                        // Reset form
+                        // Reset form, including the Text tab and its expanded
+                        // formatting group — otherwise a second post would open
+                        // on an empty Image tab with Share disabled.
+                        postType = NewPostType.TEXT
+                        formattingExpanded = true
                         caption = ""
                         selectedAudience = PostAudience.PUBLIC
                         captionFont = "default"
