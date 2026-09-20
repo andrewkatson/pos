@@ -99,6 +99,7 @@
 				VibesViews/TagFeedView.swift,
 				VibesViews/TermsOfServiceView.swift,
 				VibesViews/VerifyResetView.swift,
+				VibesViews/VibesAnimatedGradientView.swift,
 			);
 			target = 248836DF2E6282C5002D47F1 /* Positive Only SocialTests */;
 		};
@@ -163,6 +164,7 @@
 				VibesViews/TagFeedView.swift,
 				VibesViews/TermsOfServiceView.swift,
 				VibesViews/VerifyResetView.swift,
+				VibesViews/VibesAnimatedGradientView.swift,
 			);
 			target = 248836E92E6282C5002D47F1 /* Positive Only SocialUITests */;
 		};

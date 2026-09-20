@@ -30,6 +30,21 @@ struct WelcomeView: View {
 
     var body: some View {
         NavigationStack(path: $path) {
+            ZStack {
+                
+                //Use designated init to change the colour of the gradient.
+                AnimatedGradientBackground(animateGradient: true, top: Color.black,middle: Color.green, centre: Color.blue,bottom: Color.brown)
+                
+                //Or use the default example
+                // AnimatedGradientBackground()
+                VStack(spacing: 24) {
+                    Image(GVOAppConstants.appIconName)
+                        .resizable()
+                        .scaledToFit()
+                        .frame(width: 90, height: 90)
+                        .clipShape(RoundedRectangle(cornerRadius: 18))
+                    .shadow(color: .black.opacity(0.15), radius: 8, x: 0, y: 4)}
+            }
             VStack {
                 // The view now switches based on the authentication state
                 switch authState {
@@ -46,7 +61,7 @@ struct WelcomeView: View {
                     Color.clear
                 }
             }
-            .navigationTitle("Good Vibes Only")
+            .navigationTitle("Vibes")
             // Define all possible navigation destinations
             .navigationDestination(for: String.self) { routeName in
                 switch routeName {
