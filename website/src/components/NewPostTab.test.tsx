@@ -20,6 +20,11 @@ function makeFile() {
   return new File(['fake-bytes'], 'photo.png', { type: 'image/png' })
 }
 
+/** The composer opens on the Text tab; photo flows start by switching (#520). */
+async function switchToImagePost() {
+  await userEvent.click(screen.getByRole('tab', { name: 'Image' }))
+}
+
 beforeEach(() => {
   mockCreatePost.mockReset()
   mockUploadImage.mockReset()
@@ -75,6 +80,7 @@ test('disables the share button and shows the over-limit counter past 125 charac
   render(<NewPostTab onPosted={() => {}} />)
   const button = screen.getByRole('button', { name: 'Share Post' })
 
+  await switchToImagePost()
   await userEvent.upload(screen.getByLabelText('Choose a photo'), makeFile())
   // fireEvent.change sets the value directly, avoiding 126 simulated keystrokes.
   fireEvent.change(screen.getByLabelText('Caption'), { target: { value: 'a'.repeat(126) } })
@@ -92,6 +98,7 @@ test('uploads the photo to S3 and creates the post on success', async () => {
   render(<NewPostTab onPosted={onPosted} />)
 
   const file = makeFile()
+  await switchToImagePost()
   await userEvent.upload(screen.getByLabelText('Choose a photo'), file)
   await userEvent.type(screen.getByLabelText('Caption'), 'great day')
   await userEvent.click(screen.getByRole('button', { name: 'Share Post' }))
@@ -175,6 +182,7 @@ test('shows the appeal message when the post is hidden pending appeal', async ()
   })
   render(<NewPostTab onPosted={() => {}} />)
 
+  await switchToImagePost()
   await userEvent.upload(screen.getByLabelText('Choose a photo'), makeFile())
   await userEvent.type(screen.getByLabelText('Caption'), 'maybe edgy')
   await userEvent.click(screen.getByRole('button', { name: 'Share Post' }))
@@ -182,33 +190,28 @@ test('shows the appeal message when the post is hidden pending appeal', async ()
   expect(await screen.findByText(/hidden for now but you can appeal/i)).toBeInTheDocument()
 })
 
-test('hides the background-color control once a photo is selected (#421)', async () => {
+test('hides the background-color control on the Image tab (#421, #520)', async () => {
   render(<NewPostTab onPosted={() => {}} />)
 
-  // The color swatches live behind the Advanced options disclosure (#419), so
-  // open it first to match the real user flow.
-  await userEvent.click(screen.getByText('Advanced options'))
-
-  // Visible on a text-only post.
+  // Visible on a text post.
   expect(screen.getByRole('button', { name: 'Mint' })).toBeInTheDocument()
 
-  await userEvent.upload(screen.getByLabelText('Choose a photo'), makeFile())
+  await switchToImagePost()
 
-  // Gone once a photo is attached — the color never shows on an image post.
+  // Gone on an image post — the color never shows there.
   expect(screen.queryByRole('button', { name: 'Mint' })).not.toBeInTheDocument()
 })
 
-test('sends the default background color even if one was picked before adding a photo (#421)', async () => {
+test('sends the default background color for an image post even if one was picked on the Text tab (#421)', async () => {
   mockUploadImage.mockResolvedValue(
     'https://goodvibesonly-images.s3.us-east-2.amazonaws.com/user-123/abc.jpeg',
   )
   mockCreatePost.mockResolvedValue({ post_identifier: 'p1' })
   render(<NewPostTab onPosted={() => {}} />)
 
-  // The color swatches live behind the Advanced options disclosure (#419).
-  await userEvent.click(screen.getByText('Advanced options'))
   await userEvent.type(screen.getByLabelText('Caption'), 'great day')
   await userEvent.click(screen.getByRole('button', { name: 'Mint' }))
+  await switchToImagePost()
   await userEvent.upload(screen.getByLabelText('Choose a photo'), makeFile())
   await userEvent.click(screen.getByRole('button', { name: 'Share Post' }))
 
@@ -245,6 +248,7 @@ test('shows an error when the upload fails', async () => {
   mockUploadImage.mockRejectedValue({ message: 'Upload failed' })
   render(<NewPostTab onPosted={() => {}} />)
 
+  await switchToImagePost()
   await userEvent.upload(screen.getByLabelText('Choose a photo'), makeFile())
   await userEvent.type(screen.getByLabelText('Caption'), 'great day')
   await userEvent.click(screen.getByRole('button', { name: 'Share Post' }))
@@ -255,6 +259,7 @@ test('shows an error when the upload fails', async () => {
 
 test('the photo picker shows a + placeholder until a photo is chosen, then the image (#417)', async () => {
   render(<NewPostTab onPosted={() => {}} />)
+  await switchToImagePost()
 
   // Before a photo: the picker invites adding one and shows no image.
   const picker = screen.getByRole('button', { name: 'Add a photo' })
@@ -270,6 +275,7 @@ test('the photo picker shows a + placeholder until a photo is chosen, then the i
 
 test('the file input is cleared after a pick so the same file can be re-selected', async () => {
   render(<NewPostTab onPosted={() => {}} />)
+  await switchToImagePost()
 
   const input = screen.getByLabelText('Choose a photo') as HTMLInputElement
   await userEvent.upload(input, makeFile())
@@ -280,16 +286,47 @@ test('the file input is cleared after a pick so the same file can be re-selected
   expect(input.value).toBe('')
 })
 
-test('style settings live behind an Advanced options disclosure (#419)', async () => {
+test('a text post shows its formatting controls by default under "Text formatting" (#419, #520)', async () => {
   render(<NewPostTab onPosted={() => {}} />)
 
+  const summary = screen.getByText('Text formatting')
+  const details = summary.closest('details')
+  // Expanded from the start: the caption is the whole post, so styling it is
+  // the main event.
+  expect(details).toHaveAttribute('open')
+  // The font/color controls live inside the disclosure so it can still be hidden.
+  expect(details).toContainElement(screen.getByLabelText('Font'))
+  expect(details).toContainElement(screen.getByRole('button', { name: 'Mint' }))
+})
+
+test('an image post tucks the caption formatting behind a collapsed "Advanced options" (#520)', async () => {
+  render(<NewPostTab onPosted={() => {}} />)
+  await switchToImagePost()
+
   const summary = screen.getByText('Advanced options')
-  expect(summary).toBeInTheDocument()
-  // The font/color controls live inside the disclosure.
-  expect(summary.closest('details')).toContainElement(screen.getByLabelText('Font'))
-  expect(summary.closest('details')).toContainElement(
-    screen.getByRole('button', { name: 'Mint' }),
-  )
+  const details = summary.closest('details')
+  expect(details).not.toHaveAttribute('open')
+  // The font still styles an image post's caption, so it stays available.
+  expect(details).toContainElement(screen.getByLabelText('Font'))
+  expect(screen.queryByText('Text formatting')).not.toBeInTheDocument()
+})
+
+test('switching tabs resets the formatting disclosure to each tab\'s default (#520)', async () => {
+  render(<NewPostTab onPosted={() => {}} />)
+
+  // Collapse it on the Text tab. (jsdom doesn't toggle <details> on a summary
+  // click, so mimic the browser: flip `open` and emit the toggle event the
+  // controlled disclosure listens for.)
+  const textDetails = screen.getByText('Text formatting').closest('details') as HTMLDetailsElement
+  textDetails.open = false
+  fireEvent(textDetails, new Event('toggle'))
+  expect(textDetails).not.toHaveAttribute('open')
+
+  // ...an Image round-trip lands back on the Text default: expanded.
+  await switchToImagePost()
+  expect(screen.getByText('Advanced options').closest('details')).not.toHaveAttribute('open')
+  await userEvent.click(screen.getByRole('tab', { name: 'Text' }))
+  expect(screen.getByText('Text formatting').closest('details')).toHaveAttribute('open')
 })
 
 test('the preview shows the caption as a tile for a text-only post (#418)', async () => {
@@ -303,6 +340,7 @@ test('the preview shows the caption as a tile for a text-only post (#418)', asyn
 test("the preview applies the chosen font to an image post's caption (#450)", async () => {
   const { container } = render(<NewPostTab onPosted={() => {}} />)
 
+  await switchToImagePost()
   await userEvent.upload(screen.getByLabelText('Choose a photo'), makeFile())
   await userEvent.type(screen.getByLabelText('Caption'), 'a sunny thought')
   await userEvent.selectOptions(screen.getByLabelText('Font'), 'serif')
@@ -321,10 +359,68 @@ test('shows an error when there is no signed-in user', async () => {
   })
   render(<NewPostTab onPosted={() => {}} />)
 
+  await switchToImagePost()
   await userEvent.upload(screen.getByLabelText('Choose a photo'), makeFile())
   await userEvent.type(screen.getByLabelText('Caption'), 'great day')
   await userEvent.click(screen.getByRole('button', { name: 'Share Post' }))
 
   expect(await screen.findByRole('alert')).toHaveTextContent('You must be logged in to post.')
   expect(mockUploadImage).not.toHaveBeenCalled()
+})
+
+test('opens on the Text tab with no photo picker (#520)', () => {
+  render(<NewPostTab onPosted={() => {}} />)
+
+  expect(screen.getByRole('tab', { name: 'Text' })).toHaveAttribute('aria-selected', 'true')
+  expect(screen.getByRole('tab', { name: 'Image' })).toHaveAttribute('aria-selected', 'false')
+  expect(screen.queryByLabelText('Choose a photo')).not.toBeInTheDocument()
+})
+
+test('an image post cannot be shared until a photo is picked (#520)', async () => {
+  render(<NewPostTab onPosted={() => {}} />)
+  await switchToImagePost()
+
+  await userEvent.type(screen.getByLabelText('Caption'), 'needs a picture')
+  const button = screen.getByRole('button', { name: 'Share Post' })
+  expect(button).toBeDisabled()
+
+  await userEvent.upload(screen.getByLabelText('Choose a photo'), makeFile())
+  expect(button).toBeEnabled()
+})
+
+test('a photo picked on the Image tab is not sent with a Text post (#520)', async () => {
+  mockCreatePost.mockResolvedValue({ post_identifier: 'p1' })
+  render(<NewPostTab onPosted={() => {}} />)
+
+  await switchToImagePost()
+  await userEvent.upload(screen.getByLabelText('Choose a photo'), makeFile())
+  await userEvent.click(screen.getByRole('tab', { name: 'Text' }))
+  await userEvent.type(screen.getByLabelText('Caption'), 'just words')
+  await userEvent.click(screen.getByRole('button', { name: 'Share Post' }))
+
+  await waitFor(() =>
+    expect(mockCreatePost).toHaveBeenCalledWith({
+      caption: 'just words',
+      audience: 'public',
+      caption_font: 'default',
+      background_color: 'default',
+    }),
+  )
+  expect(mockUploadImage).not.toHaveBeenCalled()
+})
+
+test("the Image tab previews the caption under a photo placeholder before a photo is picked (#520)", async () => {
+  const { container } = render(<NewPostTab onPosted={() => {}} />)
+  await switchToImagePost()
+
+  // No photo yet: a placeholder holds the square and the caption line is
+  // already there so the chosen font is visible.
+  expect(screen.getByText('Your photo will appear here')).toBeInTheDocument()
+  await userEvent.selectOptions(screen.getByLabelText('Font'), 'serif')
+  const caption = container.querySelector('.feed-post__caption')
+  expect(caption).toHaveTextContent('Your caption will look like this.')
+  expect(caption).toHaveClass('caption-font--serif')
+
+  await userEvent.type(screen.getByLabelText('Caption'), 'a real caption')
+  expect(container.querySelector('.feed-post__caption')).toHaveTextContent('a real caption')
 })

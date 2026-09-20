@@ -358,7 +358,9 @@ final class Positive_Only_SocialUITests: XCTestCase {
     }
     
     private func assertOnNewPostView(app: XCUIApplication) {
-        XCTAssertTrue(app.buttons["SelectAPhotoPicker"].waitForExistence(timeout: TestConstants.shortTimeout), "Select a photo picker not present")
+        // The composer opens on the Text tab (issue #520), so the photo picker
+        // isn't on screen yet; the post-type switch is the reliable marker.
+        XCTAssertTrue(app.segmentedControls["PostTypePicker"].waitForExistence(timeout: TestConstants.shortTimeout), "Post type picker not present")
         XCTAssertTrue(app.textViews["CaptionTextEditor"].waitForExistence(timeout: TestConstants.shortTimeout), "Caption text editor not present")
         XCTAssertTrue(app.buttons["SharePostButton"].waitForExistence(timeout: TestConstants.shortTimeout), "Share post button not present")
     }
@@ -678,6 +680,14 @@ final class Positive_Only_SocialUITests: XCTestCase {
         captionTextEditor.tap()
         typeText(element: captionTextEditor, text: postText)
         
+        // Switch to an image post (issue #520); the photo picker only exists
+        // on the Image tab.
+        let postTypePicker = app.segmentedControls["PostTypePicker"]
+        XCTAssertTrue(postTypePicker.waitForExistence(timeout: TestConstants.shortTimeout))
+        let imageSegment = postTypePicker.buttons["Image"]
+        XCTAssertTrue(imageSegment.waitForExistence(timeout: TestConstants.shortTimeout))
+        imageSegment.tap()
+
         // Find the photo picker's main view (identifier may vary)
         let picker = app.buttons["SelectAPhotoPicker"]
         XCTAssertTrue(picker.waitForExistence(timeout: TestConstants.shortTimeout))

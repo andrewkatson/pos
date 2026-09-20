@@ -380,11 +380,30 @@ styling means different things:
   background color only shows on **text-only** posts: on a photo post the image
   fills the tile, so the color has no visible effect. To avoid promising a
   change that never appears, the composer **hides the background-color control
-  while a photo is attached** and sends `default` for image posts (issue #421);
-  the font, which does style an image post's caption, stays available. The font
-  applies **wherever the caption is shown** — the feed row's caption under the
-  photo as well as the post detail view (issue #450) — so a post looks the same
-  whether it is scrolled past or opened.
+  on an image post** and sends `default` for it (issue #421); the font, which
+  does style an image post's caption, stays available. The font applies
+  **wherever the caption is shown** — the feed row's caption under the photo as
+  well as the post detail view (issue #450) — so a post looks the same whether
+  it is scrolled past or opened.
+- **The composer keeps the two kinds of post apart (issue #520).** A
+  **Text / Image** switch at the top of the New Post screen picks which one is
+  being written; it opens on Text. A **text post** is just the caption (no
+  photo picker is shown, and a photo picked earlier on the Image tab is never
+  sent). An **image post** shows the photo picker and **cannot be shared until
+  a photo is chosen** — the caption alone is a text post, so the Share button
+  stays disabled. The caption, character counter and audience are shared by
+  both. The formatting controls live in one collapsible group whose default
+  depends on the kind of post: on a text post it is titled **"Text
+  formatting"** and starts **expanded** (the caption *is* the post), on an
+  image post it is titled **"Advanced options"** and starts **collapsed**;
+  switching tabs resets it to that tab's default, and the user can toggle it
+  either way. Both kinds show a **live preview** laid out as the feed will
+  render the post: a text post previews as its styled tile; an image post
+  previews the photo — or a "your photo will appear here" placeholder before
+  one is picked — with the caption underneath in the chosen font, so the
+  caption styling is visible before the photo exists. Switching tabs keeps
+  the caption, the picked photo and the chosen color in state, so flipping
+  back and forth loses nothing.
   Mapping a key to a *distinct* face is part of the contract, not a detail: web
   and iOS reach `rounded` through a system face (`ui-rounded`,
   `.system(design: .rounded)`), but Android has no rounded system family, so it

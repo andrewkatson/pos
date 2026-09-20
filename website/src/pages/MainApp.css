@@ -1690,6 +1690,27 @@
   display: block;
 }
 
+/* An image post with no photo picked yet (issue #520): keep the square so the
+   caption below still previews where the feed will place it. */
+.post-preview__placeholder {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 1rem;
+  box-sizing: border-box;
+  text-align: center;
+  color: rgba(255, 255, 255, 0.45);
+  font-size: 0.95rem;
+}
+
+/* The preview's caption line before anything is typed. */
+.post-preview__caption--placeholder {
+  color: rgba(255, 255, 255, 0.45);
+  font-style: italic;
+}
+
 /* ---- New-post advanced options (issue #419) ---- */
 .advanced-options {
   border: 1px solid rgba(255, 255, 255, 0.12);
