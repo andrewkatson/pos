@@ -177,6 +177,55 @@ test('hides the like control on the current user’s own comment', async () => {
   expect(screen.queryByRole('button', { name: 'Like comment' })).not.toBeInTheDocument()
 })
 
+// ---- Audience badge (issue #518) ----
+
+test('shows who can see your own post', async () => {
+  localStorage.setItem('username', 'ada')
+  mockGetDetails.mockResolvedValue({ ...post, audience: 'following' })
+  renderDetail()
+  await screen.findByText('sunshine')
+  expect(screen.getByLabelText('Visible to people you follow')).toHaveTextContent('Following')
+})
+
+test("shows no audience badge on someone else's post", async () => {
+  localStorage.setItem('username', 'bob')
+  mockGetDetails.mockResolvedValue({ ...post, audience: 'following' })
+  renderDetail()
+  await screen.findByText('sunshine')
+  expect(document.querySelector('.audience-badge')).not.toBeInTheDocument()
+})
+
+test('shows who can see your own comment, and nothing on anyone else’s', async () => {
+  localStorage.setItem('username', 'bob')
+  mockGetThreadRefs.mockResolvedValue([{ comment_thread_identifier: 't1' }])
+  mockGetThreadComments.mockResolvedValue([
+    { ...comment, audience: 'family' },
+    {
+      ...comment,
+      comment_identifier: 'c2',
+      body: 'so pretty',
+      author_username: 'ada',
+      audience: 'family',
+    },
+  ])
+  renderDetail()
+  await screen.findByText('love this')
+  await screen.findByText('so pretty')
+  // Exactly one badge: bob's own comment. ada's family-only comment carries no
+  // badge for bob even though it has an audience — that's ada's information.
+  expect(screen.getAllByLabelText('Visible to family only')).toHaveLength(1)
+  expect(document.querySelectorAll('.audience-badge')).toHaveLength(1)
+})
+
+test('labels your own comment public when the payload has no audience', async () => {
+  localStorage.setItem('username', 'bob')
+  mockGetThreadRefs.mockResolvedValue([{ comment_thread_identifier: 't1' }])
+  mockGetThreadComments.mockResolvedValue([comment])
+  renderDetail()
+  await screen.findByText('love this')
+  expect(screen.getByLabelText('Visible to anyone')).toBeInTheDocument()
+})
+
 test('renders comment threads', async () => {
   mockGetThreadRefs.mockResolvedValue([{ comment_thread_identifier: 't1' }])
   mockGetThreadComments.mockResolvedValue([comment])

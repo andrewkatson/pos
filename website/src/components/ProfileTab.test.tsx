@@ -165,6 +165,25 @@ test('deleting your own post from the grid removes it and drops the count', asyn
   expect(screen.getByText('3')).toBeInTheDocument()
 })
 
+test('shows an icon-only audience badge on your own grid tiles (#518)', async () => {
+  mockGetPosts.mockResolvedValue([
+    {
+      post_identifier: 'p1',
+      image_url: 'http://img/1.jpg',
+      author_username: 'ada',
+      caption: 'hi',
+      audience: 'friends',
+    },
+  ])
+  renderTab()
+  await screen.findByRole('button', { name: 'Post by ada' })
+  // The three-column grid has no room for the label; it stays in the
+  // accessible name and tooltip.
+  const badge = screen.getByLabelText('Visible to friends and family')
+  expect(badge).toHaveClass('audience-badge--compact')
+  expect(badge).not.toHaveTextContent('Friends')
+})
+
 test('does not offer a like control on your own posts', async () => {
   // The backend rejects liking your own post, so the grid hides the control.
   mockGetPosts.mockResolvedValue([
