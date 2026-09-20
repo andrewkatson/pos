@@ -83,6 +83,9 @@ struct NewPostView: View {
                         }
                     }
                     .pickerStyle(.segmented)
+                    // Locked while a post is in flight so the kind of post
+                    // being sent can't change under the upload.
+                    .disabled(isLoading)
                     .accessibilityIdentifier("PostTypePicker")
 
                     // Only an image post has a photo picker (issue #520).
@@ -329,8 +332,9 @@ struct NewPostView: View {
                 }
 
                 // 2. UPLOAD IMAGE using a backend-issued presigned S3 URL (#310).
-                // The photo is optional (#307): with no image selected the upload
-                // is skipped entirely and a text-only post is created.
+                // Only an image post carries a photo (#520): `photoData` is nil
+                // for a text post, so the upload is skipped entirely and a
+                // text-only post is created (#307).
                 var imageURLString: String? = nil
                 if let imageData = photoData {
                     var uploadedURLString = "https://picsum.photos/400/400"

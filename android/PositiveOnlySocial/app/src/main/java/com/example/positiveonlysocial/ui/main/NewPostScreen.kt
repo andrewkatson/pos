@@ -169,6 +169,9 @@ fun NewPostScreen(
                 NewPostType.entries.forEach { type ->
                     Tab(
                         selected = postType == type,
+                        // Locked while a post is in flight so the kind of post
+                        // being sent can't change under the upload.
+                        enabled = !isLoading,
                         onClick = {
                             if (postType != type) {
                                 postType = type
@@ -349,9 +352,10 @@ fun NewPostScreen(
                                     return@launch
                                 }
 
-                                // The photo is optional (#307): with no image
-                                // selected the whole read/upload step is skipped
-                                // and a text-only post is created.
+                                // Only an image post carries a photo (#520):
+                                // photoUri is null for a text post, so the whole
+                                // read/upload step is skipped and a text-only
+                                // post is created (#307).
                                 val uri = photoUri
                                 var imageUrl: String? = null
                                 if (uri != null) {
