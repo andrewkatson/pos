@@ -1,6 +1,6 @@
 //
 //  InterestPickerView.swift
-//  Positive Only Social
+//  Vibes
 //
 //  The positive-interest picker (issues #446/#35): preset buckets as
 //  toggleable chips plus a freeform entry that accepts a single term or a

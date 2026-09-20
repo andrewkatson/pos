@@ -1,6 +1,6 @@
 //
 //  PushRouter.swift
-//  Positive Only Social
+//  Vibes
 //
 //  Deep-link target for a tapped push notification (issues #342/#343).
 //

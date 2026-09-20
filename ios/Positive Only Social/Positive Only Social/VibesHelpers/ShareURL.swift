@@ -1,6 +1,6 @@
 //
 //  ShareURL.swift
-//  Positive Only Social
+//  Vibes
 //
 
 import Foundation

@@ -1,6 +1,6 @@
 //
 //  BlockedUsersViewModel.swift
-//  Positive Only Social
+//  Vibes
 //
 //  Loads the signed-in user's blocked users and unblocks them on demand
 //  (toggle_block). Reached from Settings.

@@ -1,6 +1,6 @@
 //
 //  PostActionsViewModel.swift
-//  Positive Only Social
+//  Vibes
 //
 
 import Foundation

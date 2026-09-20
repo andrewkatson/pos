@@ -1,6 +1,6 @@
 //
 //  Positive_Only_SocialApp.swift
-//  Positive Only Social
+//  Vibes
 //
 //  Created by Andrew Katson on 8/29/25.
 //
