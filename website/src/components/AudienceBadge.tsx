@@ -31,8 +31,12 @@ const AUDIENCE_BADGES: Record<PostAudience, { icon: string; label: string; descr
  */
 function AudienceBadge({ audience, compact = false }: AudienceBadgeProps) {
   // An unknown tier from a newer backend falls back to public rather than
-  // rendering an empty badge.
-  const tier: PostAudience = audience && audience in AUDIENCE_BADGES ? audience : 'public'
+  // rendering an empty badge. Own-property check, not `in`: a stray string like
+  // "toString" would otherwise resolve to an Object.prototype method.
+  const tier: PostAudience =
+    audience && Object.prototype.hasOwnProperty.call(AUDIENCE_BADGES, audience)
+      ? audience
+      : 'public'
   const badge = AUDIENCE_BADGES[tier]
   return (
     <span
