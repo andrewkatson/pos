@@ -108,6 +108,11 @@ struct PostDetailView: View {
                                     .font(.headline)
                                     .accessibilityIdentifier("PostLikesText")
                             }
+                            // Who can see this post, shown to its author only
+                            // (issue #518).
+                            if viewModel.isOwnPost {
+                                AudienceBadgeView(audience: post.audience)
+                            }
                             if viewModel.isPostReported {
                                 Image(systemName: "flag.fill")
                                     .foregroundColor(.red)

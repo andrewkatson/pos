@@ -311,6 +311,34 @@ struct Positive_Only_SocialTests_PostDetailViewModel {
         #expect(updatedComment?.likeCount == 0, "Like count should not go below 0")
     }
 
+    // --- Audience badge (issue #518) ---
+
+    @Test func testLoadAllData_CarriesPostAudienceForBadge() async throws {
+        // Given: The signed-in user shared a post with family only
+        let authorToken = try await setupLoggedInUser(username: "author", account: "audience_account")
+        let data = try await stubAPI.makePost(
+            sessionManagementToken: authorToken, imageURL: "my.image/1",
+            caption: "Family news", audience: PostAudience.family.rawValue)
+        struct PostFields: Decodable { let post_identifier: String }
+        let postID = try JSONDecoder().decode(PostFields.self, from: data).post_identifier
+
+        // When: The detail screen loads it
+        let sut = PostDetailViewModel(postIdentifier: postID, api: stubAPI, keychainHelper: keychainHelper, account: "audience_account")
+        await yield()
+
+        // Then: The audience reaches the view, so the author's badge can name it
+        #expect(sut.isOwnPost)
+        #expect(sut.postDetail?.audience == PostAudience.family.rawValue)
+    }
+
+    @Test func testLoadAllData_DefaultsPostAudienceToPublic() async throws {
+        // Given: A post made without an explicit audience (older clients)
+        let (sut, _, _) = try await setupOwnContentEnvironment(account: "audienceDefault_account")
+
+        // Then: The stub reports public, as the backend does for the default
+        #expect(sut.postDetail?.audience == PostAudience.public.rawValue)
+    }
+
     // --- Self-Like Prevention Tests ---
 
     /// Sets up an environment where the signed-in user authored both the post
