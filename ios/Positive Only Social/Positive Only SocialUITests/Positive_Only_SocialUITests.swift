@@ -696,8 +696,16 @@ final class Positive_Only_SocialUITests: XCTestCase {
         // With the post-type switch and the chosen photo above it — and the
         // keyboard still up from typing the caption — the Share button now sits
         // below the fold. Form is a lazy list, so an off-screen row isn't even
-        // in the accessibility tree; swipe until it's hittable (the swipe also
-        // dismisses the keyboard) rather than waiting for it to appear (#520).
+        // in the accessibility tree (#520). Worse, app.swipeUp() starts at the
+        // screen's centre, which the keyboard covers, so it never scrolls the
+        // form and the row never materialises (UI_Tests_Gamma). Swipe on the
+        // post-type switch at the top instead: that drags the form itself,
+        // which dismisses the keyboard (scrollDismissesKeyboard(.immediately)),
+        // and only then let scrollIntoView bring the button up.
+        if app.keyboards.count > 0 && postTypePicker.isHittable {
+            postTypePicker.swipeUp()
+            poll(until: { app.keyboards.count == 0 })
+        }
         let sharePostButton = app.buttons["SharePostButton"]
         scrollIntoView(app: app, element: sharePostButton)
         sharePostButton.tap()
