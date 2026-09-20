@@ -753,6 +753,26 @@ listing keeps only threads with a matching visible comment). Like the feed filte
 it is an exact-category match and naturally drops your own comments, since you do
 not follow yourself.
 
+### Audience badges (issue #518)
+
+Your **own** posts and comments carry a small badge saying who can see them:
+🌐 *Public*, 👥 *Following*, 🤝 *Friends* or 🏠 *Family* (SF Symbols / Material
+icons on mobile), with an accessible label spelling the tier out — "Visible to
+friends and family". It appears on feed rows and the post detail header next to
+the like count, as an icon-only badge on the square profile-grid tiles (no room
+for a label there), and in the header of each comment row. Every tier is badged,
+public included: the point is to answer "who can see this?" at a glance, and a
+post you meant to keep to family but shared publicly is exactly the case a
+missing badge would hide. A post or comment from an older backend that omits
+`audience` is badged public, matching how the backend treats a missing value.
+
+The badge is shown **only to the author**. Who someone chose to share with is
+their information, like who liked their content (issue #478), so nobody else's
+post or comment ever shows one — including the non-public scope label comment
+rows used to show every reader, which this replaces. The clients decide purely
+from `author_username` matching the signed-in user; the API payloads already
+carry `audience` on every post and comment, so no backend change was needed.
+
 ## Blocking
 
 Users can block each other from a profile. Blocking is a toggle

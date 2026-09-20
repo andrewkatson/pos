@@ -248,6 +248,12 @@ struct PostActionBar: View {
             Text(state.isOwn ? "\(state.likeCount) likes" : "\(state.likeCount)")
                 .foregroundColor(.secondary)
                 .accessibilityIdentifier("PostListLikeCount")
+            // Who can see this post, on your own posts only (issue #518). The
+            // profile-grid tiles are a third of the screen wide, so they get
+            // just the icon; feed rows have room for the label too.
+            if state.isOwn {
+                AudienceBadgeView(audience: post.audience, compact: !showsPostDetails)
+            }
             if state.isReported {
                 Image(systemName: "flag.fill")
                     .foregroundColor(.red)

@@ -15,6 +15,7 @@ import PostThumbnail from '../components/PostThumbnail'
 import CharacterCounter from '../components/CharacterCounter'
 import { CaptionText } from '../components/CaptionText'
 import Avatar from '../components/Avatar'
+import AudienceBadge from '../components/AudienceBadge'
 import AnchoredMenu, { AnchoredMenuItem } from '../components/AnchoredMenu'
 import { anchorFrom, type MenuAnchor } from '../components/menuAnchor'
 import FormattedText from '../components/FormattedText'
@@ -88,14 +89,6 @@ const COMMENT_GROUP_OPTIONS: { value: CommentGroup; label: string }[] = [
   { value: 'friend', label: 'Friends' },
   { value: 'family', label: 'Family' },
 ]
-
-// Short badge shown on a comment whose audience is narrower than public, so the
-// scope is visible at a glance (issue #445). Public comments show no badge.
-const COMMENT_AUDIENCE_BADGE: Partial<Record<PostAudience, string>> = {
-  following: 'Following',
-  friends: 'Friends',
-  family: 'Family',
-}
 
 // How many extra pages of comment threads a shared `#comment-<id>` link may
 // pull in while looking for its target (issue #381). The backend pages threads
@@ -743,6 +736,8 @@ function PostDetailView({ postId, isSignedIn }: { postId: string; isSignedIn: bo
           ) : (
             <span className="detail-likes">{postLikeCount} likes</span>
           )}
+          {/* Who can see this post, shown to its author only (issue #518). */}
+          {isOwnPost && <AudienceBadge audience={post.audience} />}
           {postReported && (
             <span className="flag-icon" aria-label="Reported">
               ⚑
@@ -1273,11 +1268,10 @@ function CommentRow({
             <span className="comment-row__author">{comment.authorUsername}</span>
           </button>
           <span className="comment-row__time">{formatRelativeTime(comment.createdTime)}</span>
-          {COMMENT_AUDIENCE_BADGE[comment.audience] && (
-            <span className="comment-row__audience muted" aria-label={`Audience: ${COMMENT_AUDIENCE_BADGE[comment.audience]}`}>
-              · {COMMENT_AUDIENCE_BADGE[comment.audience]}
-            </span>
-          )}
+          {/* Who can see this comment, on your own comments only (issue #518):
+              who a commenter chose to share with is their information, so
+              other readers see no badge. */}
+          {comment.isOwn && <AudienceBadge audience={comment.audience} />}
           {/* Three-dots menu next to the timestamp: Delete for your own
               comment, Report / Retract Report for someone else's (issue #304). */}
           <button

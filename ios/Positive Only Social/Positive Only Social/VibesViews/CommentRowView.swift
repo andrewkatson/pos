@@ -176,15 +176,11 @@ struct CommentRowView: View {
                     Text(RelativeTime.string(from: comment.createdDate))
                         .font(.caption)
                         .foregroundColor(.secondary)
-                    // A short scope badge for a comment shared with less than the
-                    // public (issue #445); nothing shown for a public comment.
-                    if let badge = comment.audience
-                        .flatMap({ PostAudience(rawValue: $0) })
-                        .flatMap({ $0 == .public ? nil : $0.displayName }) {
-                        Text("· \(badge)")
-                            .font(.caption)
-                            .foregroundColor(.secondary)
-                            .accessibilityLabel("Audience: \(badge)")
+                    // Who can see this comment, on your own comments only
+                    // (issue #518): who a commenter chose to share with is
+                    // their information, so other readers see no badge.
+                    if isOwn {
+                        AudienceBadgeView(audience: comment.audience)
                     }
                     // Three-dots menu next to the timestamp: the discoverable
                     // alternative to long-pressing the comment (issue #304).

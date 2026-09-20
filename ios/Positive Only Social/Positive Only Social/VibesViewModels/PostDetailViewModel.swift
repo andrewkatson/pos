@@ -190,7 +190,8 @@ final class PostDetailViewModel: ObservableObject {
                     authorProfileImageBlurHash: postFields.author_profile_image_blurhash,
                     createdDate: postFields.creation_time.flatMap { Self.parseOptionalDate($0) },
                     isReported: postFields.is_reported ?? false,
-                    reportReason: postFields.report_reason
+                    reportReason: postFields.report_reason,
+                    audience: postFields.audience
                 )
                 // Server truth for the reported flag, so it survives reloads.
                 self.isPostReported = postFields.is_reported ?? false
@@ -297,7 +298,8 @@ final class PostDetailViewModel: ObservableObject {
                 authorProfileImageBlurHash: post.authorProfileImageBlurHash,
                 createdDate: post.createdDate,
                 isReported: post.isReported,
-                reportReason: post.reportReason
+                reportReason: post.reportReason,
+                audience: post.audience
             )
             self.postDetail = post
         }
@@ -339,7 +341,8 @@ final class PostDetailViewModel: ObservableObject {
                 authorProfileImageBlurHash: post.authorProfileImageBlurHash,
                 createdDate: post.createdDate,
                 isReported: post.isReported,
-                reportReason: post.reportReason
+                reportReason: post.reportReason,
+                audience: post.audience
             )
             self.postDetail = post
         }
@@ -748,6 +751,9 @@ final class PostDetailViewModel: ObservableObject {
         let author_profile_image_original_url: String?
         /// That photo's BlurHash (issue #460), shown blurred while it loads.
         let author_profile_image_blurhash: String?
+        /// Who may see the post (issue #392); optional so older responses still
+        /// decode (treated as public by the audience badge, issue #518).
+        let audience: String?
     }
 
     private struct ThreadIDFields: Decodable {

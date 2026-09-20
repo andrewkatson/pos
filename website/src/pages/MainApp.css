@@ -210,6 +210,26 @@
   color: #8e8e8e;
 }
 
+/* Who can see this post or comment, shown to its author only (issue #518). A
+   quiet pill so it reads as metadata next to the like count, not a control. */
+.audience-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  font-size: 0.75rem;
+  line-height: 1;
+  color: #b3b3b3;
+  background: rgba(255, 255, 255, 0.08);
+  border-radius: 999px;
+  padding: 0.2rem 0.5rem;
+  white-space: nowrap;
+}
+
+/* Icon only, for the third-of-the-screen profile-grid tiles. */
+.audience-badge--compact {
+  padding: 0.2rem 0.3rem;
+}
+
 .post-actions__menu {
   margin-left: auto;
   background: none;

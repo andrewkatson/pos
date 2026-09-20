@@ -285,6 +285,54 @@ test('hides the like control on your own post in the feed', async () => {
   expect(screen.queryByRole('button', { name: 'Like post' })).not.toBeInTheDocument()
 })
 
+// ---- Audience badge (issue #518) ----
+
+test('shows who can see your own post on its feed row', async () => {
+  mockGetFeed.mockResolvedValue([
+    {
+      post_identifier: 'p1',
+      image_url: 'http://img/1.jpg',
+      author_username: 'me',
+      caption: 'mine',
+      audience: 'family',
+    },
+  ])
+  mockGetFollowed.mockResolvedValue([])
+  renderTab()
+
+  await screen.findByRole('button', { name: 'Open post by me' })
+  // Feed rows have room for the label, not just the icon.
+  expect(screen.getByLabelText('Visible to family only')).toHaveTextContent('Family')
+})
+
+test('labels your own post public when the payload has no audience', async () => {
+  mockGetFeed.mockResolvedValue([
+    { post_identifier: 'p1', image_url: 'http://img/1.jpg', author_username: 'me', caption: 'mine' },
+  ])
+  mockGetFollowed.mockResolvedValue([])
+  renderTab()
+
+  await screen.findByRole('button', { name: 'Open post by me' })
+  expect(screen.getByLabelText('Visible to anyone')).toBeInTheDocument()
+})
+
+test("shows no audience badge on someone else's post", async () => {
+  mockGetFeed.mockResolvedValue([
+    {
+      post_identifier: 'p1',
+      image_url: 'http://img/1.jpg',
+      author_username: 'ada',
+      caption: 'hi',
+      audience: 'friends',
+    },
+  ])
+  mockGetFollowed.mockResolvedValue([])
+  renderTab()
+
+  await screen.findByRole('button', { name: 'Open post by ada' })
+  expect(document.querySelector('.audience-badge')).not.toBeInTheDocument()
+})
+
 // ---- Feed row detail (issue #249) ----
 
 test('shows the comment count and opens the post when it is tapped', async () => {
