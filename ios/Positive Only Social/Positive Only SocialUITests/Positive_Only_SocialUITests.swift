@@ -693,8 +693,13 @@ final class Positive_Only_SocialUITests: XCTestCase {
         XCTAssertTrue(picker.waitForExistence(timeout: TestConstants.shortTimeout))
         picker.tap()
 
+        // With the post-type switch and the chosen photo above it — and the
+        // keyboard still up from typing the caption — the Share button now sits
+        // below the fold. Form is a lazy list, so an off-screen row isn't even
+        // in the accessibility tree; swipe until it's hittable (the swipe also
+        // dismisses the keyboard) rather than waiting for it to appear (#520).
         let sharePostButton = app.buttons["SharePostButton"]
-        XCTAssertTrue(sharePostButton.waitForExistence(timeout: TestConstants.shortTimeout))
+        scrollIntoView(app: app, element: sharePostButton)
         sharePostButton.tap()
 
         // Sharing shows a "Success!" alert; its OK button is what returns the
