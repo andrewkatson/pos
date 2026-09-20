@@ -662,11 +662,36 @@ enum class PostAudience(val value: String, val displayName: String, val hint: St
     FRIENDS("friends", "Friends", "Friends and family only"),
     FAMILY("family", "Family", "Family only");
 
+    /** Short visible label for the author-only audience badge (issue #518).
+     * [displayName] reads "People I follow" for the picker; the badge wants one
+     * word next to the like count. */
+    val badgeLabel: String
+        get() = when (this) {
+            PUBLIC -> "Public"
+            FOLLOWING -> "Following"
+            FRIENDS -> "Friends"
+            FAMILY -> "Family"
+        }
+
+    /** What the badge announces, spelling out who is admitted. */
+    val badgeDescription: String
+        get() = when (this) {
+            PUBLIC -> "Visible to anyone"
+            FOLLOWING -> "Visible to people you follow"
+            FRIENDS -> "Visible to friends and family"
+            FAMILY -> "Visible to family only"
+        }
+
     companion object {
-        /** The tier for a raw backend value, or null when unknown/absent (issue
-         * #445), so a comment with no audience shows no scope badge. */
+        /** The tier for a raw backend value, or null when unknown/absent. */
         fun fromValue(value: String?): PostAudience? =
             entries.firstOrNull { it.value == value }
+
+        /** The tier the audience badge (issue #518) shows for a raw backend
+         * value. Null (older responses) or an unrecognised tier is public — the
+         * backend's default and how it treats an omitted audience — so the badge
+         * never comes up empty. */
+        fun badgeTier(value: String?): PostAudience = fromValue(value) ?: PUBLIC
     }
 }
 

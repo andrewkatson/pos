@@ -38,6 +38,7 @@ import com.example.positiveonlysocial.data.constants.Constants
 import com.example.positiveonlysocial.data.model.CommentThreadViewData
 import com.example.positiveonlysocial.data.model.FollowCategory
 import com.example.positiveonlysocial.data.model.PostAudience
+import com.example.positiveonlysocial.ui.components.AudienceBadge
 import com.example.positiveonlysocial.ui.components.CaptionTile
 import com.example.positiveonlysocial.ui.components.CharacterCounter
 import com.example.positiveonlysocial.ui.components.TaggedCaptionText
@@ -303,6 +304,12 @@ fun PostDetailScreen(
                                     )
                                 } else {
                                     Text("${post.likeCount} likes", fontWeight = FontWeight.Bold)
+                                }
+                                // Who can see this post, shown to its author
+                                // only (issue #518).
+                                if (isOwnPost) {
+                                    Spacer(modifier = Modifier.width(8.dp))
+                                    AudienceBadge(audience = post.audience)
                                 }
                                 Spacer(modifier = Modifier.weight(1f))
                                 if (post.isReported) {
@@ -641,15 +648,12 @@ fun CommentRow(
                 )
                 Spacer(modifier = Modifier.width(8.dp))
                 Text(RelativeTime.format(comment.createdDate), fontSize = 12.sp, color = Color.Gray)
-                // A short scope badge for a comment shared with less than the
-                // public (issue #445); nothing shown for a public comment.
-                val audienceBadge = comment.audience
-                    ?.let { PostAudience.fromValue(it) }
-                    ?.takeIf { it != PostAudience.PUBLIC }
-                    ?.displayName
-                if (audienceBadge != null) {
+                // Who can see this comment, on your own comments only (issue
+                // #518): who a commenter chose to share with is their
+                // information, so other readers see no badge.
+                if (isOwn) {
                     Spacer(modifier = Modifier.width(4.dp))
-                    Text("· $audienceBadge", fontSize = 12.sp, color = Color.Gray)
+                    AudienceBadge(audience = comment.audience)
                 }
                 Spacer(modifier = Modifier.width(4.dp))
                 // Three-dots menu next to the timestamp: the discoverable

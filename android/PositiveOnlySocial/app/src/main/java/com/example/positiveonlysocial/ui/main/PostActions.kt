@@ -33,6 +33,7 @@ import androidx.navigation.NavController
 import com.example.positiveonlysocial.data.model.Post
 import com.example.positiveonlysocial.models.viewmodels.LikesTarget
 import com.example.positiveonlysocial.models.viewmodels.PostListActions
+import com.example.positiveonlysocial.ui.components.AudienceBadge
 import com.example.positiveonlysocial.util.ShareLinks
 
 /**
@@ -119,6 +120,14 @@ fun PostActionBar(
                 text = if (isOwnPost) "$likeCount likes" else "$likeCount",
                 style = likeCountStyle
             )
+        }
+
+        // Who can see this post, on your own posts only (issue #518). The
+        // profile-grid tiles are a third of the screen wide, so they get just
+        // the icon; feed rows have room for the label too.
+        if (isOwnPost) {
+            Spacer(modifier = Modifier.width(if (compact) 4.dp else 8.dp))
+            AudienceBadge(audience = post.audience, compact = compact)
         }
 
         // How many comments the post has; tapping it opens the post so they can
