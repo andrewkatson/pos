@@ -241,6 +241,10 @@ struct NewPostView: View {
                     maxHeight: 240
                 )
                 .clipShape(RoundedRectangle(cornerRadius: 10))
+                // The UI tests drag on this image to scroll the form (it's a
+                // plain row that hands the pan to the Form, unlike the caption
+                // editor or the segmented picker).
+                .accessibilityIdentifier("SelectedPhotoImage")
         }
 
         // A prominent, full-width button reads as the primary call to action

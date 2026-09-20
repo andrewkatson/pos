@@ -695,17 +695,20 @@ final class Positive_Only_SocialUITests: XCTestCase {
 
         // With the post-type switch and the chosen photo above it — and the
         // keyboard still up from typing the caption — the Share button now sits
-        // below the fold. Form is a lazy list, so an off-screen row isn't even
-        // in the accessibility tree (#520). Worse, app.swipeUp() starts at the
-        // screen's centre, which the keyboard covers, so it never scrolls the
-        // form and the row never materialises (UI_Tests_Gamma). Swipe on the
-        // post-type switch at the top instead: that drags the form itself,
-        // which dismisses the keyboard (scrollDismissesKeyboard(.immediately)),
-        // and only then let scrollIntoView bring the button up.
-        if app.keyboards.count > 0 && postTypePicker.isHittable {
-            postTypePicker.swipeUp()
-            poll(until: { app.keyboards.count == 0 })
-        }
+        // below the keyboard. The keyboard shrinks the Form's bounds and Form
+        // is a lazy list, so the row isn't even in the accessibility tree
+        // (#520). app.swipeUp() can't help: on an iPhone 16 the screen centre
+        // is the caption TextEditor, whose own scroll view swallows the pan, so
+        // the form never moved (scroll bar stayed at 0% in the xcresult). Drag
+        // on the chosen photo instead: a plain image row hands the pan to the
+        // Form, one real scroll dismisses the keyboard
+        // (scrollDismissesKeyboard(.immediately)), the bounds grow back and the
+        // Share row appears. scrollIntoView then only has to nudge it, if at all.
+        let selectedPhoto = app.images["SelectedPhotoImage"]
+        XCTAssertTrue(selectedPhoto.waitForExistence(timeout: TestConstants.shortTimeout),
+                      "Picked photo should be shown above the picker")
+        selectedPhoto.swipeUp()
+        poll(until: { app.keyboards.count == 0 })
         let sharePostButton = app.buttons["SharePostButton"]
         scrollIntoView(app: app, element: sharePostButton)
         sharePostButton.tap()
