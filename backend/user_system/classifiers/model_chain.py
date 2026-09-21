@@ -26,11 +26,21 @@ The two lists live on the content row (`classification_models_tried`,
 and image cascades of one round share one order, so the same tier gives the
 first opinion on both halves of a post. Model identities are bookkeeping for
 the pipeline and moderators; they are never exposed to users.
+
+The lists are folded into the row under a row lock (apply_round on a freshly
+locked instance): rounds of the same content can overlap — a duplicate queue
+delivery, a retry landing beside a re-review — and a fold computed from a
+pre-cascade read would overwrite whatever the other round recorded meanwhile.
 """
 import logging
 import random
 
 logger = logging.getLogger(__name__)
+
+
+def cycle_complete(available, chain):
+    """Whether every available tier has settled a verdict on this content."""
+    return bool(available) and set(available) <= set(chain)
 
 
 def round_order(available, tried, chain):
@@ -45,7 +55,7 @@ def round_order(available, tried, chain):
     available = list(available)
     if not available:
         return [], False
-    if set(available) <= set(chain):
+    if cycle_complete(available, chain):
         # Every tier has settled a verdict on this content. Rotate rather than
         # shuffle so the cascade fallbacks stay in their cheapest-first order
         # relative to the (random) starting tier.
@@ -63,11 +73,13 @@ def record_round(tried, chain, results, reset=False):
     """Fold one round's cascade results into the stored lists.
 
     Returns the new `(tried, chain)`: every tier any result consulted is added
-    to `tried`, and every tier that settled one of the results is appended to
-    `chain`, each without duplicates and preserving first-use order. With
-    `reset` (a new cycle, see round_order) the lists start empty. Results that
-    involved no tier — testing mode, a local pre-filter, a text-only post's
-    image side — contribute nothing.
+    to `tried` (no duplicates, first-use order), and every tier that settled
+    one of the results goes to the END of `chain` — moved there if it was
+    already in it — so the chain's tail is always the most recent decider (the
+    "final determiner") even when a round was settled by a fallback tier that
+    had decided before. With `reset` (a new cycle, see round_order) the lists
+    start empty. Results that involved no tier — testing mode, a local
+    pre-filter, a text-only post's image side — contribute nothing.
     """
     tried = [] if reset else list(tried)
     chain = [] if reset else list(chain)
@@ -75,18 +87,29 @@ def record_round(tried, chain, results, reset=False):
         for api in result.consulted:
             if api not in tried:
                 tried.append(api)
-        if result.decided_by and result.decided_by not in chain:
+        if result.decided_by:
+            if result.decided_by in chain:
+                chain.remove(result.decided_by)
             chain.append(result.decided_by)
     return tried, chain
 
 
 def plan_round(target, available):
-    """round_order for a Post or Comment, read from its stored lists."""
-    return round_order(available, target.classification_models_tried, target.classification_model_chain)
+    """The cascade order for a Post's or Comment's next round (round_order
+    without the reset flag — apply_round re-derives that when it records)."""
+    return round_order(available, target.classification_models_tried, target.classification_model_chain)[0]
 
 
-def apply_round(target, results, reset=False):
-    """record_round for a Post or Comment, written back to its lists (unsaved)."""
+def apply_round(target, results, available):
+    """Fold one round's results into a Post's or Comment's lists (unsaved).
+
+    Call it on an instance read fresh under a row lock, never on the one the
+    round was planned from: by the time the cascades return, another round of
+    the same content may have recorded. Whether this round starts a new cycle
+    is decided here from the lists as they are now, for the same reason —
+    the planning-time answer can be stale.
+    """
+    reset = cycle_complete(available, target.classification_model_chain)
     target.classification_models_tried, target.classification_model_chain = record_round(
         target.classification_models_tried, target.classification_model_chain, results, reset=reset)
 

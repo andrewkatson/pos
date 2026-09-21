@@ -87,6 +87,16 @@ class RecordRoundTests(SimpleTestCase):
         # The latest decider is the chain's tail — the "final determiner".
         self.assertEqual(chain, [API_GEMMA, API_GEMINI])
 
+    def test_a_repeat_decider_moves_to_the_tail(self):
+        """A round settled by a fallback tier that had decided before: the
+        chain stays duplicate-free, but its tail — the final determiner the
+        admin shows — must be the tier that settled the LATEST verdict."""
+        tried, chain = record_round(
+            [API_GEMMA, API_GEMINI], [API_GEMMA, API_GEMINI],
+            [_result([API_OPENAI, API_GEMMA], API_GEMMA)])
+        self.assertEqual(tried, [API_GEMMA, API_GEMINI, API_OPENAI])
+        self.assertEqual(chain, [API_GEMINI, API_GEMMA])
+
     def test_both_cascades_of_one_round_contribute(self):
         """A post's text and image cascades can settle on different tiers;
         both tiers have judged the content, so both join the chain."""

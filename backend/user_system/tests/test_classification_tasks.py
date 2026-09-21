@@ -1,4 +1,5 @@
 import uuid
+from concurrent.futures import Future
 from unittest.mock import patch
 
 from django.core import mail
@@ -238,6 +239,16 @@ def _judged(consulted, decided_by, allowed=True, appealable=False, provider_fail
                                 consulted=list(consulted), decided_by=decided_by)
 
 
+class _InlineExecutor:
+    """Runs submitted cascades on the calling thread, so a test's fake cascade
+    can touch the (per-thread) test database mid-job."""
+
+    def submit(self, fn, *args, **kwargs):
+        future = Future()
+        future.set_result(fn(*args, **kwargs))
+        return future
+
+
 @patch(AVAILABLE, return_value=ALL_TIERS)
 class ClassifyPostModelChainTests(TestCase):
     """The worker leads each round with a tier that has not judged the post
@@ -313,6 +324,38 @@ class ClassifyPostModelChainTests(TestCase):
         # The old cycle's lists are gone; only this round is on record.
         self.assertEqual(self.post.classification_models_tried, [API_OPENAI])
         self.assertEqual(self.post.classification_model_chain, [API_OPENAI])
+
+    @patch(IMAGE, return_value=_judged([API_GEMMA], API_GEMMA))
+    @patch(TEXT, return_value=_judged([API_GEMMA], API_GEMMA))
+    def test_the_fold_merges_with_bookkeeping_recorded_during_the_cascade(self, mock_text, _image, _avail):
+        """A duplicate delivery (or a re-review) can record its own round while
+        this job's cascades are out. What it wrote must survive: the fold works
+        on the row as it is at commit time, not on the pre-cascade read."""
+        def cascade_then_record(*_args, **_kwargs):
+            Post.objects.filter(pk=self.post.pk).update(
+                classification_models_tried=[API_CLAUDE], classification_model_chain=[API_CLAUDE])
+            return _judged([API_GEMMA], API_GEMMA)
+
+        mock_text.side_effect = cascade_then_record
+        with patch('user_system.tasks._CLASSIFICATION_EXECUTOR', _InlineExecutor()):
+            self._run()
+        self.assertFalse(self.post.hidden)
+        self.assertEqual(self.post.classification_models_tried, [API_CLAUDE, API_GEMMA])
+        self.assertEqual(self.post.classification_model_chain, [API_CLAUDE, API_GEMMA])
+
+    @patch(IMAGE, return_value=_judged([API_GEMMA], API_GEMMA))
+    @patch(TEXT, return_value=_judged(ALL_TIERS, None, allowed=False, provider_failure=True))
+    def test_an_outage_record_merges_with_bookkeeping_recorded_during_the_cascade(self, _text, mock_image, _avail):
+        def cascade_then_record(*_args, **_kwargs):
+            Post.objects.filter(pk=self.post.pk).update(
+                classification_models_tried=[API_CLAUDE], classification_model_chain=[API_CLAUDE])
+            return _judged([API_GEMMA], API_GEMMA)
+
+        mock_image.side_effect = cascade_then_record
+        with patch('user_system.tasks._CLASSIFICATION_EXECUTOR', _InlineExecutor()):
+            self._run(raises=True)
+        self.assertEqual(self.post.classification_models_tried, [API_CLAUDE, API_GEMMA, API_GEMINI, API_OPENAI])
+        self.assertEqual(self.post.classification_model_chain, [API_CLAUDE, API_GEMMA])
 
     @patch(IMAGE, return_value=FINAL_REJECT)
     @patch(TEXT, return_value=_judged([API_GEMMA], API_GEMMA))

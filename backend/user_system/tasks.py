@@ -277,21 +277,27 @@ def _push_author_of_rejection(post, final):
         logger.exception("Failed to send rejection push for post %s", post.post_identifier)
 
 
-def _record_unfinished_round(target, results, reset):
+def _record_unfinished_round(target, results, available):
     """Persist which tiers a round that reached no verdict consulted.
 
     A provider failure raises so RQ retries, and the retry must not simply
     replay the same order: the tiers this round did consult go on the record
     now (issue #511) so the next round starts elsewhere. (When only one of a
     post's two cascades failed, the other's decider is recorded too — it did
-    judge the content.) A bare UPDATE rather than a save: nothing else about the
-    row changes, and it is deliberately not gated on the pending state, since
-    the lists describe the content regardless of what happened to it meanwhile.
+    judge the content.) The fold happens on the row re-read under lock, not on
+    the instance the round was planned from: a duplicate delivery or a
+    concurrent re-review may have recorded its own round while this one's
+    cascades were running, and writing pre-cascade lists back would erase it.
+    Deliberately not gated on the pending/review state — the lists describe the
+    content regardless of what happened to it meanwhile; a row that is gone is
+    simply nothing to record.
     """
-    model_chain.apply_round(target, results, reset)
-    type(target).objects.filter(pk=target.pk).update(
-        classification_models_tried=target.classification_models_tried,
-        classification_model_chain=target.classification_model_chain)
+    with transaction.atomic():
+        current = type(target).objects.select_for_update().filter(pk=target.pk).first()
+        if current is None:
+            return
+        model_chain.apply_round(current, results, available)
+        current.save(update_fields=model_chain.CHAIN_FIELDS)
 
 
 def classify_post(post_identifier):
@@ -343,7 +349,8 @@ def classify_post(post_identifier):
     # the normal cheapest-first order, on a retry an order that starts past
     # the tiers the earlier attempt already consulted. One order for both
     # cascades, so the same tier opens on the caption and the image.
-    order, reset = model_chain.plan_round(post, get_available_apis())
+    available = get_available_apis()
+    order = model_chain.plan_round(post, available)
 
     # The cascades run outside any DB transaction/lock: they can take minutes
     # in the worst case and must never pin a row lock while they do.
@@ -360,7 +367,7 @@ def classify_post(post_identifier):
     if text_result.provider_failure or image_result.provider_failure:
         # Not a verdict on the content: fail closed (stay pending) and let RQ
         # retry with backoff — from a different tier than this attempt led with.
-        _record_unfinished_round(post, [text_result, image_result], reset)
+        _record_unfinished_round(post, [text_result, image_result], available)
         raise ClassificationProviderError(
             f"Providers unavailable while classifying post {post_identifier} "
             f"(text failure={text_result.provider_failure}, image failure={image_result.provider_failure})")
@@ -396,8 +403,9 @@ def classify_post(post_identifier):
             logger.info("classify_post: post %s was resolved concurrently; nothing to do.", post_identifier)
             return
         # Record which tiers judged the post and which settled it, so a later
-        # re-review (issue #511) leads with a different one.
-        model_chain.apply_round(claimed, [text_result, image_result], reset)
+        # re-review (issue #511) leads with a different one. Folded into the
+        # locked row, so a duplicate delivery's bookkeeping is merged, not lost.
+        model_chain.apply_round(claimed, [text_result, image_result], available)
         if allowed:
             claimed.hidden = False
             claimed.hidden_reason = HIDDEN_REASON_NONE
@@ -621,7 +629,8 @@ def review_reported_content(review_identifier):
     # The point of a re-review is a second opinion, so this round leads with a
     # tier that has not yet judged this content (issue #511) — the one that
     # approved it at creation comes last, as a fallback only.
-    order, reset = model_chain.plan_round(target, get_available_apis())
+    available = get_available_apis()
+    order = model_chain.plan_round(target, available)
 
     # The cascades run outside any transaction/lock: they can take minutes.
     text_result, image_result = _review_content_results(target, is_post, order)
@@ -629,7 +638,7 @@ def review_reported_content(review_identifier):
     if text_result.provider_failure or image_result.provider_failure:
         # Not a verdict on the content: leave the content visible and let RQ
         # retry with backoff, leading with yet another tier.
-        _record_unfinished_round(target, [text_result, image_result], reset)
+        _record_unfinished_round(target, [text_result, image_result], available)
         raise ClassificationProviderError(
             f"Providers unavailable while reviewing reported content for review {review_identifier} "
             f"(text failure={text_result.provider_failure}, image failure={image_result.provider_failure})")
@@ -654,8 +663,11 @@ def review_reported_content(review_identifier):
         # would overwrite whatever reason actually hid it — the same invariant
         # the pre-cascade check enforces, which must hold here too. Overwriting a
         # classifier_final reason would be worse than untidy: it would make a
-        # terminal, image-deleted tombstone look appealable again.
+        # terminal, image-deleted tombstone look appealable again. Locked, so
+        # the model-chain fold below merges with — rather than overwrites —
+        # anything a concurrent round of this content recorded meanwhile.
         target = claimed.target
+        target = type(target).objects.select_for_update().get(pk=target.pk)
         if target.hidden:
             claimed.status = REVIEW_STATUS_HIDDEN
             claimed.reviewed_time = now
@@ -669,7 +681,7 @@ def review_reported_content(review_identifier):
             return
         # Extend the content's model chain with this round's deciders, so any
         # further round leads with a tier that has still not judged it.
-        model_chain.apply_round(target, [text_result, image_result], reset)
+        model_chain.apply_round(target, [text_result, image_result], available)
         target_fields = list(model_chain.CHAIN_FIELDS)
         if allowed:
             claimed.status = REVIEW_STATUS_CLEARED

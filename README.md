@@ -453,8 +453,9 @@ reached no verdict, and the automated re-review a user report triggers (see
 replayed the same order would just hand the content back to the model that
 already decided it. So every post and comment keeps a **model chain** (issue
 #511): which tiers have been consulted about it and which tier's score settled
-each verdict (the last of those is the *final determiner* of the latest
-decision; both lists are on the row as `classification_models_tried` /
+each verdict (a duplicate-free list whose last entry is always the *final
+determiner* of the latest decision — a tier that decides again moves to the
+end; both lists are on the row as `classification_models_tried` /
 `classification_model_chain`, and the moderator queue shows them). Each later
 round is ordered to put fresh eyes first — tiers that have never looked at the
 content, then tiers that looked but did not decide (a middle-zone score the
