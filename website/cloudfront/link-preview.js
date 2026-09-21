@@ -68,9 +68,16 @@ var POST_PATH = /^\/post\/([0-9a-fA-F]{8}(?:-[0-9a-fA-F]{4}){3}-[0-9a-fA-F]{12})
 
 // `/profile/<username>`, with or without a trailing slash. Usernames are word
 // characters only (the backend registers nothing else), and the match is what
-// goes into the redirect URL, so the same character class is enforced here —
-// anything else is not a profile we could preview and passes through.
-var PROFILE_PATH = /^\/profile\/(\w{1,500})\/?$/
+// goes into the redirect URL, so the same shape is enforced here — anything
+// else is not a profile we could preview and passes through.
+//
+// The uri CloudFront hands us is still percent-encoded, and the backend admits
+// Unicode letters and digits, so a non-ASCII username arrives as `%XX` byte
+// sequences rather than as characters. Those are accepted alongside ASCII word
+// characters and forwarded verbatim (still encoded) — the backend decodes and
+// validates the name itself. JavaScript's `\w` alone is ASCII-only and would
+// leave such profiles unfurling as the generic site card.
+var PROFILE_PATH = /^\/profile\/((?:\w|%[0-9A-Fa-f]{2}){1,500})\/?$/
 
 // The backend preview path for a request URI, or null when the URI is not a
 // page we render previews for.

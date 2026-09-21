@@ -74,6 +74,18 @@ describe('crawlers', () => {
   it('a profile path accepts a trailing slash', () => {
     expect(request('/profile/sunny_side_up/', 'Twitterbot/1.0').statusCode).toBe(302)
   })
+
+  it('a percent-encoded (non-ASCII) username is forwarded verbatim', () => {
+    // The backend admits Unicode letters, which reach the function as encoded
+    // bytes; they must unfurl too, and the redirect keeps them encoded.
+    const encoded = encodeURIComponent('sonné_über_日本')
+    const response = request(`/profile/${encoded}`, 'Twitterbot/1.0')
+
+    expect(response.statusCode).toBe(302)
+    expect(response.headers.location.value).toBe(
+      `https://api.smiling.social/user_index/public/profiles/${encoded}/preview/`,
+    )
+  })
 })
 
 describe('everything else passes through untouched', () => {
@@ -97,7 +109,17 @@ describe('everything else passes through untouched', () => {
   it('a profile path whose name is not a username is not redirected', () => {
     // The name goes straight into the preview URL, so only a well-formed one is
     // ever forwarded.
-    for (const uri of ['/profile/', '/profile/some one', '/profile/a/b', '/profile/../../etc', '/profile/x?y']) {
+    for (const uri of [
+      '/profile/',
+      '/profile/some one',
+      '/profile/a/b',
+      '/profile/../../etc',
+      '/profile/x?y',
+      '/profile/a-b',
+      // A stray or malformed percent sign is not an encoded byte.
+      '/profile/100%',
+      '/profile/a%zzb',
+    ]) {
       expect(request(uri, 'Twitterbot/1.0').uri).toBe(uri)
     }
   })

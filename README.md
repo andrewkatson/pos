@@ -349,8 +349,9 @@ same way (issue #510): the card is the username, the bio (or the generic site
 line when there is none) and the profile photo, with `og:type` `profile`. A
 profile that is not public gets the generic site card with a 404, so a crawler
 cannot tell it from an unregistered name. The function forwards only a
-well-formed username (word characters), since the match goes straight into the
-redirect URL.
+well-formed username — word characters or percent-encoded bytes, since the URI
+it sees is still encoded and usernames may contain Unicode letters — because
+the match goes straight into the redirect URL.
 
 Two pieces of CloudFront configuration make this work and are not managed by
 `website/deploy-web.sh` (which warns about the first): custom error responses
