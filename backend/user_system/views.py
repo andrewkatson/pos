@@ -3634,12 +3634,16 @@ def get_comments_for_thread(request, comment_thread_identifier, batch):
 # client pages through thread batches to find a shared comment (see
 # PostDetailPage), so these stay ordinary paginated listings.
 
-def _public_post_fields(post):
+def _public_post_fields(post, post_likes=None):
     """A post serialized for a signed-out viewer.
 
     The signed-in payload minus everything that is about the viewer: no
     like/save/report flags (nobody to have them) and no author-only
-    classification status (a public post is approved by construction)."""
+    classification status (a public post is approved by construction).
+
+    `post_likes` lets a list caller pass a count it already fetched for the
+    whole batch in one grouped query (get_public_posts_for_user); left None, the
+    single-post caller counts here."""
     return {
         Fields.post_identifier: post.post_identifier,
         Fields.image_url: sign_compressed_url(post.image_url),
@@ -3650,7 +3654,7 @@ def _public_post_fields(post):
         Fields.caption: post.caption,
         **_caption_style_fields(post),
         Fields.creation_time: post.creation_time,
-        Fields.post_likes: post.postlike_set.count(),
+        Fields.post_likes: post.postlike_set.count() if post_likes is None else post_likes,
         Fields.author_username: post.author.username,
         Fields.audience: post.audience,
         **_author_avatar_fields(post.author),
@@ -3918,16 +3922,18 @@ def get_public_posts_for_user(request, username, batch):
         return log_and_return_json(
             "get_public_posts_for_user", {'error': "User not found"}, status=404)
 
+    # select_related('author'): _public_post_fields reads the author's name and
+    # avatar for every tile, which would otherwise be a lazy FK fetch per post.
     relevant_posts = visible_posts(
         feed_algorithm_class.get_posts_weighted_for_user(profile_user, Post), PUBLIC_VIEWER
-    ).prefetch_related('tags')
+    ).select_related('author').prefetch_related('tags')
     # DB-level LIMIT/OFFSET with no preceding .exists()/.count(): an empty batch
     # already serializes to [], and this is a cost anyone can impose without an
     # account (see get_public_comments_for_post).
     batched_posts = get_queryset_batch(relevant_posts, batch, POST_BATCH_SIZE)
-    # One grouped query for the batch's like counts rather than a COUNT per
-    # tile — _public_post_fields counts per post, which is fine for the single
-    # post it was written for but an N+1 across a grid.
+    # One grouped query for the batch's like counts, handed to the serializer so
+    # it does not fall back to its per-post COUNT — fine for the single post it
+    # was written for, an N+1 across a grid.
     like_counts = dict(
         PostLike.objects
         .filter(post__in=batched_posts)
@@ -3936,10 +3942,7 @@ def get_public_posts_for_user(request, username, batch):
         .values_list('post_id', 'count')
     )
     posts_data = [
-        {
-            **_public_post_fields(post),
-            Fields.post_likes: like_counts.get(post.post_identifier, 0),
-        }
+        _public_post_fields(post, post_likes=like_counts.get(post.post_identifier, 0))
         for post in batched_posts
     ]
     return log_and_return_json("get_public_posts_for_user", posts_data, safe=False)

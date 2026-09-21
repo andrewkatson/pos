@@ -4,7 +4,9 @@ from datetime import timedelta
 from unittest.mock import patch
 
 from django.contrib.auth import get_user_model
+from django.db import connection
 from django.test import override_settings
+from django.test.utils import CaptureQueriesContext
 from django.urls import reverse
 from django.utils import timezone
 
@@ -186,6 +188,20 @@ class PublicProfileViewTests(PositiveOnlySocialTestCase):
         row = self.client.get(self.posts_url).json()[0]
 
         self.assertEqual(row[Fields.post_likes], 1)
+
+    def test_public_grid_like_counts_are_one_grouped_query(self):
+        """The batch's like counts come from one grouped query handed to the
+        serializer, not a COUNT per tile: the number of queries must not grow
+        with the number of posts in the batch."""
+        with CaptureQueriesContext(connection) as one_post:
+            self.assertEqual(len(self.client.get(self.posts_url).json()), 1)
+
+        for _ in range(3):
+            self._make_post(self.owner[Fields.session_management_token])
+        with CaptureQueriesContext(connection) as four_posts:
+            self.assertEqual(len(self.client.get(self.posts_url).json()), 4)
+
+        self.assertEqual(len(four_posts.captured_queries), len(one_post.captured_queries))
 
     def test_public_grid_is_batched(self):
         for _ in range(POST_BATCH_SIZE):
