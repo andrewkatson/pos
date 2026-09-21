@@ -40,18 +40,55 @@ class ShareLinksTest {
         assertEquals("$postUrl#comment-c1", commentUrl)
     }
 
+    // ---- Profile links (issue #510) ----
+
+    @Test
+    fun profileUrlIsRootedAtTheProfilePath() {
+        assertEquals(
+            "https://smiling.social/profile/sunny_side_up",
+            ShareLinks.profileUrl("sunny_side_up")
+        )
+    }
+
+    @Test
+    fun parseReadsBackTheProfileLinkTheBuilderProduces() {
+        // Round trip, like the post links: the manifest claims /profile/ too.
+        assertEquals(
+            SharedLink.Profile("sunny_side_up"),
+            ShareLinks.parseSharedLink(ShareLinks.profileUrl("sunny_side_up"))
+        )
+        assertEquals(
+            SharedLink.Profile("sunny_side_up"),
+            ShareLinks.parseSharedLink("https://www.smiling.social/profile/sunny_side_up/")
+        )
+    }
+
+    @Test
+    fun parseRejectsProfileLinksThatCouldNotBeAUsername() {
+        // The segment becomes a navigation argument, so only a well-formed
+        // username (word characters) is ever routed.
+        for (url in listOf(
+            "https://smiling.social/profile/",
+            "https://smiling.social/profile/some%20one",
+            "https://smiling.social/profile/a-b",
+            "https://smiling.social/profile/ada/posts"
+        )) {
+            assertNull("expected $url to be rejected", ShareLinks.parseSharedLink(url))
+        }
+    }
+
     // ---- App Link parsing (issue #382) ----
 
     @Test
     fun parseReadsBackTheLinksTheBuildersProduce() {
         // Round trip: whatever we hand the share sheet, Android can hand back.
         assertEquals(
-            SharedPostLink("abc123", null),
-            ShareLinks.parseSharedPostLink(ShareLinks.postUrl("abc123"))
+            SharedLink.Post(SharedPostLink("abc123", null)),
+            ShareLinks.parseSharedLink(ShareLinks.postUrl("abc123"))
         )
         assertEquals(
-            SharedPostLink("abc123", "c789"),
-            ShareLinks.parseSharedPostLink(ShareLinks.commentUrl("abc123", "c789"))
+            SharedLink.Post(SharedPostLink("abc123", "c789")),
+            ShareLinks.parseSharedLink(ShareLinks.commentUrl("abc123", "c789"))
         )
     }
 
@@ -59,16 +96,16 @@ class ShareLinksTest {
     fun parseAcceptsTheWwwHost() {
         // Both hosts are claimed by the manifest's autoVerify intent-filter.
         assertEquals(
-            SharedPostLink("abc123", null),
-            ShareLinks.parseSharedPostLink("https://www.smiling.social/post/abc123")
+            SharedLink.Post(SharedPostLink("abc123", null)),
+            ShareLinks.parseSharedLink("https://www.smiling.social/post/abc123")
         )
     }
 
     @Test
     fun parseIsCaseInsensitiveAboutSchemeAndHost() {
         assertEquals(
-            SharedPostLink("abc123", null),
-            ShareLinks.parseSharedPostLink("HTTPS://SMILING.social/post/abc123")
+            SharedLink.Post(SharedPostLink("abc123", null)),
+            ShareLinks.parseSharedLink("HTTPS://SMILING.social/post/abc123")
         )
     }
 
@@ -76,8 +113,8 @@ class ShareLinksTest {
     fun parseToleratesATrailingSlash() {
         // Chat apps and shorteners add one freely.
         assertEquals(
-            SharedPostLink("abc123", null),
-            ShareLinks.parseSharedPostLink("https://smiling.social/post/abc123/")
+            SharedLink.Post(SharedPostLink("abc123", null)),
+            ShareLinks.parseSharedLink("https://smiling.social/post/abc123/")
         )
     }
 
@@ -85,12 +122,12 @@ class ShareLinksTest {
     fun parseKeepsThePostWhenTheFragmentIsNotAComment() {
         // An unrecognized fragment shouldn't cost the user the post.
         assertEquals(
-            SharedPostLink("abc123", null),
-            ShareLinks.parseSharedPostLink("https://smiling.social/post/abc123#top")
+            SharedLink.Post(SharedPostLink("abc123", null)),
+            ShareLinks.parseSharedLink("https://smiling.social/post/abc123#top")
         )
         assertEquals(
-            SharedPostLink("abc123", null),
-            ShareLinks.parseSharedPostLink("https://smiling.social/post/abc123#comment-")
+            SharedLink.Post(SharedPostLink("abc123", null)),
+            ShareLinks.parseSharedLink("https://smiling.social/post/abc123#comment-")
         )
     }
 
@@ -98,8 +135,8 @@ class ShareLinksTest {
     fun parseIgnoresAQueryString() {
         // Links pasted from a browser or a campaign tracker carry one.
         assertEquals(
-            SharedPostLink("abc123", "c789"),
-            ShareLinks.parseSharedPostLink("https://smiling.social/post/abc123?utm=x#comment-c789")
+            SharedLink.Post(SharedPostLink("abc123", "c789")),
+            ShareLinks.parseSharedLink("https://smiling.social/post/abc123?utm=x#comment-c789")
         )
     }
 
@@ -114,14 +151,14 @@ class ShareLinksTest {
             "https://smiling.social/posts/abc123",              // different route
             "https://smiling.social/post/",                     // no identifier
             "https://smiling.social/post/abc123/extra",         // deeper path
-            "https://smiling.social/profile/ada",               // another route
+            "https://smiling.social/tags/sunset",               // another route
             "https://smiling.social/",                          // the site root
             "not a url at all",
             "",
             null
         )
         for (url in rejected) {
-            assertNull("expected $url to be rejected", ShareLinks.parseSharedPostLink(url))
+            assertNull("expected $url to be rejected", ShareLinks.parseSharedLink(url))
         }
     }
 }

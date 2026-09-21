@@ -3828,6 +3828,166 @@ def get_post_link_preview(request, post_identifier):
     return response
 
 
+# --- Shared profiles (issue #510) -------------------------------------------
+#
+# A profile can be shared the same way a post can: its options menu hands off
+# `https://smiling.social/profile/<username>`, and the website renders that
+# page for a recipient with no account. These are the public half of that —
+# the profile header (stats, avatar, bio, join number) and the user's post grid.
+#
+# The same fixed anonymous viewer decides what is served. An account is public
+# when `searchable_users` would list it for PUBLIC_VIEWER: not shadow banned and
+# not a verified minor. Its grid is `visible_posts` for the same viewer, so it
+# holds exactly the posts the public post endpoint would serve individually —
+# a shared profile can never show a post its own link would 404. A profile that
+# is not public 404s exactly like a username that was never registered, so
+# these cannot be used to confirm a shadow ban or find a minor's account.
+#
+# Nothing per-viewer is serialized: no is_following / follow_category /
+# is_blocked (nobody to have them) and none of the owner-only photo-review
+# fields — only the approved, live photo is anyone else's business.
+
+def _get_public_profile_user(username):
+    """The account behind a shared profile link, or None when it is missing or
+    not public. Both collapse into one None so callers return the same 404."""
+    if not is_valid_pattern(username, Patterns.alphanumeric):
+        return None
+    profile_user = get_user_with_username(username)
+    if profile_user is None:
+        return None
+    # The same exclusion user search applies for this viewer: a shadow-banned
+    # account and a verified minor's account are both invisible to the open
+    # internet, exactly as they are to a signed-in adult who searches by name.
+    if not searchable_users(
+            get_user_model().objects.filter(pk=profile_user.pk), PUBLIC_VIEWER).exists():
+        return None
+    return profile_user
+
+
+@ratelimit(key=_get_client_ip, rate='60/m', block=True)
+@require_GET
+def get_public_profile_details(request, username):
+    """A shared profile's header, for a recipient who is not logged in (issue
+    #510): the same stats, avatar, join number and bio a signed-in viewer sees,
+    minus everything that is about the viewer."""
+    logger.info("Endpoint get_public_profile_details invoked by IP")
+    profile_user = _get_public_profile_user(username)
+    if profile_user is None:
+        return log_and_return_json(
+            "get_public_profile_details", {'error': "User not found"}, status=404)
+
+    # Each count is what this viewer could actually see, mirroring
+    # get_profile_details: only public posts, and only followers/followees who
+    # are themselves publicly listable (issue #398).
+    post_count = visible_posts(profile_user.post_set.all(), PUBLIC_VIEWER).count()
+    follower_count = searchable_users(profile_user.followers.all(), PUBLIC_VIEWER).count()
+    following_count = searchable_users(profile_user.following.all(), PUBLIC_VIEWER).count()
+
+    live_avatar = profile_user.profile_image_url
+    data = {
+        Fields.username: profile_user.username,
+        Fields.post_count: post_count,
+        Fields.follower_count: follower_count,
+        Fields.following_count: following_count,
+        Fields.identity_is_verified: profile_user.identity_is_verified,
+        Fields.profile_image_url: sign_compressed_url(live_avatar),
+        Fields.profile_image_original_url: sign_original_url(live_avatar),
+        Fields.profile_image_blurhash: (
+            profile_user.profile_image_blurhash if live_avatar else None),
+        Fields.membership_number: profile_user.membership_number,
+        # Moderated on write (issue #380), so safe for anyone to read.
+        Fields.bio: profile_user.bio,
+    }
+    return log_and_return_json("get_public_profile_details", data)
+
+
+@ratelimit(key=_get_client_ip, rate='60/m', block=True)
+@require_GET
+def get_public_posts_for_user(request, username, batch):
+    """A shared profile's post grid, for a signed-out viewer (issue #510).
+
+    Serialized with `_public_post_fields`, so each tile carries exactly what the
+    public post-details endpoint would serve for it and nothing per-viewer."""
+    logger.info("Endpoint get_public_posts_for_user invoked by IP")
+    if batch < 0:
+        return log_and_return_json(
+            "get_public_posts_for_user", {'error': "Invalid batch parameter"}, status=400)
+
+    profile_user = _get_public_profile_user(username)
+    if profile_user is None:
+        return log_and_return_json(
+            "get_public_posts_for_user", {'error': "User not found"}, status=404)
+
+    relevant_posts = visible_posts(
+        feed_algorithm_class.get_posts_weighted_for_user(profile_user, Post), PUBLIC_VIEWER
+    ).prefetch_related('tags')
+    # DB-level LIMIT/OFFSET with no preceding .exists()/.count(): an empty batch
+    # already serializes to [], and this is a cost anyone can impose without an
+    # account (see get_public_comments_for_post).
+    batched_posts = get_queryset_batch(relevant_posts, batch, POST_BATCH_SIZE)
+    # One grouped query for the batch's like counts rather than a COUNT per
+    # tile — _public_post_fields counts per post, which is fine for the single
+    # post it was written for but an N+1 across a grid.
+    like_counts = dict(
+        PostLike.objects
+        .filter(post__in=batched_posts)
+        .values('post_id')
+        .annotate(count=Count('post_id'))
+        .values_list('post_id', 'count')
+    )
+    posts_data = [
+        {
+            **_public_post_fields(post),
+            Fields.post_likes: like_counts.get(post.post_identifier, 0),
+        }
+        for post in batched_posts
+    ]
+    return log_and_return_json("get_public_posts_for_user", posts_data, safe=False)
+
+
+def _profile_canonical_url(username):
+    """The website URL a shared profile link points at."""
+    return f"{settings.FRONTEND_BASE_URL}/profile/{username}"
+
+
+@ratelimit(key=_get_client_ip, rate='60/m', block=True)
+@require_GET
+def get_profile_link_preview(request, username):
+    """Open Graph / Twitter Card HTML for a shared profile link (issue #510).
+
+    The profile counterpart of get_post_link_preview: CloudFront routes
+    link-preview crawlers fetching `https://smiling.social/profile/<username>`
+    here. The card is the username, the bio (or the generic site line when there
+    is none) and the profile photo. A profile that is missing or not public gets
+    the generic site card with a 404, indistinguishable from an unregistered
+    name.
+    """
+    logger.info("Endpoint get_profile_link_preview invoked by IP")
+    profile_user = _get_public_profile_user(username)
+    if profile_user is None:
+        logger.info(f"Profile link preview: profile {username} not publicly visible")
+        response = HttpResponse(
+            link_preview.render_missing_preview(site_url=settings.FRONTEND_BASE_URL),
+            content_type='text/html; charset=utf-8',
+            status=404,
+        )
+    else:
+        response = HttpResponse(
+            link_preview.render_post_preview(
+                title=f"{profile_user.username} on {link_preview.SITE_NAME}",
+                description=link_preview.truncate_description(profile_user.bio),
+                canonical_url=_profile_canonical_url(profile_user.username),
+                image_url=sign_compressed_url(profile_user.profile_image_url),
+                og_type='profile',
+            ),
+            content_type='text/html; charset=utf-8',
+        )
+    # Brief, for the same reason as the post preview: og:image is a signed URL
+    # that expires.
+    response['Cache-Control'] = 'public, max-age=300'
+    return response
+
+
 # =============================================================================
 # USER / PROFILE VIEWS
 # =============================================================================

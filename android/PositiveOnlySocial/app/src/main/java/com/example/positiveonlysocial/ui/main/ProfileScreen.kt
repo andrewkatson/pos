@@ -13,6 +13,7 @@ import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.MoreHoriz
 import androidx.compose.material3.*
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.runtime.*
@@ -38,6 +39,7 @@ import com.example.positiveonlysocial.models.viewmodels.ProfileViewModel
 import com.example.positiveonlysocial.models.viewmodels.ProfileViewModelFactory
 import com.example.positiveonlysocial.ui.navigation.Screen
 import com.example.positiveonlysocial.ui.theme.PositiveOnlySocialTheme
+import com.example.positiveonlysocial.util.ShareLinks
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.navigation.compose.rememberNavController
 import com.example.positiveonlysocial.ui.preview.PreviewHelpers
@@ -119,6 +121,9 @@ fun ProfileBody(
 
     // Whether the owner's bio editor dialog is open (issue #380).
     var showBioEditor by rememberSaveable { mutableStateOf(false) }
+
+    // Whether the profile's options menu (Share Profile, issue #510) is open.
+    var showProfileMenu by remember { mutableStateOf(false) }
 
     val postActions = viewModel.postActions
     val currentUsername by postActions.currentUsername.collectAsState()
@@ -252,6 +257,38 @@ fun ProfileBody(
                 .padding(16.dp),
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
+            // The profile's options menu (issue #510), at the top-right of the
+            // header where the post rows keep theirs. It lives in the body rather
+            // than the app bar so both containers — the pushed ProfileScreen and
+            // the bottom-nav Profile tab, which has no app bar — get it from one
+            // implementation. Share is offered on every profile, your own and
+            // everyone else's, since the link needs no session to open.
+            Box(modifier = Modifier.fillMaxWidth()) {
+                // The inner Box is what the dropdown anchors to, so the menu opens
+                // next to the button the user tapped (issue #477).
+                Box(modifier = Modifier.align(Alignment.TopEnd)) {
+                    IconButton(
+                        onClick = { showProfileMenu = true },
+                        modifier = Modifier.testTag("profileOptionsButton")
+                    ) {
+                        Icon(Icons.Default.MoreHoriz, contentDescription = "Profile options")
+                    }
+                    DropdownMenu(
+                        expanded = showProfileMenu,
+                        onDismissRequest = { showProfileMenu = false }
+                    ) {
+                        DropdownMenuItem(
+                            text = { Text("Share Profile") },
+                            onClick = {
+                                showProfileMenu = false
+                                ShareLinks.shareText(context, ShareLinks.profileUrl(username))
+                            },
+                            modifier = Modifier.testTag("shareProfileMenuItem")
+                        )
+                    }
+                }
+            }
+
             // Large header avatar (issue #7). The owner previews their own
             // not-yet-approved upload immediately; everyone else (and the owner
             // once approved) sees the live photo.

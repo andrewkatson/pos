@@ -244,6 +244,12 @@ with a comment additionally carrying a `#comment-<comment_identifier>` fragment.
 Share is available on any post or comment, your own and everyone else's; unlike
 Like or Delete it has no ownership condition.
 
+A **profile** can be shared the same way (issue #510). Every profile — your own
+and everyone else's — carries a three-dots (⋯) options menu at the top of its
+header whose one item is **Share**, handing off the website's profile page,
+`https://smiling.social/profile/<username>`. Like a post link it works signed
+out: see [What a recipient sees](#what-a-recipient-sees-issue-381) below.
+
 Each client uses its native mechanism: iOS presents the system share sheet,
 Android fires an `ACTION_SEND` chooser, and the website uses the Web Share API
 when the browser offers it (typically mobile), otherwise copying the link to the
@@ -285,6 +291,35 @@ never existed** — the endpoints cannot be used to probe moderation state. The
 answer does not depend on who asks: a signed-in browser, a signed-out one, and a
 crawler all get the same bytes.
 
+#### A shared profile (issue #510)
+
+A shared profile link opens the website's profile page, signed in or not. Signed
+out it is read-only: the avatar, join number, bio, the Posts / Followers /
+Following counts and the post grid are all there, but Follow, Block and the
+grid's in-place like / save / report controls are replaced by a prompt to log in
+or join. Tapping a tile opens the post page above, and the profile's own Share
+still works.
+
+The public profile is decided by the same anonymous viewer. An account is
+served only when `searchable_users` would list it for that viewer — **not
+shadow banned** and **not a verified minor** — exactly the accounts a signed-in
+adult could find by name. Its grid is `visible_posts` for the same viewer, so it
+holds precisely the posts whose own shared links would resolve; a friends-only
+or hidden post is absent from the grid and from the post count alike, and the
+follower/following counts exclude accounts that are themselves not public
+(the same agreement between counts and lists that issue #398 established).
+Nothing per-viewer is served — no follow or block state — and none of the
+owner-only photo-review fields: the owner's own browser on the public page sees
+what a stranger would.
+
+An account that is not public is reported as **404, identical to a username
+that was never registered**, so the endpoints cannot confirm a shadow ban or
+locate a minor's account. The three endpoints are
+`GET /public/profiles/<username>/details/`,
+`GET /public/profiles/<username>/posts/<batch>/` and the crawler preview
+`GET /public/profiles/<username>/preview/`, all IP rate limited like the post
+ones.
+
 A comment link's `#comment-<id>` fragment is resolved by the post page itself.
 The API serves the **containing thread**, not the comment alone — a reply only
 makes sense inside the conversation it belongs to — and the page scrolls to that
@@ -309,6 +344,14 @@ Card tags. Real browsers are untouched and get the SPA. The preview endpoint
 applies exactly the public-visibility rule above, so a post it may not show
 unfurls as the generic site card rather than leaking anything.
 
+A shared profile link, `https://smiling.social/profile/<username>`, unfurls the
+same way (issue #510): the card is the username, the bio (or the generic site
+line when there is none) and the profile photo, with `og:type` `profile`. A
+profile that is not public gets the generic site card with a 404, so a crawler
+cannot tell it from an unregistered name. The function forwards only a
+well-formed username (word characters), since the match goes straight into the
+redirect URL.
+
 Two pieces of CloudFront configuration make this work and are not managed by
 `website/deploy-web.sh` (which warns about the first): custom error responses
 mapping 403/404 to `/index.html` with a 200, so a cold load of a client-side
@@ -320,11 +363,12 @@ itself.
 On a phone with the app installed, a shared link opens the **app**, not the
 browser: iOS via Universal Links (`applinks:smiling.social` in the app's
 entitlements) and Android via App Links (an `autoVerify` intent-filter for
-`https://smiling.social/post/*`). Both are claimed by a file the OS fetches from
-the website at install time, published by `website/deploy-web.sh`:
+`https://smiling.social/post/*` and `/profile/*`). Both are claimed by a file
+the OS fetches from the website at install time, published by
+`website/deploy-web.sh`:
 
 - `/.well-known/apple-app-site-association` — checked into
-  `website/public/.well-known/` and scoped to `/post/*`;
+  `website/public/.well-known/` and scoped to `/post/*` and `/profile/*`;
 - `/.well-known/assetlinks.json` — generated at deploy time, because it needs
   the release signing certificate's SHA-256 fingerprint, which lives in Play
   Console rather than the repo. Export `ANDROID_SHA256_CERT_FINGERPRINTS` to
@@ -332,17 +376,22 @@ the website at install time, published by `website/deploy-web.sh`:
   simply do not verify (links keep opening the browser, which still works
   because the web page is public).
 
-Only `/post/*` is claimed. Every other route — login, profiles, the privacy
-policy — belongs to the website, and claiming them would hijack links the app
-has no screen for.
+Only `/post/*` and `/profile/*` are claimed. Every other route — login, tags,
+the privacy policy — belongs to the website, and claiming them would hijack
+links the app has no screen for. A shared **profile** link (issue #510) opens
+that user's profile screen in the app — the same screen a search result opens;
+your own username lands on the Profile tab itself — and, like a post link, waits
+for login when opened signed out. A `/profile/` segment that could not be a
+username (anything but letters, digits and underscores) is rejected by both
+parsers rather than routed.
 
 Each client parses the URL itself rather than letting the navigation framework
-resolve it (`ShareURL.parse` on iOS, `ShareLinks.parseSharedPostLink` on
-Android), because the post detail is an **authenticated** screen. The parsed
-post id goes onto the same small router a tapped push notification uses, which
-holds the request until a session exists — so a link opened while signed out
-waits for login instead of dropping the user on a screen with no session behind
-it. Both parsers are strict about scheme, host and path shape: a `VIEW` intent
+resolve it (`ShareURL.parse` on iOS, `ShareLinks.parseSharedLink` on Android),
+because the post detail and profile screens are **authenticated**. The parsed
+post id or username goes onto the same small router a tapped push notification
+uses, which holds the request until a session exists — so a link opened while
+signed out waits for login instead of dropping the user on a screen with no
+session behind it. Both parsers are strict about scheme, host and path shape: a `VIEW` intent
 or an `.onOpenURL` callback can carry any URL, and one that merely looks similar
 must not navigate anywhere. A `#comment-<id>` fragment is parsed and the post
 still opens; scrolling to the specific comment is web-only today.

@@ -59,6 +59,21 @@ describe('crawlers', () => {
   it('matches the user agent case-insensitively', () => {
     expect(request(`/post/${POST_ID}`, 'SLACKBOT 1.0').statusCode).toBe(302)
   })
+
+  // A shared profile link unfurls too (issue #510).
+  it('a profile path is redirected to the profile preview endpoint', () => {
+    const response = request('/profile/sunny_side_up', 'Twitterbot/1.0')
+
+    expect(response.statusCode).toBe(302)
+    expect(response.headers.location.value).toBe(
+      'https://api.smiling.social/user_index/public/profiles/sunny_side_up/preview/',
+    )
+    expect(response.headers['cache-control'].value).toBe('no-store')
+  })
+
+  it('a profile path accepts a trailing slash', () => {
+    expect(request('/profile/sunny_side_up/', 'Twitterbot/1.0').statusCode).toBe(302)
+  })
 })
 
 describe('everything else passes through untouched', () => {
@@ -69,8 +84,20 @@ describe('everything else passes through untouched', () => {
     expect(result.statusCode).toBeUndefined()
   })
 
-  it('a crawler on a non-post path gets the SPA', () => {
-    for (const uri of ['/', '/home', '/profile/someone', '/tags/sunset']) {
+  it('a crawler on a path with no preview gets the SPA', () => {
+    for (const uri of ['/', '/home', '/tags/sunset', '/followers', '/profile']) {
+      expect(request(uri, 'Twitterbot/1.0').uri).toBe(uri)
+    }
+  })
+
+  it('a real browser on a profile path gets the SPA', () => {
+    expect(request('/profile/someone', CHROME).uri).toBe('/profile/someone')
+  })
+
+  it('a profile path whose name is not a username is not redirected', () => {
+    // The name goes straight into the preview URL, so only a well-formed one is
+    // ever forwarded.
+    for (const uri of ['/profile/', '/profile/some one', '/profile/a/b', '/profile/../../etc', '/profile/x?y']) {
       expect(request(uri, 'Twitterbot/1.0').uri).toBe(uri)
     }
   })

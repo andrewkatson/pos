@@ -35,6 +35,7 @@ import type {
   PostDetails,
   PostStatusResponse,
   ProfileDetails,
+  PublicProfileDetails,
   RegisterDeviceRequest,
   RegisterRequest,
   SetNotificationPreferenceResponse,
@@ -140,6 +141,13 @@ export interface PositiveOnlySocialAPI {
     commentThreadIdentifier: string,
     batch: number,
   ): Promise<Comment[]>
+  // A shared profile link, https://smiling.social/profile/<username>, for a
+  // signed-out recipient (issue #510): the profile header without any viewer
+  // relationship, and the user's public posts serialized like
+  // getPublicPostDetails. An account that is shadow banned or a verified minor
+  // 404s exactly like an unregistered name.
+  getPublicProfile(username: string): Promise<PublicProfileDetails>
+  getPublicPostsForUser(username: string, batch: number): Promise<FeedPost[]>
 
   // Comments. `formatting` carries optional inline styling spans (issue #318);
   // `audience` scopes who may see the comment (issue #445, omitted = 'public').

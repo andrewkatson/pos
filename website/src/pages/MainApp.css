@@ -489,9 +489,29 @@
   margin-bottom: 1rem;
 }
 
+/* Takes the width between the avatar and the options button. */
+.profile-identity__details {
+  flex: 1;
+  min-width: 0;
+}
+
 .profile-identity__name {
   font-size: 1.15rem;
   font-weight: 700;
+  overflow-wrap: anywhere;
+}
+
+/* The profile's options (Share) button (issue #510), sitting at the right end
+   of the identity row like the post menus sit at the end of their rows. */
+.profile-menu-button {
+  align-self: flex-start;
+  background: none;
+  border: none;
+  color: inherit;
+  cursor: pointer;
+  font-size: 1.4rem;
+  line-height: 1;
+  padding: 0.2rem 0.4rem;
 }
 
 /* The own-profile photo controls (set / change / remove). */
