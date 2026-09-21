@@ -85,12 +85,23 @@ class ClassificationResult:
     than content — no provider produced a usable score (no keys, all calls
     errored, or the image could not even be fetched). The async classification
     worker retries those instead of recording a real rejection.
+
+    `consulted` lists every cascade tier that was called (in order, including
+    tiers that errored or returned nothing usable) and `decided_by` names the
+    tier whose score settled the verdict — None when nothing was decided (a
+    provider failure) or when no tier was involved at all (testing mode, the
+    local pre-filters). Both feed the per-content model chain (issue #511),
+    which rotates later rounds of review away from the tiers that already
+    judged the same content; see model_chain.py. Like `scores`, neither is
+    ever exposed to users.
     """
     allowed: bool
     appealable: bool = False
     scores: list = field(default_factory=list)
     reason_code: str = None
     provider_failure: bool = False
+    consulted: list = field(default_factory=list)
+    decided_by: str = None
 
     def __bool__(self):
         return self.allowed
@@ -198,13 +209,19 @@ def classify_with_thresholds(available_apis, call_fn):
     order = list(available_apis)
     scores = []
     cited_codes = []
+    # Every tier called, and the tier behind each usable score (parallel to
+    # `scores`), so the verdict can name which tier settled it.
+    consulted = []
+    scored_by = []
 
     def rejection(appealable):
         return ClassificationResult(
             allowed=False, appealable=appealable, scores=scores,
-            reason_code=_pick_rejection_reason(scores, cited_codes))
+            reason_code=_pick_rejection_reason(scores, cited_codes),
+            consulted=consulted, decided_by=scored_by[-1])
 
     for api_name in order:
+        consulted.append(api_name)
         score, reason_code = _normalize_call_result(call_fn(api_name))
         if score is None:
             logger.warning("API %s returned no usable score; skipping it.", api_name)
@@ -212,13 +229,15 @@ def classify_with_thresholds(available_apis, call_fn):
 
         scores.append(score)
         cited_codes.append(reason_code)
+        scored_by.append(api_name)
         zone = get_zone(score)
         stage = len(scores)
         logger.info("AI #%d (%s) scored %.2f (cited rule: %s) -> %s zone",
                     stage, api_name, score, reason_code, zone)
 
         if zone == ZONE_ALLOW:
-            return ClassificationResult(allowed=True, scores=scores)
+            return ClassificationResult(allowed=True, scores=scores,
+                                        consulted=consulted, decided_by=api_name)
         if stage == 1 and zone == ZONE_REJECT:
             return rejection(appealable=False)
         if stage == 3:
@@ -228,7 +247,7 @@ def classify_with_thresholds(available_apis, call_fn):
     if not scores:
         logger.warning("No AI produced a usable score; flagging a provider failure "
                        "(not a content verdict) so the caller can retry.")
-        return ClassificationResult(allowed=False, provider_failure=True)
+        return ClassificationResult(allowed=False, provider_failure=True, consulted=consulted)
 
     appealable = get_zone(scores[-1]) == ZONE_MIDDLE
     logger.info("Cascade exhausted available AIs. Rejecting (appealable=%s).", appealable)

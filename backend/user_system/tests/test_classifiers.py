@@ -435,6 +435,101 @@ class TestClassifiers(PositiveOnlySocialTestCase):
         self.assertFalse(result.provider_failure)
 
     # ------------------------------------------------------------------ #
+    # Which tiers were consulted and which one decided (issue #511)        #
+    # ------------------------------------------------------------------ #
+
+    @patch.dict(os.environ, {}, clear=True)
+    @patch(_TEXT_AVAILABLE, return_value=[API_GEMMA, API_GEMINI])
+    def test_result_names_the_deciding_tier(self, _avail):
+        with patch.dict(_TEXT_DISPATCH, {API_GEMMA: MagicMock(return_value=ALLOW_SCORE)}):
+            result = is_text_positive("I am happy")
+        self.assertEqual(result.consulted, [API_GEMMA])
+        self.assertEqual(result.decided_by, API_GEMMA)
+
+    @patch.dict(os.environ, {}, clear=True)
+    @patch(_TEXT_AVAILABLE, return_value=[API_GEMMA, API_GEMINI, API_OPENAI])
+    def test_escalation_records_every_consulted_tier_and_the_last_as_decider(self, _avail):
+        with patch.dict(_TEXT_DISPATCH, {API_GEMMA: MagicMock(return_value=MIDDLE_SCORE),
+                                         API_GEMINI: MagicMock(return_value=ALLOW_SCORE)}):
+            result = is_text_positive("some text")
+        self.assertEqual(result.consulted, [API_GEMMA, API_GEMINI])
+        self.assertEqual(result.decided_by, API_GEMINI)
+
+    @patch.dict(os.environ, {}, clear=True)
+    @patch(_TEXT_AVAILABLE, return_value=[API_GEMMA, API_GEMINI])
+    def test_an_errored_tier_counts_as_consulted_but_never_decides(self, _avail):
+        with patch.dict(_TEXT_DISPATCH, {API_GEMMA: MagicMock(side_effect=Exception("boom")),
+                                         API_GEMINI: MagicMock(return_value=REJECT_SCORE)}):
+            result = is_text_positive("some text")
+        self.assertEqual(result.consulted, [API_GEMMA, API_GEMINI])
+        self.assertEqual(result.decided_by, API_GEMINI)
+
+    @patch.dict(os.environ, {}, clear=True)
+    @patch(_TEXT_AVAILABLE, return_value=[API_GEMMA, API_GEMINI])
+    def test_an_exhausted_cascade_is_decided_by_its_last_scorer(self, _avail):
+        with patch.dict(_TEXT_DISPATCH, {API_GEMMA: MagicMock(return_value=MIDDLE_SCORE),
+                                         API_GEMINI: MagicMock(return_value=MIDDLE_SCORE)}):
+            result = is_text_positive("some text")
+        self.assertFalse(result)
+        self.assertEqual(result.decided_by, API_GEMINI)
+
+    @patch.dict(os.environ, {}, clear=True)
+    @patch(_TEXT_AVAILABLE, return_value=[API_GEMMA, API_GEMINI])
+    def test_a_provider_failure_has_no_decider(self, _avail):
+        with patch.dict(_TEXT_DISPATCH, {API_GEMMA: MagicMock(side_effect=Exception("boom")),
+                                         API_GEMINI: MagicMock(side_effect=Exception("boom"))}):
+            result = is_text_positive("some text")
+        self.assertTrue(result.provider_failure)
+        self.assertEqual(result.consulted, [API_GEMMA, API_GEMINI])
+        self.assertIsNone(result.decided_by)
+
+    @patch.dict(os.environ, {"TESTING": "True"}, clear=True)
+    def test_testing_mode_involves_no_tier(self):
+        result = is_text_positive(POSITIVE_TEXT)
+        self.assertEqual(result.consulted, [])
+        self.assertIsNone(result.decided_by)
+
+    @patch.dict(os.environ, {}, clear=True)
+    @patch(_TEXT_AVAILABLE, return_value=[API_GEMMA, API_GEMINI])
+    def test_text_classifier_honors_a_caller_supplied_order(self, mock_avail):
+        """A round of re-review passes its own order; the default order is
+        not consulted at all, and the first tier in the given order leads."""
+        mock_gemma = MagicMock(return_value=ALLOW_SCORE)
+        mock_openai = MagicMock(return_value=ALLOW_SCORE)
+        with patch.dict(_TEXT_DISPATCH, {API_GEMMA: mock_gemma, API_OPENAI: mock_openai}):
+            result = is_text_positive("I am happy", available_apis=[API_OPENAI, API_GEMMA])
+        self.assertTrue(result)
+        self.assertEqual(result.decided_by, API_OPENAI)
+        mock_openai.assert_called_once()
+        mock_gemma.assert_not_called()
+        mock_avail.assert_not_called()
+
+    @patch.dict(os.environ, {}, clear=True)
+    @patch(_TEXT_AVAILABLE, return_value=[API_GEMMA])
+    def test_text_classifier_empty_caller_order_is_a_provider_failure(self, _avail):
+        with patch.dict(_TEXT_DISPATCH, {API_GEMMA: MagicMock(return_value=ALLOW_SCORE)}):
+            result = is_text_positive("I am happy", available_apis=[])
+        self.assertTrue(result.provider_failure)
+
+    @patch.dict(os.environ, _AWS_KEYS, clear=True)
+    @patch(_IMAGE_AVAILABLE, return_value=[API_GEMMA, API_GEMINI])
+    @patch('user_system.classifiers.image_classifier.boto3')
+    def test_image_classifier_honors_a_caller_supplied_order(self, mock_boto3, mock_avail):
+        mock_s3 = MagicMock()
+        mock_s3.get_object.return_value = {'Body': BytesIO(_make_fake_image_bytes())}
+        mock_boto3.client.return_value = mock_s3
+        mock_gemma = MagicMock(return_value=ALLOW_SCORE)
+        mock_gemini = MagicMock(return_value=ALLOW_SCORE)
+        with patch.dict(_IMAGE_DISPATCH, {API_GEMMA: mock_gemma, API_GEMINI: mock_gemini}):
+            result = is_image_positive("https://fake_bucket.s3.amazonaws.com/image.png",
+                                       available_apis=[API_GEMINI, API_GEMMA])
+        self.assertTrue(result)
+        self.assertEqual(result.consulted, [API_GEMINI])
+        self.assertEqual(result.decided_by, API_GEMINI)
+        mock_gemma.assert_not_called()
+        mock_avail.assert_not_called()
+
+    # ------------------------------------------------------------------ #
     # Image classifier – testing mode                                      #
     # ------------------------------------------------------------------ #
 

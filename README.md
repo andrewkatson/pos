@@ -446,6 +446,27 @@ each tier is overridable per deploy via `OPENROUTER_MODEL_GEMMA` / `_GEMINI` /
 `backend/user_system/classifiers/classifier_utils.py`), so swapping models is a
 config change, not a code change.
 
+That fixed order is the order for a post's **first** look only. Content can be
+judged by the cascade more than once — the retry of a classification that
+reached no verdict, and the automated re-review a user report triggers (see
+[Reporting](#reporting-and-user-moderation-issue-467)) — and a repeat round that
+replayed the same order would just hand the content back to the model that
+already decided it. So every post and comment keeps a **model chain** (issue
+#511): which tiers have been consulted about it and which tier's score settled
+each verdict (the last of those is the *final determiner* of the latest
+decision; both lists are on the row as `classification_models_tried` /
+`classification_model_chain`, and the moderator queue shows them). Each later
+round is ordered to put fresh eyes first — tiers that have never looked at the
+content, then tiers that looked but did not decide (a middle-zone score the
+cascade escalated past, or an error), then the earlier deciders last as
+fallbacks only, cheapest-first within each group. Once every available tier
+has decided once, the cycle is complete: the lists are cleared and the next
+round starts from a tier chosen at random (the cascade rotated to begin there),
+so the second cycle is not a predictable replay of the first. A post's text and
+image cascades share one order per round, so the same tier opens on both. See
+`backend/user_system/classifiers/model_chain.py`. Model identities are
+bookkeeping for the pipeline and moderators and are never exposed to users.
+
 The flow is:
 
 1. A cheap local **text pre-filter** (`classifiers/prefilter.py`, no LLM) runs
@@ -539,8 +560,14 @@ that content's review state), and the review has two stages:
    cascades — over the **content alone**. The report count, the reporters, and
    the reasons they typed are never shown to a model, so no report can influence
    the verdict (and no crafted report reason can be written to steer it).
-   Rejected content is hidden as `hidden_reason: "classifier"` and its author is
-   emailed; content that passes stays visible and the review is marked
+   The cascade is *ordered* differently from the first look, though: the
+   re-review is a second opinion, so it leads with a tier that has not judged
+   this content and consults the tier that approved it at creation last, as a
+   fallback only (the per-content model chain, issue #511 — see
+   [Post classification](#post-classification-async)). Comments get the same
+   treatment: their inline classification at creation is recorded as the first
+   round. Rejected content is hidden as `hidden_reason: "classifier"` and its
+   author is emailed; content that passes stays visible and the review is marked
    `cleared`. Two deliberate asymmetries: a *final* (normally non-appealable)
    verdict on re-review is still recorded as **appealable**, since this content
    was already published under an earlier verdict; and a provider outage
