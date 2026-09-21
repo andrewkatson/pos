@@ -64,14 +64,26 @@ class ShareLinksTest {
     }
 
     @Test
+    fun parseAcceptsAUnicodeUsername() {
+        // The backend's username rule admits Unicode letters, so the parser
+        // must too — Java's ASCII-only `\w` would have rejected this.
+        assertEquals(
+            SharedLink.Profile("sonn\u00e9_\u00fcber_\u65e5\u672c_x"),
+            ShareLinks.parseSharedLink("https://smiling.social/profile/sonn%C3%A9_%C3%BCber_%E6%97%A5%E6%9C%AC_x")
+        )
+    }
+
+    @Test
     fun parseRejectsProfileLinksThatCouldNotBeAUsername() {
         // The segment becomes a navigation argument, so only a well-formed
-        // username (word characters) is ever routed.
+        // username (10-500 word characters, the backend's rule) is ever routed.
         for (url in listOf(
             "https://smiling.social/profile/",
             "https://smiling.social/profile/some%20one",
             "https://smiling.social/profile/a-b",
-            "https://smiling.social/profile/ada/posts"
+            "https://smiling.social/profile/ada/posts",
+            "https://smiling.social/profile/tooshort9",
+            "https://smiling.social/profile/" + "a".repeat(501)
         )) {
             assertNull("expected $url to be rejected", ShareLinks.parseSharedLink(url))
         }

@@ -119,6 +119,9 @@ describe('everything else passes through untouched', () => {
       // A stray or malformed percent sign is not an encoded byte.
       '/profile/100%',
       '/profile/a%zzb',
+      // Shorter or longer than the backend ever registers.
+      '/profile/tooshort9',
+      `/profile/${'a'.repeat(501)}`,
     ]) {
       expect(request(uri, 'Twitterbot/1.0').uri).toBe(uri)
     }

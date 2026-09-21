@@ -349,9 +349,9 @@ same way (issue #510): the card is the username, the bio (or the generic site
 line when there is none) and the profile photo, with `og:type` `profile`. A
 profile that is not public gets the generic site card with a 404, so a crawler
 cannot tell it from an unregistered name. The function forwards only a
-well-formed username — word characters or percent-encoded bytes, since the URI
-it sees is still encoded and usernames may contain Unicode letters — because
-the match goes straight into the redirect URL.
+well-formed username — 10–500 word characters or percent-encoded bytes, since
+the URI it sees is still encoded and usernames may contain Unicode letters —
+because the match goes straight into the redirect URL.
 
 Two pieces of CloudFront configuration make this work and are not managed by
 `website/deploy-web.sh` (which warns about the first): custom error responses
@@ -383,8 +383,8 @@ links the app has no screen for. A shared **profile** link (issue #510) opens
 that user's profile screen in the app — the same screen a search result opens;
 your own username lands on the Profile tab itself — and, like a post link, waits
 for login when opened signed out. A `/profile/` segment that could not be a
-username (anything but letters, digits and underscores) is rejected by both
-parsers rather than routed.
+username (anything but 10–500 letters, digits and underscores — the backend's
+`Patterns.alphanumeric`) is rejected by both parsers rather than routed.
 
 Each client parses the URL itself rather than letting the navigation framework
 resolve it (`ShareURL.parse` on iOS, `ShareLinks.parseSharedLink` on Android),

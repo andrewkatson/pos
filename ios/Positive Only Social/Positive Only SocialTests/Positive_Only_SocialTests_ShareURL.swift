@@ -59,14 +59,24 @@ struct Positive_Only_SocialTests_ShareURL {
         #expect(ShareURL.parse(www) == SharedLink.profile(username: "sunny_side_up"))
     }
 
+    @Test func parseAcceptsAUnicodeUsername() throws {
+        // The backend's username rule admits Unicode letters, so the parser
+        // must too; URLComponents hands the path back decoded.
+        let url = try #require(
+            URL(string: "https://smiling.social/profile/sonn%C3%A9_%C3%BCber_%E6%97%A5%E6%9C%AC_x"))
+        #expect(ShareURL.parse(url) == SharedLink.profile(username: "sonn\u{E9}_\u{FC}ber_\u{65E5}\u{672C}_x"))
+    }
+
     @Test func parseRejectsProfileLinksThatCouldNotBeAUsername() throws {
         // The segment becomes a navigation value, so only a well-formed
-        // username (word characters) is ever routed.
+        // username (10-500 word characters, the backend's rule) is ever routed.
         let rejected = [
             "https://smiling.social/profile/",
             "https://smiling.social/profile/some%20one",
             "https://smiling.social/profile/a-b",
             "https://smiling.social/profile/ada/posts",
+            "https://smiling.social/profile/tooshort9",
+            "https://smiling.social/profile/" + String(repeating: "a", count: 501),
         ]
         for string in rejected {
             let url = try #require(URL(string: string))

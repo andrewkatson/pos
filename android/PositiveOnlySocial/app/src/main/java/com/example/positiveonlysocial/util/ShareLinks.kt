@@ -82,13 +82,16 @@ object ShareLinks {
     private const val COMMENT_FRAGMENT_PREFIX = "comment-"
 
     /**
-     * Usernames are word characters only (letters, digits, underscore — the
-     * backend registers nothing else), so a profile segment that isn't is not a
-     * profile we have a screen for. A predicate rather than a regex because
-     * Java's `\w` is ASCII-only while the backend's admits Unicode letters.
+     * Usernames are 10–500 word characters (letters, digits, underscore) — the
+     * backend's `Patterns.alphanumeric`, which registration and the profile
+     * endpoints all enforce — so a profile segment that isn't is not a profile
+     * we have a screen for. A predicate rather than a regex because Java's `\w`
+     * is ASCII-only while the backend's admits Unicode letters; the length is
+     * counted in code points for the same reason (the backend counts
+     * characters, not UTF-16 units).
      */
     private fun isPlausibleUsername(value: String): Boolean =
-        value.isNotEmpty() && value.length <= 500 &&
+        value.codePointCount(0, value.length) in 10..500 &&
             value.all { it.isLetterOrDigit() || it == '_' }
 
     /**
