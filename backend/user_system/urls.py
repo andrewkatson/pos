@@ -198,6 +198,24 @@ urlpatterns = [
     path('public/posts/<uuid:post_identifier>/preview/', views.get_post_link_preview,
          name='get_post_link_preview'),
 
+    # A shared https://smiling.social/profile/<username> link (issue #510): the
+    # profile header, the user's public post grid, and the crawler preview. An
+    # account that is shadow banned or a verified minor 404s like an
+    # unregistered name; see the "Shared profiles" notes in views.py.
+
+    # GET /public/profiles/<str:username>/details/
+    path('public/profiles/<str:username>/details/', views.get_public_profile_details,
+         name='get_public_profile_details'),
+
+    # GET /public/profiles/<str:username>/posts/<int:batch>/
+    path('public/profiles/<str:username>/posts/<int:batch>/', views.get_public_posts_for_user,
+         name='get_public_posts_for_user'),
+
+    # GET /public/profiles/<str:username>/preview/ — Open Graph HTML for
+    # link-preview crawlers, which CloudFront routes here by user-agent.
+    path('public/profiles/<str:username>/preview/', views.get_profile_link_preview,
+         name='get_profile_link_preview'),
+
     # =========================================================================
     # USER & PROFILE
     # =========================================================================

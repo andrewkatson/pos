@@ -68,15 +68,22 @@ struct Positive_Only_SocialApp: App {
                         .environmentObject(authManager)
                 }
             }
-            // A shared https://smiling.social/post/<id> link opened this app as
-            // a Universal Link (issue #382). Route it through the same bus a
-            // tapped push notification uses: HomeView consumes the pending id,
-            // so a link opened while signed out simply waits there until the
-            // user logs in rather than pushing an authenticated screen out of
-            // the Welcome flow. A URL that isn't one of ours is ignored.
+            // A shared https://smiling.social/post/<id> (issue #382) or
+            // /profile/<username> (issue #510) link opened this app as a
+            // Universal Link. Route it through the same bus a tapped push
+            // notification uses: HomeView consumes the pending request, so a
+            // link opened while signed out simply waits there until the user
+            // logs in rather than pushing an authenticated screen out of the
+            // Welcome flow. A URL that isn't one of ours is ignored.
             .onOpenURL { url in
-                guard let link = ShareURL.parse(url) else { return }
-                PushRouter.shared.openPost(link.postIdentifier)
+                switch ShareURL.parse(url) {
+                case .post(let link):
+                    PushRouter.shared.openPost(link.postIdentifier)
+                case .profile(let username):
+                    PushRouter.shared.openProfile(username)
+                case nil:
+                    return
+                }
             }
         }
     }

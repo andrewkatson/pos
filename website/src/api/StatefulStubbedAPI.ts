@@ -49,6 +49,7 @@ import type {
   NotificationPreference,
   PostStatusResponse,
   ProfileDetails,
+  PublicProfileDetails,
   ProfileImageStatus,
   RegisterDeviceRequest,
   RegisterRequest,
@@ -1375,6 +1376,67 @@ export class StatefulStubbedAPI implements PositiveOnlySocialAPI {
     return this.batch(threads, batch, COMMENT_BATCH_SIZE).map((t) => ({
       comment_thread_identifier: t.threadIdentifier,
     }))
+  }
+
+  /** The account behind a shared profile link, or a 404 when it is missing or
+   * not public (issue #510). Mirrors the backend's `searchable_users` for the
+   * anonymous viewer: a verified minor's account is not public. The stub has no
+   * ban model, so a shadow-banned account survives here where the backend hides
+   * it — the same caveat as `isPubliclyVisible`. */
+  private requirePublicUser(username: string): UserMock {
+    const target = this.findUserByName(username)
+    if (!target || this.isVerifiedMinor(target.id)) {
+      throw new ApiError(404, 'User not found')
+    }
+    return target
+  }
+
+  async getPublicProfile(username: string): Promise<PublicProfileDetails> {
+    const target = this.requirePublicUser(username)
+    // Only the posts a signed-out visitor could open count, so the stat can
+    // never disagree with the grid below it.
+    const postCount = this.posts.filter(
+      (p) => p.authorId === target.id && this.isPubliclyVisible(p),
+    ).length
+    // No is_following / follow_category / is_blocked (no viewer to have them)
+    // and none of the owner-only photo-review fields.
+    return {
+      username: target.username,
+      post_count: postCount,
+      follower_count: target.followers.size,
+      following_count: target.following.size,
+      identity_is_verified: target.isVerified,
+      profile_image_url: target.profileImageUrl,
+      profile_image_original_url: target.profileImageUrl,
+      membership_number: target.membershipNumber,
+      bio: target.bio,
+    }
+  }
+
+  async getPublicPostsForUser(username: string, batch: number): Promise<FeedPost[]> {
+    const target = this.requirePublicUser(username)
+    const visible = this.posts
+      .filter((p) => p.authorId === target.id && this.isPubliclyVisible(p))
+      .sort((a, b) => b.creationTime - a.creationTime)
+    // Serialized like getPublicPostDetails: nothing per-viewer and no author-only
+    // status, since there is no viewer.
+    return this.batch(visible, batch, POST_BATCH_SIZE).map((post) => {
+      const author = this.users.find((u) => u.id === post.authorId)
+      return {
+        post_identifier: post.postIdentifier,
+        image_url: post.imageUrl,
+        original_image_url: post.imageUrl,
+        author_username: author ? author.username : '',
+        caption: post.caption,
+        audience: post.audience,
+        tags: post.tags,
+        caption_font: post.captionFont,
+        background_color: post.backgroundColor,
+        post_likes: post.likes.size,
+        creation_time: new Date(post.creationTime).toISOString(),
+        ...this.authorAvatarFields(post.authorId),
+      }
+    })
   }
 
   async getPublicCommentsForThread(

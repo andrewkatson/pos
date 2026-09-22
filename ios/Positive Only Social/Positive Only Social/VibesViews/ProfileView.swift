@@ -79,6 +79,9 @@ struct ProfileBodyView: View {
     /// Whether the owner's bio editor sheet is open (issue #380).
     @State private var isEditingBio = false
 
+    /// Whether the profile's options popover (Share Profile, issue #510) is open.
+    @State private var showProfileMenu = false
+
     /// The accessibility identifier for each grid tile. The Profile tab keeps
     /// "MyPostImage" so your own grid stays distinguishable from someone else's.
     var postAccessibilityIdentifier: String = "ProfilePostImage"
@@ -129,12 +132,44 @@ struct ProfileBodyView: View {
                 viewModel.fetchProfileDetails()
             }
         }
+        // Native share sheet for this profile (issue #510), driven by the item
+        // the options menu's Share Profile set — the same pattern as a post.
+        .sheet(item: $viewModel.profileShareItem) { item in
+            ShareActivityView(url: item.url)
+        }
     }
 
     /// A new sub-view for the profile header and follow button
     @ViewBuilder
     private var profileHeader: some View {
         VStack {
+            // The profile's options menu (issue #510), at the top-right of the
+            // header where the post rows keep theirs. Lives in the body rather
+            // than the navigation bar so both containers — the pushed profile
+            // and the Profile tab — get it from one implementation.
+            HStack {
+                Spacer()
+                Button {
+                    showProfileMenu = true
+                } label: {
+                    Image(systemName: "ellipsis")
+                        .foregroundColor(.secondary)
+                        .padding(8)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("Profile options")
+                .accessibilityIdentifier("ProfileOptionsButton")
+                // Anchored to the button, like the post menus (issue #477).
+                .popover(isPresented: $showProfileMenu, attachmentAnchor: .rect(.bounds)) {
+                    profileMenu
+                        // Without this a popover becomes a sheet in a compact
+                        // size class — i.e. everywhere on iPhone.
+                        .presentationCompactAdaptation(.popover)
+                }
+            }
+            .padding(.top, 4)
+
             // The large header avatar (issue #7). The owner previews a
             // not-yet-approved upload immediately; everyone else sees the live
             // approved photo (or the placeholder).
@@ -144,7 +179,6 @@ struct ProfileBodyView: View {
                 blurHash: viewModel.headerAvatarBlurHash,
                 size: 96
             )
-            .padding(.top)
             .accessibilityIdentifier("ProfileHeaderAvatar")
 
             // The owner's own set / remove controls.
@@ -251,6 +285,31 @@ struct ProfileBodyView: View {
         }
     }
     
+    /// The profile's options (issue #510): Share Profile, offered on every
+    /// profile — your own and everyone else's — since the link needs no
+    /// session to open. The row closes the popover before acting, since the
+    /// share flow presents a sheet of its own (see PostDetailView.menuRow).
+    @ViewBuilder
+    private var profileMenu: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            Button {
+                showProfileMenu = false
+                DispatchQueue.main.async { viewModel.shareProfile() }
+            } label: {
+                Text("Share Profile")
+                    .foregroundColor(.primary)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.horizontal, 20)
+                    .padding(.vertical, 12)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .accessibilityIdentifier("ShareProfileActionButton")
+        }
+        .padding(.vertical, 6)
+        .frame(minWidth: 200, alignment: .leading)
+    }
+
     /// The owner's profile-photo controls (issue #7): pick a photo to upload and
     /// set, remove the current one, plus the async review status. Only shown on
     /// your own profile.

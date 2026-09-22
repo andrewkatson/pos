@@ -85,6 +85,22 @@ struct HomeView: View {
             profilePath = newPath
             pushRouter.pendingPostIdentifier = nil
         }
+        // A shared profile link (issue #510) asks us to open that profile, the
+        // same way. Your own username lands on the Profile tab itself — the
+        // profile already behind it — rather than pushing a copy of it, which
+        // is where tapping your own name anywhere in the app goes too (#347).
+        // Anyone else is pushed as a User, the value the tab's stack already
+        // resolves to ProfileView for search results and feed rows.
+        .onReceive(pushRouter.$pendingProfileUsername) { username in
+            guard let username else { return }
+            currentTab = GVOAppConstants.profileTabIndex
+            var newPath = NavigationPath()
+            if username != viewModel.currentUsername {
+                newPath.append(User(username: username, identityIsVerified: false))
+            }
+            profilePath = newPath
+            pushRouter.pendingProfileUsername = nil
+        }
     }
 }
 
