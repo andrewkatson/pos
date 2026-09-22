@@ -215,6 +215,7 @@ class ModerationReviewAdmin(admin.ModelAdmin):
     # below, so nothing here is hand-edited — admins act, they don't type.
     readonly_fields = ("review_identifier", "post", "comment", "status", "author",
                        "target_summary", "reported_reasons", "report_count",
+                       "classifier_chain",
                        "reports_at_last_review", "review_attempts", "created",
                        "updated", "reviewed_time", "resolved_time", "resolved_by",
                        "resolution_note")
@@ -270,6 +271,17 @@ class ModerationReviewAdmin(admin.ModelAdmin):
         # (a caller outside the admin, a test) rather than silently blanking.
         count = getattr(review, '_report_count', None)
         return review.report_count() if count is None else count
+
+    @admin.display(description="Classifier chain")
+    def classifier_chain(self, review):
+        """Which cascade tiers have judged this content (issue #511): every
+        tier consulted, and the ones whose score settled a verdict — the last
+        of those being the final determiner of the latest automated decision.
+        Shown to the moderator only; model identities never reach users."""
+        target = review.target
+        chain = ', '.join(target.classification_model_chain) or '—'
+        tried = ', '.join(target.classification_models_tried) or '—'
+        return f"decided by: {chain}\nconsulted: {tried}"
 
     @admin.display(description="Reported reasons")
     def reported_reasons(self, review):

@@ -26,7 +26,7 @@ from django_ratelimit.decorators import ratelimit
 from django_ratelimit.exceptions import Ratelimited
 
 from . import link_preview, moderation, tasks
-from .classifiers import image_classifier, text_classifier, interest_classifier
+from .classifiers import image_classifier, text_classifier, interest_classifier, model_chain
 from .classifiers.classifier_constants import REASON_PHRASES, GENERIC_REASON_CODE
 from .classifiers.prefilter import prefilter_text
 from .constants import Patterns, Params, POST_BATCH_SIZE, \
@@ -3071,6 +3071,9 @@ def comment_on_post(request, post_identifier):
         }, status=400)
 
     hidden = not text_result
+    # Which tiers judged the comment (issue #511), so a report-triggered
+    # re-review leads with a different one.
+    models_tried, model_chain_used = model_chain.record_round([], [], [text_result])
 
     # Create a new thread for this top-level comment
     comment_thread = post.commentthread_set.create()
@@ -3078,7 +3081,8 @@ def comment_on_post(request, post_identifier):
         author=request.user, body=comment_text, body_formatting=body_formatting,
         audience=audience,
         hidden=hidden,
-        hidden_reason=HIDDEN_REASON_CLASSIFIER if hidden else HIDDEN_REASON_NONE)
+        hidden_reason=HIDDEN_REASON_CLASSIFIER if hidden else HIDDEN_REASON_NONE,
+        classification_models_tried=models_tried, classification_model_chain=model_chain_used)
 
     response_data = {
         Fields.comment_thread_identifier: comment_thread.comment_thread_identifier,
@@ -3164,11 +3168,14 @@ def reply_to_comment_thread(request, post_identifier, comment_thread_identifier)
         }, status=400)
 
     hidden = not text_result
+    # As in comment_on_post: record which tiers judged the reply (issue #511).
+    models_tried, model_chain_used = model_chain.record_round([], [], [text_result])
     new_comment = comment_thread.comment_set.create(
         author=request.user, body=comment_text, body_formatting=body_formatting,
         audience=audience,
         hidden=hidden,
-        hidden_reason=HIDDEN_REASON_CLASSIFIER if hidden else HIDDEN_REASON_NONE)
+        hidden_reason=HIDDEN_REASON_CLASSIFIER if hidden else HIDDEN_REASON_NONE,
+        classification_models_tried=models_tried, classification_model_chain=model_chain_used)
 
     response_data = {Fields.comment_identifier: new_comment.comment_identifier}
     if hidden:

@@ -108,7 +108,12 @@ def load_image_from_url(image_url):
     return image
 
 
-def is_image_positive(image_url):
+def is_image_positive(image_url, available_apis=None):
+    """Returns a ClassificationResult (truthy when the image is allowed).
+
+    `available_apis` overrides the cascade order for this call, exactly as for
+    is_text_positive (issue #511); the default is the standard order.
+    """
     _p = urlparse(image_url)
     logger.debug("is_image_positive called with URL: %s", _p._replace(query='', fragment='').geturl())
 
@@ -119,7 +124,7 @@ def is_image_positive(image_url):
         return ClassificationResult(allowed=allowed)
 
     logger.debug("Checking available AI APIs for image classification")
-    available_apis = get_available_apis()
+    available_apis = get_available_apis() if available_apis is None else list(available_apis)
     logger.info("Available APIs for image classification: %s", available_apis)
 
     if not available_apis:
