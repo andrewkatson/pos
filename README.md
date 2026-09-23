@@ -1178,6 +1178,18 @@ Post images live in two S3 buckets: clients upload the original to the source
 bucket (`AWS_STORAGE_BUCKET_NAME`) and a Lambda mirrors a compressed copy to
 `AWS_COMPRESSED_STORAGE_BUCKET_NAME` under the same key.
 
+The compressed copy is also **resized**: the Lambda (`backend/tools/image_compressor.py`)
+caps the long edge at 1440px (override with the Lambda's `MAX_DIMENSION_PX`
+env var; smaller images are never upscaled) before stepping JPEG quality down
+toward `TARGET_SIZE_KB`. Clients only ever show images at screen size, and a
+full 12 MP camera photo (4032x3024) is slow to decode — on iOS it logged
+`CVPixelBufferCreate returned err -6680` and fell back to software decoding.
+Compressed copies written before the cap keep their full size until their
+source object is rewritten (which re-triggers the Lambda). On top of that, the
+iOS image views decode straight to the size they display at
+(`VibesHelpers/ImageDownsampling.swift`), matching what Coil does on Android, so
+even the full-resolution fallback never builds a full-size bitmap.
+
 Both buckets are **private** (S3 Block Public Access + an Origin Access Control
 bucket policy). Reads happen only through CloudFront, and the backend signs every
 image URL it hands to a client, so an image is fetchable only with a valid,

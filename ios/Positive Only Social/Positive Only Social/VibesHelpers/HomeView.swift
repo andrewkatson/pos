@@ -492,6 +492,7 @@ struct GridPostImage: View {
     // Once the compressed URL genuinely fails, switch to the original and let
     // Kingfisher load the new URL.
     @State private var useOriginal = false
+    @Environment(\.displayScale) private var displayScale
 
     /// What KFImage shows while the photo loads (and if it never loads): the
     /// decoded BlurHash when the post carries one, otherwise the flat grey shade.
@@ -510,22 +511,32 @@ struct GridPostImage: View {
     var body: some View {
         if let imageUrl {
             let urlString = useOriginal ? (originalImageUrl ?? imageUrl) : imageUrl
-            KFImage(URL(string: urlString))
-                // Rides out the just-posted window where the compressed copy isn't
-                // in the bucket yet; only HTTP errors are retried, not cancellations.
-                .retry(maxCount: 2, interval: .seconds(1))
-                .placeholder { blurHashPlaceholder }
-                .onFailure { error in
-                    // A cancelled load isn't a missing image — the tile reloads the
-                    // same URL when it next appears, so save the fallback for real
-                    // failures.
-                    guard !error.isTaskCancelled else { return }
-                    if !useOriginal, originalImageUrl != nil {
-                        useOriginal = true
+            // Every caller sizes the tile (a square overlay), so the reader just
+            // measures it — a full-width feed tile and a third-width profile tile
+            // each decode only as many pixels as they show.
+            GeometryReader { geometry in
+                KFImage(source: SignedImageURL.source(for: urlString))
+                    .downsampled(toMaxPixelSize: ImageDownsampling.maxPixelSize(
+                        toFill: max(geometry.size.width, geometry.size.height),
+                        scale: displayScale
+                    ))
+                    // Rides out the just-posted window where the compressed copy isn't
+                    // in the bucket yet; only HTTP errors are retried, not cancellations.
+                    .retry(maxCount: 2, interval: .seconds(1))
+                    .placeholder { blurHashPlaceholder }
+                    .onFailure { error in
+                        // A cancelled load isn't a missing image — the tile reloads the
+                        // same URL when it next appears, so save the fallback for real
+                        // failures.
+                        guard !error.isTaskCancelled else { return }
+                        if !useOriginal, originalImageUrl != nil {
+                            useOriginal = true
+                        }
                     }
-                }
-                .resizable()
-                .scaledToFill()
+                    .resizable()
+                    .scaledToFill()
+                    .frame(width: geometry.size.width, height: geometry.size.height)
+            }
         } else {
             CaptionTileView(caption: caption, captionFont: captionFont, backgroundColor: backgroundColor)
         }
