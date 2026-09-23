@@ -555,7 +555,8 @@ class MockPositiveOnlySocialAPI : PositiveOnlySocialAPI {
 
     override suspend fun searchUsers(
         token: String,
-        fragment: String
+        fragment: String,
+        batch: Int
     ): Response<List<User>> {
         return Response.success(
             listOf(

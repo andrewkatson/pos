@@ -1343,15 +1343,19 @@ class StatefulStubbedAPI : PositiveOnlySocialAPI {
     // USER / PROFILE
     // ============================================================================================
 
-    override suspend fun searchUsers(token: String, fragment: String): Response<List<User>> {
+    override suspend fun searchUsers(token: String, fragment: String, batch: Int): Response<List<User>> {
         val currentUser = getAuthorizedUser(token)
+        val batchSize = 10
+        val startingIndex = batch * batchSize
         val matches = users
             .filter { 
-                it.username.contains(fragment, ignoreCase = true) && 
+                it.username.startsWith(fragment, ignoreCase = true) &&
                 it.id != currentUser?.id &&
                 (currentUser == null || !currentUser.blockedBy.contains(it.id))
             }
-            .take(10)
+            .sortedBy { it.username }
+            .drop(startingIndex)
+            .take(batchSize)
             .map { User(it.username, it.isVerified, approvedAvatarFor(it.id), approvedAvatarFor(it.id)) }
         return Response.success(matches)
     }
