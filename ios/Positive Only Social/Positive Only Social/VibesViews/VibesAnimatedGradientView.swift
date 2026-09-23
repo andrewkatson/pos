@@ -22,6 +22,11 @@ struct AnimatedGradientBackground: View {
     static let exampleCentre = SwiftUICore.Color.indigo.opacity(0.7)
     static let exampleBottom = SwiftUICore.Color.pink.opacity(0.6)
     
+    
+    // Use this to init the gradient with custom colors, else
+    // Use the designated init "()" and will create
+    // one with defualt values
+    
     init(
         animateGradient: Bool = false,
         top: Color = exampleTop,
