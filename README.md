@@ -496,6 +496,26 @@ each tier is overridable per deploy via `OPENROUTER_MODEL_GEMMA` / `_GEMINI` /
 `backend/user_system/classifiers/classifier_utils.py`), so swapping models is a
 config change, not a code change.
 
+Each model is also told **which line of defense it is** (issue #491), because
+the three stages do not carry equal weight: a clear rejection from the *first*
+reviewer is final and non-appealable, while the *third* reviewer's uncertainty
+is itself a rejection, there being nobody left to escalate to. So stage 1 is
+told that a middle score is a legitimate answer that escalates to a stronger
+reviewer — cheap models are overconfident, and the aim is to convert spurious
+hard rejections into escalations — and stage 3 is told that nothing follows it,
+so it should commit rather than hedge. This is about calibration, not making the
+first pass vaguer: clear content should still be settled cheaply at stage 1.
+Two things are deliberately withheld. Models are never told the earlier
+reviewers' **scores**, which would anchor them toward the middle and defeat the
+point of asking again — each stage judges the content, not its predecessor. And
+the stage is the reviewer's position among the scores that actually *counted*,
+not its index in the tier order: a tier that errors or answers unusably is
+skipped without consuming a stage, so the next tier inherits the line of defense
+it failed to provide (the same number the cascade's own decision rules use).
+Stage position is the only per-call context any model ever receives — in
+particular the re-review a report triggers adds nothing about the report, by
+design (see [Reporting](#reporting-and-user-moderation-issue-467)).
+
 That fixed order is the order for a post's **first** look only. Content can be
 judged by the cascade more than once — the retry of a classification that
 reached no verdict, and the automated re-review a user report triggers (see
@@ -610,7 +630,16 @@ that content's review state), and the review has two stages:
    re-run — the local word-list pre-filter first, then the text and image
    cascades — over the **content alone**. The report count, the reporters, and
    the reasons they typed are never shown to a model, so no report can influence
-   the verdict (and no crafted report reason can be written to steer it).
+   the verdict (and no crafted report reason can be written to steer it). Not
+   even the bare fact that the content was reported is passed along: a model
+   primed that *somebody thinks this is bad* leans toward rejection, which would
+   rebuild the coordinated-report takedown this design removed, while priming it
+   the other way ("this was already published") would make re-review laxer than
+   the original gate. The re-review's protections are therefore structural — the
+   appealable-verdict and escalate-on-outage asymmetries below — rather than
+   hints in a prompt. A re-reviewing model receives exactly what a first-look
+   model receives: its stage in the cascade (see
+   [Post classification](#post-classification-async)).
    The cascade is *ordered* differently from the first look, though: the
    re-review is a second opinion, so it leads with a tier that has not judged
    this content and consults the tier that approved it at creation last, as a

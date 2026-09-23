@@ -5,7 +5,9 @@ from botocore.config import Config
 from PIL import Image
 from io import BytesIO
 from urllib.parse import urlparse
-from .classifier_constants import POSITIVE_IMAGE_FILENAME, IMAGE_CLASSIFIER_PROMPT
+from .classifier_constants import (
+    POSITIVE_IMAGE_FILENAME, IMAGE_CLASSIFIER_PROMPT, classifier_prompt,
+)
 from .classifier_utils import (
     get_available_apis, classify_with_thresholds, ClassificationResult,
     IMAGE_API_DISPATCH,
@@ -153,14 +155,14 @@ def is_image_positive(image_url, available_apis=None):
                         prefilter_result.public_reason_code())
             return prefilter_result
 
-        def call_api(api_name):
+        def call_api(api_name, stage):
             try:
                 api_func = IMAGE_API_DISPATCH.get(api_name)
                 if not api_func:
                     logger.error("Unsupported API name: %s", api_name)
                     return None
-                logger.debug("Calling %s API for image classification", api_name)
-                score = api_func(image, IMAGE_CLASSIFIER_PROMPT)
+                logger.debug("Calling %s API for image classification (stage %d)", api_name, stage)
+                score = api_func(image, classifier_prompt(IMAGE_CLASSIFIER_PROMPT, stage))
                 logger.debug("%s API returned: %s", api_name, score)
                 return score
             except Exception:

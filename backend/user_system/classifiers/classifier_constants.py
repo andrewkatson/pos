@@ -130,6 +130,77 @@ IMAGE_CLASSIFIER_PROMPT = (
     + _PROBABILITY_INSTRUCTION
 )
 
+# Line-of-defense context, prepended per cascade stage (issue #491).
+#
+# The cascade gives its three stages genuinely different powers (see
+# classify_with_thresholds): a low score from the *first* reviewer is a final,
+# non-appealable rejection, while the *third* reviewer's uncertainty is itself a
+# rejection because there is nobody left to escalate to. Until now every stage
+# received the identical prompt, so the models could not act on the weight their
+# answer carried.
+#
+# The goal is CALIBRATION, not vagueness. Small first-tier models are
+# overconfident — they cluster at 0.9/0.1 and rarely use the middle zone — which
+# at stage 1 turns a spurious low score into an unappealable ban. Stage 1 is
+# therefore told that abstaining (a middle score) is a legitimate answer that
+# escalates. Stage 3 is told the opposite: nothing follows it, so hedging is
+# itself a verdict and it should commit.
+#
+# The context carries no numerals, deliberately. parse_probability_and_rule
+# takes the *last* "score,rule" pair (or bare number) in a reply so that a model
+# echoing its prompt before answering still parses; a numeral here could be read
+# back as the verdict by a model that echoes *after* answering instead. Keep any
+# new wording digit-free — there is a test for it.
+#
+# Deliberately absent: the earlier reviewers' scores. Passing them would anchor
+# later stages toward the middle and defeat the point of asking again — each
+# stage judges the content, not its predecessor. Stage position is the *only*
+# per-call context any model ever receives; in particular the report re-review
+# path (README, "Reporting and user moderation") adds nothing about the report,
+# so no report can steer a verdict.
+_STAGE_CONTEXT = {
+    1: (
+        "You are the first of up to three reviewers of this content. A clearly "
+        "acceptable answer from you approves it immediately and a clearly "
+        "unacceptable answer rejects it outright, so give an answer at either "
+        "end of the range below only when you are confident. If you are "
+        "genuinely unsure, answer in the middle of the range: a further, more "
+        "capable reviewer will then look at it."
+    ),
+    2: (
+        "You are the second of up to three reviewers of this content. An earlier "
+        "reviewer was not confident about it. You are not told their answer and "
+        "should not try to guess it — judge the content on its own. A clearly "
+        "acceptable answer from you approves it; anything else passes it to a "
+        "final reviewer."
+    ),
+    3: (
+        "You are the final reviewer of this content. No one reviews it after "
+        "you, so an unsure answer rejects it just as a confident rejection "
+        "would. Commit to the verdict the content deserves rather than hedging."
+    ),
+}
+
+
+def classifier_prompt(base_prompt, stage):
+    """Prefix a classifier prompt with this reviewer's place in the cascade.
+
+    `stage` is the reviewer's 1-based position among the scores that actually
+    counted, which is NOT the same as its position in CASCADE_ORDER: when a tier
+    errors or returns an unparseable score it is skipped, so the next tier moves
+    up a stage. The cascade's decision rules key on that same stage number, so
+    the prompt has to follow it rather than the tier's identity.
+
+    An unknown stage returns the prompt unchanged — the cascade never consults a
+    4th reviewer, but a prompt with no stage context is a safe default rather
+    than a crash.
+    """
+    context = _STAGE_CONTEXT.get(stage)
+    if not context:
+        return base_prompt
+    return context + "\n\n" + base_prompt
+
+
 # =============================================================================
 # POSITIVE INTEREST CATEGORIZATION (issues #446 / #35)
 # =============================================================================

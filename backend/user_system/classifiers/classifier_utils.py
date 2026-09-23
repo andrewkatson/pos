@@ -202,6 +202,13 @@ def classify_with_thresholds(available_apis, call_fn):
     and only ambiguous content escalates to the pricier ones. An API that
     errors or returns an unparseable score is skipped as if unavailable. With
     no usable scores at all the content is rejected and not appealable.
+
+    `call_fn` is called as call_fn(api_name, stage), where `stage` is the 1-based
+    number of the reviewer this call *would* be — the same number the rules above
+    are written in terms of. Because a skipped tier does not consume a stage, the
+    stage is the count of usable scores so far plus one, not the tier's index in
+    the order. Callers pass it to classifier_prompt so each model is told which
+    line of defense it is (issue #491).
     """
     if not available_apis:
         return ClassificationResult(allowed=False, provider_failure=True)
@@ -222,7 +229,10 @@ def classify_with_thresholds(available_apis, call_fn):
 
     for api_name in order:
         consulted.append(api_name)
-        score, reason_code = _normalize_call_result(call_fn(api_name))
+        # A skipped tier does not advance the stage, so the next tier is asked
+        # for the same line of defense this one failed to provide.
+        stage = len(scores) + 1
+        score, reason_code = _normalize_call_result(call_fn(api_name, stage))
         if score is None:
             logger.warning("API %s returned no usable score; skipping it.", api_name)
             continue
@@ -231,7 +241,6 @@ def classify_with_thresholds(available_apis, call_fn):
         cited_codes.append(reason_code)
         scored_by.append(api_name)
         zone = get_zone(score)
-        stage = len(scores)
         logger.info("AI #%d (%s) scored %.2f (cited rule: %s) -> %s zone",
                     stage, api_name, score, reason_code, zone)
 

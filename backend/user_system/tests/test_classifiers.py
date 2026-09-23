@@ -4,7 +4,10 @@ from io import BytesIO
 from PIL import Image
 from ..classifiers.text_classifier import is_text_positive
 from ..classifiers.image_classifier import is_image_positive
-from ..classifiers.classifier_constants import POSITIVE_TEXT, POSITIVE_IMAGE_URL, TEXT_CLASSIFIER_PROMPT, IMAGE_CLASSIFIER_PROMPT
+from ..classifiers.classifier_constants import (
+    POSITIVE_TEXT, POSITIVE_IMAGE_URL, TEXT_CLASSIFIER_PROMPT, IMAGE_CLASSIFIER_PROMPT,
+    classifier_prompt,
+)
 from ..classifiers.classifier_constants import GENERIC_REASON_CODE, REASON_PHRASES
 from ..classifiers.classifier_utils import (
     API_GEMMA, API_GEMINI, API_OPENAI, API_CLAUDE, CASCADE_ORDER,
@@ -161,7 +164,8 @@ class TestClassifiers(PositiveOnlySocialTestCase):
         mock_gemma = MagicMock(return_value=ALLOW_SCORE)
         with patch.dict(_TEXT_DISPATCH, {API_GEMMA: mock_gemma}):
             self.assertTrue(is_text_positive("I am happy"))
-        mock_gemma.assert_called_once_with("I am happy", TEXT_CLASSIFIER_PROMPT)
+        mock_gemma.assert_called_once_with(
+            "I am happy", classifier_prompt(TEXT_CLASSIFIER_PROMPT, 1))
 
     @patch.dict(os.environ, {}, clear=True)
     @patch(_TEXT_AVAILABLE, return_value=[API_GEMMA])
@@ -186,7 +190,8 @@ class TestClassifiers(PositiveOnlySocialTestCase):
         mock_claude = MagicMock(return_value=ALLOW_SCORE)
         with patch.dict(_TEXT_DISPATCH, {API_CLAUDE: mock_claude}):
             self.assertTrue(is_text_positive("Great day"))
-        mock_claude.assert_called_once_with("Great day", TEXT_CLASSIFIER_PROMPT)
+        mock_claude.assert_called_once_with(
+            "Great day", classifier_prompt(TEXT_CLASSIFIER_PROMPT, 1))
 
     # ------------------------------------------------------------------ #
     # Text classifier – zone boundaries                                    #
@@ -773,3 +778,118 @@ class TestClassifiers(PositiveOnlySocialTestCase):
             "or 0 if none",
         ]:
             self.assertIn(phrase, IMAGE_CLASSIFIER_PROMPT, msg=f"Missing in IMAGE_CLASSIFIER_PROMPT: {phrase!r}")
+
+    # ------------------------------------------------------------------ #
+    # Line-of-defense stage context (issue #491)                           #
+    # ------------------------------------------------------------------ #
+
+    def test_stage_context_is_prepended_to_the_base_prompt(self):
+        for stage in (1, 2, 3):
+            prompt = classifier_prompt(TEXT_CLASSIFIER_PROMPT, stage)
+            self.assertTrue(prompt.endswith(TEXT_CLASSIFIER_PROMPT),
+                            msg=f"Stage {stage} must keep the base prompt intact at the end")
+            self.assertNotEqual(prompt, TEXT_CLASSIFIER_PROMPT,
+                                msg=f"Stage {stage} must add context")
+
+    def test_each_stage_gets_different_context(self):
+        prompts = {stage: classifier_prompt(TEXT_CLASSIFIER_PROMPT, stage) for stage in (1, 2, 3)}
+        self.assertEqual(len(set(prompts.values())), 3)
+
+    def test_first_stage_is_told_it_may_abstain(self):
+        # The point of stage 1's context: an overconfident cheap model must know
+        # that a middle score escalates rather than being a non-answer, because
+        # a spurious low score here is a non-appealable rejection.
+        prompt = classifier_prompt(TEXT_CLASSIFIER_PROMPT, 1)
+        self.assertIn("first", prompt.lower())
+        self.assertIn("middle of the range", prompt)
+
+    def test_final_stage_is_told_nobody_follows_it(self):
+        # The mirror image: at stage 3 hedging *is* a rejection, so the model is
+        # told to commit rather than sit in the middle zone.
+        prompt = classifier_prompt(TEXT_CLASSIFIER_PROMPT, 3)
+        self.assertIn("final reviewer", prompt.lower())
+        self.assertNotIn("middle of the range", prompt)
+
+    def test_stage_context_never_reveals_earlier_scores(self):
+        # Passing a predecessor's score would anchor later stages toward the
+        # middle and defeat the point of asking again. Stage 2 is the only stage
+        # that knows a predecessor existed, and only that it was unsure.
+        prompt = classifier_prompt(TEXT_CLASSIFIER_PROMPT, 2)
+        self.assertIn("not told their answer", prompt)
+
+    def test_unknown_stage_returns_the_base_prompt_unchanged(self):
+        # The cascade never consults a 4th reviewer, but an unexpected stage
+        # should degrade to the plain prompt rather than raise.
+        self.assertEqual(classifier_prompt(TEXT_CLASSIFIER_PROMPT, 4), TEXT_CLASSIFIER_PROMPT)
+        self.assertEqual(classifier_prompt(TEXT_CLASSIFIER_PROMPT, 0), TEXT_CLASSIFIER_PROMPT)
+
+    def test_stage_context_leaves_the_text_placeholder_formattable(self):
+        # call_text_openrouter formats the prompt afterwards; stage context must
+        # not introduce braces of its own or that .format() call blows up.
+        formatted = classifier_prompt(TEXT_CLASSIFIER_PROMPT, 1).format(text="hello")
+        self.assertIn('"hello"', formatted)
+
+    @patch.dict(os.environ, {}, clear=True)
+    @patch(_TEXT_AVAILABLE, return_value=[API_GEMMA, API_GEMINI, API_OPENAI])
+    def test_each_text_tier_is_told_which_line_of_defense_it_is(self, _avail):
+        mocks = {api: MagicMock(return_value=MIDDLE_SCORE)
+                 for api in (API_GEMMA, API_GEMINI, API_OPENAI)}
+        with patch.dict(_TEXT_DISPATCH, mocks):
+            is_text_positive("ambiguous text")
+        for stage, api in enumerate((API_GEMMA, API_GEMINI, API_OPENAI), start=1):
+            mocks[api].assert_called_once_with(
+                "ambiguous text", classifier_prompt(TEXT_CLASSIFIER_PROMPT, stage))
+
+    @patch.dict(os.environ, {}, clear=True)
+    @patch(_TEXT_AVAILABLE, return_value=[API_GEMMA, API_GEMINI])
+    def test_a_skipped_tier_does_not_consume_a_stage(self, _avail):
+        # Stage is the reviewer's position among the scores that *counted*, not
+        # its index in the cascade order: the decision rules key on that same
+        # number, so a tier that errors must leave the next one as stage 1.
+        mock_gemini = MagicMock(return_value=ALLOW_SCORE)
+        with patch.dict(_TEXT_DISPATCH, {API_GEMMA: MagicMock(side_effect=Exception("boom")),
+                                         API_GEMINI: mock_gemini}):
+            self.assertTrue(is_text_positive("I am happy"))
+        mock_gemini.assert_called_once_with(
+            "I am happy", classifier_prompt(TEXT_CLASSIFIER_PROMPT, 1))
+
+    @patch.dict(os.environ, {}, clear=True)
+    @patch(_TEXT_AVAILABLE, return_value=[API_GEMMA, API_GEMINI, API_OPENAI])
+    def test_an_unparseable_tier_does_not_consume_a_stage(self, _avail):
+        # Same rule for a tier that answers but unusably (None score): the next
+        # tier inherits the stage it failed to fill.
+        mock_openai = MagicMock(return_value=ALLOW_SCORE)
+        with patch.dict(_TEXT_DISPATCH, {API_GEMMA: MagicMock(return_value=MIDDLE_SCORE),
+                                         API_GEMINI: MagicMock(return_value=None),
+                                         API_OPENAI: mock_openai}):
+            self.assertTrue(is_text_positive("ambiguous text"))
+        mock_openai.assert_called_once_with(
+            "ambiguous text", classifier_prompt(TEXT_CLASSIFIER_PROMPT, 2))
+
+    @patch.dict(os.environ, _AWS_KEYS, clear=True)
+    @patch(_IMAGE_AVAILABLE, return_value=[API_GEMMA, API_GEMINI])
+    @patch("user_system.classifiers.image_classifier.boto3")
+    def test_each_image_tier_is_told_which_line_of_defense_it_is(self, mock_boto3, _avail):
+        mock_s3 = MagicMock()
+        mock_boto3.client.return_value = mock_s3
+        mock_body = MagicMock()
+        mock_body.read.return_value = _make_fake_image_bytes()
+        mock_s3.get_object.return_value = {'Body': mock_body}
+
+        mocks = {api: MagicMock(return_value=MIDDLE_SCORE) for api in (API_GEMMA, API_GEMINI)}
+        with patch.dict(_IMAGE_DISPATCH, mocks):
+            is_image_positive("some_image.png")
+        for stage, api in enumerate((API_GEMMA, API_GEMINI), start=1):
+            self.assertEqual(mocks[api].call_args[0][1],
+                             classifier_prompt(IMAGE_CLASSIFIER_PROMPT, stage))
+
+    def test_stage_context_cannot_hijack_the_answer_parser(self):
+        # parse_probability_and_rule takes the LAST "score,rule" pair in a
+        # reply, so a model that echoes its prompt before answering still
+        # parses correctly. That only holds while the stage context itself
+        # contains no such pair — otherwise an echoing model could have the
+        # preamble read back as its verdict.
+        for stage in (1, 2, 3):
+            context = classifier_prompt("", stage)
+            self.assertIsNone(parse_probability_and_rule(context)[0],
+                              msg=f"Stage {stage} context parses as a score")
