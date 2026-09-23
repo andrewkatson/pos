@@ -438,11 +438,14 @@ class PostDetailViewModel(
                 val userSession = keychainHelper.load(UserSession::class.java, service, account)
                 if (userSession == null) {
                     Log.e(TAG, "No active session found — cannot perform action")
+                    _postDetail.value = previous
                     _alertMessage.value = "Not logged in."
                     return@launch
                 }
                 val response = api.lockComments(userSession.sessionToken, postIdentifier)
-                if (!response.isSuccessful) {
+                if (response.isSuccessful) {
+                    PostEvents.commentsDisabledChanged(postIdentifier, true)
+                } else {
                     _postDetail.value = previous
                     _alertMessage.value = ApiErrors.messageFor(response, fallback = "Failed to turn off commenting. Please try again.")
                 }
@@ -466,11 +469,14 @@ class PostDetailViewModel(
                 val userSession = keychainHelper.load(UserSession::class.java, service, account)
                 if (userSession == null) {
                     Log.e(TAG, "No active session found — cannot perform action")
+                    _postDetail.value = previous
                     _alertMessage.value = "Not logged in."
                     return@launch
                 }
                 val response = api.unlockComments(userSession.sessionToken, postIdentifier)
-                if (!response.isSuccessful) {
+                if (response.isSuccessful) {
+                    PostEvents.commentsDisabledChanged(postIdentifier, false)
+                } else {
                     _postDetail.value = previous
                     _alertMessage.value = ApiErrors.messageFor(response, fallback = "Failed to turn on commenting. Please try again.")
                 }

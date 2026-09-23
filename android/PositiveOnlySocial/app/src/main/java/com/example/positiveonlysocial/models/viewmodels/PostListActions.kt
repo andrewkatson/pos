@@ -85,6 +85,13 @@ class PostListActions(
         scope.launch {
             PostEvents.deletedPostIds.collect { deletedId -> removeLocally(deletedId) }
         }
+        // Likewise keep the lock-comments menu action in sync with a toggle made
+        // on the post detail screen (issue #492).
+        scope.launch {
+            PostEvents.commentsDisabledChanges.collect { (postId, disabled) ->
+                applyCommentsDisabled(postId, disabled)
+            }
+        }
     }
 
     /** Whether [post] was authored by the signed-in user. */

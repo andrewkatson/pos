@@ -460,11 +460,16 @@ final class PostDetailViewModel: ObservableObject {
             do {
                 guard let userSession = try keychainHelper.load(UserSession.self, from: keychainService, account: account) else {
                     NSLog("%@", "No active session — cannot lock comments")
+                    // Undo the optimistic update since no request was sent.
+                    if var reverted = self.postDetail { reverted.commentsDisabled = false; self.postDetail = reverted }
                     self.alertMessage = "Session not found."
                     return
                 }
                 let token = userSession.sessionToken
                 _ = try await api.lockComments(sessionManagementToken: token, postIdentifier: postIdentifier)
+                await MainActor.run {
+                    NotificationCenter.default.post(name: .postCommentsDisabledChanged, object: self.postIdentifier, userInfo: ["commentsDisabled": true])
+                }
             } catch {
                 NSLog("%@", "Failed to lock comments: \(error)")
                 await MainActor.run {
@@ -486,11 +491,16 @@ final class PostDetailViewModel: ObservableObject {
             do {
                 guard let userSession = try keychainHelper.load(UserSession.self, from: keychainService, account: account) else {
                     NSLog("%@", "No active session — cannot unlock comments")
+                    // Undo the optimistic update since no request was sent.
+                    if var reverted = self.postDetail { reverted.commentsDisabled = true; self.postDetail = reverted }
                     self.alertMessage = "Session not found."
                     return
                 }
                 let token = userSession.sessionToken
                 _ = try await api.unlockComments(sessionManagementToken: token, postIdentifier: postIdentifier)
+                await MainActor.run {
+                    NotificationCenter.default.post(name: .postCommentsDisabledChanged, object: self.postIdentifier, userInfo: ["commentsDisabled": false])
+                }
             } catch {
                 NSLog("%@", "Failed to unlock comments: \(error)")
                 await MainActor.run {

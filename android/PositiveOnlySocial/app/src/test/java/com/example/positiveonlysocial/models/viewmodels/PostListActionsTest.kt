@@ -341,6 +341,18 @@ class PostListActionsTest {
     }
 
     @Test
+    fun `a comments lock toggled on the detail screen reaches the list`() = runTest {
+        loadFeed()
+
+        // The post detail screen announces its toggle through PostEvents so the
+        // row menu doesn't keep offering the stale action (issue #492).
+        PostEvents.commentsDisabledChanged("2", true)
+        advanceUntilIdle()
+
+        assertEquals(true, postWithId("2").commentsDisabled)
+    }
+
+    @Test
     fun `setPostForAction picks up the freshest report state`() = runTest {
         loadFeed()
         whenever(api.reportPost(eq("token123"), eq("1"), any()))

@@ -352,6 +352,14 @@ struct PostActionBar: View {
                 postActions.toggleSave(post)
             }
             if postActions.state(for: post).isOwn {
+                // Turn commenting off/on for your own post (issue #492), the
+                // same toggle PostDetailView offers.
+                menuRow(
+                    postActions.state(for: post).commentsDisabled ? "Turn On Commenting" : "Turn Off Commenting",
+                    identifier: "ToggleCommentsLockListActionButton"
+                ) {
+                    postActions.toggleCommentsLock(post)
+                }
                 menuRow("Delete Post", identifier: "DeletePostListActionButton", isDestructive: true) {
                     postActions.delete(post)
                 }
