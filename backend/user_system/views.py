@@ -3081,6 +3081,18 @@ def get_posts_for_tag(request, tag, batch):
 # COMMENT VIEWS
 # =============================================================================
 
+def _comments_locked_for_update(post):
+    """Re-read comments_disabled under a row lock (issue #492). Call inside
+    transaction.atomic() just before creating a comment/reply: lock_comments'
+    UPDATE takes the same row lock, so a lock that lands while the classifier
+    runs is either seen here or waits until the new comment is committed —
+    never slips in between. Returns None if the post has since been deleted."""
+    return (Post.objects.select_for_update()
+            .filter(pk=post.pk)
+            .values_list('comments_disabled', flat=True)
+            .first())
+
+
 @csrf_exempt
 @api_login_required
 @ratelimit(key='user', rate='20/h', block=True)
@@ -3147,14 +3159,24 @@ def comment_on_post(request, post_identifier):
     # re-review leads with a different one.
     models_tried, model_chain_used = model_chain.record_round([], [], [text_result])
 
-    # Create a new thread for this top-level comment
-    comment_thread = post.commentthread_set.create()
-    new_comment = comment_thread.comment_set.create(
-        author=request.user, body=comment_text, body_formatting=body_formatting,
-        audience=audience,
-        hidden=hidden,
-        hidden_reason=HIDDEN_REASON_CLASSIFIER if hidden else HIDDEN_REASON_NONE,
-        classification_models_tried=models_tried, classification_model_chain=model_chain_used)
+    with transaction.atomic():
+        # Re-check under a row lock: the owner may have locked comments while
+        # the classifier ran (issue #492).
+        locked = _comments_locked_for_update(post)
+        if locked is None:
+            return log_and_return_json("comment_on_post", {'error': "No post with that identifier"}, status=400)
+        if locked:
+            logger.warning(f"Comment on post failed: Comments disabled for post {post_identifier}")
+            return log_and_return_json("comment_on_post", {'error': "Comments are disabled for this post"}, status=403)
+
+        # Create a new thread for this top-level comment
+        comment_thread = post.commentthread_set.create()
+        new_comment = comment_thread.comment_set.create(
+            author=request.user, body=comment_text, body_formatting=body_formatting,
+            audience=audience,
+            hidden=hidden,
+            hidden_reason=HIDDEN_REASON_CLASSIFIER if hidden else HIDDEN_REASON_NONE,
+            classification_models_tried=models_tried, classification_model_chain=model_chain_used)
 
     response_data = {
         Fields.comment_thread_identifier: comment_thread.comment_thread_identifier,
@@ -3248,12 +3270,21 @@ def reply_to_comment_thread(request, post_identifier, comment_thread_identifier)
     hidden = not text_result
     # As in comment_on_post: record which tiers judged the reply (issue #511).
     models_tried, model_chain_used = model_chain.record_round([], [], [text_result])
-    new_comment = comment_thread.comment_set.create(
-        author=request.user, body=comment_text, body_formatting=body_formatting,
-        audience=audience,
-        hidden=hidden,
-        hidden_reason=HIDDEN_REASON_CLASSIFIER if hidden else HIDDEN_REASON_NONE,
-        classification_models_tried=models_tried, classification_model_chain=model_chain_used)
+    with transaction.atomic():
+        # Re-check under a row lock, as in comment_on_post (issue #492).
+        locked = _comments_locked_for_update(comment_thread.post)
+        if locked is None:
+            return log_and_return_json("reply_to_comment_thread", {'error': "Comment thread not found for the given post"}, status=400)
+        if locked:
+            logger.warning(f"Reply to comment failed: Comments disabled for post {post_identifier}")
+            return log_and_return_json("reply_to_comment_thread", {'error': "Comments are disabled for this post"}, status=403)
+
+        new_comment = comment_thread.comment_set.create(
+            author=request.user, body=comment_text, body_formatting=body_formatting,
+            audience=audience,
+            hidden=hidden,
+            hidden_reason=HIDDEN_REASON_CLASSIFIER if hidden else HIDDEN_REASON_NONE,
+            classification_models_tried=models_tried, classification_model_chain=model_chain_used)
 
     response_data = {Fields.comment_identifier: new_comment.comment_identifier}
     if hidden:

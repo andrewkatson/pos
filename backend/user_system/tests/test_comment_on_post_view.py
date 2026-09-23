@@ -7,6 +7,8 @@ from django.urls import reverse
 from .test_parent_case import PositiveOnlySocialTestCase
 from ..classifiers.classifier_constants import POSITIVE_TEXT, NEGATIVE_TEXT
 from ..constants import Fields, MAX_COMMENT_LENGTH
+from .. import views
+from ..models import Comment, Post
 from ..views import get_user_with_username
 
 invalid_session_management_token = '?'
@@ -232,6 +234,49 @@ class CommentOnPostTests(PositiveOnlySocialTestCase):
         )
 
         self.assertEqual(response.status_code, 403)
+
+    def _lock_during_classification(self):
+        """Patch the classifier so the owner's lock lands while it runs — the
+        window between the early check and the create (issue #492)."""
+        real = views.text_classifier_class.is_text_positive
+
+        def classify_then_lock(text):
+            Post.objects.filter(pk=self.post.pk).update(comments_disabled=True)
+            return real(text)
+
+        return patch.object(views.text_classifier_class, 'is_text_positive', side_effect=classify_then_lock)
+
+    @patch.dict(os.environ, {"TESTING": "True"}, clear=True)
+    def test_comment_blocked_when_locked_during_classification(self):
+        with self._lock_during_classification():
+            response = self.client.post(
+                self.url,
+                data=self.valid_data,
+                content_type='application/json',
+                **self.valid_header
+            )
+
+        self.assertEqual(response.status_code, 403)
+        self.assertEqual(self.post.commentthread_set.count(), 0)
+
+    @patch.dict(os.environ, {"TESTING": "True"}, clear=True)
+    def test_reply_blocked_when_locked_during_classification(self):
+        thread = self._comment_on_post(self.session_management_token, self.post_identifier)
+        url = reverse('reply_to_comment_thread', kwargs={
+            'post_identifier': str(self.post_identifier),
+            'comment_thread_identifier': str(thread[Fields.comment_thread_identifier]),
+        })
+
+        with self._lock_during_classification():
+            response = self.client.post(
+                url,
+                data={'comment_text': POSITIVE_TEXT},
+                content_type='application/json',
+                **self.valid_header
+            )
+
+        self.assertEqual(response.status_code, 403)
+        self.assertEqual(Comment.objects.filter(comment_thread__post=self.post).count(), 1)
 
     @patch.dict(os.environ, {"TESTING": "True"}, clear=True)
     def test_non_string_reply_comment_text_returns_bad_response(self):
