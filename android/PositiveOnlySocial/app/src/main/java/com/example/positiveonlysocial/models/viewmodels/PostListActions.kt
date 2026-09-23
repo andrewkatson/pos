@@ -197,6 +197,48 @@ class PostListActions(
         }
     }
 
+    /**
+     * Turns commenting on [post] off or on, depending on its current
+     * server-backed state (issue #492). Owner-only — the caller only ever
+     * offers this row for the signed-in user's own posts. Updates immediately
+     * and reverts if the request fails, mirroring [toggleSave].
+     */
+    fun toggleCommentsLock(post: Post) {
+        val current = currentVersionOf(post) ?: return
+        val wasDisabled = current.commentsDisabled == true
+        val locking = !wasDisabled
+
+        applyCommentsDisabled(post.postIdentifier, locking)
+
+        scope.launch {
+            val token = sessionToken()
+            if (token == null) {
+                applyCommentsDisabled(post.postIdentifier, wasDisabled)
+                return@launch
+            }
+            try {
+                val response = if (locking) {
+                    api.lockComments(token, post.postIdentifier)
+                } else {
+                    api.unlockComments(token, post.postIdentifier)
+                }
+                if (!response.isSuccessful) {
+                    applyCommentsDisabled(post.postIdentifier, wasDisabled)
+                    _alertMessage.value = ApiErrors.messageFor(
+                        response,
+                        fallback = if (locking) "Failed to turn off commenting. Please try again."
+                        else "Failed to turn on commenting. Please try again."
+                    )
+                }
+            } catch (e: Exception) {
+                Log.e(TAG, "Failed to toggle comments lock on post", e)
+                applyCommentsDisabled(post.postIdentifier, wasDisabled)
+                _alertMessage.value =
+                    ApiErrors.messageFor(e, fallback = "Something went wrong. Please try again.")
+            }
+        }
+    }
+
     /** Files a report against [post] with [reason]. */
     fun reportPost(post: Post, reason: String) {
         val current = currentVersionOf(post) ?: return
@@ -333,6 +375,10 @@ class PostListActions(
     // can't clobber it (and vice versa).
     private fun applySave(postIdentifier: String, isSaved: Boolean) {
         updatePost(postIdentifier) { it.copy(isSaved = isSaved) }
+    }
+
+    private fun applyCommentsDisabled(postIdentifier: String, commentsDisabled: Boolean) {
+        updatePost(postIdentifier) { it.copy(commentsDisabled = commentsDisabled) }
     }
 
     private fun removeLocally(postIdentifier: String) {

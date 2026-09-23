@@ -738,6 +738,34 @@ listing keeps only threads with a matching visible comment). Like the feed filte
 it is an exact-category match and naturally drops your own comments, since you do
 not follow yourself.
 
+## Disabling / locking comments (issue #492)
+
+A post's author can turn off commenting on it — either from the moment the
+post is created, or afterward once it already has comments. Either way it is
+the same field, `Post.comments_disabled` (default `False`, so every
+pre-existing post keeps accepting comments), and either way it only blocks
+**new** top-level comments and replies; comments already on the post stay
+exactly as visible as they were.
+
+- **At creation**: `POST /posts/create/` accepts an optional `comments_disabled`
+  boolean; omitting it (or sending `false`) preserves the old behavior.
+- **Afterward**: `POST /posts/<post_identifier>/comments/lock/` and
+  `POST /posts/<post_identifier>/comments/unlock/` toggle it on an existing
+  post. Both are owner-only — the same "look it up via `request.user.post_set`"
+  pattern `delete_post` uses, so locking someone else's post answers exactly
+  like the post does not exist.
+
+`comment_on_post` and `reply_to_comment_thread` both check the flag (on the
+post directly, or via the parent post of the thread being replied to) right
+after resolving and visibility-checking the target, and reject with a 403
+before the request ever reaches the AI classifier if commenting is off. The
+field rides along in every post payload (feed, followed feed, profile grid,
+post details, and the public share view) as `comments_disabled`, so a client
+can hide its comment composer and "Reply" controls and show a plain "Comments
+are turned off for this post" notice instead. Every client also offers a
+"Turn on/off commenting" action in the post's own three-dots menu, right next
+to Delete, alongside a toggle in the post-creation form.
+
 ## Blocking
 
 Users can block each other from a profile. Blocking is a toggle

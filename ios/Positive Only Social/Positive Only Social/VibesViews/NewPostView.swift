@@ -18,6 +18,8 @@ struct NewPostView: View {
     @State private var selectedImageData: Data?
     @State private var caption = ""
     @State private var selectedAudience: PostAudience = .public
+    // Turn off commenting from the moment the post is created (issue #492).
+    @State private var commentsDisabled = false
     // Whole-caption font + whole-tile background color keys (issue #318).
     @State private var captionFont = "default"
     @State private var backgroundColor = "default"
@@ -114,6 +116,12 @@ struct NewPostView: View {
                         }
                     }
                     .accessibilityIdentifier("AudiencePicker")
+
+                    // Let the author turn off commenting from the moment the
+                    // post goes up (issue #492), instead of only being able to
+                    // lock it afterward.
+                    Toggle("Turn off commenting", isOn: $commentsDisabled)
+                        .accessibilityIdentifier("CommentsDisabledToggle")
                 }
 
                 // The Share button stays directly under the caption section so
@@ -257,7 +265,8 @@ struct NewPostView: View {
                     caption: caption,
                     audience: selectedAudience.rawValue,
                     captionFont: captionFont,
-                    backgroundColor: backgroundColor
+                    backgroundColor: backgroundColor,
+                    commentsDisabled: commentsDisabled
                 )
 
                 // Reload the Profile tab's grid so the new post appears there
@@ -286,6 +295,7 @@ struct NewPostView: View {
                 caption = ""
                 captionFont = "default"
                 backgroundColor = "default"
+                commentsDisabled = false
                 selectedItem = nil
                 selectedImageData = nil
                 showSuccessAlert = true // This will trigger the success alert

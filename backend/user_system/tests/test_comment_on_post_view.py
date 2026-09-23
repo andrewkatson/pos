@@ -189,6 +189,51 @@ class CommentOnPostTests(PositiveOnlySocialTestCase):
                 self.assertEqual(response.status_code, 400)
 
     @patch.dict(os.environ, {"TESTING": "True"}, clear=True)
+    def test_comment_on_post_with_comments_disabled_returns_forbidden(self):
+        """
+        Once the author has locked comments (issue #492), a new top-level
+        comment is rejected with a 403 and no thread/comment is created.
+        """
+        self.post.comments_disabled = True
+        self.post.save(update_fields=['comments_disabled'])
+
+        response = self.client.post(
+            self.url,
+            data=self.valid_data,
+            content_type='application/json',
+            **self.valid_header
+        )
+
+        self.assertEqual(response.status_code, 403)
+        self.post.refresh_from_db()
+        self.assertEqual(self.post.commentthread_set.count(), 0)
+
+    @patch.dict(os.environ, {"TESTING": "True"}, clear=True)
+    def test_reply_to_comment_thread_with_comments_disabled_returns_forbidden(self):
+        """
+        Locking comments after a thread already exists still blocks new
+        replies to that thread (issue #492) — the lock is checked on the
+        parent post, not just at thread creation.
+        """
+        thread = self._comment_on_post(self.session_management_token, self.post_identifier)
+        url = reverse('reply_to_comment_thread', kwargs={
+            'post_identifier': str(self.post_identifier),
+            'comment_thread_identifier': str(thread[Fields.comment_thread_identifier]),
+        })
+
+        self.post.comments_disabled = True
+        self.post.save(update_fields=['comments_disabled'])
+
+        response = self.client.post(
+            url,
+            data={'comment_text': POSITIVE_TEXT},
+            content_type='application/json',
+            **self.valid_header
+        )
+
+        self.assertEqual(response.status_code, 403)
+
+    @patch.dict(os.environ, {"TESTING": "True"}, clear=True)
     def test_non_string_reply_comment_text_returns_bad_response(self):
         """
         reply_to_comment_thread shares the same validation shape as comment_on_post,

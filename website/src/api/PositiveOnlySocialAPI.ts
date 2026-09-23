@@ -43,6 +43,7 @@ import type {
   RequestResetRequest,
   ResendVerificationEmailRequest,
   ResetPasswordRequest,
+  SetCommentsDisabledResponse,
   SetProfilePhotoRequest,
   SetProfilePhotoResponse,
   SetBioRequest,
@@ -101,6 +102,11 @@ export interface PositiveOnlySocialAPI {
   createUploadUrl(): Promise<CreateUploadUrlResponse>
   createPost(body: CreatePostRequest): Promise<CreatePostResponse>
   deletePost(postIdentifier: string): Promise<MessageResponse>
+  /** Owner-only: stop new comments/replies on a post (issue #492). Existing
+   * comments stay visible. */
+  lockComments(postIdentifier: string): Promise<SetCommentsDisabledResponse>
+  /** Owner-only: re-allow new comments on a post previously locked (issue #492). */
+  unlockComments(postIdentifier: string): Promise<SetCommentsDisabledResponse>
   reportPost(postIdentifier: string, reason: string): Promise<MessageResponse>
   retractReportPost(postIdentifier: string): Promise<MessageResponse>
   likePost(postIdentifier: string): Promise<MessageResponse>

@@ -426,6 +426,63 @@ class PostDetailViewModel(
     }
 
     /**
+     * Turns off commenting on the post (issue #492), optimistically hiding the
+     * composer/reply controls and reverting on failure. Only reachable from
+     * the action menu on an own post.
+     */
+    fun lockComments() {
+        val previous = _postDetail.value ?: return
+        _postDetail.value = previous.copy(commentsDisabled = true)
+        viewModelScope.launch {
+            try {
+                val userSession = keychainHelper.load(UserSession::class.java, service, account)
+                if (userSession == null) {
+                    Log.e(TAG, "No active session found — cannot perform action")
+                    _alertMessage.value = "Not logged in."
+                    return@launch
+                }
+                val response = api.lockComments(userSession.sessionToken, postIdentifier)
+                if (!response.isSuccessful) {
+                    _postDetail.value = previous
+                    _alertMessage.value = ApiErrors.messageFor(response, fallback = "Failed to turn off commenting. Please try again.")
+                }
+            } catch (e: Exception) {
+                Log.e(TAG, "Failed to lock comments", e)
+                _postDetail.value = previous
+                _alertMessage.value = ApiErrors.messageFor(e, fallback = "Something went wrong. Please try again.")
+            }
+        }
+    }
+
+    /**
+     * Re-allows commenting on a post previously locked with [lockComments]
+     * (issue #492).
+     */
+    fun unlockComments() {
+        val previous = _postDetail.value ?: return
+        _postDetail.value = previous.copy(commentsDisabled = false)
+        viewModelScope.launch {
+            try {
+                val userSession = keychainHelper.load(UserSession::class.java, service, account)
+                if (userSession == null) {
+                    Log.e(TAG, "No active session found — cannot perform action")
+                    _alertMessage.value = "Not logged in."
+                    return@launch
+                }
+                val response = api.unlockComments(userSession.sessionToken, postIdentifier)
+                if (!response.isSuccessful) {
+                    _postDetail.value = previous
+                    _alertMessage.value = ApiErrors.messageFor(response, fallback = "Failed to turn on commenting. Please try again.")
+                }
+            } catch (e: Exception) {
+                Log.e(TAG, "Failed to unlock comments", e)
+                _postDetail.value = previous
+                _alertMessage.value = ApiErrors.messageFor(e, fallback = "Something went wrong. Please try again.")
+            }
+        }
+    }
+
+    /**
      * Deletes one of the user's own comments, then reloads so it disappears from
      * the thread. Only reachable from the action menu on an own comment.
      */

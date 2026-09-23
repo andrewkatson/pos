@@ -23,6 +23,7 @@ interface PostOverride {
   isSaved?: boolean
   isReported?: boolean
   reportReason?: string | null
+  commentsDisabled?: boolean
 }
 
 /** What the UI needs to render one post's controls. */
@@ -36,6 +37,9 @@ export interface PostActionState {
   isSaved: boolean
   isReported: boolean
   reportReason: string | null
+  /** Whether commenting is turned off on this post (issue #492), either set
+   * at creation or toggled from this menu. */
+  commentsDisabled: boolean
 }
 
 type Dialog =
@@ -110,6 +114,7 @@ export function usePostActions({
         'reportReason' in override
           ? (override.reportReason ?? null)
           : (post.report_reason ?? null),
+      commentsDisabled: override.commentsDisabled ?? post.comments_disabled ?? false,
     }
   }
 
@@ -147,6 +152,20 @@ export function usePostActions({
     } catch (err) {
       // Revert to the pre-click values.
       setOverride(post.post_identifier, { isLiked, likeCount })
+      onError(messageFrom(err, 'Action failed.'))
+    }
+  }
+
+  async function toggleCommentsLockAsync(post: FeedPost) {
+    const { isOwn, commentsDisabled } = stateFor(post)
+    if (!isOwn) return
+    const locking = !commentsDisabled
+    setOverride(post.post_identifier, { commentsDisabled: locking })
+    try {
+      if (locking) await apiClient.lockComments(post.post_identifier)
+      else await apiClient.unlockComments(post.post_identifier)
+    } catch (err) {
+      setOverride(post.post_identifier, { commentsDisabled })
       onError(messageFrom(err, 'Action failed.'))
     }
   }
@@ -229,6 +248,15 @@ export function usePostActions({
         >
           {/* Share is offered on every post, yours and everyone else's. */}
           <AnchoredMenuItem onClick={() => void sharePost(dialog.post)}>Share</AnchoredMenuItem>
+          {/* Lock/unlock commenting (issue #492) is owner-only, offered
+              alongside Delete rather than replacing it. */}
+          {stateFor(dialog.post).isOwn && (
+            <AnchoredMenuItem onClick={() => void toggleCommentsLockAsync(dialog.post)}>
+              {stateFor(dialog.post).commentsDisabled
+                ? 'Turn on commenting'
+                : 'Turn off commenting'}
+            </AnchoredMenuItem>
+          )}
           {stateFor(dialog.post).isOwn ? (
             <AnchoredMenuItem
               destructive

@@ -190,7 +190,8 @@ final class PostDetailViewModel: ObservableObject {
                     authorProfileImageBlurHash: postFields.author_profile_image_blurhash,
                     createdDate: postFields.creation_time.flatMap { Self.parseOptionalDate($0) },
                     isReported: postFields.is_reported ?? false,
-                    reportReason: postFields.report_reason
+                    reportReason: postFields.report_reason,
+                    commentsDisabled: postFields.comments_disabled ?? false
                 )
                 // Server truth for the reported flag, so it survives reloads.
                 self.isPostReported = postFields.is_reported ?? false
@@ -297,7 +298,8 @@ final class PostDetailViewModel: ObservableObject {
                 authorProfileImageBlurHash: post.authorProfileImageBlurHash,
                 createdDate: post.createdDate,
                 isReported: post.isReported,
-                reportReason: post.reportReason
+                reportReason: post.reportReason,
+                commentsDisabled: post.commentsDisabled
             )
             self.postDetail = post
         }
@@ -339,11 +341,12 @@ final class PostDetailViewModel: ObservableObject {
                 authorProfileImageBlurHash: post.authorProfileImageBlurHash,
                 createdDate: post.createdDate,
                 isReported: post.isReported,
-                reportReason: post.reportReason
+                reportReason: post.reportReason,
+                commentsDisabled: post.commentsDisabled
             )
             self.postDetail = post
         }
-        
+
         Task {
             do {
                 guard let userSession = try keychainHelper.load(UserSession.self, from: keychainService, account: account) else {
@@ -437,6 +440,59 @@ final class PostDetailViewModel: ObservableObject {
                 NSLog("%@", "Failed to delete post: \(error)")
                 await MainActor.run {
                     self.alertMessage = "Failed to delete post: \(error.userFacingMessage)"
+                }
+            }
+        }
+    }
+
+    /// Turns off commenting on the post (issue #492), optimistically hiding the
+    /// composer/reply controls, and reverting on failure. Only reachable from
+    /// the action menu on an own post.
+    func lockComments() {
+        NSLog("%@", "ACTION: Lock comments on post \(postIdentifier)")
+        guard var post = postDetail else { return }
+        post.commentsDisabled = true
+        self.postDetail = post
+        Task {
+            do {
+                guard let userSession = try keychainHelper.load(UserSession.self, from: keychainService, account: account) else {
+                    NSLog("%@", "No active session — cannot lock comments")
+                    self.alertMessage = "Session not found."
+                    return
+                }
+                let token = userSession.sessionToken
+                _ = try await api.lockComments(sessionManagementToken: token, postIdentifier: postIdentifier)
+            } catch {
+                NSLog("%@", "Failed to lock comments: \(error)")
+                await MainActor.run {
+                    if var reverted = self.postDetail { reverted.commentsDisabled = false; self.postDetail = reverted }
+                    self.alertMessage = "Failed to turn off commenting: \(error.userFacingMessage)"
+                }
+            }
+        }
+    }
+
+    /// Re-allows commenting on a post previously locked with `lockComments`
+    /// (issue #492).
+    func unlockComments() {
+        NSLog("%@", "ACTION: Unlock comments on post \(postIdentifier)")
+        guard var post = postDetail else { return }
+        post.commentsDisabled = false
+        self.postDetail = post
+        Task {
+            do {
+                guard let userSession = try keychainHelper.load(UserSession.self, from: keychainService, account: account) else {
+                    NSLog("%@", "No active session — cannot unlock comments")
+                    self.alertMessage = "Session not found."
+                    return
+                }
+                let token = userSession.sessionToken
+                _ = try await api.unlockComments(sessionManagementToken: token, postIdentifier: postIdentifier)
+            } catch {
+                NSLog("%@", "Failed to unlock comments: \(error)")
+                await MainActor.run {
+                    if var reverted = self.postDetail { reverted.commentsDisabled = true; self.postDetail = reverted }
+                    self.alertMessage = "Failed to turn on commenting: \(error.userFacingMessage)"
                 }
             }
         }
@@ -748,6 +804,10 @@ final class PostDetailViewModel: ObservableObject {
         let author_profile_image_original_url: String?
         /// That photo's BlurHash (issue #460), shown blurred while it loads.
         let author_profile_image_blurhash: String?
+        /// Whether the author has turned off commenting on this post (issue
+        /// #492). Optional so responses that predate the field still decode
+        /// as comments allowed.
+        let comments_disabled: Bool?
     }
 
     private struct ThreadIDFields: Decodable {

@@ -53,6 +53,7 @@ function NewPostTab({ onPosted }: NewPostTabProps) {
   const fileInputRef = useRef<HTMLInputElement>(null)
   const [caption, setCaption] = useState('')
   const [audience, setAudience] = useState<PostAudience>('public')
+  const [commentsDisabled, setCommentsDisabled] = useState(false)
   const [captionFont, setCaptionFont] = useState<CaptionFont>('default')
   const [backgroundColor, setBackgroundColor] = useState<BackgroundColor>('default')
   const [isLoading, setIsLoading] = useState(false)
@@ -108,6 +109,7 @@ function NewPostTab({ onPosted }: NewPostTabProps) {
       const base = {
         caption: caption.trim(),
         audience,
+        comments_disabled: commentsDisabled,
         caption_font: captionFont,
         background_color: backgroundColor,
       }
@@ -118,6 +120,7 @@ function NewPostTab({ onPosted }: NewPostTabProps) {
       setPreviewUrl(null)
       setCaption('')
       setAudience('public')
+      setCommentsDisabled(false)
       setCaptionFont('default')
       setBackgroundColor('default')
       // Classification is asynchronous (issue #282): the backend accepts the
@@ -243,6 +246,21 @@ function NewPostTab({ onPosted }: NewPostTabProps) {
             </option>
           ))}
         </select>
+      </div>
+
+      {/* Let the author turn off commenting from the moment the post goes up
+          (issue #492), instead of only being able to lock it afterward. */}
+      <div className="auth-toggle-row">
+        <span className="auth-label">Turn off commenting</span>
+        <label className="toggle" aria-label="Turn off commenting on this post">
+          <input
+            type="checkbox"
+            checked={commentsDisabled}
+            onChange={e => setCommentsDisabled(e.target.checked)}
+            disabled={isLoading}
+          />
+          <span className="toggle__track" />
+        </label>
       </div>
 
       {/* Text customization (issue #318) is a secondary concern, so it's tucked

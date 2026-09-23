@@ -2098,6 +2098,17 @@ def make_post(request):
     if not audience_valid:
         invalid_fields.append(Fields.audience)
 
+    # Whether the author is disabling comments up front (issue #492).
+    # Absent/null keeps the historical default of comments allowed.
+    raw_comments_disabled = data.get(Fields.comments_disabled)
+    if raw_comments_disabled is None:
+        comments_disabled = False
+    elif isinstance(raw_comments_disabled, bool):
+        comments_disabled = raw_comments_disabled
+    else:
+        comments_disabled = False
+        invalid_fields.append(Params.comments_disabled)
+
     if len(invalid_fields) > 0:
         logger.warning(f"Make post failed: Invalid fields {invalid_fields} for user_id: {request.user.id}")
         return log_and_return_json("make_post", {'error': f"Invalid fields {invalid_fields}"}, status=400)
@@ -2131,7 +2142,7 @@ def make_post(request):
     new_post = request.user.post_set.create(
         image_url=image_url, caption=caption,
         caption_font=caption_font, background_color=background_color,
-        audience=audience,
+        audience=audience, comments_disabled=comments_disabled,
         hidden=True, hidden_reason=HIDDEN_REASON_PENDING_CLASSIFICATION)
     # Harvest #hashtags now (issue #379). Tagging a pending post is safe: the
     # post stays author-only until classification clears it, and visible_posts
@@ -2149,6 +2160,7 @@ def make_post(request):
         Fields.hidden: True,
         Fields.hidden_reason: HIDDEN_REASON_PENDING_CLASSIFICATION,
         Fields.appealable: False,
+        Fields.comments_disabled: comments_disabled,
         'message': "Your post is being reviewed and will be visible to others once it is approved.",
     }, status=201)
 
@@ -2175,6 +2187,54 @@ def delete_post(request, post_identifier):
     except Post.DoesNotExist:
         logger.warning(f"Delete post failed: Post {post_identifier} not found for user_id: {request.user.id}")
         return log_and_return_json("delete_post", {'error': "No post with that identifier by that user"}, status=400)
+
+
+@csrf_exempt
+@api_login_required
+@ratelimit(key='user', rate='30/h', block=True)
+@require_POST
+def lock_comments(request, post_identifier):
+    """Owner-only: stop new comments and replies on this post (issue #492).
+    Existing comments stay visible — comment_on_post and
+    reply_to_comment_thread each check comments_disabled before creating
+    anything new."""
+    logger.info("Endpoint lock_comments invoked by IP or User")
+    if not is_valid_pattern(post_identifier, Patterns.uuid4):
+        return log_and_return_json("lock_comments", {'error': "Invalid post identifier"}, status=400)
+
+    try:
+        post = request.user.post_set.get(post_identifier=post_identifier)
+    except Post.DoesNotExist:
+        logger.warning(f"Lock comments failed: Post {post_identifier} not found for user_id: {request.user.id}")
+        return log_and_return_json("lock_comments", {'error': "No post with that identifier by that user"}, status=400)
+
+    post.comments_disabled = True
+    post.save(update_fields=['comments_disabled'])
+    logger.info(f"Comments locked: post_id: {post_identifier} by user_id: {request.user.id}")
+    return log_and_return_json("lock_comments", {Fields.comments_disabled: True})
+
+
+@csrf_exempt
+@api_login_required
+@ratelimit(key='user', rate='30/h', block=True)
+@require_POST
+def unlock_comments(request, post_identifier):
+    """Owner-only: re-allow new comments on a post previously locked with
+    lock_comments (issue #492)."""
+    logger.info("Endpoint unlock_comments invoked by IP or User")
+    if not is_valid_pattern(post_identifier, Patterns.uuid4):
+        return log_and_return_json("unlock_comments", {'error': "Invalid post identifier"}, status=400)
+
+    try:
+        post = request.user.post_set.get(post_identifier=post_identifier)
+    except Post.DoesNotExist:
+        logger.warning(f"Unlock comments failed: Post {post_identifier} not found for user_id: {request.user.id}")
+        return log_and_return_json("unlock_comments", {'error': "No post with that identifier by that user"}, status=400)
+
+    post.comments_disabled = False
+    post.save(update_fields=['comments_disabled'])
+    logger.info(f"Comments unlocked: post_id: {post_identifier} by user_id: {request.user.id}")
+    return log_and_return_json("unlock_comments", {Fields.comments_disabled: False})
 
 
 @csrf_exempt
@@ -2762,6 +2822,7 @@ def get_posts_in_feed(request, batch):
                 **_author_avatar_fields(post.author),
                 Fields.caption: post.caption,
                 Fields.audience: post.audience,
+                Fields.comments_disabled: post.comments_disabled,
                 **_caption_style_fields(post),
                 **_post_tags(post),
                 **interaction_state(post),
@@ -2829,6 +2890,7 @@ def get_posts_for_followed_users(request, batch):
             **_author_avatar_fields(post.author),
             Fields.caption: post.caption,
             Fields.audience: post.audience,
+            Fields.comments_disabled: post.comments_disabled,
             **_caption_style_fields(post),
             **_post_tags(post),
             **interaction_state(post),
@@ -2892,6 +2954,7 @@ def get_posts_for_user(request, username, batch):
                 **_caption_style_fields(post),
                 Fields.author_username: target_user.username,
                 Fields.audience: post.audience,
+                Fields.comments_disabled: post.comments_disabled,
                 **_author_avatar_fields(target_user),
                 **_post_tags(post),
                 **interaction_state(post),
@@ -2937,6 +3000,7 @@ def get_post_details(request, post_identifier):
             Fields.report_reason: my_report.reason if my_report is not None else None,
             Fields.author_username: post.author.username,
             Fields.audience: post.audience,
+            Fields.comments_disabled: post.comments_disabled,
             **_author_avatar_fields(post.author),
             **_post_tags(post),
             **_author_status_fields(post, request.user),
@@ -3059,6 +3123,12 @@ def comment_on_post(request, post_identifier):
         logger.warning(f"Comment on post failed: Post {post_identifier} not found or not visible")
         return log_and_return_json("comment_on_post", {'error': "No post with that identifier"}, status=400)
 
+    # The author may disable commenting at creation time or lock it afterward
+    # (issue #492). Existing comments stay visible; only new ones are blocked.
+    if post.comments_disabled:
+        logger.warning(f"Comment on post failed: Comments disabled for post {post_identifier}")
+        return log_and_return_json("comment_on_post", {'error': "Comments are disabled for this post"}, status=403)
+
     # A final (non-appealable) rejection blocks the comment; an appealable one
     # creates it hidden pending appeal.
     text_result = text_classifier_class.is_text_positive(comment_text)
@@ -3151,6 +3221,12 @@ def reply_to_comment_thread(request, post_identifier, comment_thread_identifier)
 
     if not can_view_post(comment_thread.post, request.user):
         return log_and_return_json("reply_to_comment_thread", {'error': "Comment thread not found for the given post"}, status=400)
+
+    # The author may disable commenting at creation time or lock it afterward
+    # (issue #492). Existing comments stay visible; only new replies are blocked.
+    if comment_thread.post.comments_disabled:
+        logger.warning(f"Reply to comment failed: Comments disabled for post {post_identifier}")
+        return log_and_return_json("reply_to_comment_thread", {'error': "Comments are disabled for this post"}, status=403)
 
     # A final (non-appealable) rejection blocks the reply; an appealable one
     # creates it hidden pending appeal.
@@ -3653,6 +3729,7 @@ def _public_post_fields(post):
         Fields.post_likes: post.postlike_set.count(),
         Fields.author_username: post.author.username,
         Fields.audience: post.audience,
+        Fields.comments_disabled: post.comments_disabled,
         **_author_avatar_fields(post.author),
         **_post_tags(post),
     }

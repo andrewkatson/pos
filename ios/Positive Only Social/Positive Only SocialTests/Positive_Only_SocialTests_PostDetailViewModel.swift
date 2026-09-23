@@ -594,4 +594,83 @@ struct Positive_Only_SocialTests_PostDetailViewModel {
         // The rendered text is the same plain string — formatting is styling only.
         #expect(NSAttributedString(attributed).string == "hello world")
     }
+
+    // --- Lock/Unlock Comments Tests (issue #492) ---
+
+    @Test func testLockComments_OwnPost_DisablesCommentingImmediately() async throws {
+        // Given: The signed-in user is viewing their own post
+        let (sut, _, _) = try await setupOwnContentEnvironment(account: "lockComments_account")
+        #expect(sut.isOwnPost, "Pre-condition: the post should be the user's own")
+        #expect(sut.postDetail?.commentsDisabled == false, "Pre-condition: comments start enabled")
+
+        // When: They lock comments
+        sut.lockComments()
+
+        // Then: The optimistic update applies immediately
+        #expect(sut.postDetail?.commentsDisabled == true)
+
+        // And: It persists after the network call settles and a reload
+        await yield()
+        #expect(sut.postDetail?.commentsDisabled == true)
+    }
+
+    @Test func testUnlockComments_OwnPost_ReenablesCommenting() async throws {
+        // Given: The signed-in user's own post already has comments locked
+        let (sut, postID, _) = try await setupOwnContentEnvironment(account: "unlockComments_account")
+        let ownerSession = try keychainHelper.load(UserSession.self, from: GVOAppConstants.keychainService, account: "unlockComments_account")
+        _ = try await stubAPI.lockComments(sessionManagementToken: ownerSession!.sessionToken, postIdentifier: postID)
+        await sut.refresh()
+        #expect(sut.postDetail?.commentsDisabled == true, "Pre-condition: comments start locked")
+
+        // When: They unlock comments
+        sut.unlockComments()
+
+        // Then: The optimistic update applies immediately and persists
+        #expect(sut.postDetail?.commentsDisabled == false)
+        await yield()
+        #expect(sut.postDetail?.commentsDisabled == false)
+    }
+
+    @Test func testCommentOnPost_CommentsDisabled_ShowsAlertAndDoesNotAddComment() async throws {
+        // Given: A post with comments disabled
+        let (sut, _, _) = try await setupOwnContentEnvironment(account: "commentOnLockedPost_account")
+        sut.lockComments()
+        let threadCountBefore = sut.commentThreads.count
+
+        // When: An attempt is made to add a new top-level comment
+        sut.commentOnPost(commentText: "should not be added")
+        await yield()
+
+        // Then: No new thread is added and an alert surfaces the failure
+        #expect(sut.commentThreads.count == threadCountBefore)
+        #expect(sut.alertMessage != nil)
+    }
+
+    @Test func testReplyToCommentThread_CommentsDisabled_ShowsAlertAndDoesNotAddReply() async throws {
+        let account = "replyToLockedPost_account"
+        // Given: A post by its owner, a thread on it by a separate commenter,
+        // and the owner locking comments before the viewer tries to reply.
+        _ = try await setupLoggedInUser(username: "viewer", account: account)
+        let postOwnerToken = try await registerUserAndGetToken(username: "postOwner")
+        let commenterToken = try await registerUserAndGetToken(username: "commenter")
+        let postID = try await makePostAndGetID(token: postOwnerToken, caption: "Test Post")
+        let (threadID, _) = try await commentOnPostAndGetIDs(token: commenterToken, postID: postID, body: "First comment")
+        _ = try await stubAPI.lockComments(sessionManagementToken: postOwnerToken, postIdentifier: postID)
+
+        let sut = PostDetailViewModel(postIdentifier: postID, api: stubAPI, keychainHelper: keychainHelper, account: account)
+        await yield()
+        guard let thread = sut.commentThreads.first(where: { $0.id == threadID }) else {
+            #expect(Bool(false), "Test setup error: Could not find thread")
+            return
+        }
+        let commentCountBefore = thread.comments.count
+
+        // When: An attempt is made to reply to the existing thread
+        sut.replyToCommentThread(thread: thread, commentText: "should not be added")
+        await yield()
+
+        // Then: The reply is not added and an alert surfaces the failure
+        #expect(sut.commentThreads.first(where: { $0.id == threadID })?.comments.count == commentCountBefore)
+        #expect(sut.alertMessage != nil)
+    }
 }

@@ -5,6 +5,7 @@ import com.example.positiveonlysocial.api.PositiveOnlySocialAPI
 import com.example.positiveonlysocial.data.model.GenericResponse
 import com.example.positiveonlysocial.data.model.Post
 import com.example.positiveonlysocial.data.model.ReportRequest
+import com.example.positiveonlysocial.data.model.SetCommentsDisabledResponse
 import com.example.positiveonlysocial.data.model.UserSession
 import com.example.positiveonlysocial.data.security.KeychainHelperProtocol
 import com.example.positiveonlysocial.util.PostEvents
@@ -198,6 +199,45 @@ class PostListActionsTest {
         advanceUntilIdle()
 
         assertEquals(false, postWithId("1").isSaved)
+        assertEquals("Server error", actions.alertMessage.value)
+    }
+
+    @Test
+    fun `toggleCommentsLock locks optimistically and calls the api`() = runTest {
+        loadFeed()
+        whenever(api.lockComments("token123", "2"))
+            .thenReturn(Response.success(SetCommentsDisabledResponse(commentsDisabled = true)))
+
+        actions.toggleCommentsLock(ownPost)
+
+        assertEquals(true, postWithId("2").commentsDisabled)
+        verify(api).lockComments("token123", "2")
+    }
+
+    @Test
+    fun `toggleCommentsLock unlocks a post that is already locked`() = runTest {
+        whenever(api.getPostsInFeed("token123", 0))
+            .thenReturn(Response.success(listOf(otherPost, ownPost.copy(commentsDisabled = true))))
+        viewModel.fetchFeed()
+        whenever(api.unlockComments("token123", "2"))
+            .thenReturn(Response.success(SetCommentsDisabledResponse(commentsDisabled = false)))
+
+        actions.toggleCommentsLock(ownPost)
+
+        assertEquals(false, postWithId("2").commentsDisabled)
+        verify(api).unlockComments("token123", "2")
+    }
+
+    @Test
+    fun `toggleCommentsLock reverts when the request fails`() = runTest {
+        loadFeed()
+        whenever(api.lockComments("token123", "2"))
+            .thenReturn(Response.error(500, "{\"error\":\"Server error\"}".toResponseBody()))
+
+        actions.toggleCommentsLock(ownPost)
+        advanceUntilIdle()
+
+        assertEquals(false, postWithId("2").commentsDisabled)
         assertEquals("Server error", actions.alertMessage.value)
     }
 

@@ -194,7 +194,11 @@ fun PostActionMenu(actions: PostListActions, post: Post, expanded: Boolean, isOw
         // Save / unsave lives in the 3-dot menu on mobile (issue #412); web has a
         // dedicated bookmark control.
         isSaved = post.isSaved == true,
-        onToggleSave = { actions.toggleSave(post) }
+        onToggleSave = { actions.toggleSave(post) },
+        // Lock/unlock commenting (issue #492) is owner-only, offered alongside
+        // Delete rather than replacing it.
+        commentsDisabled = post.commentsDisabled == true,
+        onToggleCommentsLock = { actions.toggleCommentsLock(post) }
     )
 }
 

@@ -331,7 +331,12 @@ fun PostDetailScreen(
                                         },
                                         onReport = { viewModel.setShowReportSheetForPost(true) },
                                         onRetract = { viewModel.setShowRetractDialogForPost(true) },
-                                        onDelete = { viewModel.deletePost() }
+                                        onDelete = { viewModel.deletePost() },
+                                        commentsDisabled = post.commentsDisabled == true,
+                                        onToggleCommentsLock = {
+                                            if (post.commentsDisabled == true) viewModel.unlockComments()
+                                            else viewModel.lockComments()
+                                        }
                                     )
                                 }
                             }
@@ -400,11 +405,22 @@ fun PostDetailScreen(
                             // counter) rather than typing inline, so commenting on
                             // a post and replying to a thread work the same way
                             // (issues #266, #289, #290).
-                            OutlinedButton(
-                                onClick = { viewModel.setShowAddCommentDialog(true) },
-                                modifier = Modifier.fillMaxWidth()
-                            ) {
-                                Text("Add a comment...", modifier = Modifier.weight(1f))
+                            //
+                            // Comments locked/disabled (issue #492): no compose
+                            // entry point, just a plain notice.
+                            if (post.commentsDisabled == true) {
+                                Text(
+                                    "Comments are turned off for this post.",
+                                    color = Color.Gray,
+                                    modifier = Modifier.fillMaxWidth()
+                                )
+                            } else {
+                                OutlinedButton(
+                                    onClick = { viewModel.setShowAddCommentDialog(true) },
+                                    modifier = Modifier.fillMaxWidth()
+                                ) {
+                                    Text("Add a comment...", modifier = Modifier.weight(1f))
+                                }
                             }
 
                             Spacer(modifier = Modifier.height(16.dp))
@@ -442,6 +458,7 @@ fun PostDetailScreen(
                         viewModel = viewModel,
                         postId = postId,
                         currentUsername = currentUsername,
+                        commentsDisabled = post.commentsDisabled == true,
                         openCommentId = commentForAction?.id,
                         reportedCommentIds = reportedCommentIds,
                         collapsedCommentIds = collapsedCommentIds,
@@ -471,6 +488,9 @@ fun CommentThreadView(
     /** Needed for the per-comment share link in each comment's action menu. */
     postId: String,
     currentUsername: String?,
+    /** Whether the post's author has turned off commenting (issue #492), which
+     * hides the Reply row below the root comment. */
+    commentsDisabled: Boolean = false,
     /** The comment whose action menu is open, if any. This and the two sets
      * below are passed in rather than collected here: this composable runs once
      * per thread, so collecting would mean one collector per thread. */
@@ -525,11 +545,14 @@ fun CommentThreadView(
                 menu = { commentMenu(rootComment) }
             )
 
-            // Reply Input for Thread
-            Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(start = 16.dp, top = 8.dp)) {
-                 TextButton(onClick = { viewModel.setThreadToReplyTo(thread) }) {
-                     Text("Reply", fontSize = 12.sp)
-                 }
+            // Reply Input for Thread. Hidden once comments are locked/disabled
+            // (issue #492).
+            if (!commentsDisabled) {
+                Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(start = 16.dp, top = 8.dp)) {
+                     TextButton(onClick = { viewModel.setThreadToReplyTo(thread) }) {
+                         Text("Reply", fontSize = 12.sp)
+                     }
+                }
             }
         }
 
@@ -745,7 +768,12 @@ fun ActionMenu(
     // label. A null `onToggleSave` hides the Save row entirely — that's how items
     // that can't be saved (comments) opt out.
     isSaved: Boolean = false,
-    onToggleSave: (() -> Unit)? = null
+    onToggleSave: (() -> Unit)? = null,
+    // Lock/unlock commenting (issue #492), post-only and owner-only. `commentsDisabled`
+    // only picks the label. A null `onToggleCommentsLock` hides the row entirely —
+    // how comments (which have no comment section of their own) opt out.
+    commentsDisabled: Boolean = false,
+    onToggleCommentsLock: (() -> Unit)? = null
 ) {
     DropdownMenu(expanded = expanded, onDismissRequest = onDismiss) {
         // Share is offered for any post or comment, own or not (issue #34);
@@ -758,6 +786,12 @@ fun ActionMenu(
             DropdownMenuItem(
                 text = { Text(if (isSaved) "Unsave $itemLabel" else "Save $itemLabel") },
                 onClick = { onToggleSave(); onDismiss() }
+            )
+        }
+        if (isOwn && onToggleCommentsLock != null) {
+            DropdownMenuItem(
+                text = { Text(if (commentsDisabled) "Turn On Commenting" else "Turn Off Commenting") },
+                onClick = { onToggleCommentsLock(); onDismiss() }
             )
         }
         if (isOwn) {

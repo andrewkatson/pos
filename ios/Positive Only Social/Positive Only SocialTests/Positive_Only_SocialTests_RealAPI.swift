@@ -77,6 +77,35 @@ struct Positive_Only_SocialTests_RealAPI {
                 == "/user_index/posts/11111111-1111-1111-1111-111111111111/comment")
     }
 
+    /// POST posts/<id>/comments/lock|unlock/ turn commenting off/on (issue #492).
+    @Test func testLockCommentsUsesCommentsLockPath() async throws {
+        CapturingURLProtocol.lastRequestURL = nil
+        URLProtocol.registerClass(CapturingURLProtocol.self)
+        defer { URLProtocol.unregisterClass(CapturingURLProtocol.self) }
+
+        _ = try await RealAPI().lockComments(
+            sessionManagementToken: "token",
+            postIdentifier: "11111111-1111-1111-1111-111111111111")
+
+        #expect(
+            CapturingURLProtocol.lastRequestURL?.path
+                == "/user_index/posts/11111111-1111-1111-1111-111111111111/comments/lock")
+    }
+
+    @Test func testUnlockCommentsUsesCommentsUnlockPath() async throws {
+        CapturingURLProtocol.lastRequestURL = nil
+        URLProtocol.registerClass(CapturingURLProtocol.self)
+        defer { URLProtocol.unregisterClass(CapturingURLProtocol.self) }
+
+        _ = try await RealAPI().unlockComments(
+            sessionManagementToken: "token",
+            postIdentifier: "11111111-1111-1111-1111-111111111111")
+
+        #expect(
+            CapturingURLProtocol.lastRequestURL?.path
+                == "/user_index/posts/11111111-1111-1111-1111-111111111111/comments/unlock")
+    }
+
     /// POST devices/register/ registers this device's APNs token (issue #342).
     @Test func testRegisterDeviceUsesDevicesRegisterPath() async throws {
         CapturingURLProtocol.lastRequestURL = nil
