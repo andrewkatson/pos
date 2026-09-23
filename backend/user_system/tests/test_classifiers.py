@@ -804,11 +804,13 @@ class TestClassifiers(PositiveOnlySocialTestCase):
         self.assertIn("middle of the range", prompt)
 
     def test_final_stage_is_told_nobody_follows_it(self):
-        # The mirror image: at stage 3 hedging *is* a rejection, so the model is
-        # told to commit rather than sit in the middle zone.
+        # The mirror image of stage 1: at stage 3 a middle score defers nothing,
+        # so the model is told not to retreat there to avoid deciding. It gets
+        # no successor to escalate to, hedged or otherwise.
         prompt = classifier_prompt(TEXT_CLASSIFIER_PROMPT, 3)
         self.assertIn("final reviewer", prompt.lower())
-        self.assertNotIn("middle of the range", prompt)
+        self.assertIn("no one reviews it after you", prompt.lower())
+        self.assertNotIn("any further reviewer", prompt)
 
     def test_stage_context_never_reveals_earlier_scores(self):
         # Passing a predecessor's score would anchor later stages toward the
@@ -935,3 +937,30 @@ class TestClassifiers(PositiveOnlySocialTestCase):
             "ambiguous text", classifier_prompt(TEXT_CLASSIFIER_PROMPT, 1))
         self.assertFalse(result)
         self.assertTrue(result.appealable)
+
+    def test_final_stage_does_not_equate_hedging_with_a_confident_rejection(self):
+        # A middle score at stage 3 is an APPEALABLE rejection; a reject-zone
+        # score is a final one (see the cascade test below). Telling the last
+        # reviewer the two come to the same thing would push genuine
+        # uncertainty into false confidence and strip the author's appeal, so
+        # the prompt says outright that they differ.
+        prompt = classifier_prompt(TEXT_CLASSIFIER_PROMPT, 3)
+        self.assertIn("not treated the same as a confident rejection", prompt)
+        for claim in ("just as a confident rejection would", "rejects it just as"):
+            self.assertNotIn(claim, prompt,
+                             msg=f"Stage 3 flattens the appealability distinction: {claim!r}")
+
+    @patch.dict(os.environ, {}, clear=True)
+    @patch(_TEXT_AVAILABLE, return_value=[API_GEMMA, API_GEMINI, API_OPENAI])
+    def test_stage_three_middle_is_appealable_but_reject_zone_is_not(self, _avail):
+        # The behaviour the stage-3 wording has to stay honest about.
+        for third_score, expected_appealable in ((MIDDLE_SCORE, True), (REJECT_SCORE, False)):
+            with self.subTest(third_score=third_score):
+                with patch.dict(_TEXT_DISPATCH, {
+                    API_GEMMA: MagicMock(return_value=MIDDLE_SCORE),
+                    API_GEMINI: MagicMock(return_value=MIDDLE_SCORE),
+                    API_OPENAI: MagicMock(return_value=third_score),
+                }):
+                    result = is_text_positive("borderline text")
+                self.assertFalse(result)
+                self.assertEqual(result.appealable, expected_appealable)

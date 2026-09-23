@@ -502,9 +502,17 @@ reviewer is final and non-appealable, while the *third* reviewer's uncertainty
 is itself a rejection, there being nobody left to escalate to. So stage 1 is
 told that a middle score is a legitimate answer that escalates — cheap models
 are overconfident, and the aim is to convert spurious hard rejections into
-escalations — and stage 3 is told that nothing follows it, so it should commit
-rather than hedge. This is about calibration, not making the first pass vaguer:
-clear content should still be settled cheaply at stage 1.
+escalations — and stage 3 is told that a middle score no longer defers
+anything, so it should not retreat there merely to avoid deciding. This is
+about calibration, not making the first pass vaguer: clear content should still
+be settled cheaply at stage 1.
+
+What stage 3 is *not* told is that an unsure answer and a confident rejection
+amount to the same thing, because they do not: a middle score at the last stage
+is an **appealable** rejection, a reject-zone score a final one. Flattening that
+would push a genuinely uncertain model into false confidence and quietly strip
+the author's right to appeal — the very thing the middle zone preserves at the
+last stage. The instruction is against strategic hedging only.
 
 The earlier stages promise nothing about the reviewer that follows — not that
 one is better, and not that one exists. Neither would be true in general.

@@ -143,8 +143,16 @@ IMAGE_CLASSIFIER_PROMPT = (
 # overconfident — they cluster at 0.9/0.1 and rarely use the middle zone — which
 # at stage 1 turns a spurious low score into an unappealable ban. Stage 1 is
 # therefore told that abstaining (a middle score) is a legitimate answer that
-# escalates. Stage 3 is told the opposite: nothing follows it, so hedging is
-# itself a verdict and it should commit.
+# escalates. Stage 3 is told that a middle score no longer defers anything, so
+# it should not retreat there merely to avoid deciding.
+#
+# What stage 3 must NOT be told is that an unsure answer and a confident
+# rejection come to the same thing. They do not: a middle score at stage 3 is an
+# *appealable* rejection, a reject-zone score a final one. Flattening that would
+# push a genuinely uncertain model into false confidence and quietly strip the
+# author's right to appeal — the very thing the middle zone preserves at the
+# last stage. So the instruction is against strategic hedging only, and says
+# plainly that a borderline answer is treated differently.
 #
 # Stages 1 and 2 promise nothing about the reviewer that follows — not that one
 # is better, and not that one exists at all. Two reasons, both cases where an
@@ -194,8 +202,12 @@ _STAGE_CONTEXT = {
     ),
     3: (
         "You are the final reviewer of this content. No one reviews it after "
-        "you, so an unsure answer rejects it just as a confident rejection "
-        "would. Commit to the verdict the content deserves rather than hedging."
+        "you, so an answer in the middle of the range no longer passes the "
+        "decision on — it settles it. Do not retreat to the middle merely to "
+        "avoid deciding: give a confident answer where the content warrants "
+        "one. Do still answer in the middle when the content is genuinely "
+        "borderline; that is the honest answer there, and it is not treated "
+        "the same as a confident rejection."
     ),
 }
 
