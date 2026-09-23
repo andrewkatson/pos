@@ -160,6 +160,9 @@ export function usePostActions({
     const { isOwn, commentsDisabled } = stateFor(post)
     if (!isOwn) return
     const locking = !commentsDisabled
+    // Close the menu like its other items do, rather than leave it open with
+    // the label flipped underneath the user.
+    setDialog(null)
     setOverride(post.post_identifier, { commentsDisabled: locking })
     try {
       if (locking) await apiClient.lockComments(post.post_identifier)
