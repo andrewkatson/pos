@@ -1,12 +1,10 @@
 package com.example.positiveonlysocial.api
 
-import android.os.Build
 import okhttp3.OkHttpClient
 import org.json.JSONObject
 import retrofit2.Retrofit
 import retrofit2.converter.gson.GsonConverterFactory
 import com.example.positiveonlysocial.data.constants.Constants
-import com.example.positiveonlysocial.BuildConfig
 import java.util.concurrent.TimeUnit
 
 object APIProvider {
@@ -40,7 +38,7 @@ object APIProvider {
      */
     fun returnGoodVibesOnlyAPI(baseUrl: String, isUITesting: Boolean = false): PositiveOnlySocialAPI {
         // 1. Check Debug configurations
-        if (Constants.isUnitTesting || isUITesting || this.isUITesting) {
+        if (Constants.isUnitTesting || isUITesting) {
             return stubbedService
         }
 
@@ -110,19 +108,4 @@ object APIProvider {
             .build()
             .create(PositiveOnlySocialAPI::class.java)
     }
-
-    private val isUITesting: Boolean
-        get() {
-            if (BuildConfig.DEBUG) return true
-            return (Build.FINGERPRINT.startsWith("generic")
-                    || Build.FINGERPRINT.startsWith("unknown")
-                    || Build.MODEL.contains("google_sdk")
-                    || Build.MODEL.contains("Emulator")
-                    || Build.MODEL.contains("Android SDK built for x86")
-                    || Build.BOARD == "QC_Reference_Phone" // bluestacks
-                    || Build.MANUFACTURER.contains("Genymotion")
-                    || Build.HOST.startsWith("Build") // MSI App Player
-                    || (Build.BRAND.startsWith("generic") && Build.DEVICE.startsWith("generic"))
-                    || "google_sdk" == Build.PRODUCT)
-        }
 }
