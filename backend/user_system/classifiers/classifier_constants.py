@@ -146,12 +146,22 @@ IMAGE_CLASSIFIER_PROMPT = (
 # escalates. Stage 3 is told the opposite: nothing follows it, so hedging is
 # itself a verdict and it should commit.
 #
-# The context says only that *another* reviewer follows, never a better one.
-# Cheapest-first ordering holds for a first look, but a later round is reordered
-# to put fresh eyes first and, once every tier has decided, rotated from a random
-# start (model_chain.round_order), so stage 2 can well be a cheaper tier than
-# stage 1. Promising a stronger successor would be false in those rounds and
-# would bias stage 1 toward abstaining on the strength of it.
+# Stages 1 and 2 promise nothing about the reviewer that follows — not that one
+# is better, and not that one exists at all. Two reasons, both cases where an
+# unconditional promise would simply be false, and false in the direction that
+# buys abstention under false pretenses:
+#
+#   - A later round is reordered to put fresh eyes first and, once every tier
+#     has decided, rotated from a random start (model_chain.round_order), so
+#     stage 2 can well be a *cheaper* tier than stage 1.
+#   - There may be no next reviewer at all. With a short cascade a middle score
+#     at stage 1 is the last word (an appealable rejection), and even with a
+#     full cascade every remaining tier might error, which leaves the middle
+#     score standing. No amount of plumbing can make the promise true, since
+#     whether a later tier returns a *usable* score is unknowable at call time.
+#
+# Hence "any further reviewer": it motivates abstaining without asserting a
+# successor. There are tests for both properties.
 #
 # The context carries no numerals, deliberately. parse_probability_and_rule
 # takes the *last* "score,rule" pair (or bare number) in a reply so that a model
@@ -171,15 +181,16 @@ _STAGE_CONTEXT = {
         "acceptable answer from you approves it immediately and a clearly "
         "unacceptable answer rejects it outright, so give an answer at either "
         "end of the range below only when you are confident. If you are "
-        "genuinely unsure, answer in the middle of the range: another reviewer "
-        "will then look at it."
+        "genuinely unsure, answer in the middle of the range rather than "
+        "guessing: that leaves the decision to any further reviewer instead of "
+        "settling it here."
     ),
     2: (
         "You are the second of up to three reviewers of this content. An earlier "
         "reviewer was not confident about it. You are not told their answer and "
         "should not try to guess it — judge the content on its own. A clearly "
-        "acceptable answer from you approves it; anything else passes it to a "
-        "final reviewer."
+        "acceptable answer from you approves it; anything else passes the "
+        "decision on to any further reviewer."
     ),
     3: (
         "You are the final reviewer of this content. No one reviews it after "

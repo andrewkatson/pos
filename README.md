@@ -504,10 +504,17 @@ told that a middle score is a legitimate answer that escalates — cheap models
 are overconfident, and the aim is to convert spurious hard rejections into
 escalations — and stage 3 is told that nothing follows it, so it should commit
 rather than hedge. This is about calibration, not making the first pass vaguer:
-clear content should still be settled cheaply at stage 1. The wording promises
-only that *another* reviewer follows, never a better one: cheapest-first holds
-for a first look, but a later round puts fresh tiers first and may rotate from a
-random start (below), so stage 2 can be a cheaper tier than stage 1.
+clear content should still be settled cheaply at stage 1.
+
+The earlier stages promise nothing about the reviewer that follows — not that
+one is better, and not that one exists. Neither would be true in general.
+Cheapest-first holds for a first look, but a later round puts fresh tiers first
+and may rotate from a random start (below), so stage 2 can be a *cheaper* tier
+than stage 1. And a middle score is not always an escalation: with a short
+cascade it is the last word (an appealable rejection), and even with a full
+cascade every remaining tier might error and leave that score standing. Whether
+a later tier returns a usable score simply is not knowable when the prompt is
+built, so the wording motivates abstaining without asserting a successor.
 Two things are deliberately withheld. Models are never told the earlier
 reviewers' **scores**, which would anchor them toward the middle and defeat the
 point of asking again — each stage judges the content, not its predecessor. And

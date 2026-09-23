@@ -905,3 +905,33 @@ class TestClassifiers(PositiveOnlySocialTestCase):
             for claim in ("more capable", "stronger", "better reviewer", "smarter"):
                 self.assertNotIn(claim, context,
                                  msg=f"Stage {stage} context claims a better next reviewer: {claim!r}")
+
+    def test_stage_context_never_asserts_that_a_next_reviewer_exists(self):
+        # A middle score is not always an escalation: with a short cascade it is
+        # the last word (an appealable rejection), and even with a full cascade
+        # every remaining tier might error and leave the score standing. Whether
+        # a later tier returns a usable score is unknowable when the prompt is
+        # built, so stages 1 and 2 hedge ("any further reviewer") rather than
+        # promising a successor they cannot guarantee.
+        for stage in (1, 2):
+            context = classifier_prompt("", stage)
+            self.assertIn("any further reviewer", context,
+                          msg=f"Stage {stage} should hedge about the next reviewer")
+            for claim in ("will then look", "passes it to a final reviewer",
+                          "another reviewer will"):
+                self.assertNotIn(claim, context,
+                                 msg=f"Stage {stage} asserts a successor exists: {claim!r}")
+
+    @patch.dict(os.environ, {}, clear=True)
+    @patch(_TEXT_AVAILABLE, return_value=[API_GEMMA])
+    def test_a_lone_tier_is_still_addressed_as_the_first_reviewer(self, _avail):
+        # The lone tier really is stage 1 — its middle score ends the cascade as
+        # an appealable rejection, with no second reviewer despite the prompt's
+        # "up to three". The hedged wording above is what keeps that honest.
+        mock_gemma = MagicMock(return_value=MIDDLE_SCORE)
+        with patch.dict(_TEXT_DISPATCH, {API_GEMMA: mock_gemma}):
+            result = is_text_positive("ambiguous text")
+        mock_gemma.assert_called_once_with(
+            "ambiguous text", classifier_prompt(TEXT_CLASSIFIER_PROMPT, 1))
+        self.assertFalse(result)
+        self.assertTrue(result.appealable)
