@@ -440,7 +440,7 @@ struct PostDetailImage: View {
     var body: some View {
         if let imageUrl {
             let urlString = useOriginal ? (originalImageUrl ?? imageUrl) : imageUrl
-            KFImage(URL(string: urlString))
+            KFImage(source: SignedImageURL.source(for: urlString))
                 .downsampled(toMaxPixelSize: ImageDownsampling.detailMaxPixelSize)
                 // Rides out the just-posted window where the compressed copy isn't
                 // in the bucket yet; only HTTP errors are retried, not cancellations.

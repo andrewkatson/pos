@@ -515,7 +515,7 @@ struct GridPostImage: View {
             // measures it — a full-width feed tile and a third-width profile tile
             // each decode only as many pixels as they show.
             GeometryReader { geometry in
-                KFImage(URL(string: urlString))
+                KFImage(source: SignedImageURL.source(for: urlString))
                     .downsampled(toMaxPixelSize: ImageDownsampling.maxPixelSize(
                         toFill: max(geometry.size.width, geometry.size.height),
                         scale: displayScale

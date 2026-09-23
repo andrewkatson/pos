@@ -68,7 +68,7 @@ struct ProfileAvatarView: View {
     private var avatarContent: some View {
         if let imageUrl {
             let urlString = useOriginal ? (originalImageUrl ?? imageUrl) : imageUrl
-            KFImage(URL(string: urlString))
+            KFImage(source: SignedImageURL.source(for: urlString))
                 .downsampled(toMaxPixelSize: ImageDownsampling.maxPixelSize(toFill: size, scale: displayScale))
                 // Rides out the just-approved window where the compressed copy
                 // isn't in the bucket yet; only HTTP errors are retried, not

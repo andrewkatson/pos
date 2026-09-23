@@ -5,6 +5,7 @@
 
 import Testing
 import CoreGraphics
+import Foundation
 @testable import Positive_Only_Social
 
 struct Positive_Only_SocialTests_ImageDownsampling {
@@ -22,5 +23,22 @@ struct Positive_Only_SocialTests_ImageDownsampling {
 
     @Test func unmeasuredViewFallsBackToDetailCap() {
         #expect(ImageDownsampling.maxPixelSize(toFill: 0, scale: 3) == ImageDownsampling.detailMaxPixelSize)
+    }
+
+    @Test func signedURLCacheKeyIgnoresSignature() {
+        let first = URL(string: "https://images.example.net/user/photo.jpg?Expires=100&Signature=abc&Key-Pair-Id=K1")!
+        let second = URL(string: "https://images.example.net/user/photo.jpg?Expires=200&Signature=def&Key-Pair-Id=K1")!
+        #expect(SignedImageURL.cacheKey(for: first) == "https://images.example.net/user/photo.jpg")
+        #expect(SignedImageURL.cacheKey(for: first) == SignedImageURL.cacheKey(for: second))
+    }
+
+    @Test func signedURLCacheKeyKeepsCompressedAndOriginalApart() {
+        let compressed = URL(string: "https://images.example.net/user/photo.jpg?Signature=abc")!
+        let original = URL(string: "https://originals.example.net/user/photo.jpg?Signature=abc")!
+        #expect(SignedImageURL.cacheKey(for: compressed) != SignedImageURL.cacheKey(for: original))
+    }
+
+    @Test func invalidURLStringHasNoSource() {
+        #expect(SignedImageURL.source(for: "") == nil)
     }
 }

@@ -41,11 +41,39 @@ extension KFImage {
     /// Decodes the image straight to at most `maxPixelSize` pixels on its long
     /// edge via ImageIO's thumbnail API, so the full-size bitmap is never built.
     /// The downloaded original is disk-cached too, so another view of the same
-    /// URL at a different size (grid tile → detail view) reuses the download.
+    /// image at a different size (grid tile → detail view) reuses the download —
+    /// as long as the image was loaded through `SignedImageURL`, whose cache key
+    /// ignores the per-response signature.
     func downsampled(toMaxPixelSize maxPixelSize: CGFloat) -> KFImage {
         // The processor's size is in points multiplied by the `scaleFactor`
         // option, which defaults to 1, so this size is in pixels.
         setProcessor(DownsamplingImageProcessor(size: CGSize(width: maxPixelSize, height: maxPixelSize)))
             .cacheOriginalImage()
+    }
+}
+
+/// Builds the Kingfisher source for a CloudFront-signed image URL.
+///
+/// The backend signs every image URL it returns with a fresh `Expires` and
+/// `Signature` (`cloudfront.py`), so the same photo arrives under a different
+/// URL on every feed refresh and detail fetch. Kingfisher caches by URL by
+/// default, so each of those re-downloaded the image. Keying the cache on the
+/// URL minus its query string (domain + object key) lets every signed copy of
+/// a photo share one cache entry, while the request still uses the signed URL.
+/// The compressed and original CloudFront domains differ, so their copies stay
+/// separate entries.
+enum SignedImageURL {
+    static func source(for urlString: String) -> Source? {
+        guard let url = URL(string: urlString) else { return nil }
+        return .network(KF.ImageResource(downloadURL: url, cacheKey: cacheKey(for: url)))
+    }
+
+    static func cacheKey(for url: URL) -> String {
+        guard var components = URLComponents(url: url, resolvingAgainstBaseURL: false) else {
+            return url.absoluteString
+        }
+        components.query = nil
+        components.fragment = nil
+        return components.string ?? url.absoluteString
     }
 }
