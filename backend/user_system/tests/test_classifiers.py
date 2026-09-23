@@ -893,3 +893,15 @@ class TestClassifiers(PositiveOnlySocialTestCase):
             context = classifier_prompt("", stage)
             self.assertIsNone(parse_probability_and_rule(context)[0],
                               msg=f"Stage {stage} context parses as a score")
+
+    def test_stage_context_never_promises_a_stronger_next_reviewer(self):
+        # Cheapest-first ordering only holds for a first look. A later round is
+        # reordered to put fresh tiers first, and once every tier has decided it
+        # is rotated from a random start (model_chain.round_order), so stage 2
+        # can be a *cheaper* tier than stage 1. Promising a better successor
+        # would be false there and would bias stage 1 toward abstaining on it.
+        for stage in (1, 2, 3):
+            context = classifier_prompt("", stage).lower()
+            for claim in ("more capable", "stronger", "better reviewer", "smarter"):
+                self.assertNotIn(claim, context,
+                                 msg=f"Stage {stage} context claims a better next reviewer: {claim!r}")

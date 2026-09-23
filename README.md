@@ -500,11 +500,14 @@ Each model is also told **which line of defense it is** (issue #491), because
 the three stages do not carry equal weight: a clear rejection from the *first*
 reviewer is final and non-appealable, while the *third* reviewer's uncertainty
 is itself a rejection, there being nobody left to escalate to. So stage 1 is
-told that a middle score is a legitimate answer that escalates to a stronger
-reviewer — cheap models are overconfident, and the aim is to convert spurious
-hard rejections into escalations — and stage 3 is told that nothing follows it,
-so it should commit rather than hedge. This is about calibration, not making the
-first pass vaguer: clear content should still be settled cheaply at stage 1.
+told that a middle score is a legitimate answer that escalates — cheap models
+are overconfident, and the aim is to convert spurious hard rejections into
+escalations — and stage 3 is told that nothing follows it, so it should commit
+rather than hedge. This is about calibration, not making the first pass vaguer:
+clear content should still be settled cheaply at stage 1. The wording promises
+only that *another* reviewer follows, never a better one: cheapest-first holds
+for a first look, but a later round puts fresh tiers first and may rotate from a
+random start (below), so stage 2 can be a cheaper tier than stage 1.
 Two things are deliberately withheld. Models are never told the earlier
 reviewers' **scores**, which would anchor them toward the middle and defeat the
 point of asking again — each stage judges the content, not its predecessor. And

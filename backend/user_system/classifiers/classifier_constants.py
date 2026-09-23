@@ -146,6 +146,13 @@ IMAGE_CLASSIFIER_PROMPT = (
 # escalates. Stage 3 is told the opposite: nothing follows it, so hedging is
 # itself a verdict and it should commit.
 #
+# The context says only that *another* reviewer follows, never a better one.
+# Cheapest-first ordering holds for a first look, but a later round is reordered
+# to put fresh eyes first and, once every tier has decided, rotated from a random
+# start (model_chain.round_order), so stage 2 can well be a cheaper tier than
+# stage 1. Promising a stronger successor would be false in those rounds and
+# would bias stage 1 toward abstaining on the strength of it.
+#
 # The context carries no numerals, deliberately. parse_probability_and_rule
 # takes the *last* "score,rule" pair (or bare number) in a reply so that a model
 # echoing its prompt before answering still parses; a numeral here could be read
@@ -164,8 +171,8 @@ _STAGE_CONTEXT = {
         "acceptable answer from you approves it immediately and a clearly "
         "unacceptable answer rejects it outright, so give an answer at either "
         "end of the range below only when you are confident. If you are "
-        "genuinely unsure, answer in the middle of the range: a further, more "
-        "capable reviewer will then look at it."
+        "genuinely unsure, answer in the middle of the range: another reviewer "
+        "will then look at it."
     ),
     2: (
         "You are the second of up to three reviewers of this content. An earlier "
