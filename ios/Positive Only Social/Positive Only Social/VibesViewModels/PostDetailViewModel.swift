@@ -456,9 +456,11 @@ final class PostDetailViewModel: ObservableObject {
         guard var post = postDetail else { return }
         post.commentsDisabled = true
         self.postDetail = post
-        Task {
+        // Weak so a dismissed detail screen isn't kept alive by the request.
+        Task { [weak self] in
+            guard let self else { return }
             do {
-                guard let userSession = try keychainHelper.load(UserSession.self, from: keychainService, account: account) else {
+                guard let userSession = try self.keychainHelper.load(UserSession.self, from: self.keychainService, account: self.account) else {
                     NSLog("%@", "No active session — cannot lock comments")
                     // Undo the optimistic update since no request was sent.
                     if var reverted = self.postDetail { reverted.commentsDisabled = false; self.postDetail = reverted }
@@ -466,7 +468,7 @@ final class PostDetailViewModel: ObservableObject {
                     return
                 }
                 let token = userSession.sessionToken
-                _ = try await api.lockComments(sessionManagementToken: token, postIdentifier: postIdentifier)
+                _ = try await api.lockComments(sessionManagementToken: token, postIdentifier: self.postIdentifier)
                 await MainActor.run {
                     NotificationCenter.default.post(name: .postCommentsDisabledChanged, object: self.postIdentifier, userInfo: ["commentsDisabled": true])
                 }
@@ -487,9 +489,11 @@ final class PostDetailViewModel: ObservableObject {
         guard var post = postDetail else { return }
         post.commentsDisabled = false
         self.postDetail = post
-        Task {
+        // Weak so a dismissed detail screen isn't kept alive by the request.
+        Task { [weak self] in
+            guard let self else { return }
             do {
-                guard let userSession = try keychainHelper.load(UserSession.self, from: keychainService, account: account) else {
+                guard let userSession = try self.keychainHelper.load(UserSession.self, from: self.keychainService, account: self.account) else {
                     NSLog("%@", "No active session — cannot unlock comments")
                     // Undo the optimistic update since no request was sent.
                     if var reverted = self.postDetail { reverted.commentsDisabled = true; self.postDetail = reverted }
@@ -497,7 +501,7 @@ final class PostDetailViewModel: ObservableObject {
                     return
                 }
                 let token = userSession.sessionToken
-                _ = try await api.unlockComments(sessionManagementToken: token, postIdentifier: postIdentifier)
+                _ = try await api.unlockComments(sessionManagementToken: token, postIdentifier: self.postIdentifier)
                 await MainActor.run {
                     NotificationCenter.default.post(name: .postCommentsDisabledChanged, object: self.postIdentifier, userInfo: ["commentsDisabled": false])
                 }
