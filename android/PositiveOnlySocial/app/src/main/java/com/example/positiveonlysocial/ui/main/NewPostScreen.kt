@@ -5,15 +5,20 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AddAPhoto
+import androidx.compose.material.icons.filled.ExpandLess
+import androidx.compose.material.icons.filled.ExpandMore
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.unit.dp
 import androidx.navigation.NavController
@@ -40,6 +45,11 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import com.example.positiveonlysocial.ui.theme.PositiveOnlySocialTheme
 
+/** Which kind of post is being composed (issue #520). */
+private enum class NewPostType(val label: String) {
+    TEXT("Text"),
+    IMAGE("Image"),
+}
 
 @Composable
 fun NewPostScreen(
@@ -48,6 +58,11 @@ fun NewPostScreen(
     keychainHelper: KeychainHelperProtocol
 ) {
     PositiveOnlySocialTheme {
+        var postType by remember { mutableStateOf(NewPostType.TEXT) }
+        // Whether the formatting controls are expanded. A text post is all about
+        // its caption so they start open; on an image post they're a secondary
+        // "Advanced options" that starts collapsed (issue #520).
+        var formattingExpanded by remember { mutableStateOf(true) }
         var caption by remember { mutableStateOf("") }
         var selectedAudience by remember { mutableStateOf(PostAudience.PUBLIC) }
         var audienceMenuExpanded by remember { mutableStateOf(false) }
@@ -74,9 +89,6 @@ fun NewPostScreen(
                 // where cancelling "Change Photo" leaves the existing image).
                 if (uri != null) {
                     selectedImageUri = uri
-                    // Adding a photo hides the background control (issue #421);
-                    // clear any color already chosen so a stale value isn't sent.
-                    backgroundColor = "default"
                 }
             }
         )
@@ -87,9 +99,13 @@ fun NewPostScreen(
                 title = { Text("Success!") },
                 text = { Text(successMessage) },
                 confirmButton = {
-                    Button(onClick = { 
+                    Button(onClick = {
                         showSuccessAlert = false
-                        // Reset form
+                        // Reset form, including the Text tab and its expanded
+                        // formatting group — otherwise a second post would open
+                        // on an empty Image tab with Share disabled.
+                        postType = NewPostType.TEXT
+                        formattingExpanded = true
                         caption = ""
                         selectedAudience = PostAudience.PUBLIC
                         commentsDisabled = false
@@ -120,10 +136,28 @@ fun NewPostScreen(
             )
         }
 
+        val isImagePost = postType == NewPostType.IMAGE
+        // The photo only counts on the Image tab: a picked image is kept across
+        // a tab switch (so flipping back doesn't lose it) but a text post never
+        // sends it.
+        val photoUri = if (isImagePost) selectedImageUri else null
+        // On an image post the background color never shows (the photo fills
+        // the tile), so the control is hidden and "default" is sent (issue
+        // #421). The user's pick survives a round trip through the Image tab.
+        val effectiveBackgroundColor = if (isImagePost) "default" else backgroundColor
+        // An image post needs its photo before it can be shared — that's what
+        // makes it an image post rather than a text post with a stray picture
+        // (issue #520).
+        val canShare = caption.isNotEmpty() &&
+            isWithinLength(caption, Constants.MAX_CAPTION_LENGTH) &&
+            (!isImagePost || photoUri != null)
+        val previewCaption = caption.ifBlank { "Your caption will look like this." }
+
         Column(
             modifier = Modifier
                 .fillMaxSize()
                 .dismissKeyboardOnTap()
+                .verticalScroll(rememberScrollState())
                 .padding(16.dp),
             verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
@@ -132,39 +166,67 @@ fun NewPostScreen(
                 style = MaterialTheme.typography.headlineMedium
             )
 
-            // Show the chosen photo prominently first; the "Change Photo" button
-            // sits below the larger image and reads as its caption (issue #305).
-            if (selectedImageUri != null) {
-                AsyncImage(
-                    model = selectedImageUri,
-                    contentDescription = "Selected Image",
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(240.dp),
-                    contentScale = ContentScale.Crop
-                )
+            // Text vs. image post (issue #520): the same tab row as the feed's
+            // For You / Following switch.
+            TabRow(selectedTabIndex = postType.ordinal) {
+                NewPostType.entries.forEach { type ->
+                    Tab(
+                        selected = postType == type,
+                        // Locked while a post is in flight so the kind of post
+                        // being sent can't change under the upload.
+                        enabled = !isLoading,
+                        onClick = {
+                            if (postType != type) {
+                                postType = type
+                                // Each tab has its own default for the
+                                // formatting group: open for text, collapsed
+                                // behind "Advanced options" for image.
+                                formattingExpanded = type == NewPostType.TEXT
+                            }
+                        },
+                        text = { Text(type.label) },
+                        modifier = Modifier.testTag("PostType_${type.label}")
+                    )
+                }
             }
 
-            Button(
-                onClick = {
-                    singlePhotoPickerLauncher.launch(
-                        PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)
+            // Only an image post has a photo picker (issue #520).
+            if (isImagePost) {
+                // Show the chosen photo prominently first; the "Change Photo"
+                // button sits below the larger image and reads as its caption
+                // (issue #305).
+                if (selectedImageUri != null) {
+                    AsyncImage(
+                        model = selectedImageUri,
+                        contentDescription = "Selected Image",
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(240.dp),
+                        contentScale = ContentScale.Crop
                     )
-                },
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(52.dp)
-            ) {
-                Icon(
-                    imageVector = Icons.Default.AddAPhoto,
-                    contentDescription = null,
-                    modifier = Modifier.size(20.dp)
-                )
-                Spacer(modifier = Modifier.width(8.dp))
-                Text(
-                    text = if (selectedImageUri == null) "Select a Photo (Optional)" else "Change Photo",
-                    style = MaterialTheme.typography.titleMedium
-                )
+                }
+
+                Button(
+                    onClick = {
+                        singlePhotoPickerLauncher.launch(
+                            PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)
+                        )
+                    },
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(52.dp)
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.AddAPhoto,
+                        contentDescription = null,
+                        modifier = Modifier.size(20.dp)
+                    )
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text(
+                        text = if (selectedImageUri == null) "Select a Photo" else "Change Photo",
+                        style = MaterialTheme.typography.titleMedium
+                    )
+                }
             }
 
             TextField(
@@ -222,32 +284,63 @@ fun NewPostScreen(
                 )
             }
 
-            // Text customization (issue #318): a whole-caption font, a
-            // whole-tile background color, and a live preview.
-            StyleKeyDropdown(
-                label = "Font",
-                options = TextFormatting.fontOptions,
-                selected = captionFont,
-                onSelected = { captionFont = it }
-            )
-            // On a photo post the background color never shows (the image fills
-            // the tile), so hide the control to avoid promising a change that
-            // never appears (issue #421).
-            if (selectedImageUri == null) {
-                StyleKeyDropdown(
-                    label = "Background",
-                    options = TextFormatting.backgroundOptions,
-                    selected = backgroundColor,
-                    onSelected = { backgroundColor = it }
+            // Text customization (issue #318) in a collapsible group. On a text
+            // post the caption *is* the post, so the controls start expanded
+            // under "Text formatting"; on an image post they're a secondary
+            // "Advanced options" that starts collapsed. Either way the user can
+            // toggle it (issue #520).
+            TextButton(
+                onClick = { formattingExpanded = !formattingExpanded },
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .testTag("FormattingToggle")
+            ) {
+                Text(if (isImagePost) "Advanced options" else "Text formatting")
+                Spacer(modifier = Modifier.weight(1f))
+                Icon(
+                    imageVector = if (formattingExpanded) Icons.Default.ExpandLess else Icons.Default.ExpandMore,
+                    contentDescription = if (formattingExpanded) "Collapse" else "Expand"
                 )
             }
-            CaptionPreview(
-                caption = caption.ifBlank { "Your caption will look like this." },
-                captionFont = captionFont,
-                backgroundColor = if (selectedImageUri == null) backgroundColor else "default"
-            )
+            if (formattingExpanded) {
+                StyleKeyDropdown(
+                    label = "Font",
+                    options = TextFormatting.fontOptions,
+                    selected = captionFont,
+                    onSelected = { captionFont = it }
+                )
+                // On an image post the background color never shows (the photo
+                // fills the tile), so hide the control to avoid promising a
+                // change that never appears (issue #421).
+                if (!isImagePost) {
+                    StyleKeyDropdown(
+                        label = "Background",
+                        options = TextFormatting.backgroundOptions,
+                        selected = backgroundColor,
+                        onSelected = { backgroundColor = it }
+                    )
+                }
+            }
 
-            Spacer(modifier = Modifier.weight(1f))
+            // A live preview of how the caption will read on the post: the
+            // styled tile for a text post, or the caption under the photo (or
+            // its placeholder) for an image post, so the styling is visible
+            // before a photo is even chosen (issue #520).
+            Text("Preview", style = MaterialTheme.typography.labelMedium)
+            if (isImagePost) {
+                ImagePostPreview(
+                    imageUri = selectedImageUri,
+                    caption = previewCaption,
+                    isPlaceholder = caption.isBlank(),
+                    captionFont = captionFont
+                )
+            } else {
+                CaptionPreview(
+                    caption = previewCaption,
+                    captionFont = captionFont,
+                    backgroundColor = backgroundColor
+                )
+            }
 
             // While a post is submitting, keep the button in place and switch it
             // to a "Processing…" state rather than hiding it (issue #306).
@@ -279,10 +372,11 @@ fun NewPostScreen(
                                     return@launch
                                 }
 
-                                // The photo is optional (#307): with no image
-                                // selected the whole read/upload step is skipped
-                                // and a text-only post is created.
-                                val uri = selectedImageUri
+                                // Only an image post carries a photo (#520):
+                                // photoUri is null for a text post, so the whole
+                                // read/upload step is skipped and a text-only
+                                // post is created (#307).
+                                val uri = photoUri
                                 var imageUrl: String? = null
                                 if (uri != null) {
                                     // Reading the picked photo can throw (e.g. a
@@ -343,7 +437,7 @@ fun NewPostScreen(
                                     caption = caption,
                                     audience = selectedAudience.value,
                                     captionFont = captionFont,
-                                    backgroundColor = backgroundColor,
+                                    backgroundColor = effectiveBackgroundColor,
                                     commentsDisabled = commentsDisabled
                                 )
                                 val response = api.makePost(
@@ -389,7 +483,7 @@ fun NewPostScreen(
                         }
                     },
                     modifier = Modifier.fillMaxWidth(),
-                    enabled = !isLoading && caption.isNotEmpty() && isWithinLength(caption, Constants.MAX_CAPTION_LENGTH)
+                    enabled = !isLoading && canShare
                 ) {
                     if (isLoading) {
                         CircularProgressIndicator(
@@ -434,6 +528,61 @@ private fun StyleKeyDropdown(
                 }
             }
         }
+    }
+}
+
+/**
+ * An image post as the feed lays it out: the photo (or a placeholder that holds
+ * its place until one is picked) with the caption underneath in the chosen font
+ * (issues #450, #520). The media is the same width-derived 1:1 square the feed
+ * crops every post to (FeedScreen), for both states, so the preview matches the
+ * published post and doesn't jump when a photo is picked.
+ */
+@Composable
+private fun ImagePostPreview(
+    imageUri: Uri?,
+    caption: String,
+    isPlaceholder: Boolean,
+    captionFont: String
+) {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .testTag("ImagePostPreview"),
+        verticalArrangement = Arrangement.spacedBy(8.dp)
+    ) {
+        if (imageUri != null) {
+            AsyncImage(
+                model = imageUri,
+                contentDescription = null,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .aspectRatio(1f)
+                    .clip(RoundedCornerShape(12.dp)),
+                contentScale = ContentScale.Crop
+            )
+        } else {
+            Surface(
+                color = MaterialTheme.colorScheme.surfaceVariant,
+                shape = RoundedCornerShape(12.dp),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .aspectRatio(1f)
+            ) {
+                Box(contentAlignment = Alignment.Center) {
+                    Text(
+                        text = "Your photo will appear here",
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+            }
+        }
+        Text(
+            text = caption,
+            fontFamily = TextFormatting.fontFamily(captionFont),
+            color = if (isPlaceholder) MaterialTheme.colorScheme.onSurfaceVariant else MaterialTheme.colorScheme.onSurface,
+            style = MaterialTheme.typography.bodyMedium
+        )
     }
 }
 

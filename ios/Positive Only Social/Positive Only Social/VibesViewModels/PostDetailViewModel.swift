@@ -1,6 +1,6 @@
 //
 //  PostDetailViewModel.swift
-//  Positive Only Social
+//  Vibes
 //
 //  Created by Andrew Katson on 11/9/25.
 //
@@ -191,6 +191,7 @@ final class PostDetailViewModel: ObservableObject {
                     createdDate: postFields.creation_time.flatMap { Self.parseOptionalDate($0) },
                     isReported: postFields.is_reported ?? false,
                     reportReason: postFields.report_reason,
+                    audience: postFields.audience,
                     commentsDisabled: postFields.comments_disabled ?? false
                 )
                 // Server truth for the reported flag, so it survives reloads.
@@ -299,6 +300,7 @@ final class PostDetailViewModel: ObservableObject {
                 createdDate: post.createdDate,
                 isReported: post.isReported,
                 reportReason: post.reportReason,
+                audience: post.audience,
                 commentsDisabled: post.commentsDisabled
             )
             self.postDetail = post
@@ -342,6 +344,7 @@ final class PostDetailViewModel: ObservableObject {
                 createdDate: post.createdDate,
                 isReported: post.isReported,
                 reportReason: post.reportReason,
+                audience: post.audience,
                 commentsDisabled: post.commentsDisabled
             )
             self.postDetail = post
@@ -804,6 +807,9 @@ final class PostDetailViewModel: ObservableObject {
         let author_profile_image_original_url: String?
         /// That photo's BlurHash (issue #460), shown blurred while it loads.
         let author_profile_image_blurhash: String?
+        /// Who may see the post (issue #392); optional so older responses still
+        /// decode (treated as public by the audience badge, issue #518).
+        let audience: String?
         /// Whether the author has turned off commenting on this post (issue
         /// #492). Optional so responses that predate the field still decode
         /// as comments allowed.

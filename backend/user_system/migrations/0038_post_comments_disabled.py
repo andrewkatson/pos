@@ -6,7 +6,7 @@ from django.db import migrations, models
 class Migration(migrations.Migration):
 
     dependencies = [
-        ('user_system', '0036_merge_20260807_2017'),
+        ('user_system', '0037_post_comment_classification_model_chain'),
     ]
 
     operations = [

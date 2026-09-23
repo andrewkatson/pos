@@ -1,6 +1,6 @@
 //
 //  NewPostView.swift
-//  Positive Only Social
+//  Vibes
 //
 //  Created by Andrew Katson on 10/8/25.
 //
@@ -9,11 +9,24 @@ import PhotosUI  // 1. Import the PhotosUI framework
 import SwiftUI
 
 struct NewPostView: View {
+    /// Which kind of post is being composed (issue #520). Nested so the name
+    /// stays module-qualified for the test targets that also compile this file.
+    enum PostType: String, CaseIterable, Identifiable {
+        case text = "Text"
+        case image = "Image"
+        var id: String { rawValue }
+    }
+
     let api: Networking
     let keychainHelper: KeychainHelperProtocol
     // Create an instance of the S3Uploader
     private let s3Uploader = S3Uploader()
 
+    @State private var postType: PostType = .text
+    // Whether the formatting controls are expanded. A text post is all about
+    // its caption so they start open; on an image post they're a secondary
+    // "Advanced options" that starts collapsed (issue #520).
+    @State private var isFormattingExpanded = true
     @State private var selectedItem: PhotosPickerItem?
     @State private var selectedImageData: Data?
     @State private var caption = ""
@@ -31,68 +44,55 @@ struct NewPostView: View {
     @State private var successAlertMessage = "Your post was shared successfully!"
     @State private var showFailureAlert = false
     @State private var failureAlertMessage = ""
-    
+
     @Binding var tabSelection: Int
 
-    // The background color is only meaningful on a text-only post; on a photo
-    // post the image fills the tile and the color never shows (issue #421).
-    private var showBackgroundControls: Bool { selectedImageData == nil }
+    private var isImagePost: Bool { postType == .image }
+
+    // The photo only counts on the Image tab: a picked image is kept across a
+    // tab switch (so flipping back doesn't lose it) but a text post never
+    // sends it.
+    private var photoData: Data? { isImagePost ? selectedImageData : nil }
+
+    // The background color is only meaningful on a text post; on an image post
+    // the photo fills the tile and the color never shows (issue #421), so the
+    // control is hidden and `default` is sent. The user's pick survives a round
+    // trip through the Image tab so it's still there if they come back to Text.
+    private var showBackgroundControls: Bool { !isImagePost }
+    private var effectiveBackgroundColor: String { isImagePost ? "default" : backgroundColor }
+
+    // An image post needs its photo before it can be shared — that's what makes
+    // it an image post rather than a text post with a stray picture (issue #520).
+    private var canShare: Bool {
+        !caption.isEmpty
+            && isWithinLength(caption, max: GVOAppConstants.maxCaptionLength)
+            && (!isImagePost || photoData != nil)
+    }
+
+    private var previewCaption: String {
+        caption.isEmpty ? "Your caption will look like this." : caption
+    }
 
     var body: some View {
         NavigationStack {
             Form {
                 Section(header: Text("New Post Details")) {
-                    // Show the chosen photo prominently first; its "Change Photo"
-                    // button sits below it and reads as a caption to the larger
-                    // image (issue #305).
-                    if let selectedImageData,
-                       let uiImage = UIImage(data: selectedImageData)
-                    {
-                        Image(uiImage: uiImage)
-                            .resizable().scaledToFit().frame(
-                                maxWidth: .infinity,
-                                maxHeight: 240
-                            )
-                            .clipShape(RoundedRectangle(cornerRadius: 10))
+                    // Text vs. image post (issue #520): the same segmented
+                    // control as the feed's For You / Following switch.
+                    Picker("Post Type", selection: $postType) {
+                        ForEach(PostType.allCases) { type in
+                            Text(type.rawValue).tag(type).accessibilityIdentifier(type.rawValue)
+                        }
                     }
+                    .pickerStyle(.segmented)
+                    // Locked while a post is in flight so the kind of post
+                    // being sent can't change under the upload.
+                    .disabled(isLoading)
+                    .accessibilityIdentifier("PostTypePicker")
 
-                    // A prominent, full-width button reads as the primary call to
-                    // action rather than looking like plain tappable text. The
-                    // label is centered so it doesn't read as left-aligned text
-                    // (issue #305).
-                    let pickerLabel = Label(
-                        selectedImageData == nil ? "Select a Photo (Optional)" : "Change Photo",
-                        systemImage: "photo.on.rectangle.angled"
-                    )
-                    .font(.headline)
-                    .frame(maxWidth: .infinity, alignment: .center)
-
-                    if isUITesting() {
-                        // Testing mode: Use a regular button
-                        Button {
-                            // Load a test image
-                            if let testImage = UIImage(systemName: "photo.fill"),
-                               let imageData = testImage.jpegData(compressionQuality: 0.8) {
-                                selectedImageData = imageData
-                            }
-                        } label: {
-                            pickerLabel
-                        }
-                        .buttonStyle(.borderedProminent)
-                        .controlSize(.large)
-                        .accessibilityIdentifier("SelectAPhotoPicker")
-                    } else {
-                        // Production mode: Use real PhotosPicker
-                        PhotosPicker(
-                            selection: $selectedItem,
-                            matching: .images,
-                            photoLibrary: .shared()
-                        ) {
-                            pickerLabel
-                        }
-                        .buttonStyle(.borderedProminent)
-                        .controlSize(.large)
-                        .accessibilityIdentifier("SelectAPhotoPicker")
+                    // Only an image post has a photo picker (issue #520).
+                    if isImagePost {
+                        photoControls
                     }
 
                     // TextEditor has no built-in placeholder, so overlay one that
@@ -147,40 +147,59 @@ struct NewPostView: View {
                 }
                 .buttonStyle(.borderedProminent)
                 .controlSize(.large)
-                .disabled(isLoading || caption.isEmpty || !isWithinLength(caption, max: GVOAppConstants.maxCaptionLength))
+                .disabled(isLoading || !canShare)
                 .accessibilityIdentifier("SharePostButton")
 
-                // Text customization (issue #318): a whole-caption font, a
-                // whole-tile background color, and a live preview.
-                Section(header: Text("Style")) {
-                    Picker("Font", selection: $captionFont) {
-                        ForEach(fontOptions, id: \.self) { key in
-                            Text(key.capitalized).tag(key)
-                        }
-                    }
-                    .accessibilityIdentifier("CaptionFontPicker")
-
-                    // On a photo post the background color never shows (the photo
-                    // fills the post, not a caption tile), so hide the control to
-                    // avoid promising a change that never appears (issue #421).
-                    if showBackgroundControls {
-                        Picker("Background", selection: $backgroundColor) {
-                            ForEach(backgroundOptions, id: \.self) { key in
+                // Text customization (issue #318) in a collapsible group. On a
+                // text post the caption *is* the post, so the controls start
+                // expanded under "Text formatting"; on an image post they're a
+                // secondary "Advanced options" that starts collapsed. Either way
+                // the user can toggle it (issue #520).
+                Section {
+                    DisclosureGroup(isExpanded: $isFormattingExpanded) {
+                        Picker("Font", selection: $captionFont) {
+                            ForEach(fontOptions, id: \.self) { key in
                                 Text(key.capitalized).tag(key)
                             }
                         }
-                        .accessibilityIdentifier("BackgroundColorPicker")
-                    }
+                        .accessibilityIdentifier("CaptionFontPicker")
 
-                    CaptionTileView(
-                        caption: caption.isEmpty ? "Your caption will look like this." : caption,
-                        lineLimit: nil,
-                        captionFont: captionFont,
-                        backgroundColor: showBackgroundControls ? backgroundColor : "default"
-                    )
-                    .frame(height: 120)
-                    .clipShape(RoundedRectangle(cornerRadius: 10))
-                    .accessibilityIdentifier("CaptionPreview")
+                        // On an image post the background color never shows (the
+                        // photo fills the post, not a caption tile), so hide the
+                        // control to avoid promising a change that never appears
+                        // (issue #421).
+                        if showBackgroundControls {
+                            Picker("Background", selection: $backgroundColor) {
+                                ForEach(backgroundOptions, id: \.self) { key in
+                                    Text(key.capitalized).tag(key)
+                                }
+                            }
+                            .accessibilityIdentifier("BackgroundColorPicker")
+                        }
+                    } label: {
+                        Text(isImagePost ? "Advanced options" : "Text formatting")
+                    }
+                    .accessibilityIdentifier("FormattingDisclosure")
+                }
+
+                // A live preview of how the caption will read on the post: the
+                // styled tile for a text post, or the caption under the photo
+                // (or its placeholder) for an image post, so the styling is
+                // visible before a photo is even chosen (issue #520).
+                Section(header: Text("Preview")) {
+                    if isImagePost {
+                        imagePostPreview
+                    } else {
+                        CaptionTileView(
+                            caption: previewCaption,
+                            lineLimit: nil,
+                            captionFont: captionFont,
+                            backgroundColor: backgroundColor
+                        )
+                        .frame(height: 120)
+                        .clipShape(RoundedRectangle(cornerRadius: 10))
+                        .accessibilityIdentifier("CaptionPreview")
+                    }
                 }
             }
             .navigationTitle("Create Post")
@@ -194,7 +213,7 @@ struct NewPostView: View {
             } message: {
                 Text(successAlertMessage)
             }
-            
+
             // Alert for FAILURE
             .alert("Post Failed", isPresented: $showFailureAlert) {
                 Button("OK") {
@@ -209,16 +228,103 @@ struct NewPostView: View {
                         .loadTransferable(type: Data.self)
                 }
             }
-            // Adding a photo hides the background control (issue #421); clear any
-            // color already picked so a stale value isn't sent with the post.
-            .onChange(of: selectedImageData) {
-                if selectedImageData != nil {
-                    backgroundColor = "default"
-                }
+            // Each tab has its own default for the formatting group: open for
+            // text, collapsed behind "Advanced options" for image (issue #520).
+            .onChange(of: postType) {
+                isFormattingExpanded = postType == .text
             }
         }
     }
-    
+
+    /// The chosen photo (shown prominently first, issue #305) and the button
+    /// that picks or changes it.
+    @ViewBuilder
+    private var photoControls: some View {
+        if let selectedImageData,
+           let uiImage = UIImage(data: selectedImageData)
+        {
+            Image(uiImage: uiImage)
+                .resizable().scaledToFit().frame(
+                    maxWidth: .infinity,
+                    maxHeight: 240
+                )
+                .clipShape(RoundedRectangle(cornerRadius: 10))
+                // The UI tests drag on this image to scroll the form (it's a
+                // plain row that hands the pan to the Form, unlike the caption
+                // editor or the segmented picker).
+                .accessibilityIdentifier("SelectedPhotoImage")
+        }
+
+        // A prominent, full-width button reads as the primary call to action
+        // rather than looking like plain tappable text. The label is centered
+        // so it doesn't read as left-aligned text (issue #305).
+        let pickerLabel = Label(
+            selectedImageData == nil ? "Select a Photo" : "Change Photo",
+            systemImage: "photo.on.rectangle.angled"
+        )
+        .font(.headline)
+        .frame(maxWidth: .infinity, alignment: .center)
+
+        if isUITesting() {
+            // Testing mode: Use a regular button
+            Button {
+                // Load a test image
+                if let testImage = UIImage(systemName: "photo.fill"),
+                   let imageData = testImage.jpegData(compressionQuality: 0.8) {
+                    selectedImageData = imageData
+                }
+            } label: {
+                pickerLabel
+            }
+            .buttonStyle(.borderedProminent)
+            .controlSize(.large)
+            .accessibilityIdentifier("SelectAPhotoPicker")
+        } else {
+            // Production mode: Use real PhotosPicker
+            PhotosPicker(
+                selection: $selectedItem,
+                matching: .images,
+                photoLibrary: .shared()
+            ) {
+                pickerLabel
+            }
+            .buttonStyle(.borderedProminent)
+            .controlSize(.large)
+            .accessibilityIdentifier("SelectAPhotoPicker")
+        }
+    }
+
+    /// An image post as the feed lays it out: the photo (or a placeholder that
+    /// holds its place until one is picked) with the caption underneath in the
+    /// chosen font (issue #450). The media is the same width-derived 1:1
+    /// square the feed crops every post to (FeedView), for both states, so the
+    /// preview matches the published post and doesn't jump when a photo is
+    /// picked.
+    private var imagePostPreview: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Color(.secondarySystemFill)
+                .aspectRatio(1, contentMode: .fit)
+                .overlay {
+                    if let selectedImageData,
+                       let uiImage = UIImage(data: selectedImageData)
+                    {
+                        Image(uiImage: uiImage)
+                            .resizable()
+                            .scaledToFill()
+                    } else {
+                        Text("Your photo will appear here")
+                            .foregroundColor(.secondary)
+                    }
+                }
+                .clipped()
+                .clipShape(RoundedRectangle(cornerRadius: 10))
+            Text(previewCaption)
+                .font(TextFormatting.captionFont(captionFont, size: UIFont.preferredFont(forTextStyle: .body).pointSize))
+                .foregroundColor(caption.isEmpty ? .secondary : .primary)
+        }
+        .accessibilityIdentifier("CaptionPreview")
+    }
+
     private func makePost() {
         Task {
             isLoading = true
@@ -238,10 +344,11 @@ struct NewPostView: View {
                 }
 
                 // 2. UPLOAD IMAGE using a backend-issued presigned S3 URL (#310).
-                // The photo is optional (#307): with no image selected the upload
-                // is skipped entirely and a text-only post is created.
+                // Only an image post carries a photo (#520): `photoData` is nil
+                // for a text post, so the upload is skipped entirely and a
+                // text-only post is created (#307).
                 var imageURLString: String? = nil
-                if let imageData = selectedImageData {
+                if let imageData = photoData {
                     var uploadedURLString = "https://picsum.photos/400/400"
                     if !isTesting() {
                         let uploadUrlData = try await api.createUploadUrl(
@@ -265,7 +372,7 @@ struct NewPostView: View {
                     caption: caption,
                     audience: selectedAudience.rawValue,
                     captionFont: captionFont,
-                    backgroundColor: backgroundColor,
+                    backgroundColor: effectiveBackgroundColor,
                     commentsDisabled: commentsDisabled
                 )
 
@@ -290,16 +397,21 @@ struct NewPostView: View {
                     successAlertMessage = "Your post was shared successfully!"
                 }
 
-                // Reset the form and show the success alert
+                // Reset the form and show the success alert. That includes the
+                // Text tab and its expanded formatting group — otherwise a
+                // second post would open on an empty Image tab with Share
+                // disabled.
                 isLoading = false
+                postType = .text
+                isFormattingExpanded = true
                 caption = ""
+                commentsDisabled = false
                 captionFont = "default"
                 backgroundColor = "default"
-                commentsDisabled = false
                 selectedItem = nil
                 selectedImageData = nil
                 showSuccessAlert = true // This will trigger the success alert
-                
+
             } catch {
                 // Set the error message and show the failure alert
                 failureAlertMessage = error.userFacingMessage

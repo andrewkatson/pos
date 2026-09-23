@@ -22,17 +22,27 @@ data class SharedPostLink(
 )
 
 /**
- * Both ends of a shared post link: the website URLs built from a post's or
- * comment's options menu (issue #34), and the parse of the same URL when
- * Android hands it back as an App Link (issue #382).
+ * A shared link Android handed us as an App Link, resolved to the screen it
+ * names: a post (optionally one comment on it, issue #382) or a profile (issue
+ * #510). The two routes go to different screens, so the parse says which.
+ */
+sealed class SharedLink {
+    data class Post(val link: SharedPostLink) : SharedLink()
+    data class Profile(val username: String) : SharedLink()
+}
+
+/**
+ * Both ends of a shared link: the website URLs built from a post's, comment's
+ * or profile's options menu (issues #34, #510), and the parse of the same URL
+ * when Android hands it back as an App Link (issue #382).
  *
  * The website renders these links for signed-out recipients too (issue #381),
  * so a link is useful whether or not the app is installed — which is what makes
- * claiming the `https://smiling.social/post/` path prefix with `autoVerify`
- * safe: a device without the app just opens the web page.
+ * claiming the `https://smiling.social/post/` and `/profile/` path prefixes
+ * with `autoVerify` safe: a device without the app just opens the web page.
  *
- * (Spelling that prefix with a trailing wildcard would end this comment early:
- * Kotlin block comments nest, so the `/` + `*` would open one.)
+ * (Spelling those prefixes with a trailing wildcard would end this comment
+ * early: Kotlin block comments nest, so the `/` + `*` would open one.)
  *
  * Everything except [shareText] is pure (no Android framework, [URI] rather
  * than `android.net.Uri`) so it unit-tests on the JVM without a runtime.
@@ -44,6 +54,16 @@ object ShareLinks {
     /** The website URL for the post with [postIdentifier]. */
     fun postUrl(postIdentifier: String): String =
         "$WEB_BASE_URL/post/$postIdentifier"
+
+    /**
+     * The website URL for [username]'s profile (issue #510), shared from the
+     * profile's options menu — your own or anyone else's. The website renders it
+     * for a recipient with no account through the public profile endpoints, and
+     * the manifest claims the `/profile/` prefix too, so with the app installed
+     * it opens that user's profile screen.
+     */
+    fun profileUrl(username: String): String =
+        "$WEB_BASE_URL/profile/$username"
 
     /**
      * The website URL for a single comment: the post URL plus a
@@ -62,6 +82,19 @@ object ShareLinks {
     private const val COMMENT_FRAGMENT_PREFIX = "comment-"
 
     /**
+     * Usernames are 10–500 word characters (letters, digits, underscore) — the
+     * backend's `Patterns.alphanumeric`, which registration and the profile
+     * endpoints all enforce — so a profile segment that isn't is not a profile
+     * we have a screen for. A predicate rather than a regex because Java's `\w`
+     * is ASCII-only while the backend's admits Unicode letters; the length is
+     * counted in code points for the same reason (the backend counts
+     * characters, not UTF-16 units).
+     */
+    private fun isPlausibleUsername(value: String): Boolean =
+        value.codePointCount(0, value.length) in 10..500 &&
+            value.all { it.isLetterOrDigit() || it == '_' }
+
+    /**
      * The inverse of the builders above: what an App Link Android launched us
      * with refers to, or null when [url] is not one of ours (issue #382).
      *
@@ -73,7 +106,7 @@ object ShareLinks {
      * unrecognized fragment is ignored rather than failing the whole link: the
      * post is still the right destination.
      */
-    fun parseSharedPostLink(url: String?): SharedPostLink? {
+    fun parseSharedLink(url: String?): SharedLink? {
         if (url.isNullOrBlank()) return null
         val uri = try {
             URI(url)
@@ -88,23 +121,31 @@ object ShareLinks {
         val host = uri.host?.lowercase() ?: return null
         if (host !in LINK_HOSTS) return null
 
-        // ["", "post", "<id>"] for /post/<id>, plus a trailing "" for a
-        // trailing slash. Anything longer is a route we don't claim.
+        // ["", "post", "<id>"] for /post/<id> (or ["", "profile", "<name>"]),
+        // plus a trailing "" for a trailing slash. Anything longer is a route we
+        // don't claim.
         val segments = (uri.path ?: "").split("/").toMutableList()
         if (segments.isNotEmpty() && segments.last().isEmpty()) segments.removeAt(segments.size - 1)
-        if (segments.size != 3 || segments[0].isNotEmpty() || segments[1] != "post") return null
+        if (segments.size != 3 || segments[0].isNotEmpty()) return null
 
-        val postIdentifier = segments[2]
-        if (postIdentifier.isEmpty()) return null
+        val identifier = segments[2]
+        if (identifier.isEmpty()) return null
 
-        // URI decodes the fragment, matching what commentUrl encoded.
-        val fragment = uri.fragment
-        val commentIdentifier = fragment
-            ?.takeIf { it.startsWith(COMMENT_FRAGMENT_PREFIX) }
-            ?.removePrefix(COMMENT_FRAGMENT_PREFIX)
-            ?.takeIf { it.isNotEmpty() }
-
-        return SharedPostLink(postIdentifier, commentIdentifier)
+        return when (segments[1]) {
+            "post" -> {
+                // URI decodes the fragment, matching what commentUrl encoded.
+                val fragment = uri.fragment
+                val commentIdentifier = fragment
+                    ?.takeIf { it.startsWith(COMMENT_FRAGMENT_PREFIX) }
+                    ?.removePrefix(COMMENT_FRAGMENT_PREFIX)
+                    ?.takeIf { it.isNotEmpty() }
+                SharedLink.Post(SharedPostLink(identifier, commentIdentifier))
+            }
+            "profile" -> identifier
+                .takeIf { isPlausibleUsername(it) }
+                ?.let { SharedLink.Profile(it) }
+            else -> null
+        }
     }
 
     /**

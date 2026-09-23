@@ -210,6 +210,26 @@
   color: #8e8e8e;
 }
 
+/* Who can see this post or comment, shown to its author only (issue #518). A
+   quiet pill so it reads as metadata next to the like count, not a control. */
+.audience-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  font-size: 0.75rem;
+  line-height: 1;
+  color: #b3b3b3;
+  background: rgba(255, 255, 255, 0.08);
+  border-radius: 999px;
+  padding: 0.2rem 0.5rem;
+  white-space: nowrap;
+}
+
+/* Icon only, for the third-of-the-screen profile-grid tiles. */
+.audience-badge--compact {
+  padding: 0.2rem 0.3rem;
+}
+
 .post-actions__menu {
   margin-left: auto;
   background: none;
@@ -489,9 +509,29 @@
   margin-bottom: 1rem;
 }
 
+/* Takes the width between the avatar and the options button. */
+.profile-identity__details {
+  flex: 1;
+  min-width: 0;
+}
+
 .profile-identity__name {
   font-size: 1.15rem;
   font-weight: 700;
+  overflow-wrap: anywhere;
+}
+
+/* The profile's options (Share) button (issue #510), sitting at the right end
+   of the identity row like the post menus sit at the end of their rows. */
+.profile-menu-button {
+  align-self: flex-start;
+  background: none;
+  border: none;
+  color: inherit;
+  cursor: pointer;
+  font-size: 1.4rem;
+  line-height: 1;
+  padding: 0.2rem 0.4rem;
 }
 
 /* The own-profile photo controls (set / change / remove). */
@@ -1688,6 +1728,27 @@
   height: 100%;
   object-fit: cover;
   display: block;
+}
+
+/* An image post with no photo picked yet (issue #520): keep the square so the
+   caption below still previews where the feed will place it. */
+.post-preview__placeholder {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 1rem;
+  box-sizing: border-box;
+  text-align: center;
+  color: rgba(255, 255, 255, 0.45);
+  font-size: 0.95rem;
+}
+
+/* The preview's caption line before anything is typed. */
+.post-preview__caption--placeholder {
+  color: rgba(255, 255, 255, 0.45);
+  font-style: italic;
 }
 
 /* ---- New-post advanced options (issue #419) ---- */

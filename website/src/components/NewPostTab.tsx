@@ -32,6 +32,14 @@ function blobPreviewSrc(url: string | null): string | undefined {
   return url && url.startsWith('blob:') ? url : undefined
 }
 
+const POST_TYPE_OPTIONS: { value: PostType; label: string }[] = [
+  { value: 'text', label: 'Text' },
+  { value: 'image', label: 'Image' },
+]
+
+/** Stand-in caption shown in the preview until the user types one. */
+const PREVIEW_PLACEHOLDER = 'Your caption will look like this.'
+
 /** Audience options, broadest to closest (issue #392). */
 const AUDIENCE_OPTIONS: { value: PostAudience; label: string; hint: string }[] = [
   { value: 'public', label: 'Public', hint: 'Anyone can see this post' },
@@ -40,19 +48,30 @@ const AUDIENCE_OPTIONS: { value: PostAudience; label: string; hint: string }[] =
   { value: 'family', label: 'Family', hint: 'Family only' },
 ]
 
+/** Which kind of post is being composed (issue #520). */
+export type PostType = 'text' | 'image'
+
 /**
- * The "Post" tab: write a caption and optionally pick a photo (#307). When a
- * photo is chosen it is uploaded to S3 via a backend-issued presigned URL (the
- * backend scopes the key to the signed-in user) and the resulting URL is sent
- * to the backend; without one a text-only post is created. Mirrors iOS
+ * The "Post" tab. A Text / Image switch at the top (issue #520) keeps the two
+ * kinds of post apart: a text post is just a caption rendered as a tile, an
+ * image post needs a photo and shows its caption underneath. When a photo is
+ * chosen it is uploaded to S3 via a backend-issued presigned URL (the backend
+ * scopes the key to the signed-in user) and the resulting URL is sent to the
+ * backend; a text post skips the upload entirely (#307). Mirrors iOS
  * NewPostView (photo picker, preview, share button, success/failure handling).
  */
 function NewPostTab({ onPosted }: NewPostTabProps) {
+  const [postType, setPostType] = useState<PostType>('text')
+  // Whether the formatting disclosure is expanded. Text posts are all about
+  // the caption so the controls start open; on an image post they're a
+  // secondary "Advanced options" that starts collapsed (issue #520).
+  const [formattingOpen, setFormattingOpen] = useState(true)
   const [file, setFile] = useState<File | null>(null)
   const [previewUrl, setPreviewUrl] = useState<string | null>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
   const [caption, setCaption] = useState('')
   const [audience, setAudience] = useState<PostAudience>('public')
+  // Turn off commenting from the moment the post is created (issue #492).
   const [commentsDisabled, setCommentsDisabled] = useState(false)
   const [captionFont, setCaptionFont] = useState<CaptionFont>('default')
   const [backgroundColor, setBackgroundColor] = useState<BackgroundColor>('default')
@@ -71,18 +90,34 @@ function NewPostTab({ onPosted }: NewPostTabProps) {
   function handleFileChange(next: File | null) {
     setFile(next)
     setPreviewUrl(next ? URL.createObjectURL(next) : null)
-    // On a photo post the background color applies to nothing visible (the
-    // photo, not a caption tile, fills the post), so picking one is confusing
-    // (issue #421). Drop any chosen color and hide the control while a photo is
-    // attached; reset back to default so no stale value is sent.
-    if (next) setBackgroundColor('default')
   }
 
-  // Whether the background-color control is meaningful. Hidden on photo posts
-  // (issue #421) since the color never shows on the rendered image post.
-  const showBackgroundControls = !file
+  function selectPostType(next: PostType) {
+    if (next === postType) return
+    setPostType(next)
+    setFormattingOpen(next === 'text')
+  }
 
-  const isFormValid = caption.trim().length > 0 && isWithinLimit(caption, MAX_CAPTION_LENGTH)
+  const isImagePost = postType === 'image'
+
+  // The photo only counts on the Image tab: a picked file is kept in state
+  // across a tab switch (so flipping back doesn't lose it) but a Text post
+  // never sends it.
+  const photo = isImagePost ? file : null
+
+  // On an image post the background color applies to nothing visible (the
+  // photo, not a caption tile, fills the post), so the control is hidden and
+  // `default` is sent (issue #421). The user's pick survives a round trip
+  // through the Image tab so it's still there if they come back to Text.
+  const showBackgroundControls = !isImagePost
+  const effectiveBackgroundColor: BackgroundColor = isImagePost ? 'default' : backgroundColor
+
+  // An image post needs its photo before it can be shared — that's what makes
+  // it an image post rather than a text post with a stray picture (issue #520).
+  const isFormValid =
+    caption.trim().length > 0 &&
+    isWithinLimit(caption, MAX_CAPTION_LENGTH) &&
+    (!isImagePost || photo !== null)
 
   // The signed-in user's name for the preview's author line, so the preview
   // reads like the real post the feed will render (issue #418).
@@ -105,17 +140,22 @@ function NewPostTab({ onPosted }: NewPostTabProps) {
     setErrorMessage(null)
     setSuccessMessage(null)
     try {
-      const imageUrl = file ? await uploadImage(file) : undefined
+      const imageUrl = photo ? await uploadImage(photo) : undefined
       const base = {
         caption: caption.trim(),
         audience,
         comments_disabled: commentsDisabled,
         caption_font: captionFont,
-        background_color: backgroundColor,
+        background_color: effectiveBackgroundColor,
       }
       const result = await apiClient.createPost(
         imageUrl ? { ...base, image_url: imageUrl } : base,
       )
+      // Back to a fresh composer, including the Text tab and its expanded
+      // formatting group — otherwise a second post would open on an empty
+      // Image tab with Share disabled.
+      setPostType('text')
+      setFormattingOpen(true)
       setFile(null)
       setPreviewUrl(null)
       setCaption('')
@@ -172,46 +212,69 @@ function NewPostTab({ onPosted }: NewPostTabProps) {
         </div>
       )}
 
+      {/* Text vs. image post (issue #520). Same segmented control as the feed's
+          For You / Following switch. */}
+      <div className="segmented" role="tablist" aria-label="Post type">
+        {POST_TYPE_OPTIONS.map(option => (
+          <button
+            key={option.value}
+            type="button"
+            role="tab"
+            aria-selected={postType === option.value}
+            className={`segmented__option${
+              postType === option.value ? ' segmented__option--active' : ''
+            }`}
+            onClick={() => selectPostType(option.value)}
+            disabled={isLoading}
+          >
+            {option.label}
+          </button>
+        ))}
+      </div>
+
       {/* The photo picker is the image itself (issue #417): tapping the tile
           opens the file chooser. Before a photo is picked it's a grey box with a
-          "+"; afterwards it shows the chosen photo, and tapping it re-picks. */}
-      <div className="auth-field">
-        <span className="auth-label">Photo (optional)</span>
-        <button
-          type="button"
-          className="photo-picker"
-          onClick={() => fileInputRef.current?.click()}
-          disabled={isLoading}
-          aria-label={file ? 'Change photo' : 'Add a photo'}
-        >
-          {previewSrc ? (
-            <img className="photo-picker__image" src={previewSrc} alt="Selected post preview" />
-          ) : (
-            <span className="photo-picker__placeholder" aria-hidden="true">
-              +
-            </span>
-          )}
-        </button>
-        {/* The real control is visually hidden but keeps its accessible label so
-            assistive tech (and tests) still reach it; the tile above drives it. */}
-        <input
-          ref={fileInputRef}
-          id="photo"
-          className="visually-hidden"
-          type="file"
-          accept="image/*"
-          aria-label="Choose a photo"
-          onChange={e => {
-            handleFileChange(e.target.files?.[0] ?? null)
-            // Clear the input so picking the *same* file again still fires
-            // onChange (browsers skip it when the value is unchanged), letting
-            // "Change photo" re-select the current image. Safe because the
-            // chosen File is held in state, not read back off the input.
-            e.target.value = ''
-          }}
-          disabled={isLoading}
-        />
-      </div>
+          "+"; afterwards it shows the chosen photo, and tapping it re-picks.
+          Only an image post has one (issue #520). */}
+      {isImagePost && (
+        <div className="auth-field">
+          <span className="auth-label">Photo</span>
+          <button
+            type="button"
+            className="photo-picker"
+            onClick={() => fileInputRef.current?.click()}
+            disabled={isLoading}
+            aria-label={file ? 'Change photo' : 'Add a photo'}
+          >
+            {previewSrc ? (
+              <img className="photo-picker__image" src={previewSrc} alt="Selected post preview" />
+            ) : (
+              <span className="photo-picker__placeholder" aria-hidden="true">
+                +
+              </span>
+            )}
+          </button>
+          {/* The real control is visually hidden but keeps its accessible label so
+              assistive tech (and tests) still reach it; the tile above drives it. */}
+          <input
+            ref={fileInputRef}
+            id="photo"
+            className="visually-hidden"
+            type="file"
+            accept="image/*"
+            aria-label="Choose a photo"
+            onChange={e => {
+              handleFileChange(e.target.files?.[0] ?? null)
+              // Clear the input so picking the *same* file again still fires
+              // onChange (browsers skip it when the value is unchanged), letting
+              // "Change photo" re-select the current image. Safe because the
+              // chosen File is held in state, not read back off the input.
+              e.target.value = ''
+            }}
+            disabled={isLoading}
+          />
+        </div>
+      )}
 
       <div className="auth-field">
         <label className="auth-label" htmlFor="caption">
@@ -263,11 +326,21 @@ function NewPostTab({ onPosted }: NewPostTabProps) {
         </label>
       </div>
 
-      {/* Text customization (issue #318) is a secondary concern, so it's tucked
-          behind an "Advanced options" disclosure to keep the primary flow short
-          and let Share Post sit at the very bottom (issue #419). */}
-      <details className="advanced-options">
-        <summary className="advanced-options__summary">Advanced options</summary>
+      {/* Text customization (issue #318) lives in a collapsible disclosure so
+          Share Post can sit at the very bottom (issue #419). On a text post the
+          caption *is* the post, so the controls start expanded under "Text
+          formatting"; on an image post they're a secondary "Advanced options"
+          that starts collapsed. Either way the user can toggle it (issue #520).
+          `open` is controlled so switching tabs can reset it; onToggle keeps
+          state in sync with the user's own clicks. */}
+      <details
+        className="advanced-options"
+        open={formattingOpen}
+        onToggle={e => setFormattingOpen(e.currentTarget.open)}
+      >
+        <summary className="advanced-options__summary">
+          {isImagePost ? 'Advanced options' : 'Text formatting'}
+        </summary>
 
         <div className="auth-field">
           <label className="auth-label" htmlFor="caption-font">
@@ -288,8 +361,8 @@ function NewPostTab({ onPosted }: NewPostTabProps) {
           </select>
         </div>
 
-        {/* On a photo post the background color never shows (the image fills the
-            post), so hide the control to avoid promising a change that never
+        {/* On an image post the background color never shows (the image fills
+            the post), so hide the control to avoid promising a change that never
             appears (issue #421). The font, which does style an image post's
             caption, stays available. */}
         {showBackgroundControls && (
@@ -331,24 +404,34 @@ function NewPostTab({ onPosted }: NewPostTabProps) {
             <span className="feed-post__author">{username ?? 'You'}</span>
           </div>
           <div className="post-preview__media">
-            {previewSrc ? (
+            {!isImagePost ? (
+              <CaptionTile
+                caption={trimmedCaption || PREVIEW_PLACEHOLDER}
+                captionFont={captionFont}
+                backgroundColor={backgroundColor}
+              />
+            ) : previewSrc ? (
               // Decorative here: the picker above already carries the labeled
               // copy of this same image, so the preview copy needs no alt.
               <img className="post-preview__image" src={previewSrc} alt="" />
             ) : (
-              <CaptionTile
-                caption={trimmedCaption || 'Your caption will look like this.'}
-                captionFont={captionFont}
-                backgroundColor={backgroundColor}
-              />
+              // No photo yet: hold its place so the caption below still lands
+              // where the feed will put it (issue #520).
+              <div className="post-preview__placeholder">Your photo will appear here</div>
             )}
           </div>
           {/* An image post shows its caption below the photo, matching the feed;
-              a text-only post already shows it as the tile above. The chosen
-              font applies either way (issue #450). */}
-          {previewSrc && trimmedCaption && (
-            <p className={`feed-post__caption ${captionFontClass(captionFont)}`.trim()}>
-              {trimmedCaption}
+              a text post already shows it as the tile above. The chosen font
+              applies either way (issue #450), and the caption line is always
+              present on an image post — with placeholder copy until something
+              is typed — so the styling is visible before a photo is chosen. */}
+          {isImagePost && (
+            <p
+              className={`feed-post__caption ${captionFontClass(captionFont)}${
+                trimmedCaption ? '' : ' post-preview__caption--placeholder'
+              }`.trim()}
+            >
+              {trimmedCaption || PREVIEW_PLACEHOLDER}
             </p>
           )}
         </article>

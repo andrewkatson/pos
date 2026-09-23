@@ -42,6 +42,7 @@ import type {
   PostDetails,
   PostStatusResponse,
   ProfileDetails,
+  PublicProfileDetails,
   RegisterDeviceRequest,
   RegisterRequest,
   RemoveProfilePhotoResponse,
@@ -645,6 +646,21 @@ export class ApiClient implements PositiveOnlySocialAPI {
     return this.request<Comment[]>(
       'GET',
       `/public/threads/${commentThreadIdentifier}/comments/${batch}/`,
+    )
+  }
+
+  // A shared profile (issue #510), likewise sent without a token.
+  getPublicProfile(username: string): Promise<PublicProfileDetails> {
+    return this.request<PublicProfileDetails>(
+      'GET',
+      `/public/profiles/${encodeURIComponent(username)}/details/`,
+    )
+  }
+
+  getPublicPostsForUser(username: string, batch: number): Promise<FeedPost[]> {
+    return this.request<FeedPost[]>(
+      'GET',
+      `/public/profiles/${encodeURIComponent(username)}/posts/${batch}/`,
     )
   }
 

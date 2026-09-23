@@ -93,7 +93,10 @@ class PositiveOnlySocialIntegrationTests {
     }
 
     private fun assertOnNewPostView() {
-        composeTestRule.onNodeWithText("Select a photo").assertExists()
+        // The composer opens on the Text tab (issue #520), so the photo picker
+        // isn't on screen yet; the post-type tabs are the reliable marker.
+        composeTestRule.onNodeWithText("Text").assertExists()
+        composeTestRule.onNodeWithText("Image").assertExists()
         composeTestRule.onNodeWithText("Caption").assertExists()
         composeTestRule.onNodeWithText("Share Post").assertExists()
     }

@@ -1,11 +1,14 @@
 import uuid
+from concurrent.futures import Future
 from unittest.mock import patch
 
 from django.core import mail
 from django.test import TestCase
 
 from .. import tasks
-from ..classifiers.classifier_utils import ClassificationResult
+from ..classifiers.classifier_utils import (
+    API_CLAUDE, API_GEMINI, API_GEMMA, API_OPENAI, CASCADE_ORDER, ClassificationResult,
+)
 from ..constants import (
     HIDDEN_REASON_CLASSIFIER, HIDDEN_REASON_CLASSIFIER_FINAL,
     HIDDEN_REASON_NONE, HIDDEN_REASON_PENDING_CLASSIFICATION,
@@ -223,3 +226,152 @@ class ClassifyPostTaskTests(TestCase):
     def test_email_failure_does_not_undo_the_transition(self, _text, _image, _mail):
         self._run()
         self.assertEqual(self.post.hidden_reason, HIDDEN_REASON_CLASSIFIER)
+
+
+# The cascade the worker rotates through (issue #511). Patched in because the
+# test environment has no OPENROUTER_API_KEY, so the real lookup is empty.
+AVAILABLE = 'user_system.tasks.get_available_apis'
+ALL_TIERS = list(CASCADE_ORDER)
+
+
+def _judged(consulted, decided_by, allowed=True, appealable=False, provider_failure=False):
+    return ClassificationResult(allowed=allowed, appealable=appealable, provider_failure=provider_failure,
+                                consulted=list(consulted), decided_by=decided_by)
+
+
+class _InlineExecutor:
+    """Runs submitted cascades on the calling thread, so a test's fake cascade
+    can touch the (per-thread) test database mid-job."""
+
+    def submit(self, fn, *args, **kwargs):
+        future = Future()
+        future.set_result(fn(*args, **kwargs))
+        return future
+
+
+@patch(AVAILABLE, return_value=ALL_TIERS)
+class ClassifyPostModelChainTests(TestCase):
+    """The worker leads each round with a tier that has not judged the post
+    yet, and records which tiers did (issue #511)."""
+
+    def setUp(self):
+        super().setUp()
+        self.user = PositiveOnlySocialUser.objects.create_user(
+            username='chain_test_user', email='chain@test.com', password='x')
+        self.post = self.user.post_set.create(
+            image_url=IMAGE_URL, caption='a caption', hidden=True,
+            hidden_reason=HIDDEN_REASON_PENDING_CLASSIFICATION)
+
+    def _run(self, raises=False):
+        if raises:
+            with self.assertRaises(tasks.ClassificationProviderError):
+                tasks.classify_post(str(self.post.post_identifier))
+        else:
+            tasks.classify_post(str(self.post.post_identifier))
+        self.post.refresh_from_db()
+
+    @patch(IMAGE, return_value=_judged([API_GEMMA, API_GEMINI], API_GEMINI))
+    @patch(TEXT, return_value=_judged([API_GEMMA], API_GEMMA))
+    def test_first_round_uses_the_normal_order_for_both_cascades(self, mock_text, mock_image, _avail):
+        self._run()
+        self.assertFalse(self.post.hidden)
+        self.assertEqual(mock_text.call_args.kwargs['available_apis'], ALL_TIERS)
+        self.assertEqual(mock_image.call_args.kwargs['available_apis'], ALL_TIERS)
+        # Every tier consulted by either cascade, and both deciders, are on record.
+        self.assertEqual(self.post.classification_models_tried, [API_GEMMA, API_GEMINI])
+        self.assertEqual(self.post.classification_model_chain, [API_GEMMA, API_GEMINI])
+
+    @patch('user_system.tasks.delete_image')
+    @patch(IMAGE, return_value=_judged([API_GEMMA], API_GEMMA, allowed=False))
+    @patch(TEXT, return_value=_judged([API_GEMMA], API_GEMMA))
+    def test_a_rejection_records_its_decider_too(self, _text, _image, _delete, _avail):
+        self._run()
+        self.assertEqual(self.post.hidden_reason, HIDDEN_REASON_CLASSIFIER_FINAL)
+        self.assertEqual(self.post.classification_model_chain, [API_GEMMA])
+
+    @patch(IMAGE, return_value=_judged([API_GEMMA], API_GEMMA))
+    @patch(TEXT, return_value=_judged([API_GEMMA], API_GEMMA))
+    def test_a_retry_leads_with_a_tier_the_failed_attempt_did_not(self, mock_text, mock_image, _avail):
+        """A round that reached no verdict still consulted tiers; the retry
+        must not replay the same order, or a wedged first tier would eat every
+        attempt in the budget."""
+        mock_text.return_value = _judged(ALL_TIERS, None, allowed=False, provider_failure=True)
+        self._run(raises=True)
+        self.assertEqual(self.post.hidden_reason, HIDDEN_REASON_PENDING_CLASSIFICATION)
+        # The failed text cascade consulted everything; the image cascade,
+        # which did reach a verdict, is on record as well.
+        self.assertEqual(self.post.classification_models_tried, ALL_TIERS)
+        self.assertEqual(self.post.classification_model_chain, [API_GEMMA])
+
+        mock_text.return_value = _judged([API_GEMINI], API_GEMINI)
+        mock_image.return_value = _judged([API_GEMINI], API_GEMINI)
+        self._run()
+        self.assertFalse(self.post.hidden)
+        expected = [API_GEMINI, API_OPENAI, API_CLAUDE, API_GEMMA]
+        self.assertEqual(mock_text.call_args.kwargs['available_apis'], expected)
+        self.assertEqual(mock_image.call_args.kwargs['available_apis'], expected)
+        self.assertEqual(self.post.classification_model_chain, [API_GEMMA, API_GEMINI])
+
+    @patch(IMAGE, return_value=_judged([API_OPENAI], API_OPENAI))
+    @patch(TEXT, return_value=_judged([API_OPENAI], API_OPENAI))
+    def test_a_complete_chain_starts_a_new_cycle(self, mock_text, _image, _avail):
+        Post.objects.filter(pk=self.post.pk).update(
+            classification_models_tried=ALL_TIERS, classification_model_chain=ALL_TIERS)
+        with patch('user_system.classifiers.model_chain.random.randrange', return_value=2):
+            self._run()
+        self.assertEqual(mock_text.call_args.kwargs['available_apis'],
+                         [API_OPENAI, API_CLAUDE, API_GEMMA, API_GEMINI])
+        # The old cycle's lists are gone; only this round is on record.
+        self.assertEqual(self.post.classification_models_tried, [API_OPENAI])
+        self.assertEqual(self.post.classification_model_chain, [API_OPENAI])
+
+    @patch(IMAGE, return_value=_judged([API_GEMMA], API_GEMMA))
+    @patch(TEXT, return_value=_judged([API_GEMMA], API_GEMMA))
+    def test_the_fold_merges_with_bookkeeping_recorded_during_the_cascade(self, mock_text, _image, _avail):
+        """A duplicate delivery (or a re-review) can record its own round while
+        this job's cascades are out. What it wrote must survive: the fold works
+        on the row as it is at commit time, not on the pre-cascade read."""
+        def cascade_then_record(*_args, **_kwargs):
+            Post.objects.filter(pk=self.post.pk).update(
+                classification_models_tried=[API_CLAUDE], classification_model_chain=[API_CLAUDE])
+            return _judged([API_GEMMA], API_GEMMA)
+
+        mock_text.side_effect = cascade_then_record
+        with patch('user_system.tasks._CLASSIFICATION_EXECUTOR', _InlineExecutor()):
+            self._run()
+        self.assertFalse(self.post.hidden)
+        self.assertEqual(self.post.classification_models_tried, [API_CLAUDE, API_GEMMA])
+        self.assertEqual(self.post.classification_model_chain, [API_CLAUDE, API_GEMMA])
+
+    @patch(IMAGE, return_value=_judged([API_GEMMA], API_GEMMA))
+    @patch(TEXT, return_value=_judged(ALL_TIERS, None, allowed=False, provider_failure=True))
+    def test_an_outage_record_merges_with_bookkeeping_recorded_during_the_cascade(self, _text, mock_image, _avail):
+        def cascade_then_record(*_args, **_kwargs):
+            Post.objects.filter(pk=self.post.pk).update(
+                classification_models_tried=[API_CLAUDE], classification_model_chain=[API_CLAUDE])
+            return _judged([API_GEMMA], API_GEMMA)
+
+        mock_image.side_effect = cascade_then_record
+        with patch('user_system.tasks._CLASSIFICATION_EXECUTOR', _InlineExecutor()):
+            self._run(raises=True)
+        self.assertEqual(self.post.classification_models_tried, [API_CLAUDE, API_GEMMA, API_GEMINI, API_OPENAI])
+        self.assertEqual(self.post.classification_model_chain, [API_CLAUDE, API_GEMMA])
+
+    @patch(IMAGE, return_value=FINAL_REJECT)
+    @patch(TEXT, return_value=_judged([API_GEMMA], API_GEMMA))
+    def test_a_text_only_post_records_only_the_text_cascade(self, _text, mock_image, _avail):
+        self.post.image_url = None
+        self.post.save(update_fields=['image_url'])
+        self._run()
+        mock_image.assert_not_called()
+        self.assertEqual(self.post.classification_models_tried, [API_GEMMA])
+        self.assertEqual(self.post.classification_model_chain, [API_GEMMA])
+
+    @patch(IMAGE, return_value=ALLOWED)
+    @patch(TEXT, return_value=ALLOWED)
+    def test_results_that_name_no_tier_leave_the_lists_empty(self, _text, _image, _avail):
+        """Testing-mode verdicts (and the local pre-filters) involve no tier."""
+        self._run()
+        self.assertFalse(self.post.hidden)
+        self.assertEqual(self.post.classification_models_tried, [])
+        self.assertEqual(self.post.classification_model_chain, [])

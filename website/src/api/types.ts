@@ -559,18 +559,19 @@ export interface UserSearchResult extends AuthorAvatarFields {
   identity_is_verified: boolean
 }
 
-export interface ProfileDetails {
+/**
+ * The part of a profile that is about the profile's owner rather than about
+ * whoever is looking: what `GET /public/profiles/<username>/details/` serves for
+ * a shared profile link opened by someone with no account (issue #510). The
+ * signed-in `ProfileDetails` extends it with the viewer's relationship and the
+ * owner-only photo-review state.
+ */
+export interface PublicProfileDetails {
   username: string
   post_count: number
   follower_count: number
   following_count: number
-  is_following: boolean
-  /** The viewer's relationship category for this user (issue #392); null when
-   * not following. Absent on older backends. */
-  follow_category?: FollowCategory | null
-  is_blocked: boolean
   identity_is_verified: boolean
-  is_adult: boolean
   /** The user's approved profile photo (compressed) with a full-resolution
    * fallback, or null when they have none. Shown to everyone. */
   profile_image_url?: string | null
@@ -578,13 +579,6 @@ export interface ProfileDetails {
   /** BlurHash of that photo (issue #460), rendered as a blurred preview while it
    * loads. Null when there is no photo (or the viewer is blocked by them). */
   profile_image_blurhash?: string | null
-  /** Owner-only: the moderation state of a photo still under review (or the
-   * last rejected upload). Present only when viewing your own profile, so your
-   * client can show a "reviewing" / "not approved" affordance; never returned
-   * for other users. */
-  profile_image_status?: ProfileImageStatus
-  profile_image_reason_code?: string | null
-  pending_profile_image_url?: string | null
   /**
    * Public join number (#198) — the member's "I'm #n on the app!" position,
    * shown on every profile. Null for accounts a backfill hasn't numbered yet.
@@ -593,6 +587,22 @@ export interface ProfileDetails {
   /** The user's free-text bio (#380), already moderated on write and shown to
    * everyone. Empty string when they have not set one. */
   bio: string
+}
+
+export interface ProfileDetails extends PublicProfileDetails {
+  is_following: boolean
+  /** The viewer's relationship category for this user (issue #392); null when
+   * not following. Absent on older backends. */
+  follow_category?: FollowCategory | null
+  is_blocked: boolean
+  is_adult: boolean
+  /** Owner-only: the moderation state of a photo still under review (or the
+   * last rejected upload). Present only when viewing your own profile, so your
+   * client can show a "reviewing" / "not approved" affordance; never returned
+   * for other users. */
+  profile_image_status?: ProfileImageStatus
+  profile_image_reason_code?: string | null
+  pending_profile_image_url?: string | null
 }
 
 // ---------------------------------------------------------------------------

@@ -1,6 +1,6 @@
 //
 //  HomeView.swift
-//  Positive Only Social
+//  Vibes
 //
 //  Created by Andrew Katson on 10/7/25.
 //
@@ -84,6 +84,22 @@ struct HomeView: View {
             newPath.append(postIdentifier)
             profilePath = newPath
             pushRouter.pendingPostIdentifier = nil
+        }
+        // A shared profile link (issue #510) asks us to open that profile, the
+        // same way. Your own username lands on the Profile tab itself — the
+        // profile already behind it — rather than pushing a copy of it, which
+        // is where tapping your own name anywhere in the app goes too (#347).
+        // Anyone else is pushed as a User, the value the tab's stack already
+        // resolves to ProfileView for search results and feed rows.
+        .onReceive(pushRouter.$pendingProfileUsername) { username in
+            guard let username else { return }
+            currentTab = GVOAppConstants.profileTabIndex
+            var newPath = NavigationPath()
+            if username != viewModel.currentUsername {
+                newPath.append(User(username: username, identityIsVerified: false))
+            }
+            profilePath = newPath
+            pushRouter.pendingProfileUsername = nil
         }
     }
 }
@@ -248,6 +264,12 @@ struct PostActionBar: View {
             Text(state.isOwn ? "\(state.likeCount) likes" : "\(state.likeCount)")
                 .foregroundColor(.secondary)
                 .accessibilityIdentifier("PostListLikeCount")
+            // Who can see this post, on your own posts only (issue #518). The
+            // profile-grid tiles are a third of the screen wide, so they get
+            // just the icon; feed rows have room for the label too.
+            if state.isOwn {
+                AudienceBadgeView(audience: post.audience, compact: !showsPostDetails)
+            }
             if state.isReported {
                 Image(systemName: "flag.fill")
                     .foregroundColor(.red)

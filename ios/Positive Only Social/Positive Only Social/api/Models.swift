@@ -1,6 +1,6 @@
 //
 //  Models.swift
-//  Positive Only Social
+//  Vibes
 //
 //  Created by Andrew Katson on 10/7/25.
 //
@@ -854,6 +854,9 @@ struct PostDisplayData: Identifiable, Equatable {
     /// (issue #176).
     var isReported: Bool = false
     var reportReason: String? = nil
+    /// Who may see the post (issue #392), for the author-only audience badge
+    /// (issue #518). Nil on older backends, treated as public.
+    var audience: String? = nil
     /// Whether the author has turned off commenting on this post (issue #492),
     /// either at creation or afterward via lockComments/unlockComments.
     var commentsDisabled: Bool = false
