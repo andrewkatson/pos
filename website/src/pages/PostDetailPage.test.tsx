@@ -21,6 +21,8 @@ vi.mock('../api/client', () => ({
     reportPost: vi.fn(),
     retractReportPost: vi.fn(),
     deletePost: vi.fn(),
+    lockComments: vi.fn(),
+    unlockComments: vi.fn(),
     commentOnPost: vi.fn(),
     replyToCommentThread: vi.fn(),
     likeComment: vi.fn(),
@@ -42,6 +44,8 @@ const mockGetPublicThreadComments = vi.mocked(apiClient.getPublicCommentsForThre
 const mockLikePost = vi.mocked(apiClient.likePost)
 const mockCommentOnPost = vi.mocked(apiClient.commentOnPost)
 const mockDeletePost = vi.mocked(apiClient.deletePost)
+const mockLockComments = vi.mocked(apiClient.lockComments)
+const mockUnlockComments = vi.mocked(apiClient.unlockComments)
 const mockDeleteComment = vi.mocked(apiClient.deleteComment)
 const mockReportPost = vi.mocked(apiClient.reportPost)
 const mockRetractReportPost = vi.mocked(apiClient.retractReportPost)
@@ -102,6 +106,8 @@ beforeEach(() => {
     comment_identifier: 'c9',
   })
   mockDeletePost.mockReset().mockResolvedValue({ message: 'ok' })
+  mockLockComments.mockReset().mockResolvedValue({ comments_disabled: true })
+  mockUnlockComments.mockReset().mockResolvedValue({ comments_disabled: false })
   mockDeleteComment.mockReset().mockResolvedValue({ message: 'ok' })
   mockReportPost.mockReset().mockResolvedValue({ message: 'ok' })
   mockRetractReportPost.mockReset().mockResolvedValue({ message: 'ok' })
@@ -412,6 +418,48 @@ test('own post: the options menu offers Delete, and deleting navigates away', as
   await waitFor(() => expect(mockDeletePost).toHaveBeenCalledWith('p1'))
   // ...and we land on the feed, not the landing page.
   expect(await screen.findByText('Feed page')).toBeInTheDocument()
+})
+
+test('own post: the options menu offers to turn off commenting, and the composer swaps for a notice (#492)', async () => {
+  localStorage.setItem('username', 'ada')
+  renderDetail()
+  await screen.findByText('sunshine')
+  expect(screen.getByRole('button', { name: 'Add a comment...' })).toBeInTheDocument()
+
+  await userEvent.click(screen.getByRole('button', { name: 'Post options' }))
+  const menu = screen.getByRole('menu', { name: 'Post options' })
+  await userEvent.click(within(menu).getByRole('menuitem', { name: 'Turn off commenting' }))
+
+  await waitFor(() => expect(mockLockComments).toHaveBeenCalledWith('p1'))
+  // The composer trigger is replaced by a plain notice once comments are off.
+  expect(screen.queryByRole('button', { name: 'Add a comment...' })).not.toBeInTheDocument()
+  expect(screen.getByText('Comments are turned off for this post.')).toBeInTheDocument()
+})
+
+test('own post with comments already off: the menu offers to turn commenting back on', async () => {
+  localStorage.setItem('username', 'ada')
+  mockGetDetails.mockResolvedValue({ ...post, comments_disabled: true })
+  renderDetail()
+  await screen.findByText('sunshine')
+  expect(screen.getByText('Comments are turned off for this post.')).toBeInTheDocument()
+
+  await userEvent.click(screen.getByRole('button', { name: 'Post options' }))
+  const menu = screen.getByRole('menu', { name: 'Post options' })
+  await userEvent.click(within(menu).getByRole('menuitem', { name: 'Turn on commenting' }))
+
+  await waitFor(() => expect(mockUnlockComments).toHaveBeenCalledWith('p1'))
+  expect(await screen.findByRole('button', { name: 'Add a comment...' })).toBeInTheDocument()
+})
+
+test("someone else's post: the options menu never offers to lock comments", async () => {
+  localStorage.setItem('username', 'someone-else')
+  renderDetail()
+  await screen.findByText('sunshine')
+
+  await userEvent.click(screen.getByRole('button', { name: 'Post options' }))
+  const menu = screen.getByRole('menu', { name: 'Post options' })
+  expect(within(menu).queryByRole('menuitem', { name: 'Turn off commenting' })).not.toBeInTheDocument()
+  expect(within(menu).queryByRole('menuitem', { name: 'Turn on commenting' })).not.toBeInTheDocument()
 })
 
 test('other users’ post: the options menu offers Report, and reporting works', async () => {
