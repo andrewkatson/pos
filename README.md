@@ -496,6 +496,44 @@ each tier is overridable per deploy via `OPENROUTER_MODEL_GEMMA` / `_GEMINI` /
 `backend/user_system/classifiers/classifier_utils.py`), so swapping models is a
 config change, not a code change.
 
+Each model is also told **which line of defense it is** (issue #491), because
+the three stages do not carry equal weight: a clear rejection from the *first*
+reviewer is final and non-appealable, while the *third* reviewer's uncertainty
+is itself a rejection, there being nobody left to escalate to. So stage 1 is
+told that a middle score is a legitimate answer that escalates — cheap models
+are overconfident, and the aim is to convert spurious hard rejections into
+escalations — and stage 3 is told that a middle score no longer defers
+anything, so it should not retreat there merely to avoid deciding. This is
+about calibration, not making the first pass vaguer: clear content should still
+be settled cheaply at stage 1.
+
+What stage 3 is *not* told is that an unsure answer and a confident rejection
+amount to the same thing, because they do not: a middle score at the last stage
+is an **appealable** rejection, a reject-zone score a final one. Flattening that
+would push a genuinely uncertain model into false confidence and quietly strip
+the author's right to appeal — the very thing the middle zone preserves at the
+last stage. The instruction is against strategic hedging only.
+
+The earlier stages promise nothing about the reviewer that follows — not that
+one is better, and not that one exists. Neither would be true in general.
+Cheapest-first holds for a first look, but a later round puts fresh tiers first
+and may rotate from a random start (below), so stage 2 can be a *cheaper* tier
+than stage 1. And a middle score is not always an escalation: with a short
+cascade it is the last word (an appealable rejection), and even with a full
+cascade every remaining tier might error and leave that score standing. Whether
+a later tier returns a usable score simply is not knowable when the prompt is
+built, so the wording motivates abstaining without asserting a successor.
+Two things are deliberately withheld. Models are never told the earlier
+reviewers' **scores**, which would anchor them toward the middle and defeat the
+point of asking again — each stage judges the content, not its predecessor. And
+the stage is the reviewer's position among the scores that actually *counted*,
+not its index in the tier order: a tier that errors or answers unusably is
+skipped without consuming a stage, so the next tier inherits the line of defense
+it failed to provide (the same number the cascade's own decision rules use).
+Stage position is the only per-call context any model ever receives — in
+particular the re-review a report triggers adds nothing about the report, by
+design (see [Reporting](#reporting-and-user-moderation-issue-467)).
+
 That fixed order is the order for a post's **first** look only. Content can be
 judged by the cascade more than once — the retry of a classification that
 reached no verdict, and the automated re-review a user report triggers (see
@@ -610,7 +648,16 @@ that content's review state), and the review has two stages:
    re-run — the local word-list pre-filter first, then the text and image
    cascades — over the **content alone**. The report count, the reporters, and
    the reasons they typed are never shown to a model, so no report can influence
-   the verdict (and no crafted report reason can be written to steer it).
+   the verdict (and no crafted report reason can be written to steer it). Not
+   even the bare fact that the content was reported is passed along: a model
+   primed that *somebody thinks this is bad* leans toward rejection, which would
+   rebuild the coordinated-report takedown this design removed, while priming it
+   the other way ("this was already published") would make re-review laxer than
+   the original gate. The re-review's protections are therefore structural — the
+   appealable-verdict and escalate-on-outage asymmetries below — rather than
+   hints in a prompt. A re-reviewing model receives exactly what a first-look
+   model receives: its stage in the cascade (see
+   [Post classification](#post-classification-async)).
    The cascade is *ordered* differently from the first look, though: the
    re-review is a second opinion, so it leads with a tier that has not judged
    this content and consults the tier that approved it at creation last, as a

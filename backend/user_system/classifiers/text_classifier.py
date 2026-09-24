@@ -1,6 +1,6 @@
 import os
 import logging
-from .classifier_constants import TEXT_CLASSIFIER_PROMPT
+from .classifier_constants import TEXT_CLASSIFIER_PROMPT, classifier_prompt
 from .classifier_utils import (
     get_available_apis, classify_with_thresholds, ClassificationResult,
     TEXT_API_DISPATCH,
@@ -36,14 +36,14 @@ def is_text_positive(text, available_apis=None):
         logger.error("No AI API keys available.")
         return ClassificationResult(allowed=False, provider_failure=True)
 
-    def call_api(api_name):
+    def call_api(api_name, stage):
         try:
             api_func = TEXT_API_DISPATCH.get(api_name)
             if not api_func:
                 logger.error("Unsupported API name: %s", api_name)
                 return None
-            logger.debug("Calling %s API for text classification", api_name)
-            score = api_func(text, TEXT_CLASSIFIER_PROMPT)
+            logger.debug("Calling %s API for text classification (stage %d)", api_name, stage)
+            score = api_func(text, classifier_prompt(TEXT_CLASSIFIER_PROMPT, stage))
             logger.debug("%s API returned: %s", api_name, score)
             return score
         except Exception:
