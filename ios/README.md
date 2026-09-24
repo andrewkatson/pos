@@ -3,9 +3,9 @@
 ## Setup 
 
 * Get Xcode 16+
-* Get latest iOS SDK (Tested with iOS 18, 26 and 27 as of Septemmber 2026)
+* Get latest iOS SDK (Tested with iOS 18, 26 and 27 as of September 2026)
 - Clone the repo
-- Open the floder containing the whole project and navigate to the Vibes (Positve only Social) Folder
+- Open the folder containing the whole project and navigate to the Vibes (Positive Only Social) Folder
 
 ### Testing 
 

@@ -77,11 +77,26 @@ var POST_PATH = /^\/post\/([0-9a-fA-F]{8}(?:-[0-9a-fA-F]{4}){3}-[0-9a-fA-F]{12})
 // sequences rather than as characters. Those are accepted alongside ASCII word
 // characters and forwarded verbatim (still encoded) — the backend decodes and
 // validates the name itself. JavaScript's `\w` alone is ASCII-only and would
-// leave such profiles unfurling as the generic site card. The minimum is
-// counted in those units, so it is exact for ASCII names and merely a lower
-// bound for encoded ones (a multi-byte character spans several); the backend
-// applies the precise rule.
-var PROFILE_PATH = /^\/profile\/((?:\w|%[0-9A-Fa-f]{2}){10,500})\/?$/
+// leave such profiles unfurling as the generic site card. A character can
+// take up to four encoded bytes, so the pattern admits up to 2000 units and
+// the 10-500 character rule is then checked on the decoded name
+// (profileNameLength); the backend still validates the name itself.
+var PROFILE_PATH = /^\/profile\/((?:\w|%[0-9A-Fa-f]{2}){10,2000})\/?$/
+var MIN_USERNAME_LENGTH = 10
+var MAX_USERNAME_LENGTH = 500
+
+// Length of an encoded username in characters (code points, as the backend
+// counts them), or -1 when the bytes are not valid UTF-8.
+function profileNameLength(encoded) {
+  var decoded
+  try {
+    decoded = decodeURIComponent(encoded)
+  } catch (e) {
+    return -1
+  }
+  // Count a surrogate pair (an astral character) once.
+  return decoded.replace(/[\uD800-\uDBFF][\uDC00-\uDFFF]/g, '_').length
+}
 
 // The backend preview path for a request URI, or null when the URI is not a
 // page we render previews for.
@@ -92,6 +107,10 @@ function previewPath(uri) {
   }
   var profile = PROFILE_PATH.exec(uri)
   if (profile) {
+    var length = profileNameLength(profile[1])
+    if (length < MIN_USERNAME_LENGTH || length > MAX_USERNAME_LENGTH) {
+      return null
+    }
     return '/public/profiles/' + profile[1] + '/preview/'
   }
   return null

@@ -77,13 +77,16 @@ def record_round(tried, chain, results, reset=False):
     one of the results goes to the END of `chain` — moved there if it was
     already in it — so the chain's tail is always the most recent decider (the
     "final determiner") even when a round was settled by a fallback tier that
-    had decided before. With `reset` (a new cycle, see round_order) the lists
+    had decided before. A rejection is what settles a post's outcome — one
+    rejected half hides the whole post — so rejecting results are folded after
+    allowing ones and their tier lands last, whichever half it judged. With `reset` (a new cycle, see round_order) the lists
     start empty. Results that involved no tier — testing mode, a local
     pre-filter, a text-only post's image side — contribute nothing.
     """
     tried = [] if reset else list(tried)
     chain = [] if reset else list(chain)
-    for result in results:
+    # Stable sort: allowing results first, so a rejecting tier ends the chain.
+    for result in sorted(results, key=lambda r: not r.allowed):
         for api in result.consulted:
             if api not in tried:
                 tried.append(api)

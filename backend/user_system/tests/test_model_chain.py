@@ -107,6 +107,16 @@ class RecordRoundTests(SimpleTestCase):
         self.assertEqual(tried, [API_GEMMA, API_GEMINI])
         self.assertEqual(chain, [API_GEMMA, API_GEMINI])
 
+    def test_the_rejecting_half_is_the_final_determiner(self):
+        """A text rejection hides the post even when the image is allowed, so
+        the text tier — not the image tier — must end the chain."""
+        tried, chain = record_round([], [], [
+            _result([API_GEMMA, API_GEMINI], API_GEMINI, allowed=False),
+            _result([API_GEMMA], API_GEMMA),
+        ])
+        self.assertEqual(tried, [API_GEMMA, API_GEMINI])
+        self.assertEqual(chain, [API_GEMMA, API_GEMINI])
+
     def test_a_round_with_no_verdict_records_only_tried(self):
         failed = ClassificationResult(allowed=False, provider_failure=True, consulted=ALL)
         tried, chain = record_round([], [], [failed])
