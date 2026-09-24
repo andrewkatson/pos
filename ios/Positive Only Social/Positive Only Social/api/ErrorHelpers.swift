@@ -24,6 +24,12 @@ extension Notification.Name {
     /// logs out. See issue #256.
     static let postDeleted = Notification.Name("postDeleted")
 
+    /// Posted after commenting on a post is turned off or on (issue #492),
+    /// with the post's identifier as the `object` and the new state under
+    /// `userInfo["commentsDisabled"]`. List rows listen so their menu doesn't
+    /// keep offering the stale action after a toggle on the detail screen.
+    static let postCommentsDisabledChanged = Notification.Name("postCommentsDisabledChanged")
+
     /// Posted after a new post is successfully created. The signed-in user's own
     /// profile grid listens for this so the new post shows up there immediately,
     /// without waiting for a manual pull-to-refresh (issue #347).

@@ -454,6 +454,12 @@ class Post(models.Model):
     # exactly as they did: visible to everyone. See visibility.visible_posts.
     audience = models.CharField(max_length=16, choices=POST_AUDIENCE_CHOICES,
                                 default=POST_AUDIENCE_PUBLIC)
+    # Whether the author has turned off commenting on this post (issue #492),
+    # either at creation time or afterward via lock_comments/unlock_comments.
+    # Defaults to False so every pre-existing post keeps accepting comments.
+    # Only gates *new* top-level comments and replies (comment_on_post /
+    # reply_to_comment_thread) — existing comments stay visible either way.
+    comments_disabled = models.BooleanField(default=False)
     hidden = models.BooleanField(default=False)
     hidden_reason = models.TextField(choices=HIDDEN_REASON_CHOICES, default=HIDDEN_REASON_NONE, blank=True)
     # Hashtags parsed from the caption at creation time (issue #379). Stored

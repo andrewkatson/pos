@@ -153,6 +153,8 @@ final class RealAPI: Networking {
         // Whole-caption font + whole-tile background color keys (issue #318).
         let caption_font: String
         let background_color: String
+        // Turns off commenting from the moment the post is created (issue #492).
+        let comments_disabled: Bool
     }
 
     private struct FollowBody: Encodable {
@@ -591,10 +593,10 @@ final class RealAPI: Networking {
     }
 
     /// Creates and stores a new post. A nil `imageURL` creates a text-only post (#307).
-    func makePost(sessionManagementToken: String, imageURL: String?, caption: String, audience: String? = nil, captionFont: String = "default", backgroundColor: String = "default") async throws -> Data {
-        let body = MakePostBody(image_url: imageURL, caption: caption, audience: audience, caption_font: captionFont, background_color: backgroundColor)
+    func makePost(sessionManagementToken: String, imageURL: String?, caption: String, audience: String? = nil, captionFont: String = "default", backgroundColor: String = "default", commentsDisabled: Bool = false) async throws -> Data {
+        let body = MakePostBody(image_url: imageURL, caption: caption, audience: audience, caption_font: captionFont, background_color: backgroundColor, comments_disabled: commentsDisabled)
         let requestBody = try encode(body)
-        
+
         return try await performRequest(
             pathSegments: [GVOAppConstants.pathSegmentPosts, GVOAppConstants.pathSegmentCreate],
             method: .post,
@@ -602,12 +604,30 @@ final class RealAPI: Networking {
             authToken: sessionManagementToken
         )
     }
-    
+
     /// Deletes a post.
     func deletePost(sessionManagementToken: String, postIdentifier: String) async throws -> Data {
         // This is a POST request, no body, with auth. ID is in path.
         return try await performRequest(
             pathSegments: [GVOAppConstants.pathSegmentPosts, postIdentifier, GVOAppConstants.pathSegmentDelete],
+            method: .post,
+            authToken: sessionManagementToken
+        )
+    }
+
+    /// Owner-only: stops new comments/replies on a post (issue #492).
+    func lockComments(sessionManagementToken: String, postIdentifier: String) async throws -> Data {
+        return try await performRequest(
+            pathSegments: [GVOAppConstants.pathSegmentPosts, postIdentifier, GVOAppConstants.pathSegmentComments, GVOAppConstants.pathSegmentLock],
+            method: .post,
+            authToken: sessionManagementToken
+        )
+    }
+
+    /// Owner-only: re-allows new comments on a post previously locked (issue #492).
+    func unlockComments(sessionManagementToken: String, postIdentifier: String) async throws -> Data {
+        return try await performRequest(
+            pathSegments: [GVOAppConstants.pathSegmentPosts, postIdentifier, GVOAppConstants.pathSegmentComments, GVOAppConstants.pathSegmentUnlock],
             method: .post,
             authToken: sessionManagementToken
         )

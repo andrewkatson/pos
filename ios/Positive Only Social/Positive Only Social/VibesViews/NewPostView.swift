@@ -31,6 +31,8 @@ struct NewPostView: View {
     @State private var selectedImageData: Data?
     @State private var caption = ""
     @State private var selectedAudience: PostAudience = .public
+    // Turn off commenting from the moment the post is created (issue #492).
+    @State private var commentsDisabled = false
     // Whole-caption font + whole-tile background color keys (issue #318).
     @State private var captionFont = "default"
     @State private var backgroundColor = "default"
@@ -42,7 +44,7 @@ struct NewPostView: View {
     @State private var successAlertMessage = "Your post was shared successfully!"
     @State private var showFailureAlert = false
     @State private var failureAlertMessage = ""
-    
+
     @Binding var tabSelection: Int
 
     private var isImagePost: Bool { postType == .image }
@@ -114,6 +116,12 @@ struct NewPostView: View {
                         }
                     }
                     .accessibilityIdentifier("AudiencePicker")
+
+                    // Let the author turn off commenting from the moment the
+                    // post goes up (issue #492), instead of only being able to
+                    // lock it afterward.
+                    Toggle("Turn off commenting", isOn: $commentsDisabled)
+                        .accessibilityIdentifier("CommentsDisabledToggle")
                 }
 
                 // The Share button stays directly under the caption section so
@@ -205,7 +213,7 @@ struct NewPostView: View {
             } message: {
                 Text(successAlertMessage)
             }
-            
+
             // Alert for FAILURE
             .alert("Post Failed", isPresented: $showFailureAlert) {
                 Button("OK") {
@@ -316,7 +324,7 @@ struct NewPostView: View {
         }
         .accessibilityIdentifier("CaptionPreview")
     }
-    
+
     private func makePost() {
         Task {
             isLoading = true
@@ -364,7 +372,8 @@ struct NewPostView: View {
                     caption: caption,
                     audience: selectedAudience.rawValue,
                     captionFont: captionFont,
-                    backgroundColor: effectiveBackgroundColor
+                    backgroundColor: effectiveBackgroundColor,
+                    commentsDisabled: commentsDisabled
                 )
 
                 // Reload the Profile tab's grid so the new post appears there
@@ -396,12 +405,13 @@ struct NewPostView: View {
                 postType = .text
                 isFormattingExpanded = true
                 caption = ""
+                commentsDisabled = false
                 captionFont = "default"
                 backgroundColor = "default"
                 selectedItem = nil
                 selectedImageData = nil
                 showSuccessAlert = true // This will trigger the success alert
-                
+
             } catch {
                 // Set the error message and show the failure alert
                 failureAlertMessage = error.userFacingMessage

@@ -51,6 +51,7 @@ import type {
   RequestResetRequest,
   ResendVerificationEmailRequest,
   ResetPasswordRequest,
+  SetCommentsDisabledResponse,
   SetProfilePhotoRequest,
   SetProfilePhotoResponse,
   SetBioRequest,
@@ -526,6 +527,22 @@ export class ApiClient implements PositiveOnlySocialAPI {
     return this.request<MessageResponse>('POST', `/posts/${postIdentifier}/delete/`, {
       auth: true,
     })
+  }
+
+  lockComments(postIdentifier: string): Promise<SetCommentsDisabledResponse> {
+    return this.request<SetCommentsDisabledResponse>(
+      'POST',
+      `/posts/${postIdentifier}/comments/lock/`,
+      { auth: true },
+    )
+  }
+
+  unlockComments(postIdentifier: string): Promise<SetCommentsDisabledResponse> {
+    return this.request<SetCommentsDisabledResponse>(
+      'POST',
+      `/posts/${postIdentifier}/comments/unlock/`,
+      { auth: true },
+    )
   }
 
   reportPost(postIdentifier: string, reason: string): Promise<MessageResponse> {

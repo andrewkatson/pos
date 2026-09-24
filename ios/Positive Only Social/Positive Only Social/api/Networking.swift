@@ -112,11 +112,20 @@ protocol Networking {
 
     /// Creates and stores a new post. A nil `imageURL` creates a text-only post
     /// (#307). A nil `audience` defaults to public (issue #392). `captionFont` /
-    /// `backgroundColor` are curated style keys (issue #318).
-    func makePost(sessionManagementToken: String, imageURL: String?, caption: String, audience: String?, captionFont: String, backgroundColor: String) async throws -> Data
+    /// `backgroundColor` are curated style keys (issue #318). `commentsDisabled`
+    /// turns off commenting from the moment the post is created (issue #492).
+    func makePost(sessionManagementToken: String, imageURL: String?, caption: String, audience: String?, captionFont: String, backgroundColor: String, commentsDisabled: Bool) async throws -> Data
 
     /// Deletes a post.
     func deletePost(sessionManagementToken: String, postIdentifier: String) async throws -> Data
+
+    /// Owner-only: stops new comments/replies on a post (issue #492). Existing
+    /// comments stay visible.
+    func lockComments(sessionManagementToken: String, postIdentifier: String) async throws -> Data
+
+    /// Owner-only: re-allows new comments on a post previously locked with
+    /// `lockComments` (issue #492).
+    func unlockComments(sessionManagementToken: String, postIdentifier: String) async throws -> Data
 
     /// Reports a post for a specific reason.
     func reportPost(sessionManagementToken: String, postIdentifier: String, reason: String) async throws -> Data

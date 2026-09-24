@@ -324,6 +324,7 @@ class Params:
     notification_type = "TYPE"
     enabled = "ENABLED"
     id_token = "ID_TOKEN"
+    comments_disabled = "COMMENTS_DISABLED"
 
 class Fields:
     is_adult = 'is_adult'
@@ -373,6 +374,10 @@ class Fields:
     follow_category = "follow_category"
     category = "category"
     audience = "audience"
+    # Whether the post's author has turned off commenting (issue #492) — set at
+    # creation or toggled afterward via lock_comments/unlock_comments. Existing
+    # comments stay visible; only new top-level comments and replies are blocked.
+    comments_disabled = "comments_disabled"
     is_liked = "is_liked"
     is_saved = "is_saved"
     is_reported = "is_reported"

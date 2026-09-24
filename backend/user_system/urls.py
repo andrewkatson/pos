@@ -79,6 +79,14 @@ urlpatterns = [
     # POST /posts/<uuid:post_identifier>/delete/ (Token in header)
     path('posts/<uuid:post_identifier>/delete/', views.delete_post, name='delete_post'),
 
+    # POST /posts/<uuid:post_identifier>/comments/lock/ (Token in header)
+    # — owner only, stops new comments/replies (issue #492)
+    path('posts/<uuid:post_identifier>/comments/lock/', views.lock_comments, name='lock_comments'),
+
+    # POST /posts/<uuid:post_identifier>/comments/unlock/ (Token in header)
+    # — owner only, re-allows new comments/replies (issue #492)
+    path('posts/<uuid:post_identifier>/comments/unlock/', views.unlock_comments, name='unlock_comments'),
+
     # POST /posts/<uuid:post_identifier>/report/ (Token in header)
     path('posts/<uuid:post_identifier>/report/', views.report_post, name='report_post'),
 

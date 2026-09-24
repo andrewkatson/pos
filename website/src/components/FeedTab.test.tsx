@@ -16,6 +16,8 @@ vi.mock('../api/client', () => ({
     reportPost: vi.fn(),
     retractReportPost: vi.fn(),
     deletePost: vi.fn(),
+    lockComments: vi.fn(),
+    unlockComments: vi.fn(),
   },
 }))
 
@@ -25,6 +27,7 @@ const mockGetFollowed = vi.mocked(apiClient.getFollowedFeed)
 const mockLikePost = vi.mocked(apiClient.likePost)
 const mockSavePost = vi.mocked(apiClient.savePost)
 const mockDeletePost = vi.mocked(apiClient.deletePost)
+const mockLockComments = vi.mocked(apiClient.lockComments)
 const mockGetPostLikers = vi.mocked(apiClient.getPostLikers)
 
 function renderTab() {
@@ -48,6 +51,7 @@ beforeEach(() => {
   mockLikePost.mockReset().mockResolvedValue({ message: 'ok' })
   mockSavePost.mockReset().mockResolvedValue({ message: 'Post saved' })
   mockDeletePost.mockReset().mockResolvedValue({ message: 'ok' })
+  mockLockComments.mockReset().mockResolvedValue({ comments_disabled: true })
   mockGetPostLikers.mockReset().mockResolvedValue([])
   // getCurrentUsername reads storage; 'ada' is another user in these feeds
   // unless a test says otherwise.
@@ -272,6 +276,24 @@ test('deleting your own post removes it without reloading the feed', async () =>
     expect(screen.queryByRole('button', { name: 'Open post by me' })).not.toBeInTheDocument(),
   )
   expect(mockGetFeed).toHaveBeenCalledTimes(1)
+})
+
+test('turning off commenting from the feed menu closes the menu (#492)', async () => {
+  mockGetFeed.mockResolvedValue([
+    { post_identifier: 'p1', image_url: 'http://img/1.jpg', author_username: 'me', caption: 'mine' },
+  ])
+  mockGetFollowed.mockResolvedValue([])
+  renderTab()
+
+  await userEvent.click(await screen.findByRole('button', { name: 'Options for post by me' }))
+  await userEvent.click(screen.getByRole('menuitem', { name: 'Turn off commenting' }))
+
+  await waitFor(() => expect(mockLockComments).toHaveBeenCalledWith('p1'))
+  expect(screen.queryByRole('menu')).not.toBeInTheDocument()
+
+  // Reopening offers the opposite action.
+  await userEvent.click(screen.getByRole('button', { name: 'Options for post by me' }))
+  expect(screen.getByRole('menuitem', { name: 'Turn on commenting' })).toBeInTheDocument()
 })
 
 test('hides the like control on your own post in the feed', async () => {

@@ -196,7 +196,7 @@ struct MockedAPI: Networking {
         return try JSONEncoder().encode(response)
     }
 
-    func makePost(sessionManagementToken: String, imageURL: String?, caption: String, audience: String? = nil, captionFont: String = "default", backgroundColor: String = "default") async throws -> Data {
+    func makePost(sessionManagementToken: String, imageURL: String?, caption: String, audience: String? = nil, captionFont: String = "default", backgroundColor: String = "default", commentsDisabled: Bool = false) async throws -> Data {
         return try encodeGenericSuccess()
     }
 
@@ -216,6 +216,16 @@ struct MockedAPI: Networking {
 
     func deletePost(sessionManagementToken: String, postIdentifier: String) async throws -> Data {
         return try encodeGenericSuccess()
+    }
+
+    func lockComments(sessionManagementToken: String, postIdentifier: String) async throws -> Data {
+        struct Fields: Codable { let comments_disabled: Bool }
+        return try encode(Fields(comments_disabled: true))
+    }
+
+    func unlockComments(sessionManagementToken: String, postIdentifier: String) async throws -> Data {
+        struct Fields: Codable { let comments_disabled: Bool }
+        return try encode(Fields(comments_disabled: false))
     }
 
     func reportPost(sessionManagementToken: String, postIdentifier: String, reason: String) async throws -> Data {

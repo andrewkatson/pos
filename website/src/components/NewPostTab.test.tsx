@@ -69,7 +69,8 @@ test('creates a text-only post without uploading to S3 (#307)', async () => {
       audience: 'public',
       caption_font: 'default',
       background_color: 'default',
-    }),
+        comments_disabled: false,
+}),
   )
   expect(mockUploadImage).not.toHaveBeenCalled()
   expect(await screen.findByText('Your post was shared successfully!')).toBeInTheDocument()
@@ -110,7 +111,8 @@ test('uploads the photo to S3 and creates the post on success', async () => {
     audience: 'public',
     caption_font: 'default',
     background_color: 'default',
-  })
+    comments_disabled: false,
+})
   expect(await screen.findByText('Your post was shared successfully!')).toBeInTheDocument()
   expect(onPosted).toHaveBeenCalled()
 })
@@ -129,7 +131,8 @@ test('sends the chosen audience with the post (#392)', async () => {
       audience: 'family',
       caption_font: 'default',
       background_color: 'default',
-    }),
+        comments_disabled: false,
+}),
   )
 })
 
@@ -148,7 +151,8 @@ test('sends the chosen caption font and background color (#318)', async () => {
       audience: 'public',
       caption_font: 'serif',
       background_color: 'mint',
-    }),
+        comments_disabled: false,
+}),
   )
 })
 
@@ -404,7 +408,8 @@ test('a photo picked on the Image tab is not sent with a Text post (#520)', asyn
       audience: 'public',
       caption_font: 'default',
       background_color: 'default',
-    }),
+        comments_disabled: false,
+}),
   )
   expect(mockUploadImage).not.toHaveBeenCalled()
 })
@@ -443,4 +448,19 @@ test('a successful image post resets the composer to the Text tab (#520)', async
   expect(screen.getByRole('tab', { name: 'Text' })).toHaveAttribute('aria-selected', 'true')
   expect(screen.queryByLabelText('Choose a photo')).not.toBeInTheDocument()
   expect(screen.getByText('Text formatting').closest('details')).toHaveAttribute('open')
+})
+
+test('sends comments_disabled when the author turns off commenting (#492)', async () => {
+  mockCreatePost.mockResolvedValue({ post_identifier: 'p1' })
+  render(<NewPostTab onPosted={() => {}} />)
+
+  await userEvent.type(screen.getByLabelText('Caption'), 'quiet post')
+  await userEvent.click(screen.getByLabelText('Turn off commenting on this post'))
+  await userEvent.click(screen.getByRole('button', { name: 'Share Post' }))
+
+  await waitFor(() =>
+    expect(mockCreatePost).toHaveBeenCalledWith(
+      expect.objectContaining({ caption: 'quiet post', comments_disabled: true }),
+    ),
+  )
 })

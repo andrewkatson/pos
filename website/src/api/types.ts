@@ -262,6 +262,9 @@ export interface CreatePostRequest {
   caption_font?: CaptionFont
   /** Whole-tile background color (issue #318); omitted/`default` is normal. */
   background_color?: BackgroundColor
+  /** Turn off commenting on this post from the moment it's created (issue
+   * #492). Omitted/false means comments are allowed, matching prior clients. */
+  comments_disabled?: boolean
 }
 
 /**
@@ -377,6 +380,8 @@ export interface CreatePostResponse {
   hidden?: boolean
   hidden_reason?: string
   appealable?: boolean
+  /** Whether comments were disabled for this post at creation (issue #492). */
+  comments_disabled?: boolean
   /** User-facing explanation of the hidden state. */
   message?: string
 }
@@ -447,6 +452,10 @@ export interface FeedPost extends AuthorAvatarFields {
   /** Who may see the post (issue #392). Absent on older responses; treat a
    * missing value as 'public'. */
   audience?: PostAudience
+  /** Whether the author has turned off commenting on this post (issue #492),
+   * either at creation or afterward via lockComments. Absent on older
+   * responses; treat a missing value as comments allowed. */
+  comments_disabled?: boolean
   /** Author-only (issue #282): present on the viewer's own posts so the client
    * can render pending/rejected states; other users' posts never carry these
    * (their pending/hidden posts are filtered out server-side entirely). */
@@ -492,6 +501,10 @@ export interface PostDetails extends AuthorAvatarFields {
   /** Who may see the post (issue #392). Absent on older responses; treat a
    * missing value as 'public'. */
   audience?: PostAudience
+  /** Whether the author has turned off commenting on this post (issue #492),
+   * either at creation or afterward via lockComments. Absent on older
+   * responses; treat a missing value as comments allowed. */
+  comments_disabled?: boolean
   /** Hashtags parsed from the caption (issue #379), normalized to lowercase and
    * sorted. Older responses that predate the field omit it. */
   tags?: string[]
@@ -501,6 +514,11 @@ export interface PostDetails extends AuthorAvatarFields {
   hidden_reason?: string
   reason_code?: string | null
   appealable?: boolean
+}
+
+/** Response of lockComments/unlockComments (issue #492). */
+export interface SetCommentsDisabledResponse {
+  comments_disabled: boolean
 }
 
 export interface CommentOnPostResponse {

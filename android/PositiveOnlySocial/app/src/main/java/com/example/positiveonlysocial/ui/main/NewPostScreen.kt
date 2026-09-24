@@ -66,6 +66,8 @@ fun NewPostScreen(
         var caption by remember { mutableStateOf("") }
         var selectedAudience by remember { mutableStateOf(PostAudience.PUBLIC) }
         var audienceMenuExpanded by remember { mutableStateOf(false) }
+        // Turn off commenting from the moment the post is created (issue #492).
+        var commentsDisabled by remember { mutableStateOf(false) }
         // Whole-caption font + whole-tile background color keys (issue #318).
         var captionFont by remember { mutableStateOf("default") }
         var backgroundColor by remember { mutableStateOf("default") }
@@ -97,7 +99,7 @@ fun NewPostScreen(
                 title = { Text("Success!") },
                 text = { Text(successMessage) },
                 confirmButton = {
-                    Button(onClick = { 
+                    Button(onClick = {
                         showSuccessAlert = false
                         // Reset form, including the Text tab and its expanded
                         // formatting group — otherwise a second post would open
@@ -106,6 +108,7 @@ fun NewPostScreen(
                         formattingExpanded = true
                         caption = ""
                         selectedAudience = PostAudience.PUBLIC
+                        commentsDisabled = false
                         captionFont = "default"
                         backgroundColor = "default"
                         selectedImageUri = null
@@ -264,6 +267,23 @@ fun NewPostScreen(
                 }
             }
 
+            // Let the author turn off commenting from the moment the post
+            // goes up (issue #492), instead of only being able to lock it
+            // afterward.
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .testTag("CommentsDisabledToggle"),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                Text("Turn off commenting")
+                Switch(
+                    checked = commentsDisabled,
+                    onCheckedChange = { commentsDisabled = it }
+                )
+            }
+
             // Text customization (issue #318) in a collapsible group. On a text
             // post the caption *is* the post, so the controls start expanded
             // under "Text formatting"; on an image post they're a secondary
@@ -417,7 +437,8 @@ fun NewPostScreen(
                                     caption = caption,
                                     audience = selectedAudience.value,
                                     captionFont = captionFont,
-                                    backgroundColor = effectiveBackgroundColor
+                                    backgroundColor = effectiveBackgroundColor,
+                                    commentsDisabled = commentsDisabled
                                 )
                                 val response = api.makePost(
                                     token = session.sessionToken,

@@ -550,6 +550,24 @@ function PostDetailView({ postId, isSignedIn }: { postId: string; isSignedIn: bo
     setDeleteTarget(target)
   }
 
+  // Lock/unlock commenting on the post (issue #492). Unlike Delete this is
+  // reversible, so it takes effect immediately from the menu rather than
+  // going through a confirm dialog, mirroring togglePostLike's optimistic
+  // update + revert-on-failure shape.
+  async function menuToggleCommentsLock() {
+    setMenuTarget(null)
+    if (!post) return
+    const locking = !post.comments_disabled
+    setPost({ ...post, comments_disabled: locking })
+    try {
+      if (locking) await apiClient.lockComments(postId)
+      else await apiClient.unlockComments(postId)
+    } catch (err) {
+      setPost(prev => (prev ? { ...prev, comments_disabled: !locking } : prev))
+      setErrorMessage((err as Error).message ?? 'Action failed.')
+    }
+  }
+
   // Share a post, or a specific comment (a #comment-<id> deep link into this
   // page). Offered on every item, yours and everyone else's (issue #34).
   async function menuShare(target: MenuTarget) {
@@ -789,13 +807,19 @@ function PostDetailView({ postId, isSignedIn }: { postId: string; isSignedIn: bo
 
         {isSignedIn ? (
           <div className="comment-form">
-            <button
-              type="button"
-              className="comment-compose-trigger"
-              onClick={() => openComposer({ type: 'post' })}
-            >
-              Add a comment...
-            </button>
+            {/* Comments locked/disabled (issue #492): no compose entry point,
+                just a plain notice so it reads as intentional, not broken. */}
+            {post.comments_disabled ? (
+              <p className="muted">Comments are turned off for this post.</p>
+            ) : (
+              <button
+                type="button"
+                className="comment-compose-trigger"
+                onClick={() => openComposer({ type: 'post' })}
+              >
+                Add a comment...
+              </button>
+            )}
           </div>
         ) : (
           /* A shared link opened by someone with no account (issue #381): the
@@ -884,7 +908,7 @@ function PostDetailView({ postId, isSignedIn }: { postId: string; isSignedIn: bo
                     }
                   />
                 )}
-                {isSignedIn && (
+                {isSignedIn && !post.comments_disabled && (
                   <button
                     type="button"
                     className="comment-reply-btn"
@@ -1062,6 +1086,13 @@ function PostDetailView({ postId, isSignedIn }: { postId: string; isSignedIn: bo
         >
           {/* Share is offered on every item, yours and everyone else's. */}
           <AnchoredMenuItem onClick={() => void menuShare(menuTarget)}>Share</AnchoredMenuItem>
+          {/* Lock/unlock commenting (issue #492) is post-only and owner-only,
+              offered alongside Delete rather than replacing it. */}
+          {isSignedIn && menuTarget.type === 'post' && isOwnPost && (
+            <AnchoredMenuItem onClick={() => void menuToggleCommentsLock()}>
+              {post?.comments_disabled ? 'Turn on commenting' : 'Turn off commenting'}
+            </AnchoredMenuItem>
+          )}
           {/* Report / Retract / Delete all need a session; a signed-out
               visitor gets Share and nothing else (issue #381). */}
           {!isSignedIn ? null : menuState(menuTarget).isOwn ? (

@@ -59,6 +59,7 @@ import type {
   RequestResetRequest,
   ResendVerificationEmailRequest,
   ResetPasswordRequest,
+  SetCommentsDisabledResponse,
   SetProfilePhotoRequest,
   SetProfilePhotoResponse,
   SetBioRequest,
@@ -201,6 +202,9 @@ interface PostMock {
   hiddenReason: string
   /** Who may see the post (issue #392). */
   audience: PostAudience
+  /** Whether the author has turned off commenting on this post (issue #492),
+   * either at creation or afterward via lockComments/unlockComments. */
+  commentsDisabled: boolean
   /** Public reason code recorded by the (stubbed) async classifier (#282). */
   reasonCode: string | null
   likes: Set<string>
@@ -900,6 +904,7 @@ export class StatefulStubbedAPI implements PositiveOnlySocialAPI {
       hidden: true,
       hiddenReason: 'pending_classification',
       audience: body.audience ?? 'public',
+      commentsDisabled: body.comments_disabled ?? false,
       reasonCode: null,
       likes: new Set(),
       reports: new Map(),
@@ -915,6 +920,7 @@ export class StatefulStubbedAPI implements PositiveOnlySocialAPI {
       hidden: true,
       hidden_reason: 'pending_classification',
       appealable: false,
+      comments_disabled: post.commentsDisabled,
       message: 'Your post is being reviewed and will be visible to others once it is approved.',
     }
   }
@@ -1026,6 +1032,26 @@ export class StatefulStubbedAPI implements PositiveOnlySocialAPI {
     return { message: 'Post deleted' }
   }
 
+  async lockComments(postIdentifier: string): Promise<SetCommentsDisabledResponse> {
+    const user = this.requireUser()
+    const post = this.findPost(postIdentifier)
+    if (post.authorId !== user.id) {
+      throw new ApiError(400, 'No post with that identifier by that user')
+    }
+    post.commentsDisabled = true
+    return { comments_disabled: true }
+  }
+
+  async unlockComments(postIdentifier: string): Promise<SetCommentsDisabledResponse> {
+    const user = this.requireUser()
+    const post = this.findPost(postIdentifier)
+    if (post.authorId !== user.id) {
+      throw new ApiError(400, 'No post with that identifier by that user')
+    }
+    post.commentsDisabled = false
+    return { comments_disabled: false }
+  }
+
   async reportPost(postIdentifier: string, reason: string): Promise<MessageResponse> {
     const user = this.requireUser()
     const post = this.findPost(postIdentifier)
@@ -1125,6 +1151,7 @@ export class StatefulStubbedAPI implements PositiveOnlySocialAPI {
       author_username: author ? author.username : '',
       caption: post.caption,
       audience: post.audience,
+      comments_disabled: post.commentsDisabled,
       tags: post.tags,
       is_saved: viewer.savedPostIds.includes(post.postIdentifier),
       ...this.authorAvatarFields(post.authorId),
@@ -1284,6 +1311,7 @@ export class StatefulStubbedAPI implements PositiveOnlySocialAPI {
       report_reason: post.reports.get(user.id) ?? null,
       author_username: author ? author.username : '',
       audience: post.audience,
+      comments_disabled: post.commentsDisabled,
       tags: post.tags,
       ...this.authorAvatarFields(post.authorId),
       ...this.authorStatusFields(post, user.id),
@@ -1360,6 +1388,7 @@ export class StatefulStubbedAPI implements PositiveOnlySocialAPI {
       post_likes: post.likes.size,
       author_username: author ? author.username : '',
       audience: post.audience,
+      comments_disabled: post.commentsDisabled,
       tags: post.tags,
       ...this.authorAvatarFields(post.authorId),
     }
@@ -1512,7 +1541,10 @@ export class StatefulStubbedAPI implements PositiveOnlySocialAPI {
     audience?: PostAudience,
   ): Promise<CommentOnPostResponse> {
     const user = this.requireUser()
-    this.findPost(postIdentifier)
+    const post = this.findPost(postIdentifier)
+    if (post.commentsDisabled) {
+      throw new ApiError(403, 'Comments are disabled for this post')
+    }
     const thread: CommentThreadMock = {
       threadIdentifier: newId(),
       postId: postIdentifier,
@@ -1551,6 +1583,10 @@ export class StatefulStubbedAPI implements PositiveOnlySocialAPI {
     )
     if (!thread) {
       throw new ApiError(400, 'Comment thread not found for the given post')
+    }
+    const post = this.findPost(thread.postId)
+    if (post.commentsDisabled) {
+      throw new ApiError(403, 'Comments are disabled for this post')
     }
     const comment: CommentMock = {
       commentIdentifier: newId(),
