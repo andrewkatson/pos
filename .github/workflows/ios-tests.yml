@@ -436,7 +436,9 @@ jobs:
               print("(summary lists no test failures)")
           PYEOF
           if [ -d TestResults.xcresult ]; then
-            xcrun xcresulttool get test-results summary --path TestResults.xcresult --format json \
+            # No --format: that flag belongs to `get object` only; the
+            # test-results subcommands always emit JSON.
+            xcrun xcresulttool get test-results summary --path TestResults.xcresult \
               > /tmp/xcresult.json 2>/tmp/xcresult_err.txt || true
             if [ -s /tmp/xcresult.json ]; then
               python3 /tmp/parse_xcresult.py < /tmp/xcresult.json
