@@ -364,13 +364,27 @@ jobs:
             # groups have taken 60-65 minutes against a 60 minute step cap,
             # which both wasted a runner and truncated the retry it was
             # supposedly buying.
+            #
+            # Grep the raw log, never xcpretty's output: xcpretty does not
+            # recognise Swift Testing at all and drops every one of its lines.
+            # Two formats count as "a test failed":
+            #   XCTest:        Test Case '-[Suite testFoo]' failed (1.234 seconds).
+            #   Swift Testing: ✘ Test testFoo() recorded an issue at File.swift:12:3: ...
+            #                  ✘ Test testFoo() failed after 6.379 seconds with 2 issues.
+            # Matching only the XCTest form once misread a real @Test failure
+            # as a broken run and re-ran the ~35 min unit group for nothing.
+            # The ✘ glyph is left out so the match does not depend on the
+            # runner's locale. A test that only hits withKnownIssue prints
+            # "recorded a known issue" / "passed ... with 1 known issue",
+            # which matches neither form, as it should.
+            TEST_FAILED_RE='Test [Cc]ase .* failed|Test .* recorded an issue|Test .* failed after [0-9.]+ seconds'
             attempt=1
             max=2
             RC=1
             while :; do
               if run_tests_once; then RC=0; break; fi
               if [ "$attempt" -ge "$max" ]; then RC=1; break; fi
-              if grep -qiE "Test [Cc]ase .* failed" xcodebuild.log 2>/dev/null; then
+              if grep -qE "$TEST_FAILED_RE" xcodebuild.log 2>/dev/null; then
                 echo "A test case failed and was already retried in-process; not re-running the group." >&2
                 RC=1; break
               fi
@@ -390,42 +404,38 @@ jobs:
           if [ ! -f xcodebuild.log ]; then
             echo "(no log was produced — the run failed before testing started)"
           else
-            grep -iE "test case .* failed|test suite .* failed" xcodebuild.log || echo "(no test-case lines found)"
+            # Both XCTest and Swift Testing (@Test) forms; see TEST_FAILED_RE
+            # in "Run Tests". Swift Testing's per-suite and whole-run "✘ Suite
+            # ... failed" / "✘ Test run ... failed" lines are included too.
+            grep -E "Test [Cc]ase .* failed|Test [Ss]uite .* failed|Test .* recorded an issue|Test .* failed after [0-9.]+ seconds|Suite .* failed after [0-9.]+ seconds" xcodebuild.log \
+              || echo "(no failed-test lines found)"
           fi
           echo ""
           echo "=== Assertion failures (xcresult) ==="
+          # The test-results summary covers XCTest and Swift Testing alike.
+          # The old `get object --legacy` walk looked only for XCTest's
+          # ActionTestSummary nodes and printed nothing for @Test failures.
           cat > /tmp/parse_xcresult.py << 'PYEOF'
           import json, sys
 
-          def walk(node):
-              if not isinstance(node, dict):
-                  return
-              if (node.get("_type", {}).get("_name") == "ActionTestSummary"
-                      and node.get("testStatus", {}).get("_value") == "Failure"):
-                  name = node.get("name", {}).get("_value", "(unknown)")
-                  print("FAILED: " + name)
-                  for s in node.get("failureSummaries", {}).get("_values", []):
-                      msg = s.get("message", {}).get("_value", "")
-                      loc = s.get("sourceCodeContext", {}).get("location", {})
-                      f   = loc.get("file", {}).get("_value", "").split("/")[-1]
-                      ln  = loc.get("line", {}).get("_value", "")
-                      print("  -> " + msg)
-                      if f:
-                          print("     at " + f + ":" + ln)
-              for v in node.values():
-                  if isinstance(v, dict):
-                      walk(v)
-                  elif isinstance(v, list):
-                      for item in v:
-                          walk(item)
-
           try:
-              walk(json.load(sys.stdin))
+              s = json.load(sys.stdin)
           except Exception as e:
               print("(xcresult parse error: " + str(e) + ")")
+              sys.exit(0)
+          print("result=%s total=%s passed=%s failed=%s skipped=%s" % (
+              s.get("result"), s.get("totalTestCount"), s.get("passedTests"),
+              s.get("failedTests"), s.get("skippedTests")))
+          failures = s.get("testFailures") or []
+          for f in failures:
+              print("FAILED: %s (%s)" % (f.get("testName", "(unknown)"), f.get("targetName", "")))
+              for line in (f.get("failureText") or "").splitlines():
+                  print("  -> " + line)
+          if not failures:
+              print("(summary lists no test failures)")
           PYEOF
           if [ -d TestResults.xcresult ]; then
-            xcrun xcresulttool get object --legacy --path TestResults.xcresult --format json \
+            xcrun xcresulttool get test-results summary --path TestResults.xcresult --format json \
               > /tmp/xcresult.json 2>/tmp/xcresult_err.txt || true
             if [ -s /tmp/xcresult.json ]; then
               python3 /tmp/parse_xcresult.py < /tmp/xcresult.json
