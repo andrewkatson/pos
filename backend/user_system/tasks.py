@@ -405,7 +405,8 @@ def classify_post(post_identifier):
         # Record which tiers judged the post and which settled it, so a later
         # re-review (issue #511) leads with a different one. Folded into the
         # locked row, so a duplicate delivery's bookkeeping is merged, not lost.
-        model_chain.apply_round(claimed, [text_result, image_result], available)
+        model_chain.apply_round(claimed, [text_result, image_result], available,
+                                decisive=None if allowed else reason_result)
         if allowed:
             claimed.hidden = False
             claimed.hidden_reason = HIDDEN_REASON_NONE
@@ -681,7 +682,8 @@ def review_reported_content(review_identifier):
             return
         # Extend the content's model chain with this round's deciders, so any
         # further round leads with a tier that has still not judged it.
-        model_chain.apply_round(target, [text_result, image_result], available)
+        model_chain.apply_round(target, [text_result, image_result], available,
+                                decisive=None if allowed else reason_result)
         target_fields = list(model_chain.CHAIN_FIELDS)
         if allowed:
             claimed.status = REVIEW_STATUS_CLEARED

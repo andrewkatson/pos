@@ -127,6 +127,23 @@ class RecordRoundTests(SimpleTestCase):
         self.assertEqual(tried, [API_GEMINI, API_OPENAI])
         self.assertEqual(chain, [API_OPENAI, API_GEMINI])
 
+    def test_the_decisive_result_ends_the_chain_when_both_halves_reject(self):
+        """A final text rejection and an appealable image rejection both reject;
+        the caller's decisive result (text) must end the chain, not whichever
+        rejection was listed last."""
+        text = _result([API_GEMINI], API_GEMINI, allowed=False)
+        image = _result([API_OPENAI], API_OPENAI, allowed=False)
+        tried, chain = record_round([], [], [text, image], decisive=text)
+        self.assertEqual(tried, [API_GEMINI, API_OPENAI])
+        self.assertEqual(chain, [API_OPENAI, API_GEMINI])
+
+    def test_a_decisive_result_not_in_the_round_is_ignored(self):
+        text = _result([API_GEMINI], API_GEMINI, allowed=False)
+        image = _result([API_OPENAI], API_OPENAI)
+        stray = _result([API_CLAUDE], API_CLAUDE, allowed=False)
+        _, chain = record_round([], [], [text, image], decisive=stray)
+        self.assertEqual(chain, [API_OPENAI, API_GEMINI])
+
     def test_a_round_with_no_verdict_records_only_tried(self):
         failed = ClassificationResult(allowed=False, provider_failure=True, consulted=ALL)
         tried, chain = record_round([], [], [failed])
