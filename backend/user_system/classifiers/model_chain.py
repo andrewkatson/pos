@@ -69,7 +69,7 @@ def round_order(available, tried, chain):
     return fresh + unsure + decided, False
 
 
-def record_round(tried, chain, results, reset=False):
+def record_round(tried, chain, results, reset=False, decisive=None):
     """Fold one round's cascade results into the stored lists.
 
     Returns the new `(tried, chain)`: every tier any result consulted is added
@@ -77,10 +77,12 @@ def record_round(tried, chain, results, reset=False):
     one of the results goes to the END of `chain` — moved there if it was
     already in it — so the chain's tail is always the most recent decider (the
     "final determiner") even when a round was settled by a fallback tier that
-    had decided before. A rejection is what settles a post's outcome — one
-    rejected half hides the whole post — so rejecting results are folded after
-    allowing ones and their tier lands last, whichever half it judged. With `reset` (a new cycle, see round_order) the lists
-    start empty. Results that involved no tier — testing mode, a local
+    had decided before. `decisive` is the result that settled the content's
+    outcome (the caller's `reason_result`, which already applies the
+    final-over-appealable and text-first rules); its tier is folded last so it
+    ends the chain. Without one, rejecting results are folded after allowing
+    ones — one rejected half hides the whole post. With `reset` (a new cycle,
+    see round_order) the lists start empty. Results that involved no tier — testing mode, a local
     pre-filter, a text-only post's image side — contribute nothing.
     """
     tried = [] if reset else list(tried)
@@ -89,9 +91,14 @@ def record_round(tried, chain, results, reset=False):
         for api in result.consulted:
             if api not in tried:
                 tried.append(api)
-    # Stable sort: allowing results first, so a rejecting tier ends the chain.
-    # (`tried` above keeps the true first-use order.)
-    for result in sorted(results, key=lambda r: not r.allowed):
+    # `tried` above keeps the true first-use order; only the chain is folded
+    # in outcome order, so the result that settled the content ends it.
+    if decisive is not None and any(r is decisive for r in results):
+        ordered = [r for r in results if r is not decisive] + [decisive]
+    else:
+        # Stable sort: allowing results first, so a rejecting tier ends the chain.
+        ordered = sorted(results, key=lambda r: not r.allowed)
+    for result in ordered:
         if result.decided_by:
             if result.decided_by in chain:
                 chain.remove(result.decided_by)
@@ -105,8 +112,11 @@ def plan_round(target, available):
     return round_order(available, target.classification_models_tried, target.classification_model_chain)[0]
 
 
-def apply_round(target, results, available):
+def apply_round(target, results, available, decisive=None):
     """Fold one round's results into a Post's or Comment's lists (unsaved).
+
+    `decisive` is passed through to record_round: the result whose verdict
+    settled the content, so its tier is recorded as the final determiner.
 
     Call it on an instance read fresh under a row lock, never on the one the
     round was planned from: by the time the cascades return, another round of
@@ -116,7 +126,8 @@ def apply_round(target, results, available):
     """
     reset = cycle_complete(available, target.classification_model_chain)
     target.classification_models_tried, target.classification_model_chain = record_round(
-        target.classification_models_tried, target.classification_model_chain, results, reset=reset)
+        target.classification_models_tried, target.classification_model_chain, results,
+        reset=reset, decisive=decisive)
 
 
 # The two model fields the helpers above read and write, for callers' update_fields.

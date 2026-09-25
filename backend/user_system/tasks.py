@@ -405,7 +405,8 @@ def classify_post(post_identifier):
         # Record which tiers judged the post and which settled it, so a later
         # re-review (issue #511) leads with a different one. Folded into the
         # locked row, so a duplicate delivery's bookkeeping is merged, not lost.
-        model_chain.apply_round(claimed, [text_result, image_result], available)
+        model_chain.apply_round(claimed, [text_result, image_result], available,
+                                decisive=None if allowed else reason_result)
         if allowed:
             claimed.hidden = False
             claimed.hidden_reason = HIDDEN_REASON_NONE
@@ -644,7 +645,15 @@ def review_reported_content(review_identifier):
             f"(text failure={text_result.provider_failure}, image failure={image_result.provider_failure})")
 
     allowed = bool(text_result) and bool(image_result)
-    reason_result = text_result if not text_result else image_result
+    # The decisive rejection, by the same rules as classify_post: a final
+    # rejection outranks an appealable one, then text takes precedence. It
+    # supplies the recorded reason code and the model chain's final determiner.
+    text_final = not text_result and not text_result.appealable
+    image_final = not image_result and not image_result.appealable
+    if text_final or image_final:
+        reason_result = text_result if text_final else image_result
+    else:
+        reason_result = text_result if not text_result else image_result
     now = timezone.now()
 
     with transaction.atomic():
@@ -681,7 +690,8 @@ def review_reported_content(review_identifier):
             return
         # Extend the content's model chain with this round's deciders, so any
         # further round leads with a tier that has still not judged it.
-        model_chain.apply_round(target, [text_result, image_result], available)
+        model_chain.apply_round(target, [text_result, image_result], available,
+                                decisive=None if allowed else reason_result)
         target_fields = list(model_chain.CHAIN_FIELDS)
         if allowed:
             claimed.status = REVIEW_STATUS_CLEARED

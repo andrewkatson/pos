@@ -88,11 +88,22 @@ object ShareLinks {
      * we have a screen for. A predicate rather than a regex because Java's `\w`
      * is ASCII-only while the backend's admits Unicode letters; the length is
      * counted in code points for the same reason (the backend counts
-     * characters, not UTF-16 units).
+     * characters, not UTF-16 units). The character check walks code points
+     * too: a supplementary-plane letter is two surrogate `Char`s, neither of
+     * which is a letter on its own. Python's `\w` is `str.isalnum()` plus `_`,
+     * which also admits the letter-number and other-number categories (`Ⅻ`,
+     * `①`), so those count alongside letters and decimal digits.
      */
     private fun isPlausibleUsername(value: String): Boolean =
         value.codePointCount(0, value.length) in 10..500 &&
-            value.all { it.isLetterOrDigit() || it == '_' }
+            value.codePoints().allMatch { isWordCodePoint(it) }
+
+    private fun isWordCodePoint(codePoint: Int): Boolean =
+        codePoint == '_'.code ||
+            Character.isLetterOrDigit(codePoint) ||
+            Character.getType(codePoint).let {
+                it == Character.LETTER_NUMBER.toInt() || it == Character.OTHER_NUMBER.toInt()
+            }
 
     /**
      * The inverse of the builders above: what an App Link Android launched us

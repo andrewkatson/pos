@@ -289,6 +289,21 @@ class ClassifyPostModelChainTests(TestCase):
         self.assertEqual(self.post.hidden_reason, HIDDEN_REASON_CLASSIFIER_FINAL)
         self.assertEqual(self.post.classification_model_chain, [API_GEMMA])
 
+    @patch('user_system.tasks.delete_image')
+    @patch(IMAGE, return_value=ClassificationResult(allowed=False, appealable=True, reason_code='hate_speech',
+                                                    consulted=[API_OPENAI], decided_by=API_OPENAI))
+    @patch(TEXT, return_value=ClassificationResult(allowed=False, appealable=False, reason_code='gore',
+                                                   consulted=[API_GEMINI], decided_by=API_GEMINI))
+    def test_a_final_text_rejection_ends_the_chain_over_an_appealable_image_one(
+            self, _text, _image, _delete, _avail):
+        """Both halves reject; the final text rejection is what settled the post,
+        so its tier is the final determiner even though the image was listed last."""
+        self._run()
+        self.assertEqual(self.post.hidden_reason, HIDDEN_REASON_CLASSIFIER_FINAL)
+        self.assertEqual(self.post.classification_reason_code, 'gore')
+        self.assertEqual(self.post.classification_models_tried, [API_GEMINI, API_OPENAI])
+        self.assertEqual(self.post.classification_model_chain, [API_OPENAI, API_GEMINI])
+
     @patch(IMAGE, return_value=_judged([API_GEMMA], API_GEMMA))
     @patch(TEXT, return_value=_judged([API_GEMMA], API_GEMMA))
     def test_a_retry_leads_with_a_tier_the_failed_attempt_did_not(self, mock_text, mock_image, _avail):

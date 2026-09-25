@@ -74,6 +74,32 @@ class ShareLinksTest {
     }
 
     @Test
+    fun parseAcceptsASupplementaryPlaneUsername() {
+        // Deseret letters sit outside the BMP, so each is a surrogate pair;
+        // validating per UTF-16 Char would reject this valid 10-letter name.
+        val name = "𐐀".repeat(10)
+        assertEquals(
+            SharedLink.Profile(name),
+            ShareLinks.parseSharedLink("https://smiling.social/profile/" + "%F0%90%90%80".repeat(10))
+        )
+    }
+
+    @Test
+    fun parseAcceptsNumberCategoryUsernames() {
+        // Python's `\w` (the backend's rule) admits letter numbers (U+216B, Ⅻ)
+        // and other numbers (U+2460, ①), not just letters and decimal digits.
+        for ((name, encoded) in listOf(
+            "Ⅻ".repeat(10) to "%E2%85%AB".repeat(10),
+            "①".repeat(10) to "%E2%91%A0".repeat(10),
+        )) {
+            assertEquals(
+                SharedLink.Profile(name),
+                ShareLinks.parseSharedLink("https://smiling.social/profile/$encoded")
+            )
+        }
+    }
+
+    @Test
     fun parseRejectsProfileLinksThatCouldNotBeAUsername() {
         // The segment becomes a navigation argument, so only a well-formed
         // username (10-500 word characters, the backend's rule) is ever routed.
