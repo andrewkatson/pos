@@ -132,7 +132,8 @@ class RecordRoundTests(SimpleTestCase):
         the caller's decisive result (text) must end the chain, not whichever
         rejection was listed last."""
         text = _result([API_GEMINI], API_GEMINI, allowed=False)
-        image = _result([API_OPENAI], API_OPENAI, allowed=False)
+        image = ClassificationResult(allowed=False, appealable=True,
+                                     consulted=[API_OPENAI], decided_by=API_OPENAI)
         tried, chain = record_round([], [], [text, image], decisive=text)
         self.assertEqual(tried, [API_GEMINI, API_OPENAI])
         self.assertEqual(chain, [API_OPENAI, API_GEMINI])
