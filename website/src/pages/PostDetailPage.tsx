@@ -862,6 +862,9 @@ function PostDetailView({ postId, isSignedIn }: { postId: string; isSignedIn: bo
             const visible =
               collapseAt === -1 ? thread.comments : thread.comments.slice(0, collapseAt + 1)
             const [root, ...replies] = visible
+            const commentIdsWithReplies = new Set(
+              thread.comments.slice(0, -1).map(comment => comment.id),
+            )
             return (
               <div key={thread.threadId} className="comment-thread">
                 {root && (
@@ -870,6 +873,7 @@ function PostDetailView({ postId, isSignedIn }: { postId: string; isSignedIn: bo
                     canLike={isSignedIn}
                     isShared={root.id === targetCommentId}
                     isCollapsed={collapsedIds.has(root.id)}
+                    hasReplies={commentIdsWithReplies.has(root.id)}
                     onToggleCollapse={() => toggleCollapsed(root.id)}
                     onToggleLike={() => toggleCommentLike(root)}
                     onOpenLikes={() =>
@@ -907,6 +911,7 @@ function PostDetailView({ postId, isSignedIn }: { postId: string; isSignedIn: bo
                         canLike={isSignedIn}
                         isShared={reply.id === targetCommentId}
                         isCollapsed={collapsedIds.has(reply.id)}
+                        hasReplies={commentIdsWithReplies.has(reply.id)}
                         onToggleCollapse={() => toggleCollapsed(reply.id)}
                         onToggleLike={() => toggleCommentLike(reply)}
                         onOpenLikes={() =>
@@ -1215,6 +1220,7 @@ interface CommentRowProps {
    * marked out from the rest of the thread (issue #381). */
   isShared: boolean
   isCollapsed: boolean
+  hasReplies: boolean
   onToggleCollapse: () => void
   onToggleLike: () => void
   /** Opens "who liked this comment" (issue #478). Wired only for your own
@@ -1233,6 +1239,7 @@ function CommentRow({
   canLike,
   isShared,
   isCollapsed,
+  hasReplies,
   onToggleCollapse,
   onToggleLike,
   onOpenLikes,
@@ -1260,7 +1267,10 @@ function CommentRow({
             and chevron are sibling <button>s — never nested inside an interactive
             role — and each stops click propagation so activating one doesn't also
             trigger the band's collapse. */}
-        <div className="comment-row__header" onClick={onToggleCollapse}>
+        <div
+          className="comment-row__header"
+          onClick={hasReplies ? onToggleCollapse : undefined}
+        >
           <button
             type="button"
             className="feed-post__author"
@@ -1294,18 +1304,20 @@ function CommentRow({
           >
             ⋯
           </button>
-          <button
-            type="button"
-            className="comment-row__collapse"
-            aria-expanded={!isCollapsed}
-            aria-label={isCollapsed ? 'Expand thread' : 'Collapse thread'}
-            onClick={e => {
-              e.stopPropagation()
-              onToggleCollapse()
-            }}
-          >
-            {isCollapsed ? '▸' : '▾'}
-          </button>
+          {hasReplies && (
+            <button
+              type="button"
+              className="comment-row__collapse"
+              aria-expanded={!isCollapsed}
+              aria-label={isCollapsed ? 'Expand thread' : 'Collapse thread'}
+              onClick={e => {
+                e.stopPropagation()
+                onToggleCollapse()
+              }}
+            >
+              {isCollapsed ? '▸' : '▾'}
+            </button>
+          )}
         </div>
         {/* The comment body sits below the username/time header line. */}
         <p className="comment-row__body">
