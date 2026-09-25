@@ -374,17 +374,18 @@ jobs:
             # Matching only the XCTest form once misread a real @Test failure
             # as a broken run and re-ran the ~35 min unit group for nothing.
             # The ✘ glyph is left out so the match does not depend on the
-            # runner's locale. A test that only hits withKnownIssue prints
-            # "recorded a known issue" / "passed ... with 1 known issue",
-            # which matches neither form, as it should.
-            TEST_FAILED_RE='Test [Cc]ase .* failed|Test .* recorded an issue|Test .* failed after [0-9.]+ seconds'
+            # runner's locale. Matched case-insensitively (-i), as the
+            # XCTest-only check was. A test that only hits withKnownIssue
+            # prints "recorded a known issue" / "passed ... with 1 known
+            # issue", which matches neither form, as it should.
+            TEST_FAILED_RE='Test Case .* failed|Test .* recorded an issue|Test .* failed after [0-9.]+ seconds'
             attempt=1
             max=2
             RC=1
             while :; do
               if run_tests_once; then RC=0; break; fi
               if [ "$attempt" -ge "$max" ]; then RC=1; break; fi
-              if grep -qE "$TEST_FAILED_RE" xcodebuild.log 2>/dev/null; then
+              if grep -qiE "$TEST_FAILED_RE" xcodebuild.log 2>/dev/null; then
                 echo "A test case failed and was already retried in-process; not re-running the group." >&2
                 RC=1; break
               fi
@@ -407,7 +408,7 @@ jobs:
             # Both XCTest and Swift Testing (@Test) forms; see TEST_FAILED_RE
             # in "Run Tests". Swift Testing's per-suite and whole-run "✘ Suite
             # ... failed" / "✘ Test run ... failed" lines are included too.
-            grep -E "Test [Cc]ase .* failed|Test [Ss]uite .* failed|Test .* recorded an issue|Test .* failed after [0-9.]+ seconds|Suite .* failed after [0-9.]+ seconds" xcodebuild.log \
+            grep -iE "Test Case .* failed|Test Suite .* failed|Test .* recorded an issue|Test .* failed after [0-9.]+ seconds|Suite .* failed after [0-9.]+ seconds" xcodebuild.log \
               || echo "(no failed-test lines found)"
           fi
           echo ""
