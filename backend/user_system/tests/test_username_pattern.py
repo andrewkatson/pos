@@ -20,6 +20,18 @@ class UsernamePatternTests(SimpleTestCase):
         self.assertFalse(is_valid_pattern('a' * (MAX_USERNAME_LENGTH + 1), Patterns.username))
         self.assertFalse(is_valid_pattern('a' * 500, Patterns.username))
 
+    def test_trailing_newline_rejected(self):
+        """`$` matches before a trailing newline; the pattern must not, or a
+        150-character name plus "\n" reaches the 150-character column."""
+        self.assertFalse(is_valid_pattern('a' * MAX_USERNAME_LENGTH + '\n', Patterns.username))
+        self.assertFalse(is_valid_pattern('a' * MIN_USERNAME_LENGTH + '\n', Patterns.username))
+
+    def test_search_fragment_capped_at_username_length(self):
+        self.assertTrue(is_valid_pattern('abc', Patterns.short_alphanumeric))
+        self.assertTrue(is_valid_pattern('a' * MAX_USERNAME_LENGTH, Patterns.short_alphanumeric))
+        self.assertFalse(is_valid_pattern('a' * (MAX_USERNAME_LENGTH + 1), Patterns.short_alphanumeric))
+        self.assertFalse(is_valid_pattern('abc\n', Patterns.short_alphanumeric))
+
     def test_non_word_characters_rejected(self):
         self.assertFalse(is_valid_pattern('has a space', Patterns.username))
         self.assertFalse(is_valid_pattern('dash-in-the-name', Patterns.username))

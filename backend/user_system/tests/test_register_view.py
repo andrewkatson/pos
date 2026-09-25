@@ -83,6 +83,18 @@ class RegisterTests(PositiveOnlySocialTestCase):
         self.assertIn(Params.username, response.json()['error'])
         self.assertFalse(get_user_model().objects.filter(username=data['username']).exists())
 
+    @patch.dict(os.environ, {"TESTING": "True"}, clear=True)
+    def test_username_with_trailing_newline_is_a_validation_error(self):
+        """`$` would match before the newline, letting a 151-character name
+        (150 word characters plus "\n") through to the database."""
+        data = self.valid_data.copy()
+        data['username'] = self.local_username.ljust(MAX_USERNAME_LENGTH, 'a') + '\n'
+
+        response = self.client.post(self.url, data=data, content_type='application/json')
+
+        self.assertEqual(response.status_code, 400)
+        self.assertIn(Params.username, response.json()['error'])
+
     def test_invalid_email_returns_bad_response(self):
         """
         Tests that a malformed email is rejected.

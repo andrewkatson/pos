@@ -65,9 +65,23 @@ object AuthRequirements {
         ),
         Requirement(
             "Letters, numbers, and underscores only",
-            username.isNotEmpty() && username.all { it.isLetterOrDigit() || it == '_' },
+            username.isNotEmpty() && username.codePoints().allMatch { isWordCodePoint(it) },
         ),
     )
+
+    /**
+     * Whether [codePoint] is a word character by Python's `\w` — the backend's
+     * username rule: `str.isalnum()` plus `_`, which also admits the
+     * letter-number and other-number categories (`Ⅻ`, `①`). Checked per code
+     * point, not per `Char`: a supplementary-plane letter is two surrogate
+     * `Char`s, neither of which is a letter on its own.
+     */
+    fun isWordCodePoint(codePoint: Int): Boolean =
+        codePoint == '_'.code ||
+            Character.isLetterOrDigit(codePoint) ||
+            Character.getType(codePoint).let {
+                it == Character.LETTER_NUMBER.toInt() || it == Character.OTHER_NUMBER.toInt()
+            }
 
     // Optional suggestions are advisory only and never block submission.
     fun allMet(requirements: List<Requirement>): Boolean =

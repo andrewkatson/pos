@@ -262,8 +262,12 @@ class Patterns:
     # Usernames: 10-150 word characters. The upper bound is the username
     # column's max_length (AbstractUser, 150); a longer name would pass a looser
     # pattern and then fail at the database instead of as a validation error.
-    username = r"^\w{10,%d}$" % MAX_USERNAME_LENGTH
-    short_alphanumeric = r"^\w{3,500}$"
+    # \Z, not $: is_valid_pattern uses re.findall, and $ also matches before a
+    # trailing newline, which would let a 151-character name ending in a newline through.
+    username = r"^\w{10,%d}\Z" % MAX_USERNAME_LENGTH
+    # A user-search prefix. Capped at the longest possible username, since a
+    # longer fragment cannot match anyone.
+    short_alphanumeric = r"^\w{3,%d}\Z" % MAX_USERNAME_LENGTH
     single_letter = r"^[a-zA-Z]{1}$"
     name = r"^[a-zA-Z]{3,100}$"
     digits_only = r"^\d{1,100}$"

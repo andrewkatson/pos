@@ -39,6 +39,27 @@ class AuthRequirementsTest {
     }
 
     @Test
+    fun supplementaryPlaneLettersAreWordCharactersLikeTheBackend() {
+        // Python's \w{10,150} accepts 150 of U+1D400, so registration must too:
+        // the character rule walks code points, not surrogate Chars.
+        val mathBold = String(Character.toChars(0x1D400))
+        assertTrue(AuthRequirements.allMet(AuthRequirements.username(mathBold.repeat(150))))
+        assertFalse(AuthRequirements.allMet(AuthRequirements.username(mathBold.repeat(151))))
+    }
+
+    @Test
+    fun letterAndOtherNumbersAreWordCharactersLikeTheBackend() {
+        // str.isalnum() admits Ⅻ (Nl) and ① (No), so Python's \w does too.
+        assertTrue(AuthRequirements.allMet(AuthRequirements.username("sunny_Ⅻ_①_ok")))
+    }
+
+    @Test
+    fun nonWordCharactersAreRejected() {
+        assertFalse(AuthRequirements.allMet(AuthRequirements.username("has a space here")))
+        assertFalse(AuthRequirements.allMet(AuthRequirements.username("dash-in-the-name")))
+    }
+
+    @Test
     fun usernameLabelNamesTheBounds() {
         assertEquals(
             "Between 10 and 150 characters",

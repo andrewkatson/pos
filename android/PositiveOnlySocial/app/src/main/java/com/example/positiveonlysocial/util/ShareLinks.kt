@@ -97,14 +97,7 @@ object ShareLinks {
      */
     private fun isPlausibleUsername(value: String): Boolean =
         value.codePointCount(0, value.length) in AuthRequirements.USERNAME_LENGTH_RANGE &&
-            value.codePoints().allMatch { isWordCodePoint(it) }
-
-    private fun isWordCodePoint(codePoint: Int): Boolean =
-        codePoint == '_'.code ||
-            Character.isLetterOrDigit(codePoint) ||
-            Character.getType(codePoint).let {
-                it == Character.LETTER_NUMBER.toInt() || it == Character.OTHER_NUMBER.toInt()
-            }
+            value.codePoints().allMatch { AuthRequirements.isWordCodePoint(it) }
 
     /**
      * The inverse of the builders above: what an App Link Android launched us
