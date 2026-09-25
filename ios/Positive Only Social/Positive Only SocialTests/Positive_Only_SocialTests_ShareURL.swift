@@ -69,14 +69,15 @@ struct Positive_Only_SocialTests_ShareURL {
 
     @Test func parseRejectsProfileLinksThatCouldNotBeAUsername() throws {
         // The segment becomes a navigation value, so only a well-formed
-        // username (10-500 word characters, the backend's rule) is ever routed.
+        // username (10-150 word characters: the backend's pattern, capped by
+        // the username column's max_length) is ever routed.
         let rejected = [
             "https://smiling.social/profile/",
             "https://smiling.social/profile/some%20one",
             "https://smiling.social/profile/a-b",
             "https://smiling.social/profile/ada/posts",
             "https://smiling.social/profile/tooshort9",
-            "https://smiling.social/profile/" + String(repeating: "a", count: 501),
+            "https://smiling.social/profile/" + String(repeating: "a", count: 151),
         ]
         for string in rejected {
             let url = try #require(URL(string: string))

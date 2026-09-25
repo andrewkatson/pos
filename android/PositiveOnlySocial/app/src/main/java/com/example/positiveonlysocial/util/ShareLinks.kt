@@ -82,9 +82,11 @@ object ShareLinks {
     private const val COMMENT_FRAGMENT_PREFIX = "comment-"
 
     /**
-     * Usernames are 10–500 word characters (letters, digits, underscore) — the
+     * Usernames are word characters (letters, digits, underscore) — the
      * backend's `Patterns.alphanumeric`, which registration and the profile
-     * endpoints all enforce — so a profile segment that isn't is not a profile
+     * endpoints all enforce — at least 10 long and at most 150, the username
+     * column's max_length (tighter than the pattern's 500, so no longer name
+     * can exist) — so a profile segment that isn't is not a profile
      * we have a screen for. A predicate rather than a regex because Java's `\w`
      * is ASCII-only while the backend's admits Unicode letters; the length is
      * counted in code points for the same reason (the backend counts
@@ -95,7 +97,7 @@ object ShareLinks {
      * `①`), so those count alongside letters and decimal digits.
      */
     private fun isPlausibleUsername(value: String): Boolean =
-        value.codePointCount(0, value.length) in 10..500 &&
+        value.codePointCount(0, value.length) in 10..150 &&
             value.codePoints().allMatch { isWordCodePoint(it) }
 
     private fun isWordCodePoint(codePoint: Int): Boolean =

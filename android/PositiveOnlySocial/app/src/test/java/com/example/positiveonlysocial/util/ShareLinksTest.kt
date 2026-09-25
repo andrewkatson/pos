@@ -100,16 +100,26 @@ class ShareLinksTest {
     }
 
     @Test
+    fun parseAcceptsAMaximumLengthUsername() {
+        val name = "a".repeat(150)
+        assertEquals(
+            SharedLink.Profile(name),
+            ShareLinks.parseSharedLink("https://smiling.social/profile/$name")
+        )
+    }
+
+    @Test
     fun parseRejectsProfileLinksThatCouldNotBeAUsername() {
         // The segment becomes a navigation argument, so only a well-formed
-        // username (10-500 word characters, the backend's rule) is ever routed.
+        // username (10-150 word characters: the backend's pattern, capped by
+        // the username column's max_length) is ever routed.
         for (url in listOf(
             "https://smiling.social/profile/",
             "https://smiling.social/profile/some%20one",
             "https://smiling.social/profile/a-b",
             "https://smiling.social/profile/ada/posts",
             "https://smiling.social/profile/tooshort9",
-            "https://smiling.social/profile/" + "a".repeat(501)
+            "https://smiling.social/profile/" + "a".repeat(151)
         )) {
             assertNull("expected $url to be rejected", ShareLinks.parseSharedLink(url))
         }
