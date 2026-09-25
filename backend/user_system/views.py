@@ -4988,7 +4988,7 @@ def get_current_user(request):
 def get_profile_details(request, username):
     logger.info("Endpoint get_profile_details invoked by IP or User")
     # user is on request.user (requesting_user)
-    if not is_valid_pattern(username, Patterns.alphanumeric_with_special_chars):
+    if not is_valid_pattern(username, Patterns.username):
         return log_and_return_json("get_profile_details", {'error': "Invalid username"}, status=400)
 
     profile_user = get_user_with_username(username)
