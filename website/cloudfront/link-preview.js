@@ -67,9 +67,9 @@ var CRAWLERS = new RegExp(
 var POST_PATH = /^\/post\/([0-9a-fA-F]{8}(?:-[0-9a-fA-F]{4}){3}-[0-9a-fA-F]{12})\/?$/
 
 // `/profile/<username>`, with or without a trailing slash. Usernames are word
-// characters (the backend's `Patterns.alphanumeric`; it registers nothing
-// else), at least 10 long and at most 150 — the username column's max_length,
-// which is tighter than the pattern's 500 — and the match is what goes into the redirect URL, so the same shape is
+// characters (the backend's `Patterns.username`; it registers nothing
+// else), at least 10 long and at most 150 — the username column's max_length —
+// and the match is what goes into the redirect URL, so the same shape is
 // enforced here — anything else is not a profile we could preview and passes
 // through.
 //

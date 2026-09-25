@@ -236,7 +236,7 @@ GOOGLE_EMAIL_UNVERIFIED = "google_email_unverified"
 GOOGLE_EMAIL_AMBIGUOUS = "google_email_ambiguous"
 
 # A Google account carries no username, so the first sign-in generates one from
-# the email local part. Generated names must still satisfy Patterns.alphanumeric
+# the email local part. Generated names must still satisfy Patterns.username
 # (at least 10 word characters), so a short local part is padded and a taken name
 # gets a numeric suffix. GENERATED_USERNAME_FALLBACK_PREFIX is used when the
 # local part yields nothing usable — or when the text classifier rejects what it
@@ -245,13 +245,24 @@ GENERATED_USERNAME_FALLBACK_PREFIX = "friend"
 MIN_GENERATED_USERNAME_LENGTH = 10
 MAX_GENERATED_USERNAME_ATTEMPTS = 20
 
+# The username column's max_length (Django's AbstractUser). Patterns.username
+# must not allow more, or registration fails at the database.
+MIN_USERNAME_LENGTH = 10
+MAX_USERNAME_LENGTH = 150
+
 # Regex Patterns to check against
 class Patterns:
     password = r"^(?=.*[0-9])(?=.*[a-z])(?=.*[A-Z])(?=\S+$).{8,}$"
     login_password = r"^(?=\S+$).{8,}$"
     double = r"^\d{1,100}[.,]{0,1}\d{0,100}$"
     paragraph_of_chars = r"^[\w \n]{5,3000}$"
+    # Opaque tokens (session management, login cookie). Not for usernames — see
+    # `username` below, which is capped at the database column's length.
     alphanumeric = r"^\w{10,500}$"
+    # Usernames: 10-150 word characters. The upper bound is the username
+    # column's max_length (AbstractUser, 150); a longer name would pass a looser
+    # pattern and then fail at the database instead of as a validation error.
+    username = r"^\w{10,%d}$" % MAX_USERNAME_LENGTH
     short_alphanumeric = r"^\w{3,500}$"
     single_letter = r"^[a-zA-Z]{1}$"
     name = r"^[a-zA-Z]{3,100}$"

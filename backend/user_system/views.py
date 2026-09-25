@@ -766,7 +766,7 @@ def register(request):
     date_of_birth_str = data.get('date_of_birth')
 
     invalid_fields = []
-    if not username or not is_valid_pattern(username, Patterns.alphanumeric):
+    if not username or not is_valid_pattern(username, Patterns.username):
         invalid_fields.append(Params.username)
     if not email or not is_valid_pattern(email, Patterns.email):
         invalid_fields.append(Params.email)
@@ -965,7 +965,7 @@ def login_user(request):
 
     invalid_fields = []
     if not username_or_email or (
-            not is_valid_pattern(username_or_email, Patterns.alphanumeric) and not is_valid_pattern(username_or_email,
+            not is_valid_pattern(username_or_email, Patterns.username) and not is_valid_pattern(username_or_email,
                                                                                                     Patterns.email)):
         invalid_fields.append(Params.username_or_email)
     if not password or not is_valid_pattern(password, Patterns.login_password):
@@ -1013,9 +1013,10 @@ def _google_username_base(email):
 
     A Google account brings no username, so one is derived from the email local
     part — familiar to its owner and usually free. Usernames must match
-    Patterns.alphanumeric, so everything that is not a word character is
-    stripped; the length is trimmed well short of the 500-character ceiling to
-    leave room for a numeric suffix.
+    Patterns.username, so everything that is not a word character is
+    stripped; the length is trimmed well short of the 150-character ceiling
+    (MAX_USERNAME_LENGTH, the column's max_length) to leave room for a numeric
+    suffix.
 
     The stem must still clear the positivity bar the app applies to a chosen
     username, but the user never chose this one, so a rejection falls back to a
@@ -1106,7 +1107,7 @@ def _create_user_for_google(request, claims, ip):
 
     for attempt in range(MAX_GENERATED_USERNAME_ATTEMPTS):
         candidate = _google_username_candidate(base, attempt)
-        if not is_valid_pattern(candidate, Patterns.alphanumeric):
+        if not is_valid_pattern(candidate, Patterns.username):
             continue
         try:
             # The unique constraints, not the lookups, are what actually decide:
@@ -1717,7 +1718,7 @@ def resend_verification_email(request):
 
     username_or_email = data.get(Fields.username_or_email)
     if not username_or_email or (
-            not is_valid_pattern(username_or_email, Patterns.alphanumeric) and
+            not is_valid_pattern(username_or_email, Patterns.username) and
             not is_valid_pattern(username_or_email, Patterns.email)):
         return log_and_return_json("resend_verification_email",
                                    {'error': f"Invalid fields ['{Params.username_or_email}']"}, status=400)
@@ -1766,7 +1767,7 @@ def request_reset(request):
     username_or_email = data.get(Fields.username_or_email)
 
     if not username_or_email or (
-            not is_valid_pattern(username_or_email, Patterns.alphanumeric) and not is_valid_pattern(username_or_email,
+            not is_valid_pattern(username_or_email, Patterns.username) and not is_valid_pattern(username_or_email,
                                                                                                     Patterns.email)):
         return log_and_return_json("request_reset", {'error': f"Invalid fields {Fields.username_or_email}"}, status=400)
 
@@ -1810,7 +1811,7 @@ def verify_reset(request):
 
     invalid_fields = []
     if not username_or_email or (
-            not is_valid_pattern(username_or_email, Patterns.alphanumeric) and
+            not is_valid_pattern(username_or_email, Patterns.username) and
             not is_valid_pattern(username_or_email, Patterns.email)):
         invalid_fields.append(Params.username_or_email)
     _URLSAFE_TOKEN_LEN = 43
@@ -1900,7 +1901,7 @@ def reset_password(request):
     reset_token = data.get(Fields.reset_token)
 
     invalid_fields = []
-    if not username or not is_valid_pattern(username, Patterns.alphanumeric):
+    if not username or not is_valid_pattern(username, Patterns.username):
         invalid_fields.append(Params.username)
     if not email or not is_valid_pattern(email, Patterns.email):
         invalid_fields.append(Params.email)
@@ -2910,7 +2911,7 @@ def get_posts_for_user(request, username, batch):
     logger.info("Endpoint get_posts_for_user invoked by IP or User")
 
     # user is on request.user (for auth), username is for target
-    if not is_valid_pattern(username, Patterns.alphanumeric):
+    if not is_valid_pattern(username, Patterns.username):
         return log_and_return_json("get_posts_for_user", {'error': "Invalid username"}, status=400)
     if batch < 0:
         return log_and_return_json("get_posts_for_user", {'error': "Invalid batch parameter"}, status=400)
@@ -3971,7 +3972,7 @@ def get_post_link_preview(request, post_identifier):
 def _get_public_profile_user(username):
     """The account behind a shared profile link, or None when it is missing or
     not public. Both collapse into one None so callers return the same 404."""
-    if not is_valid_pattern(username, Patterns.alphanumeric):
+    if not is_valid_pattern(username, Patterns.username):
         return None
     profile_user = get_user_with_username(username)
     if profile_user is None:
@@ -4172,7 +4173,7 @@ def get_users_matching_fragment(request, username_fragment):
 def follow_user(request, username_to_follow):
     logger.info("Endpoint follow_user invoked by IP or User")
     # user is on request.user
-    if not is_valid_pattern(username_to_follow, Patterns.alphanumeric):
+    if not is_valid_pattern(username_to_follow, Patterns.username):
         return log_and_return_json("follow_user", {'error': "Invalid username fragment"}, status=400)
 
     user_to_follow_obj = get_user_with_username(username_to_follow)
@@ -4222,7 +4223,7 @@ def follow_user(request, username_to_follow):
 def unfollow_user(request, username_to_unfollow):
     logger.info("Endpoint unfollow_user invoked by IP or User")
     # user is on request.user
-    if not is_valid_pattern(username_to_unfollow, Patterns.alphanumeric):
+    if not is_valid_pattern(username_to_unfollow, Patterns.username):
         return log_and_return_json("unfollow_user", {'error': "Invalid username fragment"}, status=400)
 
     user_to_unfollow_obj = get_user_with_username(username_to_unfollow)
@@ -4253,7 +4254,7 @@ def set_follow_category(request, username):
     follow_user instead.
     """
     logger.info("Endpoint set_follow_category invoked by IP or User")
-    if not is_valid_pattern(username, Patterns.alphanumeric):
+    if not is_valid_pattern(username, Patterns.username):
         return log_and_return_json("set_follow_category", {'error': "Invalid username fragment"}, status=400)
 
     target_user = get_user_with_username(username)
@@ -4288,7 +4289,7 @@ def set_follow_category(request, username):
 def toggle_block(request, username_to_toggle_block):
     logger.info("Endpoint toggle_block invoked by IP or User")
     # user is on request.user
-    if not is_valid_pattern(username_to_toggle_block, Patterns.alphanumeric):
+    if not is_valid_pattern(username_to_toggle_block, Patterns.username):
         return log_and_return_json("toggle_block", {'error': "Invalid username"}, status=400)
 
     user_to_toggle_obj = get_user_with_username(username_to_toggle_block)

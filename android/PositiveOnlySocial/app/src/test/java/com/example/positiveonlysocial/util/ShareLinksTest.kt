@@ -102,14 +102,14 @@ class ShareLinksTest {
     @Test
     fun parseRejectsProfileLinksThatCouldNotBeAUsername() {
         // The segment becomes a navigation argument, so only a well-formed
-        // username (10-500 word characters, the backend's rule) is ever routed.
+        // username (10-150 word characters, the backend's rule) is ever routed.
         for (url in listOf(
             "https://smiling.social/profile/",
             "https://smiling.social/profile/some%20one",
             "https://smiling.social/profile/a-b",
             "https://smiling.social/profile/ada/posts",
             "https://smiling.social/profile/tooshort9",
-            "https://smiling.social/profile/" + "a".repeat(501)
+            "https://smiling.social/profile/" + "a".repeat(151)
         )) {
             assertNull("expected $url to be rejected", ShareLinks.parseSharedLink(url))
         }

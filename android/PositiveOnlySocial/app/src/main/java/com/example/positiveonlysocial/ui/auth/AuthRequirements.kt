@@ -18,7 +18,7 @@ import androidx.compose.ui.unit.dp
  * truth so they can never drift apart.
  *
  *   password     = ^(?=.*[0-9])(?=.*[a-z])(?=.*[A-Z])(?=\S+$).{8,}$
- *   alphanumeric = ^\w{10,500}$   (used for usernames)
+ *   username     = ^\w{10,150}$   (150 is the username column's max_length)
  */
 /**
  * A single labelled validation rule. [optional] suggestions don't gate form
@@ -33,6 +33,14 @@ data class Requirement(
 
 object AuthRequirements {
 
+    /**
+     * Mirrors MIN_USERNAME_LENGTH / MAX_USERNAME_LENGTH in
+     * backend/user_system/constants.py. The maximum is the username column's
+     * max_length, so a longer name would fail at the database.
+     */
+    const val MIN_USERNAME_LENGTH = 10
+    const val MAX_USERNAME_LENGTH = 150
+    val USERNAME_LENGTH_RANGE = MIN_USERNAME_LENGTH..MAX_USERNAME_LENGTH
 
     fun password(password: String): List<Requirement> = listOf(
         Requirement("At least 8 characters", password.length >= 8),
@@ -50,7 +58,11 @@ object AuthRequirements {
     )
 
     fun username(username: String): List<Requirement> = listOf(
-        Requirement("Between 10 and 500 characters", username.length in 10..500),
+        // Code points, like Python's len() — not UTF-16 units.
+        Requirement(
+            "Between $MIN_USERNAME_LENGTH and $MAX_USERNAME_LENGTH characters",
+            username.codePointCount(0, username.length) in USERNAME_LENGTH_RANGE,
+        ),
         Requirement(
             "Letters, numbers, and underscores only",
             username.isNotEmpty() && username.all { it.isLetterOrDigit() || it == '_' },

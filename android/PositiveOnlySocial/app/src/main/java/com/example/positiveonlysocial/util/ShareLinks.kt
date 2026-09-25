@@ -5,6 +5,7 @@ import android.content.Context
 import android.content.Intent
 import android.util.Log
 import android.widget.Toast
+import com.example.positiveonlysocial.ui.auth.AuthRequirements
 import java.net.URI
 
 /**
@@ -82,8 +83,8 @@ object ShareLinks {
     private const val COMMENT_FRAGMENT_PREFIX = "comment-"
 
     /**
-     * Usernames are 10–500 word characters (letters, digits, underscore) — the
-     * backend's `Patterns.alphanumeric`, which registration and the profile
+     * Usernames are 10–150 word characters (letters, digits, underscore) — the
+     * backend's `Patterns.username`, which registration and the profile
      * endpoints all enforce — so a profile segment that isn't is not a profile
      * we have a screen for. A predicate rather than a regex because Java's `\w`
      * is ASCII-only while the backend's admits Unicode letters; the length is
@@ -95,7 +96,7 @@ object ShareLinks {
      * `①`), so those count alongside letters and decimal digits.
      */
     private fun isPlausibleUsername(value: String): Boolean =
-        value.codePointCount(0, value.length) in 10..500 &&
+        value.codePointCount(0, value.length) in AuthRequirements.USERNAME_LENGTH_RANGE &&
             value.codePoints().allMatch { isWordCodePoint(it) }
 
     private fun isWordCodePoint(codePoint: Int): Boolean =

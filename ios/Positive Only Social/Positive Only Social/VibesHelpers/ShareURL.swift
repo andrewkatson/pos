@@ -85,14 +85,14 @@ enum ShareURL {
     /// link shared with the `www.` prefix opens the app too.
     static let linkHosts: Set<String> = ["smiling.social", "www.smiling.social"]
 
-    /// Usernames are 10–500 word characters (letters, digits, underscore) — the
-    /// backend's `Patterns.alphanumeric`, which registration and the profile
+    /// Usernames are 10–150 word characters (letters, digits, underscore) — the
+    /// backend's `Patterns.username`, which registration and the profile
     /// endpoints all enforce — so a profile segment that isn't is not a profile
     /// we have a screen for. A predicate rather than a regex so Unicode letters
     /// count, as they do server-side; the length is counted in scalars for the
     /// same reason (the backend counts code points, not grapheme clusters).
     private static func isPlausibleUsername(_ value: String) -> Bool {
-        (10...500).contains(value.unicodeScalars.count)
+        AuthRequirements.usernameLengthRange.contains(value.unicodeScalars.count)
             && value.allSatisfy { $0.isLetter || $0.isNumber || $0 == "_" }
     }
 
