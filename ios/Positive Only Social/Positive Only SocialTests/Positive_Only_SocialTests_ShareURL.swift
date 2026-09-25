@@ -67,6 +67,12 @@ struct Positive_Only_SocialTests_ShareURL {
         #expect(ShareURL.parse(url) == SharedLink.profile(username: "sonn\u{E9}_\u{FC}ber_\u{65E5}\u{672C}_x"))
     }
 
+    @Test func parseAcceptsAMaximumLengthUsername() throws {
+        let name = String(repeating: "a", count: 150)
+        let url = try #require(URL(string: "https://smiling.social/profile/" + name))
+        #expect(ShareURL.parse(url) == SharedLink.profile(username: name))
+    }
+
     @Test func parseRejectsProfileLinksThatCouldNotBeAUsername() throws {
         // The segment becomes a navigation value, so only a well-formed
         // username (10-150 word characters: the backend's pattern, capped by
