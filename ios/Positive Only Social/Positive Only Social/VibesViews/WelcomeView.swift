@@ -43,22 +43,23 @@ struct WelcomeView: View {
                         .scaledToFit()
                         .frame(width: 90, height: 90)
                         .clipShape(RoundedRectangle(cornerRadius: 18))
-                    .shadow(color: .black.opacity(0.15), radius: 8, x: 0, y: 4)}
-            }
-            VStack {
-                // The view now switches based on the authentication state
-                switch authState {
-                case .checking:
-                    ProgressView("Checking session...")
-                        .scaleEffect(1.5)
-                        
-                case .needsAuth:
-                    NeedsAuthView() // The Login/Register buttons
-                    
-                case .authenticated:
-                    // This state is the trigger to navigate. We show nothing here because
-                    // the navigation happens almost instantly.
-                    Color.clear
+                        .shadow(color: .black.opacity(0.15), radius: 8, x: 0, y: 4)
+
+                    // The view now switches based on the authentication state.
+                    // It sits inside the ZStack so the gradient is its background.
+                    switch authState {
+                    case .checking:
+                        ProgressView("Checking session...")
+                            .scaleEffect(1.5)
+
+                    case .needsAuth:
+                        NeedsAuthView() // The Login/Register buttons
+
+                    case .authenticated:
+                        // This state is the trigger to navigate. We show nothing here because
+                        // the navigation happens almost instantly.
+                        Color.clear
+                    }
                 }
             }
             .navigationTitle("Vibes")

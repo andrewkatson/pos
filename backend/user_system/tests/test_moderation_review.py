@@ -519,10 +519,10 @@ class ReReviewModelChainTests(TestCase):
         self.assertEqual(review.status, REVIEW_STATUS_HIDDEN)
         self.assertTrue(self.post.hidden)
         self.assertEqual(self.post.hidden_reason, HIDDEN_REASON_CLASSIFIER)
-        # Text folds in before image, so the text decider (OpenAI) precedes the
-        # image decider (Gemini) in both lists.
+        # The text rejection is what hid the post, so its decider (OpenAI) ends
+        # the chain as the final determiner, after the image decider (Gemini).
         self.assertEqual(self.post.classification_models_tried, [API_GEMMA, API_GEMINI, API_OPENAI])
-        self.assertEqual(self.post.classification_model_chain, [API_GEMMA, API_OPENAI, API_GEMINI])
+        self.assertEqual(self.post.classification_model_chain, [API_GEMMA, API_GEMINI, API_OPENAI])
 
     @patch(TEXT, return_value=_judged([API_GEMINI], API_GEMINI, allowed=False))
     def test_a_reported_comment_gets_the_same_rotation(self, mock_text, _avail):
