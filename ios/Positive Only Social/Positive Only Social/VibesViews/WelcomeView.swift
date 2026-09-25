@@ -71,6 +71,7 @@ struct WelcomeView: View {
                         .foregroundColor(.white)
                 }
             }
+            // Define all possible navigation destinations
             .navigationTitle("Vibes")
             .navigationDestination(for: String.self) { routeName in
                 switch routeName {
