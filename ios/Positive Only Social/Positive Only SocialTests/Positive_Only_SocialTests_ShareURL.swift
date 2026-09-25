@@ -77,6 +77,9 @@ struct Positive_Only_SocialTests_ShareURL {
             "https://smiling.social/profile/ada/posts",
             "https://smiling.social/profile/tooshort9",
             "https://smiling.social/profile/" + String(repeating: "a", count: 151),
+            // "e" + combining acute: a letter-led grapheme, but U+0301 is not
+            // a word character to the backend.
+            "https://smiling.social/profile/sunny_side_e%CC%81",
         ]
         for string in rejected {
             let url = try #require(URL(string: string))

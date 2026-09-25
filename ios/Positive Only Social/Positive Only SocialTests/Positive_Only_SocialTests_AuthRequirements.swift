@@ -43,6 +43,30 @@ struct Positive_Only_SocialTests_AuthRequirements {
         #expect(!lengthMet(decomposed))
     }
 
+    @Test func combiningMarksAreNotWordCharactersLikeTheBackend() {
+        // 75 "e" + U+0301 pairs are 150 scalars, inside the length range, but
+        // Python's \w rejects the combining mark, so registration would fail.
+        // Foundation's ICU \w admits it; the rule must not.
+        let decomposed = String(repeating: "e\u{301}", count: 75)
+        #expect(lengthMet(decomposed))
+        #expect(!Positive_Only_Social.AuthRequirements.allMet(usernameRequirements(decomposed)))
+        // Connector punctuation other than "_" is also ICU-\w-only.
+        #expect(!Positive_Only_Social.AuthRequirements.allMet(usernameRequirements("sunny\u{203F}side_up")))
+    }
+
+    @Test func unicodeLettersAndNumbersAreWordCharactersLikeTheBackend() {
+        // All of these match Python's \w: a precomposed accented letter, a
+        // supplementary-plane letter, a letter number (Ⅻ) and an other number (①).
+        #expect(Positive_Only_Social.AuthRequirements.allMet(usernameRequirements("sonn\u{E9}_\u{216B}_\u{2460}_ok")))
+        #expect(Positive_Only_Social.AuthRequirements.allMet(
+            usernameRequirements(String(repeating: "\u{1D400}", count: 150))))
+    }
+
+    @Test func nonWordCharactersAreRejected() {
+        #expect(!Positive_Only_Social.AuthRequirements.allMet(usernameRequirements("has a space here")))
+        #expect(!Positive_Only_Social.AuthRequirements.allMet(usernameRequirements("dash-in-the-name")))
+    }
+
     @Test func overLongUsernameIsNotAllMet() {
         #expect(!Positive_Only_Social.AuthRequirements.allMet(usernameRequirements(String(repeating: "a", count: 151))))
         #expect(Positive_Only_Social.AuthRequirements.allMet(usernameRequirements(String(repeating: "a", count: 150))))

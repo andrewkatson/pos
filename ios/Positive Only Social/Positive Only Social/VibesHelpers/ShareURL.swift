@@ -89,11 +89,13 @@ enum ShareURL {
     /// backend's `Patterns.username`, which registration and the profile
     /// endpoints all enforce — so a profile segment that isn't is not a profile
     /// we have a screen for. A predicate rather than a regex so Unicode letters
-    /// count, as they do server-side; the length is counted in scalars for the
-    /// same reason (the backend counts code points, not grapheme clusters).
+    /// count, as they do server-side; both the length and the characters are
+    /// checked per scalar for the same reason (the backend counts and matches
+    /// code points, so a combining mark that rides along in a letter's
+    /// grapheme is still a non-word character to it).
     private static func isPlausibleUsername(_ value: String) -> Bool {
         AuthRequirements.usernameLengthRange.contains(value.unicodeScalars.count)
-            && value.allSatisfy { $0.isLetter || $0.isNumber || $0 == "_" }
+            && value.unicodeScalars.allSatisfy(AuthRequirements.isWordScalar)
     }
 
     /// The inverse of the builders above: what a Universal Link opened by the
