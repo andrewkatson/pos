@@ -512,6 +512,19 @@ class ReReviewModelChainTests(TestCase):
         self.assertEqual(self.post.classification_models_tried, [API_GEMMA, API_GEMINI])
         self.assertEqual(self.post.classification_model_chain, [API_GEMMA, API_GEMINI])
 
+    @patch(IMAGE, return_value=ClassificationResult(allowed=False, appealable=False, reason_code='gore',
+                                                    consulted=[API_OPENAI], decided_by=API_OPENAI))
+    @patch(TEXT, return_value=ClassificationResult(allowed=False, appealable=True, reason_code='hate_speech',
+                                                   consulted=[API_GEMINI], decided_by=API_GEMINI))
+    def test_a_final_image_rejection_outranks_an_appealable_text_one(self, _text, _image, _avail):
+        """Re-review picks the decisive rejection like the initial pass does:
+        final over appealable, so the image tier ends the chain and its reason
+        code is the one recorded."""
+        review = self._report_post()
+        self.assertEqual(review.status, REVIEW_STATUS_HIDDEN)
+        self.assertEqual(self.post.classification_reason_code, 'gore')
+        self.assertEqual(self.post.classification_model_chain, [API_GEMMA, API_GEMINI, API_OPENAI])
+
     @patch(IMAGE, return_value=_judged([API_GEMINI], API_GEMINI))
     @patch(TEXT, return_value=_judged([API_GEMINI, API_OPENAI], API_OPENAI, allowed=False))
     def test_a_hide_on_re_review_records_the_decider_with_the_hide(self, _text, _image, _avail):
