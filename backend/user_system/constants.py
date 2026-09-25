@@ -264,7 +264,7 @@ class Patterns:
     # pattern and then fail at the database instead of as a validation error.
     # \Z, not $: is_valid_pattern uses re.findall, and $ also matches before a
     # trailing newline, which would let a 151-character name ending in a newline through.
-    username = r"^\w{10,%d}\Z" % MAX_USERNAME_LENGTH
+    username = r"^\w{%d,%d}\Z" % (MIN_USERNAME_LENGTH, MAX_USERNAME_LENGTH)
     # A user-search prefix. Capped at the longest possible username, since a
     # longer fragment cannot match anyone.
     short_alphanumeric = r"^\w{3,%d}\Z" % MAX_USERNAME_LENGTH
