@@ -117,6 +117,16 @@ class RecordRoundTests(SimpleTestCase):
         self.assertEqual(tried, [API_GEMMA, API_GEMINI])
         self.assertEqual(chain, [API_GEMMA, API_GEMINI])
 
+    def test_tried_keeps_first_use_order_when_a_rejection_moves_last(self):
+        """Only the chain is reordered for a rejection; `tried` still lists
+        tiers in the order the round actually consulted them."""
+        tried, chain = record_round([], [], [
+            _result([API_GEMINI], API_GEMINI, allowed=False),
+            _result([API_OPENAI], API_OPENAI),
+        ])
+        self.assertEqual(tried, [API_GEMINI, API_OPENAI])
+        self.assertEqual(chain, [API_OPENAI, API_GEMINI])
+
     def test_a_round_with_no_verdict_records_only_tried(self):
         failed = ClassificationResult(allowed=False, provider_failure=True, consulted=ALL)
         tried, chain = record_round([], [], [failed])

@@ -87,10 +87,10 @@ describe('crawlers', () => {
     )
   })
 
-  it('a 500-character non-ASCII username is still redirected', () => {
+  it('a 150-character non-ASCII username is still redirected', () => {
     // Each character is several encoded bytes, so the length rule must count
     // characters, not %XX units.
-    const encoded = encodeURIComponent('日'.repeat(500))
+    const encoded = encodeURIComponent('日'.repeat(150))
     expect(request(`/profile/${encoded}`, 'Twitterbot/1.0').statusCode).toBe(302)
   })
 })
@@ -128,8 +128,8 @@ describe('everything else passes through untouched', () => {
       '/profile/a%zzb',
       // Shorter or longer than the backend ever registers.
       '/profile/tooshort9',
-      `/profile/${'a'.repeat(501)}`,
-      `/profile/${encodeURIComponent('日'.repeat(501))}`,
+      `/profile/${'a'.repeat(151)}`,
+      `/profile/${encodeURIComponent('日'.repeat(151))}`,
       `/profile/${encodeURIComponent('日'.repeat(9))}`,
       // Encoded bytes that are not valid UTF-8.
       '/profile/%FF%FE%FD%FC%FB%FA%F9%F8%F7%F6',

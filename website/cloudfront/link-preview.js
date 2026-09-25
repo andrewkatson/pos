@@ -66,9 +66,10 @@ var CRAWLERS = new RegExp(
 // comment unfurls as the post it lives on.
 var POST_PATH = /^\/post\/([0-9a-fA-F]{8}(?:-[0-9a-fA-F]{4}){3}-[0-9a-fA-F]{12})\/?$/
 
-// `/profile/<username>`, with or without a trailing slash. Usernames are 10-500
-// word characters (the backend's `Patterns.alphanumeric`; it registers nothing
-// else), and the match is what goes into the redirect URL, so the same shape is
+// `/profile/<username>`, with or without a trailing slash. Usernames are word
+// characters (the backend's `Patterns.alphanumeric`; it registers nothing
+// else), at least 10 long and at most 150 — the username column's max_length,
+// which is tighter than the pattern's 500 — and the match is what goes into the redirect URL, so the same shape is
 // enforced here — anything else is not a profile we could preview and passes
 // through.
 //
@@ -78,12 +79,12 @@ var POST_PATH = /^\/post\/([0-9a-fA-F]{8}(?:-[0-9a-fA-F]{4}){3}-[0-9a-fA-F]{12})
 // characters and forwarded verbatim (still encoded) — the backend decodes and
 // validates the name itself. JavaScript's `\w` alone is ASCII-only and would
 // leave such profiles unfurling as the generic site card. A character can
-// take up to four encoded bytes, so the pattern admits up to 2000 units and
-// the 10-500 character rule is then checked on the decoded name
+// take up to four encoded bytes, so the pattern admits up to 600 units and
+// the 10-150 character rule is then checked on the decoded name
 // (profileNameLength); the backend still validates the name itself.
-var PROFILE_PATH = /^\/profile\/((?:\w|%[0-9A-Fa-f]{2}){10,2000})\/?$/
+var PROFILE_PATH = /^\/profile\/((?:\w|%[0-9A-Fa-f]{2}){10,600})\/?$/
 var MIN_USERNAME_LENGTH = 10
-var MAX_USERNAME_LENGTH = 500
+var MAX_USERNAME_LENGTH = 150
 
 // Length of an encoded username in characters (code points, as the backend
 // counts them), or -1 when the bytes are not valid UTF-8.

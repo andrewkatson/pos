@@ -85,11 +85,13 @@ def record_round(tried, chain, results, reset=False):
     """
     tried = [] if reset else list(tried)
     chain = [] if reset else list(chain)
-    # Stable sort: allowing results first, so a rejecting tier ends the chain.
-    for result in sorted(results, key=lambda r: not r.allowed):
+    for result in results:
         for api in result.consulted:
             if api not in tried:
                 tried.append(api)
+    # Stable sort: allowing results first, so a rejecting tier ends the chain.
+    # (`tried` above keeps the true first-use order.)
+    for result in sorted(results, key=lambda r: not r.allowed):
         if result.decided_by:
             if result.decided_by in chain:
                 chain.remove(result.decided_by)
