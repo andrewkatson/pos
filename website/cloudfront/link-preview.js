@@ -99,6 +99,24 @@ function profileNameLength(encoded) {
   return decoded.replace(/[\uD800-\uDBFF][\uDC00-\uDFFF]/g, '_').length
 }
 
+// ASCII characters that are not word characters, and any whitespace. The
+// encoded bytes can decode to anything, so the backend's `\w` rule is checked
+// on the decoded name: exactly for ASCII (where `\w` is [A-Za-z0-9_]), and for
+// the rest only as far as ES5 regexes can without Unicode property escapes —
+// whitespace is never a word character. Anything subtler is left to the
+// backend, which applies the precise rule.
+var NON_WORD = /[\x00-\x2F\x3A-\x40\x5B-\x5E\x60\x7B-\x7F]|\s/
+
+// Whether an encoded profile segment decodes to a plausible username: 10-150
+// characters (see PROFILE_PATH) with no character NON_WORD rules out.
+function isPlausibleUsername(encoded) {
+  var length = profileNameLength(encoded)
+  if (length < MIN_USERNAME_LENGTH || length > MAX_USERNAME_LENGTH) {
+    return false
+  }
+  return !NON_WORD.test(decodeURIComponent(encoded))
+}
+
 // The backend preview path for a request URI, or null when the URI is not a
 // page we render previews for.
 function previewPath(uri) {
@@ -108,8 +126,7 @@ function previewPath(uri) {
   }
   var profile = PROFILE_PATH.exec(uri)
   if (profile) {
-    var length = profileNameLength(profile[1])
-    if (length < MIN_USERNAME_LENGTH || length > MAX_USERNAME_LENGTH) {
+    if (!isPlausibleUsername(profile[1])) {
       return null
     }
     return '/public/profiles/' + profile[1] + '/preview/'

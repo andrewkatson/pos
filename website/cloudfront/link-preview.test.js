@@ -144,6 +144,12 @@ describe('everything else passes through untouched', () => {
       `/profile/${encodeURIComponent('日'.repeat(9))}`,
       // Encoded bytes that are not valid UTF-8.
       '/profile/%FF%FE%FD%FC%FB%FA%F9%F8%F7%F6',
+      // Encoded characters the backend's `\w` rejects: ASCII punctuation, a
+      // space, and a non-ASCII (ideographic) space.
+      `/profile/${encodeURIComponent('a'.repeat(9) + '-')}`,
+      `/profile/${encodeURIComponent('sunny side up')}`,
+      `/profile/${encodeURIComponent('sunny.side.up')}`,
+      `/profile/${encodeURIComponent('日本日本日本　日本日本')}`,
     ]) {
       expect(request(uri, 'Twitterbot/1.0').uri).toBe(uri)
     }
