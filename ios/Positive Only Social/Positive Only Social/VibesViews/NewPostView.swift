@@ -29,6 +29,10 @@ struct NewPostView: View {
     @State private var isFormattingExpanded = true
     @State private var selectedItem: PhotosPickerItem?
     @State private var selectedImageData: Data?
+    // Decoded once when the data changes rather than on every body pass: the
+    // photo is drawn in two rows, and re-decoding inside layout made each
+    // pass of the Form's row sizing far more expensive (issue #549).
+    @State private var selectedImage: UIImage?
     @State private var caption = ""
     @State private var selectedAudience: PostAudience = .public
     // Turn off commenting from the moment the post is created (issue #492).
@@ -37,6 +41,10 @@ struct NewPostView: View {
     @State private var captionFont = "default"
     @State private var backgroundColor = "default"
     @State private var isLoading = false
+
+    /// Height of the chosen-photo row and side of the preview square. Fixed so
+    /// neither row's height depends on its width (issue #549).
+    private static let photoRowHeight: CGFloat = 240
 
     private let fontOptions = ["default", "serif", "monospace", "rounded", "handwriting"]
     private let backgroundOptions = ["default", "sky", "mint", "blush", "lemon", "lavender"]
@@ -228,6 +236,9 @@ struct NewPostView: View {
                         .loadTransferable(type: Data.self)
                 }
             }
+            .onChange(of: selectedImageData) {
+                selectedImage = selectedImageData.flatMap { UIImage(data: $0) }
+            }
             // Each tab has its own default for the formatting group: open for
             // text, collapsed behind "Advanced options" for image (issue #520).
             .onChange(of: postType) {
@@ -240,15 +251,16 @@ struct NewPostView: View {
     /// that picks or changes it.
     @ViewBuilder
     private var photoControls: some View {
-        if let selectedImageData,
-           let uiImage = UIImage(data: selectedImageData)
-        {
-            Image(uiImage: uiImage)
-                .resizable().scaledToFit().frame(
-                    maxWidth: .infinity,
-                    maxHeight: 240
-                )
+        if let selectedImage {
+            // A fixed row height, not one derived from the row's width: a Form
+            // row whose height depends on its width can send the list's
+            // self-sizing into an endless layout loop that freezes the app when
+            // the row scrolls into view (issue #549).
+            Image(uiImage: selectedImage)
+                .resizable().scaledToFit()
                 .clipShape(RoundedRectangle(cornerRadius: 10))
+                .frame(maxWidth: .infinity)
+                .frame(height: Self.photoRowHeight)
                 // The UI tests drag on this image to scroll the form (it's a
                 // plain row that hands the pan to the Form, unlike the caption
                 // editor or the segmented picker).
@@ -296,28 +308,33 @@ struct NewPostView: View {
 
     /// An image post as the feed lays it out: the photo (or a placeholder that
     /// holds its place until one is picked) with the caption underneath in the
-    /// chosen font (issue #450). The media is the same width-derived 1:1
-    /// square the feed crops every post to (FeedView), for both states, so the
-    /// preview matches the published post and doesn't jump when a photo is
-    /// picked.
+    /// chosen font (issue #450). The media is the same 1:1 square crop the
+    /// feed uses (FeedView), for both states, so the preview matches the
+    /// published post and doesn't jump when a photo is picked.
+    ///
+    /// The square has a fixed side rather than filling the row's width: an
+    /// `aspectRatio` square makes the row's height a function of its width,
+    /// which in a Form can loop the list's self-sizing forever and hang the
+    /// app as soon as this row scrolls into view (issue #549).
     private var imagePostPreview: some View {
         VStack(alignment: .leading, spacing: 8) {
             Color(.secondarySystemFill)
-                .aspectRatio(1, contentMode: .fit)
+                .frame(width: Self.photoRowHeight, height: Self.photoRowHeight)
                 .overlay {
-                    if let selectedImageData,
-                       let uiImage = UIImage(data: selectedImageData)
-                    {
-                        Image(uiImage: uiImage)
+                    if let selectedImage {
+                        Image(uiImage: selectedImage)
                             .resizable()
                             .scaledToFill()
                     } else {
                         Text("Your photo will appear here")
                             .foregroundColor(.secondary)
+                            .multilineTextAlignment(.center)
+                            .padding()
                     }
                 }
                 .clipped()
                 .clipShape(RoundedRectangle(cornerRadius: 10))
+                .frame(maxWidth: .infinity)
             Text(previewCaption)
                 .font(TextFormatting.captionFont(captionFont, size: UIFont.preferredFont(forTextStyle: .body).pointSize))
                 .foregroundColor(caption.isEmpty ? .secondary : .primary)
