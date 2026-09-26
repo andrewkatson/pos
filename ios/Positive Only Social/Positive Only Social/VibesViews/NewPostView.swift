@@ -46,7 +46,7 @@ struct NewPostView: View {
     /// neither row's height depends on its width (issue #549).
     private static let photoRowHeight: CGFloat = 240
 
-    private let fontOptions =["default", "serif", "monospace", "rounded", "handwriting"]
+    private let fontOptions = ["default", "serif", "monospace", "rounded", "handwriting"]
     private let backgroundOptions = ["default", "sky", "mint", "blush", "lemon", "lavender"]
     @State private var showSuccessAlert = false
     @State private var successAlertMessage = "Your post was shared successfully!"
