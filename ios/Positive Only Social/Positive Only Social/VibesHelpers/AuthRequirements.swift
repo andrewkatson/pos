@@ -8,7 +8,7 @@
 //  truth so they can never drift apart.
 //
 //    password     = ^(?=.*[0-9])(?=.*[a-z])(?=.*[A-Z])(?=\S+$).{8,}$
-//    alphanumeric = ^\w{10,500}$   (used for usernames)
+//    username     = ^\w{10,150}$   (150 is the username column's max_length)
 //
 
 import Foundation
@@ -42,11 +42,38 @@ enum AuthRequirements {
         ]
     }
 
+    /// Mirrors MIN_USERNAME_LENGTH / MAX_USERNAME_LENGTH in
+    /// backend/user_system/constants.py. The maximum is the username column's
+    /// max_length, so a longer name would fail at the database.
+    static let usernameLengthRange = 10...150
+
     static func username(_ name: String) -> [Requirement] {
-        [
-            Requirement(label: "Between 10 and 500 characters", didMeetRequirement: name.count >= 10 && name.count <= 500),
-            Requirement(label: "Letters, numbers, and underscores only", didMeetRequirement: matches(name, "^\\w+$")),
+        // Counted in scalars, like Python's len() — not grapheme clusters.
+        let length = name.unicodeScalars.count
+        return [
+            Requirement(
+                label: "Between \(usernameLengthRange.lowerBound) and \(usernameLengthRange.upperBound) characters",
+                didMeetRequirement: usernameLengthRange.contains(length)),
+            Requirement(
+                label: "Letters, numbers, and underscores only",
+                didMeetRequirement: !name.isEmpty && name.unicodeScalars.allSatisfy(isWordScalar)),
         ]
+    }
+
+    /// Whether `scalar` is a word character by Python's `\w` — the backend's
+    /// username rule: letters and numbers (`str.isalnum()`) plus `_`. Checked
+    /// per scalar by general category rather than with Foundation's `\w`, whose
+    /// ICU word set also admits combining marks and connector punctuation that
+    /// the backend rejects (`e` + U+0301 would pass here and fail registration).
+    static func isWordScalar(_ scalar: Unicode.Scalar) -> Bool {
+        if scalar == "_" { return true }
+        switch scalar.properties.generalCategory {
+        case .uppercaseLetter, .lowercaseLetter, .titlecaseLetter, .modifierLetter, .otherLetter,
+             .decimalNumber, .letterNumber, .otherNumber:
+            return true
+        default:
+            return false
+        }
     }
 
     static func allMet(_ requirements: [Requirement]) -> Bool {

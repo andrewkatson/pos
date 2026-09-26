@@ -93,6 +93,17 @@ describe('crawlers', () => {
     const encoded = encodeURIComponent('日'.repeat(150))
     expect(request(`/profile/${encoded}`, 'Twitterbot/1.0').statusCode).toBe(302)
   })
+
+  it('a 150-character username of four-byte characters fits the encoded bound', () => {
+    // The worst case: U+1D400 is four UTF-8 bytes, so 150 of them are exactly
+    // 600 %XX units — the pattern's upper bound.
+    const encoded = encodeURIComponent('\u{1D400}'.repeat(150))
+    expect(encoded.length).toBe(600 * 3)
+    expect(request(`/profile/${encoded}`, 'Twitterbot/1.0').statusCode).toBe(302)
+    // One more is 151 characters: passed through, never forwarded.
+    const tooLong = `/profile/${encoded}${encodeURIComponent('\u{1D400}')}`
+    expect(request(tooLong, 'Twitterbot/1.0').uri).toBe(tooLong)
+  })
 })
 
 describe('everything else passes through untouched', () => {

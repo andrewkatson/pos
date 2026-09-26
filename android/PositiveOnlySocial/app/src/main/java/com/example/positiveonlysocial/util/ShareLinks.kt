@@ -5,6 +5,7 @@ import android.content.Context
 import android.content.Intent
 import android.util.Log
 import android.widget.Toast
+import com.example.positiveonlysocial.ui.auth.AuthRequirements
 import java.net.URI
 
 /**
@@ -82,11 +83,9 @@ object ShareLinks {
     private const val COMMENT_FRAGMENT_PREFIX = "comment-"
 
     /**
-     * Usernames are word characters (letters, digits, underscore) — the
-     * backend's `Patterns.alphanumeric`, which registration and the profile
-     * endpoints all enforce — at least 10 long and at most 150, the username
-     * column's max_length (tighter than the pattern's 500, so no longer name
-     * can exist) — so a profile segment that isn't is not a profile
+     * Usernames are 10–150 word characters (letters, digits, underscore) — the
+     * backend's `Patterns.username`, which registration and the profile
+     * endpoints all enforce — so a profile segment that isn't is not a profile
      * we have a screen for. A predicate rather than a regex because Java's `\w`
      * is ASCII-only while the backend's admits Unicode letters; the length is
      * counted in code points for the same reason (the backend counts
@@ -97,15 +96,8 @@ object ShareLinks {
      * `①`), so those count alongside letters and decimal digits.
      */
     private fun isPlausibleUsername(value: String): Boolean =
-        value.codePointCount(0, value.length) in 10..150 &&
-            value.codePoints().allMatch { isWordCodePoint(it) }
-
-    private fun isWordCodePoint(codePoint: Int): Boolean =
-        codePoint == '_'.code ||
-            Character.isLetterOrDigit(codePoint) ||
-            Character.getType(codePoint).let {
-                it == Character.LETTER_NUMBER.toInt() || it == Character.OTHER_NUMBER.toInt()
-            }
+        value.codePointCount(0, value.length) in AuthRequirements.USERNAME_LENGTH_RANGE &&
+            value.codePoints().allMatch { AuthRequirements.isWordCodePoint(it) }
 
     /**
      * The inverse of the builders above: what an App Link Android launched us

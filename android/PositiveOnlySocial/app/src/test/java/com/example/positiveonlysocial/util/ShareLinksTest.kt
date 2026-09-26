@@ -111,8 +111,7 @@ class ShareLinksTest {
     @Test
     fun parseRejectsProfileLinksThatCouldNotBeAUsername() {
         // The segment becomes a navigation argument, so only a well-formed
-        // username (10-150 word characters: the backend's pattern, capped by
-        // the username column's max_length) is ever routed.
+        // username (10-150 word characters, the backend's rule) is ever routed.
         for (url in listOf(
             "https://smiling.social/profile/",
             "https://smiling.social/profile/some%20one",

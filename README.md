@@ -366,8 +366,7 @@ profile that is not public gets the generic site card with a 404, so a crawler
 cannot tell it from an unregistered name. The function forwards only a
 well-formed username — word characters or percent-encoded bytes, since the URI
 it sees is still encoded and usernames may contain Unicode letters, that decode
-to 10–150 characters (the username column's `max_length`, tighter than the
-pattern's 500) — because the match goes straight into the redirect URL.
+to 10–150 characters — because the match goes straight into the redirect URL.
 
 Two pieces of CloudFront configuration make this work and are not managed by
 `website/deploy-web.sh` (which warns about the first): custom error responses
@@ -400,8 +399,7 @@ that user's profile screen in the app — the same screen a search result opens;
 your own username lands on the Profile tab itself — and, like a post link, waits
 for login when opened signed out. A `/profile/` segment that could not be a
 username (anything but 10–150 letters, digits and underscores — the backend's
-`Patterns.alphanumeric`, capped at the username column's 150-character
-`max_length`) is rejected by both parsers rather than routed.
+`Patterns.username`) is rejected by both parsers rather than routed.
 
 Each client parses the URL itself rather than letting the navigation framework
 resolve it (`ShareURL.parse` on iOS, `ShareLinks.parseSharedLink` on Android),
@@ -973,6 +971,16 @@ policy as registration and must differ from the current one. On success every
 *other* session and all remember-me cookies are invalidated (a password change
 should evict other devices), while the caller's current session is preserved so
 they stay logged in on the device they just used.
+
+**Usernames** are 10–150 word characters (Unicode letters, digits and
+underscores; length counted in code points) — `Patterns.username`, mirrored by
+the registration hints on every client. The 150 ceiling is the username
+column's `max_length`, so a longer name is refused as an ordinary validation
+error (`Invalid fields ['USERNAME']`, 400) rather than failing at the database.
+A username is fixed once chosen: it is set at registration (or generated on a
+first Google sign-in, see below) and there is no rename endpoint. Session and
+remember-me tokens are validated by the separate `Patterns.alphanumeric`, which
+is not a username rule.
 
 ## Account & data deletion
 

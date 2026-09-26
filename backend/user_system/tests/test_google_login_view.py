@@ -111,7 +111,7 @@ class GoogleLoginTests(PositiveOnlySocialTestCase):
         body = self._sign_in(claims(email='amy@example.com')).json()
         username = body[Fields.username]
         self.assertTrue(username.startswith('amy'))
-        self.assertTrue(is_valid_pattern(username, Patterns.alphanumeric))
+        self.assertTrue(is_valid_pattern(username, Patterns.username))
 
     def test_taken_username_gets_a_suffix_instead_of_failing(self):
         taken = 'hopefulperson'
