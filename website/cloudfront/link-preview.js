@@ -99,13 +99,20 @@ function profileNameLength(encoded) {
   return decoded.replace(/[\uD800-\uDBFF][\uDC00-\uDFFF]/g, '_').length
 }
 
-// ASCII characters that are not word characters, and any whitespace. The
-// encoded bytes can decode to anything, so the backend's `\w` rule is checked
-// on the decoded name: exactly for ASCII (where `\w` is [A-Za-z0-9_]), and for
-// the rest only as far as ES5 regexes can without Unicode property escapes —
-// whitespace is never a word character. Anything subtler is left to the
-// backend, which applies the precise rule.
-var NON_WORD = /[\x00-\x2F\x3A-\x40\x5B-\x5E\x60\x7B-\x7F]|\s/
+// Characters that are never word characters. The encoded bytes can decode to
+// anything, so the backend's `\w` rule is checked on the decoded name: exactly
+// for ASCII (where `\w` is [A-Za-z0-9_]), and for the rest only as far as ES5
+// regexes can without Unicode property escapes — any whitespace, the dedicated
+// combining-mark blocks (Python's `\w` rejects marks, so `e` + U+0301 is not a
+// username), and every connector punctuation character except `_`. Marks
+// interleaved with a script's letters (Indic vowel signs and the like) are
+// left to the backend, which applies the precise rule.
+var NON_WORD = new RegExp(
+  '[\\x00-\\x2F\\x3A-\\x40\\x5B-\\x5E\\x60\\x7B-\\x7F]' + // ASCII non-word
+    '|\\s' +
+    '|[\\u0300-\\u036F\\u0483-\\u0489\\u1AB0-\\u1AFF\\u1DC0-\\u1DFF\\u20D0-\\u20FF\\uFE20-\\uFE2F]' + // combining marks
+    '|[\\u203F\\u2040\\u2054\\uFE33\\uFE34\\uFE4D-\\uFE4F\\uFF3F]', // connector punctuation
+)
 
 // Whether an encoded profile segment decodes to a plausible username: 10-150
 // characters (see PROFILE_PATH), none of which matches NON_WORD.

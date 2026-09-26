@@ -152,6 +152,10 @@ describe('everything else passes through untouched', () => {
       '/profile/sunny%2Eside%2Eup',
       '/profile/sunny%20side%20up',
       `/profile/${encodeURIComponent('日本日本日本　日本日本')}`,
+      // Combining marks and non-underscore connector punctuation, which
+      // Python's `\w` rejects (U+0301 COMBINING ACUTE, U+203F UNDERTIE).
+      `/profile/${encodeURIComponent('é'.repeat(10))}`,
+      `/profile/${encodeURIComponent('sunny‿side_up')}`,
     ]) {
       expect(request(uri, 'Twitterbot/1.0').uri).toBe(uri)
     }

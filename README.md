@@ -366,8 +366,10 @@ profile that is not public gets the generic site card with a 404, so a crawler
 cannot tell it from an unregistered name. The function forwards only a
 well-formed username — word characters or percent-encoded bytes, since the URI
 it sees is still encoded and usernames may contain Unicode letters, that decode
-to 10–150 characters with no ASCII punctuation or whitespace (the backend
-applies the precise `\w` rule to anything else) — because the match goes
+to 10–150 characters with no ASCII punctuation, whitespace, characters from the
+dedicated combining-mark blocks (such as U+0301) or non-underscore connector
+punctuation (the backend applies the precise `\w` rule to anything else, such
+as marks interleaved with a script's letters) — because the match goes
 straight into the redirect URL.
 
 Two pieces of CloudFront configuration make this work and are not managed by
