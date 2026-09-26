@@ -59,6 +59,51 @@ describe('crawlers', () => {
   it('matches the user agent case-insensitively', () => {
     expect(request(`/post/${POST_ID}`, 'SLACKBOT 1.0').statusCode).toBe(302)
   })
+
+  // A shared profile link unfurls too (issue #510).
+  it('a profile path is redirected to the profile preview endpoint', () => {
+    const response = request('/profile/sunny_side_up', 'Twitterbot/1.0')
+
+    expect(response.statusCode).toBe(302)
+    expect(response.headers.location.value).toBe(
+      'https://api.smiling.social/user_index/public/profiles/sunny_side_up/preview/',
+    )
+    expect(response.headers['cache-control'].value).toBe('no-store')
+  })
+
+  it('a profile path accepts a trailing slash', () => {
+    expect(request('/profile/sunny_side_up/', 'Twitterbot/1.0').statusCode).toBe(302)
+  })
+
+  it('a percent-encoded (non-ASCII) username is forwarded verbatim', () => {
+    // The backend admits Unicode letters, which reach the function as encoded
+    // bytes; they must unfurl too, and the redirect keeps them encoded.
+    const encoded = encodeURIComponent('sonné_über_日本')
+    const response = request(`/profile/${encoded}`, 'Twitterbot/1.0')
+
+    expect(response.statusCode).toBe(302)
+    expect(response.headers.location.value).toBe(
+      `https://api.smiling.social/user_index/public/profiles/${encoded}/preview/`,
+    )
+  })
+
+  it('a 150-character non-ASCII username is still redirected', () => {
+    // Each character is several encoded bytes, so the length rule must count
+    // characters, not %XX units.
+    const encoded = encodeURIComponent('日'.repeat(150))
+    expect(request(`/profile/${encoded}`, 'Twitterbot/1.0').statusCode).toBe(302)
+  })
+
+  it('a 150-character username of four-byte characters fits the encoded bound', () => {
+    // The worst case: U+1D400 is four UTF-8 bytes, so 150 of them are exactly
+    // 600 %XX units — the pattern's upper bound.
+    const encoded = encodeURIComponent('\u{1D400}'.repeat(150))
+    expect(encoded.length).toBe(600 * 3)
+    expect(request(`/profile/${encoded}`, 'Twitterbot/1.0').statusCode).toBe(302)
+    // One more is 151 characters: passed through, never forwarded.
+    const tooLong = `/profile/${encoded}${encodeURIComponent('\u{1D400}')}`
+    expect(request(tooLong, 'Twitterbot/1.0').uri).toBe(tooLong)
+  })
 })
 
 describe('everything else passes through untouched', () => {
@@ -69,8 +114,45 @@ describe('everything else passes through untouched', () => {
     expect(result.statusCode).toBeUndefined()
   })
 
-  it('a crawler on a non-post path gets the SPA', () => {
-    for (const uri of ['/', '/home', '/profile/someone', '/tags/sunset']) {
+  it('a crawler on a path with no preview gets the SPA', () => {
+    for (const uri of ['/', '/home', '/tags/sunset', '/followers', '/profile']) {
+      expect(request(uri, 'Twitterbot/1.0').uri).toBe(uri)
+    }
+  })
+
+  it('a real browser on a profile path gets the SPA', () => {
+    expect(request('/profile/someone', CHROME).uri).toBe('/profile/someone')
+  })
+
+  it('a profile path whose name is not a username is not redirected', () => {
+    // The name goes straight into the preview URL, so only a well-formed one is
+    // ever forwarded.
+    for (const uri of [
+      '/profile/',
+      '/profile/some one',
+      '/profile/a/b',
+      '/profile/../../etc',
+      '/profile/x?y',
+      '/profile/a-b',
+      // A stray or malformed percent sign is not an encoded byte.
+      '/profile/100%',
+      '/profile/a%zzb',
+      // Shorter or longer than the backend ever registers.
+      '/profile/tooshort9',
+      `/profile/${'a'.repeat(151)}`,
+      `/profile/${encodeURIComponent('日'.repeat(151))}`,
+      `/profile/${encodeURIComponent('日'.repeat(9))}`,
+      // Encoded bytes that are not valid UTF-8.
+      '/profile/%FF%FE%FD%FC%FB%FA%F9%F8%F7%F6',
+      // Percent-encoded characters the backend's `\w` rejects, written out
+      // literally (encodeURIComponent leaves `-` and `.` unescaped, and the
+      // raw forms never get past PROFILE_PATH): ASCII punctuation, a space,
+      // and a non-ASCII (ideographic) space.
+      `/profile/${'a'.repeat(9)}%2D`,
+      '/profile/sunny%2Eside%2Eup',
+      '/profile/sunny%20side%20up',
+      `/profile/${encodeURIComponent('日本日本日本　日本日本')}`,
+    ]) {
       expect(request(uri, 'Twitterbot/1.0').uri).toBe(uri)
     }
   })

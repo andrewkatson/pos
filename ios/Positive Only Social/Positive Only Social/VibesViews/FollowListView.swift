@@ -1,6 +1,6 @@
 //
 //  FollowListView.swift
-//  Positive Only Social
+//  Vibes
 //
 //  Shows the signed-in user's own followers or following list, each row a
 //  tap-through to that user's profile. Only your own lists are shown (issue #8);

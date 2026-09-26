@@ -55,6 +55,13 @@ struct AnimatedGradientBackground: View {
         )
         .ignoresSafeArea()
         .onAppear {
+            // Hold the gradient still under UI tests: this view is the root of
+            // the navigation stack, so a repeatForever animation keeps running
+            // under every pushed screen and XCUITest never sees the app idle
+            // (snapshot and accessibility timeouts). Checked inline (same arg
+            // as isUITesting()) to avoid referencing that free function across
+            // the test-target membership boundary.
+            if CommandLine.arguments.contains("--ui_testing") { return }
             withAnimation(.easeInOut(duration: 6.0).repeatForever(autoreverses: true)) {
                 animateGradient.toggle()
             }

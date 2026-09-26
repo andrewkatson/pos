@@ -1,6 +1,8 @@
+// xcode: set sdk=iOS
+
 //
 //  BlockedUsersView.swift
-//  Positive Only Social
+//  Vibes
 //
 //  Lists everyone the signed-in user has blocked, each with an Unblock
 //  button. Reached from Settings.

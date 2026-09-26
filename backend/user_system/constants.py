@@ -236,7 +236,7 @@ GOOGLE_EMAIL_UNVERIFIED = "google_email_unverified"
 GOOGLE_EMAIL_AMBIGUOUS = "google_email_ambiguous"
 
 # A Google account carries no username, so the first sign-in generates one from
-# the email local part. Generated names must still satisfy Patterns.alphanumeric
+# the email local part. Generated names must still satisfy Patterns.username
 # (at least 10 word characters), so a short local part is padded and a taken name
 # gets a numeric suffix. GENERATED_USERNAME_FALLBACK_PREFIX is used when the
 # local part yields nothing usable — or when the text classifier rejects what it
@@ -245,14 +245,29 @@ GENERATED_USERNAME_FALLBACK_PREFIX = "friend"
 MIN_GENERATED_USERNAME_LENGTH = 10
 MAX_GENERATED_USERNAME_ATTEMPTS = 20
 
+# The username column's max_length (Django's AbstractUser). Patterns.username
+# must not allow more, or registration fails at the database.
+MIN_USERNAME_LENGTH = 10
+MAX_USERNAME_LENGTH = 150
+
 # Regex Patterns to check against
 class Patterns:
     password = r"^(?=.*[0-9])(?=.*[a-z])(?=.*[A-Z])(?=\S+$).{8,}$"
     login_password = r"^(?=\S+$).{8,}$"
     double = r"^\d{1,100}[.,]{0,1}\d{0,100}$"
     paragraph_of_chars = r"^[\w \n]{5,3000}$"
+    # Opaque tokens (session management, login cookie). Not for usernames — see
+    # `username` below, which is capped at the database column's length.
     alphanumeric = r"^\w{10,500}$"
-    short_alphanumeric = r"^\w{3,500}$"
+    # Usernames: 10-150 word characters. The upper bound is the username
+    # column's max_length (AbstractUser, 150); a longer name would pass a looser
+    # pattern and then fail at the database instead of as a validation error.
+    # \Z, not $: is_valid_pattern uses re.findall, and $ also matches before a
+    # trailing newline, which would let a 151-character name ending in a newline through.
+    username = r"^\w{%d,%d}\Z" % (MIN_USERNAME_LENGTH, MAX_USERNAME_LENGTH)
+    # A user-search prefix. Capped at the longest possible username, since a
+    # longer fragment cannot match anyone.
+    short_alphanumeric = r"^\w{3,%d}\Z" % MAX_USERNAME_LENGTH
     single_letter = r"^[a-zA-Z]{1}$"
     name = r"^[a-zA-Z]{3,100}$"
     digits_only = r"^\d{1,100}$"
@@ -324,6 +339,7 @@ class Params:
     notification_type = "TYPE"
     enabled = "ENABLED"
     id_token = "ID_TOKEN"
+    comments_disabled = "COMMENTS_DISABLED"
 
 class Fields:
     is_adult = 'is_adult'
@@ -373,6 +389,10 @@ class Fields:
     follow_category = "follow_category"
     category = "category"
     audience = "audience"
+    # Whether the post's author has turned off commenting (issue #492) — set at
+    # creation or toggled afterward via lock_comments/unlock_comments. Existing
+    # comments stay visible; only new top-level comments and replies are blocked.
+    comments_disabled = "comments_disabled"
     is_liked = "is_liked"
     is_saved = "is_saved"
     is_reported = "is_reported"

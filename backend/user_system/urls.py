@@ -79,6 +79,14 @@ urlpatterns = [
     # POST /posts/<uuid:post_identifier>/delete/ (Token in header)
     path('posts/<uuid:post_identifier>/delete/', views.delete_post, name='delete_post'),
 
+    # POST /posts/<uuid:post_identifier>/comments/lock/ (Token in header)
+    # — owner only, stops new comments/replies (issue #492)
+    path('posts/<uuid:post_identifier>/comments/lock/', views.lock_comments, name='lock_comments'),
+
+    # POST /posts/<uuid:post_identifier>/comments/unlock/ (Token in header)
+    # — owner only, re-allows new comments/replies (issue #492)
+    path('posts/<uuid:post_identifier>/comments/unlock/', views.unlock_comments, name='unlock_comments'),
+
     # POST /posts/<uuid:post_identifier>/report/ (Token in header)
     path('posts/<uuid:post_identifier>/report/', views.report_post, name='report_post'),
 
@@ -197,6 +205,24 @@ urlpatterns = [
     # link-preview crawlers, which CloudFront routes here by user-agent.
     path('public/posts/<uuid:post_identifier>/preview/', views.get_post_link_preview,
          name='get_post_link_preview'),
+
+    # A shared https://smiling.social/profile/<username> link (issue #510): the
+    # profile header, the user's public post grid, and the crawler preview. An
+    # account that is shadow banned or a verified minor 404s like an
+    # unregistered name; see the "Shared profiles" notes in views.py.
+
+    # GET /public/profiles/<str:username>/details/
+    path('public/profiles/<str:username>/details/', views.get_public_profile_details,
+         name='get_public_profile_details'),
+
+    # GET /public/profiles/<str:username>/posts/<int:batch>/
+    path('public/profiles/<str:username>/posts/<int:batch>/', views.get_public_posts_for_user,
+         name='get_public_posts_for_user'),
+
+    # GET /public/profiles/<str:username>/preview/ — Open Graph HTML for
+    # link-preview crawlers, which CloudFront routes here by user-agent.
+    path('public/profiles/<str:username>/preview/', views.get_profile_link_preview,
+         name='get_profile_link_preview'),
 
     # =========================================================================
     # USER & PROFILE

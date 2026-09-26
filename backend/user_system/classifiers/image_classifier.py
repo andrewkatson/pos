@@ -5,7 +5,9 @@ from botocore.config import Config
 from PIL import Image
 from io import BytesIO
 from urllib.parse import urlparse
-from .classifier_constants import POSITIVE_IMAGE_FILENAME, IMAGE_CLASSIFIER_PROMPT
+from .classifier_constants import (
+    POSITIVE_IMAGE_FILENAME, IMAGE_CLASSIFIER_PROMPT, classifier_prompt,
+)
 from .classifier_utils import (
     get_available_apis, classify_with_thresholds, ClassificationResult,
     IMAGE_API_DISPATCH,
@@ -108,7 +110,12 @@ def load_image_from_url(image_url):
     return image
 
 
-def is_image_positive(image_url):
+def is_image_positive(image_url, available_apis=None):
+    """Returns a ClassificationResult (truthy when the image is allowed).
+
+    `available_apis` overrides the cascade order for this call, exactly as for
+    is_text_positive (issue #511); the default is the standard order.
+    """
     _p = urlparse(image_url)
     logger.debug("is_image_positive called with URL: %s", _p._replace(query='', fragment='').geturl())
 
@@ -119,7 +126,7 @@ def is_image_positive(image_url):
         return ClassificationResult(allowed=allowed)
 
     logger.debug("Checking available AI APIs for image classification")
-    available_apis = get_available_apis()
+    available_apis = get_available_apis() if available_apis is None else list(available_apis)
     logger.info("Available APIs for image classification: %s", available_apis)
 
     if not available_apis:
@@ -148,14 +155,14 @@ def is_image_positive(image_url):
                         prefilter_result.public_reason_code())
             return prefilter_result
 
-        def call_api(api_name):
+        def call_api(api_name, stage):
             try:
                 api_func = IMAGE_API_DISPATCH.get(api_name)
                 if not api_func:
                     logger.error("Unsupported API name: %s", api_name)
                     return None
-                logger.debug("Calling %s API for image classification", api_name)
-                score = api_func(image, IMAGE_CLASSIFIER_PROMPT)
+                logger.debug("Calling %s API for image classification (stage %d)", api_name, stage)
+                score = api_func(image, classifier_prompt(IMAGE_CLASSIFIER_PROMPT, stage))
                 logger.debug("%s API returned: %s", api_name, score)
                 return score
             except Exception:

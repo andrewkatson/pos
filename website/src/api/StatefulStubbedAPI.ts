@@ -49,6 +49,7 @@ import type {
   NotificationPreference,
   PostStatusResponse,
   ProfileDetails,
+  PublicProfileDetails,
   ProfileImageStatus,
   RegisterDeviceRequest,
   RegisterRequest,
@@ -58,6 +59,7 @@ import type {
   RequestResetRequest,
   ResendVerificationEmailRequest,
   ResetPasswordRequest,
+  SetCommentsDisabledResponse,
   SetProfilePhotoRequest,
   SetProfilePhotoResponse,
   SetBioRequest,
@@ -200,6 +202,9 @@ interface PostMock {
   hiddenReason: string
   /** Who may see the post (issue #392). */
   audience: PostAudience
+  /** Whether the author has turned off commenting on this post (issue #492),
+   * either at creation or afterward via lockComments/unlockComments. */
+  commentsDisabled: boolean
   /** Public reason code recorded by the (stubbed) async classifier (#282). */
   reasonCode: string | null
   likes: Set<string>
@@ -899,6 +904,7 @@ export class StatefulStubbedAPI implements PositiveOnlySocialAPI {
       hidden: true,
       hiddenReason: 'pending_classification',
       audience: body.audience ?? 'public',
+      commentsDisabled: body.comments_disabled ?? false,
       reasonCode: null,
       likes: new Set(),
       reports: new Map(),
@@ -914,6 +920,7 @@ export class StatefulStubbedAPI implements PositiveOnlySocialAPI {
       hidden: true,
       hidden_reason: 'pending_classification',
       appealable: false,
+      comments_disabled: post.commentsDisabled,
       message: 'Your post is being reviewed and will be visible to others once it is approved.',
     }
   }
@@ -1025,6 +1032,26 @@ export class StatefulStubbedAPI implements PositiveOnlySocialAPI {
     return { message: 'Post deleted' }
   }
 
+  async lockComments(postIdentifier: string): Promise<SetCommentsDisabledResponse> {
+    const user = this.requireUser()
+    const post = this.findPost(postIdentifier)
+    if (post.authorId !== user.id) {
+      throw new ApiError(400, 'No post with that identifier by that user')
+    }
+    post.commentsDisabled = true
+    return { comments_disabled: true }
+  }
+
+  async unlockComments(postIdentifier: string): Promise<SetCommentsDisabledResponse> {
+    const user = this.requireUser()
+    const post = this.findPost(postIdentifier)
+    if (post.authorId !== user.id) {
+      throw new ApiError(400, 'No post with that identifier by that user')
+    }
+    post.commentsDisabled = false
+    return { comments_disabled: false }
+  }
+
   async reportPost(postIdentifier: string, reason: string): Promise<MessageResponse> {
     const user = this.requireUser()
     const post = this.findPost(postIdentifier)
@@ -1124,6 +1151,7 @@ export class StatefulStubbedAPI implements PositiveOnlySocialAPI {
       author_username: author ? author.username : '',
       caption: post.caption,
       audience: post.audience,
+      comments_disabled: post.commentsDisabled,
       tags: post.tags,
       is_saved: viewer.savedPostIds.includes(post.postIdentifier),
       ...this.authorAvatarFields(post.authorId),
@@ -1283,6 +1311,7 @@ export class StatefulStubbedAPI implements PositiveOnlySocialAPI {
       report_reason: post.reports.get(user.id) ?? null,
       author_username: author ? author.username : '',
       audience: post.audience,
+      comments_disabled: post.commentsDisabled,
       tags: post.tags,
       ...this.authorAvatarFields(post.authorId),
       ...this.authorStatusFields(post, user.id),
@@ -1359,6 +1388,7 @@ export class StatefulStubbedAPI implements PositiveOnlySocialAPI {
       post_likes: post.likes.size,
       author_username: author ? author.username : '',
       audience: post.audience,
+      comments_disabled: post.commentsDisabled,
       tags: post.tags,
       ...this.authorAvatarFields(post.authorId),
     }
@@ -1375,6 +1405,67 @@ export class StatefulStubbedAPI implements PositiveOnlySocialAPI {
     return this.batch(threads, batch, COMMENT_BATCH_SIZE).map((t) => ({
       comment_thread_identifier: t.threadIdentifier,
     }))
+  }
+
+  /** The account behind a shared profile link, or a 404 when it is missing or
+   * not public (issue #510). Mirrors the backend's `searchable_users` for the
+   * anonymous viewer: a verified minor's account is not public. The stub has no
+   * ban model, so a shadow-banned account survives here where the backend hides
+   * it — the same caveat as `isPubliclyVisible`. */
+  private requirePublicUser(username: string): UserMock {
+    const target = this.findUserByName(username)
+    if (!target || this.isVerifiedMinor(target.id)) {
+      throw new ApiError(404, 'User not found')
+    }
+    return target
+  }
+
+  async getPublicProfile(username: string): Promise<PublicProfileDetails> {
+    const target = this.requirePublicUser(username)
+    // Only the posts a signed-out visitor could open count, so the stat can
+    // never disagree with the grid below it.
+    const postCount = this.posts.filter(
+      (p) => p.authorId === target.id && this.isPubliclyVisible(p),
+    ).length
+    // No is_following / follow_category / is_blocked (no viewer to have them)
+    // and none of the owner-only photo-review fields.
+    return {
+      username: target.username,
+      post_count: postCount,
+      follower_count: target.followers.size,
+      following_count: target.following.size,
+      identity_is_verified: target.isVerified,
+      profile_image_url: target.profileImageUrl,
+      profile_image_original_url: target.profileImageUrl,
+      membership_number: target.membershipNumber,
+      bio: target.bio,
+    }
+  }
+
+  async getPublicPostsForUser(username: string, batch: number): Promise<FeedPost[]> {
+    const target = this.requirePublicUser(username)
+    const visible = this.posts
+      .filter((p) => p.authorId === target.id && this.isPubliclyVisible(p))
+      .sort((a, b) => b.creationTime - a.creationTime)
+    // Serialized like getPublicPostDetails: nothing per-viewer and no author-only
+    // status, since there is no viewer.
+    return this.batch(visible, batch, POST_BATCH_SIZE).map((post) => {
+      const author = this.users.find((u) => u.id === post.authorId)
+      return {
+        post_identifier: post.postIdentifier,
+        image_url: post.imageUrl,
+        original_image_url: post.imageUrl,
+        author_username: author ? author.username : '',
+        caption: post.caption,
+        audience: post.audience,
+        tags: post.tags,
+        caption_font: post.captionFont,
+        background_color: post.backgroundColor,
+        post_likes: post.likes.size,
+        creation_time: new Date(post.creationTime).toISOString(),
+        ...this.authorAvatarFields(post.authorId),
+      }
+    })
   }
 
   async getPublicCommentsForThread(
@@ -1450,7 +1541,10 @@ export class StatefulStubbedAPI implements PositiveOnlySocialAPI {
     audience?: PostAudience,
   ): Promise<CommentOnPostResponse> {
     const user = this.requireUser()
-    this.findPost(postIdentifier)
+    const post = this.findPost(postIdentifier)
+    if (post.commentsDisabled) {
+      throw new ApiError(403, 'Comments are disabled for this post')
+    }
     const thread: CommentThreadMock = {
       threadIdentifier: newId(),
       postId: postIdentifier,
@@ -1489,6 +1583,10 @@ export class StatefulStubbedAPI implements PositiveOnlySocialAPI {
     )
     if (!thread) {
       throw new ApiError(400, 'Comment thread not found for the given post')
+    }
+    const post = this.findPost(thread.postId)
+    if (post.commentsDisabled) {
+      throw new ApiError(403, 'Comments are disabled for this post')
     }
     const comment: CommentMock = {
       commentIdentifier: newId(),

@@ -334,6 +334,14 @@ class MockPositiveOnlySocialAPI : PositiveOnlySocialAPI {
         )
     }
 
+    override suspend fun lockComments(token: String, postId: String): Response<SetCommentsDisabledResponse> {
+        return Response.success(SetCommentsDisabledResponse(commentsDisabled = true))
+    }
+
+    override suspend fun unlockComments(token: String, postId: String): Response<SetCommentsDisabledResponse> {
+        return Response.success(SetCommentsDisabledResponse(commentsDisabled = false))
+    }
+
     override suspend fun reportPost(
         token: String,
         postId: String,

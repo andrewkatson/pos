@@ -171,6 +171,21 @@ interface PositiveOnlySocialAPI {
         @Path("post_id") postId: String
     ): Response<GenericResponse>
 
+    // Owner-only: stops new comments/replies on a post (issue #492). Existing
+    // comments stay visible.
+    @POST("posts/{post_id}/comments/lock/")
+    suspend fun lockComments(
+        @Header("Authorization") token: String,
+        @Path("post_id") postId: String
+    ): Response<SetCommentsDisabledResponse>
+
+    // Owner-only: re-allows new comments on a post previously locked (issue #492).
+    @POST("posts/{post_id}/comments/unlock/")
+    suspend fun unlockComments(
+        @Header("Authorization") token: String,
+        @Path("post_id") postId: String
+    ): Response<SetCommentsDisabledResponse>
+
     @POST("posts/{post_id}/report/")
     suspend fun reportPost(
         @Header("Authorization") token: String,

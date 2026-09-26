@@ -15,6 +15,7 @@ import PostThumbnail from '../components/PostThumbnail'
 import CharacterCounter from '../components/CharacterCounter'
 import { CaptionText } from '../components/CaptionText'
 import Avatar from '../components/Avatar'
+import AudienceBadge from '../components/AudienceBadge'
 import AnchoredMenu, { AnchoredMenuItem } from '../components/AnchoredMenu'
 import { anchorFrom, type MenuAnchor } from '../components/menuAnchor'
 import FormattedText from '../components/FormattedText'
@@ -88,14 +89,6 @@ const COMMENT_GROUP_OPTIONS: { value: CommentGroup; label: string }[] = [
   { value: 'friend', label: 'Friends' },
   { value: 'family', label: 'Family' },
 ]
-
-// Short badge shown on a comment whose audience is narrower than public, so the
-// scope is visible at a glance (issue #445). Public comments show no badge.
-const COMMENT_AUDIENCE_BADGE: Partial<Record<PostAudience, string>> = {
-  following: 'Following',
-  friends: 'Friends',
-  family: 'Family',
-}
 
 // How many extra pages of comment threads a shared `#comment-<id>` link may
 // pull in while looking for its target (issue #381). The backend pages threads
@@ -557,6 +550,24 @@ function PostDetailView({ postId, isSignedIn }: { postId: string; isSignedIn: bo
     setDeleteTarget(target)
   }
 
+  // Lock/unlock commenting on the post (issue #492). Unlike Delete this is
+  // reversible, so it takes effect immediately from the menu rather than
+  // going through a confirm dialog, mirroring togglePostLike's optimistic
+  // update + revert-on-failure shape.
+  async function menuToggleCommentsLock() {
+    setMenuTarget(null)
+    if (!post) return
+    const locking = !post.comments_disabled
+    setPost({ ...post, comments_disabled: locking })
+    try {
+      if (locking) await apiClient.lockComments(postId)
+      else await apiClient.unlockComments(postId)
+    } catch (err) {
+      setPost(prev => (prev ? { ...prev, comments_disabled: !locking } : prev))
+      setErrorMessage((err as Error).message ?? 'Action failed.')
+    }
+  }
+
   // Share a post, or a specific comment (a #comment-<id> deep link into this
   // page). Offered on every item, yours and everyone else's (issue #34).
   async function menuShare(target: MenuTarget) {
@@ -743,6 +754,8 @@ function PostDetailView({ postId, isSignedIn }: { postId: string; isSignedIn: bo
           ) : (
             <span className="detail-likes">{postLikeCount} likes</span>
           )}
+          {/* Who can see this post, shown to its author only (issue #518). */}
+          {isOwnPost && <AudienceBadge audience={post.audience} />}
           {postReported && (
             <span className="flag-icon" aria-label="Reported">
               ⚑
@@ -794,13 +807,19 @@ function PostDetailView({ postId, isSignedIn }: { postId: string; isSignedIn: bo
 
         {isSignedIn ? (
           <div className="comment-form">
-            <button
-              type="button"
-              className="comment-compose-trigger"
-              onClick={() => openComposer({ type: 'post' })}
-            >
-              Add a comment...
-            </button>
+            {/* Comments locked/disabled (issue #492): no compose entry point,
+                just a plain notice so it reads as intentional, not broken. */}
+            {post.comments_disabled ? (
+              <p className="muted">Comments are turned off for this post.</p>
+            ) : (
+              <button
+                type="button"
+                className="comment-compose-trigger"
+                onClick={() => openComposer({ type: 'post' })}
+              >
+                Add a comment...
+              </button>
+            )}
           </div>
         ) : (
           /* A shared link opened by someone with no account (issue #381): the
@@ -889,7 +908,7 @@ function PostDetailView({ postId, isSignedIn }: { postId: string; isSignedIn: bo
                     }
                   />
                 )}
-                {isSignedIn && (
+                {isSignedIn && !post.comments_disabled && (
                   <button
                     type="button"
                     className="comment-reply-btn"
@@ -1067,6 +1086,13 @@ function PostDetailView({ postId, isSignedIn }: { postId: string; isSignedIn: bo
         >
           {/* Share is offered on every item, yours and everyone else's. */}
           <AnchoredMenuItem onClick={() => void menuShare(menuTarget)}>Share</AnchoredMenuItem>
+          {/* Lock/unlock commenting (issue #492) is post-only and owner-only,
+              offered alongside Delete rather than replacing it. */}
+          {isSignedIn && menuTarget.type === 'post' && isOwnPost && (
+            <AnchoredMenuItem onClick={() => void menuToggleCommentsLock()}>
+              {post?.comments_disabled ? 'Turn on commenting' : 'Turn off commenting'}
+            </AnchoredMenuItem>
+          )}
           {/* Report / Retract / Delete all need a session; a signed-out
               visitor gets Share and nothing else (issue #381). */}
           {!isSignedIn ? null : menuState(menuTarget).isOwn ? (
@@ -1273,11 +1299,10 @@ function CommentRow({
             <span className="comment-row__author">{comment.authorUsername}</span>
           </button>
           <span className="comment-row__time">{formatRelativeTime(comment.createdTime)}</span>
-          {COMMENT_AUDIENCE_BADGE[comment.audience] && (
-            <span className="comment-row__audience muted" aria-label={`Audience: ${COMMENT_AUDIENCE_BADGE[comment.audience]}`}>
-              · {COMMENT_AUDIENCE_BADGE[comment.audience]}
-            </span>
-          )}
+          {/* Who can see this comment, on your own comments only (issue #518):
+              who a commenter chose to share with is their information, so
+              other readers see no badge. */}
+          {comment.isOwn && <AudienceBadge audience={comment.audience} />}
           {/* Three-dots menu next to the timestamp: Delete for your own
               comment, Report / Retract Report for someone else's (issue #304). */}
           <button

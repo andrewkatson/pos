@@ -32,6 +32,21 @@ hosts the user-search bar; while a search is active the results list replaces
 the profile body. Follow and Block are hidden on your own profile, since
 neither applies to yourself.
 
+**User search** (`GET /users/search/<fragment>/?batch=N`) matches usernames by
+case-insensitive prefix and returns them in deterministic batches of ten,
+ordered by username; `batch` defaults to 0, and a batch shorter than ten means
+there are no more. The search bar fires for queries of three or more characters
+(debounced) and shows the first batch inline. On the website, if that batch is
+full the client also fetches batch 1 to decide whether to offer a **View all
+results** button; that button opens a dialog listing everything fetched so far
+with a **Load more** control that pages one further batch per press — never a
+loop over every batch, since the endpoint is rate-limited to 30 requests per
+minute per user. Retyping discards any in-flight page for the old query. The
+dialog is a proper modal: focus moves into it on open, Tab cycles within it,
+Escape closes it, and focus returns to the button that opened it. iOS and
+Android currently show the first batch only. Results run through
+`searchable_users` and the block filters described under **Blocking**.
+
 Your **Followers** and **Following** counts are tappable on your own profile
 only: each opens a list of those users, and tapping a name opens that user's
 profile. These lists are private — you can only see your own. The endpoints
@@ -244,6 +259,12 @@ with a comment additionally carrying a `#comment-<comment_identifier>` fragment.
 Share is available on any post or comment, your own and everyone else's; unlike
 Like or Delete it has no ownership condition.
 
+A **profile** can be shared the same way (issue #510). Every profile — your own
+and everyone else's — carries a three-dots (⋯) options menu at the top of its
+header whose one item is **Share**, handing off the website's profile page,
+`https://smiling.social/profile/<username>`. Like a post link it works signed
+out: see [What a recipient sees](#what-a-recipient-sees-issue-381) below.
+
 Each client uses its native mechanism: iOS presents the system share sheet,
 Android fires an `ACTION_SEND` chooser, and the website uses the Web Share API
 when the browser offers it (typically mobile), otherwise copying the link to the
@@ -285,6 +306,35 @@ never existed** — the endpoints cannot be used to probe moderation state. The
 answer does not depend on who asks: a signed-in browser, a signed-out one, and a
 crawler all get the same bytes.
 
+#### A shared profile (issue #510)
+
+A shared profile link opens the website's profile page, signed in or not. Signed
+out it is read-only: the avatar, join number, bio, the Posts / Followers /
+Following counts and the post grid are all there, but Follow, Block and the
+grid's in-place like / save / report controls are replaced by a prompt to log in
+or join. Tapping a tile opens the post page above, and the profile's own Share
+still works.
+
+The public profile is decided by the same anonymous viewer. An account is
+served only when `searchable_users` would list it for that viewer — **not
+shadow banned** and **not a verified minor** — exactly the accounts a signed-in
+adult could find by name. Its grid is `visible_posts` for the same viewer, so it
+holds precisely the posts whose own shared links would resolve; a friends-only
+or hidden post is absent from the grid and from the post count alike, and the
+follower/following counts exclude accounts that are themselves not public
+(the same agreement between counts and lists that issue #398 established).
+Nothing per-viewer is served — no follow or block state — and none of the
+owner-only photo-review fields: the owner's own browser on the public page sees
+what a stranger would.
+
+An account that is not public is reported as **404, identical to a username
+that was never registered**, so the endpoints cannot confirm a shadow ban or
+locate a minor's account. The three endpoints are
+`GET /public/profiles/<username>/details/`,
+`GET /public/profiles/<username>/posts/<batch>/` and the crawler preview
+`GET /public/profiles/<username>/preview/`, all IP rate limited like the post
+ones.
+
 A comment link's `#comment-<id>` fragment is resolved by the post page itself.
 The API serves the **containing thread**, not the comment alone — a reply only
 makes sense inside the conversation it belongs to — and the page scrolls to that
@@ -309,6 +359,17 @@ Card tags. Real browsers are untouched and get the SPA. The preview endpoint
 applies exactly the public-visibility rule above, so a post it may not show
 unfurls as the generic site card rather than leaking anything.
 
+A shared profile link, `https://smiling.social/profile/<username>`, unfurls the
+same way (issue #510): the card is the username, the bio (or the generic site
+line when there is none) and the profile photo, with `og:type` `profile`. A
+profile that is not public gets the generic site card with a 404, so a crawler
+cannot tell it from an unregistered name. The function forwards only a
+well-formed username — word characters or percent-encoded bytes, since the URI
+it sees is still encoded and usernames may contain Unicode letters, that decode
+to 10–150 characters with no ASCII punctuation or whitespace (the backend
+applies the precise `\w` rule to anything else) — because the match goes
+straight into the redirect URL.
+
 Two pieces of CloudFront configuration make this work and are not managed by
 `website/deploy-web.sh` (which warns about the first): custom error responses
 mapping 403/404 to `/index.html` with a 200, so a cold load of a client-side
@@ -320,11 +381,12 @@ itself.
 On a phone with the app installed, a shared link opens the **app**, not the
 browser: iOS via Universal Links (`applinks:smiling.social` in the app's
 entitlements) and Android via App Links (an `autoVerify` intent-filter for
-`https://smiling.social/post/*`). Both are claimed by a file the OS fetches from
-the website at install time, published by `website/deploy-web.sh`:
+`https://smiling.social/post/*` and `/profile/*`). Both are claimed by a file
+the OS fetches from the website at install time, published by
+`website/deploy-web.sh`:
 
 - `/.well-known/apple-app-site-association` — checked into
-  `website/public/.well-known/` and scoped to `/post/*`;
+  `website/public/.well-known/` and scoped to `/post/*` and `/profile/*`;
 - `/.well-known/assetlinks.json` — generated at deploy time, because it needs
   the release signing certificate's SHA-256 fingerprint, which lives in Play
   Console rather than the repo. Export `ANDROID_SHA256_CERT_FINGERPRINTS` to
@@ -332,17 +394,22 @@ the website at install time, published by `website/deploy-web.sh`:
   simply do not verify (links keep opening the browser, which still works
   because the web page is public).
 
-Only `/post/*` is claimed. Every other route — login, profiles, the privacy
-policy — belongs to the website, and claiming them would hijack links the app
-has no screen for.
+Only `/post/*` and `/profile/*` are claimed. Every other route — login, tags,
+the privacy policy — belongs to the website, and claiming them would hijack
+links the app has no screen for. A shared **profile** link (issue #510) opens
+that user's profile screen in the app — the same screen a search result opens;
+your own username lands on the Profile tab itself — and, like a post link, waits
+for login when opened signed out. A `/profile/` segment that could not be a
+username (anything but 10–150 letters, digits and underscores — the backend's
+`Patterns.username`) is rejected by both parsers rather than routed.
 
 Each client parses the URL itself rather than letting the navigation framework
-resolve it (`ShareURL.parse` on iOS, `ShareLinks.parseSharedPostLink` on
-Android), because the post detail is an **authenticated** screen. The parsed
-post id goes onto the same small router a tapped push notification uses, which
-holds the request until a session exists — so a link opened while signed out
-waits for login instead of dropping the user on a screen with no session behind
-it. Both parsers are strict about scheme, host and path shape: a `VIEW` intent
+resolve it (`ShareURL.parse` on iOS, `ShareLinks.parseSharedLink` on Android),
+because the post detail and profile screens are **authenticated**. The parsed
+post id or username goes onto the same small router a tapped push notification
+uses, which holds the request until a session exists — so a link opened while
+signed out waits for login instead of dropping the user on a screen with no
+session behind it. Both parsers are strict about scheme, host and path shape: a `VIEW` intent
 or an `.onOpenURL` callback can carry any URL, and one that merely looks similar
 must not navigate anywhere. A `#comment-<id>` fragment is parsed and the post
 still opens; scrolling to the specific comment is web-only today.
@@ -365,11 +432,30 @@ styling means different things:
   background color only shows on **text-only** posts: on a photo post the image
   fills the tile, so the color has no visible effect. To avoid promising a
   change that never appears, the composer **hides the background-color control
-  while a photo is attached** and sends `default` for image posts (issue #421);
-  the font, which does style an image post's caption, stays available. The font
-  applies **wherever the caption is shown** — the feed row's caption under the
-  photo as well as the post detail view (issue #450) — so a post looks the same
-  whether it is scrolled past or opened.
+  on an image post** and sends `default` for it (issue #421); the font, which
+  does style an image post's caption, stays available. The font applies
+  **wherever the caption is shown** — the feed row's caption under the photo as
+  well as the post detail view (issue #450) — so a post looks the same whether
+  it is scrolled past or opened.
+- **The composer keeps the two kinds of post apart (issue #520).** A
+  **Text / Image** switch at the top of the New Post screen picks which one is
+  being written; it opens on Text. A **text post** is just the caption (no
+  photo picker is shown, and a photo picked earlier on the Image tab is never
+  sent). An **image post** shows the photo picker and **cannot be shared until
+  a photo is chosen** — the caption alone is a text post, so the Share button
+  stays disabled. The caption, character counter and audience are shared by
+  both. The formatting controls live in one collapsible group whose default
+  depends on the kind of post: on a text post it is titled **"Text
+  formatting"** and starts **expanded** (the caption *is* the post), on an
+  image post it is titled **"Advanced options"** and starts **collapsed**;
+  switching tabs resets it to that tab's default, and the user can toggle it
+  either way. Both kinds show a **live preview** laid out as the feed will
+  render the post: a text post previews as its styled tile; an image post
+  previews the photo — or a "your photo will appear here" placeholder before
+  one is picked — with the caption underneath in the chosen font, so the
+  caption styling is visible before the photo exists. Switching tabs keeps
+  the caption, the picked photo and the chosen color in state, so flipping
+  back and forth loses nothing.
   Mapping a key to a *distinct* face is part of the contract, not a detail: web
   and iOS reach `rounded` through a system face (`ui-rounded`,
   `.system(design: .rounded)`), but Android has no rounded system family, so it
@@ -411,6 +497,66 @@ each tier is overridable per deploy via `OPENROUTER_MODEL_GEMMA` / `_GEMINI` /
 `_OPENAI` / `_CLAUDE` (see
 `backend/user_system/classifiers/classifier_utils.py`), so swapping models is a
 config change, not a code change.
+
+Each model is also told **which line of defense it is** (issue #491), because
+the three stages do not carry equal weight: a clear rejection from the *first*
+reviewer is final and non-appealable, while the *third* reviewer's uncertainty
+is itself a rejection, there being nobody left to escalate to. So stage 1 is
+told that a middle score is a legitimate answer that escalates — cheap models
+are overconfident, and the aim is to convert spurious hard rejections into
+escalations — and stage 3 is told that a middle score no longer defers
+anything, so it should not retreat there merely to avoid deciding. This is
+about calibration, not making the first pass vaguer: clear content should still
+be settled cheaply at stage 1.
+
+What stage 3 is *not* told is that an unsure answer and a confident rejection
+amount to the same thing, because they do not: a middle score at the last stage
+is an **appealable** rejection, a reject-zone score a final one. Flattening that
+would push a genuinely uncertain model into false confidence and quietly strip
+the author's right to appeal — the very thing the middle zone preserves at the
+last stage. The instruction is against strategic hedging only.
+
+The earlier stages promise nothing about the reviewer that follows — not that
+one is better, and not that one exists. Neither would be true in general.
+Cheapest-first holds for a first look, but a later round puts fresh tiers first
+and may rotate from a random start (below), so stage 2 can be a *cheaper* tier
+than stage 1. And a middle score is not always an escalation: with a short
+cascade it is the last word (an appealable rejection), and even with a full
+cascade every remaining tier might error and leave that score standing. Whether
+a later tier returns a usable score simply is not knowable when the prompt is
+built, so the wording motivates abstaining without asserting a successor.
+Two things are deliberately withheld. Models are never told the earlier
+reviewers' **scores**, which would anchor them toward the middle and defeat the
+point of asking again — each stage judges the content, not its predecessor. And
+the stage is the reviewer's position among the scores that actually *counted*,
+not its index in the tier order: a tier that errors or answers unusably is
+skipped without consuming a stage, so the next tier inherits the line of defense
+it failed to provide (the same number the cascade's own decision rules use).
+Stage position is the only per-call context any model ever receives — in
+particular the re-review a report triggers adds nothing about the report, by
+design (see [Reporting](#reporting-and-user-moderation-issue-467)).
+
+That fixed order is the order for a post's **first** look only. Content can be
+judged by the cascade more than once — the retry of a classification that
+reached no verdict, and the automated re-review a user report triggers (see
+[Reporting](#reporting-and-user-moderation-issue-467)) — and a repeat round that
+replayed the same order would just hand the content back to the model that
+already decided it. So every post and comment keeps a **model chain** (issue
+#511): which tiers have been consulted about it and which tier's score settled
+each verdict (a duplicate-free list whose last entry is always the *final
+determiner* of the latest decision — a tier that decides again moves to the
+end; both lists are on the row as `classification_models_tried` /
+`classification_model_chain`, and the moderator queue shows them). Each later
+round is ordered to put fresh eyes first — tiers that have never looked at the
+content, then tiers that looked but did not decide (a middle-zone score the
+cascade escalated past, or an error), then the earlier deciders last as
+fallbacks only, cheapest-first within each group. Once every available tier
+has decided once, the cycle is complete: the lists are cleared and the next
+round starts from a tier chosen at random (the cascade rotated to begin there),
+so the second cycle is not a predictable replay of the first. A post's text and
+image cascades share one order per round, so the same tier opens on both. See
+`backend/user_system/classifiers/model_chain.py`. Model identities are
+bookkeeping for the pipeline and moderators and are never exposed to users.
 
 The flow is:
 
@@ -504,9 +650,24 @@ that content's review state), and the review has two stages:
    re-run — the local word-list pre-filter first, then the text and image
    cascades — over the **content alone**. The report count, the reporters, and
    the reasons they typed are never shown to a model, so no report can influence
-   the verdict (and no crafted report reason can be written to steer it).
-   Rejected content is hidden as `hidden_reason: "classifier"` and its author is
-   emailed; content that passes stays visible and the review is marked
+   the verdict (and no crafted report reason can be written to steer it). Not
+   even the bare fact that the content was reported is passed along: a model
+   primed that *somebody thinks this is bad* leans toward rejection, which would
+   rebuild the coordinated-report takedown this design removed, while priming it
+   the other way ("this was already published") would make re-review laxer than
+   the original gate. The re-review's protections are therefore structural — the
+   appealable-verdict and escalate-on-outage asymmetries below — rather than
+   hints in a prompt. A re-reviewing model receives exactly what a first-look
+   model receives: its stage in the cascade (see
+   [Post classification](#post-classification-async)).
+   The cascade is *ordered* differently from the first look, though: the
+   re-review is a second opinion, so it leads with a tier that has not judged
+   this content and consults the tier that approved it at creation last, as a
+   fallback only (the per-content model chain, issue #511 — see
+   [Post classification](#post-classification-async)). Comments get the same
+   treatment: their inline classification at creation is recorded as the first
+   round. Rejected content is hidden as `hidden_reason: "classifier"` and its
+   author is emailed; content that passes stays visible and the review is marked
    `cleared`. Two deliberate asymmetries: a *final* (normally non-appealable)
    verdict on re-review is still recorded as **appealable**, since this content
    was already published under an earlier verdict; and a provider outage
@@ -738,6 +899,54 @@ listing keeps only threads with a matching visible comment). Like the feed filte
 it is an exact-category match and naturally drops your own comments, since you do
 not follow yourself.
 
+## Disabling / locking comments (issue #492)
+
+A post's author can turn off commenting on it — either from the moment the
+post is created, or afterward once it already has comments. Either way it is
+the same field, `Post.comments_disabled` (default `False`, so every
+pre-existing post keeps accepting comments), and either way it only blocks
+**new** top-level comments and replies; comments already on the post stay
+exactly as visible as they were.
+
+- **At creation**: `POST /posts/create/` accepts an optional `comments_disabled`
+  boolean; omitting it (or sending `false`) preserves the old behavior.
+- **Afterward**: `POST /posts/<post_identifier>/comments/lock/` and
+  `POST /posts/<post_identifier>/comments/unlock/` toggle it on an existing
+  post. Both are owner-only — the same "look it up via `request.user.post_set`"
+  pattern `delete_post` uses, so locking someone else's post answers exactly
+  like the post does not exist.
+
+`comment_on_post` and `reply_to_comment_thread` both check the flag (on the
+post directly, or via the parent post of the thread being replied to) right
+after resolving and visibility-checking the target, and reject with a 403
+before the request ever reaches the AI classifier if commenting is off. The
+field rides along in every post payload (feed, followed feed, profile grid,
+post details, and the public share view) as `comments_disabled`, so a client
+can hide its comment composer and "Reply" controls and show a plain "Comments
+are turned off for this post" notice instead. Every client also offers a
+"Turn on/off commenting" action in the post's own three-dots menu, right next
+to Delete, alongside a toggle in the post-creation form.
+
+### Audience badges (issue #518)
+
+Your **own** posts and comments carry a small badge saying who can see them:
+🌐 *Public*, 👥 *Following*, 🤝 *Friends* or 🏠 *Family* (SF Symbols / Material
+icons on mobile), with an accessible label spelling the tier out — "Visible to
+friends and family". It appears on feed rows and the post detail header next to
+the like count, as an icon-only badge on the square profile-grid tiles (no room
+for a label there), and in the header of each comment row. Every tier is badged,
+public included: the point is to answer "who can see this?" at a glance, and a
+post you meant to keep to family but shared publicly is exactly the case a
+missing badge would hide. A post or comment from an older backend that omits
+`audience` is badged public, matching how the backend treats a missing value.
+
+The badge is shown **only to the author**. Who someone chose to share with is
+their information, like who liked their content (issue #478), so nobody else's
+post or comment ever shows one — including the non-public scope label comment
+rows used to show every reader, which this replaces. The clients decide purely
+from `author_username` matching the signed-in user; the API payloads already
+carry `audience` on every post and comment, so no backend change was needed.
+
 ## Blocking
 
 Users can block each other from a profile. Blocking is a toggle
@@ -764,6 +973,16 @@ policy as registration and must differ from the current one. On success every
 *other* session and all remember-me cookies are invalidated (a password change
 should evict other devices), while the caller's current session is preserved so
 they stay logged in on the device they just used.
+
+**Usernames** are 10–150 word characters (Unicode letters, digits and
+underscores; length counted in code points) — `Patterns.username`, mirrored by
+the registration hints on every client. The 150 ceiling is the username
+column's `max_length`, so a longer name is refused as an ordinary validation
+error (`Invalid fields ['USERNAME']`, 400) rather than failing at the database.
+A username is fixed once chosen: it is set at registration (or generated on a
+first Google sign-in, see below) and there is no rename endpoint. Session and
+remember-me tokens are validated by the separate `Patterns.alphanumeric`, which
+is not a username rule.
 
 ## Account & data deletion
 
@@ -1045,6 +1264,18 @@ email is best-effort — a mail failure is logged but never blocks the login.
 Post images live in two S3 buckets: clients upload the original to the source
 bucket (`AWS_STORAGE_BUCKET_NAME`) and a Lambda mirrors a compressed copy to
 `AWS_COMPRESSED_STORAGE_BUCKET_NAME` under the same key.
+
+The compressed copy is also **resized**: the Lambda (`backend/tools/image_compressor.py`)
+caps the long edge at 1440px (override with the Lambda's `MAX_DIMENSION_PX`
+env var; smaller images are never upscaled) before stepping JPEG quality down
+toward `TARGET_SIZE_KB`. Clients only ever show images at screen size, and a
+full 12 MP camera photo (4032x3024) is slow to decode — on iOS it logged
+`CVPixelBufferCreate returned err -6680` and fell back to software decoding.
+Compressed copies written before the cap keep their full size until their
+source object is rewritten (which re-triggers the Lambda). On top of that, the
+iOS image views decode straight to the size they display at
+(`VibesHelpers/ImageDownsampling.swift`), matching what Coil does on Android, so
+even the full-resolution fallback never builds a full-size bitmap.
 
 Both buckets are **private** (S3 Block Public Access + an Origin Access Control
 bucket policy). Reads happen only through CloudFront, and the backend signs every

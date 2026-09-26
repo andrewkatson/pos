@@ -1,6 +1,6 @@
 //
 //  GVOAppConstants.swift
-//  Positive Only Social
+//  Vibes
 //
 
 import Foundation
@@ -95,6 +95,10 @@ import Foundation
     static let pathSegmentLike = "like"
     // GET .../likes/<batch>/ — who liked one of your own posts/comments (#478).
     static let pathSegmentLikes = "likes"
+    // POST posts/<id>/comments/lock/ and .../unlock/ — owner-only, turn
+    // commenting on a post off/on after it's created (issue #492).
+    static let pathSegmentLock = "lock"
+    static let pathSegmentUnlock = "unlock"
     static let pathSegmentLogin = "login"
     static let pathSegmentLogout = "logout"
     // GET /me/ — the signed-in account's own username + email (#194/#197).

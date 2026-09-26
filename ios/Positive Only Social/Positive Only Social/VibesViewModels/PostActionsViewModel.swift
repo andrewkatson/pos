@@ -1,6 +1,6 @@
 //
 //  PostActionsViewModel.swift
-//  Positive Only Social
+//  Vibes
 //
 
 import Foundation
@@ -30,6 +30,9 @@ final class PostActionsViewModel: ObservableObject {
         var isSaved: Bool
         var isReported: Bool
         var reportReason: String?
+        /// Whether the author has turned off commenting (issue #492). Only
+        /// actionable on your own post, from the menu.
+        var commentsDisabled: Bool
     }
 
     /// The post whose action menu (Delete / Retract Report / Report) is showing.
@@ -48,6 +51,11 @@ final class PostActionsViewModel: ObservableObject {
     /// Per-post state the user has changed locally since the list was fetched.
     @Published private(set) var overrides: [String: InteractionState] = [:]
 
+    /// Commenting on/off (issue #492) toggled this session, from a list row or
+    /// the post detail screen. Kept apart from `overrides` so a toggle made on
+    /// the detail screen can land without a `Post` to build the rest from.
+    @Published private(set) var commentsDisabledOverrides: [String: Bool] = [:]
+
     /// The signed-in user's username, used to tell your own posts from others'.
     private(set) var currentUsername: String?
 
@@ -56,6 +64,9 @@ final class PostActionsViewModel: ObservableObject {
     private let account: String
     private let keychainService = GVOAppConstants.keychainService
     private let notificationCenter: NotificationCenter
+    // Listens for `.postCommentsDisabledChanged` so a lock/unlock made on the
+    // post detail screen doesn't leave the row menu offering the stale action.
+    private var commentsLockCancellable: AnyCancellable?
 
     convenience init(api: Networking, keychainHelper: KeychainHelperProtocol) {
         self.init(api: api, keychainHelper: keychainHelper, account: "userSessionToken")
@@ -72,6 +83,14 @@ final class PostActionsViewModel: ObservableObject {
         self.currentUsername = try? keychainHelper.load(
             UserSession.self, from: GVOAppConstants.keychainService, account: account
         )?.username
+
+        commentsLockCancellable = notificationCenter.publisher(for: .postCommentsDisabledChanged)
+            .receive(on: RunLoop.main)
+            .sink { [weak self] notification in
+                guard let postIdentifier = notification.object as? String,
+                      let disabled = notification.userInfo?["commentsDisabled"] as? Bool else { return }
+                self?.commentsDisabledOverrides[postIdentifier] = disabled
+            }
     }
 
     // MARK: - Derived State
@@ -79,15 +98,17 @@ final class PostActionsViewModel: ObservableObject {
     /// The interaction state for a post: the local override if the user has
     /// acted on it this session, otherwise the state the server sent with the list.
     func state(for post: Post) -> InteractionState {
-        if let override = overrides[post.id] { return override }
-        return InteractionState(
+        var state = overrides[post.id] ?? InteractionState(
             isOwn: post.authorUsername == currentUsername,
             isLiked: post.isLiked,
             likeCount: post.postLikes,
             isSaved: post.isSaved,
             isReported: post.isReported,
-            reportReason: post.reportReason
+            reportReason: post.reportReason,
+            commentsDisabled: post.commentsDisabled
         )
+        if let disabled = commentsDisabledOverrides[post.id] { state.commentsDisabled = disabled }
+        return state
     }
 
     // MARK: - Actions
@@ -154,6 +175,33 @@ final class PostActionsViewModel: ObservableObject {
         }
     }
 
+    /// Turns commenting on one of the user's own posts off or on (issue #492),
+    /// updating the row immediately and reverting if the request fails.
+    func toggleCommentsLock(_ post: Post) {
+        let previous = state(for: post)
+        guard previous.isOwn else { return }
+        let locking = !previous.commentsDisabled
+        commentsDisabledOverrides[post.id] = locking
+
+        Task {
+            guard let token = loadToken(for: locking ? "turn off commenting" : "turn on commenting") else {
+                commentsDisabledOverrides[post.id] = previous.commentsDisabled
+                return
+            }
+            do {
+                if locking {
+                    _ = try await api.lockComments(sessionManagementToken: token, postIdentifier: post.id)
+                } else {
+                    _ = try await api.unlockComments(sessionManagementToken: token, postIdentifier: post.id)
+                }
+            } catch {
+                NSLog("%@", "Failed to \(locking ? "lock" : "unlock") comments: \(error)")
+                commentsDisabledOverrides[post.id] = previous.commentsDisabled
+                alertMessage = "Failed to turn \(locking ? "off" : "on") commenting: \(error.userFacingMessage)"
+            }
+        }
+    }
+
     /// Reports a post with the reason the user typed into the shared report sheet.
     func report(_ post: Post, reason: String) {
         Task {
@@ -197,6 +245,7 @@ final class PostActionsViewModel: ObservableObject {
             do {
                 _ = try await api.deletePost(sessionManagementToken: token, postIdentifier: post.id)
                 overrides[post.id] = nil
+                commentsDisabledOverrides[post.id] = nil
                 notificationCenter.post(name: .postDeleted, object: post.id)
             } catch {
                 NSLog("%@", "Failed to delete post: \(error)")

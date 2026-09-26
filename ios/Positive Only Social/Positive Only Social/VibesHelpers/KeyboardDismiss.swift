@@ -1,6 +1,6 @@
 //
 //  KeyboardDismiss.swift
-//  Positive Only Social
+//  Vibes
 //
 //  Shared helper for dismissing the software keyboard so the user can reach
 //  the buttons (Login, Register, Share Post, …) that the keyboard would
