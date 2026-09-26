@@ -231,6 +231,41 @@ test('changing the comment group filter threads the category into the listing (#
   await waitFor(() => expect(mockGetThreadComments).toHaveBeenCalledWith('t1', 0, 'friend'))
 })
 
+test('does not show a collapse control when a comment has no replies', async () => {
+  mockGetThreadRefs.mockResolvedValue([{ comment_thread_identifier: 't1' }])
+  mockGetThreadComments.mockResolvedValue([comment])
+  renderDetail()
+
+  expect(await screen.findByText('love this')).toBeInTheDocument()
+  expect(screen.queryByRole('button', { name: 'Collapse thread' })).not.toBeInTheDocument()
+  expect(screen.queryByRole('button', { name: 'Expand thread' })).not.toBeInTheDocument()
+})
+
+test('loads the next comment page before deciding which comments have replies', async () => {
+  const firstPage: Comment[] = Array.from({ length: 30 }, (_, index) => ({
+    ...comment,
+    comment_identifier: `c${index + 1}`,
+    body: `comment ${index + 1}`,
+    creation_time: new Date(Date.UTC(2024, 0, index + 1)).toISOString(),
+  }))
+  const nextPage: Comment[] = [{
+    ...comment,
+    comment_identifier: 'c31',
+    body: 'comment 31',
+    creation_time: new Date(Date.UTC(2024, 1, 1)).toISOString(),
+  }]
+  mockGetThreadRefs.mockResolvedValue([{ comment_thread_identifier: 't1' }])
+  mockGetThreadComments.mockImplementation((_threadId, batch) =>
+    Promise.resolve(batch === 0 ? firstPage : nextPage),
+  )
+  renderDetail()
+
+  expect(await screen.findByText('comment 31')).toBeInTheDocument()
+  expect(mockGetThreadComments).toHaveBeenCalledWith('t1', 0, undefined)
+  expect(mockGetThreadComments).toHaveBeenCalledWith('t1', 1, undefined)
+  expect(screen.getAllByRole('button', { name: 'Collapse thread' })).toHaveLength(30)
+})
+
 test('collapsing a comment hides the replies below it, expanding restores them', async () => {
   const reply: Comment = {
     comment_identifier: 'c2',
@@ -247,6 +282,8 @@ test('collapsing a comment hides the replies below it, expanding restores them',
   // The root comment and its reply are both visible to start.
   expect(await screen.findByText('love this')).toBeInTheDocument()
   expect(screen.getByText('totally agree')).toBeInTheDocument()
+  // Only the root has another comment below it; the last reply has nothing to fold.
+  expect(screen.getAllByRole('button', { name: 'Collapse thread' })).toHaveLength(1)
 
   // Tapping the root comment's header collapses the thread below it.
   const collapseHeaders = screen.getAllByRole('button', { name: 'Collapse thread' })
