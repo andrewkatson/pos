@@ -108,7 +108,7 @@ function profileNameLength(encoded) {
 var NON_WORD = /[\x00-\x2F\x3A-\x40\x5B-\x5E\x60\x7B-\x7F]|\s/
 
 // Whether an encoded profile segment decodes to a plausible username: 10-150
-// characters (see PROFILE_PATH) with no character NON_WORD rules out.
+// characters (see PROFILE_PATH), none of which matches NON_WORD.
 function isPlausibleUsername(encoded) {
   var length = profileNameLength(encoded)
   if (length < MIN_USERNAME_LENGTH || length > MAX_USERNAME_LENGTH) {
