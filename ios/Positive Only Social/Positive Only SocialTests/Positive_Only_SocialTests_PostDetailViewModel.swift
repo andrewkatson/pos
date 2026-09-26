@@ -661,8 +661,15 @@ struct Positive_Only_SocialTests_PostDetailViewModel {
 
     @Test func testCommentOnPost_CommentsDisabled_ShowsAlertAndDoesNotAddComment() async throws {
         // Given: A post with comments disabled
-        let (sut, _, _) = try await setupOwnContentEnvironment(account: "commentOnLockedPost_account")
-        sut.lockComments()
+        // Locked through the API and awaited, not via sut.lockComments(): that
+        // sends its request from an unstructured Task, which could still be in
+        // flight when the comment's own Task reaches the stub.
+        let account = "commentOnLockedPost_account"
+        let (sut, postID, _) = try await setupOwnContentEnvironment(account: account)
+        let ownerSession = try keychainHelper.load(UserSession.self, from: GVOAppConstants.keychainService, account: account)
+        _ = try await stubAPI.lockComments(sessionManagementToken: ownerSession!.sessionToken, postIdentifier: postID)
+        await sut.refresh()
+        #expect(sut.postDetail?.commentsDisabled == true, "Pre-condition: comments start locked")
         let threadCountBefore = sut.commentThreads.count
 
         // When: An attempt is made to add a new top-level comment
