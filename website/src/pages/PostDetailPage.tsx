@@ -104,6 +104,10 @@ const COMMENT_AUDIENCE_BADGE: Partial<Record<PostAudience, string>> = {
 // since removed or hidden costs a few requests rather than the whole thing.
 const MAX_SHARED_COMMENT_THREAD_BATCHES = 5
 
+// Each thread-comments endpoint page contains up to 30 comments. Keep fetching
+// while a page is full so collapse controls are correct even at page boundaries.
+const COMMENT_BATCH_SIZE = 30
+
 type ReportTarget = { type: 'post' } | { type: 'comment'; comment: CommentView }
 type DeleteTarget = { type: 'post' } | { type: 'comment'; comment: CommentView }
 // The three-dots menu next to the post caption / each comment (issue #304).
@@ -319,13 +323,21 @@ function PostDetailView({ postId, isSignedIn }: { postId: string; isSignedIn: bo
           if (refs.length === 0) break
           const threadLists = await Promise.all(
             refs.map(async ref => {
-              const comments = isSignedIn
-                ? await apiClient.getCommentsForThread(
-                    ref.comment_thread_identifier,
-                    0,
-                    groupFilter,
-                  )
-                : await apiClient.getPublicCommentsForThread(ref.comment_thread_identifier, 0)
+              const comments: Comment[] = []
+              for (let commentBatch = 0; ; commentBatch += 1) {
+                const page = isSignedIn
+                  ? await apiClient.getCommentsForThread(
+                      ref.comment_thread_identifier,
+                      commentBatch,
+                      groupFilter,
+                    )
+                  : await apiClient.getPublicCommentsForThread(
+                      ref.comment_thread_identifier,
+                      commentBatch,
+                    )
+                comments.push(...page)
+                if (page.length < COMMENT_BATCH_SIZE) break
+              }
               return { threadId: ref.comment_thread_identifier, comments }
             }),
           )
