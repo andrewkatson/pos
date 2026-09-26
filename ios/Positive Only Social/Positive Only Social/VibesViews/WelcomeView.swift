@@ -1,6 +1,6 @@
 //
 //  ContentView.swift
-//  Positive Only Social
+//  Vibes
 //
 //  Created by Andrew Katson on 8/29/25.
 //
@@ -27,27 +27,52 @@ struct WelcomeView: View {
     private let keychainService = GVOAppConstants.keychainService
     private let sessionAccount = "userSessionToken"
     private let rememberMeAccount = "userRememberMeTokens"
-
+  
     var body: some View {
         NavigationStack(path: $path) {
-            VStack {
-                // The view now switches based on the authentication state
-                switch authState {
-                case .checking:
-                    ProgressView("Checking session...")
-                        .scaleEffect(1.5)
+            
+            ZStack {
+                AnimatedGradientBackground(
+                    animateGradient: true,
+                    top: .orange,
+                    middle: .green,
+                    centre: .blue,
+                    bottom: .purple
+                )
+                .ignoresSafeArea()
+
+                //Foreground content layer
+                VStack(spacing: 24) {
+                    Image(GVOAppConstants.appIconName)
+                        .resizable()
+                        .scaledToFit()
+                        .frame(width: 90, height: 90)
+                        .clipShape(RoundedRectangle(cornerRadius: 18))
+                        .shadow(color: .black.opacity(0.15), radius: 8, x: 0, y: 4)
+
+                    switch authState {
+                    case .checking:
+                        ProgressView("Checking session...")
+                            .scaleEffect(1.5)
+                            
+                    case .needsAuth:
+                        NeedsAuthView()
                         
-                case .needsAuth:
-                    NeedsAuthView() // The Login/Register buttons
-                    
-                case .authenticated:
-                    // This state is the trigger to navigate. We show nothing here because
-                    // the navigation happens almost instantly.
-                    Color.clear
+                    case .authenticated:
+                        Color.clear
+                    }
                 }
             }
-            .navigationTitle("Good Vibes Only")
+            .navigationBarTitleDisplayMode(.inline) // Keeps it in the bar header
+            .toolbar {
+                ToolbarItem(placement: .principal) {
+                    Text("Vibes")
+                        .font(.system(size: 50, weight: .bold, design: .rounded))
+                        .foregroundColor(.white)
+                }
+            }
             // Define all possible navigation destinations
+            .navigationTitle("Vibes")
             .navigationDestination(for: String.self) { routeName in
                 switch routeName {
                 case "LoginView":

@@ -388,6 +388,64 @@ class MakePostTests(PositiveOnlySocialTestCase):
         self.user.refresh_from_db()
         self.assertEqual(self.user.post_set.first().caption, 'é' * MAX_CAPTION_LENGTH)
     @patch.dict(os.environ, {"TESTING": "True"}, clear=True)
+    def test_omitted_comments_disabled_defaults_to_comments_allowed(self):
+        """
+        A client that never sends comments_disabled (issue #492) gets the
+        historical behavior: comments allowed.
+        """
+        response = self.client.post(
+            self.url,
+            data=self.valid_data,
+            content_type='application/json',
+            **self.valid_header
+        )
+
+        self.assertEqual(response.status_code, 201)
+        self.assertFalse(response.json()[Fields.comments_disabled])
+        post = self.user.post_set.get()
+        self.assertFalse(post.comments_disabled)
+
+    @patch.dict(os.environ, {"TESTING": "True"}, clear=True)
+    def test_comments_disabled_true_at_creation_is_persisted(self):
+        """
+        A post created with comments_disabled: true (issue #492) is stored
+        that way and comment_on_post rejects new comments on it.
+        """
+        data = self.valid_data.copy()
+        data['comments_disabled'] = True
+
+        response = self.client.post(
+            self.url,
+            data=data,
+            content_type='application/json',
+            **self.valid_header
+        )
+
+        self.assertEqual(response.status_code, 201)
+        self.assertTrue(response.json()[Fields.comments_disabled])
+        post = self.user.post_set.get()
+        self.assertTrue(post.comments_disabled)
+
+    @patch.dict(os.environ, {"TESTING": "True"}, clear=True)
+    def test_non_boolean_comments_disabled_returns_bad_response(self):
+        """
+        A truthy non-boolean comments_disabled must be rejected with a 400
+        rather than silently coerced.
+        """
+        data = self.valid_data.copy()
+        data['comments_disabled'] = "yes"
+
+        response = self.client.post(
+            self.url,
+            data=data,
+            content_type='application/json',
+            **self.valid_header
+        )
+
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(self.user.post_set.count(), 0)
+
+    @patch.dict(os.environ, {"TESTING": "True"}, clear=True)
     def test_non_string_caption_returns_bad_response(self):
         """
         A truthy non-string caption must be rejected with a 400 rather than raising

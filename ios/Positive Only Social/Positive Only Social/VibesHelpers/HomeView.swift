@@ -1,6 +1,6 @@
 //
 //  HomeView.swift
-//  Positive Only Social
+//  Vibes
 //
 //  Created by Andrew Katson on 10/7/25.
 //
@@ -84,6 +84,22 @@ struct HomeView: View {
             newPath.append(postIdentifier)
             profilePath = newPath
             pushRouter.pendingPostIdentifier = nil
+        }
+        // A shared profile link (issue #510) asks us to open that profile, the
+        // same way. Your own username lands on the Profile tab itself — the
+        // profile already behind it — rather than pushing a copy of it, which
+        // is where tapping your own name anywhere in the app goes too (#347).
+        // Anyone else is pushed as a User, the value the tab's stack already
+        // resolves to ProfileView for search results and feed rows.
+        .onReceive(pushRouter.$pendingProfileUsername) { username in
+            guard let username else { return }
+            currentTab = GVOAppConstants.profileTabIndex
+            var newPath = NavigationPath()
+            if username != viewModel.currentUsername {
+                newPath.append(User(username: username, identityIsVerified: false))
+            }
+            profilePath = newPath
+            pushRouter.pendingProfileUsername = nil
         }
     }
 }
@@ -248,6 +264,12 @@ struct PostActionBar: View {
             Text(state.isOwn ? "\(state.likeCount) likes" : "\(state.likeCount)")
                 .foregroundColor(.secondary)
                 .accessibilityIdentifier("PostListLikeCount")
+            // Who can see this post, on your own posts only (issue #518). The
+            // profile-grid tiles are a third of the screen wide, so they get
+            // just the icon; feed rows have room for the label too.
+            if state.isOwn {
+                AudienceBadgeView(audience: post.audience, compact: !showsPostDetails)
+            }
             if state.isReported {
                 Image(systemName: "flag.fill")
                     .foregroundColor(.red)
@@ -330,6 +352,14 @@ struct PostActionBar: View {
                 postActions.toggleSave(post)
             }
             if postActions.state(for: post).isOwn {
+                // Turn commenting off/on for your own post (issue #492), the
+                // same toggle PostDetailView offers.
+                menuRow(
+                    postActions.state(for: post).commentsDisabled ? "Turn On Commenting" : "Turn Off Commenting",
+                    identifier: "ToggleCommentsLockListActionButton"
+                ) {
+                    postActions.toggleCommentsLock(post)
+                }
                 menuRow("Delete Post", identifier: "DeletePostListActionButton", isDestructive: true) {
                     postActions.delete(post)
                 }
@@ -470,6 +500,7 @@ struct GridPostImage: View {
     // Once the compressed URL genuinely fails, switch to the original and let
     // Kingfisher load the new URL.
     @State private var useOriginal = false
+    @Environment(\.displayScale) private var displayScale
 
     /// What KFImage shows while the photo loads (and if it never loads): the
     /// decoded BlurHash when the post carries one, otherwise the flat grey shade.
@@ -488,22 +519,32 @@ struct GridPostImage: View {
     var body: some View {
         if let imageUrl {
             let urlString = useOriginal ? (originalImageUrl ?? imageUrl) : imageUrl
-            KFImage(URL(string: urlString))
-                // Rides out the just-posted window where the compressed copy isn't
-                // in the bucket yet; only HTTP errors are retried, not cancellations.
-                .retry(maxCount: 2, interval: .seconds(1))
-                .placeholder { blurHashPlaceholder }
-                .onFailure { error in
-                    // A cancelled load isn't a missing image — the tile reloads the
-                    // same URL when it next appears, so save the fallback for real
-                    // failures.
-                    guard !error.isTaskCancelled else { return }
-                    if !useOriginal, originalImageUrl != nil {
-                        useOriginal = true
+            // Every caller sizes the tile (a square overlay), so the reader just
+            // measures it — a full-width feed tile and a third-width profile tile
+            // each decode only as many pixels as they show.
+            GeometryReader { geometry in
+                KFImage(source: SignedImageURL.source(for: urlString))
+                    .downsampled(toMaxPixelSize: ImageDownsampling.maxPixelSize(
+                        toFill: max(geometry.size.width, geometry.size.height),
+                        scale: displayScale
+                    ))
+                    // Rides out the just-posted window where the compressed copy isn't
+                    // in the bucket yet; only HTTP errors are retried, not cancellations.
+                    .retry(maxCount: 2, interval: .seconds(1))
+                    .placeholder { blurHashPlaceholder }
+                    .onFailure { error in
+                        // A cancelled load isn't a missing image — the tile reloads the
+                        // same URL when it next appears, so save the fallback for real
+                        // failures.
+                        guard !error.isTaskCancelled else { return }
+                        if !useOriginal, originalImageUrl != nil {
+                            useOriginal = true
+                        }
                     }
-                }
-                .resizable()
-                .scaledToFill()
+                    .resizable()
+                    .scaledToFill()
+                    .frame(width: geometry.size.width, height: geometry.size.height)
+            }
         } else {
             CaptionTileView(caption: caption, captionFont: captionFont, backgroundColor: backgroundColor)
         }

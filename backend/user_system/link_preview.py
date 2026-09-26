@@ -55,18 +55,23 @@ def _meta(tags):
     )
 
 
-def render_post_preview(*, title, description, canonical_url, image_url=None):
+def render_post_preview(*, title, description, canonical_url, image_url=None, og_type='article'):
     """The full HTML document served to a crawler for a shared post link.
 
     `image_url` is optional: a text-only post (#307) has no image, and its card
     degrades from a `summary_large_image` to a plain `summary`. Every value is
     HTML-escaped, so a caption containing markup cannot break out of the meta
     tags or inject script into the document.
+
+    `og_type` is `article` for a post; a shared profile (issue #510) passes
+    `profile` so an unfurler that distinguishes the two labels it correctly. The
+    rest of the document is identical, which is why profiles reuse this rather
+    than a second template.
     """
     card_type = 'summary_large_image' if image_url else 'summary'
     tags = [
         ('name', 'description', description),
-        ('property', 'og:type', 'article'),
+        ('property', 'og:type', og_type),
         ('property', 'og:site_name', SITE_NAME),
         ('property', 'og:title', title),
         ('property', 'og:description', description),

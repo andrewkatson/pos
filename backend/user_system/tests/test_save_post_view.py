@@ -155,6 +155,21 @@ class GetSavedPostsTests(PositiveOnlySocialTestCase):
         for row in payload:
             self.assertTrue(row[Fields.is_saved])
 
+    def test_carries_comments_disabled_flag(self):
+        # Saved-grid rows derive the owner's lock/unlock menu action from this
+        # field (issue #492), so a locked post must not read as unlocked.
+        Post.objects.filter(pk=self.posts[0].pk).update(comments_disabled=True)
+        self._save(self.posts[0])
+        self._save(self.posts[1])
+
+        response = self.client.get(self.list_url, **self.saver_header)
+        self.assertEqual(response.status_code, 200)
+        flags = {p[Fields.post_identifier]: p[Fields.comments_disabled] for p in response.json()}
+        self.assertEqual(flags, {
+            str(self.posts[0].post_identifier): True,
+            str(self.posts[1].post_identifier): False,
+        })
+
     def test_ordered_by_most_recently_saved_first(self):
         # Save post 0 first, then post 1, so post 1 should come back first.
         self._save(self.posts[0])

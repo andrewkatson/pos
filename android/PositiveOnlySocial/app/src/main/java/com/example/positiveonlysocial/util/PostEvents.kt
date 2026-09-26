@@ -34,4 +34,17 @@ object PostEvents {
     fun postDeleted(postIdentifier: String) {
         _deletedPostIds.tryEmit(postIdentifier)
     }
+
+    // Commenting turned off/on (issue #492): the detail screen's toggle has to
+    // reach the list rows too, or their menu keeps offering the stale action.
+    private val _commentsDisabledChanges = MutableSharedFlow<Pair<String, Boolean>>(
+        extraBufferCapacity = 16,
+        onBufferOverflow = BufferOverflow.DROP_OLDEST,
+    )
+    val commentsDisabledChanges: SharedFlow<Pair<String, Boolean>> = _commentsDisabledChanges.asSharedFlow()
+
+    /** Announce that commenting on [postIdentifier] was turned off or on. */
+    fun commentsDisabledChanged(postIdentifier: String, commentsDisabled: Boolean) {
+        _commentsDisabledChanges.tryEmit(postIdentifier to commentsDisabled)
+    }
 }

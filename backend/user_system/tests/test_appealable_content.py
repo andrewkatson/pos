@@ -7,7 +7,7 @@ from django.urls import reverse
 from .test_parent_case import PositiveOnlySocialTestCase
 from .test_constants import UserFields
 from ..classifiers.classifier_constants import POSITIVE_IMAGE_FILENAME, POSITIVE_TEXT
-from ..classifiers.classifier_utils import ClassificationResult
+from ..classifiers.classifier_utils import API_GEMINI, API_GEMMA, ClassificationResult
 from ..constants import Fields, HIDDEN_REASON_CLASSIFIER, HIDDEN_REASON_NONE, \
     HIDDEN_REASON_CLASSIFIER_FINAL, HIDDEN_REASON_PENDING_CLASSIFICATION, \
     POST_STATUS_PENDING
@@ -325,6 +325,32 @@ class CommentAppealableTests(PositiveOnlySocialTestCase):
         comment = Comment.objects.get(comment_identifier=body[Fields.comment_identifier])
         self.assertTrue(comment.hidden)
         self.assertEqual(comment.hidden_reason, HIDDEN_REASON_CLASSIFIER)
+
+    @patch(TEXT, return_value=ClassificationResult(
+        allowed=True, consulted=[API_GEMMA, API_GEMINI], decided_by=API_GEMINI))
+    def test_a_new_comment_records_the_tiers_that_judged_it(self, _text):
+        """The inline classification is a comment's first round (issue #511),
+        so a later report re-review can lead with a different tier."""
+        body = self._comment().json()
+        comment = Comment.objects.get(comment_identifier=body[Fields.comment_identifier])
+        self.assertEqual(comment.classification_models_tried, [API_GEMMA, API_GEMINI])
+        self.assertEqual(comment.classification_model_chain, [API_GEMINI])
+
+    @patch(TEXT, return_value=ClassificationResult(
+        allowed=False, appealable=True, consulted=[API_GEMMA], decided_by=API_GEMMA))
+    def test_a_new_reply_records_the_tiers_that_judged_it(self, _text):
+        with patch(TEXT, return_value=ALLOWED):
+            thread_id = self._comment().json()[Fields.comment_thread_identifier]
+        url = reverse('reply_to_comment_thread', kwargs={
+            'post_identifier': str(self.post_identifier),
+            'comment_thread_identifier': str(thread_id),
+        })
+        body = self.client.post(url, data={'comment_text': POSITIVE_TEXT},
+                                content_type='application/json', **self.header).json()
+        reply = Comment.objects.get(comment_identifier=body[Fields.comment_identifier])
+        self.assertTrue(reply.hidden)
+        self.assertEqual(reply.classification_models_tried, [API_GEMMA])
+        self.assertEqual(reply.classification_model_chain, [API_GEMMA])
 
 
 class CommentOnHiddenPostVisibilityTests(PositiveOnlySocialTestCase):

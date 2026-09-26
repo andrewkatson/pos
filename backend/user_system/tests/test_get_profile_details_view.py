@@ -50,6 +50,18 @@ class GetProfileDetailsTests(PositiveOnlySocialTestCase):
 
         self.assertEqual(response.status_code, 400)  # 400 Bad Request
 
+    def test_username_longer_than_column_is_rejected_as_invalid(self):
+        """
+        No stored username can exceed the column's 150 characters, so a longer
+        one is a malformed request, not a lookup that misses.
+        """
+        url = reverse('get_profile_details', kwargs={'username': 'a' * 151})
+
+        response = self.client.get(url, **self.valid_header)
+
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(response.json()['error'], "Invalid username")
+
     def test_non_existent_username_returns_bad_response(self):
         """
         Tests that a validly formatted but non-existent username fails.

@@ -4,7 +4,7 @@
 // truth so they can never drift apart.
 //
 //   password    = ^(?=.*[0-9])(?=.*[a-z])(?=.*[A-Z])(?=\S+$).{8,}$
-//   alphanumeric = ^\w{10,500}$   (used for usernames)
+//   username    = ^\w{10,150}$   (150 is the username column's max_length)
 
 export interface Requirement {
   label: string
@@ -31,12 +31,21 @@ export function getPasswordRequirements(password: string): Requirement[] {
   ]
 }
 
+// Mirrors MIN_USERNAME_LENGTH / MAX_USERNAME_LENGTH in
+// backend/user_system/constants.py. The maximum is the username column's
+// max_length, so a longer name would fail at the database.
+export const MIN_USERNAME_LENGTH = 10
+export const MAX_USERNAME_LENGTH = 150
+
 export function getUsernameRequirements(username: string): Requirement[] {
   const trimmed = username.trim()
+  // Code points, like Python's len() — a supplementary-plane letter is one
+  // character to the backend but two UTF-16 units to .length.
+  const length = characterCount(trimmed)
   return [
     {
-      label: 'Between 10 and 500 characters',
-      didMeetRequirement: trimmed.length >= 10 && trimmed.length <= 500,
+      label: `Between ${MIN_USERNAME_LENGTH} and ${MAX_USERNAME_LENGTH} characters`,
+      didMeetRequirement: length >= MIN_USERNAME_LENGTH && length <= MAX_USERNAME_LENGTH,
     },
     {
       label: 'Letters, numbers, and underscores only',

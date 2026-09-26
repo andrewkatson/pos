@@ -125,6 +125,35 @@ struct Positive_Only_SocialTests_RelationshipCategories {
         #expect(post.audience == PostAudience.family.rawValue)
     }
 
+    // MARK: - Audience badge (issue #518)
+
+    @Test func badgeTierReadsRawValueAndDefaultsToPublic() {
+        #expect(PostAudience.badgeTier(for: "family") == .family)
+        #expect(PostAudience.badgeTier(for: "following") == .following)
+        // Older responses omit the field; the backend treats that as public.
+        #expect(PostAudience.badgeTier(for: nil) == .public)
+        // A tier this client does not know falls back to public rather than
+        // rendering an empty badge.
+        #expect(PostAudience.badgeTier(for: "coworkers") == .public)
+    }
+
+    @Test func badgeNamesEachTierAndWhoItAdmits() {
+        #expect(PostAudience.public.badgeLabel == "Public")
+        #expect(PostAudience.following.badgeLabel == "Following")
+        #expect(PostAudience.friends.badgeLabel == "Friends")
+        #expect(PostAudience.family.badgeLabel == "Family")
+
+        #expect(PostAudience.public.badgeDescription == "Visible to anyone")
+        #expect(PostAudience.following.badgeDescription == "Visible to people you follow")
+        #expect(PostAudience.friends.badgeDescription == "Visible to friends and family")
+        #expect(PostAudience.family.badgeDescription == "Visible to family only")
+
+        // Every tier has its own symbol, so the icon-only grid badge still
+        // tells the tiers apart.
+        let symbols = PostAudience.allCases.map { $0.badgeSymbol }
+        #expect(Set(symbols).count == symbols.count)
+    }
+
     // MARK: - Feed group filter
 
     @Test func followedFeedFiltersByExactGroup() async throws {

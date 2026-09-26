@@ -1,4 +1,4 @@
-import { render, screen } from '@testing-library/react'
+import { render, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { MemoryRouter, Routes, Route } from 'react-router'
 import { vi, beforeEach, afterEach, test, expect } from 'vitest'
@@ -72,8 +72,10 @@ afterEach(() => {
 test('opens on the Profile tab and renders the bottom navigation', () => {
   renderHome()
   expect(screen.getByRole('heading', { name: 'Your Profile' })).toBeInTheDocument()
-  // Your own profile is one tap away from the bottom bar (issue #347).
-  expect(screen.getByRole('button', { name: /Profile/ })).toBeInTheDocument()
+  // Your own profile is one tap away from the bottom bar (issue #347). Scoped
+  // to the nav: the profile body has its own "Profile options" button (#510).
+  const nav = screen.getByRole('navigation', { name: 'Main navigation' })
+  expect(within(nav).getByRole('button', { name: /Profile/ })).toBeInTheDocument()
   expect(screen.getByRole('button', { name: /Feed/ })).toBeInTheDocument()
   expect(screen.getByRole('button', { name: /Post/ })).toBeInTheDocument()
   expect(screen.getByRole('button', { name: /Settings/ })).toBeInTheDocument()
