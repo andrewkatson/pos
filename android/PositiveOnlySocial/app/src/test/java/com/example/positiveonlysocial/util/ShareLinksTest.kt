@@ -100,6 +100,15 @@ class ShareLinksTest {
     }
 
     @Test
+    fun parseAcceptsAMaximumLengthUsername() {
+        val name = "a".repeat(150)
+        assertEquals(
+            SharedLink.Profile(name),
+            ShareLinks.parseSharedLink("https://smiling.social/profile/$name")
+        )
+    }
+
+    @Test
     fun parseRejectsProfileLinksThatCouldNotBeAUsername() {
         // The segment becomes a navigation argument, so only a well-formed
         // username (10-150 word characters, the backend's rule) is ever routed.
