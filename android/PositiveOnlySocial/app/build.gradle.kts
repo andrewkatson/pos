@@ -17,6 +17,11 @@ android {
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
 
+        buildConfigField(
+            "String",
+            "API_BASE_URL",
+            "\"https://api.smiling.social/user_index/\""
+        )
         // FCM-for-Android push (issues #342/#343). These are the (public)
         // Firebase project identifiers; supply them via -P/gradle.properties to
         // enable push. When any is empty the app initializes no FirebaseApp and
@@ -52,6 +57,9 @@ android {
                 "proguard-rules.pro"
             )
             resValue("string", "is_debug", "true")
+            val debugApiBaseUrl = project.findProperty("API_BASE_URL") as String?
+            ?: "https://api.smiling.social/user_index/"
+            buildConfigField("String","API_BASE_URL","\"$debugApiBaseUrl\"")
         }
     }
     compileOptions {

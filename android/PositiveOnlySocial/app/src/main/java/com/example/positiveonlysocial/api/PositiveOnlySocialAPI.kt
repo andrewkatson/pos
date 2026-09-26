@@ -317,7 +317,8 @@ interface PositiveOnlySocialAPI {
     @GET("users/search/{fragment}/")
     suspend fun searchUsers(
         @Header("Authorization") token: String,
-        @Path("fragment") fragment: String
+        @Path("fragment") fragment: String,
+        @Query("batch") batch: Int = 0
     ): Response<List<User>>
 
     @POST("users/{username}/follow/")
