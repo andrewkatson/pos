@@ -1,6 +1,6 @@
 import os
 import logging
-from .classifier_constants import TEXT_CLASSIFIER_PROMPT
+from .classifier_constants import TEXT_CLASSIFIER_PROMPT, classifier_prompt
 from .classifier_utils import (
     get_available_apis, classify_with_thresholds, ClassificationResult,
     TEXT_API_DISPATCH,
@@ -10,8 +10,14 @@ from ..utils import convert_to_bool
 logger = logging.getLogger(__name__)
 
 
-def is_text_positive(text):
-    """Returns a ClassificationResult (truthy when the text is allowed)."""
+def is_text_positive(text, available_apis=None):
+    """Returns a ClassificationResult (truthy when the text is allowed).
+
+    `available_apis` overrides the cascade order for this call; callers that
+    re-judge content pass the round's order from model_chain (issue #511) so
+    a repeat review starts with a tier that has not judged it yet. The default
+    is the standard cheapest-first order.
+    """
     text = str(text)
     logger.debug("is_text_positive called — text length=%d", len(text))
     testing = os.environ.get("TESTING", False)
@@ -23,21 +29,21 @@ def is_text_positive(text):
         return ClassificationResult(allowed=allowed)
 
     logger.debug("Checking available AI APIs for text classification")
-    available_apis = get_available_apis()
+    available_apis = get_available_apis() if available_apis is None else list(available_apis)
     logger.info("Available APIs for text classification: %s", available_apis)
 
     if not available_apis:
         logger.error("No AI API keys available.")
         return ClassificationResult(allowed=False, provider_failure=True)
 
-    def call_api(api_name):
+    def call_api(api_name, stage):
         try:
             api_func = TEXT_API_DISPATCH.get(api_name)
             if not api_func:
                 logger.error("Unsupported API name: %s", api_name)
                 return None
-            logger.debug("Calling %s API for text classification", api_name)
-            score = api_func(text, TEXT_CLASSIFIER_PROMPT)
+            logger.debug("Calling %s API for text classification (stage %d)", api_name, stage)
+            score = api_func(text, classifier_prompt(TEXT_CLASSIFIER_PROMPT, stage))
             logger.debug("%s API returned: %s", api_name, score)
             return score
         except Exception:

@@ -15,6 +15,10 @@ interface PostGridProps {
   onPostUnsaved?: (postIdentifier: string) => void
   /** Surfaces a failed action to the parent's error banner. */
   onError: (message: string) => void
+  /** Tiles only, no action bar: for a signed-out visitor on a shared profile
+   * (issue #510), who can open a post but has no session to like, save, report
+   * or delete with. Sharing a single post is offered on the post page itself. */
+  readOnly?: boolean
 }
 
 /** Overlay label for the author's own pending/rejected grid tiles (#282). */
@@ -33,7 +37,14 @@ function statusBadgeLabel(post: FeedPost): string | null {
  * else's pending/hidden posts are filtered out server-side — so the badge
  * simply appears when the server sends a status.
  */
-function PostGrid({ posts, currentUsername, onPostDeleted, onPostUnsaved, onError }: PostGridProps) {
+function PostGrid({
+  posts,
+  currentUsername,
+  onPostDeleted,
+  onPostUnsaved,
+  onError,
+  readOnly = false,
+}: PostGridProps) {
   const navigate = useNavigate()
   const { stateFor, toggleLike, toggleSave, openMenu, openMenuPostId, openLikes, dialogs } =
     usePostActions({
@@ -67,20 +78,22 @@ function PostGrid({ posts, currentUsername, onPostDeleted, onPostUnsaved, onErro
                 <PostThumbnail post={post} />
                 {badge && <span className="post-grid__status-badge">{badge}</span>}
               </button>
-              <PostActionBar
-                post={post}
-                state={stateFor(post)}
-                onToggleLike={toggleLike}
-                onToggleSave={toggleSave}
-                onOpenMenu={openMenu}
-                isMenuOpen={openMenuPostId === post.post_identifier}
-                onOpenLikes={openLikes}
-              />
+              {!readOnly && (
+                <PostActionBar
+                  post={post}
+                  state={stateFor(post)}
+                  onToggleLike={toggleLike}
+                  onToggleSave={toggleSave}
+                  onOpenMenu={openMenu}
+                  isMenuOpen={openMenuPostId === post.post_identifier}
+                  onOpenLikes={openLikes}
+                />
+              )}
             </div>
           )
         })}
       </div>
-      {dialogs}
+      {!readOnly && dialogs}
     </>
   )
 }

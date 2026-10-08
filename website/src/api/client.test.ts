@@ -452,3 +452,28 @@ describe('like listings (#478)', () => {
     await expect(client.getPostLikers('post-1', 0)).rejects.toThrow(ApiError)
   })
 })
+
+describe('searchUsers batching (#512)', () => {
+  test('defaults to batch 0 on the users search endpoint with the bearer token', async () => {
+    const fetchFn = vi.fn().mockResolvedValue(jsonResponse(200, []))
+    const client = new ApiClient({ baseUrl: 'https://api.test', token: 'tok', fetchFn })
+
+    await client.searchUsers('bob')
+
+    const [url, init] = fetchFn.mock.calls[0]
+    expect(url).toBe('https://api.test/users/search/bob/?batch=0')
+    expect((init as RequestInit).method).toBe('GET')
+    expect((init as RequestInit).headers).toMatchObject({ Authorization: 'Bearer tok' })
+  })
+
+  test('passes a nonzero batch through as the query string and returns the payload', async () => {
+    const results = [{ username: 'bob10', identity_is_verified: false }]
+    const fetchFn = vi.fn().mockResolvedValue(jsonResponse(200, results))
+    const client = new ApiClient({ baseUrl: 'https://api.test', token: 'tok', fetchFn })
+
+    await expect(client.searchUsers('bob', 3)).resolves.toEqual(results)
+
+    const [url] = fetchFn.mock.calls[0]
+    expect(url).toBe('https://api.test/users/search/bob/?batch=3')
+  })
+})

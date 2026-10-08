@@ -4,7 +4,10 @@ from io import BytesIO
 from PIL import Image
 from ..classifiers.text_classifier import is_text_positive
 from ..classifiers.image_classifier import is_image_positive
-from ..classifiers.classifier_constants import POSITIVE_TEXT, POSITIVE_IMAGE_URL, TEXT_CLASSIFIER_PROMPT, IMAGE_CLASSIFIER_PROMPT
+from ..classifiers.classifier_constants import (
+    POSITIVE_TEXT, POSITIVE_IMAGE_URL, TEXT_CLASSIFIER_PROMPT, IMAGE_CLASSIFIER_PROMPT,
+    classifier_prompt,
+)
 from ..classifiers.classifier_constants import GENERIC_REASON_CODE, REASON_PHRASES
 from ..classifiers.classifier_utils import (
     API_GEMMA, API_GEMINI, API_OPENAI, API_CLAUDE, CASCADE_ORDER,
@@ -161,7 +164,8 @@ class TestClassifiers(PositiveOnlySocialTestCase):
         mock_gemma = MagicMock(return_value=ALLOW_SCORE)
         with patch.dict(_TEXT_DISPATCH, {API_GEMMA: mock_gemma}):
             self.assertTrue(is_text_positive("I am happy"))
-        mock_gemma.assert_called_once_with("I am happy", TEXT_CLASSIFIER_PROMPT)
+        mock_gemma.assert_called_once_with(
+            "I am happy", classifier_prompt(TEXT_CLASSIFIER_PROMPT, 1))
 
     @patch.dict(os.environ, {}, clear=True)
     @patch(_TEXT_AVAILABLE, return_value=[API_GEMMA])
@@ -186,7 +190,8 @@ class TestClassifiers(PositiveOnlySocialTestCase):
         mock_claude = MagicMock(return_value=ALLOW_SCORE)
         with patch.dict(_TEXT_DISPATCH, {API_CLAUDE: mock_claude}):
             self.assertTrue(is_text_positive("Great day"))
-        mock_claude.assert_called_once_with("Great day", TEXT_CLASSIFIER_PROMPT)
+        mock_claude.assert_called_once_with(
+            "Great day", classifier_prompt(TEXT_CLASSIFIER_PROMPT, 1))
 
     # ------------------------------------------------------------------ #
     # Text classifier – zone boundaries                                    #
@@ -435,6 +440,101 @@ class TestClassifiers(PositiveOnlySocialTestCase):
         self.assertFalse(result.provider_failure)
 
     # ------------------------------------------------------------------ #
+    # Which tiers were consulted and which one decided (issue #511)        #
+    # ------------------------------------------------------------------ #
+
+    @patch.dict(os.environ, {}, clear=True)
+    @patch(_TEXT_AVAILABLE, return_value=[API_GEMMA, API_GEMINI])
+    def test_result_names_the_deciding_tier(self, _avail):
+        with patch.dict(_TEXT_DISPATCH, {API_GEMMA: MagicMock(return_value=ALLOW_SCORE)}):
+            result = is_text_positive("I am happy")
+        self.assertEqual(result.consulted, [API_GEMMA])
+        self.assertEqual(result.decided_by, API_GEMMA)
+
+    @patch.dict(os.environ, {}, clear=True)
+    @patch(_TEXT_AVAILABLE, return_value=[API_GEMMA, API_GEMINI, API_OPENAI])
+    def test_escalation_records_every_consulted_tier_and_the_last_as_decider(self, _avail):
+        with patch.dict(_TEXT_DISPATCH, {API_GEMMA: MagicMock(return_value=MIDDLE_SCORE),
+                                         API_GEMINI: MagicMock(return_value=ALLOW_SCORE)}):
+            result = is_text_positive("some text")
+        self.assertEqual(result.consulted, [API_GEMMA, API_GEMINI])
+        self.assertEqual(result.decided_by, API_GEMINI)
+
+    @patch.dict(os.environ, {}, clear=True)
+    @patch(_TEXT_AVAILABLE, return_value=[API_GEMMA, API_GEMINI])
+    def test_an_errored_tier_counts_as_consulted_but_never_decides(self, _avail):
+        with patch.dict(_TEXT_DISPATCH, {API_GEMMA: MagicMock(side_effect=Exception("boom")),
+                                         API_GEMINI: MagicMock(return_value=REJECT_SCORE)}):
+            result = is_text_positive("some text")
+        self.assertEqual(result.consulted, [API_GEMMA, API_GEMINI])
+        self.assertEqual(result.decided_by, API_GEMINI)
+
+    @patch.dict(os.environ, {}, clear=True)
+    @patch(_TEXT_AVAILABLE, return_value=[API_GEMMA, API_GEMINI])
+    def test_an_exhausted_cascade_is_decided_by_its_last_scorer(self, _avail):
+        with patch.dict(_TEXT_DISPATCH, {API_GEMMA: MagicMock(return_value=MIDDLE_SCORE),
+                                         API_GEMINI: MagicMock(return_value=MIDDLE_SCORE)}):
+            result = is_text_positive("some text")
+        self.assertFalse(result)
+        self.assertEqual(result.decided_by, API_GEMINI)
+
+    @patch.dict(os.environ, {}, clear=True)
+    @patch(_TEXT_AVAILABLE, return_value=[API_GEMMA, API_GEMINI])
+    def test_a_provider_failure_has_no_decider(self, _avail):
+        with patch.dict(_TEXT_DISPATCH, {API_GEMMA: MagicMock(side_effect=Exception("boom")),
+                                         API_GEMINI: MagicMock(side_effect=Exception("boom"))}):
+            result = is_text_positive("some text")
+        self.assertTrue(result.provider_failure)
+        self.assertEqual(result.consulted, [API_GEMMA, API_GEMINI])
+        self.assertIsNone(result.decided_by)
+
+    @patch.dict(os.environ, {"TESTING": "True"}, clear=True)
+    def test_testing_mode_involves_no_tier(self):
+        result = is_text_positive(POSITIVE_TEXT)
+        self.assertEqual(result.consulted, [])
+        self.assertIsNone(result.decided_by)
+
+    @patch.dict(os.environ, {}, clear=True)
+    @patch(_TEXT_AVAILABLE, return_value=[API_GEMMA, API_GEMINI])
+    def test_text_classifier_honors_a_caller_supplied_order(self, mock_avail):
+        """A round of re-review passes its own order; the default order is
+        not consulted at all, and the first tier in the given order leads."""
+        mock_gemma = MagicMock(return_value=ALLOW_SCORE)
+        mock_openai = MagicMock(return_value=ALLOW_SCORE)
+        with patch.dict(_TEXT_DISPATCH, {API_GEMMA: mock_gemma, API_OPENAI: mock_openai}):
+            result = is_text_positive("I am happy", available_apis=[API_OPENAI, API_GEMMA])
+        self.assertTrue(result)
+        self.assertEqual(result.decided_by, API_OPENAI)
+        mock_openai.assert_called_once()
+        mock_gemma.assert_not_called()
+        mock_avail.assert_not_called()
+
+    @patch.dict(os.environ, {}, clear=True)
+    @patch(_TEXT_AVAILABLE, return_value=[API_GEMMA])
+    def test_text_classifier_empty_caller_order_is_a_provider_failure(self, _avail):
+        with patch.dict(_TEXT_DISPATCH, {API_GEMMA: MagicMock(return_value=ALLOW_SCORE)}):
+            result = is_text_positive("I am happy", available_apis=[])
+        self.assertTrue(result.provider_failure)
+
+    @patch.dict(os.environ, _AWS_KEYS, clear=True)
+    @patch(_IMAGE_AVAILABLE, return_value=[API_GEMMA, API_GEMINI])
+    @patch('user_system.classifiers.image_classifier.boto3')
+    def test_image_classifier_honors_a_caller_supplied_order(self, mock_boto3, mock_avail):
+        mock_s3 = MagicMock()
+        mock_s3.get_object.return_value = {'Body': BytesIO(_make_fake_image_bytes())}
+        mock_boto3.client.return_value = mock_s3
+        mock_gemma = MagicMock(return_value=ALLOW_SCORE)
+        mock_gemini = MagicMock(return_value=ALLOW_SCORE)
+        with patch.dict(_IMAGE_DISPATCH, {API_GEMMA: mock_gemma, API_GEMINI: mock_gemini}):
+            result = is_image_positive("https://fake_bucket.s3.amazonaws.com/image.png",
+                                       available_apis=[API_GEMINI, API_GEMMA])
+        self.assertTrue(result)
+        self.assertEqual(result.consulted, [API_GEMINI])
+        self.assertEqual(result.decided_by, API_GEMINI)
+        mock_gemma.assert_not_called()
+        mock_avail.assert_not_called()
+
+    # ------------------------------------------------------------------ #
     # Image classifier – testing mode                                      #
     # ------------------------------------------------------------------ #
 
@@ -678,3 +778,189 @@ class TestClassifiers(PositiveOnlySocialTestCase):
             "or 0 if none",
         ]:
             self.assertIn(phrase, IMAGE_CLASSIFIER_PROMPT, msg=f"Missing in IMAGE_CLASSIFIER_PROMPT: {phrase!r}")
+
+    # ------------------------------------------------------------------ #
+    # Line-of-defense stage context (issue #491)                           #
+    # ------------------------------------------------------------------ #
+
+    def test_stage_context_is_prepended_to_the_base_prompt(self):
+        for stage in (1, 2, 3):
+            prompt = classifier_prompt(TEXT_CLASSIFIER_PROMPT, stage)
+            self.assertTrue(prompt.endswith(TEXT_CLASSIFIER_PROMPT),
+                            msg=f"Stage {stage} must keep the base prompt intact at the end")
+            self.assertNotEqual(prompt, TEXT_CLASSIFIER_PROMPT,
+                                msg=f"Stage {stage} must add context")
+
+    def test_each_stage_gets_different_context(self):
+        prompts = {stage: classifier_prompt(TEXT_CLASSIFIER_PROMPT, stage) for stage in (1, 2, 3)}
+        self.assertEqual(len(set(prompts.values())), 3)
+
+    def test_first_stage_is_told_it_may_abstain(self):
+        # The point of stage 1's context: an overconfident cheap model must know
+        # that a middle score escalates rather than being a non-answer, because
+        # a spurious low score here is a non-appealable rejection.
+        prompt = classifier_prompt(TEXT_CLASSIFIER_PROMPT, 1)
+        self.assertIn("first", prompt.lower())
+        self.assertIn("middle of the range", prompt)
+
+    def test_final_stage_is_told_nobody_follows_it(self):
+        # The mirror image of stage 1: at stage 3 a middle score defers nothing,
+        # so the model is told not to retreat there to avoid deciding. It gets
+        # no successor to escalate to, hedged or otherwise.
+        prompt = classifier_prompt(TEXT_CLASSIFIER_PROMPT, 3)
+        self.assertIn("final reviewer", prompt.lower())
+        self.assertIn("no one reviews it after you", prompt.lower())
+        self.assertNotIn("any further reviewer", prompt)
+
+    def test_stage_context_never_reveals_earlier_scores(self):
+        # Passing a predecessor's score would anchor later stages toward the
+        # middle and defeat the point of asking again. Stage 2 is the only stage
+        # that knows a predecessor existed, and only that it was unsure.
+        prompt = classifier_prompt(TEXT_CLASSIFIER_PROMPT, 2)
+        self.assertIn("not told their answer", prompt)
+
+    def test_unknown_stage_returns_the_base_prompt_unchanged(self):
+        # The cascade never consults a 4th reviewer, but an unexpected stage
+        # should degrade to the plain prompt rather than raise.
+        self.assertEqual(classifier_prompt(TEXT_CLASSIFIER_PROMPT, 4), TEXT_CLASSIFIER_PROMPT)
+        self.assertEqual(classifier_prompt(TEXT_CLASSIFIER_PROMPT, 0), TEXT_CLASSIFIER_PROMPT)
+
+    def test_stage_context_leaves_the_text_placeholder_formattable(self):
+        # call_text_openrouter formats the prompt afterwards; stage context must
+        # not introduce braces of its own or that .format() call blows up.
+        formatted = classifier_prompt(TEXT_CLASSIFIER_PROMPT, 1).format(text="hello")
+        self.assertIn('"hello"', formatted)
+
+    @patch.dict(os.environ, {}, clear=True)
+    @patch(_TEXT_AVAILABLE, return_value=[API_GEMMA, API_GEMINI, API_OPENAI])
+    def test_each_text_tier_is_told_which_line_of_defense_it_is(self, _avail):
+        mocks = {api: MagicMock(return_value=MIDDLE_SCORE)
+                 for api in (API_GEMMA, API_GEMINI, API_OPENAI)}
+        with patch.dict(_TEXT_DISPATCH, mocks):
+            is_text_positive("ambiguous text")
+        for stage, api in enumerate((API_GEMMA, API_GEMINI, API_OPENAI), start=1):
+            mocks[api].assert_called_once_with(
+                "ambiguous text", classifier_prompt(TEXT_CLASSIFIER_PROMPT, stage))
+
+    @patch.dict(os.environ, {}, clear=True)
+    @patch(_TEXT_AVAILABLE, return_value=[API_GEMMA, API_GEMINI])
+    def test_a_skipped_tier_does_not_consume_a_stage(self, _avail):
+        # Stage is the reviewer's position among the scores that *counted*, not
+        # its index in the cascade order: the decision rules key on that same
+        # number, so a tier that errors must leave the next one as stage 1.
+        mock_gemini = MagicMock(return_value=ALLOW_SCORE)
+        with patch.dict(_TEXT_DISPATCH, {API_GEMMA: MagicMock(side_effect=Exception("boom")),
+                                         API_GEMINI: mock_gemini}):
+            self.assertTrue(is_text_positive("I am happy"))
+        mock_gemini.assert_called_once_with(
+            "I am happy", classifier_prompt(TEXT_CLASSIFIER_PROMPT, 1))
+
+    @patch.dict(os.environ, {}, clear=True)
+    @patch(_TEXT_AVAILABLE, return_value=[API_GEMMA, API_GEMINI, API_OPENAI])
+    def test_an_unparseable_tier_does_not_consume_a_stage(self, _avail):
+        # Same rule for a tier that answers but unusably (None score): the next
+        # tier inherits the stage it failed to fill.
+        mock_openai = MagicMock(return_value=ALLOW_SCORE)
+        with patch.dict(_TEXT_DISPATCH, {API_GEMMA: MagicMock(return_value=MIDDLE_SCORE),
+                                         API_GEMINI: MagicMock(return_value=None),
+                                         API_OPENAI: mock_openai}):
+            self.assertTrue(is_text_positive("ambiguous text"))
+        mock_openai.assert_called_once_with(
+            "ambiguous text", classifier_prompt(TEXT_CLASSIFIER_PROMPT, 2))
+
+    @patch.dict(os.environ, _AWS_KEYS, clear=True)
+    @patch(_IMAGE_AVAILABLE, return_value=[API_GEMMA, API_GEMINI])
+    @patch("user_system.classifiers.image_classifier.boto3")
+    def test_each_image_tier_is_told_which_line_of_defense_it_is(self, mock_boto3, _avail):
+        mock_s3 = MagicMock()
+        mock_boto3.client.return_value = mock_s3
+        mock_body = MagicMock()
+        mock_body.read.return_value = _make_fake_image_bytes()
+        mock_s3.get_object.return_value = {'Body': mock_body}
+
+        mocks = {api: MagicMock(return_value=MIDDLE_SCORE) for api in (API_GEMMA, API_GEMINI)}
+        with patch.dict(_IMAGE_DISPATCH, mocks):
+            is_image_positive("some_image.png")
+        for stage, api in enumerate((API_GEMMA, API_GEMINI), start=1):
+            self.assertEqual(mocks[api].call_args[0][1],
+                             classifier_prompt(IMAGE_CLASSIFIER_PROMPT, stage))
+
+    def test_stage_context_cannot_hijack_the_answer_parser(self):
+        # parse_probability_and_rule takes the LAST "score,rule" pair in a
+        # reply, so a model that echoes its prompt before answering still
+        # parses correctly. That only holds while the stage context itself
+        # contains no such pair — otherwise an echoing model could have the
+        # preamble read back as its verdict.
+        for stage in (1, 2, 3):
+            context = classifier_prompt("", stage)
+            self.assertIsNone(parse_probability_and_rule(context)[0],
+                              msg=f"Stage {stage} context parses as a score")
+
+    def test_stage_context_never_promises_a_stronger_next_reviewer(self):
+        # Cheapest-first ordering only holds for a first look. A later round is
+        # reordered to put fresh tiers first, and once every tier has decided it
+        # is rotated from a random start (model_chain.round_order), so stage 2
+        # can be a *cheaper* tier than stage 1. Promising a better successor
+        # would be false there and would bias stage 1 toward abstaining on it.
+        for stage in (1, 2, 3):
+            context = classifier_prompt("", stage).lower()
+            for claim in ("more capable", "stronger", "better reviewer", "smarter"):
+                self.assertNotIn(claim, context,
+                                 msg=f"Stage {stage} context claims a better next reviewer: {claim!r}")
+
+    def test_stage_context_never_asserts_that_a_next_reviewer_exists(self):
+        # A middle score is not always an escalation: with a short cascade it is
+        # the last word (an appealable rejection), and even with a full cascade
+        # every remaining tier might error and leave the score standing. Whether
+        # a later tier returns a usable score is unknowable when the prompt is
+        # built, so stages 1 and 2 hedge ("any further reviewer") rather than
+        # promising a successor they cannot guarantee.
+        for stage in (1, 2):
+            context = classifier_prompt("", stage)
+            self.assertIn("any further reviewer", context,
+                          msg=f"Stage {stage} should hedge about the next reviewer")
+            for claim in ("will then look", "passes it to a final reviewer",
+                          "another reviewer will"):
+                self.assertNotIn(claim, context,
+                                 msg=f"Stage {stage} asserts a successor exists: {claim!r}")
+
+    @patch.dict(os.environ, {}, clear=True)
+    @patch(_TEXT_AVAILABLE, return_value=[API_GEMMA])
+    def test_a_lone_tier_is_still_addressed_as_the_first_reviewer(self, _avail):
+        # The lone tier really is stage 1 — its middle score ends the cascade as
+        # an appealable rejection, with no second reviewer despite the prompt's
+        # "up to three". The hedged wording above is what keeps that honest.
+        mock_gemma = MagicMock(return_value=MIDDLE_SCORE)
+        with patch.dict(_TEXT_DISPATCH, {API_GEMMA: mock_gemma}):
+            result = is_text_positive("ambiguous text")
+        mock_gemma.assert_called_once_with(
+            "ambiguous text", classifier_prompt(TEXT_CLASSIFIER_PROMPT, 1))
+        self.assertFalse(result)
+        self.assertTrue(result.appealable)
+
+    def test_final_stage_does_not_equate_hedging_with_a_confident_rejection(self):
+        # A middle score at stage 3 is an APPEALABLE rejection; a reject-zone
+        # score is a final one (see the cascade test below). Telling the last
+        # reviewer the two come to the same thing would push genuine
+        # uncertainty into false confidence and strip the author's appeal, so
+        # the prompt says outright that they differ.
+        prompt = classifier_prompt(TEXT_CLASSIFIER_PROMPT, 3)
+        self.assertIn("not treated the same as a confident rejection", prompt)
+        for claim in ("just as a confident rejection would", "rejects it just as"):
+            self.assertNotIn(claim, prompt,
+                             msg=f"Stage 3 flattens the appealability distinction: {claim!r}")
+
+    @patch.dict(os.environ, {}, clear=True)
+    @patch(_TEXT_AVAILABLE, return_value=[API_GEMMA, API_GEMINI, API_OPENAI])
+    def test_stage_three_middle_is_appealable_but_reject_zone_is_not(self, _avail):
+        # The behaviour the stage-3 wording has to stay honest about.
+        for third_score, expected_appealable in ((MIDDLE_SCORE, True), (REJECT_SCORE, False)):
+            with self.subTest(third_score=third_score):
+                with patch.dict(_TEXT_DISPATCH, {
+                    API_GEMMA: MagicMock(return_value=MIDDLE_SCORE),
+                    API_GEMINI: MagicMock(return_value=MIDDLE_SCORE),
+                    API_OPENAI: MagicMock(return_value=third_score),
+                }):
+                    result = is_text_positive("borderline text")
+                self.assertFalse(result)
+                self.assertEqual(result.appealable, expected_appealable)

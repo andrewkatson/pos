@@ -325,6 +325,63 @@ struct Positive_Only_SocialTests_PostActionsViewModel {
         #expect(refreshed.isReported == false)
     }
 
+    // --- Comments Lock Tests (issue #492) ---
+
+    @Test func testToggleCommentsLock_OnOwnPost_LocksThenUnlocks() async throws {
+        let account = "lockOwnPost_account"
+        let token = try await setupLoggedInUser(username: "selfLocker", account: account)
+        _ = try await stubAPI.makePost(sessionManagementToken: token, imageURL: "img/1", caption: "Mine")
+
+        let data = try await stubAPI.getPostsForUser(sessionManagementToken: token, username: "selfLocker", batch: 0)
+        let post = try unwrap(try JSONDecoder().decode([Post].self, from: data).first, "the user's own post")
+
+        let sut = PostActionsViewModel(api: stubAPI, keychainHelper: keychainHelper, account: account)
+        #expect(sut.state(for: post).commentsDisabled == false)
+
+        sut.toggleCommentsLock(post)
+        #expect(sut.state(for: post).commentsDisabled == true, "Optimistic update applies first")
+        await yield()
+        #expect(sut.alertMessage == nil)
+        let locked = try await stubAPI.getPostsForUser(sessionManagementToken: token, username: "selfLocker", batch: 0)
+        #expect(try unwrap(try JSONDecoder().decode([Post].self, from: locked).first, "the locked post").commentsDisabled == true)
+
+        sut.toggleCommentsLock(post)
+        #expect(sut.state(for: post).commentsDisabled == false)
+        await yield()
+        #expect(sut.alertMessage == nil)
+    }
+
+    @Test func testToggleCommentsLock_OnSomeoneElsesPost_DoesNothing() async throws {
+        let account = "lockOthersPost_account"
+        let viewerToken = try await setupLoggedInUser(username: "notTheAuthor", account: account)
+        let authorToken = try await registerUserAndGetToken(username: "lockAuthor")
+        _ = try await stubAPI.makePost(sessionManagementToken: authorToken, imageURL: "img/1", caption: "Theirs")
+
+        let post = try await firstFeedPost(token: viewerToken)
+        let sut = PostActionsViewModel(api: stubAPI, keychainHelper: keychainHelper, account: account)
+
+        sut.toggleCommentsLock(post)
+        #expect(sut.state(for: post).commentsDisabled == false)
+    }
+
+    @Test func testCommentsLockToggledOnDetailScreen_ReachesTheRow() async throws {
+        let account = "lockFromDetail_account"
+        let token = try await setupLoggedInUser(username: "detailLocker", account: account)
+        _ = try await stubAPI.makePost(sessionManagementToken: token, imageURL: "img/1", caption: "Mine")
+
+        let data = try await stubAPI.getPostsForUser(sessionManagementToken: token, username: "detailLocker", batch: 0)
+        let post = try unwrap(try JSONDecoder().decode([Post].self, from: data).first, "the user's own post")
+
+        let center = NotificationCenter()
+        let sut = PostActionsViewModel(api: stubAPI, keychainHelper: keychainHelper, account: account, notificationCenter: center)
+
+        // PostDetailViewModel announces a successful lock this way.
+        center.post(name: .postCommentsDisabledChanged, object: post.id, userInfo: ["commentsDisabled": true])
+        await yield()
+
+        #expect(sut.state(for: post).commentsDisabled == true)
+    }
+
     // --- Delete Tests ---
 
     @Test func testDelete_DropsThePostFromLoadedListsWithoutReloading() async throws {

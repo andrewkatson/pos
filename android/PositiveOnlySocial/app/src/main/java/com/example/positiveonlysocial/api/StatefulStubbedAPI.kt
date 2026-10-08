@@ -147,6 +147,9 @@ class StatefulStubbedAPI : PositiveOnlySocialAPI {
         var reasonCode: String? = null,
         // Who may see the post (issue #392).
         var audience: String = "public",
+        // Whether the author has turned off commenting on this post (issue
+        // #492), either at creation or afterward via lockComments/unlockComments.
+        var commentsDisabled: Boolean = false,
         val likes: MutableSet<String> = mutableSetOf(), // Set of User IDs
         // User ids who saved this post (issue #193/#412).
         val savers: MutableSet<String> = mutableSetOf(),
@@ -841,6 +844,7 @@ class StatefulStubbedAPI : PositiveOnlySocialAPI {
         // Nil / unknown audience falls back to public, matching the backend (#392).
         newPost.audience = PostAudience.entries.firstOrNull { it.value == request.audience }?.value
             ?: PostAudience.PUBLIC.value
+        newPost.commentsDisabled = request.commentsDisabled
         // The real backend classifies asynchronously in a worker; the stub
         // resolves instantly (like the backend's eager dev mode) but still
         // returns the pending response, so clients exercise the reconcile path.
@@ -854,6 +858,7 @@ class StatefulStubbedAPI : PositiveOnlySocialAPI {
                 status = "pending",
                 hidden = true,
                 hiddenReason = "pending_classification",
+                commentsDisabled = newPost.commentsDisabled,
                 message = "Your post is being reviewed and will be visible to others once it is approved."
             )
         )
@@ -894,6 +899,24 @@ class StatefulStubbedAPI : PositiveOnlySocialAPI {
 
         posts.remove(post)
         return Response.success(GenericResponse("Post deleted", null))
+    }
+
+    // Owner-only: stops new comments/replies on a post (issue #492).
+    override suspend fun lockComments(token: String, postId: String): Response<SetCommentsDisabledResponse> {
+        val user = getAuthorizedUser(token) ?: return errorGeneric(401, "Unauthorized")
+        val post = posts.find { it.postIdentifier == postId && it.authorId == user.id }
+            ?: return errorGeneric(400, "No post with that identifier by that user")
+        post.commentsDisabled = true
+        return Response.success(SetCommentsDisabledResponse(commentsDisabled = true))
+    }
+
+    // Owner-only: re-allows new comments on a post previously locked (issue #492).
+    override suspend fun unlockComments(token: String, postId: String): Response<SetCommentsDisabledResponse> {
+        val user = getAuthorizedUser(token) ?: return errorGeneric(401, "Unauthorized")
+        val post = posts.find { it.postIdentifier == postId && it.authorId == user.id }
+            ?: return errorGeneric(400, "No post with that identifier by that user")
+        post.commentsDisabled = false
+        return Response.success(SetCommentsDisabledResponse(commentsDisabled = false))
     }
 
     override suspend fun reportPost(token: String, postId: String, request: ReportRequest): Response<GenericResponse> {
@@ -1099,7 +1122,8 @@ class StatefulStubbedAPI : PositiveOnlySocialAPI {
             authorProfileImageUrl = avatar,
             authorProfileImageOriginalUrl = avatar,
             tags = post.tags,
-            audience = post.audience
+            audience = post.audience,
+            commentsDisabled = post.commentsDisabled
         )
     }
 
@@ -1142,7 +1166,8 @@ class StatefulStubbedAPI : PositiveOnlySocialAPI {
             authorProfileImageUrl = avatar,
             authorProfileImageOriginalUrl = avatar,
             tags = post.tags,
-            audience = post.audience
+            audience = post.audience,
+            commentsDisabled = post.commentsDisabled
         ))
     }
 
@@ -1193,7 +1218,10 @@ class StatefulStubbedAPI : PositiveOnlySocialAPI {
 
     override suspend fun commentOnPost(token: String, postId: String, request: CommentRequest): Response<CommentResponse> {
         val user = getAuthorizedUser(token) ?: return errorGeneric(401, "Unauthorized")
-        if (!posts.any { it.postIdentifier == postId }) return errorGeneric(404, "Post not found")
+        val post = posts.find { it.postIdentifier == postId } ?: return errorGeneric(404, "Post not found")
+        // The author may disable commenting at creation or lock it afterward
+        // (issue #492). Existing comments stay visible; only new ones blocked.
+        if (post.commentsDisabled) return errorGeneric(403, "Comments are disabled for this post")
 
         // Create Thread
         val thread = CommentThreadMock(postId = postId)
@@ -1212,6 +1240,10 @@ class StatefulStubbedAPI : PositiveOnlySocialAPI {
         val user = getAuthorizedUser(token) ?: return errorGeneric(401, "Unauthorized")
         val thread = commentThreads.find { it.threadIdentifier == threadId && it.postId == postId }
             ?: return errorGeneric(404, "Thread not found")
+        // The author may disable commenting at creation or lock it afterward
+        // (issue #492). Existing replies stay visible; only new ones blocked.
+        val post = posts.find { it.postIdentifier == thread.postId }
+        if (post?.commentsDisabled == true) return errorGeneric(403, "Comments are disabled for this post")
 
         val comment = CommentMock(
             authorId = user.id, body = request.commentText, bodyFormatting = request.bodyFormatting,

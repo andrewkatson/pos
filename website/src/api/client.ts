@@ -42,6 +42,7 @@ import type {
   PostDetails,
   PostStatusResponse,
   ProfileDetails,
+  PublicProfileDetails,
   RegisterDeviceRequest,
   RegisterRequest,
   RemoveProfilePhotoResponse,
@@ -50,6 +51,7 @@ import type {
   RequestResetRequest,
   ResendVerificationEmailRequest,
   ResetPasswordRequest,
+  SetCommentsDisabledResponse,
   SetProfilePhotoRequest,
   SetProfilePhotoResponse,
   SetBioRequest,
@@ -527,6 +529,22 @@ export class ApiClient implements PositiveOnlySocialAPI {
     })
   }
 
+  lockComments(postIdentifier: string): Promise<SetCommentsDisabledResponse> {
+    return this.request<SetCommentsDisabledResponse>(
+      'POST',
+      `/posts/${postIdentifier}/comments/lock/`,
+      { auth: true },
+    )
+  }
+
+  unlockComments(postIdentifier: string): Promise<SetCommentsDisabledResponse> {
+    return this.request<SetCommentsDisabledResponse>(
+      'POST',
+      `/posts/${postIdentifier}/comments/unlock/`,
+      { auth: true },
+    )
+  }
+
   reportPost(postIdentifier: string, reason: string): Promise<MessageResponse> {
     return this.request<MessageResponse>('POST', `/posts/${postIdentifier}/report/`, {
       auth: true,
@@ -628,6 +646,21 @@ export class ApiClient implements PositiveOnlySocialAPI {
     return this.request<Comment[]>(
       'GET',
       `/public/threads/${commentThreadIdentifier}/comments/${batch}/`,
+    )
+  }
+
+  // A shared profile (issue #510), likewise sent without a token.
+  getPublicProfile(username: string): Promise<PublicProfileDetails> {
+    return this.request<PublicProfileDetails>(
+      'GET',
+      `/public/profiles/${encodeURIComponent(username)}/details/`,
+    )
+  }
+
+  getPublicPostsForUser(username: string, batch: number): Promise<FeedPost[]> {
+    return this.request<FeedPost[]>(
+      'GET',
+      `/public/profiles/${encodeURIComponent(username)}/posts/${batch}/`,
     )
   }
 

@@ -1,5 +1,11 @@
 import { afterEach, describe, expect, test, vi } from 'vitest'
-import { commentShareUrl, postShareUrl, shareLink, sharedCommentId } from './shareLink'
+import {
+  commentShareUrl,
+  postShareUrl,
+  profileShareUrl,
+  shareLink,
+  sharedCommentId,
+} from './shareLink'
 
 // jsdom serves window.location.origin as http://localhost:3000 by default.
 const ORIGIN = window.location.origin
@@ -16,6 +22,16 @@ describe('postShareUrl / commentShareUrl', () => {
 
   test('comment URL appends a #comment-<id> fragment to the post URL', () => {
     expect(commentShareUrl('abc-123', 'def-456')).toBe(`${ORIGIN}/post/abc-123#comment-def-456`)
+  })
+})
+
+describe('profileShareUrl', () => {
+  test('profile URL is the origin-rooted /profile/:username route (#510)', () => {
+    expect(profileShareUrl('sunny_side_up')).toBe(`${ORIGIN}/profile/sunny_side_up`)
+  })
+
+  test('encodes the username so the link stays well-formed', () => {
+    expect(profileShareUrl('a b/c')).toBe(`${ORIGIN}/profile/a%20b%2Fc`)
   })
 })
 

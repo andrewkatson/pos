@@ -454,6 +454,12 @@ class Post(models.Model):
     # exactly as they did: visible to everyone. See visibility.visible_posts.
     audience = models.CharField(max_length=16, choices=POST_AUDIENCE_CHOICES,
                                 default=POST_AUDIENCE_PUBLIC)
+    # Whether the author has turned off commenting on this post (issue #492),
+    # either at creation time or afterward via lock_comments/unlock_comments.
+    # Defaults to False so every pre-existing post keeps accepting comments.
+    # Only gates *new* top-level comments and replies (comment_on_post /
+    # reply_to_comment_thread) — existing comments stay visible either way.
+    comments_disabled = models.BooleanField(default=False)
     hidden = models.BooleanField(default=False)
     hidden_reason = models.TextField(choices=HIDDEN_REASON_CHOICES, default=HIDDEN_REASON_NONE, blank=True)
     # Hashtags parsed from the caption at creation time (issue #379). Stored
@@ -483,6 +489,16 @@ class Post(models.Model):
     # budget is spent, so the operator alert fires exactly once per post
     # instead of on every cron run.
     classification_alerted = models.BooleanField(default=False)
+    # Which cascade tiers have judged this post (issue #511), so each later
+    # round of review — a retry, a report-triggered re-review — starts with a
+    # model that has not. `classification_models_tried` is every tier consulted;
+    # `classification_model_chain` is the tiers whose score settled a verdict,
+    # in order, its last entry being the final determiner of the latest
+    # decision. Both cover the current cycle only and are cleared together once
+    # every tier has decided once. Maintained by classifiers/model_chain.py;
+    # never exposed to users.
+    classification_models_tried = models.JSONField(default=list, blank=True)
+    classification_model_chain = models.JSONField(default=list, blank=True)
 
     @property
     def classification_status(self):
@@ -657,6 +673,11 @@ class Comment(models.Model):
                                 default=POST_AUDIENCE_PUBLIC)
     hidden = models.BooleanField(default=False)
     hidden_reason = models.TextField(choices=HIDDEN_REASON_CHOICES, default=HIDDEN_REASON_NONE, blank=True)
+    # The same per-content model chain as on Post (issue #511): a comment is
+    # classified once inline at creation and again by the report re-review, and
+    # the second look must not fall to the tier that made the first call.
+    classification_models_tried = models.JSONField(default=list, blank=True)
+    classification_model_chain = models.JSONField(default=list, blank=True)
 
 
 # A report on a comment

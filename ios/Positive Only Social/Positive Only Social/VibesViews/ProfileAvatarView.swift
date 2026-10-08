@@ -1,6 +1,6 @@
 //
 //  ProfileAvatarView.swift
-//  Positive Only Social
+//  Vibes
 //
 //  A user's profile photo (issue #7), rendered as a circular avatar next to
 //  their name everywhere it appears — feed rows, post detail, comment rows,
@@ -44,6 +44,7 @@ struct ProfileAvatarView: View {
     // Kingfisher load the new URL. Flips at most once, so a failing original
     // lands on the placeholder rather than looping.
     @State private var useOriginal = false
+    @Environment(\.displayScale) private var displayScale
 
     var body: some View {
         avatarContent
@@ -67,7 +68,8 @@ struct ProfileAvatarView: View {
     private var avatarContent: some View {
         if let imageUrl {
             let urlString = useOriginal ? (originalImageUrl ?? imageUrl) : imageUrl
-            KFImage(URL(string: urlString))
+            KFImage(source: SignedImageURL.source(for: urlString))
+                .downsampled(toMaxPixelSize: ImageDownsampling.maxPixelSize(toFill: size, scale: displayScale))
                 // Rides out the just-approved window where the compressed copy
                 // isn't in the bucket yet; only HTTP errors are retried, not
                 // cancellations.

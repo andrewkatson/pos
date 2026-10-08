@@ -6,7 +6,11 @@
         "components": [
           {
             "/": "/post/*",
-            "comment": "Shared post links (issue #382) open the app; every other route stays on the website."
+            "comment": "Shared post links (issue #382) open the app."
+          },
+          {
+            "/": "/profile/*",
+            "comment": "Shared profile links (issue #510) open the app too; every other route stays on the website."
           }
         ]
       }

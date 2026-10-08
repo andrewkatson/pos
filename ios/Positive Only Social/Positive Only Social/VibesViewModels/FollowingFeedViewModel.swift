@@ -1,6 +1,6 @@
 //
 //  FollowingFeedViewModel.swift
-//  Positive Only Social
+//  Vibes
 //
 //  Created by Andrew Katson on 10/26/25.
 //

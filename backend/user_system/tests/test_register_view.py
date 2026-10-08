@@ -10,7 +10,7 @@ from .test_constants import (
     invalid_email, invalid_bool, false, true
 )
 from .test_parent_case import PositiveOnlySocialTestCase
-from ..constants import Fields, Patterns, AGE_RESTRICTED, MINIMUM_AGE
+from ..constants import Fields, Params, Patterns, AGE_RESTRICTED, MINIMUM_AGE, MAX_USERNAME_LENGTH
 from ..input_validator import is_valid_pattern
 
 import os
@@ -55,6 +55,45 @@ class RegisterTests(PositiveOnlySocialTestCase):
         response = self.client.post(self.url, data=data, content_type='application/json')
 
         self.assertEqual(response.status_code, 400)
+
+    @patch.dict(os.environ, {"TESTING": "True"}, clear=True)
+    def test_username_at_column_max_length_registers(self):
+        """A 150-character username — the username column's max_length — is
+        the longest one that can be stored, so it must register."""
+        data = self.valid_data.copy()
+        data['username'] = self.local_username.ljust(MAX_USERNAME_LENGTH, 'a')
+        self.assertEqual(len(data['username']), 150)
+
+        response = self.client.post(self.url, data=data, content_type='application/json')
+
+        self.assertEqual(response.status_code, 201)
+        self.assertTrue(get_user_model().objects.filter(username=data['username']).exists())
+
+    @patch.dict(os.environ, {"TESTING": "True"}, clear=True)
+    def test_username_longer_than_column_is_a_validation_error(self):
+        """A 151-character username used to pass validation (the pattern
+        allowed 500) and then fail at the database on Postgres. It must be a
+        plain 400 naming the username, and no account must be created."""
+        data = self.valid_data.copy()
+        data['username'] = self.local_username.ljust(MAX_USERNAME_LENGTH + 1, 'a')
+
+        response = self.client.post(self.url, data=data, content_type='application/json')
+
+        self.assertEqual(response.status_code, 400)
+        self.assertIn(Params.username, response.json()['error'])
+        self.assertFalse(get_user_model().objects.filter(username=data['username']).exists())
+
+    @patch.dict(os.environ, {"TESTING": "True"}, clear=True)
+    def test_username_with_trailing_newline_is_a_validation_error(self):
+        """`$` would match before the newline, letting a 151-character name
+        (150 word characters plus "\n") through to the database."""
+        data = self.valid_data.copy()
+        data['username'] = self.local_username.ljust(MAX_USERNAME_LENGTH, 'a') + '\n'
+
+        response = self.client.post(self.url, data=data, content_type='application/json')
+
+        self.assertEqual(response.status_code, 400)
+        self.assertIn(Params.username, response.json()['error'])
 
     def test_invalid_email_returns_bad_response(self):
         """

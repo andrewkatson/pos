@@ -358,7 +358,9 @@ final class Positive_Only_SocialUITests: XCTestCase {
     }
     
     private func assertOnNewPostView(app: XCUIApplication) {
-        XCTAssertTrue(app.buttons["SelectAPhotoPicker"].waitForExistence(timeout: TestConstants.shortTimeout), "Select a photo picker not present")
+        // The composer opens on the Text tab (issue #520), so the photo picker
+        // isn't on screen yet; the post-type switch is the reliable marker.
+        XCTAssertTrue(app.segmentedControls["PostTypePicker"].waitForExistence(timeout: TestConstants.shortTimeout), "Post type picker not present")
         XCTAssertTrue(app.textViews["CaptionTextEditor"].waitForExistence(timeout: TestConstants.shortTimeout), "Caption text editor not present")
         XCTAssertTrue(app.buttons["SharePostButton"].waitForExistence(timeout: TestConstants.shortTimeout), "Share post button not present")
     }
@@ -678,13 +680,37 @@ final class Positive_Only_SocialUITests: XCTestCase {
         captionTextEditor.tap()
         typeText(element: captionTextEditor, text: postText)
         
+        // Switch to an image post (issue #520); the photo picker only exists
+        // on the Image tab.
+        let postTypePicker = app.segmentedControls["PostTypePicker"]
+        XCTAssertTrue(postTypePicker.waitForExistence(timeout: TestConstants.shortTimeout))
+        let imageSegment = postTypePicker.buttons["Image"]
+        XCTAssertTrue(imageSegment.waitForExistence(timeout: TestConstants.shortTimeout))
+        imageSegment.tap()
+
         // Find the photo picker's main view (identifier may vary)
         let picker = app.buttons["SelectAPhotoPicker"]
         XCTAssertTrue(picker.waitForExistence(timeout: TestConstants.shortTimeout))
         picker.tap()
 
+        // With the post-type switch and the chosen photo above it — and the
+        // keyboard still up from typing the caption — the Share button now sits
+        // below the keyboard. The keyboard shrinks the Form's bounds and Form
+        // is a lazy list, so the row isn't even in the accessibility tree
+        // (#520). app.swipeUp() can't help: on an iPhone 16 the screen centre
+        // is the caption TextEditor, whose own scroll view swallows the pan, so
+        // the form never moved (scroll bar stayed at 0% in the xcresult). Drag
+        // on the chosen photo instead: a plain image row hands the pan to the
+        // Form, one real scroll dismisses the keyboard
+        // (scrollDismissesKeyboard(.immediately)), the bounds grow back and the
+        // Share row appears. scrollIntoView then only has to nudge it, if at all.
+        let selectedPhoto = app.images["SelectedPhotoImage"]
+        XCTAssertTrue(selectedPhoto.waitForExistence(timeout: TestConstants.shortTimeout),
+                      "Picked photo should be shown above the picker")
+        selectedPhoto.swipeUp()
+        poll(until: { app.keyboards.count == 0 })
         let sharePostButton = app.buttons["SharePostButton"]
-        XCTAssertTrue(sharePostButton.waitForExistence(timeout: TestConstants.shortTimeout))
+        scrollIntoView(app: app, element: sharePostButton)
         sharePostButton.tap()
 
         // Sharing shows a "Success!" alert; its OK button is what returns the

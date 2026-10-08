@@ -377,6 +377,34 @@ struct Positive_Only_SocialTests_ProfileViewModel {
 
     // --- Own Profile (issue #347) ---
 
+    @Test func testShareProfile_PresentsTheProfilesWebsiteLink() async throws {
+        let (token, user) = try await registerUser(username: "shareProfileUser")
+        let account = "shareProfileUser_account"
+        try await setupLoggedInUser(user: user, token: token, account: account)
+        let sut = ProfileViewModel(user: user, api: stubAPI, keychainHelper: keychainHelper, account: account)
+        #expect(sut.profileShareItem == nil)
+
+        // The options menu's Share Profile (issue #510) hands the view the link
+        // to present in the native share sheet.
+        sut.shareProfile()
+
+        #expect(sut.profileShareItem?.url.absoluteString == "https://smiling.social/profile/shareProfileUser")
+    }
+
+    @Test func testShareProfile_WorksOnSomeoneElsesProfileToo() async throws {
+        // Share has no ownership condition: the viewer and the profile differ.
+        let (token, viewer) = try await registerUser(username: "shareViewer")
+        let (_, other) = try await registerUser(username: "shareSubject")
+        let account = "shareViewer_account"
+        try await setupLoggedInUser(user: viewer, token: token, account: account)
+        let sut = ProfileViewModel(user: other, api: stubAPI, keychainHelper: keychainHelper, account: account)
+        #expect(sut.isOwnProfile == false)
+
+        sut.shareProfile()
+
+        #expect(sut.profileShareItem?.url.absoluteString == "https://smiling.social/profile/shareSubject")
+    }
+
     @Test func testForCurrentUser_BuildsTheSignedInUsersOwnProfile() async throws {
         let (token, user) = try await registerUser(username: "ownProfileUser")
         let account = "ownProfileUser_account"

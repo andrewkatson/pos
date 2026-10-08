@@ -1,6 +1,6 @@
 //
 //  CaptionTileView.swift
-//  Positive Only Social
+//  Vibes
 //
 
 import SwiftUI

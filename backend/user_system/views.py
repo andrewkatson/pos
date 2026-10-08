@@ -26,7 +26,7 @@ from django_ratelimit.decorators import ratelimit
 from django_ratelimit.exceptions import Ratelimited
 
 from . import link_preview, moderation, tasks
-from .classifiers import image_classifier, text_classifier, interest_classifier
+from .classifiers import image_classifier, text_classifier, interest_classifier, model_chain
 from .classifiers.classifier_constants import REASON_PHRASES, GENERIC_REASON_CODE
 from .classifiers.prefilter import prefilter_text
 from .constants import Patterns, Params, POST_BATCH_SIZE, \
@@ -766,7 +766,7 @@ def register(request):
     date_of_birth_str = data.get('date_of_birth')
 
     invalid_fields = []
-    if not username or not is_valid_pattern(username, Patterns.alphanumeric):
+    if not username or not is_valid_pattern(username, Patterns.username):
         invalid_fields.append(Params.username)
     if not email or not is_valid_pattern(email, Patterns.email):
         invalid_fields.append(Params.email)
@@ -965,7 +965,7 @@ def login_user(request):
 
     invalid_fields = []
     if not username_or_email or (
-            not is_valid_pattern(username_or_email, Patterns.alphanumeric) and not is_valid_pattern(username_or_email,
+            not is_valid_pattern(username_or_email, Patterns.username) and not is_valid_pattern(username_or_email,
                                                                                                     Patterns.email)):
         invalid_fields.append(Params.username_or_email)
     if not password or not is_valid_pattern(password, Patterns.login_password):
@@ -1013,9 +1013,10 @@ def _google_username_base(email):
 
     A Google account brings no username, so one is derived from the email local
     part — familiar to its owner and usually free. Usernames must match
-    Patterns.alphanumeric, so everything that is not a word character is
-    stripped; the length is trimmed well short of the 500-character ceiling to
-    leave room for a numeric suffix.
+    Patterns.username, so everything that is not a word character is
+    stripped; the length is trimmed well short of the 150-character ceiling
+    (MAX_USERNAME_LENGTH, the column's max_length) to leave room for a numeric
+    suffix.
 
     The stem must still clear the positivity bar the app applies to a chosen
     username, but the user never chose this one, so a rejection falls back to a
@@ -1106,7 +1107,7 @@ def _create_user_for_google(request, claims, ip):
 
     for attempt in range(MAX_GENERATED_USERNAME_ATTEMPTS):
         candidate = _google_username_candidate(base, attempt)
-        if not is_valid_pattern(candidate, Patterns.alphanumeric):
+        if not is_valid_pattern(candidate, Patterns.username):
             continue
         try:
             # The unique constraints, not the lookups, are what actually decide:
@@ -1717,7 +1718,7 @@ def resend_verification_email(request):
 
     username_or_email = data.get(Fields.username_or_email)
     if not username_or_email or (
-            not is_valid_pattern(username_or_email, Patterns.alphanumeric) and
+            not is_valid_pattern(username_or_email, Patterns.username) and
             not is_valid_pattern(username_or_email, Patterns.email)):
         return log_and_return_json("resend_verification_email",
                                    {'error': f"Invalid fields ['{Params.username_or_email}']"}, status=400)
@@ -1766,7 +1767,7 @@ def request_reset(request):
     username_or_email = data.get(Fields.username_or_email)
 
     if not username_or_email or (
-            not is_valid_pattern(username_or_email, Patterns.alphanumeric) and not is_valid_pattern(username_or_email,
+            not is_valid_pattern(username_or_email, Patterns.username) and not is_valid_pattern(username_or_email,
                                                                                                     Patterns.email)):
         return log_and_return_json("request_reset", {'error': f"Invalid fields {Fields.username_or_email}"}, status=400)
 
@@ -1810,7 +1811,7 @@ def verify_reset(request):
 
     invalid_fields = []
     if not username_or_email or (
-            not is_valid_pattern(username_or_email, Patterns.alphanumeric) and
+            not is_valid_pattern(username_or_email, Patterns.username) and
             not is_valid_pattern(username_or_email, Patterns.email)):
         invalid_fields.append(Params.username_or_email)
     _URLSAFE_TOKEN_LEN = 43
@@ -1900,7 +1901,7 @@ def reset_password(request):
     reset_token = data.get(Fields.reset_token)
 
     invalid_fields = []
-    if not username or not is_valid_pattern(username, Patterns.alphanumeric):
+    if not username or not is_valid_pattern(username, Patterns.username):
         invalid_fields.append(Params.username)
     if not email or not is_valid_pattern(email, Patterns.email):
         invalid_fields.append(Params.email)
@@ -2098,6 +2099,17 @@ def make_post(request):
     if not audience_valid:
         invalid_fields.append(Fields.audience)
 
+    # Whether the author is disabling comments up front (issue #492).
+    # Absent/null keeps the historical default of comments allowed.
+    raw_comments_disabled = data.get(Fields.comments_disabled)
+    if raw_comments_disabled is None:
+        comments_disabled = False
+    elif isinstance(raw_comments_disabled, bool):
+        comments_disabled = raw_comments_disabled
+    else:
+        comments_disabled = False
+        invalid_fields.append(Params.comments_disabled)
+
     if len(invalid_fields) > 0:
         logger.warning(f"Make post failed: Invalid fields {invalid_fields} for user_id: {request.user.id}")
         return log_and_return_json("make_post", {'error': f"Invalid fields {invalid_fields}"}, status=400)
@@ -2131,7 +2143,7 @@ def make_post(request):
     new_post = request.user.post_set.create(
         image_url=image_url, caption=caption,
         caption_font=caption_font, background_color=background_color,
-        audience=audience,
+        audience=audience, comments_disabled=comments_disabled,
         hidden=True, hidden_reason=HIDDEN_REASON_PENDING_CLASSIFICATION)
     # Harvest #hashtags now (issue #379). Tagging a pending post is safe: the
     # post stays author-only until classification clears it, and visible_posts
@@ -2149,6 +2161,7 @@ def make_post(request):
         Fields.hidden: True,
         Fields.hidden_reason: HIDDEN_REASON_PENDING_CLASSIFICATION,
         Fields.appealable: False,
+        Fields.comments_disabled: comments_disabled,
         'message': "Your post is being reviewed and will be visible to others once it is approved.",
     }, status=201)
 
@@ -2175,6 +2188,54 @@ def delete_post(request, post_identifier):
     except Post.DoesNotExist:
         logger.warning(f"Delete post failed: Post {post_identifier} not found for user_id: {request.user.id}")
         return log_and_return_json("delete_post", {'error': "No post with that identifier by that user"}, status=400)
+
+
+@csrf_exempt
+@api_login_required
+@ratelimit(key='user', rate='30/h', block=True)
+@require_POST
+def lock_comments(request, post_identifier):
+    """Owner-only: stop new comments and replies on this post (issue #492).
+    Existing comments stay visible — comment_on_post and
+    reply_to_comment_thread each check comments_disabled before creating
+    anything new."""
+    logger.info("Endpoint lock_comments invoked by IP or User")
+    if not is_valid_pattern(post_identifier, Patterns.uuid4):
+        return log_and_return_json("lock_comments", {'error': "Invalid post identifier"}, status=400)
+
+    try:
+        post = request.user.post_set.get(post_identifier=post_identifier)
+    except Post.DoesNotExist:
+        logger.warning(f"Lock comments failed: Post {post_identifier} not found for user_id: {request.user.id}")
+        return log_and_return_json("lock_comments", {'error': "No post with that identifier by that user"}, status=400)
+
+    post.comments_disabled = True
+    post.save(update_fields=['comments_disabled'])
+    logger.info(f"Comments locked: post_id: {post_identifier} by user_id: {request.user.id}")
+    return log_and_return_json("lock_comments", {Fields.comments_disabled: True})
+
+
+@csrf_exempt
+@api_login_required
+@ratelimit(key='user', rate='30/h', block=True)
+@require_POST
+def unlock_comments(request, post_identifier):
+    """Owner-only: re-allow new comments on a post previously locked with
+    lock_comments (issue #492)."""
+    logger.info("Endpoint unlock_comments invoked by IP or User")
+    if not is_valid_pattern(post_identifier, Patterns.uuid4):
+        return log_and_return_json("unlock_comments", {'error': "Invalid post identifier"}, status=400)
+
+    try:
+        post = request.user.post_set.get(post_identifier=post_identifier)
+    except Post.DoesNotExist:
+        logger.warning(f"Unlock comments failed: Post {post_identifier} not found for user_id: {request.user.id}")
+        return log_and_return_json("unlock_comments", {'error': "No post with that identifier by that user"}, status=400)
+
+    post.comments_disabled = False
+    post.save(update_fields=['comments_disabled'])
+    logger.info(f"Comments unlocked: post_id: {post_identifier} by user_id: {request.user.id}")
+    return log_and_return_json("unlock_comments", {Fields.comments_disabled: False})
 
 
 @csrf_exempt
@@ -2530,6 +2591,7 @@ def get_saved_posts(request, batch):
                 Fields.author_username: post.author.username,
                 **_author_avatar_fields(post.author),
                 Fields.caption: post.caption,
+                Fields.comments_disabled: post.comments_disabled,
                 **_caption_style_fields(post),
                 **_post_tags(post),
                 **interaction_state(post),
@@ -2762,6 +2824,7 @@ def get_posts_in_feed(request, batch):
                 **_author_avatar_fields(post.author),
                 Fields.caption: post.caption,
                 Fields.audience: post.audience,
+                Fields.comments_disabled: post.comments_disabled,
                 **_caption_style_fields(post),
                 **_post_tags(post),
                 **interaction_state(post),
@@ -2829,6 +2892,7 @@ def get_posts_for_followed_users(request, batch):
             **_author_avatar_fields(post.author),
             Fields.caption: post.caption,
             Fields.audience: post.audience,
+            Fields.comments_disabled: post.comments_disabled,
             **_caption_style_fields(post),
             **_post_tags(post),
             **interaction_state(post),
@@ -2847,7 +2911,7 @@ def get_posts_for_user(request, username, batch):
     logger.info("Endpoint get_posts_for_user invoked by IP or User")
 
     # user is on request.user (for auth), username is for target
-    if not is_valid_pattern(username, Patterns.alphanumeric):
+    if not is_valid_pattern(username, Patterns.username):
         return log_and_return_json("get_posts_for_user", {'error': "Invalid username"}, status=400)
     if batch < 0:
         return log_and_return_json("get_posts_for_user", {'error': "Invalid batch parameter"}, status=400)
@@ -2892,6 +2956,7 @@ def get_posts_for_user(request, username, batch):
                 **_caption_style_fields(post),
                 Fields.author_username: target_user.username,
                 Fields.audience: post.audience,
+                Fields.comments_disabled: post.comments_disabled,
                 **_author_avatar_fields(target_user),
                 **_post_tags(post),
                 **interaction_state(post),
@@ -2937,6 +3002,7 @@ def get_post_details(request, post_identifier):
             Fields.report_reason: my_report.reason if my_report is not None else None,
             Fields.author_username: post.author.username,
             Fields.audience: post.audience,
+            Fields.comments_disabled: post.comments_disabled,
             **_author_avatar_fields(post.author),
             **_post_tags(post),
             **_author_status_fields(post, request.user),
@@ -2999,6 +3065,7 @@ def get_posts_for_tag(request, tag, batch):
                 Fields.author_username: post.author.username,
                 **_author_avatar_fields(post.author),
                 Fields.caption: post.caption,
+                Fields.comments_disabled: post.comments_disabled,
                 **_caption_style_fields(post),
                 **_post_tags(post),
                 **interaction_state(post),
@@ -3014,6 +3081,18 @@ def get_posts_for_tag(request, tag, batch):
 # =============================================================================
 # COMMENT VIEWS
 # =============================================================================
+
+def _comments_locked_for_update(post):
+    """Re-read comments_disabled under a row lock (issue #492). Call inside
+    transaction.atomic() just before creating a comment/reply: lock_comments'
+    UPDATE takes the same row lock, so a lock that lands while the classifier
+    runs is either seen here or waits until the new comment is committed —
+    never slips in between. Returns None if the post has since been deleted."""
+    return (Post.objects.select_for_update()
+            .filter(pk=post.pk)
+            .values_list('comments_disabled', flat=True)
+            .first())
+
 
 @csrf_exempt
 @api_login_required
@@ -3059,6 +3138,12 @@ def comment_on_post(request, post_identifier):
         logger.warning(f"Comment on post failed: Post {post_identifier} not found or not visible")
         return log_and_return_json("comment_on_post", {'error': "No post with that identifier"}, status=400)
 
+    # The author may disable commenting at creation time or lock it afterward
+    # (issue #492). Existing comments stay visible; only new ones are blocked.
+    if post.comments_disabled:
+        logger.warning(f"Comment on post failed: Comments disabled for post {post_identifier}")
+        return log_and_return_json("comment_on_post", {'error': "Comments are disabled for this post"}, status=403)
+
     # A final (non-appealable) rejection blocks the comment; an appealable one
     # creates it hidden pending appeal.
     text_result = text_classifier_class.is_text_positive(comment_text)
@@ -3071,14 +3156,28 @@ def comment_on_post(request, post_identifier):
         }, status=400)
 
     hidden = not text_result
+    # Which tiers judged the comment (issue #511), so a report-triggered
+    # re-review leads with a different one.
+    models_tried, model_chain_used = model_chain.record_round([], [], [text_result])
 
-    # Create a new thread for this top-level comment
-    comment_thread = post.commentthread_set.create()
-    new_comment = comment_thread.comment_set.create(
-        author=request.user, body=comment_text, body_formatting=body_formatting,
-        audience=audience,
-        hidden=hidden,
-        hidden_reason=HIDDEN_REASON_CLASSIFIER if hidden else HIDDEN_REASON_NONE)
+    with transaction.atomic():
+        # Re-check under a row lock: the owner may have locked comments while
+        # the classifier ran (issue #492).
+        locked = _comments_locked_for_update(post)
+        if locked is None:
+            return log_and_return_json("comment_on_post", {'error': "No post with that identifier"}, status=400)
+        if locked:
+            logger.warning(f"Comment on post failed: Comments disabled for post {post_identifier}")
+            return log_and_return_json("comment_on_post", {'error': "Comments are disabled for this post"}, status=403)
+
+        # Create a new thread for this top-level comment
+        comment_thread = post.commentthread_set.create()
+        new_comment = comment_thread.comment_set.create(
+            author=request.user, body=comment_text, body_formatting=body_formatting,
+            audience=audience,
+            hidden=hidden,
+            hidden_reason=HIDDEN_REASON_CLASSIFIER if hidden else HIDDEN_REASON_NONE,
+            classification_models_tried=models_tried, classification_model_chain=model_chain_used)
 
     response_data = {
         Fields.comment_thread_identifier: comment_thread.comment_thread_identifier,
@@ -3152,6 +3251,12 @@ def reply_to_comment_thread(request, post_identifier, comment_thread_identifier)
     if not can_view_post(comment_thread.post, request.user):
         return log_and_return_json("reply_to_comment_thread", {'error': "Comment thread not found for the given post"}, status=400)
 
+    # The author may disable commenting at creation time or lock it afterward
+    # (issue #492). Existing comments stay visible; only new replies are blocked.
+    if comment_thread.post.comments_disabled:
+        logger.warning(f"Reply to comment failed: Comments disabled for post {post_identifier}")
+        return log_and_return_json("reply_to_comment_thread", {'error': "Comments are disabled for this post"}, status=403)
+
     # A final (non-appealable) rejection blocks the reply; an appealable one
     # creates it hidden pending appeal.
     text_result = text_classifier_class.is_text_positive(comment_text)
@@ -3164,11 +3269,23 @@ def reply_to_comment_thread(request, post_identifier, comment_thread_identifier)
         }, status=400)
 
     hidden = not text_result
-    new_comment = comment_thread.comment_set.create(
-        author=request.user, body=comment_text, body_formatting=body_formatting,
-        audience=audience,
-        hidden=hidden,
-        hidden_reason=HIDDEN_REASON_CLASSIFIER if hidden else HIDDEN_REASON_NONE)
+    # As in comment_on_post: record which tiers judged the reply (issue #511).
+    models_tried, model_chain_used = model_chain.record_round([], [], [text_result])
+    with transaction.atomic():
+        # Re-check under a row lock, as in comment_on_post (issue #492).
+        locked = _comments_locked_for_update(comment_thread.post)
+        if locked is None:
+            return log_and_return_json("reply_to_comment_thread", {'error': "Comment thread not found for the given post"}, status=400)
+        if locked:
+            logger.warning(f"Reply to comment failed: Comments disabled for post {post_identifier}")
+            return log_and_return_json("reply_to_comment_thread", {'error': "Comments are disabled for this post"}, status=403)
+
+        new_comment = comment_thread.comment_set.create(
+            author=request.user, body=comment_text, body_formatting=body_formatting,
+            audience=audience,
+            hidden=hidden,
+            hidden_reason=HIDDEN_REASON_CLASSIFIER if hidden else HIDDEN_REASON_NONE,
+            classification_models_tried=models_tried, classification_model_chain=model_chain_used)
 
     response_data = {Fields.comment_identifier: new_comment.comment_identifier}
     if hidden:
@@ -3634,12 +3751,16 @@ def get_comments_for_thread(request, comment_thread_identifier, batch):
 # client pages through thread batches to find a shared comment (see
 # PostDetailPage), so these stay ordinary paginated listings.
 
-def _public_post_fields(post):
+def _public_post_fields(post, post_likes=None):
     """A post serialized for a signed-out viewer.
 
     The signed-in payload minus everything that is about the viewer: no
     like/save/report flags (nobody to have them) and no author-only
-    classification status (a public post is approved by construction)."""
+    classification status (a public post is approved by construction).
+
+    `post_likes` lets a list caller pass a count it already fetched for the
+    whole batch in one grouped query (get_public_posts_for_user); left None, the
+    single-post caller counts here."""
     return {
         Fields.post_identifier: post.post_identifier,
         Fields.image_url: sign_compressed_url(post.image_url),
@@ -3650,9 +3771,10 @@ def _public_post_fields(post):
         Fields.caption: post.caption,
         **_caption_style_fields(post),
         Fields.creation_time: post.creation_time,
-        Fields.post_likes: post.postlike_set.count(),
+        Fields.post_likes: post.postlike_set.count() if post_likes is None else post_likes,
         Fields.author_username: post.author.username,
         Fields.audience: post.audience,
+        Fields.comments_disabled: post.comments_disabled,
         **_author_avatar_fields(post.author),
         **_post_tags(post),
     }
@@ -3828,6 +3950,165 @@ def get_post_link_preview(request, post_identifier):
     return response
 
 
+# --- Shared profiles (issue #510) -------------------------------------------
+#
+# A profile can be shared the same way a post can: its options menu hands off
+# `https://smiling.social/profile/<username>`, and the website renders that
+# page for a recipient with no account. These are the public half of that —
+# the profile header (stats, avatar, bio, join number) and the user's post grid.
+#
+# The same fixed anonymous viewer decides what is served. An account is public
+# when `searchable_users` would list it for PUBLIC_VIEWER: not shadow banned and
+# not a verified minor. Its grid is `visible_posts` for the same viewer, so it
+# holds exactly the posts the public post endpoint would serve individually —
+# a shared profile can never show a post its own link would 404. A profile that
+# is not public 404s exactly like a username that was never registered, so
+# these cannot be used to confirm a shadow ban or find a minor's account.
+#
+# Nothing per-viewer is serialized: no is_following / follow_category /
+# is_blocked (nobody to have them) and none of the owner-only photo-review
+# fields — only the approved, live photo is anyone else's business.
+
+def _get_public_profile_user(username):
+    """The account behind a shared profile link, or None when it is missing or
+    not public. Both collapse into one None so callers return the same 404."""
+    if not is_valid_pattern(username, Patterns.username):
+        return None
+    profile_user = get_user_with_username(username)
+    if profile_user is None:
+        return None
+    # The same exclusion user search applies for this viewer: a shadow-banned
+    # account and a verified minor's account are both invisible to the open
+    # internet, exactly as they are to a signed-in adult who searches by name.
+    if not searchable_users(
+            get_user_model().objects.filter(pk=profile_user.pk), PUBLIC_VIEWER).exists():
+        return None
+    return profile_user
+
+
+@ratelimit(key=_get_client_ip, rate='60/m', block=True)
+@require_GET
+def get_public_profile_details(request, username):
+    """A shared profile's header, for a recipient who is not logged in (issue
+    #510): the same stats, avatar, join number and bio a signed-in viewer sees,
+    minus everything that is about the viewer."""
+    logger.info("Endpoint get_public_profile_details invoked by IP")
+    profile_user = _get_public_profile_user(username)
+    if profile_user is None:
+        return log_and_return_json(
+            "get_public_profile_details", {'error': "User not found"}, status=404)
+
+    # Each count is what this viewer could actually see, mirroring
+    # get_profile_details: only public posts, and only followers/followees who
+    # are themselves publicly listable (issue #398).
+    post_count = visible_posts(profile_user.post_set.all(), PUBLIC_VIEWER).count()
+    follower_count = searchable_users(profile_user.followers.all(), PUBLIC_VIEWER).count()
+    following_count = searchable_users(profile_user.following.all(), PUBLIC_VIEWER).count()
+
+    live_avatar = profile_user.profile_image_url
+    data = {
+        Fields.username: profile_user.username,
+        Fields.post_count: post_count,
+        Fields.follower_count: follower_count,
+        Fields.following_count: following_count,
+        Fields.identity_is_verified: profile_user.identity_is_verified,
+        Fields.profile_image_url: sign_compressed_url(live_avatar),
+        Fields.profile_image_original_url: sign_original_url(live_avatar),
+        Fields.profile_image_blurhash: (
+            profile_user.profile_image_blurhash if live_avatar else None),
+        Fields.membership_number: profile_user.membership_number,
+        # Moderated on write (issue #380), so safe for anyone to read.
+        Fields.bio: profile_user.bio,
+    }
+    return log_and_return_json("get_public_profile_details", data)
+
+
+@ratelimit(key=_get_client_ip, rate='60/m', block=True)
+@require_GET
+def get_public_posts_for_user(request, username, batch):
+    """A shared profile's post grid, for a signed-out viewer (issue #510).
+
+    Serialized with `_public_post_fields`, so each tile carries exactly what the
+    public post-details endpoint would serve for it and nothing per-viewer."""
+    logger.info("Endpoint get_public_posts_for_user invoked by IP")
+    if batch < 0:
+        return log_and_return_json(
+            "get_public_posts_for_user", {'error': "Invalid batch parameter"}, status=400)
+
+    profile_user = _get_public_profile_user(username)
+    if profile_user is None:
+        return log_and_return_json(
+            "get_public_posts_for_user", {'error': "User not found"}, status=404)
+
+    # select_related('author'): _public_post_fields reads the author's name and
+    # avatar for every tile, which would otherwise be a lazy FK fetch per post.
+    relevant_posts = visible_posts(
+        feed_algorithm_class.get_posts_weighted_for_user(profile_user, Post), PUBLIC_VIEWER
+    ).select_related('author').prefetch_related('tags')
+    # DB-level LIMIT/OFFSET with no preceding .exists()/.count(): an empty batch
+    # already serializes to [], and this is a cost anyone can impose without an
+    # account (see get_public_comments_for_post).
+    batched_posts = get_queryset_batch(relevant_posts, batch, POST_BATCH_SIZE)
+    # One grouped query for the batch's like counts, handed to the serializer so
+    # it does not fall back to its per-post COUNT — fine for the single post it
+    # was written for, an N+1 across a grid.
+    like_counts = dict(
+        PostLike.objects
+        .filter(post__in=batched_posts)
+        .values('post_id')
+        .annotate(count=Count('post_id'))
+        .values_list('post_id', 'count')
+    )
+    posts_data = [
+        _public_post_fields(post, post_likes=like_counts.get(post.post_identifier, 0))
+        for post in batched_posts
+    ]
+    return log_and_return_json("get_public_posts_for_user", posts_data, safe=False)
+
+
+def _profile_canonical_url(username):
+    """The website URL a shared profile link points at."""
+    return f"{settings.FRONTEND_BASE_URL}/profile/{username}"
+
+
+@ratelimit(key=_get_client_ip, rate='60/m', block=True)
+@require_GET
+def get_profile_link_preview(request, username):
+    """Open Graph / Twitter Card HTML for a shared profile link (issue #510).
+
+    The profile counterpart of get_post_link_preview: CloudFront routes
+    link-preview crawlers fetching `https://smiling.social/profile/<username>`
+    here. The card is the username, the bio (or the generic site line when there
+    is none) and the profile photo. A profile that is missing or not public gets
+    the generic site card with a 404, indistinguishable from an unregistered
+    name.
+    """
+    logger.info("Endpoint get_profile_link_preview invoked by IP")
+    profile_user = _get_public_profile_user(username)
+    if profile_user is None:
+        logger.info(f"Profile link preview: profile {username} not publicly visible")
+        response = HttpResponse(
+            link_preview.render_missing_preview(site_url=settings.FRONTEND_BASE_URL),
+            content_type='text/html; charset=utf-8',
+            status=404,
+        )
+    else:
+        response = HttpResponse(
+            link_preview.render_post_preview(
+                title=f"{profile_user.username} on {link_preview.SITE_NAME}",
+                description=link_preview.truncate_description(profile_user.bio),
+                canonical_url=_profile_canonical_url(profile_user.username),
+                image_url=sign_compressed_url(profile_user.profile_image_url),
+                og_type='profile',
+            ),
+            content_type='text/html; charset=utf-8',
+        )
+    # Brief, for the same reason as the post preview: og:image is a signed URL
+    # that expires.
+    response['Cache-Control'] = 'public, max-age=300'
+    return response
+
+
 # =============================================================================
 # USER / PROFILE VIEWS
 # =============================================================================
@@ -3892,7 +4173,7 @@ def get_users_matching_fragment(request, username_fragment):
 def follow_user(request, username_to_follow):
     logger.info("Endpoint follow_user invoked by IP or User")
     # user is on request.user
-    if not is_valid_pattern(username_to_follow, Patterns.alphanumeric):
+    if not is_valid_pattern(username_to_follow, Patterns.username):
         return log_and_return_json("follow_user", {'error': "Invalid username fragment"}, status=400)
 
     user_to_follow_obj = get_user_with_username(username_to_follow)
@@ -3942,7 +4223,7 @@ def follow_user(request, username_to_follow):
 def unfollow_user(request, username_to_unfollow):
     logger.info("Endpoint unfollow_user invoked by IP or User")
     # user is on request.user
-    if not is_valid_pattern(username_to_unfollow, Patterns.alphanumeric):
+    if not is_valid_pattern(username_to_unfollow, Patterns.username):
         return log_and_return_json("unfollow_user", {'error': "Invalid username fragment"}, status=400)
 
     user_to_unfollow_obj = get_user_with_username(username_to_unfollow)
@@ -3973,7 +4254,7 @@ def set_follow_category(request, username):
     follow_user instead.
     """
     logger.info("Endpoint set_follow_category invoked by IP or User")
-    if not is_valid_pattern(username, Patterns.alphanumeric):
+    if not is_valid_pattern(username, Patterns.username):
         return log_and_return_json("set_follow_category", {'error': "Invalid username fragment"}, status=400)
 
     target_user = get_user_with_username(username)
@@ -4008,7 +4289,7 @@ def set_follow_category(request, username):
 def toggle_block(request, username_to_toggle_block):
     logger.info("Endpoint toggle_block invoked by IP or User")
     # user is on request.user
-    if not is_valid_pattern(username_to_toggle_block, Patterns.alphanumeric):
+    if not is_valid_pattern(username_to_toggle_block, Patterns.username):
         return log_and_return_json("toggle_block", {'error': "Invalid username"}, status=400)
 
     user_to_toggle_obj = get_user_with_username(username_to_toggle_block)
@@ -4707,7 +4988,7 @@ def get_current_user(request):
 def get_profile_details(request, username):
     logger.info("Endpoint get_profile_details invoked by IP or User")
     # user is on request.user (requesting_user)
-    if not is_valid_pattern(username, Patterns.alphanumeric_with_special_chars):
+    if not is_valid_pattern(username, Patterns.username):
         return log_and_return_json("get_profile_details", {'error': "Invalid username"}, status=400)
 
     profile_user = get_user_with_username(username)

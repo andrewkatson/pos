@@ -1,6 +1,6 @@
 //
 //  Register.swift
-//  Positive Only Social
+//  Vibes
 //
 //  Created by Andrew Katson on 10/6/25.
 //

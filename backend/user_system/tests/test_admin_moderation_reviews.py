@@ -153,3 +153,15 @@ class ModerationReviewAdminTests(TestCase):
         self.assertEqual(self.admin.author(self.review), self.author)
         self.assertEqual(self.admin.report_count(self.review), 1)
         self.assertIn('I think this is mean', self.admin.reported_reasons(self.review))
+
+    def test_the_change_form_shows_which_tiers_judged_the_content(self):
+        """A moderator deciding an escalation can see which models already
+        looked (issue #511) — and that a fresh post has none on record."""
+        self.assertEqual(self.admin.classifier_chain(self.review),
+                         'decided by: —\nconsulted: —')
+        self.post.classification_models_tried = ['gemma', 'gemini']
+        self.post.classification_model_chain = ['gemini']
+        self.post.save(update_fields=['classification_models_tried', 'classification_model_chain'])
+        self.review.refresh_from_db()
+        self.assertEqual(self.admin.classifier_chain(self.review),
+                         'decided by: gemini\nconsulted: gemma, gemini')

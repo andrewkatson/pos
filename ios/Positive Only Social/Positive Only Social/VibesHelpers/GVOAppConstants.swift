@@ -1,6 +1,6 @@
 //
 //  GVOAppConstants.swift
-//  Positive Only Social
+//  Vibes
 //
 
 import Foundation
@@ -95,6 +95,10 @@ import Foundation
     static let pathSegmentLike = "like"
     // GET .../likes/<batch>/ — who liked one of your own posts/comments (#478).
     static let pathSegmentLikes = "likes"
+    // POST posts/<id>/comments/lock/ and .../unlock/ — owner-only, turn
+    // commenting on a post off/on after it's created (issue #492).
+    static let pathSegmentLock = "lock"
+    static let pathSegmentUnlock = "unlock"
     static let pathSegmentLogin = "login"
     static let pathSegmentLogout = "logout"
     // GET /me/ — the signed-in account's own username + email (#194/#197).
@@ -203,4 +207,6 @@ import Foundation
     ]
 
     static let privacyPolicyText = "We collect your username, email address, and password for authentication; your password is stored as a salted hash, never in plain text. We do not store your date of birth itself, only whether you are an adult and whether your identity has been verified, derived from it at signup. We store your posts, comments, and related metadata such as like counts and reports. We also track follower/following relationships and blocked users to maintain the social environment, and the IP address of your login sessions and known devices so we can alert you to logins from a new device."
+    static let appIconName = "gvoiconnotransparency"
 }
+

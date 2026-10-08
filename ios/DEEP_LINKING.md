@@ -1,9 +1,10 @@
-# iOS Universal Links (issue #382)
+# iOS Universal Links (issues #382, #510)
 
-A shared `https://smiling.social/post/<id>` link opens the app instead of Safari
-when the app is installed. If it isn't, the link opens the public web page
-(issue #381) — so nothing about this is load-bearing: a failed association just
-means links keep opening the browser.
+A shared `https://smiling.social/post/<id>` link — or, since issue #510, a
+shared `https://smiling.social/profile/<username>` link — opens the app instead
+of Safari when the app is installed. If it isn't, the link opens the public web
+page (issues #381, #510) — so nothing about this is load-bearing: a failed
+association just means links keep opening the browser.
 
 ## What's wired (code)
 
@@ -11,23 +12,25 @@ means links keep opening the browser.
   `com.apple.developer.associated-domains` = `applinks:smiling.social` and
   `applinks:www.smiling.social`.
 - `VibesHelpers/ShareURL.swift` — `ShareURL.parse(_:)` turns an incoming URL
-  into a `SharedPostLink` (post id plus the optional `#comment-<id>` fragment),
-  or nil when the URL is not one of ours. It is the exact inverse of the
-  `ShareURL.post` / `ShareURL.comment` builders the share sheet uses, and is
+  into a `SharedLink`: `.post(SharedPostLink)` (post id plus the optional
+  `#comment-<id>` fragment) or `.profile(username:)`, or nil when the URL is not
+  one of ours. It is the exact inverse of the `ShareURL.post` /
+  `ShareURL.comment` / `ShareURL.profile` builders the share sheet uses, and is
   unit tested in `Positive_Only_SocialTests_ShareURL`.
 - `Positive_Only_SocialApp.swift` — `.onOpenURL` parses the URL and hands the
-  post id to `PushRouter`, the same bus a tapped push notification writes to.
-  That is deliberate: the post detail lives inside `HomeView`, which only exists
-  once logged in, so a link opened while signed out parks there and routes as
-  soon as the user logs in rather than pushing an authenticated screen out of
-  the Welcome flow.
+  post id (or username) to `PushRouter`, the same bus a tapped push notification
+  writes to. That is deliberate: the post detail and profile screens live inside
+  `HomeView`, which only exists once logged in, so a link opened while signed
+  out parks there and routes as soon as the user logs in rather than pushing an
+  authenticated screen out of the Welcome flow. A profile link to your own
+  username lands on the Profile tab itself rather than pushing a copy of it.
 - `https://smiling.social/.well-known/apple-app-site-association` is served from
   `website/public/.well-known/`, published by `website/deploy-web.sh` with an
   explicit `application/json` content type (the file has no extension, so a
   plain `s3 sync` would guess `binary/octet-stream` and iOS would reject it).
 
-Only `/post/*` is claimed. Every other route belongs to the website, and
-claiming them would hijack links the app has no screen for.
+Only `/post/*` and `/profile/*` are claimed. Every other route belongs to the
+website, and claiming them would hijack links the app has no screen for.
 
 ## To enable it (Apple Developer portal)
 

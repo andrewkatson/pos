@@ -11,20 +11,26 @@
 #   smiling.social / www  ->  CloudFront (EMS8KP5TZ1KB3)  ->  S3 (smiling-social-web)
 #
 # Two pieces of distribution config this script does NOT manage, both needed for
-# shared post links (issue #381) — the script checks the first and warns:
+# shared post and profile links (issues #381, #510) — the script checks the first
+# and warns:
 #
-#   1. SPA routing. /post/<id> is a client-side route with no object behind it
-#      in S3, so the distribution needs custom error responses mapping 403 and
-#      404 to /index.html with a 200, or a cold load of a shared link 404s.
+#   1. SPA routing. /post/<id> and /profile/<username> are client-side routes
+#      with no object behind them in S3, so the distribution needs custom error
+#      responses mapping 403 and 404 to /index.html with a 200, or a cold load
+#      of a shared link 404s.
 #
 #   2. Link previews. cloudfront/link-preview.js must be published as a
 #      CloudFront Function and associated with the default cache behavior on
-#      *viewer request*, so crawlers fetching /post/<id> are redirected to the
-#      backend's Open Graph document instead of the empty SPA shell.
+#      *viewer request*, so crawlers fetching /post/<id> or /profile/<username>
+#      are redirected to the backend's Open Graph document instead of the empty
+#      SPA shell. Re-publish the function when that file changes — adding the
+#      profile route (issue #510) was one such change.
 #
-# Mobile deep linking (issue #382) needs the /.well-known/ files this script
-# publishes explicitly (see below). The Android one needs the release signing
-# fingerprint in ANDROID_SHA256_CERT_FINGERPRINTS.
+# Mobile deep linking (issues #382, #510) needs the /.well-known/ files this
+# script publishes explicitly (see below). The Android one needs the release
+# signing fingerprint in ANDROID_SHA256_CERT_FINGERPRINTS. The iOS one is
+# fetched by Apple's CDN, so a change to the claimed paths (the AASA now lists
+# /post/* and /profile/*) takes time to reach devices.
 #
 # Run from a machine with the AWS CLI + Node installed and credentials that can
 # write the bucket and create invalidations (s3:PutObject/DeleteObject/ListBucket

@@ -70,6 +70,20 @@ fun NavGraph(
         }
     }
 
+    // A shared https://smiling.social/profile/<username> App Link (issue #510),
+    // parsed in MainActivity, held the same way until a session exists. It
+    // pushes the ordinary Profile screen — the same one a search result opens —
+    // so your own username lands on your own profile with Follow / Block hidden.
+    val pendingProfileUsername by PushNavigator.pendingProfileUsername.collectAsState()
+    LaunchedEffect(pendingProfileUsername, pushIsLoggedIn) {
+        val username = pendingProfileUsername ?: return@LaunchedEffect
+        if (!pushIsLoggedIn) return@LaunchedEffect
+        PushNavigator.clearProfileRequest()
+        navController.navigate(Screen.Profile.createRoute(username)) {
+            launchSingleTop = true
+        }
+    }
+
     NavHost(
         navController = navController,
         startDestination = Screen.Welcome.route

@@ -1,9 +1,18 @@
 import { useCallback, useEffect, useRef, useState, type ChangeEvent } from 'react'
-import { useNavigate } from 'react-router'
+import { Link, useNavigate } from 'react-router'
 import { apiClient, ApiError } from '../api/client'
 import { uploadImage } from '../api/s3Uploader'
 import { isWithinLimit, MAX_BIO_LENGTH } from '../auth/requirements'
-import type { FeedPost, FollowCategory, PostStatusResponse, ProfileDetails } from '../api/types'
+import type {
+  FeedPost,
+  FollowCategory,
+  PostStatusResponse,
+  ProfileDetails,
+  PublicProfileDetails,
+} from '../api/types'
+import { profileShareUrl, shareLink } from '../utils/shareLink'
+import AnchoredMenu, { AnchoredMenuItem } from './AnchoredMenu'
+import { anchorFrom, type MenuAnchor } from './menuAnchor'
 import PostGrid from './PostGrid'
 import Avatar from './Avatar'
 import CharacterCounter from './CharacterCounter'
@@ -31,7 +40,21 @@ interface ProfileViewProps {
   isOwnProfile: boolean
   /** The signed-in user, passed to the grid so it can offer Delete on own posts. */
   currentUsername: string | null
+  /**
+   * False for a visitor with no session who opened a shared profile link
+   * (issue #510). The view then reads through the public endpoints, offers
+   * Share and nothing that needs an account, and shows a prompt to log in or
+   * join in place of Follow / Block. Defaults to signed in.
+   */
+  isSignedIn?: boolean
 }
+
+/**
+ * What this view holds about the profile: the public header every visitor gets,
+ * plus — when signed in — the viewer's relationship and the owner-only review
+ * state, which the public endpoint never serves.
+ */
+type LoadedProfile = PublicProfileDetails & Partial<ProfileDetails>
 
 /**
  * A user's profile body: stats, follow/block actions, and their post grid.
@@ -41,8 +64,17 @@ interface ProfileViewProps {
  * Shared by the Profile tab (your own account, reached from the bottom bar per
  * issue #347) and the /profile/:username route (anyone else), so both render an
  * identical profile and the same in-place post actions.
+ *
+ * Its options menu (⋯) offers Share on every profile, your own and everyone
+ * else's (issue #510): the link is the /profile/:username page, which this same
+ * view renders read-only for a recipient without an account.
  */
-function ProfileView({ username, isOwnProfile, currentUsername }: ProfileViewProps) {
+function ProfileView({
+  username,
+  isOwnProfile,
+  currentUsername,
+  isSignedIn = true,
+}: ProfileViewProps) {
   const navigate = useNavigate()
   // Track mount state so async loads that resolve after navigating away don't
   // set state on an unmounted view.
@@ -54,13 +86,22 @@ function ProfileView({ username, isOwnProfile, currentUsername }: ProfileViewPro
     }
   }, [])
 
-  const [profile, setProfile] = useState<ProfileDetails | null>(null)
+  const [profile, setProfile] = useState<LoadedProfile | null>(null)
   const [loadFailed, setLoadFailed] = useState(false)
   const [isFollowing, setIsFollowing] = useState(false)
   const [followCategory, setFollowCategory] = useState<FollowCategory>('following')
   const [isBlocked, setIsBlocked] = useState(false)
   const [isBusy, setIsBusy] = useState(false)
   const [errorMessage, setErrorMessage] = useState<string | null>(null)
+
+  // The profile's options menu (issue #510), anchored to the ⋯ button that
+  // opened it like the post and comment menus (issue #477). Share is its only
+  // item today; it is a menu rather than a bare Share button so it matches the
+  // ⋯ affordance everywhere else and has room for more.
+  const [menuAnchor, setMenuAnchor] = useState<MenuAnchor | null>(null)
+  // Shown only when Share fell back to copying the link (no OS share sheet), so
+  // the user learns where the link went.
+  const [shareCopiedOpen, setShareCopiedOpen] = useState(false)
 
   // Own profile-photo controls (issue #7). Uploading reuses the post image
   // pipeline (compress + EXIF-strip + presigned PUT) then hands the URL to
@@ -92,14 +133,36 @@ function ProfileView({ username, isOwnProfile, currentUsername }: ProfileViewPro
   const [pollTick, setPollTick] = useState(0)
   const [reviewNotice, setReviewNotice] = useState<string | null>(null)
 
+  // Both loads go through the public endpoints for a signed-out visitor: they
+  // serve the same header and grid minus anything about the viewer, and 404 for
+  // an account that is not public (a shadow ban, a verified minor).
+  const fetchProfile = useCallback(
+    (): Promise<LoadedProfile> =>
+      isSignedIn ? apiClient.getProfile(username) : apiClient.getPublicProfile(username),
+    [isSignedIn, username],
+  )
+  const fetchPosts = useCallback(
+    (pageToLoad: number) =>
+      isSignedIn
+        ? apiClient.getPostsForUser(username, pageToLoad)
+        : apiClient.getPublicPostsForUser(username, pageToLoad),
+    [isSignedIn, username],
+  )
+
+  // The viewer's relationship flags, from a signed-in payload; the public one
+  // carries none, and a visitor with no account follows and blocks nobody.
+  const applyRelationship = useCallback((details: LoadedProfile) => {
+    setIsFollowing(details.is_following ?? false)
+    setFollowCategory(details.follow_category ?? 'following')
+    setIsBlocked(details.is_blocked ?? false)
+  }, [])
+
   const loadProfile = useCallback(async () => {
     try {
-      const details = await apiClient.getProfile(username)
+      const details = await fetchProfile()
       if (!isMounted.current) return
       setProfile(details)
-      setIsFollowing(details.is_following)
-      setFollowCategory(details.follow_category ?? 'following')
-      setIsBlocked(details.is_blocked)
+      applyRelationship(details)
       setLoadFailed(false)
     } catch {
       // Could be a missing user or a transient network/server error — we can't
@@ -108,7 +171,7 @@ function ProfileView({ username, isOwnProfile, currentUsername }: ProfileViewPro
       // from and re-entered like the pushed profile route can.
       if (isMounted.current) setLoadFailed(true)
     }
-  }, [username])
+  }, [fetchProfile, applyRelationship])
 
   // Deferred to a microtask so the fetch's setState calls don't run
   // synchronously inside the effect (React flags that as cascading renders),
@@ -120,7 +183,7 @@ function ProfileView({ username, isOwnProfile, currentUsername }: ProfileViewPro
   const loadPosts = useCallback(
     async (pageToLoad: number, replace: boolean) => {
       try {
-        const newPosts = await apiClient.getPostsForUser(username, pageToLoad)
+        const newPosts = await fetchPosts(pageToLoad)
         if (!isMounted.current) return
         if (replace) {
           setPosts(newPosts)
@@ -138,7 +201,7 @@ function ProfileView({ username, isOwnProfile, currentUsername }: ProfileViewPro
         if (isMounted.current) setIsLoadingPosts(false)
       }
     },
-    [username],
+    [fetchPosts],
   )
 
   // Deferred to a microtask so the fetch's setState calls don't run
@@ -196,14 +259,11 @@ function ProfileView({ username, isOwnProfile, currentUsername }: ProfileViewPro
     setIsLoadingPosts(true)
     // A manual refresh grants a fresh reconcile-poll budget (#282).
     pollAttempts.current = 0
-    apiClient
-      .getProfile(username)
+    fetchProfile()
       .then(details => {
         if (!isMounted.current) return
         setProfile(details)
-        setIsFollowing(details.is_following)
-        setFollowCategory(details.follow_category ?? 'following')
-        setIsBlocked(details.is_blocked)
+        applyRelationship(details)
       })
       .catch(() => {
         // Deliberately not loadProfile(): a failed manual refresh keeps the
@@ -298,6 +358,16 @@ function ProfileView({ username, isOwnProfile, currentUsername }: ProfileViewPro
     }
   }
 
+  // Share this profile (issue #510): the OS share sheet where the browser has
+  // one, otherwise the clipboard — the same hand-off a post's Share uses.
+  async function shareProfile() {
+    setMenuAnchor(null)
+    const result = await shareLink(profileShareUrl(username))
+    if (!isMounted.current) return
+    if (result === 'copied') setShareCopiedOpen(true)
+    if (result === 'failed') setErrorMessage('Could not share this profile.')
+  }
+
   async function toggleFollow() {
     if (isBusy) return
     setIsBusy(true)
@@ -372,6 +442,14 @@ function ProfileView({ username, isOwnProfile, currentUsername }: ProfileViewPro
     return (
       <div className="profile-load-failed">
         <p className="muted">Couldn't load {username}'s profile.</p>
+        {/* Only public accounts are readable without a session, so a shared
+            link can land here for a reason a retry won't fix — say so rather
+            than leaving the recipient thinking the site is down. */}
+        {!isSignedIn && (
+          <p className="muted">
+            This profile may not be public. <Link to="/login">Log in</Link> to check.
+          </p>
+        )}
         <button
           type="button"
           className="btn btn-primary"
@@ -429,7 +507,7 @@ function ProfileView({ username, isOwnProfile, currentUsername }: ProfileViewPro
             username={username}
             size="lg"
           />
-          <div>
+          <div className="profile-identity__details">
             <div className="profile-identity__name">{username}</div>
             {isOwnProfile && (
               <div className="profile-photo-actions">
@@ -474,6 +552,19 @@ function ProfileView({ username, isOwnProfile, currentUsername }: ProfileViewPro
               </div>
             )}
           </div>
+          {/* The profile's options menu (issue #510). Offered on every
+              profile — your own and everyone else's, signed in or not — since
+              Share, its one item, needs no session. */}
+          <button
+            type="button"
+            className="profile-menu-button"
+            aria-label="Profile options"
+            aria-haspopup="menu"
+            aria-expanded={menuAnchor !== null}
+            onClick={e => setMenuAnchor(anchorFrom(e.currentTarget))}
+          >
+            ⋯
+          </button>
         </div>
 
         <div className="profile-stats">
@@ -581,7 +672,16 @@ function ProfileView({ username, isOwnProfile, currentUsername }: ProfileViewPro
           )}
         </div>
 
-        {!isOwnProfile && (
+        {!isSignedIn ? (
+          /* A shared profile opened by someone with no account (issue #510):
+             the header and the grid are readable, but following and blocking
+             need one. Sharing deliberately isn't listed — it still works signed
+             out, so naming it here would imply the opposite. */
+          <p className="muted signed-out-prompt">
+            <Link to="/login">Log in</Link> or <Link to="/register">join</Link> to follow{' '}
+            {username} and share your own good vibes.
+          </p>
+        ) : !isOwnProfile && (
           <div className="profile-actions">
             <button
               type="button"
@@ -655,6 +755,8 @@ function ProfileView({ username, isOwnProfile, currentUsername }: ProfileViewPro
           currentUsername={currentUsername}
           onPostDeleted={handlePostDeleted}
           onError={setErrorMessage}
+          // No session, no in-place actions: the tiles still open each post.
+          readOnly={!isSignedIn}
         />
       )}
 
@@ -674,6 +776,34 @@ function ProfileView({ username, isOwnProfile, currentUsername }: ProfileViewPro
         >
           Load more
         </button>
+      )}
+
+      {menuAnchor && (
+        <AnchoredMenu
+          anchor={menuAnchor}
+          label="Profile options"
+          onDismiss={() => setMenuAnchor(null)}
+        >
+          <AnchoredMenuItem onClick={() => void shareProfile()}>Share</AnchoredMenuItem>
+        </AnchoredMenu>
+      )}
+
+      {shareCopiedOpen && (
+        <div className="modal-overlay">
+          <div className="modal" role="dialog" aria-modal="true" aria-label="Link copied">
+            <h2 className="modal__title">Link copied</h2>
+            <p className="muted">The link is on your clipboard.</p>
+            <div className="modal__actions">
+              <button
+                type="button"
+                className="modal__confirm"
+                onClick={() => setShareCopiedOpen(false)}
+              >
+                OK
+              </button>
+            </div>
+          </div>
+        </div>
       )}
     </>
   )

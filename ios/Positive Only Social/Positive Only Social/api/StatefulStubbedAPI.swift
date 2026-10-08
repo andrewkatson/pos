@@ -107,6 +107,9 @@ fileprivate struct MockPost {
     var reasonCode: String? = nil
     /// Who may see the post (issue #392).
     var audience: String = PostAudience.public.rawValue
+    /// Whether the author has turned off commenting on this post (issue #492),
+    /// either at creation or afterward via lockComments/unlockComments.
+    var commentsDisabled: Bool = false
     /// Hashtags parsed from the caption (issue #379), normalized and sorted.
     var tags: [String] = []
     let createdDate = Date()
@@ -146,6 +149,8 @@ fileprivate struct PostListingFields: Codable {
     let appealable: Bool?
     /// Who may see the post (issue #392).
     let audience: String?
+    /// Whether the author has turned off commenting on this post (issue #492).
+    let comments_disabled: Bool
     /// Hashtags parsed from the caption (issue #379).
     let tags: [String]
 }
@@ -342,6 +347,7 @@ final class StatefulStubbedAPI: Networking {
             hidden_reason: isOwnGrid ? post.hiddenReason : nil,
             appealable: isOwnGrid ? isAppealable(post) : nil,
             audience: post.audience,
+            comments_disabled: post.commentsDisabled,
             tags: post.tags
         )
     }
@@ -1057,7 +1063,7 @@ final class StatefulStubbedAPI: Networking {
         return try createSerializedResponse(fields: Fields(upload_url: "\(imageUrl)?X-Amz-Signature=stub", image_url: imageUrl))
     }
 
-    func makePost(sessionManagementToken: String, imageURL: String?, caption: String, audience: String? = nil, captionFont: String = "default", backgroundColor: String = "default") async throws -> Data {
+    func makePost(sessionManagementToken: String, imageURL: String?, caption: String, audience: String? = nil, captionFont: String = "default", backgroundColor: String = "default", commentsDisabled: Bool = false) async throws -> Data {
         await simulateNetwork()
         guard let user = findUser(bySessionToken: sessionManagementToken) else { throw APIError.badServerResponse(statusCode: 400) }
         // Stub pre-filter, mirroring the backend's cheap inline check (#282): a
@@ -1072,6 +1078,7 @@ final class StatefulStubbedAPI: Networking {
         newPost.hiddenReason = "pending_classification"
         // Nil / unknown audience falls back to public, matching the backend (#392).
         newPost.audience = PostAudience(rawValue: audience ?? "").map { $0.rawValue } ?? PostAudience.public.rawValue
+        newPost.commentsDisabled = commentsDisabled
         newPost.tags = Self.extractTags(from: caption)
         // The real backend classifies asynchronously in a worker; the stub
         // resolves instantly (like the backend's eager dev mode) but still
@@ -1087,6 +1094,7 @@ final class StatefulStubbedAPI: Networking {
             let status: String
             let hidden: Bool
             let hidden_reason: String
+            let comments_disabled: Bool
             let message: String
         }
         return try createSerializedResponse(fields: Fields(
@@ -1094,6 +1102,7 @@ final class StatefulStubbedAPI: Networking {
             status: "pending",
             hidden: true,
             hidden_reason: "pending_classification",
+            comments_disabled: newPost.commentsDisabled,
             message: "Your post is being reviewed and will be visible to others once it is approved."
         ))
     }
@@ -1182,6 +1191,26 @@ final class StatefulStubbedAPI: Networking {
         guard let postIndex = posts.firstIndex(where: { $0.postIdentifier == postIdentifier && $0.authorId == user.id }) else { throw APIError.badServerResponse(statusCode: 400) }
         posts.remove(at: postIndex)
         return try createEmptySuccessResponse()
+    }
+
+    /// Owner-only: stops new comments/replies on a post (issue #492).
+    func lockComments(sessionManagementToken: String, postIdentifier: String) async throws -> Data {
+        await simulateNetwork()
+        guard let user = findUser(bySessionToken: sessionManagementToken) else { throw APIError.badServerResponse(statusCode: 400) }
+        guard let postIndex = posts.firstIndex(where: { $0.postIdentifier == postIdentifier && $0.authorId == user.id }) else { throw APIError.badServerResponse(statusCode: 400) }
+        posts[postIndex].commentsDisabled = true
+        struct Fields: Codable { let comments_disabled: Bool }
+        return try createSerializedResponse(fields: Fields(comments_disabled: true))
+    }
+
+    /// Owner-only: re-allows new comments on a post previously locked (issue #492).
+    func unlockComments(sessionManagementToken: String, postIdentifier: String) async throws -> Data {
+        await simulateNetwork()
+        guard let user = findUser(bySessionToken: sessionManagementToken) else { throw APIError.badServerResponse(statusCode: 400) }
+        guard let postIndex = posts.firstIndex(where: { $0.postIdentifier == postIdentifier && $0.authorId == user.id }) else { throw APIError.badServerResponse(statusCode: 400) }
+        posts[postIndex].commentsDisabled = false
+        struct Fields: Codable { let comments_disabled: Bool }
+        return try createSerializedResponse(fields: Fields(comments_disabled: false))
     }
 
     func reportPost(sessionManagementToken: String, postIdentifier: String, reason: String) async throws -> Data {
@@ -1419,6 +1448,7 @@ final class StatefulStubbedAPI: Networking {
             let report_reason: String?
             let author_username: String
             let audience: String?
+            let comments_disabled: Bool
             let tags: [String]
             let author_profile_image_url: String?
             let author_profile_image_original_url: String?
@@ -1446,6 +1476,7 @@ final class StatefulStubbedAPI: Networking {
             report_reason: userReport?.reason,
             author_username: users.first(where: {$0.id == post.authorId})?.username ?? "Unknown User",
             audience: post.audience,
+            comments_disabled: post.commentsDisabled,
             tags: post.tags,
             author_profile_image_url: authorAvatar,
             author_profile_image_original_url: authorAvatar
@@ -1484,7 +1515,12 @@ final class StatefulStubbedAPI: Networking {
     func commentOnPost(sessionManagementToken: String, postIdentifier: String, commentText: String, formatting: [CommentFormatSpan]? = nil, audience: String? = nil) async throws -> Data {
         await simulateNetwork()
         guard let user = findUser(bySessionToken: sessionManagementToken) else { throw APIError.badServerResponse(statusCode: 400) }
-        guard findPost(byIdentifier: postIdentifier) != nil else { throw APIError.badServerResponse(statusCode: 400) }
+        guard let post = findPost(byIdentifier: postIdentifier) else { throw APIError.badServerResponse(statusCode: 400) }
+        // The author may disable commenting at creation or lock it afterward
+        // (issue #492). Existing comments stay visible; only new ones blocked.
+        if post.commentsDisabled {
+            throw APIError.serverError(statusCode: 403, serverMessage: "Comments are disabled for this post")
+        }
 
         var newThread = MockCommentThread(postId: postIdentifier)
         var newComment = MockComment(threadId: newThread.commentThreadIdentifier, authorUsername: user.username, body: commentText)
@@ -1504,6 +1540,11 @@ final class StatefulStubbedAPI: Networking {
         await simulateNetwork()
         guard let user = findUser(bySessionToken: sessionManagementToken) else { throw APIError.badServerResponse(statusCode: 400) }
         guard let threadIndex = commentThreads.firstIndex(where: { $0.commentThreadIdentifier == commentThreadIdentifier }) else { throw APIError.badServerResponse(statusCode: 400) }
+        // The author may disable commenting at creation or lock it afterward
+        // (issue #492). Existing replies stay visible; only new ones blocked.
+        if let post = findPost(byIdentifier: commentThreads[threadIndex].postId), post.commentsDisabled {
+            throw APIError.serverError(statusCode: 403, serverMessage: "Comments are disabled for this post")
+        }
 
         var newComment = MockComment(threadId: commentThreadIdentifier, authorUsername: user.username, body: commentText)
         newComment.bodyFormatting = formatting

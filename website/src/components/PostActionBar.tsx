@@ -1,5 +1,6 @@
 import type { FeedPost } from '../api/types'
 import { formatRelativeTime } from '../utils/relativeTime'
+import AudienceBadge from './AudienceBadge'
 import { anchorFrom, type MenuAnchor } from './menuAnchor'
 import type { PostActionState } from './usePostActions'
 
@@ -83,6 +84,11 @@ function PostActionBar({
       ) : (
         <span className="post-actions__count">{state.likeCount}</span>
       )}
+
+      {/* Who can see this post, on your own posts only (issue #518). The
+          profile-grid tiles are a third of the screen wide, so they get just
+          the icon; feed rows have room for the label too. */}
+      {state.isOwn && <AudienceBadge audience={post.audience} compact={!showDetails} />}
 
       {/* Tapping the comment count opens the post, where the threads live. */}
       {showDetails && onOpenPost && commentCount !== undefined && (

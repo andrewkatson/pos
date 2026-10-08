@@ -1,6 +1,6 @@
 //
 //  PushRouter.swift
-//  Positive Only Social
+//  Vibes
 //
 //  Deep-link target for a tapped push notification (issues #342/#343).
 //
@@ -8,11 +8,13 @@
 import Foundation
 import Combine
 
-/// A tiny shared bus that writes "open this post" requests to the UI. Two things
-/// produce them: tapping a "post rejected" notification (issues #342/#343), and
-/// opening a shared `https://smiling.social/post/<id>` link as a Universal Link
-/// (issue #382). Kept separate from both bits of plumbing so views depend only
-/// on this, not on UIKit/APNs or URL parsing.
+/// A tiny shared bus that writes "open this post" (or "open this profile")
+/// requests to the UI. Three things produce them: tapping a "post rejected"
+/// notification (issues #342/#343), opening a shared
+/// `https://smiling.social/post/<id>` link as a Universal Link (issue #382), and
+/// opening a shared `/profile/<username>` link the same way (issue #510). Kept
+/// separate from all of that plumbing so views depend only on this, not on
+/// UIKit/APNs or URL parsing.
 ///
 /// The request parks here until something consumes it, which is what makes a
 /// link opened while signed out work: `HomeView` only exists once logged in, so
@@ -29,9 +31,17 @@ final class PushRouter: ObservableObject {
     /// notification tap; the observing view consumes it and resets it to nil.
     @Published var pendingPostIdentifier: String?
 
+    /// The username of a profile a shared link asked us to open (issue #510).
+    /// Consumed and reset to nil the same way as the post above.
+    @Published var pendingProfileUsername: String?
+
     private init() {}
 
     func openPost(_ postIdentifier: String) {
         pendingPostIdentifier = postIdentifier
+    }
+
+    func openProfile(_ username: String) {
+        pendingProfileUsername = username
     }
 }

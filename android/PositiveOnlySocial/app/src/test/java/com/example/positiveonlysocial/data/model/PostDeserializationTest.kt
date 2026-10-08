@@ -450,6 +450,59 @@ class PostDeserializationTest {
         assertEquals("large", comment.bodyFormatting?.get(1)?.size)
     }
 
+    // --- Disable/lock comments (issue #492) ---
+
+    @Test
+    fun `post json maps comments_disabled to commentsDisabled`() {
+        val json = """
+            {
+              "post_identifier": "p9",
+              "caption": "locked",
+              "author_username": "alice",
+              "comments_disabled": true
+            }
+        """.trimIndent()
+
+        val post = gson.fromJson(json, Post::class.java)
+
+        assertEquals(true, post.commentsDisabled)
+    }
+
+    @Test
+    fun `post json without comments_disabled leaves it null (older backend)`() {
+        // Gson does not apply Kotlin default values for absent JSON fields, so a
+        // response that predates the field deserializes it to null; the render
+        // layer reads it via `commentsDisabled == true`, so null means allowed.
+        val json = """
+            {
+              "post_identifier": "p10",
+              "caption": "no lock field",
+              "author_username": "bob"
+            }
+        """.trimIndent()
+
+        val post = gson.fromJson(json, Post::class.java)
+
+        assertNull(post.commentsDisabled)
+        assertFalse(post.commentsDisabled == true)
+    }
+
+    @Test
+    fun `create post request serializes comments_disabled`() {
+        val body = gson.toJson(CreatePostRequest(caption = "hush", commentsDisabled = true))
+
+        assertTrue(body.contains("\"comments_disabled\":true"))
+    }
+
+    @Test
+    fun `set comments disabled response maps comments_disabled`() {
+        val response = gson.fromJson(
+            """{ "comments_disabled": true }""",
+            SetCommentsDisabledResponse::class.java
+        )
+        assertTrue(response.commentsDisabled)
+    }
+
     @Test
     fun `comment json without body_formatting is null (issue 318)`() {
         val json = """

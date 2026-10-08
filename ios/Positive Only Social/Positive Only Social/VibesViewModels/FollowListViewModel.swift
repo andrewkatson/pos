@@ -1,6 +1,6 @@
 //
 //  FollowListViewModel.swift
-//  Positive Only Social
+//  Vibes
 //
 //  Loads the signed-in user's own followers or following list. Only your own
 //  lists are ever fetched — the endpoints take no username — so nobody else's

@@ -5,6 +5,10 @@ import os
 from urllib.parse import unquote_plus
 from PIL import Image, ImageOps
 
+# Long-edge cap for the compressed copy: comfortably sharp on a phone's
+# full-width detail view while a fraction of a camera photo's pixel count.
+DEFAULT_MAX_DIMENSION_PX = 1440
+
 def lambda_handler(event, context):
     try:
         # Parse S3 trigger event
@@ -15,6 +19,7 @@ def lambda_handler(event, context):
         dest_bucket = os.environ['DEST_BUCKET']
         dest_key = source_key
         target_size_kb = int(os.environ.get('TARGET_SIZE_KB', 500))
+        max_dimension = int(os.environ.get('MAX_DIMENSION_PX', DEFAULT_MAX_DIMENSION_PX))
 
         # Skip non-image files
         if not source_key.lower().endswith(('.jpg', '.jpeg', '.png', '.webp')):
@@ -31,6 +36,13 @@ def lambda_handler(event, context):
         img = ImageOps.exif_transpose(img)
         if img.mode != 'RGB':
             img = img.convert('RGB')
+
+        # Cap the long edge before the quality loop. Clients only ever display
+        # this copy at screen size, but a 12 MP camera photo (4032x3024) left at
+        # full size made iOS decode a ~48 MB bitmap per grid tile, falling back
+        # to slow software decoding (CVPixelBufferCreate err -6680). thumbnail()
+        # keeps the aspect ratio and never upscales.
+        img.thumbnail((max_dimension, max_dimension), Image.LANCZOS)
 
         quality = 95
         output_buffer = io.BytesIO()

@@ -1,6 +1,6 @@
 //
 //  Models.swift
-//  Positive Only Social
+//  Vibes
 //
 //  Created by Andrew Katson on 10/7/25.
 //
@@ -162,6 +162,12 @@ struct Post: Codable, Identifiable, Hashable {
     /// "friends", "family". Optional/nil on older backends, treated as public.
     var audience: String? = nil
 
+    /// Whether the author has turned off commenting on this post (issue #492),
+    /// either at creation or afterward via lockComments/unlockComments.
+    /// Defaulted so a response from an older backend (which omits it) still
+    /// decodes as comments allowed.
+    var commentsDisabled: Bool = false
+
     /// Hashtags parsed from the caption (issue #379), normalized to lowercase
     /// and sorted. Rendered as tappable links to the tag feed. Defaulted so a
     /// response from an older backend (which omits the field) still decodes.
@@ -220,6 +226,7 @@ struct Post: Codable, Identifiable, Hashable {
         case hiddenReason = "hidden_reason"
         case appealable
         case audience
+        case commentsDisabled = "comments_disabled"
         case tags
     }
 
@@ -247,6 +254,7 @@ struct Post: Codable, Identifiable, Hashable {
         hiddenReason: String? = nil,
         appealable: Bool? = nil,
         audience: String? = nil,
+        commentsDisabled: Bool = false,
         tags: [String] = []
     ) {
         self.postIdentifier = postIdentifier
@@ -272,6 +280,7 @@ struct Post: Codable, Identifiable, Hashable {
         self.hiddenReason = hiddenReason
         self.appealable = appealable
         self.audience = audience
+        self.commentsDisabled = commentsDisabled
         self.tags = tags
     }
 
@@ -308,6 +317,9 @@ struct Post: Codable, Identifiable, Hashable {
         hiddenReason = try container.decodeIfPresent(String.self, forKey: .hiddenReason)
         appealable = try container.decodeIfPresent(Bool.self, forKey: .appealable)
         audience = try container.decodeIfPresent(String.self, forKey: .audience)
+        // Whether the author has disabled commenting (#492); absent on older
+        // backends, so default to comments allowed.
+        commentsDisabled = try container.decodeIfPresent(Bool.self, forKey: .commentsDisabled) ?? false
         // Hashtags (#379); absent on older backends, so default to none.
         tags = try container.decodeIfPresent([String].self, forKey: .tags) ?? []
     }
@@ -842,6 +854,12 @@ struct PostDisplayData: Identifiable, Equatable {
     /// (issue #176).
     var isReported: Bool = false
     var reportReason: String? = nil
+    /// Who may see the post (issue #392), for the author-only audience badge
+    /// (issue #518). Nil on older backends, treated as public.
+    var audience: String? = nil
+    /// Whether the author has turned off commenting on this post (issue #492),
+    /// either at creation or afterward via lockComments/unlockComments.
+    var commentsDisabled: Bool = false
 }
 
 // A struct representing a single comment, for use in the view

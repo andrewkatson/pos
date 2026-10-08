@@ -33,6 +33,7 @@ import androidx.navigation.NavController
 import com.example.positiveonlysocial.data.model.Post
 import com.example.positiveonlysocial.models.viewmodels.LikesTarget
 import com.example.positiveonlysocial.models.viewmodels.PostListActions
+import com.example.positiveonlysocial.ui.components.AudienceBadge
 import com.example.positiveonlysocial.util.ShareLinks
 
 /**
@@ -121,6 +122,14 @@ fun PostActionBar(
             )
         }
 
+        // Who can see this post, on your own posts only (issue #518). The
+        // profile-grid tiles are a third of the screen wide, so they get just
+        // the icon; feed rows have room for the label too.
+        if (isOwnPost) {
+            Spacer(modifier = Modifier.width(if (compact) 4.dp else 8.dp))
+            AudienceBadge(audience = post.audience, compact = compact)
+        }
+
         // How many comments the post has; tapping it opens the post so they can
         // be read (issue #249).
         if (onOpenComments != null) {
@@ -194,7 +203,11 @@ fun PostActionMenu(actions: PostListActions, post: Post, expanded: Boolean, isOw
         // Save / unsave lives in the 3-dot menu on mobile (issue #412); web has a
         // dedicated bookmark control.
         isSaved = post.isSaved == true,
-        onToggleSave = { actions.toggleSave(post) }
+        onToggleSave = { actions.toggleSave(post) },
+        // Lock/unlock commenting (issue #492) is owner-only, offered alongside
+        // Delete rather than replacing it.
+        commentsDisabled = post.commentsDisabled == true,
+        onToggleCommentsLock = { actions.toggleCommentsLock(post) }
     )
 }
 

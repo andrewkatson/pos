@@ -48,15 +48,18 @@ struct CommentThreadView: View {
                                       onOpenLikes(rootComment)
                                   })
                    // Tapping "Reply" opens the shared composer sheet, the same
-                   // dialog used for a new comment on the post.
-                   Button("Reply") {
-                       viewModel.threadToReplyTo = thread
+                   // dialog used for a new comment on the post. Hidden once
+                   // comments are locked/disabled (issue #492).
+                   if viewModel.postDetail?.commentsDisabled != true {
+                       Button("Reply") {
+                           viewModel.threadToReplyTo = thread
+                       }
+                       .font(.caption)
+                       .fontWeight(.bold)
+                       .padding(.leading, 50) // Aligns with comment text
+                       .padding(.vertical, 8)
+                       .accessibilityIdentifier("ReplyToCommentThreadButton")
                    }
-                   .font(.caption)
-                   .fontWeight(.bold)
-                   .padding(.leading, 50) // Aligns with comment text
-                   .padding(.vertical, 8)
-                   .accessibilityIdentifier("ReplyToCommentThreadButton")
                }
 
                // Show replies, if any

@@ -127,3 +127,41 @@ def test_lambda_handler_exif_orientation_applied(mock_s3_client, monkeypatch):
     output_img = Image.open(put_kwargs['Body'])
     assert output_img.width == 20
     assert output_img.height == 10
+
+
+def _run_with_image(mock_s3_client, img, key='photo.jpg'):
+    buf = io.BytesIO()
+    img.save(buf, format='JPEG', quality=95)
+    mock_s3_client.get_object.return_value = {'Body': io.BytesIO(buf.getvalue())}
+    result = lambda_handler(make_s3_event('source-bucket', key), None)
+    assert result['statusCode'] == 200
+    _, put_kwargs = mock_s3_client.put_object.call_args
+    return Image.open(put_kwargs['Body'])
+
+
+def test_lambda_handler_downscales_camera_photo(mock_s3_client, monkeypatch):
+    """A full-size camera photo is capped to the default long edge, keeping its aspect ratio."""
+    monkeypatch.setenv('DEST_BUCKET', 'dest-bucket')
+    monkeypatch.delenv('MAX_DIMENSION_PX', raising=False)
+
+    output_img = _run_with_image(mock_s3_client, Image.new('RGB', (4032, 3024), color='green'))
+
+    assert output_img.size == (1440, 1080)
+
+
+def test_lambda_handler_downscales_portrait_by_long_edge(mock_s3_client, monkeypatch):
+    monkeypatch.setenv('DEST_BUCKET', 'dest-bucket')
+    monkeypatch.setenv('MAX_DIMENSION_PX', '800')
+
+    output_img = _run_with_image(mock_s3_client, Image.new('RGB', (1500, 3000), color='green'))
+
+    assert output_img.size == (400, 800)
+
+
+def test_lambda_handler_does_not_upscale_small_image(mock_s3_client, monkeypatch):
+    monkeypatch.setenv('DEST_BUCKET', 'dest-bucket')
+    monkeypatch.delenv('MAX_DIMENSION_PX', raising=False)
+
+    output_img = _run_with_image(mock_s3_client, Image.new('RGB', (640, 480), color='green'))
+
+    assert output_img.size == (640, 480)

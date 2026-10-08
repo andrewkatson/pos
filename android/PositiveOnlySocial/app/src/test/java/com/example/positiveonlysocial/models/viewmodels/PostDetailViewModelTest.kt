@@ -6,12 +6,14 @@ import com.example.positiveonlysocial.data.model.CommentViewData
 import com.example.positiveonlysocial.data.model.CommentThreadViewData
 import com.example.positiveonlysocial.data.model.GenericResponse
 import com.example.positiveonlysocial.data.model.Post
+import com.example.positiveonlysocial.data.model.SetCommentsDisabledResponse
 import com.example.positiveonlysocial.data.model.UserSession
 import java.util.Date
 import com.example.positiveonlysocial.data.security.KeychainHelperProtocol
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.test.runTest
+import okhttp3.ResponseBody.Companion.toResponseBody
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
@@ -142,6 +144,45 @@ class PostDetailViewModelTest {
 
         assertEquals("", viewModel.newCommentText.value)
         verify(api, org.mockito.kotlin.times(2)).getPostDetails("token123", postIdentifier)
+    }
+
+    @Test
+    fun `lockComments updates postDetail optimistically and calls the api`() = runTest {
+        whenever(api.lockComments("token123", postIdentifier)).thenReturn(
+            Response.success(SetCommentsDisabledResponse(commentsDisabled = true))
+        )
+
+        viewModel.lockComments()
+
+        assertEquals(true, viewModel.postDetail.value?.commentsDisabled)
+        verify(api).lockComments("token123", postIdentifier)
+    }
+
+    @Test
+    fun `lockComments reverts when the request fails`() = runTest {
+        whenever(api.lockComments("token123", postIdentifier)).thenReturn(
+            Response.error(500, "{\"error\":\"Server error\"}".toResponseBody())
+        )
+
+        viewModel.lockComments()
+
+        assertFalse(viewModel.postDetail.value?.commentsDisabled == true)
+    }
+
+    @Test
+    fun `unlockComments updates postDetail optimistically and calls the api`() = runTest {
+        whenever(api.getPostDetails("token123", postIdentifier)).thenReturn(
+            Response.success(Post(postIdentifier, "url", "caption", "user", 1, commentsDisabled = true))
+        )
+        val lockedViewModel = PostDetailViewModel(postIdentifier, api, keychainHelper)
+        whenever(api.unlockComments("token123", postIdentifier)).thenReturn(
+            Response.success(SetCommentsDisabledResponse(commentsDisabled = false))
+        )
+
+        lockedViewModel.unlockComments()
+
+        assertEquals(false, lockedViewModel.postDetail.value?.commentsDisabled)
+        verify(api).unlockComments("token123", postIdentifier)
     }
 
     @Test

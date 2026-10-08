@@ -1,6 +1,6 @@
 //
 //  AppealsViewModel.swift
-//  Positive Only Social
+//  Vibes
 //
 //  Loads the signed-in user's hidden posts/comments and their filed appeals,
 //  and submits new content appeals. Ban appeals are not here — those go through

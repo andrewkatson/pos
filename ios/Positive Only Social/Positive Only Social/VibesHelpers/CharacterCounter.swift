@@ -1,6 +1,6 @@
 //
 //  CharacterCounter.swift
-//  Positive Only Social
+//  Vibes
 //
 
 import SwiftUI

@@ -5,6 +5,7 @@ from django.urls import reverse
 
 from .test_parent_case import PositiveOnlySocialTestCase
 from ..constants import Fields, POST_BATCH_SIZE
+from ..models import Post
 from ..classifiers.classifier_constants import NEGATIVE_TEXT
 
 invalid_session_management_token = '?'
@@ -124,3 +125,15 @@ class GetPostsForTagTests(PositiveOnlySocialTestCase):
         second = self.client.get(self._url('sunset', batch=1), **self.header)
         self.assertEqual(len(first.json()), POST_BATCH_SIZE)
         self.assertEqual(len(second.json()), total - POST_BATCH_SIZE)
+
+    def test_carries_comments_disabled_flag(self):
+        # Tag-feed rows derive the owner's lock/unlock menu action from this
+        # field (issue #492), so a locked post must not read as unlocked.
+        self._post_as_poster('locked #sunset')
+        self._post_as_poster('open #sunset')
+        Post.objects.filter(caption='locked #sunset').update(comments_disabled=True)
+
+        response = self.client.get(self._url('sunset'), **self.header)
+        self.assertEqual(response.status_code, 200)
+        by_caption = {p[Fields.caption]: p[Fields.comments_disabled] for p in response.json()}
+        self.assertEqual(by_caption, {'locked #sunset': True, 'open #sunset': False})

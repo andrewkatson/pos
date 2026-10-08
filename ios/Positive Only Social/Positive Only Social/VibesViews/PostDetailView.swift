@@ -108,6 +108,11 @@ struct PostDetailView: View {
                                     .font(.headline)
                                     .accessibilityIdentifier("PostLikesText")
                             }
+                            // Who can see this post, shown to its author only
+                            // (issue #518).
+                            if viewModel.isOwnPost {
+                                AudienceBadgeView(audience: post.audience)
+                            }
                             if viewModel.isPostReported {
                                 Image(systemName: "flag.fill")
                                     .foregroundColor(.red)
@@ -188,22 +193,31 @@ struct PostDetailView: View {
                     // shows the character counter) rather than typing inline, so
                     // commenting on a post and replying to a thread work the same
                     // way (issues #266, #289, #290).
-                    Button {
-                        viewModel.showAddCommentSheet = true
-                    } label: {
-                        Text("Add a comment...")
+                    //
+                    // Comments locked/disabled (issue #492): no compose entry
+                    // point, just a plain notice so it reads as intentional.
+                    if let post = viewModel.postDetail, post.commentsDisabled {
+                        Text("Comments are turned off for this post.")
                             .foregroundColor(.secondary)
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                            .padding(.vertical, 10)
-                            .padding(.horizontal, 12)
-                            .overlay(
-                                RoundedRectangle(cornerRadius: 8)
-                                    .stroke(Color.secondary.opacity(0.4), lineWidth: 1)
-                            )
-                            .contentShape(Rectangle())
+                            .padding()
+                    } else {
+                        Button {
+                            viewModel.showAddCommentSheet = true
+                        } label: {
+                            Text("Add a comment...")
+                                .foregroundColor(.secondary)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                                .padding(.vertical, 10)
+                                .padding(.horizontal, 12)
+                                .overlay(
+                                    RoundedRectangle(cornerRadius: 8)
+                                        .stroke(Color.secondary.opacity(0.4), lineWidth: 1)
+                                )
+                                .contentShape(Rectangle())
+                        }
+                        .accessibilityIdentifier("AddACommentButton")
+                        .padding()
                     }
-                    .accessibilityIdentifier("AddACommentButton")
-                    .padding()
                     
                     Text("Comments")
                         .font(.headline)
@@ -370,6 +384,19 @@ struct PostDetailView: View {
             menuRow("Share Post", identifier: "SharePostActionButton") {
                 viewModel.sharePost()
             }
+            // Lock/unlock commenting (issue #492) is owner-only, offered
+            // alongside Delete rather than replacing it.
+            if viewModel.isOwnPost {
+                if viewModel.postDetail?.commentsDisabled == true {
+                    menuRow("Turn On Commenting", identifier: "UnlockCommentsActionButton") {
+                        viewModel.unlockComments()
+                    }
+                } else {
+                    menuRow("Turn Off Commenting", identifier: "LockCommentsActionButton") {
+                        viewModel.lockComments()
+                    }
+                }
+            }
             if viewModel.isOwnPost {
                 menuRow("Delete Post", identifier: "DeletePostActionButton", isDestructive: true) {
                     viewModel.deletePost()
@@ -435,7 +462,8 @@ struct PostDetailImage: View {
     var body: some View {
         if let imageUrl {
             let urlString = useOriginal ? (originalImageUrl ?? imageUrl) : imageUrl
-            KFImage(URL(string: urlString))
+            KFImage(source: SignedImageURL.source(for: urlString))
+                .downsampled(toMaxPixelSize: ImageDownsampling.detailMaxPixelSize)
                 // Rides out the just-posted window where the compressed copy isn't
                 // in the bucket yet; only HTTP errors are retried, not cancellations.
                 .retry(maxCount: 2, interval: .seconds(1))

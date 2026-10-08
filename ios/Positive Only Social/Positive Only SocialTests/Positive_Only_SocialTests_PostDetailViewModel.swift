@@ -311,6 +311,34 @@ struct Positive_Only_SocialTests_PostDetailViewModel {
         #expect(updatedComment?.likeCount == 0, "Like count should not go below 0")
     }
 
+    // --- Audience badge (issue #518) ---
+
+    @Test func testLoadAllData_CarriesPostAudienceForBadge() async throws {
+        // Given: The signed-in user shared a post with family only
+        let authorToken = try await setupLoggedInUser(username: "author", account: "audience_account")
+        let data = try await stubAPI.makePost(
+            sessionManagementToken: authorToken, imageURL: "my.image/1",
+            caption: "Family news", audience: PostAudience.family.rawValue)
+        struct PostFields: Decodable { let post_identifier: String }
+        let postID = try JSONDecoder().decode(PostFields.self, from: data).post_identifier
+
+        // When: The detail screen loads it
+        let sut = PostDetailViewModel(postIdentifier: postID, api: stubAPI, keychainHelper: keychainHelper, account: "audience_account")
+        await yield()
+
+        // Then: The audience reaches the view, so the author's badge can name it
+        #expect(sut.isOwnPost)
+        #expect(sut.postDetail?.audience == PostAudience.family.rawValue)
+    }
+
+    @Test func testLoadAllData_DefaultsPostAudienceToPublic() async throws {
+        // Given: A post made without an explicit audience (older clients)
+        let (sut, _, _) = try await setupOwnContentEnvironment(account: "audienceDefault_account")
+
+        // Then: The stub reports public, as the backend does for the default
+        #expect(sut.postDetail?.audience == PostAudience.public.rawValue)
+    }
+
     // --- Self-Like Prevention Tests ---
 
     /// Sets up an environment where the signed-in user authored both the post
@@ -593,5 +621,91 @@ struct Positive_Only_SocialTests_PostDetailViewModel {
         let attributed = TextFormatting.attributedComment("hello world", spans: spans, baseSize: 15)
         // The rendered text is the same plain string — formatting is styling only.
         #expect(NSAttributedString(attributed).string == "hello world")
+    }
+
+    // --- Lock/Unlock Comments Tests (issue #492) ---
+
+    @Test func testLockComments_OwnPost_DisablesCommentingImmediately() async throws {
+        // Given: The signed-in user is viewing their own post
+        let (sut, _, _) = try await setupOwnContentEnvironment(account: "lockComments_account")
+        #expect(sut.isOwnPost, "Pre-condition: the post should be the user's own")
+        #expect(sut.postDetail?.commentsDisabled == false, "Pre-condition: comments start enabled")
+
+        // When: They lock comments
+        sut.lockComments()
+
+        // Then: The optimistic update applies immediately
+        #expect(sut.postDetail?.commentsDisabled == true)
+
+        // And: It persists after the network call settles and a reload
+        await yield()
+        #expect(sut.postDetail?.commentsDisabled == true)
+    }
+
+    @Test func testUnlockComments_OwnPost_ReenablesCommenting() async throws {
+        // Given: The signed-in user's own post already has comments locked
+        let (sut, postID, _) = try await setupOwnContentEnvironment(account: "unlockComments_account")
+        let ownerSession = try keychainHelper.load(UserSession.self, from: GVOAppConstants.keychainService, account: "unlockComments_account")
+        _ = try await stubAPI.lockComments(sessionManagementToken: ownerSession!.sessionToken, postIdentifier: postID)
+        await sut.refresh()
+        #expect(sut.postDetail?.commentsDisabled == true, "Pre-condition: comments start locked")
+
+        // When: They unlock comments
+        sut.unlockComments()
+
+        // Then: The optimistic update applies immediately and persists
+        #expect(sut.postDetail?.commentsDisabled == false)
+        await yield()
+        #expect(sut.postDetail?.commentsDisabled == false)
+    }
+
+    @Test func testCommentOnPost_CommentsDisabled_ShowsAlertAndDoesNotAddComment() async throws {
+        // Given: A post with comments disabled
+        // Locked through the API and awaited, not via sut.lockComments(): that
+        // sends its request from an unstructured Task, which could still be in
+        // flight when the comment's own Task reaches the stub.
+        let account = "commentOnLockedPost_account"
+        let (sut, postID, _) = try await setupOwnContentEnvironment(account: account)
+        let ownerSession = try keychainHelper.load(UserSession.self, from: GVOAppConstants.keychainService, account: account)
+        _ = try await stubAPI.lockComments(sessionManagementToken: ownerSession!.sessionToken, postIdentifier: postID)
+        await sut.refresh()
+        #expect(sut.postDetail?.commentsDisabled == true, "Pre-condition: comments start locked")
+        let threadCountBefore = sut.commentThreads.count
+
+        // When: An attempt is made to add a new top-level comment
+        sut.commentOnPost(commentText: "should not be added")
+        await yield()
+
+        // Then: No new thread is added and an alert surfaces the failure
+        #expect(sut.commentThreads.count == threadCountBefore)
+        #expect(sut.alertMessage != nil)
+    }
+
+    @Test func testReplyToCommentThread_CommentsDisabled_ShowsAlertAndDoesNotAddReply() async throws {
+        let account = "replyToLockedPost_account"
+        // Given: A post by its owner, a thread on it by a separate commenter,
+        // and the owner locking comments before the viewer tries to reply.
+        _ = try await setupLoggedInUser(username: "viewer", account: account)
+        let postOwnerToken = try await registerUserAndGetToken(username: "postOwner")
+        let commenterToken = try await registerUserAndGetToken(username: "commenter")
+        let postID = try await makePostAndGetID(token: postOwnerToken, caption: "Test Post")
+        let (threadID, _) = try await commentOnPostAndGetIDs(token: commenterToken, postID: postID, body: "First comment")
+        _ = try await stubAPI.lockComments(sessionManagementToken: postOwnerToken, postIdentifier: postID)
+
+        let sut = PostDetailViewModel(postIdentifier: postID, api: stubAPI, keychainHelper: keychainHelper, account: account)
+        await yield()
+        guard let thread = sut.commentThreads.first(where: { $0.id == threadID }) else {
+            #expect(Bool(false), "Test setup error: Could not find thread")
+            return
+        }
+        let commentCountBefore = thread.comments.count
+
+        // When: An attempt is made to reply to the existing thread
+        sut.replyToCommentThread(thread: thread, commentText: "should not be added")
+        await yield()
+
+        // Then: The reply is not added and an alert surfaces the failure
+        #expect(sut.commentThreads.first(where: { $0.id == threadID })?.comments.count == commentCountBefore)
+        #expect(sut.alertMessage != nil)
     }
 }

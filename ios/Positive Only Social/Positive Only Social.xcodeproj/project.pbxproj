@@ -46,6 +46,7 @@
 				api/GoogleSignIn.swift,
 				api/Models.swift,
 				api/Networking.swift,
+				"api/PostAudience+Extension.swift",
 				api/RealAPI.swift,
 				api/StatefulStubbedAPI.swift,
 				keychain/KeychainHelper.swift,
@@ -57,6 +58,7 @@
 				VibesHelpers/CharacterCounter.swift,
 				VibesHelpers/GVOAppConstants.swift,
 				VibesHelpers/HomeView.swift,
+				VibesHelpers/ImageDownsampling.swift,
 				VibesHelpers/KeyboardDismiss.swift,
 				VibesHelpers/SecureInputField.swift,
 				VibesHelpers/ShareURL.swift,
@@ -75,6 +77,7 @@
 				VibesViewModels/SettingsViewModel.swift,
 				VibesViewModels/TagFeedViewModel.swift,
 				VibesViews/AppealsView.swift,
+				VibesViews/AudienceBadgeView.swift,
 				VibesViews/BlockedUsersView.swift,
 				VibesViews/CaptionTileView.swift,
 				VibesViews/CheckEmailView.swift,
@@ -99,6 +102,7 @@
 				VibesViews/TagFeedView.swift,
 				VibesViews/TermsOfServiceView.swift,
 				VibesViews/VerifyResetView.swift,
+				VibesViews/VibesAnimatedGradientView.swift,
 			);
 			target = 248836DF2E6282C5002D47F1 /* Positive Only SocialTests */;
 		};
@@ -110,6 +114,7 @@
 				api/GoogleSignIn.swift,
 				api/Models.swift,
 				api/Networking.swift,
+				"api/PostAudience+Extension.swift",
 				api/RealAPI.swift,
 				api/StatefulStubbedAPI.swift,
 				keychain/KeychainHelper.swift,
@@ -121,6 +126,7 @@
 				VibesHelpers/CharacterCounter.swift,
 				VibesHelpers/GVOAppConstants.swift,
 				VibesHelpers/HomeView.swift,
+				VibesHelpers/ImageDownsampling.swift,
 				VibesHelpers/KeyboardDismiss.swift,
 				VibesHelpers/SecureInputField.swift,
 				VibesHelpers/ShareURL.swift,
@@ -139,6 +145,7 @@
 				VibesViewModels/SettingsViewModel.swift,
 				VibesViewModels/TagFeedViewModel.swift,
 				VibesViews/AppealsView.swift,
+				VibesViews/AudienceBadgeView.swift,
 				VibesViews/BlockedUsersView.swift,
 				VibesViews/CaptionTileView.swift,
 				VibesViews/CheckEmailView.swift,
@@ -163,6 +170,7 @@
 				VibesViews/TagFeedView.swift,
 				VibesViews/TermsOfServiceView.swift,
 				VibesViews/VerifyResetView.swift,
+				VibesViews/VibesAnimatedGradientView.swift,
 			);
 			target = 248836E92E6282C5002D47F1 /* Positive Only SocialUITests */;
 		};

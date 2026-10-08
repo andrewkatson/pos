@@ -206,7 +206,10 @@ data class CreatePostRequest(
     val audience: String? = null,
     // Whole-caption font + whole-tile background color keys (issue #318).
     @SerializedName("caption_font") val captionFont: String = "default",
-    @SerializedName("background_color") val backgroundColor: String = "default"
+    @SerializedName("background_color") val backgroundColor: String = "default",
+    // Turns off commenting from the moment the post is created (issue #492).
+    // False (the historical default) keeps comments allowed.
+    @SerializedName("comments_disabled") val commentsDisabled: Boolean = false
 )
 
 data class CreatePostResponse(
@@ -220,7 +223,15 @@ data class CreatePostResponse(
     // ones.
     val hidden: Boolean = false,
     @SerializedName("hidden_reason") val hiddenReason: String? = null,
+    // Whether comments were disabled for this post at creation (issue #492).
+    // Nullable because Gson ignores Kotlin defaults for absent JSON.
+    @SerializedName("comments_disabled") val commentsDisabled: Boolean? = false,
     val message: String? = null
+)
+
+/** Response of lockComments/unlockComments (issue #492). */
+data class SetCommentsDisabledResponse(
+    @SerializedName("comments_disabled") val commentsDisabled: Boolean
 )
 
 /**
@@ -336,7 +347,13 @@ data class Post(
     // blurHash above, decoded into a blurred preview shown while the avatar
     // loads. Nullable for the same Gson reason (absent on older backends and
     // when the author has no photo). Appended last.
-    @SerializedName("author_profile_image_blurhash") val authorProfileImageBlurHash: String? = null
+    @SerializedName("author_profile_image_blurhash") val authorProfileImageBlurHash: String? = null,
+    // Whether the author has turned off commenting on this post (issue #492),
+    // either at creation or afterward via lockComments/unlockComments.
+    // Nullable because Gson ignores Kotlin defaults for absent JSON (an older
+    // response omitting it yields null); read as `commentsDisabled == true`.
+    // Appended last so positional constructions are unaffected.
+    @SerializedName("comments_disabled") val commentsDisabled: Boolean? = false
 )
 
 // --- Comment DTOs ---
@@ -662,11 +679,36 @@ enum class PostAudience(val value: String, val displayName: String, val hint: St
     FRIENDS("friends", "Friends", "Friends and family only"),
     FAMILY("family", "Family", "Family only");
 
+    /** Short visible label for the author-only audience badge (issue #518).
+     * [displayName] reads "People I follow" for the picker; the badge wants one
+     * word next to the like count. */
+    val badgeLabel: String
+        get() = when (this) {
+            PUBLIC -> "Public"
+            FOLLOWING -> "Following"
+            FRIENDS -> "Friends"
+            FAMILY -> "Family"
+        }
+
+    /** What the badge announces, spelling out who is admitted. */
+    val badgeDescription: String
+        get() = when (this) {
+            PUBLIC -> "Visible to anyone"
+            FOLLOWING -> "Visible to people you follow"
+            FRIENDS -> "Visible to friends and family"
+            FAMILY -> "Visible to family only"
+        }
+
     companion object {
-        /** The tier for a raw backend value, or null when unknown/absent (issue
-         * #445), so a comment with no audience shows no scope badge. */
+        /** The tier for a raw backend value, or null when unknown/absent. */
         fun fromValue(value: String?): PostAudience? =
             entries.firstOrNull { it.value == value }
+
+        /** The tier the audience badge (issue #518) shows for a raw backend
+         * value. Null (older responses) or an unrecognised tier is public — the
+         * backend's default and how it treats an omitted audience — so the badge
+         * never comes up empty. */
+        fun badgeTier(value: String?): PostAudience = fromValue(value) ?: PUBLIC
     }
 }
 

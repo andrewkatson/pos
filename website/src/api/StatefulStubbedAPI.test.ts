@@ -1077,3 +1077,71 @@ test('the comment author sees who liked their comment; the post author does not'
     ),
   ).rejects.toThrow(ApiError)
 })
+
+test('searchUsers matches by case-insensitive prefix, sorted, excluding yourself', async () => {
+  const api = new StatefulStubbedAPI()
+  await register(api, 'Bobby')
+  await register(api, 'bobcat')
+  await register(api, 'abob')
+
+  await register(api, 'bob')
+  const results = await api.searchUsers('BOB')
+
+  // Prefix match only ("abob" is out), ordered by username, and the searcher
+  // ("bob") never appears in their own results.
+  expect(results.map((u) => u.username)).toEqual(['Bobby', 'bobcat'])
+})
+
+test('searchUsers pages deterministic batches of ten, short batch marking the end', async () => {
+  const api = new StatefulStubbedAPI()
+  // 12 matches: bob00..bob11.
+  for (let i = 0; i < 12; i += 1) {
+    await register(api, `bob${String(i).padStart(2, '0')}`)
+  }
+
+  await register(api, 'viewer')
+
+  const first = await api.searchUsers('bob')
+  expect(first.map((u) => u.username)).toEqual(
+    Array.from({ length: 10 }, (_, i) => `bob${String(i).padStart(2, '0')}`),
+  )
+
+  // The default batch is 0.
+  expect(await api.searchUsers('bob', 0)).toEqual(first)
+
+  const second = await api.searchUsers('bob', 1)
+  expect(second.map((u) => u.username)).toEqual(['bob10', 'bob11'])
+
+  expect(await api.searchUsers('bob', 2)).toEqual([])
+})
+
+test('searchUsers returns an empty second batch when exactly ten users match', async () => {
+  const api = new StatefulStubbedAPI()
+  for (let i = 0; i < 10; i += 1) {
+    await register(api, `bob${i}`)
+  }
+
+  await register(api, 'viewer')
+
+  expect(await api.searchUsers('bob')).toHaveLength(10)
+  // A full first batch does not imply more: the boundary check must come back
+  // empty rather than repeating or overflowing the first page.
+  expect(await api.searchUsers('bob', 1)).toEqual([])
+})
+
+test('searchUsers hides anyone who blocked the searcher, but not those they blocked', async () => {
+  const api = new StatefulStubbedAPI()
+  await register(api, 'bobblocker')
+  await register(api, 'bobvictim')
+  await register(api, 'viewer')
+  await api.toggleBlock('bobvictim')
+
+  await api.login({ username_or_email: 'bobblocker', password: 'password123' })
+  await api.toggleBlock('viewer')
+
+  await api.login({ username_or_email: 'viewer', password: 'password123' })
+  const results = await api.searchUsers('bob')
+
+  // Blocking someone doesn't hide them from you; being blocked does.
+  expect(results.map((u) => u.username)).toEqual(['bobvictim'])
+})

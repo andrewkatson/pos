@@ -23,6 +23,7 @@ import com.example.positiveonlysocial.ui.navigation.NavGraph
 import com.example.positiveonlysocial.ui.preview.PreviewHelpers
 import com.example.positiveonlysocial.ui.theme.PositiveOnlySocialTheme
 import com.example.positiveonlysocial.util.ShareLinks
+import com.example.positiveonlysocial.util.SharedLink
 
 class MainActivity : ComponentActivity() {
 
@@ -96,17 +97,22 @@ class MainActivity : ComponentActivity() {
         }
     }
 
-    /** Route to the post a shared App Link points at (issue #382).
+    /** Route to the post (issue #382) or profile (issue #510) a shared App Link
+     * points at.
      *
      * Deliberately goes through [PushNavigator] rather than letting NavHost
-     * handle the deep link itself: PostDetail is an authenticated screen, and
-     * NavHost would build a back stack straight to it even when the user is
-     * signed out. The navigator parks the request until the graph reports a
-     * session, which is the same path a tapped push notification takes. */
+     * handle the deep link itself: PostDetail and Profile are authenticated
+     * screens, and NavHost would build a back stack straight to them even when
+     * the user is signed out. The navigator parks the request until the graph
+     * reports a session, which is the same path a tapped push notification
+     * takes. */
     private fun handleSharedLinkIntent(intent: Intent?) {
         if (intent == null || intent.action != Intent.ACTION_VIEW) return
-        val link = ShareLinks.parseSharedPostLink(intent.dataString) ?: return
-        PushNavigator.openPost(link.postIdentifier)
+        when (val link = ShareLinks.parseSharedLink(intent.dataString)) {
+            is SharedLink.Post -> PushNavigator.openPost(link.link.postIdentifier)
+            is SharedLink.Profile -> PushNavigator.openProfile(link.username)
+            null -> return
+        }
         // Consume the data so an Activity recreation (rotation / process death)
         // doesn't re-read the same link and navigate again, matching how the
         // notification extras above are cleared.

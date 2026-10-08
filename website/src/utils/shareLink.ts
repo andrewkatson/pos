@@ -1,7 +1,7 @@
-// Sharing posts and comments (issues #34, #381, #382). The share action hands
-// off a link to the website's /post/:postId route, which renders for signed-out
-// recipients too — a shared post is readable without an account as long as it
-// is public. The same URL is claimed by the mobile apps as an iOS Universal
+// Sharing posts, comments and profiles (issues #34, #381, #382, #510). The share
+// action hands off a link to the website's /post/:postId (or /profile/:username)
+// route, which renders for signed-out recipients too — a shared post or profile
+// is readable without an account as long as it is public. The same URL is claimed by the mobile apps as an iOS Universal
 // Link / Android App Link, so on a phone with the app installed it opens there
 // instead of the browser; see ios/DEEP_LINKING.md.
 
@@ -12,6 +12,16 @@
  */
 export function postShareUrl(postIdentifier: string): string {
   return `${window.location.origin}/post/${postIdentifier}`
+}
+
+/**
+ * The absolute URL for a profile page (issue #510), for the Share item in the
+ * profile's options menu. Like a post link it renders for signed-out recipients
+ * through the public profile endpoints. Usernames are word characters only, but
+ * the segment is encoded anyway so the URL is well-formed whatever it is given.
+ */
+export function profileShareUrl(username: string): string {
+  return `${window.location.origin}/profile/${encodeURIComponent(username)}`
 }
 
 /**

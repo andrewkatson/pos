@@ -35,6 +35,7 @@ import type {
   PostDetails,
   PostStatusResponse,
   ProfileDetails,
+  PublicProfileDetails,
   RegisterDeviceRequest,
   RegisterRequest,
   SetNotificationPreferenceResponse,
@@ -43,6 +44,7 @@ import type {
   RequestResetRequest,
   ResendVerificationEmailRequest,
   ResetPasswordRequest,
+  SetCommentsDisabledResponse,
   SetProfilePhotoRequest,
   SetProfilePhotoResponse,
   SetBioRequest,
@@ -101,6 +103,11 @@ export interface PositiveOnlySocialAPI {
   createUploadUrl(): Promise<CreateUploadUrlResponse>
   createPost(body: CreatePostRequest): Promise<CreatePostResponse>
   deletePost(postIdentifier: string): Promise<MessageResponse>
+  /** Owner-only: stop new comments/replies on a post (issue #492). Existing
+   * comments stay visible. */
+  lockComments(postIdentifier: string): Promise<SetCommentsDisabledResponse>
+  /** Owner-only: re-allow new comments on a post previously locked (issue #492). */
+  unlockComments(postIdentifier: string): Promise<SetCommentsDisabledResponse>
   reportPost(postIdentifier: string, reason: string): Promise<MessageResponse>
   retractReportPost(postIdentifier: string): Promise<MessageResponse>
   likePost(postIdentifier: string): Promise<MessageResponse>
@@ -140,6 +147,13 @@ export interface PositiveOnlySocialAPI {
     commentThreadIdentifier: string,
     batch: number,
   ): Promise<Comment[]>
+  // A shared profile link, https://smiling.social/profile/<username>, for a
+  // signed-out recipient (issue #510): the profile header without any viewer
+  // relationship, and the user's public posts serialized like
+  // getPublicPostDetails. An account that is shadow banned or a verified minor
+  // 404s exactly like an unregistered name.
+  getPublicProfile(username: string): Promise<PublicProfileDetails>
+  getPublicPostsForUser(username: string, batch: number): Promise<FeedPost[]>
 
   // Comments. `formatting` carries optional inline styling spans (issue #318);
   // `audience` scopes who may see the comment (issue #445, omitted = 'public').

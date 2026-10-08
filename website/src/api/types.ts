@@ -262,6 +262,9 @@ export interface CreatePostRequest {
   caption_font?: CaptionFont
   /** Whole-tile background color (issue #318); omitted/`default` is normal. */
   background_color?: BackgroundColor
+  /** Turn off commenting on this post from the moment it's created (issue
+   * #492). Omitted/false means comments are allowed, matching prior clients. */
+  comments_disabled?: boolean
 }
 
 /**
@@ -377,6 +380,8 @@ export interface CreatePostResponse {
   hidden?: boolean
   hidden_reason?: string
   appealable?: boolean
+  /** Whether comments were disabled for this post at creation (issue #492). */
+  comments_disabled?: boolean
   /** User-facing explanation of the hidden state. */
   message?: string
 }
@@ -447,6 +452,10 @@ export interface FeedPost extends AuthorAvatarFields {
   /** Who may see the post (issue #392). Absent on older responses; treat a
    * missing value as 'public'. */
   audience?: PostAudience
+  /** Whether the author has turned off commenting on this post (issue #492),
+   * either at creation or afterward via lockComments. Absent on older
+   * responses; treat a missing value as comments allowed. */
+  comments_disabled?: boolean
   /** Author-only (issue #282): present on the viewer's own posts so the client
    * can render pending/rejected states; other users' posts never carry these
    * (their pending/hidden posts are filtered out server-side entirely). */
@@ -492,6 +501,10 @@ export interface PostDetails extends AuthorAvatarFields {
   /** Who may see the post (issue #392). Absent on older responses; treat a
    * missing value as 'public'. */
   audience?: PostAudience
+  /** Whether the author has turned off commenting on this post (issue #492),
+   * either at creation or afterward via lockComments. Absent on older
+   * responses; treat a missing value as comments allowed. */
+  comments_disabled?: boolean
   /** Hashtags parsed from the caption (issue #379), normalized to lowercase and
    * sorted. Older responses that predate the field omit it. */
   tags?: string[]
@@ -501,6 +514,11 @@ export interface PostDetails extends AuthorAvatarFields {
   hidden_reason?: string
   reason_code?: string | null
   appealable?: boolean
+}
+
+/** Response of lockComments/unlockComments (issue #492). */
+export interface SetCommentsDisabledResponse {
+  comments_disabled: boolean
 }
 
 export interface CommentOnPostResponse {
@@ -541,18 +559,19 @@ export interface UserSearchResult extends AuthorAvatarFields {
   identity_is_verified: boolean
 }
 
-export interface ProfileDetails {
+/**
+ * The part of a profile that is about the profile's owner rather than about
+ * whoever is looking: what `GET /public/profiles/<username>/details/` serves for
+ * a shared profile link opened by someone with no account (issue #510). The
+ * signed-in `ProfileDetails` extends it with the viewer's relationship and the
+ * owner-only photo-review state.
+ */
+export interface PublicProfileDetails {
   username: string
   post_count: number
   follower_count: number
   following_count: number
-  is_following: boolean
-  /** The viewer's relationship category for this user (issue #392); null when
-   * not following. Absent on older backends. */
-  follow_category?: FollowCategory | null
-  is_blocked: boolean
   identity_is_verified: boolean
-  is_adult: boolean
   /** The user's approved profile photo (compressed) with a full-resolution
    * fallback, or null when they have none. Shown to everyone. */
   profile_image_url?: string | null
@@ -560,13 +579,6 @@ export interface ProfileDetails {
   /** BlurHash of that photo (issue #460), rendered as a blurred preview while it
    * loads. Null when there is no photo (or the viewer is blocked by them). */
   profile_image_blurhash?: string | null
-  /** Owner-only: the moderation state of a photo still under review (or the
-   * last rejected upload). Present only when viewing your own profile, so your
-   * client can show a "reviewing" / "not approved" affordance; never returned
-   * for other users. */
-  profile_image_status?: ProfileImageStatus
-  profile_image_reason_code?: string | null
-  pending_profile_image_url?: string | null
   /**
    * Public join number (#198) — the member's "I'm #n on the app!" position,
    * shown on every profile. Null for accounts a backfill hasn't numbered yet.
@@ -575,6 +587,22 @@ export interface ProfileDetails {
   /** The user's free-text bio (#380), already moderated on write and shown to
    * everyone. Empty string when they have not set one. */
   bio: string
+}
+
+export interface ProfileDetails extends PublicProfileDetails {
+  is_following: boolean
+  /** The viewer's relationship category for this user (issue #392); null when
+   * not following. Absent on older backends. */
+  follow_category?: FollowCategory | null
+  is_blocked: boolean
+  is_adult: boolean
+  /** Owner-only: the moderation state of a photo still under review (or the
+   * last rejected upload). Present only when viewing your own profile, so your
+   * client can show a "reviewing" / "not approved" affordance; never returned
+   * for other users. */
+  profile_image_status?: ProfileImageStatus
+  profile_image_reason_code?: string | null
+  pending_profile_image_url?: string | null
 }
 
 // ---------------------------------------------------------------------------

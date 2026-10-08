@@ -1,6 +1,6 @@
 //
 //  ProfileViewModel.swift
-//  Positive Only Social
+//  Vibes
 //
 //  Created by Andrew Katson on 10/20/25.
 //
@@ -40,6 +40,18 @@ class ProfileViewModel: ObservableObject {
 
     /// The user's bio, or "" when unset.
     var bio: String { profileDetails?.bio ?? "" }
+
+    /// Set by the options menu's Share Profile (issue #510); the view presents
+    /// the native share sheet for it, the same way a post's Share works.
+    @Published var profileShareItem: ShareURLItem?
+
+    /// Builds the website link for this profile and asks the view to show the
+    /// share sheet. Offered on every profile, your own and everyone else's —
+    /// the link renders for signed-out recipients through the public endpoints.
+    func shareProfile() {
+        guard let url = ShareURL.profile(user.username) else { return }
+        profileShareItem = ShareURLItem(url: url)
+    }
 
     // Private state for pagination and API
     private var batch = 0

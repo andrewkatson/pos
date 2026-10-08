@@ -29,7 +29,7 @@ const mockLoginWithGoogle = vi.mocked(apiClient.loginWithGoogle)
 const mockGetInterestOptions = vi.mocked(apiClient.getInterestOptions)
 
 // Credentials that satisfy the backend patterns mirrored on the client:
-// username = ^\w{10,500}$, password requires upper/lower/digit/special/no-space.
+// username = ^\w{10,150}$, password requires upper/lower/digit/special/no-space.
 const VALID_USERNAME = 'adalovelace'
 const VALID_PASSWORD = 'StrongPass1-'
 
@@ -110,7 +110,7 @@ test('register button is disabled when form is incomplete', () => {
 test('username hints appear when username is typed', async () => {
   renderRegisterPage()
   await userEvent.type(screen.getByLabelText('Username'), 'ab')
-  expect(screen.getByText('Between 10 and 500 characters')).toBeInTheDocument()
+  expect(screen.getByText('Between 10 and 150 characters')).toBeInTheDocument()
   expect(screen.getByText('Letters, numbers, and underscores only')).toBeInTheDocument()
 })
 
@@ -118,7 +118,7 @@ test('username hint marks length as met when username is long enough', async () 
   renderRegisterPage()
   await userEvent.type(screen.getByLabelText('Username'), VALID_USERNAME)
   const hints = screen.getAllByRole('listitem')
-  const lengthHint = hints.find(h => h.textContent?.includes('Between 10 and 500 characters'))
+  const lengthHint = hints.find(h => h.textContent?.includes('Between 10 and 150 characters'))
   expect(lengthHint).toHaveClass('auth-hint--met')
 })
 
@@ -183,17 +183,19 @@ test('register button stays disabled when username is too short', async () => {
   expect(screen.getByRole('button', { name: 'Register' })).toBeDisabled()
 })
 
-test('register button stays disabled when username exceeds 500 characters', async () => {
+test('register button stays disabled when username exceeds 150 characters', async () => {
   renderRegisterPage()
+  // 151 is past the username column's max_length; the old 500 bound let
+  // 151-500 through to a database failure.
   fireEvent.change(screen.getByLabelText('Username'), {
-  target: { value: 'a'.repeat(501) },
+  target: { value: 'a'.repeat(151) },
 })
   await userEvent.type(screen.getByLabelText('Email'), 'ada@example.com')
   await userEvent.type(screen.getByLabelText('Date of Birth'), '1990-01-01')
   await userEvent.type(screen.getByLabelText('Password'), VALID_PASSWORD)
   await userEvent.type(screen.getByLabelText('Confirm Password'), VALID_PASSWORD)
   const hints = screen.getAllByRole('listitem')
-  const lengthHint = hints.find(h => h.textContent?.includes('Between 10 and 500 characters'))
+  const lengthHint = hints.find(h => h.textContent?.includes('Between 10 and 150 characters'))
   expect(lengthHint).toHaveClass('auth-hint--unmet')
   expect(screen.getByRole('button', { name: 'Register' })).toBeDisabled()
 })

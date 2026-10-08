@@ -1,6 +1,6 @@
 //
 //  TagFeedViewModel.swift
-//  Positive Only Social
+//  Vibes
 //
 //  Drives the tag feed (issue #379): the posts carrying a given #hashtag,
 //  paginated. Mirrors FeedViewModel, swapping the feed fetch for the

@@ -1,6 +1,6 @@
 //
 //  PushNotifications.swift
-//  Positive Only Social
+//  Vibes
 //
 //  APNs registration + notification handling (issues #342/#343).
 //
