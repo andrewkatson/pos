@@ -1,8 +1,10 @@
 package com.example.positiveonlysocial.data.constants
 
+import com.example.positiveonlysocial.BuildConfig
+
 object Constants {
     val isUnitTesting = false
-    const val BASE_URL = "https://api.smiling.social/user_index/"
+    val BASE_URL = BuildConfig.API_BASE_URL
 
     // Maximum lengths for user-authored text, mirroring MAX_CAPTION_LENGTH /
     // MAX_COMMENT_LENGTH / MAX_BIO_LENGTH in backend/user_system/constants.py.
